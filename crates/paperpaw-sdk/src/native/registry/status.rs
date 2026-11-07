@@ -1,5 +1,5 @@
 //! Typed discovery of registered status items and lines (REG op 21).
-use super::{Error, Host, ListQuery, PageCursor, Record, Registry, RegistryPage, schema, wire};
+use super::{Error, Host, ListQuery, PageCursor, Registry, RegistryPage, expect, schema, wire};
 
 /// Which status declarations to enumerate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,10 +30,8 @@ pub struct RegistryStatus<'a> {
     kind: StatusKind,
 }
 impl<'a> RegistryStatus<'a> {
-    fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegStatus(row) = record else {
-            return Err(Error::Invalid);
-        };
+    fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegStatus<'_> = expect(record)?;
         let kind = match row.kind {
             0 => StatusKind::Item,
             1 => StatusKind::Line,

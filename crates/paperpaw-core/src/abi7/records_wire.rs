@@ -289,14 +289,18 @@ pub struct SettingGroup<'a> {
 
 impl<'a> SettingGroup<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SettingGroup)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SettingGroup(Self {
+        Ok(Self {
             name: body.string(SETTING_GROUP_NAME_MAX_BYTES)?,
             title: body.string(SETTING_GROUP_TITLE_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
             page: body.string(SETTING_GROUP_PAGE_MAX_BYTES)?,
             parent: body.string(SETTING_GROUP_PARENT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -315,6 +319,29 @@ impl<'a> SettingGroup<'a> {
         write_bytes(&self.order.to_le_bytes(), out, offset);
         write_blob(self.page.as_bytes(), out, offset);
         write_blob(self.parent.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for SettingGroup<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETTING_GROUP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SettingGroup<'a> {
+    const TAG: u32 = SETTING_GROUP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `setting.spec` record.
@@ -365,8 +392,12 @@ pub struct SettingSpec<'a> {
 
 impl<'a> SettingSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SettingSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SettingSpec(Self {
+        Ok(Self {
             name: body.string(SETTING_SPEC_NAME_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -377,7 +408,7 @@ impl<'a> SettingSpec<'a> {
             min: i32::from_le_bytes(body.scalar()?),
             max: i32::from_le_bytes(body.scalar()?),
             choices: body.string(SETTING_SPEC_CHOICES_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -406,6 +437,29 @@ impl<'a> SettingSpec<'a> {
         write_bytes(&self.min.to_le_bytes(), out, offset);
         write_bytes(&self.max.to_le_bytes(), out, offset);
         write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for SettingSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETTING_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SettingSpec<'a> {
+    const TAG: u32 = SETTING_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `setting.extra` record.
@@ -454,8 +508,12 @@ pub struct SettingExtra<'a> {
 
 impl<'a> SettingExtra<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SettingExtra)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SettingExtra(Self {
+        Ok(Self {
             name: body.string(SETTING_EXTRA_NAME_MAX_BYTES)?,
             unit: body.string(SETTING_EXTRA_UNIT_MAX_BYTES)?,
             section: body.string(SETTING_EXTRA_SECTION_MAX_BYTES)?,
@@ -467,7 +525,7 @@ impl<'a> SettingExtra<'a> {
             step: i32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             check: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -500,6 +558,29 @@ impl<'a> SettingExtra<'a> {
         write_bytes(&self.check.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for SettingExtra<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETTING_EXTRA_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SettingExtra<'a> {
+    const TAG: u32 = SETTING_EXTRA_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `resource.hyphenation` record.
 pub const RESOURCE_HYPHENATION_TAG: u32 = 8;
 /// Maximum bytes of `resource.hyphenation.language`.
@@ -518,11 +599,15 @@ pub struct ResourceHyphenation<'a> {
 
 impl<'a> ResourceHyphenation<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ResourceHyphenation)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ResourceHyphenation(Self {
+        Ok(Self {
             language: body.string(RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES)?,
             path: body.string(RESOURCE_HYPHENATION_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -535,6 +620,29 @@ impl<'a> ResourceHyphenation<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.language.as_bytes(), out, offset);
         write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ResourceHyphenation<'a> {
+    fn wire_tag(&self) -> u32 {
+        RESOURCE_HYPHENATION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ResourceHyphenation<'a> {
+    const TAG: u32 = RESOURCE_HYPHENATION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `resource.font_face` record.
@@ -569,8 +677,12 @@ pub struct ResourceFontFace<'a> {
 
 impl<'a> ResourceFontFace<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ResourceFontFace)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ResourceFontFace(Self {
+        Ok(Self {
             name: body.string(RESOURCE_FONT_FACE_NAME_MAX_BYTES)?,
             path: body.string(RESOURCE_FONT_FACE_PATH_MAX_BYTES)?,
             family: body.string(RESOURCE_FONT_FACE_FAMILY_MAX_BYTES)?,
@@ -578,7 +690,7 @@ impl<'a> ResourceFontFace<'a> {
             weight: u32::from_le_bytes(body.scalar()?),
             role: body.string(RESOURCE_FONT_FACE_ROLE_MAX_BYTES)?,
             priority: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -603,6 +715,29 @@ impl<'a> ResourceFontFace<'a> {
         write_bytes(&self.priority.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ResourceFontFace<'a> {
+    fn wire_tag(&self) -> u32 {
+        RESOURCE_FONT_FACE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ResourceFontFace<'a> {
+    const TAG: u32 = RESOURCE_FONT_FACE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `resource.font_extension` record.
 pub const RESOURCE_FONT_EXTENSION_TAG: u32 = 10;
 /// Maximum bytes of `resource.font_extension.name`.
@@ -625,12 +760,16 @@ pub struct ResourceFontExtension<'a> {
 
 impl<'a> ResourceFontExtension<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ResourceFontExtension)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ResourceFontExtension(Self {
+        Ok(Self {
             name: body.string(RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES)?,
             path: body.string(RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES)?,
             extends: body.string(RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -650,6 +789,29 @@ impl<'a> ResourceFontExtension<'a> {
         write_blob(self.extends.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ResourceFontExtension<'a> {
+    fn wire_tag(&self) -> u32 {
+        RESOURCE_FONT_EXTENSION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ResourceFontExtension<'a> {
+    const TAG: u32 = RESOURCE_FONT_EXTENSION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.started` record.
 pub const EVENT_STARTED_TAG: u32 = 32;
 
@@ -662,10 +824,14 @@ pub struct EventStarted {
 
 impl EventStarted {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventStarted)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventStarted(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -676,6 +842,29 @@ impl EventStarted {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventStarted {
+    fn wire_tag(&self) -> u32 {
+        EVENT_STARTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventStarted {
+    const TAG: u32 = EVENT_STARTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.resume` record.
@@ -690,10 +879,14 @@ pub struct EventResume {
 
 impl EventResume {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventResume)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventResume(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -704,6 +897,29 @@ impl EventResume {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventResume {
+    fn wire_tag(&self) -> u32 {
+        EVENT_RESUME_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventResume {
+    const TAG: u32 = EVENT_RESUME_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.suspend` record.
@@ -718,10 +934,14 @@ pub struct EventSuspend {
 
 impl EventSuspend {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventSuspend)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventSuspend(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -732,6 +952,29 @@ impl EventSuspend {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventSuspend {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SUSPEND_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventSuspend {
+    const TAG: u32 = EVENT_SUSPEND_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.stopping` record.
@@ -746,10 +989,14 @@ pub struct EventStopping {
 
 impl EventStopping {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventStopping)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventStopping(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -760,6 +1007,29 @@ impl EventStopping {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventStopping {
+    fn wire_tag(&self) -> u32 {
+        EVENT_STOPPING_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventStopping {
+    const TAG: u32 = EVENT_STOPPING_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.battery_measured` record.
@@ -774,10 +1044,14 @@ pub struct EventBatteryMeasured {
 
 impl EventBatteryMeasured {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBatteryMeasured)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventBatteryMeasured(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -788,6 +1062,29 @@ impl EventBatteryMeasured {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventBatteryMeasured {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BATTERY_MEASURED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBatteryMeasured {
+    const TAG: u32 = EVENT_BATTERY_MEASURED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.page_turned` record.
@@ -826,8 +1123,12 @@ pub struct EventPageTurned<'a> {
 
 impl<'a> EventPageTurned<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPageTurned)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::EventPageTurned(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
@@ -838,7 +1139,7 @@ impl<'a> EventPageTurned<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -897,6 +1198,33 @@ impl<'a> EventPageTurned<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for EventPageTurned<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_PAGE_TURNED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPageTurned<'a> {
+    const TAG: u32 = EVENT_PAGE_TURNED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.usage` record.
 pub const SERVICE_USAGE_TAG: u32 = 48;
 
@@ -923,8 +1251,12 @@ pub struct ServiceUsage {
 
 impl ServiceUsage {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUsage)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUsage(Self {
+        Ok(Self {
             fast: u32::from_le_bytes(body.scalar()?),
             partial: u32::from_le_bytes(body.scalar()?),
             full: u32::from_le_bytes(body.scalar()?),
@@ -933,7 +1265,7 @@ impl ServiceUsage {
             sleeps: u32::from_le_bytes(body.scalar()?),
             panel_ms: u64::from_le_bytes(body.scalar()?),
             bluetooth_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -958,6 +1290,29 @@ impl ServiceUsage {
         write_bytes(&self.sleeps.to_le_bytes(), out, offset);
         write_bytes(&self.panel_ms.to_le_bytes(), out, offset);
         write_bytes(&self.bluetooth_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUsage {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_USAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUsage {
+    const TAG: u32 = SERVICE_USAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.plugin_usage` record.
@@ -1004,8 +1359,12 @@ pub struct ServicePluginUsage<'a> {
 
 impl<'a> ServicePluginUsage<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServicePluginUsage)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServicePluginUsage(Self {
+        Ok(Self {
             plugin: body.string(SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES)?,
             busy_us: u64::from_le_bytes(body.scalar()?),
             calls: u32::from_le_bytes(body.scalar()?),
@@ -1021,7 +1380,7 @@ impl<'a> ServicePluginUsage<'a> {
             refused: u32::from_le_bytes(body.scalar()?),
             awake_ms: u64::from_le_bytes(body.scalar()?),
             awake_reason: body.string(SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1065,6 +1424,29 @@ impl<'a> ServicePluginUsage<'a> {
         write_blob(self.awake_reason.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServicePluginUsage<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_PLUGIN_USAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServicePluginUsage<'a> {
+    const TAG: u32 = SERVICE_PLUGIN_USAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.plugin` record.
 pub const SERVICE_PLUGIN_TAG: u32 = 50;
 /// Maximum bytes of `service.plugin.name`.
@@ -1079,10 +1461,14 @@ pub struct ServicePlugin<'a> {
 
 impl<'a> ServicePlugin<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServicePlugin)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServicePlugin(Self {
+        Ok(Self {
             name: body.string(SERVICE_PLUGIN_NAME_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1093,6 +1479,29 @@ impl<'a> ServicePlugin<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServicePlugin<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_PLUGIN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServicePlugin<'a> {
+    const TAG: u32 = SERVICE_PLUGIN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.work_note` record.
@@ -1111,11 +1520,15 @@ pub struct ServiceWorkNote<'a> {
 
 impl<'a> ServiceWorkNote<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceWorkNote)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceWorkNote(Self {
+        Ok(Self {
             at_ms: u64::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_WORK_NOTE_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1128,6 +1541,29 @@ impl<'a> ServiceWorkNote<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.at_ms.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceWorkNote<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_WORK_NOTE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceWorkNote<'a> {
+    const TAG: u32 = SERVICE_WORK_NOTE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.end` record.
@@ -1150,14 +1586,18 @@ pub struct ServiceEnd {
 
 impl ServiceEnd {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceEnd)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::ServiceEnd(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             total: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             next: u32::from_le_bytes(body.scalar()?),
             cursor: body.maybe_u64(bits, 0x01)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -1192,6 +1632,33 @@ impl ServiceEnd {
         }
     }
 }
+
+impl WireEncode for ServiceEnd {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_END_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceEnd {
+    const TAG: u32 = SERVICE_END_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `screen.spec` record.
 pub const SCREEN_SPEC_TAG: u32 = 11;
 /// Maximum bytes of `screen.spec.name`.
@@ -1214,13 +1681,17 @@ pub struct ScreenSpec<'a> {
 
 impl<'a> ScreenSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ScreenSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ScreenSpec(Self {
+        Ok(Self {
             name: body.string(SCREEN_SPEC_NAME_MAX_BYTES)?,
             title: body.string(SCREEN_SPEC_TITLE_MAX_BYTES)?,
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1237,6 +1708,29 @@ impl<'a> ScreenSpec<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ScreenSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        SCREEN_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ScreenSpec<'a> {
+    const TAG: u32 = SCREEN_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `action.spec` record.
@@ -1261,13 +1755,17 @@ pub struct ActionSpec<'a> {
 
 impl<'a> ActionSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ActionSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ActionSpec(Self {
+        Ok(Self {
             name: body.string(ACTION_SPEC_NAME_MAX_BYTES)?,
             title: body.string(ACTION_SPEC_TITLE_MAX_BYTES)?,
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1284,6 +1782,29 @@ impl<'a> ActionSpec<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ActionSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        ACTION_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ActionSpec<'a> {
+    const TAG: u32 = ACTION_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.screen_shown` record.
@@ -1308,14 +1829,18 @@ pub struct EventScreenShown<'a> {
 
 impl<'a> EventScreenShown<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventScreenShown)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::EventScreenShown(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             screen: body.string(EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?,
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
             instance: body.maybe_u32(bits, 0x01)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -1350,6 +1875,33 @@ impl<'a> EventScreenShown<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for EventScreenShown<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SCREEN_SHOWN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventScreenShown<'a> {
+    const TAG: u32 = EVENT_SCREEN_SHOWN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.action_run` record.
 pub const EVENT_ACTION_RUN_TAG: u32 = 39;
 /// Maximum bytes of `event.action_run.action`.
@@ -1366,11 +1918,15 @@ pub struct EventActionRun<'a> {
 
 impl<'a> EventActionRun<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventActionRun)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventActionRun(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             action: body.string(EVENT_ACTION_RUN_ACTION_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1383,6 +1939,29 @@ impl<'a> EventActionRun<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.action.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventActionRun<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_ACTION_RUN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventActionRun<'a> {
+    const TAG: u32 = EVENT_ACTION_RUN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `input.key` record.
@@ -1403,12 +1982,16 @@ pub struct InputKey<'a> {
 
 impl<'a> InputKey<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputKey)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::InputKey(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             key: body.string(INPUT_KEY_KEY_MAX_BYTES)?,
             state: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1423,6 +2006,29 @@ impl<'a> InputKey<'a> {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.key.as_bytes(), out, offset);
         write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for InputKey<'a> {
+    fn wire_tag(&self) -> u32 {
+        INPUT_KEY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputKey<'a> {
+    const TAG: u32 = INPUT_KEY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `input.pointer` record.
@@ -1445,14 +2051,18 @@ pub struct InputPointer {
 
 impl InputPointer {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputPointer)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::InputPointer(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             phase: u32::from_le_bytes(body.scalar()?),
             contact: body.maybe_u32(bits, 0x01)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -1487,6 +2097,33 @@ impl InputPointer {
         }
     }
 }
+
+impl WireEncode for InputPointer {
+    fn wire_tag(&self) -> u32 {
+        INPUT_POINTER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputPointer {
+    const TAG: u32 = INPUT_POINTER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `input.gesture` record.
 pub const INPUT_GESTURE_TAG: u32 = 42;
 
@@ -1505,13 +2142,17 @@ pub struct InputGesture {
 
 impl InputGesture {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputGesture)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::InputGesture(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1530,6 +2171,29 @@ impl InputGesture {
         write_bytes(&self.y.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for InputGesture {
+    fn wire_tag(&self) -> u32 {
+        INPUT_GESTURE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputGesture {
+    const TAG: u32 = INPUT_GESTURE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `input.action` record.
 pub const INPUT_ACTION_TAG: u32 = 43;
 /// Maximum bytes of `input.action.action`.
@@ -1546,11 +2210,15 @@ pub struct InputAction<'a> {
 
 impl<'a> InputAction<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputAction)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::InputAction(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             action: body.string(INPUT_ACTION_ACTION_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1563,6 +2231,29 @@ impl<'a> InputAction<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.action.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for InputAction<'a> {
+    fn wire_tag(&self) -> u32 {
+        INPUT_ACTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputAction<'a> {
+    const TAG: u32 = INPUT_ACTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `i18n.arg_str` record.
@@ -1583,11 +2274,15 @@ pub struct I18nArgStr<'a> {
 
 impl<'a> I18nArgStr<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::I18nArgStr)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::I18nArgStr(Self {
+        Ok(Self {
             name: body.string(I18N_ARG_STR_NAME_MAX_BYTES)?,
             value: body.string(I18N_ARG_STR_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1600,6 +2295,29 @@ impl<'a> I18nArgStr<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for I18nArgStr<'a> {
+    fn wire_tag(&self) -> u32 {
+        I18N_ARG_STR_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for I18nArgStr<'a> {
+    const TAG: u32 = I18N_ARG_STR_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `i18n.arg_int` record.
@@ -1618,11 +2336,15 @@ pub struct I18nArgInt<'a> {
 
 impl<'a> I18nArgInt<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::I18nArgInt)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::I18nArgInt(Self {
+        Ok(Self {
             name: body.string(I18N_ARG_INT_NAME_MAX_BYTES)?,
             value: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1637,6 +2359,29 @@ impl<'a> I18nArgInt<'a> {
         write_bytes(&self.value.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for I18nArgInt<'a> {
+    fn wire_tag(&self) -> u32 {
+        I18N_ARG_INT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for I18nArgInt<'a> {
+    const TAG: u32 = I18N_ARG_INT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `i18n.count` record.
 pub const I18N_COUNT_TAG: u32 = 46;
 
@@ -1649,10 +2394,14 @@ pub struct I18nCount {
 
 impl I18nCount {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::I18nCount)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::I18nCount(Self {
+        Ok(Self {
             value: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1663,6 +2412,29 @@ impl I18nCount {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.value.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for I18nCount {
+    fn wire_tag(&self) -> u32 {
+        I18N_COUNT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for I18nCount {
+    const TAG: u32 = I18N_COUNT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `draw.frame` record.
@@ -1695,8 +2467,12 @@ pub struct DrawFrame<'a> {
 
 impl<'a> DrawFrame<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::DrawFrame)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::DrawFrame(Self {
+        Ok(Self {
             purpose: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
@@ -1706,7 +2482,7 @@ impl<'a> DrawFrame<'a> {
             clip_bottom: i32::from_le_bytes(body.scalar()?),
             id: u32::from_le_bytes(body.scalar()?),
             payload: body.blob(DRAW_FRAME_PAYLOAD_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1735,6 +2511,29 @@ impl<'a> DrawFrame<'a> {
         write_blob(self.payload, out, offset);
     }
 }
+
+impl<'a> WireEncode for DrawFrame<'a> {
+    fn wire_tag(&self) -> u32 {
+        DRAW_FRAME_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for DrawFrame<'a> {
+    const TAG: u32 = DRAW_FRAME_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `menu.entry` record.
 pub const MENU_ENTRY_TAG: u32 = 13;
 /// Maximum bytes of `menu.entry.menu`.
@@ -1761,14 +2560,18 @@ pub struct MenuEntry<'a> {
 
 impl<'a> MenuEntry<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::MenuEntry)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::MenuEntry(Self {
+        Ok(Self {
             menu: body.string(MENU_ENTRY_MENU_MAX_BYTES)?,
             item: body.string(MENU_ENTRY_ITEM_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
             place: u32::from_le_bytes(body.scalar()?),
             anchor: body.string(MENU_ENTRY_ANCHOR_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1789,6 +2592,29 @@ impl<'a> MenuEntry<'a> {
         write_blob(self.anchor.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for MenuEntry<'a> {
+    fn wire_tag(&self) -> u32 {
+        MENU_ENTRY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for MenuEntry<'a> {
+    const TAG: u32 = MENU_ENTRY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `icon.spec` record.
 pub const ICON_SPEC_TAG: u32 = 14;
 /// Maximum bytes of `icon.spec.item`.
@@ -1807,11 +2633,15 @@ pub struct IconSpec<'a> {
 
 impl<'a> IconSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::IconSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::IconSpec(Self {
+        Ok(Self {
             item: body.string(ICON_SPEC_ITEM_MAX_BYTES)?,
             icon: body.string(ICON_SPEC_ICON_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1824,6 +2654,29 @@ impl<'a> IconSpec<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.item.as_bytes(), out, offset);
         write_blob(self.icon.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for IconSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        ICON_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for IconSpec<'a> {
+    const TAG: u32 = ICON_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `menu.need` record.
@@ -1844,12 +2697,16 @@ pub struct MenuNeed<'a> {
 
 impl<'a> MenuNeed<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::MenuNeed)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::MenuNeed(Self {
+        Ok(Self {
             item: body.string(MENU_NEED_ITEM_MAX_BYTES)?,
             need: u32::from_le_bytes(body.scalar()?),
             capability: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1864,6 +2721,29 @@ impl<'a> MenuNeed<'a> {
         write_blob(self.item.as_bytes(), out, offset);
         write_bytes(&self.need.to_le_bytes(), out, offset);
         write_bytes(&self.capability.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for MenuNeed<'a> {
+    fn wire_tag(&self) -> u32 {
+        MENU_NEED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for MenuNeed<'a> {
+    const TAG: u32 = MENU_NEED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `menu.section` record.
@@ -1890,13 +2770,17 @@ pub struct MenuSection<'a> {
 
 impl<'a> MenuSection<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::MenuSection)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::MenuSection(Self {
+        Ok(Self {
             name: body.string(MENU_SECTION_NAME_MAX_BYTES)?,
             title: body.string(MENU_SECTION_TITLE_MAX_BYTES)?,
             menu: body.string(MENU_SECTION_MENU_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1913,6 +2797,29 @@ impl<'a> MenuSection<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.menu.as_bytes(), out, offset);
         write_bytes(&self.order.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for MenuSection<'a> {
+    fn wire_tag(&self) -> u32 {
+        MENU_SECTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for MenuSection<'a> {
+    const TAG: u32 = MENU_SECTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `menu.hide` record.
@@ -1933,11 +2840,15 @@ pub struct MenuHide<'a> {
 
 impl<'a> MenuHide<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::MenuHide)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::MenuHide(Self {
+        Ok(Self {
             menu: body.string(MENU_HIDE_MENU_MAX_BYTES)?,
             item: body.string(MENU_HIDE_ITEM_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1950,6 +2861,29 @@ impl<'a> MenuHide<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.menu.as_bytes(), out, offset);
         write_blob(self.item.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for MenuHide<'a> {
+    fn wire_tag(&self) -> u32 {
+        MENU_HIDE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for MenuHide<'a> {
+    const TAG: u32 = MENU_HIDE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `menu.describe` record.
@@ -1970,11 +2904,15 @@ pub struct MenuDescribe<'a> {
 
 impl<'a> MenuDescribe<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::MenuDescribe)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::MenuDescribe(Self {
+        Ok(Self {
             item: body.string(MENU_DESCRIBE_ITEM_MAX_BYTES)?,
             key: body.string(MENU_DESCRIBE_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -1987,6 +2925,29 @@ impl<'a> MenuDescribe<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.item.as_bytes(), out, offset);
         write_blob(self.key.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for MenuDescribe<'a> {
+    fn wire_tag(&self) -> u32 {
+        MENU_DESCRIBE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for MenuDescribe<'a> {
+    const TAG: u32 = MENU_DESCRIBE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `stage.spec` record.
@@ -2013,15 +2974,19 @@ pub struct StageSpec<'a> {
 
 impl<'a> StageSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StageSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StageSpec(Self {
+        Ok(Self {
             name: body.string(STAGE_SPEC_NAME_MAX_BYTES)?,
             schema: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             max_input: u32::from_le_bytes(body.scalar()?),
             max_reply: u32::from_le_bytes(body.scalar()?),
             max_records: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2044,6 +3009,29 @@ impl<'a> StageSpec<'a> {
         write_bytes(&self.max_records.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for StageSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        STAGE_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StageSpec<'a> {
+    const TAG: u32 = STAGE_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `registration.stage` record.
 pub const REGISTRATION_STAGE_TAG: u32 = 20;
 /// Maximum bytes of `registration.stage.stage`.
@@ -2064,13 +3052,17 @@ pub struct RegistrationStage<'a> {
 
 impl<'a> RegistrationStage<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::RegistrationStage)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::RegistrationStage(Self {
+        Ok(Self {
             stage: body.string(REGISTRATION_STAGE_STAGE_MAX_BYTES)?,
             token: u32::from_le_bytes(body.scalar()?),
             order: i32::from_le_bytes(body.scalar()?),
             signature: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2087,6 +3079,29 @@ impl<'a> RegistrationStage<'a> {
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.order.to_le_bytes(), out, offset);
         write_bytes(&self.signature.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for RegistrationStage<'a> {
+    fn wire_tag(&self) -> u32 {
+        REGISTRATION_STAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for RegistrationStage<'a> {
+    const TAG: u32 = REGISTRATION_STAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `stage.call` record.
@@ -2109,12 +3124,16 @@ pub struct StageCall<'a> {
 
 impl<'a> StageCall<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StageCall)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StageCall(Self {
+        Ok(Self {
             stage: body.string(STAGE_CALL_STAGE_MAX_BYTES)?,
             schema: u32::from_le_bytes(body.scalar()?),
             payload: body.blob(STAGE_CALL_PAYLOAD_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2129,6 +3148,29 @@ impl<'a> StageCall<'a> {
         write_blob(self.stage.as_bytes(), out, offset);
         write_bytes(&self.schema.to_le_bytes(), out, offset);
         write_blob(self.payload, out, offset);
+    }
+}
+
+impl<'a> WireEncode for StageCall<'a> {
+    fn wire_tag(&self) -> u32 {
+        STAGE_CALL_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StageCall<'a> {
+    const TAG: u32 = STAGE_CALL_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `stage.reply` record.
@@ -2157,15 +3199,19 @@ pub struct StageReply<'a> {
 
 impl<'a> StageReply<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StageReply)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StageReply(Self {
+        Ok(Self {
             subscriber: body.string(STAGE_REPLY_SUBSCRIBER_MAX_BYTES)?,
             index: u32::from_le_bytes(body.scalar()?),
             status: i32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             signature: u64::from_le_bytes(body.scalar()?),
             payload: body.blob(STAGE_REPLY_PAYLOAD_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2188,6 +3234,29 @@ impl<'a> StageReply<'a> {
         write_blob(self.payload, out, offset);
     }
 }
+
+impl<'a> WireEncode for StageReply<'a> {
+    fn wire_tag(&self) -> u32 {
+        STAGE_REPLY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StageReply<'a> {
+    const TAG: u32 = STAGE_REPLY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.echo` record.
 pub const SERVICE_ECHO_TAG: u32 = 1024;
 /// Maximum bytes of `service.echo.text`.
@@ -2202,10 +3271,14 @@ pub struct ServiceEcho<'a> {
 
 impl<'a> ServiceEcho<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceEcho)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceEcho(Self {
+        Ok(Self {
             text: body.string(SERVICE_ECHO_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2216,6 +3289,29 @@ impl<'a> ServiceEcho<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceEcho<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_ECHO_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceEcho<'a> {
+    const TAG: u32 = SERVICE_ECHO_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.setting_changed` record.
@@ -2238,12 +3334,16 @@ pub struct EventSettingChanged<'a> {
 
 impl<'a> EventSettingChanged<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventSettingChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventSettingChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             key: body.string(EVENT_SETTING_CHANGED_KEY_MAX_BYTES)?,
             old: body.blob(EVENT_SETTING_CHANGED_OLD_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2258,6 +3358,29 @@ impl<'a> EventSettingChanged<'a> {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.old, out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventSettingChanged<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SETTING_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventSettingChanged<'a> {
+    const TAG: u32 = EVENT_SETTING_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.book_opened` record.
@@ -2298,8 +3421,12 @@ pub struct EventBookOpened<'a> {
 
 impl<'a> EventBookOpened<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBookOpened)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::EventBookOpened(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
@@ -2311,7 +3438,7 @@ impl<'a> EventBookOpened<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -2372,6 +3499,33 @@ impl<'a> EventBookOpened<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for EventBookOpened<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BOOK_OPENED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBookOpened<'a> {
+    const TAG: u32 = EVENT_BOOK_OPENED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.book_closed` record.
 pub const EVENT_BOOK_CLOSED_TAG: u32 = 66;
 /// Maximum bytes of `event.book_closed.path`.
@@ -2410,8 +3564,12 @@ pub struct EventBookClosed<'a> {
 
 impl<'a> EventBookClosed<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBookClosed)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::EventBookClosed(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
@@ -2423,7 +3581,7 @@ impl<'a> EventBookClosed<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -2484,6 +3642,33 @@ impl<'a> EventBookClosed<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for EventBookClosed<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BOOK_CLOSED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBookClosed<'a> {
+    const TAG: u32 = EVENT_BOOK_CLOSED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.book_finished` record.
 pub const EVENT_BOOK_FINISHED_TAG: u32 = 67;
 /// Maximum bytes of `event.book_finished.path`.
@@ -2522,8 +3707,12 @@ pub struct EventBookFinished<'a> {
 
 impl<'a> EventBookFinished<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBookFinished)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::EventBookFinished(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
@@ -2535,7 +3724,7 @@ impl<'a> EventBookFinished<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -2596,6 +3785,33 @@ impl<'a> EventBookFinished<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for EventBookFinished<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BOOK_FINISHED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBookFinished<'a> {
+    const TAG: u32 = EVENT_BOOK_FINISHED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.book_moved` record.
 pub const EVENT_BOOK_MOVED_TAG: u32 = 68;
 /// Maximum bytes of `event.book_moved.from`.
@@ -2616,12 +3832,16 @@ pub struct EventBookMoved<'a> {
 
 impl<'a> EventBookMoved<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBookMoved)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventBookMoved(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             from: body.string(EVENT_BOOK_MOVED_FROM_MAX_BYTES)?,
             path: body.string(EVENT_BOOK_MOVED_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2636,6 +3856,29 @@ impl<'a> EventBookMoved<'a> {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.from.as_bytes(), out, offset);
         write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventBookMoved<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BOOK_MOVED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBookMoved<'a> {
+    const TAG: u32 = EVENT_BOOK_MOVED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.book_removed` record.
@@ -2654,11 +3897,15 @@ pub struct EventBookRemoved<'a> {
 
 impl<'a> EventBookRemoved<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBookRemoved)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventBookRemoved(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             path: body.string(EVENT_BOOK_REMOVED_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2673,6 +3920,29 @@ impl<'a> EventBookRemoved<'a> {
         write_blob(self.path.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventBookRemoved<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BOOK_REMOVED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBookRemoved<'a> {
+    const TAG: u32 = EVENT_BOOK_REMOVED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.plugins_changed` record.
 pub const EVENT_PLUGINS_CHANGED_TAG: u32 = 70;
 
@@ -2685,10 +3955,14 @@ pub struct EventPluginsChanged {
 
 impl EventPluginsChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPluginsChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventPluginsChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2699,6 +3973,29 @@ impl EventPluginsChanged {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventPluginsChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_PLUGINS_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPluginsChanged {
+    const TAG: u32 = EVENT_PLUGINS_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.wifi_changed` record.
@@ -2715,11 +4012,15 @@ pub struct EventWifiChanged {
 
 impl EventWifiChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWifiChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWifiChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2732,6 +4033,29 @@ impl EventWifiChanged {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventWifiChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIFI_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWifiChanged {
+    const TAG: u32 = EVENT_WIFI_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.power_changed` record.
@@ -2756,14 +4080,18 @@ pub struct EventPowerChanged<'a> {
 
 impl<'a> EventPowerChanged<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPowerChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventPowerChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             level: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             stretch: u32::from_le_bytes(body.scalar()?),
             mode: body.string(EVENT_POWER_CHANGED_MODE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2784,6 +4112,29 @@ impl<'a> EventPowerChanged<'a> {
         write_blob(self.mode.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventPowerChanged<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_POWER_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPowerChanged<'a> {
+    const TAG: u32 = EVENT_POWER_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.status_changed` record.
 pub const EVENT_STATUS_CHANGED_TAG: u32 = 73;
 
@@ -2796,10 +4147,14 @@ pub struct EventStatusChanged {
 
 impl EventStatusChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventStatusChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventStatusChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2810,6 +4165,29 @@ impl EventStatusChanged {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventStatusChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_STATUS_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventStatusChanged {
+    const TAG: u32 = EVENT_STATUS_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.charge_changed` record.
@@ -2826,11 +4204,15 @@ pub struct EventChargeChanged {
 
 impl EventChargeChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventChargeChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventChargeChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2843,6 +4225,29 @@ impl EventChargeChanged {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventChargeChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_CHARGE_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventChargeChanged {
+    const TAG: u32 = EVENT_CHARGE_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `setup.step` record.
@@ -2889,8 +4294,12 @@ pub struct SetupStep<'a> {
 
 impl<'a> SetupStep<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SetupStep)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SetupStep(Self {
+        Ok(Self {
             name: body.string(SETUP_STEP_NAME_MAX_BYTES)?,
             title: body.string(SETUP_STEP_TITLE_MAX_BYTES)?,
             help: body.string(SETUP_STEP_HELP_MAX_BYTES)?,
@@ -2902,7 +4311,7 @@ impl<'a> SetupStep<'a> {
             need: u32::from_le_bytes(body.scalar()?),
             capability: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2935,6 +4344,29 @@ impl<'a> SetupStep<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for SetupStep<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETUP_STEP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SetupStep<'a> {
+    const TAG: u32 = SETUP_STEP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `slot.spec` record.
 pub const SLOT_SPEC_TAG: u32 = 22;
 /// Maximum bytes of `slot.spec.name`.
@@ -2953,11 +4385,15 @@ pub struct SlotSpec<'a> {
 
 impl<'a> SlotSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SlotSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SlotSpec(Self {
+        Ok(Self {
             name: body.string(SLOT_SPEC_NAME_MAX_BYTES)?,
             title: body.string(SLOT_SPEC_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -2970,6 +4406,29 @@ impl<'a> SlotSpec<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for SlotSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        SLOT_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SlotSpec<'a> {
+    const TAG: u32 = SLOT_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `slot.offer` record.
@@ -2992,12 +4451,16 @@ pub struct SlotOffer<'a> {
 
 impl<'a> SlotOffer<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SlotOffer)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SlotOffer(Self {
+        Ok(Self {
             slot: body.string(SLOT_OFFER_SLOT_MAX_BYTES)?,
             screen: body.string(SLOT_OFFER_SCREEN_MAX_BYTES)?,
             priority: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3012,6 +4475,29 @@ impl<'a> SlotOffer<'a> {
         write_blob(self.slot.as_bytes(), out, offset);
         write_blob(self.screen.as_bytes(), out, offset);
         write_bytes(&self.priority.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for SlotOffer<'a> {
+    fn wire_tag(&self) -> u32 {
+        SLOT_OFFER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SlotOffer<'a> {
+    const TAG: u32 = SLOT_OFFER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `key.bind` record.
@@ -3044,14 +4530,18 @@ pub struct KeyBind<'a> {
 
 impl<'a> KeyBind<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::KeyBind)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::KeyBind(Self {
+        Ok(Self {
             layer: body.string(KEY_BIND_LAYER_MAX_BYTES)?,
             input: body.string(KEY_BIND_INPUT_MAX_BYTES)?,
             action: body.string(KEY_BIND_ACTION_MAX_BYTES)?,
             when_key: body.string(KEY_BIND_WHEN_KEY_MAX_BYTES)?,
             when_value: body.string(KEY_BIND_WHEN_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3072,6 +4562,29 @@ impl<'a> KeyBind<'a> {
         write_blob(self.when_value.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for KeyBind<'a> {
+    fn wire_tag(&self) -> u32 {
+        KEY_BIND_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for KeyBind<'a> {
+    const TAG: u32 = KEY_BIND_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `setting.default` record.
 pub const SETTING_DEFAULT_TAG: u32 = 25;
 /// Maximum bytes of `setting.default.key`.
@@ -3090,11 +4603,15 @@ pub struct SettingDefault<'a> {
 
 impl<'a> SettingDefault<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SettingDefault)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SettingDefault(Self {
+        Ok(Self {
             key: body.string(SETTING_DEFAULT_KEY_MAX_BYTES)?,
             value: body.blob(SETTING_DEFAULT_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3107,6 +4624,29 @@ impl<'a> SettingDefault<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.value, out, offset);
+    }
+}
+
+impl<'a> WireEncode for SettingDefault<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETTING_DEFAULT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SettingDefault<'a> {
+    const TAG: u32 = SETTING_DEFAULT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `setting.choice` record.
@@ -3131,12 +4671,16 @@ pub struct SettingChoice<'a> {
 
 impl<'a> SettingChoice<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::SettingChoice)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::SettingChoice(Self {
+        Ok(Self {
             key: body.string(SETTING_CHOICE_KEY_MAX_BYTES)?,
             value: body.string(SETTING_CHOICE_VALUE_MAX_BYTES)?,
             title: body.string(SETTING_CHOICE_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3151,6 +4695,29 @@ impl<'a> SettingChoice<'a> {
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for SettingChoice<'a> {
+    fn wire_tag(&self) -> u32 {
+        SETTING_CHOICE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for SettingChoice<'a> {
+    const TAG: u32 = SETTING_CHOICE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `preset.spec` record.
@@ -3179,13 +4746,17 @@ pub struct PresetSpec<'a> {
 
 impl<'a> PresetSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::PresetSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::PresetSpec(Self {
+        Ok(Self {
             name: body.string(PRESET_SPEC_NAME_MAX_BYTES)?,
             kind: body.string(PRESET_SPEC_KIND_MAX_BYTES)?,
             title: body.string(PRESET_SPEC_TITLE_MAX_BYTES)?,
             help: body.string(PRESET_SPEC_HELP_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3202,6 +4773,29 @@ impl<'a> PresetSpec<'a> {
         write_blob(self.kind.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.help.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for PresetSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        PRESET_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for PresetSpec<'a> {
+    const TAG: u32 = PRESET_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `preset.value` record.
@@ -3228,13 +4822,17 @@ pub struct PresetValue<'a> {
 
 impl<'a> PresetValue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::PresetValue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::PresetValue(Self {
+        Ok(Self {
             preset: body.string(PRESET_VALUE_PRESET_MAX_BYTES)?,
             key: body.string(PRESET_VALUE_KEY_MAX_BYTES)?,
             value: body.blob(PRESET_VALUE_VALUE_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3253,6 +4851,29 @@ impl<'a> PresetValue<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for PresetValue<'a> {
+    fn wire_tag(&self) -> u32 {
+        PRESET_VALUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for PresetValue<'a> {
+    const TAG: u32 = PRESET_VALUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.registry_changed` record.
 pub const EVENT_REGISTRY_CHANGED_TAG: u32 = 75;
 
@@ -3267,11 +4888,15 @@ pub struct EventRegistryChanged {
 
 impl EventRegistryChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventRegistryChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventRegistryChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             what: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3286,6 +4911,29 @@ impl EventRegistryChanged {
         write_bytes(&self.what.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for EventRegistryChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_REGISTRY_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventRegistryChanged {
+    const TAG: u32 = EVENT_REGISTRY_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.preview_changed` record.
 pub const EVENT_PREVIEW_CHANGED_TAG: u32 = 76;
 
@@ -3298,10 +4946,14 @@ pub struct EventPreviewChanged {
 
 impl EventPreviewChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPreviewChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventPreviewChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3312,6 +4964,29 @@ impl EventPreviewChanged {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventPreviewChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_PREVIEW_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPreviewChanged {
+    const TAG: u32 = EVENT_PREVIEW_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.plugins_requested` record.
@@ -3342,13 +5017,17 @@ pub struct EventPluginsRequested<'a> {
 
 impl<'a> EventPluginsRequested<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPluginsRequested)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventPluginsRequested(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             by: body.string(EVENT_PLUGINS_REQUESTED_BY_MAX_BYTES)?,
             plugins: body.string(EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3368,6 +5047,29 @@ impl<'a> EventPluginsRequested<'a> {
         write_bytes(&self.request.to_le_bytes(), out, offset);
         write_blob(self.by.as_bytes(), out, offset);
         write_blob(self.plugins.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventPluginsRequested<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_PLUGINS_REQUESTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPluginsRequested<'a> {
+    const TAG: u32 = EVENT_PLUGINS_REQUESTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.plugin_answered` record.
@@ -3390,13 +5092,17 @@ pub struct EventPluginAnswered<'a> {
 
 impl<'a> EventPluginAnswered<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventPluginAnswered)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventPluginAnswered(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             plugin: body.string(EVENT_PLUGIN_ANSWERED_PLUGIN_MAX_BYTES)?,
             outcome: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3413,6 +5119,29 @@ impl<'a> EventPluginAnswered<'a> {
         write_bytes(&self.request.to_le_bytes(), out, offset);
         write_blob(self.plugin.as_bytes(), out, offset);
         write_bytes(&self.outcome.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventPluginAnswered<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_PLUGIN_ANSWERED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventPluginAnswered<'a> {
+    const TAG: u32 = EVENT_PLUGIN_ANSWERED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_query` record.
@@ -3435,13 +5164,17 @@ pub struct ServiceRegQuery<'a> {
 
 impl<'a> ServiceRegQuery<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegQuery)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegQuery(Self {
+        Ok(Self {
             scope: body.string(SERVICE_REG_QUERY_SCOPE_MAX_BYTES)?,
             cursor: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3460,6 +5193,29 @@ impl<'a> ServiceRegQuery<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceRegQuery<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_QUERY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegQuery<'a> {
+    const TAG: u32 = SERVICE_REG_QUERY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.reg_key` record.
 pub const SERVICE_REG_KEY_TAG: u32 = 1026;
 /// Maximum bytes of `service.reg_key.key`.
@@ -3474,10 +5230,14 @@ pub struct ServiceRegKey<'a> {
 
 impl<'a> ServiceRegKey<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegKey)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegKey(Self {
+        Ok(Self {
             key: body.string(SERVICE_REG_KEY_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3488,6 +5248,29 @@ impl<'a> ServiceRegKey<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.key.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegKey<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_KEY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegKey<'a> {
+    const TAG: u32 = SERVICE_REG_KEY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_setting` record.
@@ -3522,8 +5305,12 @@ pub struct ServiceRegSetting<'a> {
 
 impl<'a> ServiceRegSetting<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegSetting)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegSetting(Self {
+        Ok(Self {
             key: body.string(SERVICE_REG_SETTING_KEY_MAX_BYTES)?,
             group: body.string(SERVICE_REG_SETTING_GROUP_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
@@ -3531,7 +5318,7 @@ impl<'a> ServiceRegSetting<'a> {
             source: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_SETTING_TITLE_MAX_BYTES)?,
             value: body.blob(SERVICE_REG_SETTING_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3554,6 +5341,29 @@ impl<'a> ServiceRegSetting<'a> {
         write_bytes(&self.source.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.value, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegSetting<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_SETTING_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegSetting<'a> {
+    const TAG: u32 = SERVICE_REG_SETTING_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_setting_extra` record.
@@ -3600,8 +5410,12 @@ pub struct ServiceRegSettingExtra<'a> {
 
 impl<'a> ServiceRegSettingExtra<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegSettingExtra)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegSettingExtra(Self {
+        Ok(Self {
             min: i32::from_le_bytes(body.scalar()?),
             max: i32::from_le_bytes(body.scalar()?),
             step: i32::from_le_bytes(body.scalar()?),
@@ -3613,7 +5427,7 @@ impl<'a> ServiceRegSettingExtra<'a> {
             editor_kind: u32::from_le_bytes(body.scalar()?),
             editor: body.string(SERVICE_REG_SETTING_EXTRA_EDITOR_MAX_BYTES)?,
             choices: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3661,6 +5475,29 @@ impl<'a> ServiceRegSettingExtra<'a> {
         write_bytes(&self.choices.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceRegSettingExtra<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_SETTING_EXTRA_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegSettingExtra<'a> {
+    const TAG: u32 = SERVICE_REG_SETTING_EXTRA_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.reg_choice` record.
 pub const SERVICE_REG_CHOICE_TAG: u32 = 1029;
 /// Maximum bytes of `service.reg_choice.value`.
@@ -3679,11 +5516,15 @@ pub struct ServiceRegChoice<'a> {
 
 impl<'a> ServiceRegChoice<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegChoice)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegChoice(Self {
+        Ok(Self {
             value: body.string(SERVICE_REG_CHOICE_VALUE_MAX_BYTES)?,
             title: body.string(SERVICE_REG_CHOICE_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3696,6 +5537,29 @@ impl<'a> ServiceRegChoice<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.value.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegChoice<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_CHOICE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegChoice<'a> {
+    const TAG: u32 = SERVICE_REG_CHOICE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_text` record.
@@ -3712,10 +5576,14 @@ pub struct ServiceRegText<'a> {
 
 impl<'a> ServiceRegText<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegText)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegText(Self {
+        Ok(Self {
             text: body.string(SERVICE_REG_TEXT_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3726,6 +5594,29 @@ impl<'a> ServiceRegText<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegText<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_TEXT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegText<'a> {
+    const TAG: u32 = SERVICE_REG_TEXT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_group` record.
@@ -3756,14 +5647,18 @@ pub struct ServiceRegGroup<'a> {
 
 impl<'a> ServiceRegGroup<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegGroup)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegGroup(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_GROUP_ID_MAX_BYTES)?,
             parent: body.string(SERVICE_REG_GROUP_PARENT_MAX_BYTES)?,
             page: body.string(SERVICE_REG_GROUP_PAGE_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_GROUP_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3782,6 +5677,29 @@ impl<'a> ServiceRegGroup<'a> {
         write_blob(self.page.as_bytes(), out, offset);
         write_bytes(&self.order.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegGroup<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_GROUP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegGroup<'a> {
+    const TAG: u32 = SERVICE_REG_GROUP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_plugin` record.
@@ -3820,8 +5738,12 @@ pub struct ServiceRegPlugin<'a> {
 
 impl<'a> ServiceRegPlugin<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegPlugin)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegPlugin(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_PLUGIN_ID_MAX_BYTES)?,
             name: body.string(SERVICE_REG_PLUGIN_NAME_MAX_BYTES)?,
             version: body.string(SERVICE_REG_PLUGIN_VERSION_MAX_BYTES)?,
@@ -3831,7 +5753,7 @@ impl<'a> ServiceRegPlugin<'a> {
             problem: u32::from_le_bytes(body.scalar()?),
             problem_arg: u32::from_le_bytes(body.scalar()?),
             update: body.string(SERVICE_REG_PLUGIN_UPDATE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3860,6 +5782,29 @@ impl<'a> ServiceRegPlugin<'a> {
         write_blob(self.update.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceRegPlugin<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_PLUGIN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegPlugin<'a> {
+    const TAG: u32 = SERVICE_REG_PLUGIN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.reg_need` record.
 pub const SERVICE_REG_NEED_TAG: u32 = 1033;
 /// Maximum bytes of `service.reg_need.key`.
@@ -3882,13 +5827,17 @@ pub struct ServiceRegNeed<'a> {
 
 impl<'a> ServiceRegNeed<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegNeed)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegNeed(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             key: body.string(SERVICE_REG_NEED_KEY_MAX_BYTES)?,
             version: body.string(SERVICE_REG_NEED_VERSION_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3905,6 +5854,29 @@ impl<'a> ServiceRegNeed<'a> {
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.version.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegNeed<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_NEED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegNeed<'a> {
+    const TAG: u32 = SERVICE_REG_NEED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_item` record.
@@ -3931,13 +5903,17 @@ pub struct ServiceRegItem<'a> {
 
 impl<'a> ServiceRegItem<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegItem)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegItem(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_ITEM_ID_MAX_BYTES)?,
             plugin: body.string(SERVICE_REG_ITEM_PLUGIN_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_ITEM_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -3954,6 +5930,29 @@ impl<'a> ServiceRegItem<'a> {
         write_blob(self.plugin.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegItem<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_ITEM_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegItem<'a> {
+    const TAG: u32 = SERVICE_REG_ITEM_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_slot` record.
@@ -3984,14 +5983,18 @@ pub struct ServiceRegSlot<'a> {
 
 impl<'a> ServiceRegSlot<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegSlot)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegSlot(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_SLOT_ID_MAX_BYTES)?,
             screen: body.string(SERVICE_REG_SLOT_SCREEN_MAX_BYTES)?,
             default: body.string(SERVICE_REG_SLOT_DEFAULT_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_SLOT_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4010,6 +6013,29 @@ impl<'a> ServiceRegSlot<'a> {
         write_blob(self.default.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegSlot<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_SLOT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegSlot<'a> {
+    const TAG: u32 = SERVICE_REG_SLOT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_menu_row` record.
@@ -4052,8 +6078,12 @@ pub struct ServiceRegMenuRow<'a> {
 
 impl<'a> ServiceRegMenuRow<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegMenuRow)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegMenuRow(Self {
+        Ok(Self {
             item: body.string(SERVICE_REG_MENU_ROW_ITEM_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -4063,7 +6093,7 @@ impl<'a> ServiceRegMenuRow<'a> {
             icon: body.string(SERVICE_REG_MENU_ROW_ICON_MAX_BYTES)?,
             badge: body.string(SERVICE_REG_MENU_ROW_BADGE_MAX_BYTES)?,
             describe: body.string(SERVICE_REG_MENU_ROW_DESCRIBE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4092,6 +6122,29 @@ impl<'a> ServiceRegMenuRow<'a> {
         write_blob(self.describe.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceRegMenuRow<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_MENU_ROW_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegMenuRow<'a> {
+    const TAG: u32 = SERVICE_REG_MENU_ROW_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.reg_binding` record.
 pub const SERVICE_REG_BINDING_TAG: u32 = 1037;
 /// Maximum bytes of `service.reg_binding.layer`.
@@ -4116,13 +6169,17 @@ pub struct ServiceRegBinding<'a> {
 
 impl<'a> ServiceRegBinding<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegBinding)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegBinding(Self {
+        Ok(Self {
             layer: body.string(SERVICE_REG_BINDING_LAYER_MAX_BYTES)?,
             input: body.string(SERVICE_REG_BINDING_INPUT_MAX_BYTES)?,
             action: body.string(SERVICE_REG_BINDING_ACTION_MAX_BYTES)?,
             origin: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4139,6 +6196,29 @@ impl<'a> ServiceRegBinding<'a> {
         write_blob(self.input.as_bytes(), out, offset);
         write_blob(self.action.as_bytes(), out, offset);
         write_bytes(&self.origin.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegBinding<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_BINDING_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegBinding<'a> {
+    const TAG: u32 = SERVICE_REG_BINDING_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_setup_step` record.
@@ -4169,15 +6249,19 @@ pub struct ServiceRegSetupStep<'a> {
 
 impl<'a> ServiceRegSetupStep<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegSetupStep)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegSetupStep(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_SETUP_STEP_ID_MAX_BYTES)?,
             page_kind: u32::from_le_bytes(body.scalar()?),
             page: body.string(SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_SETUP_STEP_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4200,6 +6284,29 @@ impl<'a> ServiceRegSetupStep<'a> {
         write_blob(self.title.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceRegSetupStep<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_SETUP_STEP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegSetupStep<'a> {
+    const TAG: u32 = SERVICE_REG_SETUP_STEP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.reg_value` record.
 pub const SERVICE_REG_VALUE_TAG: u32 = 1039;
 /// Maximum bytes of `service.reg_value.key`.
@@ -4220,12 +6327,16 @@ pub struct ServiceRegValue<'a> {
 
 impl<'a> ServiceRegValue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegValue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegValue(Self {
+        Ok(Self {
             key: body.string(SERVICE_REG_VALUE_KEY_MAX_BYTES)?,
             value: body.blob(SERVICE_REG_VALUE_VALUE_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4240,6 +6351,29 @@ impl<'a> ServiceRegValue<'a> {
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.value, out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegValue<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_VALUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegValue<'a> {
+    const TAG: u32 = SERVICE_REG_VALUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_widget` record.
@@ -4274,15 +6408,19 @@ pub struct ServiceRegWidget<'a> {
 
 impl<'a> ServiceRegWidget<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegWidget)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegWidget(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_WIDGET_ID_MAX_BYTES)?,
             plugin: body.string(SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?,
             kind: body.string(SERVICE_REG_WIDGET_KIND_MAX_BYTES)?,
             icon: body.string(SERVICE_REG_WIDGET_ICON_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4303,6 +6441,29 @@ impl<'a> ServiceRegWidget<'a> {
         write_blob(self.icon.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegWidget<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_WIDGET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegWidget<'a> {
+    const TAG: u32 = SERVICE_REG_WIDGET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.reg_status` record.
@@ -4339,8 +6500,12 @@ pub struct ServiceRegStatus<'a> {
 
 impl<'a> ServiceRegStatus<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceRegStatus)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceRegStatus(Self {
+        Ok(Self {
             id: body.string(SERVICE_REG_STATUS_ID_MAX_BYTES)?,
             plugin: body.string(SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
@@ -4349,7 +6514,7 @@ impl<'a> ServiceRegStatus<'a> {
             size: u32::from_le_bytes(body.scalar()?),
             tap: body.string(SERVICE_REG_STATUS_TAP_MAX_BYTES)?,
             title: body.string(SERVICE_REG_STATUS_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4374,6 +6539,29 @@ impl<'a> ServiceRegStatus<'a> {
         write_bytes(&self.size.to_le_bytes(), out, offset);
         write_blob(self.tap.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceRegStatus<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_REG_STATUS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceRegStatus<'a> {
+    const TAG: u32 = SERVICE_REG_STATUS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `input.spec` record.
@@ -4402,15 +6590,19 @@ pub struct InputSpec<'a> {
 
 impl<'a> InputSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::InputSpec(Self {
+        Ok(Self {
             name: body.string(INPUT_SPEC_NAME_MAX_BYTES)?,
             title: body.string(INPUT_SPEC_TITLE_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
             need: u32::from_le_bytes(body.scalar()?),
             capability: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4431,6 +6623,29 @@ impl<'a> InputSpec<'a> {
         write_bytes(&self.need.to_le_bytes(), out, offset);
         write_bytes(&self.capability.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for InputSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        INPUT_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputSpec<'a> {
+    const TAG: u32 = INPUT_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `help.hint` record.
@@ -4461,8 +6676,12 @@ pub struct HelpHint<'a> {
 
 impl<'a> HelpHint<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::HelpHint)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::HelpHint(Self {
+        Ok(Self {
             screen: body.string(HELP_HINT_SCREEN_MAX_BYTES)?,
             input: u32::from_le_bytes(body.scalar()?),
             x: u32::from_le_bytes(body.scalar()?),
@@ -4470,7 +6689,7 @@ impl<'a> HelpHint<'a> {
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
             text: body.string(HELP_HINT_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4493,6 +6712,29 @@ impl<'a> HelpHint<'a> {
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for HelpHint<'a> {
+    fn wire_tag(&self) -> u32 {
+        HELP_HINT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for HelpHint<'a> {
+    const TAG: u32 = HELP_HINT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `widget.spec` record.
@@ -4527,8 +6769,12 @@ pub struct WidgetSpec<'a> {
 
 impl<'a> WidgetSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::WidgetSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::WidgetSpec(Self {
+        Ok(Self {
             name: body.string(WIDGET_SPEC_NAME_MAX_BYTES)?,
             title: body.string(WIDGET_SPEC_TITLE_MAX_BYTES)?,
             category: body.string(WIDGET_SPEC_CATEGORY_MAX_BYTES)?,
@@ -4536,7 +6782,7 @@ impl<'a> WidgetSpec<'a> {
             cells: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4559,6 +6805,29 @@ impl<'a> WidgetSpec<'a> {
         write_bytes(&self.cells.to_le_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for WidgetSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        WIDGET_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for WidgetSpec<'a> {
+    const TAG: u32 = WIDGET_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `widget.place` record.
@@ -4599,15 +6868,19 @@ pub struct WidgetPlace<'a> {
 
 impl<'a> WidgetPlace<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::WidgetPlace)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::WidgetPlace(Self {
+        Ok(Self {
             name: body.string(WIDGET_PLACE_NAME_MAX_BYTES)?,
             title: body.string(WIDGET_PLACE_TITLE_MAX_BYTES)?,
             list_keys: body.string(WIDGET_PLACE_LIST_KEYS_MAX_BYTES)?,
             layout: u32::from_le_bytes(body.scalar()?),
             shown_if_key: body.string(WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES)?,
             shown_if_value: body.string(WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4631,6 +6904,29 @@ impl<'a> WidgetPlace<'a> {
         write_bytes(&self.layout.to_le_bytes(), out, offset);
         write_blob(self.shown_if_key.as_bytes(), out, offset);
         write_blob(self.shown_if_value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for WidgetPlace<'a> {
+    fn wire_tag(&self) -> u32 {
+        WIDGET_PLACE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for WidgetPlace<'a> {
+    const TAG: u32 = WIDGET_PLACE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `status.item` record.
@@ -4663,8 +6959,12 @@ pub struct StatusItem<'a> {
 
 impl<'a> StatusItem<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StatusItem)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StatusItem(Self {
+        Ok(Self {
             name: body.string(STATUS_ITEM_NAME_MAX_BYTES)?,
             title: body.string(STATUS_ITEM_TITLE_MAX_BYTES)?,
             tap: body.string(STATUS_ITEM_TAP_MAX_BYTES)?,
@@ -4672,7 +6972,7 @@ impl<'a> StatusItem<'a> {
             min_width: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4695,6 +6995,29 @@ impl<'a> StatusItem<'a> {
         write_bytes(&self.min_width.to_le_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for StatusItem<'a> {
+    fn wire_tag(&self) -> u32 {
+        STATUS_ITEM_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StatusItem<'a> {
+    const TAG: u32 = STATUS_ITEM_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `status.line` record.
@@ -4721,14 +7044,18 @@ pub struct StatusLine<'a> {
 
 impl<'a> StatusLine<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StatusLine)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StatusLine(Self {
+        Ok(Self {
             name: body.string(STATUS_LINE_NAME_MAX_BYTES)?,
             title: body.string(STATUS_LINE_TITLE_MAX_BYTES)?,
             height: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4747,6 +7074,29 @@ impl<'a> StatusLine<'a> {
         write_bytes(&self.height.to_le_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for StatusLine<'a> {
+    fn wire_tag(&self) -> u32 {
+        STATUS_LINE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StatusLine<'a> {
+    const TAG: u32 = STATUS_LINE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `status.place` record.
@@ -4779,14 +7129,18 @@ pub struct StatusPlace<'a> {
 
 impl<'a> StatusPlace<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::StatusPlace)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::StatusPlace(Self {
+        Ok(Self {
             name: body.string(STATUS_PLACE_NAME_MAX_BYTES)?,
             title: body.string(STATUS_PLACE_TITLE_MAX_BYTES)?,
             left: body.string(STATUS_PLACE_LEFT_MAX_BYTES)?,
             center: body.string(STATUS_PLACE_CENTER_MAX_BYTES)?,
             right: body.string(STATUS_PLACE_RIGHT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4805,6 +7159,29 @@ impl<'a> StatusPlace<'a> {
         write_blob(self.left.as_bytes(), out, offset);
         write_blob(self.center.as_bytes(), out, offset);
         write_blob(self.right.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for StatusPlace<'a> {
+    fn wire_tag(&self) -> u32 {
+        STATUS_PLACE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for StatusPlace<'a> {
+    const TAG: u32 = STATUS_PLACE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.screen_opened` record.
@@ -4837,8 +7214,12 @@ pub struct EventScreenOpened<'a> {
 
 impl<'a> EventScreenOpened<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventScreenOpened)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventScreenOpened(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             screen: body.string(EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES)?,
             instance: u32::from_le_bytes(body.scalar()?),
@@ -4847,7 +7228,7 @@ impl<'a> EventScreenOpened<'a> {
             handover: u32::from_le_bytes(body.scalar()?),
             params: u32::from_le_bytes(body.scalar()?),
             text_bytes: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4874,6 +7255,29 @@ impl<'a> EventScreenOpened<'a> {
         write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventScreenOpened<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SCREEN_OPENED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventScreenOpened<'a> {
+    const TAG: u32 = EVENT_SCREEN_OPENED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.screen_closed` record.
 pub const EVENT_SCREEN_CLOSED_TAG: u32 = 80;
 /// Maximum bytes of `event.screen_closed.screen`.
@@ -4892,12 +7296,16 @@ pub struct EventScreenClosed<'a> {
 
 impl<'a> EventScreenClosed<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventScreenClosed)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventScreenClosed(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             screen: body.string(EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES)?,
             instance: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4914,6 +7322,29 @@ impl<'a> EventScreenClosed<'a> {
         write_bytes(&self.instance.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventScreenClosed<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SCREEN_CLOSED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventScreenClosed<'a> {
+    const TAG: u32 = EVENT_SCREEN_CLOSED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.stack_changed` record.
 pub const EVENT_STACK_CHANGED_TAG: u32 = 81;
 
@@ -4926,10 +7357,14 @@ pub struct EventStackChanged {
 
 impl EventStackChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventStackChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventStackChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -4940,6 +7375,29 @@ impl EventStackChanged {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventStackChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_STACK_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventStackChanged {
+    const TAG: u32 = EVENT_STACK_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.answered` record.
@@ -4966,8 +7424,12 @@ pub struct EventAnswered {
 
 impl EventAnswered {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventAnswered)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventAnswered(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
@@ -4975,7 +7437,7 @@ impl EventAnswered {
             choice: u32::from_le_bytes(body.scalar()?),
             length: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5000,6 +7462,29 @@ impl EventAnswered {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for EventAnswered {
+    fn wire_tag(&self) -> u32 {
+        EVENT_ANSWERED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventAnswered {
+    const TAG: u32 = EVENT_ANSWERED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.widget_made` record.
 pub const EVENT_WIDGET_MADE_TAG: u32 = 84;
 /// Maximum bytes of `event.widget_made.widget`.
@@ -5022,13 +7507,17 @@ pub struct EventWidgetMade<'a> {
 
 impl<'a> EventWidgetMade<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWidgetMade)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWidgetMade(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             widget: body.string(EVENT_WIDGET_MADE_WIDGET_MAX_BYTES)?,
             instance: u32::from_le_bytes(body.scalar()?),
             place: body.string(EVENT_WIDGET_MADE_PLACE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5047,6 +7536,29 @@ impl<'a> EventWidgetMade<'a> {
         write_blob(self.place.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventWidgetMade<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIDGET_MADE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWidgetMade<'a> {
+    const TAG: u32 = EVENT_WIDGET_MADE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.widget_dropped` record.
 pub const EVENT_WIDGET_DROPPED_TAG: u32 = 85;
 
@@ -5061,11 +7573,15 @@ pub struct EventWidgetDropped {
 
 impl EventWidgetDropped {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWidgetDropped)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWidgetDropped(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             instance: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5078,6 +7594,29 @@ impl EventWidgetDropped {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventWidgetDropped {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIDGET_DROPPED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWidgetDropped {
+    const TAG: u32 = EVENT_WIDGET_DROPPED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.widget_changed` record.
@@ -5094,11 +7633,15 @@ pub struct EventWidgetChanged {
 
 impl EventWidgetChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWidgetChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWidgetChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             instance: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5111,6 +7654,29 @@ impl EventWidgetChanged {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventWidgetChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIDGET_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWidgetChanged {
+    const TAG: u32 = EVENT_WIDGET_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.screen_ready` record.
@@ -5131,12 +7697,16 @@ pub struct EventScreenReady<'a> {
 
 impl<'a> EventScreenReady<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventScreenReady)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventScreenReady(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             screen: body.string(EVENT_SCREEN_READY_SCREEN_MAX_BYTES)?,
             instance: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5151,6 +7721,29 @@ impl<'a> EventScreenReady<'a> {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.screen.as_bytes(), out, offset);
         write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventScreenReady<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SCREEN_READY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventScreenReady<'a> {
+    const TAG: u32 = EVENT_SCREEN_READY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.spoken` record.
@@ -5169,12 +7762,16 @@ pub struct EventSpoken {
 
 impl EventSpoken {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventSpoken)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventSpoken(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             cookie: u32::from_le_bytes(body.scalar()?),
             status: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5189,6 +7786,29 @@ impl EventSpoken {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.cookie.to_le_bytes(), out, offset);
         write_bytes(&self.status.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventSpoken {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SPOKEN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventSpoken {
+    const TAG: u32 = EVENT_SPOKEN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `input.widget` record.
@@ -5213,15 +7833,19 @@ pub struct InputWidget {
 
 impl InputWidget {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::InputWidget)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::InputWidget(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             instance: u32::from_le_bytes(body.scalar()?),
             target: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5242,6 +7866,29 @@ impl InputWidget {
         write_bytes(&self.x.to_le_bytes(), out, offset);
         write_bytes(&self.y.to_le_bytes(), out, offset);
         write_bytes(&self.kind.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for InputWidget {
+    fn wire_tag(&self) -> u32 {
+        INPUT_WIDGET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for InputWidget {
+    const TAG: u32 = INPUT_WIDGET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_screen` record.
@@ -5270,14 +7917,18 @@ pub struct ServiceUiScreen<'a> {
 
 impl<'a> ServiceUiScreen<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiScreen)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiScreen(Self {
+        Ok(Self {
             screen: body.string(SERVICE_UI_SCREEN_SCREEN_MAX_BYTES)?,
             instance: u32::from_le_bytes(body.scalar()?),
             slot: body.string(SERVICE_UI_SCREEN_SLOT_MAX_BYTES)?,
             owner: body.string(SERVICE_UI_SCREEN_OWNER_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5298,6 +7949,29 @@ impl<'a> ServiceUiScreen<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceUiScreen<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_SCREEN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiScreen<'a> {
+    const TAG: u32 = SERVICE_UI_SCREEN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.ui_request` record.
 pub const SERVICE_UI_REQUEST_TAG: u32 = 1042;
 
@@ -5310,10 +7984,14 @@ pub struct ServiceUiRequest {
 
 impl ServiceUiRequest {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiRequest)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiRequest(Self {
+        Ok(Self {
             request: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5324,6 +8002,29 @@ impl ServiceUiRequest {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.request.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiRequest {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_REQUEST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiRequest {
+    const TAG: u32 = SERVICE_UI_REQUEST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_question` record.
@@ -5360,15 +8061,19 @@ pub struct ServiceUiQuestion<'a> {
 
 impl<'a> ServiceUiQuestion<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiQuestion)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiQuestion(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             max_bytes: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_UI_QUESTION_TITLE_MAX_BYTES)?,
             text: body.string(SERVICE_UI_QUESTION_TEXT_MAX_BYTES)?,
             choices: body.string(SERVICE_UI_QUESTION_CHOICES_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5389,6 +8094,29 @@ impl<'a> ServiceUiQuestion<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
         write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceUiQuestion<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_QUESTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiQuestion<'a> {
+    const TAG: u32 = SERVICE_UI_QUESTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_hint` record.
@@ -5419,8 +8147,12 @@ pub struct ServiceUiHint<'a> {
 
 impl<'a> ServiceUiHint<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiHint)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiHint(Self {
+        Ok(Self {
             input: u32::from_le_bytes(body.scalar()?),
             x: u32::from_le_bytes(body.scalar()?),
             y: u32::from_le_bytes(body.scalar()?),
@@ -5428,7 +8160,7 @@ impl<'a> ServiceUiHint<'a> {
             height: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_UI_HINT_TEXT_MAX_BYTES)?,
             owner: body.string(SERVICE_UI_HINT_OWNER_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5453,6 +8185,29 @@ impl<'a> ServiceUiHint<'a> {
         write_blob(self.owner.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceUiHint<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_HINT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiHint<'a> {
+    const TAG: u32 = SERVICE_UI_HINT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.ui_widget_ref` record.
 pub const SERVICE_UI_WIDGET_REF_TAG: u32 = 1045;
 /// Maximum bytes of `service.ui_widget_ref.widget`.
@@ -5471,11 +8226,15 @@ pub struct ServiceUiWidgetRef<'a> {
 
 impl<'a> ServiceUiWidgetRef<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiWidgetRef)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiWidgetRef(Self {
+        Ok(Self {
             widget: body.string(SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES)?,
             place: body.string(SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5488,6 +8247,29 @@ impl<'a> ServiceUiWidgetRef<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.widget.as_bytes(), out, offset);
         write_blob(self.place.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceUiWidgetRef<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_WIDGET_REF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiWidgetRef<'a> {
+    const TAG: u32 = SERVICE_UI_WIDGET_REF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_instance` record.
@@ -5504,11 +8286,15 @@ pub struct ServiceUiInstance {
 
 impl ServiceUiInstance {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiInstance)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiInstance(Self {
+        Ok(Self {
             instance: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5521,6 +8307,29 @@ impl ServiceUiInstance {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.instance.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiInstance {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_INSTANCE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiInstance {
+    const TAG: u32 = SERVICE_UI_INSTANCE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_widget_input` record.
@@ -5543,14 +8352,18 @@ pub struct ServiceUiWidgetInput {
 
 impl ServiceUiWidgetInput {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiWidgetInput)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiWidgetInput(Self {
+        Ok(Self {
             instance: u32::from_le_bytes(body.scalar()?),
             target: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5569,6 +8382,29 @@ impl ServiceUiWidgetInput {
         write_bytes(&self.x.to_le_bytes(), out, offset);
         write_bytes(&self.y.to_le_bytes(), out, offset);
         write_bytes(&self.kind.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiWidgetInput {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_WIDGET_INPUT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiWidgetInput {
+    const TAG: u32 = SERVICE_UI_WIDGET_INPUT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_target` record.
@@ -5591,14 +8427,18 @@ pub struct ServiceUiTarget {
 
 impl ServiceUiTarget {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiTarget)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiTarget(Self {
+        Ok(Self {
             target: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5617,6 +8457,29 @@ impl ServiceUiTarget {
         write_bytes(&self.y.to_le_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiTarget {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_TARGET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiTarget {
+    const TAG: u32 = SERVICE_UI_TARGET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_ask` record.
@@ -5655,15 +8518,19 @@ pub struct ServiceUiAsk<'a> {
 
 impl<'a> ServiceUiAsk<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiAsk)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiAsk(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             slot: body.string(SERVICE_UI_ASK_SLOT_MAX_BYTES)?,
             title: body.string(SERVICE_UI_ASK_TITLE_MAX_BYTES)?,
             text: body.string(SERVICE_UI_ASK_TEXT_MAX_BYTES)?,
             choices: body.string(SERVICE_UI_ASK_CHOICES_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5684,6 +8551,29 @@ impl<'a> ServiceUiAsk<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
         write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceUiAsk<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_ASK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiAsk<'a> {
+    const TAG: u32 = SERVICE_UI_ASK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_text` record.
@@ -5708,14 +8598,18 @@ pub struct ServiceUiText<'a> {
 
 impl<'a> ServiceUiText<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiText)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiText(Self {
+        Ok(Self {
             text: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
             total: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             data: body.string(SERVICE_UI_TEXT_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5736,6 +8630,29 @@ impl<'a> ServiceUiText<'a> {
         write_blob(self.data.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceUiText<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_TEXT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiText<'a> {
+    const TAG: u32 = SERVICE_UI_TEXT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.ui_text_at` record.
 pub const SERVICE_UI_TEXT_AT_TAG: u32 = 1051;
 
@@ -5750,11 +8667,15 @@ pub struct ServiceUiTextAt {
 
 impl ServiceUiTextAt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiTextAt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiTextAt(Self {
+        Ok(Self {
             text: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5767,6 +8688,29 @@ impl ServiceUiTextAt {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.text.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiTextAt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_TEXT_AT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiTextAt {
+    const TAG: u32 = SERVICE_UI_TEXT_AT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_answer` record.
@@ -5785,12 +8729,16 @@ pub struct ServiceUiAnswer {
 
 impl ServiceUiAnswer {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiAnswer)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiAnswer(Self {
+        Ok(Self {
             request: u32::from_le_bytes(body.scalar()?),
             outcome: u32::from_le_bytes(body.scalar()?),
             choice: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5805,6 +8753,29 @@ impl ServiceUiAnswer {
         write_bytes(&self.request.to_le_bytes(), out, offset);
         write_bytes(&self.outcome.to_le_bytes(), out, offset);
         write_bytes(&self.choice.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiAnswer {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_ANSWER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiAnswer {
+    const TAG: u32 = SERVICE_UI_ANSWER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_widget_area` record.
@@ -5827,14 +8798,18 @@ pub struct ServiceUiWidgetArea {
 
 impl ServiceUiWidgetArea {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiWidgetArea)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiWidgetArea(Self {
+        Ok(Self {
             instance: u32::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5855,6 +8830,29 @@ impl ServiceUiWidgetArea {
         write_bytes(&self.height.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for ServiceUiWidgetArea {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_WIDGET_AREA_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiWidgetArea {
+    const TAG: u32 = SERVICE_UI_WIDGET_AREA_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.ui_size` record.
 pub const SERVICE_UI_SIZE_TAG: u32 = 1054;
 
@@ -5869,11 +8867,15 @@ pub struct ServiceUiSize {
 
 impl ServiceUiSize {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiSize)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiSize(Self {
+        Ok(Self {
             height: u32::from_le_bytes(body.scalar()?),
             min_height: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5886,6 +8888,29 @@ impl ServiceUiSize {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.height.to_le_bytes(), out, offset);
         write_bytes(&self.min_height.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiSize {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_SIZE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiSize {
+    const TAG: u32 = SERVICE_UI_SIZE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_status_ask` record.
@@ -5912,11 +8937,15 @@ pub struct ServiceUiStatusAsk<'a> {
 
 impl<'a> ServiceUiStatusAsk<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiStatusAsk)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiStatusAsk(Self {
+        Ok(Self {
             items: body.string(SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES)?,
             context: body.blob(SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5929,6 +8958,29 @@ impl<'a> ServiceUiStatusAsk<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.items.as_bytes(), out, offset);
         write_blob(self.context, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceUiStatusAsk<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_STATUS_ASK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiStatusAsk<'a> {
+    const TAG: u32 = SERVICE_UI_STATUS_ASK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_status_value` record.
@@ -5953,13 +9005,17 @@ pub struct ServiceUiStatusValue<'a> {
 
 impl<'a> ServiceUiStatusValue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiStatusValue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiStatusValue(Self {
+        Ok(Self {
             item: body.string(SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             handle: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -5976,6 +9032,29 @@ impl<'a> ServiceUiStatusValue<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.handle.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceUiStatusValue<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_STATUS_VALUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiStatusValue<'a> {
+    const TAG: u32 = SERVICE_UI_STATUS_VALUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.ui_param` record.
@@ -5996,11 +9075,15 @@ pub struct ServiceUiParam<'a> {
 
 impl<'a> ServiceUiParam<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiParam)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiParam(Self {
+        Ok(Self {
             key: body.string(SERVICE_UI_PARAM_KEY_MAX_BYTES)?,
             value: body.string(SERVICE_UI_PARAM_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6015,6 +9098,29 @@ impl<'a> ServiceUiParam<'a> {
         write_blob(self.value.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceUiParam<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_PARAM_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiParam<'a> {
+    const TAG: u32 = SERVICE_UI_PARAM_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.ui_handle` record.
 pub const SERVICE_UI_HANDLE_TAG: u32 = 1058;
 
@@ -6027,10 +9133,14 @@ pub struct ServiceUiHandle {
 
 impl ServiceUiHandle {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceUiHandle)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceUiHandle(Self {
+        Ok(Self {
             handle: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6041,6 +9151,29 @@ impl ServiceUiHandle {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.handle.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceUiHandle {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_UI_HANDLE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceUiHandle {
+    const TAG: u32 = SERVICE_UI_HANDLE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `format.spec` record.
@@ -6077,15 +9210,19 @@ pub struct FormatSpec<'a> {
 
 impl<'a> FormatSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::FormatSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::FormatSpec(Self {
+        Ok(Self {
             name: body.string(FORMAT_SPEC_NAME_MAX_BYTES)?,
             title: body.string(FORMAT_SPEC_TITLE_MAX_BYTES)?,
             extensions: body.string(FORMAT_SPEC_EXTENSIONS_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             priority: i32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6106,6 +9243,29 @@ impl<'a> FormatSpec<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.priority.to_le_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for FormatSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        FORMAT_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for FormatSpec<'a> {
+    const TAG: u32 = FORMAT_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `reader.spec` record.
@@ -6138,13 +9298,17 @@ pub struct ReaderSpec<'a> {
 
 impl<'a> ReaderSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ReaderSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ReaderSpec(Self {
+        Ok(Self {
             name: body.string(READER_SPEC_NAME_MAX_BYTES)?,
             screen: body.string(READER_SPEC_SCREEN_MAX_BYTES)?,
             formats: body.string(READER_SPEC_FORMATS_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6161,6 +9325,29 @@ impl<'a> ReaderSpec<'a> {
         write_blob(self.screen.as_bytes(), out, offset);
         write_blob(self.formats.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ReaderSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        READER_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ReaderSpec<'a> {
+    const TAG: u32 = READER_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_open` record.
@@ -6195,8 +9382,12 @@ pub struct ServiceDocOpen<'a> {
 
 impl<'a> ServiceDocOpen<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocOpen)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocOpen(Self {
+        Ok(Self {
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_DOC_OPEN_PATH_MAX_BYTES)?,
             format: body.string(SERVICE_DOC_OPEN_FORMAT_MAX_BYTES)?,
@@ -6205,7 +9396,7 @@ impl<'a> ServiceDocOpen<'a> {
             cover_side: u32::from_le_bytes(body.scalar()?),
             css_root: u32::from_le_bytes(body.scalar()?),
             css_path: body.string(SERVICE_DOC_OPEN_CSS_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6232,6 +9423,29 @@ impl<'a> ServiceDocOpen<'a> {
         write_blob(self.css_path.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocOpen<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_OPEN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocOpen<'a> {
+    const TAG: u32 = SERVICE_DOC_OPEN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_option` record.
 pub const SERVICE_DOC_OPTION_TAG: u32 = 1061;
 /// Maximum bytes of `service.doc_option.key`.
@@ -6250,11 +9464,15 @@ pub struct ServiceDocOption<'a> {
 
 impl<'a> ServiceDocOption<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocOption)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocOption(Self {
+        Ok(Self {
             key: body.string(SERVICE_DOC_OPTION_KEY_MAX_BYTES)?,
             value: body.string(SERVICE_DOC_OPTION_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6267,6 +9485,29 @@ impl<'a> ServiceDocOption<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.key.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocOption<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_OPTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocOption<'a> {
+    const TAG: u32 = SERVICE_DOC_OPTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_state` record.
@@ -6295,8 +9536,12 @@ pub struct ServiceDocState<'a> {
 
 impl<'a> ServiceDocState<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocState)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocState(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
             progress_ppm: u32::from_le_bytes(body.scalar()?),
@@ -6304,7 +9549,7 @@ impl<'a> ServiceDocState<'a> {
             flags: u32::from_le_bytes(body.scalar()?),
             conversion: u64::from_le_bytes(body.scalar()?),
             format: body.string(SERVICE_DOC_STATE_FORMAT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6329,6 +9574,29 @@ impl<'a> ServiceDocState<'a> {
         write_blob(self.format.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocState<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_STATE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocState<'a> {
+    const TAG: u32 = SERVICE_DOC_STATE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_ref` record.
 pub const SERVICE_DOC_REF_TAG: u32 = 1063;
 
@@ -6341,10 +9609,14 @@ pub struct ServiceDocRef {
 
 impl ServiceDocRef {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocRef)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocRef(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6355,6 +9627,29 @@ impl ServiceDocRef {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.document.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocRef {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_REF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocRef {
+    const TAG: u32 = SERVICE_DOC_REF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_meta` record.
@@ -6397,8 +9692,12 @@ pub struct ServiceDocMeta<'a> {
 
 impl<'a> ServiceDocMeta<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocMeta)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocMeta(Self {
+        Ok(Self {
             title: body.string(SERVICE_DOC_META_TITLE_MAX_BYTES)?,
             language: body.string(SERVICE_DOC_META_LANGUAGE_MAX_BYTES)?,
             series: body.string(SERVICE_DOC_META_SERIES_MAX_BYTES)?,
@@ -6410,7 +9709,7 @@ impl<'a> ServiceDocMeta<'a> {
             subjects: u32::from_le_bytes(body.scalar()?),
             description_bytes: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6446,6 +9745,29 @@ impl<'a> ServiceDocMeta<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocMeta<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_META_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocMeta<'a> {
+    const TAG: u32 = SERVICE_DOC_META_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_text` record.
 pub const SERVICE_DOC_TEXT_TAG: u32 = 1065;
 /// Maximum bytes of `service.doc_text.text`.
@@ -6466,13 +9788,17 @@ pub struct ServiceDocText<'a> {
 
 impl<'a> ServiceDocText<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocText)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocText(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             total: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_DOC_TEXT_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6489,6 +9815,29 @@ impl<'a> ServiceDocText<'a> {
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.total.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocText<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_TEXT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocText<'a> {
+    const TAG: u32 = SERVICE_DOC_TEXT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_text_at` record.
@@ -6509,13 +9858,17 @@ pub struct ServiceDocTextAt {
 
 impl ServiceDocTextAt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocTextAt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocTextAt(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6532,6 +9885,29 @@ impl ServiceDocTextAt {
         write_bytes(&self.kind.to_le_bytes(), out, offset);
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocTextAt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_TEXT_AT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocTextAt {
+    const TAG: u32 = SERVICE_DOC_TEXT_AT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_page` record.
@@ -6554,13 +9930,17 @@ pub struct ServiceDocPage<'a> {
 
 impl<'a> ServiceDocPage<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocPage)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocPage(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             scope: body.string(SERVICE_DOC_PAGE_SCOPE_MAX_BYTES)?,
             cursor: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6579,6 +9959,29 @@ impl<'a> ServiceDocPage<'a> {
         write_bytes(&self.generation.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocPage<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_PAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocPage<'a> {
+    const TAG: u32 = SERVICE_DOC_PAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_section` record.
 pub const SERVICE_DOC_SECTION_TAG: u32 = 1068;
 
@@ -6595,12 +9998,16 @@ pub struct ServiceDocSection {
 
 impl ServiceDocSection {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocSection)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocSection(Self {
+        Ok(Self {
             index: u32::from_le_bytes(body.scalar()?),
             length: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6615,6 +10022,29 @@ impl ServiceDocSection {
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.length.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocSection {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_SECTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocSection {
+    const TAG: u32 = SERVICE_DOC_SECTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_at` record.
@@ -6639,15 +10069,19 @@ pub struct ServiceDocAt {
 
 impl ServiceDocAt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocAt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocAt(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
             insert: u32::from_le_bytes(body.scalar()?),
             cursor: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6668,6 +10102,29 @@ impl ServiceDocAt {
         write_bytes(&self.insert.to_le_bytes(), out, offset);
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
         write_bytes(&self.generation.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocAt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_AT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocAt {
+    const TAG: u32 = SERVICE_DOC_AT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_toc` record.
@@ -6694,15 +10151,19 @@ pub struct ServiceDocToc<'a> {
 
 impl<'a> ServiceDocToc<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocToc)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocToc(Self {
+        Ok(Self {
             index: u32::from_le_bytes(body.scalar()?),
             level: u32::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_DOC_TOC_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6725,6 +10186,29 @@ impl<'a> ServiceDocToc<'a> {
         write_blob(self.title.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocToc<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_TOC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocToc<'a> {
+    const TAG: u32 = SERVICE_DOC_TOC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_index` record.
 pub const SERVICE_DOC_INDEX_TAG: u32 = 1071;
 
@@ -6739,11 +10223,15 @@ pub struct ServiceDocIndex {
 
 impl ServiceDocIndex {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocIndex)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocIndex(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6756,6 +10244,29 @@ impl ServiceDocIndex {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.document.to_le_bytes(), out, offset);
         write_bytes(&self.index.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocIndex {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_INDEX_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocIndex {
+    const TAG: u32 = SERVICE_DOC_INDEX_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_label` record.
@@ -6772,10 +10283,14 @@ pub struct ServiceDocLabel<'a> {
 
 impl<'a> ServiceDocLabel<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocLabel)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocLabel(Self {
+        Ok(Self {
             text: body.string(SERVICE_DOC_LABEL_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6786,6 +10301,29 @@ impl<'a> ServiceDocLabel<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocLabel<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_LABEL_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocLabel<'a> {
+    const TAG: u32 = SERVICE_DOC_LABEL_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_xpointer` record.
@@ -6804,11 +10342,15 @@ pub struct ServiceDocXpointer<'a> {
 
 impl<'a> ServiceDocXpointer<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocXpointer)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocXpointer(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_DOC_XPOINTER_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6821,6 +10363,29 @@ impl<'a> ServiceDocXpointer<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.document.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocXpointer<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_XPOINTER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocXpointer<'a> {
+    const TAG: u32 = SERVICE_DOC_XPOINTER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_span` record.
@@ -6845,15 +10410,19 @@ pub struct ServiceDocSpan {
 
 impl ServiceDocSpan {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocSpan)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocSpan(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             section: u32::from_le_bytes(body.scalar()?),
             from: u32::from_le_bytes(body.scalar()?),
             to: u32::from_le_bytes(body.scalar()?),
             cursor: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6876,6 +10445,29 @@ impl ServiceDocSpan {
         write_bytes(&self.generation.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for ServiceDocSpan {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_SPAN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocSpan {
+    const TAG: u32 = SERVICE_DOC_SPAN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_link` record.
 pub const SERVICE_DOC_LINK_TAG: u32 = 1075;
 /// Maximum bytes of `service.doc_link.href`.
@@ -6896,13 +10488,17 @@ pub struct ServiceDocLink<'a> {
 
 impl<'a> ServiceDocLink<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocLink)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocLink(Self {
+        Ok(Self {
             start: u32::from_le_bytes(body.scalar()?),
             end: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             href: body.string(SERVICE_DOC_LINK_HREF_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6921,6 +10517,29 @@ impl<'a> ServiceDocLink<'a> {
         write_blob(self.href.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocLink<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_LINK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocLink<'a> {
+    const TAG: u32 = SERVICE_DOC_LINK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_href` record.
 pub const SERVICE_DOC_HREF_TAG: u32 = 1076;
 /// Maximum bytes of `service.doc_href.href`.
@@ -6937,11 +10556,15 @@ pub struct ServiceDocHref<'a> {
 
 impl<'a> ServiceDocHref<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocHref)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocHref(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             href: body.string(SERVICE_DOC_HREF_HREF_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6954,6 +10577,29 @@ impl<'a> ServiceDocHref<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.document.to_le_bytes(), out, offset);
         write_blob(self.href.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocHref<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_HREF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocHref<'a> {
+    const TAG: u32 = SERVICE_DOC_HREF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_font` record.
@@ -6974,13 +10620,17 @@ pub struct ServiceDocFont {
 
 impl ServiceDocFont {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocFont)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocFont(Self {
+        Ok(Self {
             index: u32::from_le_bytes(body.scalar()?),
             family: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             bytes: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -6997,6 +10647,29 @@ impl ServiceDocFont {
         write_bytes(&self.family.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.bytes.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocFont {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_FONT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocFont {
+    const TAG: u32 = SERVICE_DOC_FONT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_format` record.
@@ -7031,14 +10704,18 @@ pub struct ServiceDocFormat<'a> {
 
 impl<'a> ServiceDocFormat<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocFormat)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocFormat(Self {
+        Ok(Self {
             id: body.string(SERVICE_DOC_FORMAT_ID_MAX_BYTES)?,
             title: body.string(SERVICE_DOC_FORMAT_TITLE_MAX_BYTES)?,
             extensions: body.string(SERVICE_DOC_FORMAT_EXTENSIONS_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             priority: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7062,6 +10739,29 @@ impl<'a> ServiceDocFormat<'a> {
         write_bytes(&self.priority.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocFormat<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_FORMAT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocFormat<'a> {
+    const TAG: u32 = SERVICE_DOC_FORMAT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_path` record.
 pub const SERVICE_DOC_PATH_TAG: u32 = 1079;
 /// Maximum bytes of `service.doc_path.path`.
@@ -7080,12 +10780,16 @@ pub struct ServiceDocPath<'a> {
 
 impl<'a> ServiceDocPath<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocPath)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocPath(Self {
+        Ok(Self {
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_DOC_PATH_PATH_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7100,6 +10804,29 @@ impl<'a> ServiceDocPath<'a> {
         write_bytes(&self.root.to_le_bytes(), out, offset);
         write_blob(self.path.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocPath<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_PATH_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocPath<'a> {
+    const TAG: u32 = SERVICE_DOC_PATH_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_reader` record.
@@ -7134,13 +10861,17 @@ pub struct ServiceDocReader<'a> {
 
 impl<'a> ServiceDocReader<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocReader)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocReader(Self {
+        Ok(Self {
             id: body.string(SERVICE_DOC_READER_ID_MAX_BYTES)?,
             screen: body.string(SERVICE_DOC_READER_SCREEN_MAX_BYTES)?,
             formats: body.string(SERVICE_DOC_READER_FORMATS_MAX_BYTES)?,
             title: body.string(SERVICE_DOC_READER_TITLE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7159,6 +10890,29 @@ impl<'a> ServiceDocReader<'a> {
         write_blob(self.title.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocReader<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_READER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocReader<'a> {
+    const TAG: u32 = SERVICE_DOC_READER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_progress` record.
 pub const SERVICE_DOC_PROGRESS_TAG: u32 = 1081;
 
@@ -7171,10 +10925,14 @@ pub struct ServiceDocProgress {
 
 impl ServiceDocProgress {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocProgress)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocProgress(Self {
+        Ok(Self {
             progress_ppm: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7185,6 +10943,29 @@ impl ServiceDocProgress {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocProgress {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_PROGRESS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocProgress {
+    const TAG: u32 = SERVICE_DOC_PROGRESS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_block` record.
@@ -7233,8 +11014,12 @@ pub struct ServiceDocBlock<'a> {
 
 impl<'a> ServiceDocBlock<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocBlock)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocBlock(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             level: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -7252,7 +11037,7 @@ impl<'a> ServiceDocBlock<'a> {
             lang: body.string(SERVICE_DOC_BLOCK_LANG_MAX_BYTES)?,
             drop_cap: u32::from_le_bytes(body.scalar()?),
             text_bytes: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7297,6 +11082,29 @@ impl<'a> ServiceDocBlock<'a> {
         write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocBlock<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_BLOCK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocBlock<'a> {
+    const TAG: u32 = SERVICE_DOC_BLOCK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_text_part` record.
 pub const SERVICE_DOC_TEXT_PART_TAG: u32 = 1090;
 /// Maximum bytes of `service.doc_text_part.text`.
@@ -7311,10 +11119,14 @@ pub struct ServiceDocTextPart<'a> {
 
 impl<'a> ServiceDocTextPart<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocTextPart)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocTextPart(Self {
+        Ok(Self {
             text: body.string(SERVICE_DOC_TEXT_PART_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7325,6 +11137,29 @@ impl<'a> ServiceDocTextPart<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocTextPart<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_TEXT_PART_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocTextPart<'a> {
+    const TAG: u32 = SERVICE_DOC_TEXT_PART_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_columns` record.
@@ -7341,10 +11176,14 @@ pub struct ServiceDocColumns<'a> {
 
 impl<'a> ServiceDocColumns<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocColumns)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocColumns(Self {
+        Ok(Self {
             weights: body.blob(SERVICE_DOC_COLUMNS_WEIGHTS_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7355,6 +11194,29 @@ impl<'a> ServiceDocColumns<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.weights, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocColumns<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_COLUMNS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocColumns<'a> {
+    const TAG: u32 = SERVICE_DOC_COLUMNS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_run` record.
@@ -7373,12 +11235,16 @@ pub struct ServiceDocRun {
 
 impl ServiceDocRun {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocRun)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocRun(Self {
+        Ok(Self {
             start: u32::from_le_bytes(body.scalar()?),
             end: u32::from_le_bytes(body.scalar()?),
             style: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7395,6 +11261,29 @@ impl ServiceDocRun {
         write_bytes(&self.style.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for ServiceDocRun {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_RUN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocRun {
+    const TAG: u32 = SERVICE_DOC_RUN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_map` record.
 pub const SERVICE_DOC_MAP_TAG: u32 = 1084;
 
@@ -7409,11 +11298,15 @@ pub struct ServiceDocMap {
 
 impl ServiceDocMap {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocMap)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocMap(Self {
+        Ok(Self {
             text: u32::from_le_bytes(body.scalar()?),
             source: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7426,6 +11319,29 @@ impl ServiceDocMap {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.text.to_le_bytes(), out, offset);
         write_bytes(&self.source.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocMap {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_MAP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocMap {
+    const TAG: u32 = SERVICE_DOC_MAP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_cell` record.
@@ -7450,15 +11366,19 @@ pub struct ServiceDocCell {
 
 impl ServiceDocCell {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocCell)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocCell(Self {
+        Ok(Self {
             end: u32::from_le_bytes(body.scalar()?),
             span: u32::from_le_bytes(body.scalar()?),
             rows: u32::from_le_bytes(body.scalar()?),
             align: u32::from_le_bytes(body.scalar()?),
             vertical: u32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7479,6 +11399,29 @@ impl ServiceDocCell {
         write_bytes(&self.align.to_le_bytes(), out, offset);
         write_bytes(&self.vertical.to_le_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocCell {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_CELL_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocCell {
+    const TAG: u32 = SERVICE_DOC_CELL_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_ruby` record.
@@ -7503,14 +11446,18 @@ pub struct ServiceDocRuby<'a> {
 
 impl<'a> ServiceDocRuby<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocRuby)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocRuby(Self {
+        Ok(Self {
             start: u32::from_le_bytes(body.scalar()?),
             end: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             size: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_DOC_RUBY_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7531,6 +11478,29 @@ impl<'a> ServiceDocRuby<'a> {
         write_blob(self.text.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDocRuby<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_RUBY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocRuby<'a> {
+    const TAG: u32 = SERVICE_DOC_RUBY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_inline_lang` record.
 pub const SERVICE_DOC_INLINE_LANG_TAG: u32 = 1087;
 /// Maximum bytes of `service.doc_inline_lang.lang`.
@@ -7545,10 +11515,14 @@ pub struct ServiceDocInlineLang<'a> {
 
 impl<'a> ServiceDocInlineLang<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocInlineLang)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocInlineLang(Self {
+        Ok(Self {
             lang: body.string(SERVICE_DOC_INLINE_LANG_LANG_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7559,6 +11533,29 @@ impl<'a> ServiceDocInlineLang<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.lang.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDocInlineLang<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_INLINE_LANG_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocInlineLang<'a> {
+    const TAG: u32 = SERVICE_DOC_INLINE_LANG_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.doc_image` record.
@@ -7581,14 +11578,18 @@ pub struct ServiceDocImage {
 
 impl ServiceDocImage {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocImage)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocImage(Self {
+        Ok(Self {
             image: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7609,6 +11610,29 @@ impl ServiceDocImage {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for ServiceDocImage {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_IMAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocImage {
+    const TAG: u32 = SERVICE_DOC_IMAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.doc_image_ask` record.
 pub const SERVICE_DOC_IMAGE_ASK_TAG: u32 = 1089;
 
@@ -7625,12 +11649,16 @@ pub struct ServiceDocImageAsk {
 
 impl ServiceDocImageAsk {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocImageAsk)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDocImageAsk(Self {
+        Ok(Self {
             document: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             side: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7645,6 +11673,29 @@ impl ServiceDocImageAsk {
         write_bytes(&self.document.to_le_bytes(), out, offset);
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.side.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDocImageAsk {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_IMAGE_ASK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocImageAsk {
+    const TAG: u32 = SERVICE_DOC_IMAGE_ASK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.image_ready` record.
@@ -7669,15 +11720,19 @@ pub struct EventImageReady {
 
 impl EventImageReady {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventImageReady)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventImageReady(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             cookie: u32::from_le_bytes(body.scalar()?),
             status: u32::from_le_bytes(body.scalar()?),
             image: u32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7698,6 +11753,29 @@ impl EventImageReady {
         write_bytes(&self.image.to_le_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventImageReady {
+    fn wire_tag(&self) -> u32 {
+        EVENT_IMAGE_READY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventImageReady {
+    const TAG: u32 = EVENT_IMAGE_READY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `lookup.spec` record.
@@ -7732,14 +11810,18 @@ pub struct LookupSpec<'a> {
 
 impl<'a> LookupSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::LookupSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::LookupSpec(Self {
+        Ok(Self {
             name: body.string(LOOKUP_SPEC_NAME_MAX_BYTES)?,
             title: body.string(LOOKUP_SPEC_TITLE_MAX_BYTES)?,
             languages: body.string(LOOKUP_SPEC_LANGUAGES_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7758,6 +11840,29 @@ impl<'a> LookupSpec<'a> {
         write_blob(self.languages.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for LookupSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        LOOKUP_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for LookupSpec<'a> {
+    const TAG: u32 = LOOKUP_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lookup_ask` record.
@@ -7784,13 +11889,17 @@ pub struct ServiceLookupAsk<'a> {
 
 impl<'a> ServiceLookupAsk<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLookupAsk)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLookupAsk(Self {
+        Ok(Self {
             text: body.string(SERVICE_LOOKUP_ASK_TEXT_MAX_BYTES)?,
             language: body.string(SERVICE_LOOKUP_ASK_LANGUAGE_MAX_BYTES)?,
             context: body.string(SERVICE_LOOKUP_ASK_CONTEXT_MAX_BYTES)?,
             cursor: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7807,6 +11916,29 @@ impl<'a> ServiceLookupAsk<'a> {
         write_blob(self.language.as_bytes(), out, offset);
         write_blob(self.context.as_bytes(), out, offset);
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLookupAsk<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LOOKUP_ASK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLookupAsk<'a> {
+    const TAG: u32 = SERVICE_LOOKUP_ASK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lookup_entry` record.
@@ -7833,13 +11965,17 @@ pub struct ServiceLookupEntry<'a> {
 
 impl<'a> ServiceLookupEntry<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLookupEntry)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLookupEntry(Self {
+        Ok(Self {
             provider: body.string(SERVICE_LOOKUP_ENTRY_PROVIDER_MAX_BYTES)?,
             title: body.string(SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES)?,
             text: body.string(SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7856,6 +11992,29 @@ impl<'a> ServiceLookupEntry<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLookupEntry<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LOOKUP_ENTRY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLookupEntry<'a> {
+    const TAG: u32 = SERVICE_LOOKUP_ENTRY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `book_field.spec` record.
@@ -7878,12 +12037,16 @@ pub struct BookFieldSpec<'a> {
 
 impl<'a> BookFieldSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::BookFieldSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::BookFieldSpec(Self {
+        Ok(Self {
             name: body.string(BOOK_FIELD_SPEC_NAME_MAX_BYTES)?,
             title: body.string(BOOK_FIELD_SPEC_TITLE_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7898,6 +12061,29 @@ impl<'a> BookFieldSpec<'a> {
         write_blob(self.name.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for BookFieldSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        BOOK_FIELD_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for BookFieldSpec<'a> {
+    const TAG: u32 = BOOK_FIELD_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `book_badge.spec` record.
@@ -7918,12 +12104,16 @@ pub struct BookBadgeSpec<'a> {
 
 impl<'a> BookBadgeSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::BookBadgeSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::BookBadgeSpec(Self {
+        Ok(Self {
             name: body.string(BOOK_BADGE_SPEC_NAME_MAX_BYTES)?,
             token: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7938,6 +12128,29 @@ impl<'a> BookBadgeSpec<'a> {
         write_blob(self.name.as_bytes(), out, offset);
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for BookBadgeSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        BOOK_BADGE_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for BookBadgeSpec<'a> {
+    const TAG: u32 = BOOK_BADGE_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `book_data.spec` record.
@@ -7956,11 +12169,15 @@ pub struct BookDataSpec<'a> {
 
 impl<'a> BookDataSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::BookDataSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::BookDataSpec(Self {
+        Ok(Self {
             name: body.string(BOOK_DATA_SPEC_NAME_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -7973,6 +12190,29 @@ impl<'a> BookDataSpec<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
         write_bytes(&self.kind.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for BookDataSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        BOOK_DATA_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for BookDataSpec<'a> {
+    const TAG: u32 = BOOK_DATA_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.library_changed` record.
@@ -7995,13 +12235,17 @@ pub struct EventLibraryChanged<'a> {
 
 impl<'a> EventLibraryChanged<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventLibraryChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventLibraryChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             what: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             path: body.string(EVENT_LIBRARY_CHANGED_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8018,6 +12262,29 @@ impl<'a> EventLibraryChanged<'a> {
         write_bytes(&self.what.to_le_bytes(), out, offset);
         write_bytes(&self.generation.to_le_bytes(), out, offset);
         write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventLibraryChanged<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_LIBRARY_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventLibraryChanged<'a> {
+    const TAG: u32 = EVENT_LIBRARY_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_state` record.
@@ -8038,13 +12305,17 @@ pub struct ServiceLibState {
 
 impl ServiceLibState {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibState)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibState(Self {
+        Ok(Self {
             state: u32::from_le_bytes(body.scalar()?),
             books: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             walk_ppm: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8061,6 +12332,29 @@ impl ServiceLibState {
         write_bytes(&self.books.to_le_bytes(), out, offset);
         write_bytes(&self.generation.to_le_bytes(), out, offset);
         write_bytes(&self.walk_ppm.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibState {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_STATE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibState {
+    const TAG: u32 = SERVICE_LIB_STATE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_query` record.
@@ -8107,8 +12401,12 @@ pub struct ServiceLibQuery<'a> {
 
 impl<'a> ServiceLibQuery<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibQuery)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibQuery(Self {
+        Ok(Self {
             show: u32::from_le_bytes(body.scalar()?),
             sort: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -8121,7 +12419,7 @@ impl<'a> ServiceLibQuery<'a> {
             cursor: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             facet: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8154,6 +12452,29 @@ impl<'a> ServiceLibQuery<'a> {
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
         write_bytes(&self.generation.to_le_bytes(), out, offset);
         write_bytes(&self.facet.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibQuery<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_QUERY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibQuery<'a> {
+    const TAG: u32 = SERVICE_LIB_QUERY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_entry` record.
@@ -8200,8 +12521,12 @@ pub struct ServiceLibEntry<'a> {
 
 impl<'a> ServiceLibEntry<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibEntry)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibEntry(Self {
+        Ok(Self {
             key: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_LIB_ENTRY_TITLE_MAX_BYTES)?,
             author: body.string(SERVICE_LIB_ENTRY_AUTHOR_MAX_BYTES)?,
@@ -8211,7 +12536,7 @@ impl<'a> ServiceLibEntry<'a> {
             flags: u32::from_le_bytes(body.scalar()?),
             added: u32::from_le_bytes(body.scalar()?),
             badges: body.string(SERVICE_LIB_ENTRY_BADGES_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8240,6 +12565,29 @@ impl<'a> ServiceLibEntry<'a> {
         write_blob(self.badges.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibEntry<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_ENTRY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibEntry<'a> {
+    const TAG: u32 = SERVICE_LIB_ENTRY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_ref` record.
 pub const SERVICE_LIB_REF_TAG: u32 = 1097;
 /// Maximum bytes of `service.lib_ref.path`.
@@ -8258,12 +12606,16 @@ pub struct ServiceLibRef<'a> {
 
 impl<'a> ServiceLibRef<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibRef)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::ServiceLibRef(Self {
+        Ok(Self {
             path: body.string(SERVICE_LIB_REF_PATH_MAX_BYTES)?,
             generation: u32::from_le_bytes(body.scalar()?),
             key: body.maybe_u32(bits, 0x01)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -8292,6 +12644,33 @@ impl<'a> ServiceLibRef<'a> {
         if let Some(value) = self.key {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
+    }
+}
+
+impl<'a> WireEncode for ServiceLibRef<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_REF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibRef<'a> {
+    const TAG: u32 = SERVICE_LIB_REF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_book` record.
@@ -8350,8 +12729,12 @@ pub struct ServiceLibBook<'a> {
 
 impl<'a> ServiceLibBook<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibBook)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibBook(Self {
+        Ok(Self {
             key: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_LIB_BOOK_PATH_MAX_BYTES)?,
@@ -8369,7 +12752,7 @@ impl<'a> ServiceLibBook<'a> {
             title_bytes: u32::from_le_bytes(body.scalar()?),
             author_bytes: u32::from_le_bytes(body.scalar()?),
             series_bytes: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8414,6 +12797,29 @@ impl<'a> ServiceLibBook<'a> {
         write_bytes(&self.series_bytes.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibBook<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_BOOK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibBook<'a> {
+    const TAG: u32 = SERVICE_LIB_BOOK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_text_at` record.
 pub const SERVICE_LIB_TEXT_AT_TAG: u32 = 1099;
 
@@ -8430,12 +12836,16 @@ pub struct ServiceLibTextAt {
 
 impl ServiceLibTextAt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibTextAt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibTextAt(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8450,6 +12860,29 @@ impl ServiceLibTextAt {
         write_bytes(&self.kind.to_le_bytes(), out, offset);
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibTextAt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_TEXT_AT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibTextAt {
+    const TAG: u32 = SERVICE_LIB_TEXT_AT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_text` record.
@@ -8472,13 +12905,17 @@ pub struct ServiceLibText<'a> {
 
 impl<'a> ServiceLibText<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibText)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibText(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             index: u32::from_le_bytes(body.scalar()?),
             total: u32::from_le_bytes(body.scalar()?),
             text: body.string(SERVICE_LIB_TEXT_TEXT_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8495,6 +12932,29 @@ impl<'a> ServiceLibText<'a> {
         write_bytes(&self.index.to_le_bytes(), out, offset);
         write_bytes(&self.total.to_le_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibText<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_TEXT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibText<'a> {
+    const TAG: u32 = SERVICE_LIB_TEXT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_facet` record.
@@ -8515,12 +12975,16 @@ pub struct ServiceLibFacet<'a> {
 
 impl<'a> ServiceLibFacet<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibFacet)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibFacet(Self {
+        Ok(Self {
             text: body.string(SERVICE_LIB_FACET_TEXT_MAX_BYTES)?,
             count: u32::from_le_bytes(body.scalar()?),
             first: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8537,6 +13001,29 @@ impl<'a> ServiceLibFacet<'a> {
         write_bytes(&self.first.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibFacet<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_FACET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibFacet<'a> {
+    const TAG: u32 = SERVICE_LIB_FACET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_cover` record.
 pub const SERVICE_LIB_COVER_TAG: u32 = 1102;
 
@@ -8549,10 +13036,14 @@ pub struct ServiceLibCover {
 
 impl ServiceLibCover {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibCover)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibCover(Self {
+        Ok(Self {
             side: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8563,6 +13054,29 @@ impl ServiceLibCover {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.side.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibCover {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_COVER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibCover {
+    const TAG: u32 = SERVICE_LIB_COVER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_status` record.
@@ -8579,11 +13093,15 @@ pub struct ServiceLibStatus {
 
 impl ServiceLibStatus {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibStatus)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibStatus(Self {
+        Ok(Self {
             set: u32::from_le_bytes(body.scalar()?),
             clear: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8596,6 +13114,29 @@ impl ServiceLibStatus {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.set.to_le_bytes(), out, offset);
         write_bytes(&self.clear.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibStatus {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_STATUS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibStatus {
+    const TAG: u32 = SERVICE_LIB_STATUS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_paths` record.
@@ -8620,11 +13161,15 @@ pub struct ServiceLibPaths<'a> {
 
 impl<'a> ServiceLibPaths<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibPaths)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibPaths(Self {
+        Ok(Self {
             paths: body.string(SERVICE_LIB_PATHS_PATHS_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8637,6 +13182,29 @@ impl<'a> ServiceLibPaths<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.paths.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibPaths<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_PATHS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibPaths<'a> {
+    const TAG: u32 = SERVICE_LIB_PATHS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_result` record.
@@ -8657,12 +13225,16 @@ pub struct ServiceLibResult<'a> {
 
 impl<'a> ServiceLibResult<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibResult)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibResult(Self {
+        Ok(Self {
             path: body.string(SERVICE_LIB_RESULT_PATH_MAX_BYTES)?,
             status: i32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8677,6 +13249,29 @@ impl<'a> ServiceLibResult<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_bytes(&self.status.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibResult<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_RESULT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibResult<'a> {
+    const TAG: u32 = SERVICE_LIB_RESULT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_move` record.
@@ -8699,12 +13294,16 @@ pub struct ServiceLibMove<'a> {
 
 impl<'a> ServiceLibMove<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibMove)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibMove(Self {
+        Ok(Self {
             from: body.string(SERVICE_LIB_MOVE_FROM_MAX_BYTES)?,
             to: body.string(SERVICE_LIB_MOVE_TO_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8719,6 +13318,29 @@ impl<'a> ServiceLibMove<'a> {
         write_blob(self.from.as_bytes(), out, offset);
         write_blob(self.to.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibMove<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_MOVE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibMove<'a> {
+    const TAG: u32 = SERVICE_LIB_MOVE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_import` record.
@@ -8745,13 +13367,17 @@ pub struct ServiceLibImport<'a> {
 
 impl<'a> ServiceLibImport<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibImport)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibImport(Self {
+        Ok(Self {
             from: body.string(SERVICE_LIB_IMPORT_FROM_MAX_BYTES)?,
             folder: body.string(SERVICE_LIB_IMPORT_FOLDER_MAX_BYTES)?,
             name: body.string(SERVICE_LIB_IMPORT_NAME_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8768,6 +13394,29 @@ impl<'a> ServiceLibImport<'a> {
         write_blob(self.folder.as_bytes(), out, offset);
         write_blob(self.name.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibImport<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_IMPORT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibImport<'a> {
+    const TAG: u32 = SERVICE_LIB_IMPORT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_position` record.
@@ -8798,8 +13447,12 @@ pub struct ServiceLibPosition<'a> {
 
 impl<'a> ServiceLibPosition<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibPosition)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibPosition(Self {
+        Ok(Self {
             section: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
             insert: u32::from_le_bytes(body.scalar()?),
@@ -8808,7 +13461,7 @@ impl<'a> ServiceLibPosition<'a> {
             updated: u64::from_le_bytes(body.scalar()?),
             xpointer: body.string(SERVICE_LIB_POSITION_XPOINTER_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8835,6 +13488,29 @@ impl<'a> ServiceLibPosition<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibPosition<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_POSITION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibPosition<'a> {
+    const TAG: u32 = SERVICE_LIB_POSITION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_position_set` record.
 pub const SERVICE_LIB_POSITION_SET_TAG: u32 = 1109;
 
@@ -8847,10 +13523,14 @@ pub struct ServiceLibPositionSet {
 
 impl ServiceLibPositionSet {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibPositionSet)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibPositionSet(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8861,6 +13541,29 @@ impl ServiceLibPositionSet {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibPositionSet {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_POSITION_SET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibPositionSet {
+    const TAG: u32 = SERVICE_LIB_POSITION_SET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_page` record.
@@ -8877,11 +13580,15 @@ pub struct ServiceLibPage {
 
 impl ServiceLibPage {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibPage)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibPage(Self {
+        Ok(Self {
             cursor: u32::from_le_bytes(body.scalar()?),
             annotation_generation: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8894,6 +13601,29 @@ impl ServiceLibPage {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
         write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibPage {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_PAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibPage {
+    const TAG: u32 = SERVICE_LIB_PAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_annotation` record.
@@ -8940,8 +13670,12 @@ pub struct ServiceLibAnnotation<'a> {
 
 impl<'a> ServiceLibAnnotation<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibAnnotation)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibAnnotation(Self {
+        Ok(Self {
             id: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             start_section: u32::from_le_bytes(body.scalar()?),
@@ -8956,7 +13690,7 @@ impl<'a> ServiceLibAnnotation<'a> {
             client_key: body.string(SERVICE_LIB_ANNOTATION_CLIENT_KEY_MAX_BYTES)?,
             text: body.string(SERVICE_LIB_ANNOTATION_TEXT_MAX_BYTES)?,
             note: body.string(SERVICE_LIB_ANNOTATION_NOTE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -8998,6 +13732,29 @@ impl<'a> ServiceLibAnnotation<'a> {
         write_blob(self.note.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibAnnotation<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_ANNOTATION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibAnnotation<'a> {
+    const TAG: u32 = SERVICE_LIB_ANNOTATION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_anchor` record.
 pub const SERVICE_LIB_ANCHOR_TAG: u32 = 1112;
 /// Maximum bytes of `service.lib_anchor.start`.
@@ -9022,14 +13779,18 @@ pub struct ServiceLibAnchor<'a> {
 
 impl<'a> ServiceLibAnchor<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibAnchor)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibAnchor(Self {
+        Ok(Self {
             id: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             conversion: u64::from_le_bytes(body.scalar()?),
             start: body.string(SERVICE_LIB_ANCHOR_START_MAX_BYTES)?,
             end: body.string(SERVICE_LIB_ANCHOR_END_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9050,6 +13811,29 @@ impl<'a> ServiceLibAnchor<'a> {
         write_blob(self.end.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibAnchor<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_ANCHOR_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibAnchor<'a> {
+    const TAG: u32 = SERVICE_LIB_ANCHOR_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_edit_head` record.
 pub const SERVICE_LIB_EDIT_HEAD_TAG: u32 = 1113;
 
@@ -9062,10 +13846,14 @@ pub struct ServiceLibEditHead {
 
 impl ServiceLibEditHead {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibEditHead)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibEditHead(Self {
+        Ok(Self {
             annotation_generation: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9076,6 +13864,29 @@ impl ServiceLibEditHead {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibEditHead {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_EDIT_HEAD_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibEditHead {
+    const TAG: u32 = SERVICE_LIB_EDIT_HEAD_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_transaction` record.
@@ -9090,10 +13901,14 @@ pub struct ServiceLibTransaction {
 
 impl ServiceLibTransaction {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibTransaction)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibTransaction(Self {
+        Ok(Self {
             transaction: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9104,6 +13919,29 @@ impl ServiceLibTransaction {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.transaction.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibTransaction {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_TRANSACTION_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibTransaction {
+    const TAG: u32 = SERVICE_LIB_TRANSACTION_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_transaction_ref` record.
@@ -9118,10 +13956,14 @@ pub struct ServiceLibTransactionRef {
 
 impl ServiceLibTransactionRef {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibTransactionRef)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibTransactionRef(Self {
+        Ok(Self {
             transaction: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9132,6 +13974,29 @@ impl ServiceLibTransactionRef {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.transaction.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibTransactionRef {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_TRANSACTION_REF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibTransactionRef {
+    const TAG: u32 = SERVICE_LIB_TRANSACTION_REF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_edit` record.
@@ -9184,8 +14049,12 @@ pub struct ServiceLibEdit<'a> {
 
 impl<'a> ServiceLibEdit<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibEdit)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibEdit(Self {
+        Ok(Self {
             action: u32::from_le_bytes(body.scalar()?),
             id: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
@@ -9203,7 +14072,7 @@ impl<'a> ServiceLibEdit<'a> {
             note: body.string(SERVICE_LIB_EDIT_NOTE_MAX_BYTES)?,
             text_bytes: u32::from_le_bytes(body.scalar()?),
             note_bytes: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9248,6 +14117,29 @@ impl<'a> ServiceLibEdit<'a> {
         write_bytes(&self.note_bytes.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibEdit<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_EDIT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibEdit<'a> {
+    const TAG: u32 = SERVICE_LIB_EDIT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_edit_text` record.
 pub const SERVICE_LIB_EDIT_TEXT_TAG: u32 = 1117;
 /// Maximum bytes of `service.lib_edit_text.data`.
@@ -9272,15 +14164,19 @@ pub struct ServiceLibEditText<'a> {
 
 impl<'a> ServiceLibEditText<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibEditText)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibEditText(Self {
+        Ok(Self {
             transaction: u32::from_le_bytes(body.scalar()?),
             edit: u32::from_le_bytes(body.scalar()?),
             field: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             data: body.string(SERVICE_LIB_EDIT_TEXT_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9303,6 +14199,29 @@ impl<'a> ServiceLibEditText<'a> {
         write_blob(self.data.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibEditText<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_EDIT_TEXT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibEditText<'a> {
+    const TAG: u32 = SERVICE_LIB_EDIT_TEXT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_committed` record.
 pub const SERVICE_LIB_COMMITTED_TAG: u32 = 1118;
 
@@ -9321,13 +14240,17 @@ pub struct ServiceLibCommitted {
 
 impl ServiceLibCommitted {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibCommitted)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibCommitted(Self {
+        Ok(Self {
             transaction: u32::from_le_bytes(body.scalar()?),
             annotation_generation: u32::from_le_bytes(body.scalar()?),
             edits: u32::from_le_bytes(body.scalar()?),
             added: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9344,6 +14267,29 @@ impl ServiceLibCommitted {
         write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
         write_bytes(&self.edits.to_le_bytes(), out, offset);
         write_bytes(&self.added.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibCommitted {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_COMMITTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibCommitted {
+    const TAG: u32 = SERVICE_LIB_COMMITTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_field` record.
@@ -9368,12 +14314,16 @@ pub struct ServiceLibField<'a> {
 
 impl<'a> ServiceLibField<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibField)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibField(Self {
+        Ok(Self {
             id: body.string(SERVICE_LIB_FIELD_ID_MAX_BYTES)?,
             title: body.string(SERVICE_LIB_FIELD_TITLE_MAX_BYTES)?,
             value: body.string(SERVICE_LIB_FIELD_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9388,6 +14338,29 @@ impl<'a> ServiceLibField<'a> {
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibField<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_FIELD_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibField<'a> {
+    const TAG: u32 = SERVICE_LIB_FIELD_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_field_set` record.
@@ -9408,11 +14381,15 @@ pub struct ServiceLibFieldSet<'a> {
 
 impl<'a> ServiceLibFieldSet<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibFieldSet)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibFieldSet(Self {
+        Ok(Self {
             field: body.string(SERVICE_LIB_FIELD_SET_FIELD_MAX_BYTES)?,
             value: body.string(SERVICE_LIB_FIELD_SET_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9425,6 +14402,29 @@ impl<'a> ServiceLibFieldSet<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.field.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceLibFieldSet<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_FIELD_SET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibFieldSet<'a> {
+    const TAG: u32 = SERVICE_LIB_FIELD_SET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_provided` record.
@@ -9465,15 +14465,19 @@ pub struct ServiceLibProvided<'a> {
 
 impl<'a> ServiceLibProvided<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibProvided)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibProvided(Self {
+        Ok(Self {
             title: body.string(SERVICE_LIB_PROVIDED_TITLE_MAX_BYTES)?,
             author: body.string(SERVICE_LIB_PROVIDED_AUTHOR_MAX_BYTES)?,
             series: body.string(SERVICE_LIB_PROVIDED_SERIES_MAX_BYTES)?,
             number: body.string(SERVICE_LIB_PROVIDED_NUMBER_MAX_BYTES)?,
             tags: body.string(SERVICE_LIB_PROVIDED_TAGS_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9496,6 +14500,29 @@ impl<'a> ServiceLibProvided<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibProvided<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_PROVIDED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibProvided<'a> {
+    const TAG: u32 = SERVICE_LIB_PROVIDED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_key` record.
 pub const SERVICE_LIB_KEY_TAG: u32 = 1122;
 /// Maximum bytes of `service.lib_key.key`.
@@ -9516,12 +14543,16 @@ pub struct ServiceLibKey<'a> {
 
 impl<'a> ServiceLibKey<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibKey)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibKey(Self {
+        Ok(Self {
             key: body.string(SERVICE_LIB_KEY_KEY_MAX_BYTES)?,
             fingerprint: body.string(SERVICE_LIB_KEY_FINGERPRINT_MAX_BYTES)?,
             size: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9541,6 +14572,29 @@ impl<'a> ServiceLibKey<'a> {
         write_bytes(&self.size.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceLibKey<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_KEY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibKey<'a> {
+    const TAG: u32 = SERVICE_LIB_KEY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.lib_receipt_ask` record.
 pub const SERVICE_LIB_RECEIPT_ASK_TAG: u32 = 1123;
 
@@ -9555,11 +14609,15 @@ pub struct ServiceLibReceiptAsk {
 
 impl ServiceLibReceiptAsk {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibReceiptAsk)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibReceiptAsk(Self {
+        Ok(Self {
             transaction: u32::from_le_bytes(body.scalar()?),
             cursor: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9572,6 +14630,29 @@ impl ServiceLibReceiptAsk {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.transaction.to_le_bytes(), out, offset);
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibReceiptAsk {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_RECEIPT_ASK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibReceiptAsk {
+    const TAG: u32 = SERVICE_LIB_RECEIPT_ASK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.lib_receipt` record.
@@ -9590,12 +14671,16 @@ pub struct ServiceLibReceipt {
 
 impl ServiceLibReceipt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibReceipt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceLibReceipt(Self {
+        Ok(Self {
             edit: u32::from_le_bytes(body.scalar()?),
             id: u32::from_le_bytes(body.scalar()?),
             action: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9610,6 +14695,29 @@ impl ServiceLibReceipt {
         write_bytes(&self.edit.to_le_bytes(), out, offset);
         write_bytes(&self.id.to_le_bytes(), out, offset);
         write_bytes(&self.action.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibReceipt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_RECEIPT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibReceipt {
+    const TAG: u32 = SERVICE_LIB_RECEIPT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_device` record.
@@ -9648,8 +14756,12 @@ pub struct ServiceDevDevice<'a> {
 
 impl<'a> ServiceDevDevice<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevDevice)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevDevice(Self {
+        Ok(Self {
             id: body.string(SERVICE_DEV_DEVICE_ID_MAX_BYTES)?,
             model: body.string(SERVICE_DEV_DEVICE_MODEL_MAX_BYTES)?,
             catalog: body.string(SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES)?,
@@ -9660,7 +14772,7 @@ impl<'a> ServiceDevDevice<'a> {
             start: u32::from_le_bytes(body.scalar()?),
             slept_ms: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9691,6 +14803,29 @@ impl<'a> ServiceDevDevice<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevDevice<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_DEVICE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevDevice<'a> {
+    const TAG: u32 = SERVICE_DEV_DEVICE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_value` record.
 pub const SERVICE_DEV_VALUE_TAG: u32 = 1126;
 /// Maximum bytes of `service.dev_value.name`.
@@ -9707,11 +14842,15 @@ pub struct ServiceDevValue<'a> {
 
 impl<'a> ServiceDevValue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevValue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevValue(Self {
+        Ok(Self {
             name: body.string(SERVICE_DEV_VALUE_NAME_MAX_BYTES)?,
             value: i32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9724,6 +14863,29 @@ impl<'a> ServiceDevValue<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
         write_bytes(&self.value.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDevValue<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_VALUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevValue<'a> {
+    const TAG: u32 = SERVICE_DEV_VALUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_firmware` record.
@@ -9760,8 +14922,12 @@ pub struct ServiceDevFirmware<'a> {
 
 impl<'a> ServiceDevFirmware<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevFirmware)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevFirmware(Self {
+        Ok(Self {
             version: body.string(SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?,
             project: body.string(SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?,
             chip: u32::from_le_bytes(body.scalar()?),
@@ -9772,7 +14938,7 @@ impl<'a> ServiceDevFirmware<'a> {
             total: u64::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9803,6 +14969,29 @@ impl<'a> ServiceDevFirmware<'a> {
         write_bytes(&self.request.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevFirmware<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_FIRMWARE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevFirmware<'a> {
+    const TAG: u32 = SERVICE_DEV_FIRMWARE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_builtin` record.
 pub const SERVICE_DEV_BUILTIN_TAG: u32 = 1128;
 /// Maximum bytes of `service.dev_builtin.id`.
@@ -9821,11 +15010,15 @@ pub struct ServiceDevBuiltin<'a> {
 
 impl<'a> ServiceDevBuiltin<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevBuiltin)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevBuiltin(Self {
+        Ok(Self {
             id: body.string(SERVICE_DEV_BUILTIN_ID_MAX_BYTES)?,
             version: body.string(SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9838,6 +15031,29 @@ impl<'a> ServiceDevBuiltin<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.version.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDevBuiltin<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_BUILTIN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevBuiltin<'a> {
+    const TAG: u32 = SERVICE_DEV_BUILTIN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_native` record.
@@ -9878,8 +15094,12 @@ pub struct ServiceDevNative<'a> {
 
 impl<'a> ServiceDevNative<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevNative)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevNative(Self {
+        Ok(Self {
             abi_major: u32::from_le_bytes(body.scalar()?),
             abi_draft: u32::from_le_bytes(body.scalar()?),
             target: u32::from_le_bytes(body.scalar()?),
@@ -9891,7 +15111,7 @@ impl<'a> ServiceDevNative<'a> {
             not_installed: u32::from_le_bytes(body.scalar()?),
             room_free: u64::from_le_bytes(body.scalar()?),
             room_largest: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -9925,6 +15145,29 @@ impl<'a> ServiceDevNative<'a> {
         write_bytes(&self.not_installed.to_le_bytes(), out, offset);
         write_bytes(&self.room_free.to_le_bytes(), out, offset);
         write_bytes(&self.room_largest.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDevNative<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_NATIVE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevNative<'a> {
+    const TAG: u32 = SERVICE_DEV_NATIVE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_check` record.
@@ -9965,8 +15208,12 @@ pub struct ServiceDevCheck<'a> {
 
 impl<'a> ServiceDevCheck<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevCheck)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::ServiceDevCheck(Self {
+        Ok(Self {
             reason: u32::from_le_bytes(body.scalar()?),
             needs_draft: u32::from_le_bytes(body.scalar()?),
             bytes: u64::from_le_bytes(body.scalar()?),
@@ -9976,7 +15223,7 @@ impl<'a> ServiceDevCheck<'a> {
             version: body.string(SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             sha256: body.opt_blob(bits, 0x01, SERVICE_DEV_CHECK_SHA256_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -10020,6 +15267,33 @@ impl<'a> ServiceDevCheck<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for ServiceDevCheck<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_CHECK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevCheck<'a> {
+    const TAG: u32 = SERVICE_DEV_CHECK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_memory` record.
 pub const SERVICE_DEV_MEMORY_TAG: u32 = 1131;
 
@@ -10046,8 +15320,12 @@ pub struct ServiceDevMemory {
 
 impl ServiceDevMemory {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevMemory)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevMemory(Self {
+        Ok(Self {
             heap_free: u32::from_le_bytes(body.scalar()?),
             heap_size: u32::from_le_bytes(body.scalar()?),
             largest: u32::from_le_bytes(body.scalar()?),
@@ -10056,7 +15334,7 @@ impl ServiceDevMemory {
             external_free: u32::from_le_bytes(body.scalar()?),
             external_size: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10081,6 +15359,29 @@ impl ServiceDevMemory {
         write_bytes(&self.external_free.to_le_bytes(), out, offset);
         write_bytes(&self.external_size.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDevMemory {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_MEMORY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevMemory {
+    const TAG: u32 = SERVICE_DEV_MEMORY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_wifi` record.
@@ -10111,15 +15412,19 @@ pub struct ServiceDevWifi<'a> {
 
 impl<'a> ServiceDevWifi<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevWifi)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevWifi(Self {
+        Ok(Self {
             state: u32::from_le_bytes(body.scalar()?),
             ssid: body.string(SERVICE_DEV_WIFI_SSID_MAX_BYTES)?,
             address: body.string(SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES)?,
             host_name: body.string(SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES)?,
             guests: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10142,6 +15447,29 @@ impl<'a> ServiceDevWifi<'a> {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevWifi<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_WIFI_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevWifi<'a> {
+    const TAG: u32 = SERVICE_DEV_WIFI_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_network` record.
 pub const SERVICE_DEV_NETWORK_TAG: u32 = 1133;
 /// Maximum bytes of `service.dev_network.ssid`.
@@ -10160,12 +15488,16 @@ pub struct ServiceDevNetwork<'a> {
 
 impl<'a> ServiceDevNetwork<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevNetwork)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevNetwork(Self {
+        Ok(Self {
             ssid: body.string(SERVICE_DEV_NETWORK_SSID_MAX_BYTES)?,
             signal: i32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10180,6 +15512,29 @@ impl<'a> ServiceDevNetwork<'a> {
         write_blob(self.ssid.as_bytes(), out, offset);
         write_bytes(&self.signal.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDevNetwork<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_NETWORK_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevNetwork<'a> {
+    const TAG: u32 = SERVICE_DEV_NETWORK_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_bluetooth` record.
@@ -10198,12 +15553,16 @@ pub struct ServiceDevBluetooth {
 
 impl ServiceDevBluetooth {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevBluetooth)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevBluetooth(Self {
+        Ok(Self {
             radio: u32::from_le_bytes(body.scalar()?),
             max_links: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10218,6 +15577,29 @@ impl ServiceDevBluetooth {
         write_bytes(&self.radio.to_le_bytes(), out, offset);
         write_bytes(&self.max_links.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDevBluetooth {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_BLUETOOTH_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevBluetooth {
+    const TAG: u32 = SERVICE_DEV_BLUETOOTH_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_bonded` record.
@@ -10244,14 +15626,18 @@ pub struct ServiceDevBonded<'a> {
 
 impl<'a> ServiceDevBonded<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevBonded)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevBonded(Self {
+        Ok(Self {
             device: u32::from_le_bytes(body.scalar()?),
             name: body.string(SERVICE_DEV_BONDED_NAME_MAX_BYTES)?,
             kind: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             given: body.string(SERVICE_DEV_BONDED_GIVEN_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10272,6 +15658,29 @@ impl<'a> ServiceDevBonded<'a> {
         write_blob(self.given.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevBonded<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_BONDED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevBonded<'a> {
+    const TAG: u32 = SERVICE_DEV_BONDED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_interval` record.
 pub const SERVICE_DEV_INTERVAL_TAG: u32 = 1136;
 
@@ -10284,10 +15693,14 @@ pub struct ServiceDevInterval {
 
 impl ServiceDevInterval {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevInterval)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevInterval(Self {
+        Ok(Self {
             base_ms: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10298,6 +15711,29 @@ impl ServiceDevInterval {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.base_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDevInterval {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_INTERVAL_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevInterval {
+    const TAG: u32 = SERVICE_DEV_INTERVAL_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_power` record.
@@ -10322,14 +15758,18 @@ pub struct ServiceDevPower<'a> {
 
 impl<'a> ServiceDevPower<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevPower)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevPower(Self {
+        Ok(Self {
             level: u32::from_le_bytes(body.scalar()?),
             mode: body.string(SERVICE_DEV_POWER_MODE_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             stretch: u32::from_le_bytes(body.scalar()?),
             every_ms: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10350,6 +15790,29 @@ impl<'a> ServiceDevPower<'a> {
         write_bytes(&self.every_ms.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevPower<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_POWER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevPower<'a> {
+    const TAG: u32 = SERVICE_DEV_POWER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_request` record.
 pub const SERVICE_DEV_REQUEST_TAG: u32 = 1138;
 
@@ -10362,10 +15825,14 @@ pub struct ServiceDevRequest {
 
 impl ServiceDevRequest {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevRequest)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevRequest(Self {
+        Ok(Self {
             request: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10376,6 +15843,29 @@ impl ServiceDevRequest {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.request.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceDevRequest {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_REQUEST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevRequest {
+    const TAG: u32 = SERVICE_DEV_REQUEST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.dev_install` record.
@@ -10408,8 +15898,12 @@ pub struct ServiceDevInstall<'a> {
 
 impl<'a> ServiceDevInstall<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevInstall)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevInstall(Self {
+        Ok(Self {
             request: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
@@ -10419,7 +15913,7 @@ impl<'a> ServiceDevInstall<'a> {
             done: u64::from_le_bytes(body.scalar()?),
             total: u64::from_le_bytes(body.scalar()?),
             id: body.string(SERVICE_DEV_INSTALL_ID_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10448,6 +15942,29 @@ impl<'a> ServiceDevInstall<'a> {
         write_blob(self.id.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevInstall<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_INSTALL_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevInstall<'a> {
+    const TAG: u32 = SERVICE_DEV_INSTALL_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_not_installed` record.
 pub const SERVICE_DEV_NOT_INSTALLED_TAG: u32 = 1140;
 /// Maximum bytes of `service.dev_not_installed.plugin`.
@@ -10464,11 +15981,15 @@ pub struct ServiceDevNotInstalled<'a> {
 
 impl<'a> ServiceDevNotInstalled<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevNotInstalled)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevNotInstalled(Self {
+        Ok(Self {
             plugin: body.string(SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES)?,
             reason: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10486,6 +16007,29 @@ impl<'a> ServiceDevNotInstalled<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceDevNotInstalled<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_NOT_INSTALLED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevNotInstalled<'a> {
+    const TAG: u32 = SERVICE_DEV_NOT_INSTALLED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.dev_key` record.
 pub const SERVICE_DEV_KEY_TAG: u32 = 1141;
 /// Maximum bytes of `service.dev_key.name`.
@@ -10500,10 +16044,14 @@ pub struct ServiceDevKey<'a> {
 
 impl<'a> ServiceDevKey<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDevKey)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceDevKey(Self {
+        Ok(Self {
             name: body.string(SERVICE_DEV_KEY_NAME_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10514,6 +16062,29 @@ impl<'a> ServiceDevKey<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceDevKey<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DEV_KEY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDevKey<'a> {
+    const TAG: u32 = SERVICE_DEV_KEY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.wifi_scanned` record.
@@ -10530,11 +16101,15 @@ pub struct EventWifiScanned {
 
 impl EventWifiScanned {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWifiScanned)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWifiScanned(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             networks: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10547,6 +16122,29 @@ impl EventWifiScanned {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.networks.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventWifiScanned {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIFI_SCANNED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWifiScanned {
+    const TAG: u32 = EVENT_WIFI_SCANNED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.wifi_done` record.
@@ -10573,15 +16171,19 @@ pub struct EventWifiDone<'a> {
 
 impl<'a> EventWifiDone<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWifiDone)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWifiDone(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             ssid: body.string(EVENT_WIFI_DONE_SSID_MAX_BYTES)?,
             status: i32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10604,6 +16206,29 @@ impl<'a> EventWifiDone<'a> {
         write_bytes(&self.state.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventWifiDone<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WIFI_DONE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWifiDone<'a> {
+    const TAG: u32 = EVENT_WIFI_DONE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.network_wanted` record.
 pub const EVENT_NETWORK_WANTED_TAG: u32 = 94;
 
@@ -10616,10 +16241,14 @@ pub struct EventNetworkWanted {
 
 impl EventNetworkWanted {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventNetworkWanted)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventNetworkWanted(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10630,6 +16259,29 @@ impl EventNetworkWanted {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventNetworkWanted {
+    fn wire_tag(&self) -> u32 {
+        EVENT_NETWORK_WANTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventNetworkWanted {
+    const TAG: u32 = EVENT_NETWORK_WANTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.network_idle` record.
@@ -10644,10 +16296,14 @@ pub struct EventNetworkIdle {
 
 impl EventNetworkIdle {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventNetworkIdle)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventNetworkIdle(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10658,6 +16314,29 @@ impl EventNetworkIdle {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventNetworkIdle {
+    fn wire_tag(&self) -> u32 {
+        EVENT_NETWORK_IDLE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventNetworkIdle {
+    const TAG: u32 = EVENT_NETWORK_IDLE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.firmware_changed` record.
@@ -10676,12 +16355,16 @@ pub struct EventFirmwareChanged {
 
 impl EventFirmwareChanged {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventFirmwareChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventFirmwareChanged(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10696,6 +16379,29 @@ impl EventFirmwareChanged {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.request.to_le_bytes(), out, offset);
         write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventFirmwareChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_FIRMWARE_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventFirmwareChanged {
+    const TAG: u32 = EVENT_FIRMWARE_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.install_done` record.
@@ -10724,8 +16430,12 @@ pub struct EventInstallDone<'a> {
 
 impl<'a> EventInstallDone<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventInstallDone)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventInstallDone(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
@@ -10733,7 +16443,7 @@ impl<'a> EventInstallDone<'a> {
             reason: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             id: body.string(EVENT_INSTALL_DONE_ID_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10756,6 +16466,29 @@ impl<'a> EventInstallDone<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.id.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventInstallDone<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_INSTALL_DONE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventInstallDone<'a> {
+    const TAG: u32 = EVENT_INSTALL_DONE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.bluetooth` record.
@@ -10784,8 +16517,12 @@ pub struct EventBluetooth<'a> {
 
 impl<'a> EventBluetooth<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBluetooth)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventBluetooth(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             device: u32::from_le_bytes(body.scalar()?),
@@ -10793,7 +16530,7 @@ impl<'a> EventBluetooth<'a> {
             device_kind: u32::from_le_bytes(body.scalar()?),
             signal: i32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10818,6 +16555,29 @@ impl<'a> EventBluetooth<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventBluetooth<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BLUETOOTH_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBluetooth<'a> {
+    const TAG: u32 = EVENT_BLUETOOTH_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.fs_path` record.
 pub const SERVICE_FS_PATH_TAG: u32 = 1142;
 /// Maximum bytes of `service.fs_path.path`.
@@ -10834,11 +16594,15 @@ pub struct ServiceFsPath<'a> {
 
 impl<'a> ServiceFsPath<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsPath)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceFsPath(Self {
+        Ok(Self {
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_FS_PATH_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10851,6 +16615,29 @@ impl<'a> ServiceFsPath<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.root.to_le_bytes(), out, offset);
         write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceFsPath<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_PATH_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsPath<'a> {
+    const TAG: u32 = SERVICE_FS_PATH_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.fs_list` record.
@@ -10873,13 +16660,17 @@ pub struct ServiceFsList<'a> {
 
 impl<'a> ServiceFsList<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsList)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceFsList(Self {
+        Ok(Self {
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_FS_LIST_PATH_MAX_BYTES)?,
             cursor: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10896,6 +16687,29 @@ impl<'a> ServiceFsList<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceFsList<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_LIST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsList<'a> {
+    const TAG: u32 = SERVICE_FS_LIST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.fs_move` record.
@@ -10922,14 +16736,18 @@ pub struct ServiceFsMove<'a> {
 
 impl<'a> ServiceFsMove<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsMove)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceFsMove(Self {
+        Ok(Self {
             from_root: u32::from_le_bytes(body.scalar()?),
             from: body.string(SERVICE_FS_MOVE_FROM_MAX_BYTES)?,
             to_root: u32::from_le_bytes(body.scalar()?),
             to: body.string(SERVICE_FS_MOVE_TO_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -10948,6 +16766,29 @@ impl<'a> ServiceFsMove<'a> {
         write_bytes(&self.to_root.to_le_bytes(), out, offset);
         write_blob(self.to.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceFsMove<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_MOVE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsMove<'a> {
+    const TAG: u32 = SERVICE_FS_MOVE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.fs_entry` record.
@@ -10970,13 +16811,17 @@ pub struct ServiceFsEntry<'a> {
 
 impl<'a> ServiceFsEntry<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsEntry)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         let bits = body.bitmap_bits()?;
-        Ok(Record::ServiceFsEntry(Self {
+        Ok(Self {
             name: body.string(SERVICE_FS_ENTRY_NAME_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             size: u64::from_le_bytes(body.scalar()?),
             modified: body.maybe_u64(bits, 0x01)?,
-        }))
+        })
     }
 
     fn bits(&self) -> u8 {
@@ -11009,6 +16854,33 @@ impl<'a> ServiceFsEntry<'a> {
         }
     }
 }
+
+impl<'a> WireEncode for ServiceFsEntry<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_ENTRY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsEntry<'a> {
+    const TAG: u32 = SERVICE_FS_ENTRY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.fs_space` record.
 pub const SERVICE_FS_SPACE_TAG: u32 = 1146;
 
@@ -11025,12 +16897,16 @@ pub struct ServiceFsSpace {
 
 impl ServiceFsSpace {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsSpace)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceFsSpace(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             free: u64::from_le_bytes(body.scalar()?),
             total: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11045,6 +16921,29 @@ impl ServiceFsSpace {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.free.to_le_bytes(), out, offset);
         write_bytes(&self.total.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceFsSpace {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_SPACE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsSpace {
+    const TAG: u32 = SERVICE_FS_SPACE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.fs_progress` record.
@@ -11063,12 +16962,16 @@ pub struct ServiceFsProgress {
 
 impl ServiceFsProgress {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceFsProgress)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceFsProgress(Self {
+        Ok(Self {
             removed: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             next: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11083,6 +16986,29 @@ impl ServiceFsProgress {
         write_bytes(&self.removed.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.next.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceFsProgress {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_FS_PROGRESS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceFsProgress {
+    const TAG: u32 = SERVICE_FS_PROGRESS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.http_done` record.
@@ -11109,8 +17035,12 @@ pub struct EventHttpDone {
 
 impl EventHttpDone {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventHttpDone)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventHttpDone(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             id: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
@@ -11118,7 +17048,7 @@ impl EventHttpDone {
             reason: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             body_len: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11143,6 +17073,29 @@ impl EventHttpDone {
         write_bytes(&self.body_len.to_le_bytes(), out, offset);
     }
 }
+
+impl WireEncode for EventHttpDone {
+    fn wire_tag(&self) -> u32 {
+        EVENT_HTTP_DONE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventHttpDone {
+    const TAG: u32 = EVENT_HTTP_DONE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.http_progress` record.
 pub const EVENT_HTTP_PROGRESS_TAG: u32 = 100;
 
@@ -11165,15 +17118,19 @@ pub struct EventHttpProgress {
 
 impl EventHttpProgress {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventHttpProgress)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventHttpProgress(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             id: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             received: u64::from_le_bytes(body.scalar()?),
             total: u64::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11194,6 +17151,29 @@ impl EventHttpProgress {
         write_bytes(&self.received.to_le_bytes(), out, offset);
         write_bytes(&self.total.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventHttpProgress {
+    fn wire_tag(&self) -> u32 {
+        EVENT_HTTP_PROGRESS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventHttpProgress {
+    const TAG: u32 = EVENT_HTTP_PROGRESS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.server` record.
@@ -11218,14 +17198,18 @@ pub struct EventServer<'a> {
 
 impl<'a> EventServer<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventServer)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventServer(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             server: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             address: body.string(EVENT_SERVER_ADDRESS_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11244,6 +17228,29 @@ impl<'a> EventServer<'a> {
         write_bytes(&self.state.to_le_bytes(), out, offset);
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_blob(self.address.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventServer<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SERVER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventServer<'a> {
+    const TAG: u32 = EVENT_SERVER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.served_request` record.
@@ -11274,8 +17281,12 @@ pub struct EventServedRequest<'a> {
 
 impl<'a> EventServedRequest<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventServedRequest)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventServedRequest(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             server: u32::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
@@ -11283,7 +17294,7 @@ impl<'a> EventServedRequest<'a> {
             target: body.string(EVENT_SERVED_REQUEST_TARGET_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             body_len: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11306,6 +17317,29 @@ impl<'a> EventServedRequest<'a> {
         write_blob(self.target.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.body_len.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventServedRequest<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SERVED_REQUEST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventServedRequest<'a> {
+    const TAG: u32 = EVENT_SERVED_REQUEST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_request` record.
@@ -11336,8 +17370,12 @@ pub struct ServiceNetRequest<'a> {
 
 impl<'a> ServiceNetRequest<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetRequest)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetRequest(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             method: body.string(SERVICE_NET_REQUEST_METHOD_MAX_BYTES)?,
             url: body.string(SERVICE_NET_REQUEST_URL_MAX_BYTES)?,
@@ -11345,7 +17383,7 @@ impl<'a> ServiceNetRequest<'a> {
             timeout_ms: u32::from_le_bytes(body.scalar()?),
             max_body: u32::from_le_bytes(body.scalar()?),
             max_file: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11368,6 +17406,29 @@ impl<'a> ServiceNetRequest<'a> {
         write_bytes(&self.timeout_ms.to_le_bytes(), out, offset);
         write_bytes(&self.max_body.to_le_bytes(), out, offset);
         write_bytes(&self.max_file.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceNetRequest<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_REQUEST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetRequest<'a> {
+    const TAG: u32 = SERVICE_NET_REQUEST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_header` record.
@@ -11397,11 +17458,15 @@ impl core::fmt::Debug for ServiceNetHeader<'_> {
 
 impl<'a> ServiceNetHeader<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetHeader)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetHeader(Self {
+        Ok(Self {
             name: body.string(SERVICE_NET_HEADER_NAME_MAX_BYTES)?,
             value: body.string(SERVICE_NET_HEADER_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11414,6 +17479,29 @@ impl<'a> ServiceNetHeader<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.name.as_bytes(), out, offset);
         write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceNetHeader<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_HEADER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetHeader<'a> {
+    const TAG: u32 = SERVICE_NET_HEADER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_file` record.
@@ -11434,12 +17522,16 @@ pub struct ServiceNetFile<'a> {
 
 impl<'a> ServiceNetFile<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetFile)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetFile(Self {
+        Ok(Self {
             role: u32::from_le_bytes(body.scalar()?),
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_NET_FILE_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11456,6 +17548,29 @@ impl<'a> ServiceNetFile<'a> {
         write_blob(self.path.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceNetFile<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_FILE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetFile<'a> {
+    const TAG: u32 = SERVICE_NET_FILE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.net_body` record.
 pub const SERVICE_NET_BODY_TAG: u32 = 1151;
 /// Maximum bytes of `service.net_body.data`.
@@ -11470,10 +17585,14 @@ pub struct ServiceNetBody<'a> {
 
 impl<'a> ServiceNetBody<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetBody)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetBody(Self {
+        Ok(Self {
             data: body.blob(SERVICE_NET_BODY_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11484,6 +17603,29 @@ impl<'a> ServiceNetBody<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.data, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceNetBody<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_BODY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetBody<'a> {
+    const TAG: u32 = SERVICE_NET_BODY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_started` record.
@@ -11498,10 +17640,14 @@ pub struct ServiceNetStarted {
 
 impl ServiceNetStarted {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetStarted)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetStarted(Self {
+        Ok(Self {
             id: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11512,6 +17658,29 @@ impl ServiceNetStarted {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.id.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceNetStarted {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_STARTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetStarted {
+    const TAG: u32 = SERVICE_NET_STARTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_token` record.
@@ -11526,10 +17695,14 @@ pub struct ServiceNetToken {
 
 impl ServiceNetToken {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetToken)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetToken(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11540,6 +17713,29 @@ impl ServiceNetToken {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.token.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceNetToken {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_TOKEN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetToken {
+    const TAG: u32 = SERVICE_NET_TOKEN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_id` record.
@@ -11554,10 +17750,14 @@ pub struct ServiceNetId {
 
 impl ServiceNetId {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetId)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetId(Self {
+        Ok(Self {
             id: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11568,6 +17768,29 @@ impl ServiceNetId {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.id.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceNetId {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_ID_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetId {
+    const TAG: u32 = SERVICE_NET_ID_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_answer` record.
@@ -11598,15 +17821,19 @@ pub struct ServiceNetAnswer<'a> {
 
 impl<'a> ServiceNetAnswer<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetAnswer)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetAnswer(Self {
+        Ok(Self {
             status: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             body_len: u32::from_le_bytes(body.scalar()?),
             etag: body.string(SERVICE_NET_ANSWER_ETAG_MAX_BYTES)?,
             content_type: body.string(SERVICE_NET_ANSWER_CONTENT_TYPE_MAX_BYTES)?,
             final_url: body.string(SERVICE_NET_ANSWER_FINAL_URL_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11632,6 +17859,29 @@ impl<'a> ServiceNetAnswer<'a> {
         write_blob(self.final_url.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceNetAnswer<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_ANSWER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetAnswer<'a> {
+    const TAG: u32 = SERVICE_NET_ANSWER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.net_read` record.
 pub const SERVICE_NET_READ_TAG: u32 = 1156;
 
@@ -11646,11 +17896,15 @@ pub struct ServiceNetRead {
 
 impl ServiceNetRead {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetRead)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetRead(Self {
+        Ok(Self {
             id: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11663,6 +17917,29 @@ impl ServiceNetRead {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.id.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceNetRead {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_READ_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetRead {
+    const TAG: u32 = SERVICE_NET_READ_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_bytes` record.
@@ -11679,10 +17956,14 @@ pub struct ServiceNetBytes<'a> {
 
 impl<'a> ServiceNetBytes<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetBytes)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetBytes(Self {
+        Ok(Self {
             data: body.blob(SERVICE_NET_BYTES_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11693,6 +17974,29 @@ impl<'a> ServiceNetBytes<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.data, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceNetBytes<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_BYTES_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetBytes<'a> {
+    const TAG: u32 = SERVICE_NET_BYTES_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_serve` record.
@@ -11713,13 +18017,17 @@ pub struct ServiceNetServe {
 
 impl ServiceNetServe {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetServe)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetServe(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             port: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
             max_body: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11736,6 +18044,29 @@ impl ServiceNetServe {
         write_bytes(&self.port.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.max_body.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceNetServe {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_SERVE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetServe {
+    const TAG: u32 = SERVICE_NET_SERVE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.net_response` record.
@@ -11756,12 +18087,16 @@ pub struct ServiceNetResponse<'a> {
 
 impl<'a> ServiceNetResponse<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceNetResponse)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceNetResponse(Self {
+        Ok(Self {
             request: u32::from_le_bytes(body.scalar()?),
             status: u32::from_le_bytes(body.scalar()?),
             content_type: body.string(SERVICE_NET_RESPONSE_CONTENT_TYPE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11779,6 +18114,29 @@ impl<'a> ServiceNetResponse<'a> {
         write_bytes(&self.request.to_le_bytes(), out, offset);
         write_bytes(&self.status.to_le_bytes(), out, offset);
         write_blob(self.content_type.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceNetResponse<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_NET_RESPONSE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceNetResponse<'a> {
+    const TAG: u32 = SERVICE_NET_RESPONSE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sec_name` record.
@@ -11799,11 +18157,15 @@ pub struct ServiceSecName<'a> {
 
 impl<'a> ServiceSecName<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecName)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecName(Self {
+        Ok(Self {
             plugin: body.string(SERVICE_SEC_NAME_PLUGIN_MAX_BYTES)?,
             name: body.string(SERVICE_SEC_NAME_NAME_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11816,6 +18178,29 @@ impl<'a> ServiceSecName<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.plugin.as_bytes(), out, offset);
         write_blob(self.name.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceSecName<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_NAME_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecName<'a> {
+    const TAG: u32 = SERVICE_SEC_NAME_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sec_value` record.
@@ -11848,12 +18233,16 @@ impl core::fmt::Debug for ServiceSecValue<'_> {
 
 impl<'a> ServiceSecValue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecValue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecValue(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             label: body.string(SERVICE_SEC_VALUE_LABEL_MAX_BYTES)?,
             value: body.string(SERVICE_SEC_VALUE_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11870,6 +18259,29 @@ impl<'a> ServiceSecValue<'a> {
         write_blob(self.value.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSecValue<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_VALUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecValue<'a> {
+    const TAG: u32 = SERVICE_SEC_VALUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sec_list` record.
 pub const SERVICE_SEC_LIST_TAG: u32 = 1162;
 
@@ -11884,11 +18296,15 @@ pub struct ServiceSecList {
 
 impl ServiceSecList {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecList)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecList(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             cursor: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11901,6 +18317,29 @@ impl ServiceSecList {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_bytes(&self.cursor.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSecList {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_LIST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecList {
+    const TAG: u32 = SERVICE_SEC_LIST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sec_entry` record.
@@ -11927,13 +18366,17 @@ pub struct ServiceSecEntry<'a> {
 
 impl<'a> ServiceSecEntry<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecEntry)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecEntry(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             plugin: body.string(SERVICE_SEC_ENTRY_PLUGIN_MAX_BYTES)?,
             name: body.string(SERVICE_SEC_ENTRY_NAME_MAX_BYTES)?,
             label: body.string(SERVICE_SEC_ENTRY_LABEL_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -11950,6 +18393,29 @@ impl<'a> ServiceSecEntry<'a> {
         write_blob(self.plugin.as_bytes(), out, offset);
         write_blob(self.name.as_bytes(), out, offset);
         write_blob(self.label.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceSecEntry<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_ENTRY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecEntry<'a> {
+    const TAG: u32 = SERVICE_SEC_ENTRY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sec_keep` record.
@@ -11992,14 +18458,18 @@ impl core::fmt::Debug for ServiceSecKeep<'_> {
 
 impl<'a> ServiceSecKeep<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecKeep)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecKeep(Self {
+        Ok(Self {
             plugin: body.string(SERVICE_SEC_KEEP_PLUGIN_MAX_BYTES)?,
             name: body.string(SERVICE_SEC_KEEP_NAME_MAX_BYTES)?,
             label: body.string(SERVICE_SEC_KEEP_LABEL_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             value: body.string(SERVICE_SEC_KEEP_VALUE_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12020,6 +18490,29 @@ impl<'a> ServiceSecKeep<'a> {
         write_blob(self.value.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSecKeep<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_KEEP_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecKeep<'a> {
+    const TAG: u32 = SERVICE_SEC_KEEP_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sec_random` record.
 pub const SERVICE_SEC_RANDOM_TAG: u32 = 1165;
 
@@ -12032,10 +18525,14 @@ pub struct ServiceSecRandom {
 
 impl ServiceSecRandom {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecRandom)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecRandom(Self {
+        Ok(Self {
             len: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12046,6 +18543,29 @@ impl ServiceSecRandom {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.len.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSecRandom {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_RANDOM_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecRandom {
+    const TAG: u32 = SERVICE_SEC_RANDOM_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sec_bytes` record.
@@ -12064,11 +18584,15 @@ pub struct ServiceSecBytes<'a> {
 
 impl<'a> ServiceSecBytes<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSecBytes)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSecBytes(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             data: body.blob(SERVICE_SEC_BYTES_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12081,6 +18605,29 @@ impl<'a> ServiceSecBytes<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.data, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceSecBytes<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SEC_BYTES_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSecBytes<'a> {
+    const TAG: u32 = SERVICE_SEC_BYTES_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.work_due` record.
@@ -12103,13 +18650,17 @@ pub struct EventWorkDue<'a> {
 
 impl<'a> EventWorkDue<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWorkDue)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWorkDue(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             why: u32::from_le_bytes(body.scalar()?),
             key: body.string(EVENT_WORK_DUE_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12126,6 +18677,29 @@ impl<'a> EventWorkDue<'a> {
         write_bytes(&self.token.to_le_bytes(), out, offset);
         write_bytes(&self.why.to_le_bytes(), out, offset);
         write_blob(self.key.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventWorkDue<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WORK_DUE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWorkDue<'a> {
+    const TAG: u32 = EVENT_WORK_DUE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.work_refused` record.
@@ -12148,13 +18722,17 @@ pub struct EventWorkRefused<'a> {
 
 impl<'a> EventWorkRefused<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWorkRefused)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWorkRefused(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             key: body.string(EVENT_WORK_REFUSED_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12173,6 +18751,29 @@ impl<'a> EventWorkRefused<'a> {
         write_blob(self.key.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for EventWorkRefused<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WORK_REFUSED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWorkRefused<'a> {
+    const TAG: u32 = EVENT_WORK_REFUSED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.work_allowed` record.
 pub const EVENT_WORK_ALLOWED_TAG: u32 = 105;
 
@@ -12185,10 +18786,14 @@ pub struct EventWorkAllowed {
 
 impl EventWorkAllowed {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventWorkAllowed)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventWorkAllowed(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12199,6 +18804,29 @@ impl EventWorkAllowed {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventWorkAllowed {
+    fn wire_tag(&self) -> u32 {
+        EVENT_WORK_ALLOWED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventWorkAllowed {
+    const TAG: u32 = EVENT_WORK_ALLOWED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.work_spec` record.
@@ -12231,8 +18859,12 @@ pub struct ServiceWorkSpec<'a> {
 
 impl<'a> ServiceWorkSpec<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceWorkSpec)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceWorkSpec(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             needs: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -12242,7 +18874,7 @@ impl<'a> ServiceWorkSpec<'a> {
             every_ms: u32::from_le_bytes(body.scalar()?),
             at_ms: u64::from_le_bytes(body.scalar()?),
             key: body.string(SERVICE_WORK_SPEC_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12271,6 +18903,29 @@ impl<'a> ServiceWorkSpec<'a> {
         write_blob(self.key.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceWorkSpec<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_WORK_SPEC_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceWorkSpec<'a> {
+    const TAG: u32 = SERVICE_WORK_SPEC_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.work_key` record.
 pub const SERVICE_WORK_KEY_TAG: u32 = 1168;
 /// Maximum bytes of `service.work_key.key`.
@@ -12285,10 +18940,14 @@ pub struct ServiceWorkKey<'a> {
 
 impl<'a> ServiceWorkKey<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceWorkKey)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceWorkKey(Self {
+        Ok(Self {
             key: body.string(SERVICE_WORK_KEY_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12299,6 +18958,29 @@ impl<'a> ServiceWorkKey<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.key.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceWorkKey<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_WORK_KEY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceWorkKey<'a> {
+    const TAG: u32 = SERVICE_WORK_KEY_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.work_row` record.
@@ -12323,14 +19005,18 @@ pub struct ServiceWorkRow<'a> {
 
 impl<'a> ServiceWorkRow<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceWorkRow)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceWorkRow(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             state: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             due_ms: u64::from_le_bytes(body.scalar()?),
             key: body.string(SERVICE_WORK_ROW_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12349,6 +19035,29 @@ impl<'a> ServiceWorkRow<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.due_ms.to_le_bytes(), out, offset);
         write_blob(self.key.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceWorkRow<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_WORK_ROW_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceWorkRow<'a> {
+    const TAG: u32 = SERVICE_WORK_ROW_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.socket` record.
@@ -12373,15 +19082,19 @@ pub struct EventSocket {
 
 impl EventSocket {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventSocket)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventSocket(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             socket: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
             kind: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             len: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12402,6 +19115,29 @@ impl EventSocket {
         write_bytes(&self.kind.to_le_bytes(), out, offset);
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.len.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventSocket {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SOCKET_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventSocket {
+    const TAG: u32 = EVENT_SOCKET_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.broadcast` record.
@@ -12430,8 +19166,12 @@ pub struct EventBroadcast<'a> {
 
 impl<'a> EventBroadcast<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventBroadcast)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventBroadcast(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             socket: u32::from_le_bytes(body.scalar()?),
             token: u32::from_le_bytes(body.scalar()?),
@@ -12439,7 +19179,7 @@ impl<'a> EventBroadcast<'a> {
             reason: u32::from_le_bytes(body.scalar()?),
             len: u32::from_le_bytes(body.scalar()?),
             from: body.string(EVENT_BROADCAST_FROM_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12462,6 +19202,29 @@ impl<'a> EventBroadcast<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.len.to_le_bytes(), out, offset);
         write_blob(self.from.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventBroadcast<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_BROADCAST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventBroadcast<'a> {
+    const TAG: u32 = EVENT_BROADCAST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_connect` record.
@@ -12492,8 +19255,12 @@ pub struct ServiceSockConnect<'a> {
 
 impl<'a> ServiceSockConnect<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockConnect)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockConnect(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             port: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -12501,7 +19268,7 @@ impl<'a> ServiceSockConnect<'a> {
             idle_ms: u32::from_le_bytes(body.scalar()?),
             host: body.string(SERVICE_SOCK_CONNECT_HOST_MAX_BYTES)?,
             server_name: body.string(SERVICE_SOCK_CONNECT_SERVER_NAME_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12529,6 +19296,29 @@ impl<'a> ServiceSockConnect<'a> {
         write_blob(self.server_name.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockConnect<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_CONNECT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockConnect<'a> {
+    const TAG: u32 = SERVICE_SOCK_CONNECT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_pin` record.
 pub const SERVICE_SOCK_PIN_TAG: u32 = 1171;
 /// Maximum bytes of `service.sock_pin.hash`.
@@ -12545,11 +19335,15 @@ pub struct ServiceSockPin<'a> {
 
 impl<'a> ServiceSockPin<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockPin)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockPin(Self {
+        Ok(Self {
             kind: u32::from_le_bytes(body.scalar()?),
             hash: body.blob(SERVICE_SOCK_PIN_HASH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12564,6 +19358,29 @@ impl<'a> ServiceSockPin<'a> {
         write_blob(self.hash, out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockPin<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_PIN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockPin<'a> {
+    const TAG: u32 = SERVICE_SOCK_PIN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_started` record.
 pub const SERVICE_SOCK_STARTED_TAG: u32 = 1172;
 
@@ -12576,10 +19393,14 @@ pub struct ServiceSockStarted {
 
 impl ServiceSockStarted {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockStarted)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockStarted(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12590,6 +19411,29 @@ impl ServiceSockStarted {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.socket.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSockStarted {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_STARTED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockStarted {
+    const TAG: u32 = SERVICE_SOCK_STARTED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_send` record.
@@ -12608,11 +19452,15 @@ pub struct ServiceSockSend<'a> {
 
 impl<'a> ServiceSockSend<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockSend)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockSend(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
             data: body.blob(SERVICE_SOCK_SEND_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12625,6 +19473,29 @@ impl<'a> ServiceSockSend<'a> {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.socket.to_le_bytes(), out, offset);
         write_blob(self.data, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceSockSend<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_SEND_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockSend<'a> {
+    const TAG: u32 = SERVICE_SOCK_SEND_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_read` record.
@@ -12653,8 +19524,12 @@ pub struct ServiceSockRead<'a> {
 
 impl<'a> ServiceSockRead<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockRead)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockRead(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
             mode: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
@@ -12662,7 +19537,7 @@ impl<'a> ServiceSockRead<'a> {
             len: u64::from_le_bytes(body.scalar()?),
             root: u32::from_le_bytes(body.scalar()?),
             path: body.string(SERVICE_SOCK_READ_PATH_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12687,6 +19562,29 @@ impl<'a> ServiceSockRead<'a> {
         write_blob(self.path.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockRead<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_READ_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockRead<'a> {
+    const TAG: u32 = SERVICE_SOCK_READ_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_at` record.
 pub const SERVICE_SOCK_AT_TAG: u32 = 1175;
 
@@ -12701,11 +19599,15 @@ pub struct ServiceSockAt {
 
 impl ServiceSockAt {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockAt)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockAt(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
             offset: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12718,6 +19620,29 @@ impl ServiceSockAt {
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.socket.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSockAt {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_AT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockAt {
+    const TAG: u32 = SERVICE_SOCK_AT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_bytes` record.
@@ -12734,10 +19659,14 @@ pub struct ServiceSockBytes<'a> {
 
 impl<'a> ServiceSockBytes<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockBytes)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockBytes(Self {
+        Ok(Self {
             data: body.blob(SERVICE_SOCK_BYTES_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12748,6 +19677,29 @@ impl<'a> ServiceSockBytes<'a> {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_blob(self.data, out, offset);
+    }
+}
+
+impl<'a> WireEncode for ServiceSockBytes<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_BYTES_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockBytes<'a> {
+    const TAG: u32 = SERVICE_SOCK_BYTES_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_tls` record.
@@ -12770,13 +19722,17 @@ pub struct ServiceSockTls<'a> {
 
 impl<'a> ServiceSockTls<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockTls)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockTls(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
             timeout_ms: u32::from_le_bytes(body.scalar()?),
             idle_ms: u32::from_le_bytes(body.scalar()?),
             server_name: body.string(SERVICE_SOCK_TLS_SERVER_NAME_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12798,6 +19754,29 @@ impl<'a> ServiceSockTls<'a> {
         write_blob(self.server_name.as_bytes(), out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockTls<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_TLS_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockTls<'a> {
+    const TAG: u32 = SERVICE_SOCK_TLS_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_ref` record.
 pub const SERVICE_SOCK_REF_TAG: u32 = 1178;
 
@@ -12810,10 +19789,14 @@ pub struct ServiceSockRef {
 
 impl ServiceSockRef {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockRef)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockRef(Self {
+        Ok(Self {
             socket: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12824,6 +19807,29 @@ impl ServiceSockRef {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.socket.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSockRef {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_REF_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockRef {
+    const TAG: u32 = SERVICE_SOCK_REF_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `service.sock_peer` record.
@@ -12848,13 +19854,17 @@ pub struct ServiceSockPeer<'a> {
 
 impl<'a> ServiceSockPeer<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockPeer)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockPeer(Self {
+        Ok(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             certificate: body.blob(SERVICE_SOCK_PEER_CERTIFICATE_MAX_BYTES)?,
             key: body.blob(SERVICE_SOCK_PEER_KEY_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12876,6 +19886,29 @@ impl<'a> ServiceSockPeer<'a> {
         write_blob(self.key, out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockPeer<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_PEER_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockPeer<'a> {
+    const TAG: u32 = SERVICE_SOCK_PEER_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_broadcast` record.
 pub const SERVICE_SOCK_BROADCAST_TAG: u32 = 1180;
 /// Maximum bytes of `service.sock_broadcast.data`.
@@ -12894,12 +19927,16 @@ pub struct ServiceSockBroadcast<'a> {
 
 impl<'a> ServiceSockBroadcast<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockBroadcast)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockBroadcast(Self {
+        Ok(Self {
             token: u32::from_le_bytes(body.scalar()?),
             wait_ms: u32::from_le_bytes(body.scalar()?),
             data: body.blob(SERVICE_SOCK_BROADCAST_DATA_MAX_BYTES)?,
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12916,6 +19953,29 @@ impl<'a> ServiceSockBroadcast<'a> {
         write_blob(self.data, out, offset);
     }
 }
+
+impl<'a> WireEncode for ServiceSockBroadcast<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_BROADCAST_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockBroadcast<'a> {
+    const TAG: u32 = SERVICE_SOCK_BROADCAST_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `service.sock_port` record.
 pub const SERVICE_SOCK_PORT_TAG: u32 = 1181;
 
@@ -12928,10 +19988,14 @@ pub struct ServiceSockPort {
 
 impl ServiceSockPort {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceSockPort)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::ServiceSockPort(Self {
+        Ok(Self {
             port: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12942,6 +20006,29 @@ impl ServiceSockPort {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.port.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceSockPort {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_SOCK_PORT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceSockPort {
+    const TAG: u32 = SERVICE_SOCK_PORT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 /// Wire tag of the `event.document_closed` record.
@@ -12960,12 +20047,16 @@ pub struct EventDocumentClosed {
 
 impl EventDocumentClosed {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventDocumentClosed)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
         body.bitmap()?;
-        Ok(Record::EventDocumentClosed(Self {
+        Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             document: u32::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
-        }))
+        })
     }
 
     fn body_len(&self) -> Result<usize, i32> {
@@ -12980,6 +20071,89 @@ impl EventDocumentClosed {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.document.to_le_bytes(), out, offset);
         write_bytes(&self.reason.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventDocumentClosed {
+    fn wire_tag(&self) -> u32 {
+        EVENT_DOCUMENT_CLOSED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventDocumentClosed {
+    const TAG: u32 = EVENT_DOCUMENT_CLOSED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
+/// Wire tag of the `service.lib_field_page` record.
+pub const SERVICE_LIB_FIELD_PAGE_TAG: u32 = 1182;
+
+/// The `service.lib_field_page` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceLibFieldPage {
+    /// Little-endian u32.
+    pub cursor: u32,
+    /// Little-endian u32.
+    pub generation: u32,
+}
+
+impl ServiceLibFieldPage {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceLibFieldPage)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
+        body.bitmap()?;
+        Ok(Self {
+            cursor: u32::from_le_bytes(body.scalar()?),
+            generation: u32::from_le_bytes(body.scalar()?),
+        })
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        write_bytes(&self.generation.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for ServiceLibFieldPage {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_LIB_FIELD_PAGE_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceLibFieldPage {
+    const TAG: u32 = SERVICE_LIB_FIELD_PAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
     }
 }
 
@@ -13513,6 +20687,8 @@ pub enum Record<'a> {
     ServiceSockPort(ServiceSockPort),
     /// A `EventDocumentClosed` record.
     EventDocumentClosed(EventDocumentClosed),
+    /// A `ServiceLibFieldPage` record.
+    ServiceLibFieldPage(ServiceLibFieldPage),
 }
 
 impl<'a> Reader<'a> {
@@ -13833,6 +21009,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_SOCK_BROADCAST_TAG => ServiceSockBroadcast::decode(body)?,
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
         EVENT_DOCUMENT_CLOSED_TAG => EventDocumentClosed::decode(body)?,
+        SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -14186,6 +21363,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(_) => SERVICE_SOCK_BROADCAST_TAG,
             Record::ServiceSockPort(_) => SERVICE_SOCK_PORT_TAG,
             Record::EventDocumentClosed(_) => EVENT_DOCUMENT_CLOSED_TAG,
+            Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
         }
     }
 
@@ -14455,6 +21633,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(record) => record.body_len(),
             Record::ServiceSockPort(record) => record.body_len(),
             Record::EventDocumentClosed(record) => record.body_len(),
+            Record::ServiceLibFieldPage(record) => record.body_len(),
         }
     }
 
@@ -14729,6 +21908,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(record) => record.write(out, offset),
             Record::ServiceSockPort(record) => record.write(out, offset),
             Record::EventDocumentClosed(record) => record.write(out, offset),
+            Record::ServiceLibFieldPage(record) => record.write(out, offset),
         }
     }
 
@@ -14785,6 +21965,236 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         write_varint(body as u32, out, &mut offset);
         record.write_bitmap(out, &mut offset);
         record.write(out, &mut offset);
+    }
+    Ok(offset)
+}
+
+/// A record that encodes itself: its tag, its body length and its body. A plugin
+/// encodes through it (`&dyn WireEncode`), so it links only the codecs of the record
+/// types it sends; [`Record`]'s functions link every record type (the host's view).
+pub trait WireEncode {
+    /// Wire tag.
+    fn wire_tag(&self) -> u32;
+    /// Body bytes (presence bitmap and fields); a field over its cap is ERR_NO_SPACE.
+    fn wire_body_len(&self) -> Result<usize, i32>;
+    /// Writes the body; only this codec's functions can call it (they check the room).
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal);
+}
+
+impl<T: WireEncode + ?Sized> WireEncode for &T {
+    fn wire_tag(&self) -> u32 {
+        (**self).wire_tag()
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        (**self).wire_body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, seal: seal::Seal) {
+        (**self).wire_write(out, offset, seal);
+    }
+}
+
+impl WireEncode for Registration {
+    fn wire_tag(&self) -> u32 {
+        match self {
+            Registration::Event { .. } => REGISTRATION_EVENT_TAG,
+            Registration::Draw { .. } => REGISTRATION_DRAW_TAG,
+        }
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        Ok(match self {
+            Registration::Event { .. } => 9,
+            Registration::Draw { .. } => 5,
+        })
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        match self {
+            Registration::Event { event_tag, token } => {
+                write_bytes(&event_tag.to_le_bytes(), out, offset);
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Registration::Draw { token } => write_bytes(&token.to_le_bytes(), out, offset),
+        }
+    }
+}
+
+/// One record type of the wire: what a plugin decodes, by type, linking only that
+/// record's decoder ([`RawRecord::decode`]).
+pub trait WireRecord<'a>: WireEncode + Copy + Sized {
+    /// Wire tag.
+    const TAG: u32;
+    /// Decodes a body (presence bitmap and fields; unknown appended fields and bits are
+    /// skipped), with the statuses of [`records_decode`].
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32>;
+}
+
+mod seal {
+    /// Only this codec writes record bodies.
+    #[derive(Debug)]
+    pub struct Seal;
+}
+
+/// A record whose frame is checked and whose body is still undecoded: [`RawRecord::decode`]
+/// decodes it as one record type, [`RawRecord::record`] as whichever its tag names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RawRecord<'a> {
+    tag: u32,
+    body: &'a [u8],
+}
+
+impl<'a> RawRecord<'a> {
+    /// Its wire tag.
+    pub fn tag(&self) -> u32 {
+        self.tag
+    }
+
+    /// Decodes it as `R`; another tag is ERR_UNSUPPORTED (as an unknown tag is).
+    pub fn decode<R: WireRecord<'a>>(&self) -> Result<R, i32> {
+        if self.tag != R::TAG {
+            return Err(-1);
+        }
+        R::decode_body(self.body)
+    }
+
+    /// Decodes it as whichever record its tag names; this links every record's decoder.
+    pub fn record(&self) -> Result<Record<'a>, i32> {
+        record_decode(
+            self.tag,
+            &mut Reader {
+                remaining: self.body,
+            },
+        )
+    }
+
+    /// The record of a batch that holds exactly one (count 1, the record, nothing after):
+    /// the framing of [`records_decode_single`], the body not decoded yet.
+    pub fn single(bytes: &'a [u8]) -> Result<Self, i32> {
+        if bytes.len() > REGISTRATION_MAX_BYTES {
+            return Err(-3);
+        }
+        let mut reader = Reader { remaining: bytes };
+        if reader.varint()? != 1 {
+            return Err(-2);
+        }
+        let (tag, body) = reader.record()?;
+        reader.finish()?;
+        Ok(Self {
+            tag,
+            body: body.remaining,
+        })
+    }
+
+    /// Exactly one bare record, nothing after it: the framing of [`record_decode_one`].
+    pub fn one(bytes: &'a [u8]) -> Result<Self, i32> {
+        if bytes.len() > REGISTRATION_MAX_BYTES {
+            return Err(-3);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let (tag, body) = reader.record()?;
+        reader.finish()?;
+        Ok(Self {
+            tag,
+            body: body.remaining,
+        })
+    }
+
+    /// The first bare record of `bytes` and the frame length it took: the framing of
+    /// `record_decode_prefix`.
+    pub fn prefix(bytes: &'a [u8]) -> Result<(Self, usize), i32> {
+        let limit = bytes.len().min(REGISTRATION_MAX_BYTES);
+        let mut reader = Reader {
+            remaining: bytes.get(..limit).unwrap_or(bytes),
+        };
+        let (tag, body) = reader.record()?;
+        Ok((
+            Self {
+                tag,
+                body: body.remaining,
+            },
+            limit - reader.remaining.len(),
+        ))
+    }
+}
+
+/// [`record_framed_len`] of a typed record.
+pub fn record_framed_len_of(record: &dyn WireEncode) -> Result<usize, i32> {
+    let body = record.wire_body_len()?;
+    let len = varint_len(record.wire_tag()) + varint_len(body as u32) + body;
+    if len > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    Ok(len)
+}
+
+/// [`record_encode_one`] of a typed record: every cap and the room are checked before
+/// any write; a failure is ERR_NO_SPACE and leaves `out` unchanged.
+pub fn record_encode_of(record: &dyn WireEncode, out: &mut [u8]) -> Result<usize, i32> {
+    let required = record_framed_len_of(record)?;
+    if out.len() < required {
+        return Err(-3);
+    }
+    let body = record.wire_body_len()?;
+    let mut offset = 0;
+    write_varint(record.wire_tag(), out, &mut offset);
+    write_varint(body as u32, out, &mut offset);
+    record.wire_write(out, &mut offset, seal::Seal);
+    Ok(offset)
+}
+
+/// [`records_encode`] of typed records: the same framing, limits and statuses.
+pub fn records_encode_of(records: &[&dyn WireEncode], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() > REGISTRATION_MAX_RECORDS {
+        return Err(-3);
+    }
+    records_encode_counted_of(
+        records.iter().copied(),
+        REGISTRATION_MAX_RECORDS,
+        REGISTRATION_MAX_BYTES,
+        out,
+    )
+}
+
+/// `records_encode_counted_iter` of typed records: a counted batch of at most
+/// `max_records` records and `max_bytes` bytes, walked three times (count, size, write),
+/// with its statuses; nothing is ever cut.
+pub fn records_encode_counted_of<R, I>(
+    records: I,
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32>
+where
+    R: WireEncode,
+    I: Iterator<Item = R> + Clone,
+{
+    let count = records.clone().take(max_records.saturating_add(1)).count();
+    if count > max_records || count > u32::MAX as usize {
+        return Err(-3);
+    }
+    let mut required = varint_len(count as u32);
+    for record in records.clone() {
+        required += record_framed_len_of(&record)?;
+        if required > max_bytes {
+            return Err(-3);
+        }
+    }
+    if out.len() < required {
+        return Err(-3);
+    }
+    let mut offset = 0;
+    write_varint(count as u32, out, &mut offset);
+    let mut written = 0;
+    for record in records {
+        written += 1;
+        let rest = out.get_mut(offset..required).ok_or(-2)?;
+        offset += record_encode_of(&record, rest).map_err(|_| -2)?;
+    }
+    if written != count || offset != required {
+        return Err(-2);
     }
     Ok(offset)
 }
@@ -14868,32 +22278,24 @@ pub fn records_encode_counted_iter<'r, I>(
 where
     I: Iterator<Item = Record<'r>> + Clone,
 {
-    let count = records.clone().take(max_records.saturating_add(1)).count();
-    if count > max_records || count > u32::MAX as usize {
-        return Err(-3);
+    records_encode_counted_of(records, max_records, max_bytes, out)
+}
+
+/// The enum is one more record type of the typed codec: its encoders share one body
+/// ([`records_encode_counted_of`]) with the typed ones.
+impl WireEncode for Record<'_> {
+    fn wire_tag(&self) -> u32 {
+        self.tag()
     }
-    let mut required = varint_len(count as u32);
-    for record in records.clone() {
-        required += record_framed_len(&record)?;
-        if required > max_bytes {
-            return Err(-3);
-        }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
     }
-    if out.len() < required {
-        return Err(-3);
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        self.write_bitmap(out, offset);
+        self.write(out, offset);
     }
-    let mut offset = 0;
-    write_varint(count as u32, out, &mut offset);
-    let mut written = 0;
-    for record in records {
-        written += 1;
-        let rest = out.get_mut(offset..required).ok_or(-2)?;
-        offset += record_encode_one(&record, rest).map_err(|_| -2)?;
-    }
-    if written != count || offset != required {
-        return Err(-2);
-    }
-    Ok(offset)
 }
 
 // Single-record and streaming decoders (lock format 8).
@@ -14996,8 +22398,19 @@ impl RecordStream {
     /// of [`record_decode_prefix`]; an error from `visit` stops and is returned.
     pub fn feed(
         &mut self,
-        mut chunk: &[u8],
+        chunk: &[u8],
         visit: &mut dyn FnMut(Record<'_>) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        self.feed_raw(chunk, &mut |raw| visit(raw.record()?))
+    }
+
+    /// [`RecordStream::feed`] with each record's frame checked and its body not
+    /// decoded: the visitor decodes the record types it expects
+    /// ([`RawRecord::decode`]), so a plugin links no other record's decoder.
+    pub fn feed_raw(
+        &mut self,
+        mut chunk: &[u8],
+        visit: &mut dyn FnMut(RawRecord<'_>) -> Result<(), i32>,
     ) -> Result<(), i32> {
         if self.len > 0 {
             let old = self.len;
@@ -15005,7 +22418,7 @@ impl RecordStream {
             self.carry[old..old + moved].copy_from_slice(&chunk[..moved]);
             match frame_len(&self.carry[..old + moved])? {
                 Some(len) => {
-                    let (record, _) = record_decode_prefix(&self.carry[..len])?;
+                    let (record, _) = RawRecord::prefix(&self.carry[..len])?;
                     self.len = 0;
                     visit(record)?;
                     chunk = &chunk[len - old..];
@@ -15020,7 +22433,7 @@ impl RecordStream {
         while !chunk.is_empty() {
             match frame_len(chunk)? {
                 Some(len) => {
-                    let (record, _) = record_decode_prefix(&chunk[..len])?;
+                    let (record, _) = RawRecord::prefix(&chunk[..len])?;
                     visit(record)?;
                     chunk = &chunk[len..];
                 }
@@ -15186,6 +22599,7 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         SERVICE_SOCK_REF_TAG => ServiceSockRef::decode(body)?,
         SERVICE_SOCK_BROADCAST_TAG => ServiceSockBroadcast::decode(body)?,
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
+        SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG

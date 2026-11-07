@@ -1032,3 +1032,73 @@ fn a_busy_table_makes_retirement_busy_not_silent() {
     assert_eq!(s.counts(), (0, 0));
     let _ = env;
 }
+
+/// Opens runs for `owner` until the scheduler delivers no more; returns their ids.
+fn open_runs(s: &WorkSched, env: &Fake, owner: u64) -> Vec<u32> {
+    let mut runs = Vec::new();
+    while let Some(Event::Due(due)) = s.next_event(env, &|o| o == owner).unwrap() {
+        s.resource_opened(due.run).unwrap();
+        runs.push(due.run);
+    }
+    runs
+}
+
+#[test]
+fn the_run_cap_is_8_on_other_devices_with_the_ninth_work_waiting_not_dropped() {
+    let s = WorkSched::new(Limits::OTHER);
+    let env = Fake::new();
+    for n in 0..9 {
+        s.declare(A, &spec(&alloc::format!("k{n}")), 1_000).unwrap();
+    }
+    s.declare(B, &spec("b"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    let runs = open_runs(&s, &env, A);
+    assert_eq!(runs.len(), Limits::OTHER.runs_per_plugin);
+    assert_eq!(runs.len(), 8);
+    // Another plugin is not held back by A's cap.
+    assert!(open_runs(&s, &env, B).len() == 1);
+    // The ninth work is still there, waiting, not an error and not dropped.
+    assert_eq!(s.counts(), (9 + 1, 8 + 1));
+    assert!(s.next_event(&env, &|o| o == A).unwrap().is_none());
+}
+
+#[test]
+fn a_waiting_work_starts_in_due_order_when_a_run_ends_without_declaring_again() {
+    let s = WorkSched::new(Limits::X4);
+    let env = Fake::new();
+    // Four works of A, declared so that they came due in the order
+    // fourth, third, second, first; the cap is 2.
+    for (n, key) in ["first", "second", "third", "fourth"]
+        .into_iter()
+        .enumerate()
+    {
+        s.declare(A, &spec(key), 1_000 - n as u64 * 10).unwrap();
+    }
+    env.at(2_000);
+    s.begin_pass(&env).unwrap();
+    let mut started: Vec<(u32, String)> = Vec::new();
+    let start_all = |s: &WorkSched, started: &mut Vec<(u32, String)>| {
+        while let Some(Event::Due(due)) = s.next_event(&env, &|o| o == A).unwrap() {
+            s.resource_opened(due.run).unwrap();
+            started.push((due.run, String::from(due.key.as_str())));
+        }
+    };
+    start_all(&s, &mut started);
+    let keys = |started: &[(u32, String)]| -> Vec<String> {
+        started.iter().map(|(_, key)| key.clone()).collect()
+    };
+    assert_eq!(keys(&started), ["fourth", "third"], "two at once on the X4");
+    // A run ends: the next work in due order starts with nothing declared.
+    s.end_run(started[0].0, env.now_ms());
+    start_all(&s, &mut started);
+    assert_eq!(keys(&started), ["fourth", "third", "second"]);
+    // Another ends: the last one starts; none was lost or sent as an error.
+    s.end_run(started[1].0, env.now_ms());
+    start_all(&s, &mut started);
+    assert_eq!(keys(&started), ["fourth", "third", "second", "first"]);
+    // Everything ended: the table is empty and the plugin may start more.
+    for (run, _) in &started[2..] {
+        s.end_run(*run, env.now_ms());
+    }
+    assert_eq!(s.counts(), (0, 0));
+}

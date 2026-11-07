@@ -1,0 +1,9 @@
+{
+  "replaces_sha256": "022fa498c38bb9a1d407981be5e55a75aa423201231576ef1e717546d2d6ccd2",
+  "reason": "interface 7 is unreleased (draft 21 with #325): the generated records codec gains a typed form next to the Record enum (WireEncode, WireRecord, RawRecord, the _of encoders and RecordStream::feed_raw), so a plugin links only the codecs of the records it uses (#1156: Battery-like sample .ppn 238,916 to 90,184 bytes); the wire format, tags and every record are unchanged, only the emitted Rust text",
+  "ticket": "#228",
+  "waives": [
+    "emitted_records",
+    "emitted_streams"
+  ]
+}
