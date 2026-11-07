@@ -24,6 +24,8 @@ change the plugin SDK.
   rows gain − and + buttons and show a title that is already translated as it is (#228).
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
+- `paperpaw-document`: `OffsetMap::try_checkpoint` (fallible, refuses out-of-order and
+  oversized indices) and `OffsetMap::checkpoints`, the rows of `doc_map` (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
