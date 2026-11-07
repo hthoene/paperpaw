@@ -170,7 +170,7 @@ fn dispatch_without_core_views(env: &Env<'_>) -> i32 {
             (),
             SCREEN_ENTRY.entry().make.unwrap(),
             "battery",
-            (0, 0),
+            (core::ptr::null(), 0),
             report,
             HostResources::try_new().unwrap(),
             declared_services(),

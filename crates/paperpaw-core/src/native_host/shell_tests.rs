@@ -263,7 +263,7 @@ fn fake() -> Hosted<Heap, Module> {
             Module::new(),
             make,
             "fake",
-            (0, 0),
+            (core::ptr::null(), 0),
             report,
             super::super::HostResources::try_new().unwrap(),
             DeclaredServices::none(),
@@ -394,7 +394,7 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             Module::new(),
             make,
             "fake",
-            (IMAGE.as_ptr() as usize, IMAGE.len()),
+            (IMAGE.as_ptr(), IMAGE.len()),
             report,
             super::super::HostResources::try_new().unwrap(),
             DeclaredServices::none(),
@@ -551,7 +551,7 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
                 module,
                 make,
                 "fake",
-                (0, 0),
+                (core::ptr::null(), 0),
                 report,
                 resources,
                 DeclaredServices::none(),
@@ -734,8 +734,6 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
     finish(&hosted);
 }
 
-#[path = "shell_service_oom_tests.rs"]
-mod service_oom;
 fn has_expected_core_frame(state: *mut c_void) -> bool {
     if !EXPECT_CORE.with(Cell::get) {
         return true;
@@ -785,6 +783,8 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     drop(batch);
     finish(&hosted);
 }
+#[path = "shell_service_oom_tests.rs"]
+mod service_oom;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
