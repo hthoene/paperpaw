@@ -225,6 +225,8 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
                 x: event.point.x,
                 y: event.point.y,
                 phase,
+                // Tells simultaneous contacts apart (interface 6 `PointerEvent::id`).
+                contact: Some(u32::from(event.id)),
             }),
             cx.env(),
         )

@@ -64,6 +64,22 @@ change the plugin SDK.
   clipboard) and `native::registry` (registry declarations, commands, paged queries and events),
   without public wire records. Interface draft 17 (`native::DRAFT`) refuses plugins built for draft
   16 (#228).
+- Interface 7, family 4 DOC and LIB (`docs/abi/document.md`, `docs/abi/library.md`): the
+  `core.document` service (21 ops: open with book options, metadata, sections, lossless block
+  fragments, table of contents, XPointers, links, fonts, cover and images by a stable picture
+  index, formats and readers), format, reader and lookup declarations with the `core.lookup`
+  service, and the `core.library` service behind the new feature `uses.library` (26 ops:
+  catalog pages, books, texts, facets, covers, status, journalled delete, move and import,
+  positions, annotations with staged transactions and paged receipts, fields, provided
+  metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
+  the image commands 1559-1560; `input.pointer` gains the optional `contact` (simultaneous
+  touches told apart, interface 6 `PointerEvent::id`), which the SDK's `Input::Pointer` carries
+  as `contact` (0 when absent); `screen.spec.flags` bits 6-7 give a screen's `instances` policy
+  (one per params, single, many; interface 6 `Instances`), and a confirm dialog's `choices` may
+  name its two button words, with flags for a single button and the focus on yes;
+  `native::SafeModeReason::PowerEscape` names a start in safe mode after the 8 s Power escape.
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 18 (`native::DRAFT`) refuses
+  plugins built for draft 17 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

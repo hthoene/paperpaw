@@ -40,6 +40,8 @@ impl DeclaredServices {
     }
 
     /// Retain service requirements and available features from checked metadata.
+    /// `host` must be the exact feature catalog used by `metadata::check`;
+    /// Checked retains no revision information to validate another catalog.
     ///
     /// # Errors
     /// Returns Invalid for an unsupported catalog or invalid service list,
