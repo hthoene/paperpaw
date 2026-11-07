@@ -195,6 +195,8 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
     let env = kernel.shared.env(Instant(12));
     call(&CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
@@ -457,11 +459,12 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let mut registry = NativeInstances::default();
     let key = registry
-        .insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
+        .test_insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
         .unwrap();
     let env = kernel.shared.env(Instant(12));
     for expected in 1..=2 {
@@ -483,10 +486,14 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
     assert_eq!(CALLS.with(Cell::get), 2);
     assert_eq!(DESTROYS.with(Cell::get), 0);
     drop(frozen);
+    assert_eq!(
+        DESTROYS.with(Cell::get),
+        0,
+        "cleanup ownership stays in the pending row"
+    );
+    assert!(registry.retire(key).unwrap().is_none());
     assert_eq!(DESTROYS.with(Cell::get), 1);
-    assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-    registry.stop(key).unwrap();
-    assert_eq!(DESTROYS.with(Cell::get), 1);
+    assert!(matches!(registry.state(key), Err(host_glue::ERR_STATE)));
 }
 
 #[test]
@@ -508,6 +515,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let retained = dispatch.try_clone().unwrap();

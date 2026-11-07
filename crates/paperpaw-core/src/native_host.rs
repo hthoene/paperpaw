@@ -72,6 +72,7 @@ mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -200,6 +201,9 @@ mod native_values;
 )]
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
+
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
 
 #[allow(
     dead_code,
