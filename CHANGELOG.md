@@ -28,6 +28,11 @@ change the plugin SDK.
   `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
   growth block are generated from their `abi.def` fields into the command codec. Hosts answer
   `ERR_UNSUPPORTED` until wired (#228).
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks (#228).
+
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
