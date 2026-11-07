@@ -462,6 +462,7 @@ fn battery_log_kinds(folder: &std::path::Path) -> Vec<String> {
 /// is on the card when it returns; a device that is asleep already has
 /// saved at its sleep and is not told again.
 #[test]
+#[ignore = "re-enable at Battery activation (#228): the gate reads Battery's log, which the app does not carry until the native plugin runs"]
 fn quitting_gives_plugins_their_moment_to_save_first() {
     let _one = crate::one_device_at_a_time();
     for (name, asleep) in [

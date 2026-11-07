@@ -115,13 +115,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-battery"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-browser"
 version = "1.0.7"
 dependencies = [
@@ -154,7 +147,6 @@ name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-aids",
- "paperpaw-plugin-battery",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
