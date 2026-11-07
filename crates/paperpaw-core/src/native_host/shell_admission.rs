@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(features.feature(REGISTRY), Ok(()));
         assert_eq!(features.feature(DEVICE_WIFI), Err(ERR_DENIED));
         // A required one is the same; the bits survive the record's drop.
-        let bytes = record_with(&[], &[(DEVICE_WIFI, 1, true), (REGISTRY, 1, false)]);
+        let bytes = record_with(&[], &[(REGISTRY, 1, false), (DEVICE_WIFI, 1, true)]);
         let features = admit(&bytes, &wired()).unwrap().declared.features();
         drop(bytes);
         assert_eq!(features.feature(REGISTRY), Ok(()));
