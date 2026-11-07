@@ -431,6 +431,19 @@ impl NativeProfiles {
         let Some(view) = self.screens.top(LIST) else {
             return Ok(false);
         };
+        // The file may have changed since it was read: a newer version is left as
+        // it is, whatever was read before.
+        if view.readable {
+            view.readable = match files::read_head(host, Root::Data, FILE, store::HEAD) {
+                Ok(Some(head)) => store::may_save_over(&head),
+                Ok(None) => true,
+                Err(Error::NoMemory) => {
+                    undo.apply(&mut view.profiles);
+                    return Err(Error::NoMemory);
+                }
+                Err(_) => false,
+            };
+        }
         // The text is made and measured whole before anything is replaced.
         let saved = view.readable
             && match store::encode_within(&view.profiles, MAX_FILE) {
@@ -540,15 +553,16 @@ impl NativeProfiles {
         let Some(view) = self.screens.top(LIST) else {
             return Ok(());
         };
-        let Some(profile) = view.profiles.get_mut(index) else {
+        // The card is read and both copies are made before the name is touched, so
+        // a refusal on the way leaves the list as it was.
+        let last = files::read_all(host, Root::Data, LAST, 1024)?.unwrap_or_default();
+        let Some(old) = rename_in(&mut view.profiles, index, name)? else {
             return Ok(());
         };
-        let old = core::mem::replace(&mut profile.name, copy(name)?);
-        let kept = copy(&old)?;
-        if self.save(host, Undo::Renamed { index, old: kept })? {
+        let was_last = is_last(&last, &old);
+        if self.save(host, Undo::Renamed { index, old })? {
             // The profile applied last keeps being it, by its new name.
-            let last = files::read_all(host, Root::Data, LAST, 1024)?.unwrap_or_default();
-            if String::from_utf8_lossy(&last).trim() == old {
+            if was_last {
                 let _ = files::replace(host, Root::Data, LAST, name.as_bytes());
             }
             if let Some(view) = self.screens.top(LIST) {
@@ -596,6 +610,26 @@ impl NativeProfiles {
         }
         Self::redraw(host)
     }
+}
+
+/// Gives profile `index` the name `name`; returns the name it had.
+///
+/// Both copies are made before anything is changed: a refused allocation leaves the
+/// list untouched. `None` when there is no such profile.
+fn rename_in(profiles: &mut [Profile], index: usize, name: &str) -> Result<Option<String>, Error> {
+    let Some(profile) = profiles.get_mut(index) else {
+        return Ok(None);
+    };
+    let new = copy(name)?;
+    let old = copy(&profile.name)?;
+    profile.name = new;
+    Ok(Some(old))
+}
+
+/// Whether the bytes of `last.txt` name `profile`. Bytes that are not UTF-8 name none;
+/// nothing is allocated.
+fn is_last(last: &[u8], profile: &str) -> bool {
+    core::str::from_utf8(last).is_ok_and(|last| last.trim() == profile)
 }
 
 /// How to put the list back where a save was refused.
@@ -714,5 +748,67 @@ impl View {
         );
         self.list.replace(items);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    fn list() -> Vec<Profile> {
+        vec![
+            Profile {
+                name: "Night".into(),
+                values: Vec::new(),
+            },
+            Profile {
+                name: "Other".into(),
+                values: Vec::new(),
+            },
+        ]
+    }
+
+    #[test]
+    fn a_refused_allocation_leaves_the_names_as_they_were_and_a_retry_succeeds() {
+        let mut profiles = list();
+        // Each run flips the first name between "Night" and "Day".
+        crate::fail_alloc::sweep(|| {
+            let night = profiles[0].name == "Night";
+            let target = if night { "Day" } else { "Night" };
+            let result = rename_in(&mut profiles, 0, target);
+            match &result {
+                Ok(Some(old)) => {
+                    assert_eq!(old == "Night", night);
+                    assert_eq!(profiles[0].name, target);
+                }
+                Ok(None) => panic!("the profile exists"),
+                // The list is exactly as before the call.
+                Err(_) => assert_eq!(profiles[0].name == "Night", night),
+            }
+            assert_eq!(profiles[1].name, "Other");
+            result
+        });
+    }
+
+    #[test]
+    fn renaming_a_profile_that_is_not_there_changes_nothing() {
+        let mut profiles = list();
+        assert_eq!(rename_in(&mut profiles, 2, "X"), Ok(None));
+        assert_eq!(profiles[0].name, "Night");
+    }
+
+    #[test]
+    fn last_txt_names_a_profile_only_when_it_is_valid_utf8_and_equal() {
+        assert!(is_last(b"Night\n", "Night"));
+        assert!(!is_last(b"Other", "Night"));
+        assert!(!is_last(b"", "Night"));
+        // Malformed bytes name nothing, and nothing is allocated for them.
+        assert!(!is_last(&[0xff, 0xfe, b'N'], "Night"));
+        assert!(!is_last(b"Nig\xc3", "Night"));
+        crate::fail_alloc::sweep(|| {
+            let _ = is_last(&[0xff, 0xfe], "Night");
+            Ok::<_, Error>(())
+        });
     }
 }

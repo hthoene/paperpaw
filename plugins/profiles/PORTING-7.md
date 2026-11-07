@@ -63,3 +63,16 @@ save new (H1, H2, H4), apply (H1, H4), hold options (H1, H2, H4), next (H1).
   (at most 256 bytes). `profiles.ini` quoting and reading are local, fallible and tested against
   the `config` crate on arbitrary values. A name of invalid UTF-8 in `last.txt` is treated as no
   profile applied (it used to be read lossily).
+- Rename (second review round): the card is read and both name copies are made before
+  the profile is touched (`rename_in`), so a refused allocation leaves the list as it
+  was; `last.txt` is compared as bytes (`is_last`): bytes that are not UTF-8 name no profile.
+  Tests: sweep at every allocation of `rename_in`, a retry, malformed bytes.
+- `profiles.ini` (Senior review): a leading UTF-8 byte order mark is skipped as interface 6
+  did; setting ids are checked with the SDK's `Id::try_parse` (so `widgets.clock@2.face`
+  is kept); a save first reads the start of the file and leaves a newer version alone
+  (`may_save_over`). Tests: BOM, id and damaged-file round trips (`store.rs`).
+- `files::replace` (ui-kit): a small write also removes a `name.new` an earlier cut left.
+  The sequencing is tested against an in-memory volume with a refusal and a power cut at
+  every step, at 4096 and 4097 bytes (`crates/paperpaw-ui-kit/src/files.rs`). The host's
+  own power-cut behaviour of rename over an appended file (FAT) is the host's test, not
+  the kit's: the kit assumes the host's atomic rename-over and states it.
