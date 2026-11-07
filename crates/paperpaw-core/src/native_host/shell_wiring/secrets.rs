@@ -226,8 +226,9 @@ impl SecretsMaintenance {
     /// `ERR_STATE` (the sealer has no strong nonce now, the X4 with its radio
     /// off; nothing changed and no notice is raised). That ends the attempt:
     /// do not call again every turn; resume at the next radio-on or the next
-    /// start (a refused step has written, then removed, the new file on the
-    /// card), `ERR_NO_MEMORY`.
+    /// start (a step is refused before anything is written; only a nonce that
+    /// disappears later in the step leaves the new file written, then removed),
+    /// `ERR_NO_MEMORY`.
     pub fn migrate(&self, cursor: MigrationCursor) -> Result<Migration, i32> {
         let step = self.0.migrate(cursor.0)?;
         Ok(step.next.map_or(Migration::Done, |next| {

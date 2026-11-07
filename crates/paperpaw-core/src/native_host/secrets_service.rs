@@ -139,8 +139,10 @@ impl SecretsServices {
     /// shell calls it again with `next` until it is `None`, one step per turn.
     ///
     /// `ERR_STATE` ends the attempt: do not retry it every turn. Resume at the
-    /// next radio-on or the next start; each refused step has written (and then
-    /// removed) the new file on the card. A refused step changes nothing else.
+    /// next radio-on or the next start. A step is refused before anything is
+    /// written (the first value is trial-sealed first); only if the nonce
+    /// disappears later in the step is the new file written and then removed.
+    /// A refused step changes nothing else.
     ///
     /// Progress is the file itself: a sealed line is never found veiled again,
     /// and a veiled line that does not open is passed by `next`, so the loop
