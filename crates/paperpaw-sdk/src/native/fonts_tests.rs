@@ -188,7 +188,8 @@ fn default_host_table_reports_unsupported() {
 }
 
 #[test]
-fn host_cap_of_four_live_fonts_recovers_after_release() {
+fn host_font_limit_is_forwarded_and_recovers_after_release() {
+    // This fake host chooses a small limit; the SDK forwards its refusal.
     #[derive(Default)]
     struct Capped {
         next: Cell<u32>,

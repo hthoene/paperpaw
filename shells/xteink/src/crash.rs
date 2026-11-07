@@ -52,16 +52,46 @@ impl Write for Cut<'_> {
     }
 }
 
+/// Whether this handler runs already: a panic inside it (a message whose
+/// formatting panics, the plugin's `Display` that does) comes back here,
+/// and formatting it again would panic again, one frame deeper each time,
+/// until the stack is gone. A second entry names no message: it keeps the
+/// place and the plugin to blame, and starts the X4 again. Plain loads
+/// and stores (the X4's RISC-V has no atomic swap): one core, and a
+/// panic's own interrupts do not panic.
+static ENTERED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
-    esp_println::println!("PANIC: {info}");
+    // Where the stack pointer stands as the handler is entered (this frame is
+    // a few bytes): the handler's own depth is counted from it.
+    handle(info, crate::stack::sp())
+}
+
+/// The handler. Its frames are separate from `panic`'s, so that `entry` is
+/// the pointer before them: the note it ends the message with (`stack_note`)
+/// is how deep they went.
+#[inline(never)]
+fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
+    use core::sync::atomic::Ordering;
+    let again = ENTERED.load(Ordering::Relaxed);
+    ENTERED.store(true, Ordering::Relaxed);
+    if !again {
+        esp_println::println!("PANIC: {info}");
+    }
     let mut buf = [0u8; paperpaw_x4::rtc_guard::MESSAGE_LEN];
+    // The last of the text's room is the stack note's: the calls are cut, not it.
     let mut cut = Cut {
-        buf: &mut buf[paperpaw_x4::rtc_guard::BODY],
+        buf: &mut buf[paperpaw_x4::rtc_guard::BODY]
+            [..paperpaw_x4::rtc_guard::BODY.len() - paperpaw_x4::stack_note::NOTE_LEN],
         len: 0,
     };
     // The message first: the location's path is long.
-    let _ = write!(cut, "{}", info.message());
+    if again {
+        let _ = write!(cut, "{}", paperpaw_x4::blame::PANIC_IN_PANIC);
+    } else {
+        let _ = write!(cut, "{}", info.message());
+    }
     if let Some(at) = info.location() {
         let file = at.file().rsplit(['/', '\\']).next().unwrap_or(at.file());
         let _ = write!(cut, " ({file}:{})", at.line());
@@ -128,10 +158,43 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
             }
         });
     }
+    // How deep the handler went, now that the deepest of it is done: the note
+    // is the last of the text, in the room kept for it.
+    let used = cut.len;
+    // Only for a panic that ran on the main stack; the handler's depth only
+    // after a band trap (a breakpoint, `mcause` 3: the store trigger).
+    let breakpoint = from_exception && trap_cause() == Some(BREAKPOINT);
+    if let Some((depth, left)) = crate::stack::handler_use(entry, breakpoint) {
+        let mut note = Cut {
+            buf: &mut buf[paperpaw_x4::rtc_guard::BODY][used..],
+            len: 0,
+        };
+        let _ = paperpaw_x4::stack_note::write(&mut note, depth, left);
+    }
     paperpaw_x4::rtc_guard::seal_message(&mut buf);
     // SAFETY: one core, the firmware stopped: nothing else touches it.
     unsafe { core::ptr::addr_of_mut!(LAST).write_volatile(buf) };
     esp_hal::system::software_reset()
+}
+
+/// `mcause` of a breakpoint exception, the band's store trigger (and an
+/// `ebreak`).
+const BREAKPOINT: u32 = 3;
+
+/// The cause of the exception being handled: `mcause`, still what the trap
+/// left (nothing has trapped since, as for [`fault_address`]); an interrupt
+/// has its top bit set. Only the RISC-V chips have it.
+#[cfg(target_arch = "riscv32")]
+fn trap_cause() -> Option<u32> {
+    let cause: u32;
+    // SAFETY: reads a machine-mode CSR; no memory is touched.
+    unsafe { core::arch::asm!("csrr {}, mcause", out(reg) cause, options(nomem, nostack)) };
+    Some(cause)
+}
+
+#[cfg(not(target_arch = "riscv32"))]
+fn trap_cause() -> Option<u32> {
+    None
 }
 
 /// The instruction that faulted: `mepc` is still its address inside the

@@ -204,6 +204,12 @@ expect_used = "warn"
 [profile.release.package.esp-radio]
 opt-level = 3
 
+# The kernel and the interface-7 host are mostly cold code: small, not fast.
+[profile.release.package.paperpaw-core]
+opt-level = "z"
+[profile.release.package.paperpaw-native]
+opt-level = "z"
+
 [profile.release]
 opt-level = "s"
 lto = "fat"

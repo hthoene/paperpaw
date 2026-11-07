@@ -14,10 +14,8 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
-use alloc::alloc::{alloc, handle_alloc_error};
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::pin::Pin;
@@ -31,6 +29,8 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
+pub use super::data_services::DATA_SERVICES;
+pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -112,11 +112,22 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
     }
 }
 
+/// Shell diagnostic sink. It must log owner, step and error without allocating,
+/// panicking or reentering the owner. No default or silent sink is supplied.
+/// The same rules apply during callbacks, including no conflicting RefCell
+/// borrows. Release also reports failed callback blob cleanup; it does not
+/// mean the callback was refused or teardown has begun.
+pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
+
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
     table: PpHost,
+    id: Box<str>,
+    report: Report<S>,
+    resources: super::resources::OwnerResources,
+    declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -181,11 +192,8 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 /// ```
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Hosted<S, M> {
-    owner: Pin<Box<Owner<S, M>>>,
+    owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
-    /// Host-known plugin id (from the folder, never from the library) that
-    /// staged declaration names are checked against.
-    id: Box<str>,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
@@ -205,11 +213,41 @@ pub fn host_table<S: Services>() -> PpHost {
     table.env_snapshot = env_snapshot::<S>;
     table.settings_read = settings_read::<S>;
     table.canvas_fill_rect = canvas_fill_rect::<S>;
+    table.i18n_copy = i18n_copy::<S>;
+    table.i18n_format = i18n_format::<S>;
+    table.i18n_digits = i18n_digits::<S>;
+    table.canvas_draw_line = canvas_draw_line::<S>;
+    table.canvas_fill_round = canvas_fill_round::<S>;
+    table.canvas_stroke_round = canvas_stroke_round::<S>;
+    table.canvas_clip = canvas_clip::<S>;
+    table.storage_size = storage_size::<S>;
+    table.storage_read_at = storage_read_at::<S>;
+    table.storage_write = storage_write::<S>;
+    table.storage_append = storage_append::<S>;
+    table.storage_rename = storage_rename::<S>;
+    table.storage_remove = storage_remove::<S>;
+    table.storage_sync = storage_sync::<S>;
+    table.service_open = service_open::<S>;
+    table.service_call = service_call::<S>;
+    table.services_query = services_query::<S>;
+    table.blob_read = blob_read::<S>;
+    table.blob_release = blob_release::<S>;
+    table.font_acquire = font_acquire::<S>;
+    table.handle_release = handle_release::<S>;
+    table.text_measure = text_measure::<S>;
+    table.text_metrics = text_metrics::<S>;
+    table.text_draw = text_draw::<S>;
+    // The X4 ink probe is enabled only after device timing qualifies it.
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+    {
+        table.text_ink = text_ink::<S>;
+    }
     table
 }
 
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
+    /// `report` is the shell's real diagnostic sink, including the X4 sink.
     /// `image` is the address and length of the plugin's read-only data
     /// (`(0, 0)` for none).
     ///
@@ -223,13 +261,24 @@ impl<S: Services, M> Hosted<S, M> {
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
     ///   while `module` lives, or `(0, 0)`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "admission supplies the owner resources and checked requirements"
+    )]
     pub unsafe fn new(
         services: S,
         module: M,
         make: Make,
         id: &str,
         image: (usize, usize),
+        report: Report<S>,
+        resources: super::HostResources,
+        declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
+        let resources = resources.try_owner().map_err(Error::Status)?;
+        let scoped_resources = resources
+            .try_view()
+            .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
         owned
@@ -238,18 +287,30 @@ impl<S: Services, M> Hosted<S, M> {
         owned.push_str(id);
         let context = Context {
             table: host_table::<S>(),
+            id: owned.into_boxed_str(),
+            report,
+            resources,
+            declared_services,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
-            environment: EnvironmentScope::new(),
+            environment: EnvironmentScope::with_resources(scoped_resources),
             canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, module))?;
+        let context = owner.as_ref().context();
+        // SAFETY: the owner pins Context<S> and keeps it alive through every
+        // callback and cleanup. Report<S> promises no panic or reentry.
+        unsafe {
+            context.environment.set_cleanup_reporter(
+                (context.get_ref() as *const Context<S>).cast(),
+                report_blob_cleanup::<S>,
+            );
+        }
         Ok(Self {
             owner,
             make,
-            id: owned.into_boxed_str(),
             image,
             stopped: Cell::new(false),
         })
@@ -294,7 +355,10 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn begin<T>(&self) -> Result<Transaction<'_, S, M, T>, Error> {
         Ok(Transaction {
             context: self.owner.as_ref().context(),
-            staging: self.owner.as_ref().begin(&self.id)?,
+            staging: self
+                .owner
+                .as_ref()
+                .begin(&self.owner.as_ref().context().get_ref().id)?,
         })
     }
 
@@ -378,22 +442,8 @@ impl<S: Services, M> Hosted<S, M> {
 
 /// Fallible placement of the owner: it holds a context and a module, so its
 /// allocation is never zero-sized.
-fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
-    let layout = Layout::new::<Owner<S, M>>();
-    if layout.size() == 0 {
-        handle_alloc_error(layout);
-    }
-    // SAFETY: the layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
-    if allocation.is_null() {
-        return Err(Error::Allocation);
-    }
-    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
-    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
-    unsafe {
-        allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
-    }
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<super::PinnedOwner<Context<S>, M>, Error> {
+    super::PinnedOwner::try_new(value).ok_or(Error::Allocation)
 }
 
 /// A made plugin whose records are not yet dispatchable. Dropped before
@@ -416,7 +466,12 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         // The pending guard owns staging so a panic or cancellation also
         // drains the records before the foreign output is destroyed.
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        let batch = transaction.staging.commit(crate::native_host::Teardown {
+            report: report_context::<S>,
+            cancel: cancel_context::<S>,
+            release: release_context::<S>,
+            destroy: destroy_context::<S>,
+        })?;
         self.armed = false;
         Ok(batch)
     }
@@ -448,6 +503,92 @@ impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
         // local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
     }
+}
+
+fn cancel_context<S>(context: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Cancel)?;
+    context
+        .resources
+        .cancel_all()
+        .map_err(resource_cleanup_error)
+}
+
+fn release_context<S>(context: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Release)?;
+    context
+        .resources
+        .release_all()
+        .map_err(resource_cleanup_error)
+}
+
+fn resource_cleanup_error(error: i32) -> super::Error {
+    match error {
+        host_glue::ERR_BUSY => super::Error::Busy,
+        _ => super::Error::State,
+    }
+}
+
+fn host_cleanup(_step: super::TeardownStep) -> Result<(), super::Error> {
+    #[cfg(test)]
+    return teardown_fault::run(_step);
+    #[cfg(not(test))]
+    Ok(())
+}
+
+/// Test-only host failures. Never present in device builds.
+#[cfg(test)]
+pub(crate) mod teardown_fault {
+    extern crate std as test_std;
+    use crate::native_host::{Error, TeardownStep};
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static FAILURE: Cell<Option<(TeardownStep, Error, bool)>> = const { Cell::new(None) };
+    }
+
+    pub(crate) fn arm(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error, false))));
+    }
+
+    pub(crate) fn arm_persistent(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error, true))));
+    }
+
+    pub(crate) fn disarm() {
+        FAILURE.with(|failure| failure.set(None));
+    }
+
+    pub(super) fn run(step: TeardownStep) -> Result<(), Error> {
+        FAILURE.with(|failure| match failure.get() {
+            Some((wanted, error, persistent)) if wanted == step => {
+                if !persistent {
+                    failure.set(None);
+                }
+                Err(error)
+            }
+            _ => Ok(()),
+        })
+    }
+}
+
+unsafe fn report_blob_cleanup<S>(raw: *const c_void, status: i32) {
+    // SAFETY: Hosted::new installed the exact pinned Context<S> pointer.
+    let context = unsafe { &*raw.cast::<Context<S>>() };
+    let error = if status == host_glue::ERR_BUSY {
+        super::Error::Busy
+    } else {
+        super::Error::State
+    };
+    (context.report)(
+        &context.services,
+        &context.id,
+        super::TeardownStep::Release,
+        error,
+    );
+}
+
+fn report_context<S>(context: Pin<&Context<S>>, step: super::TeardownStep, error: super::Error) {
+    (context.report)(&context.services, &context.id, step, error);
 }
 
 fn destroy_context<S>(context: Pin<&Context<S>>) {
@@ -745,3 +886,414 @@ pub fn dispatch_draw<S, M>(
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;
+
+unsafe extern "C" fn i18n_copy<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::copy(&context.environment, key, out) }
+}
+
+unsafe extern "C" fn i18n_format<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    args: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::format(&context.environment, key, args, out) }
+}
+
+unsafe extern "C" fn i18n_digits<S>(ctx: *mut c_void, text: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::digits(&context.environment, text, out) }
+}
+
+unsafe extern "C" fn storage_size<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    out: *mut u64,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::size(&context.environment, &context.id, root, path, out) }
+}
+
+unsafe extern "C" fn storage_read_at<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    offset: u64,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe {
+        super::storage_slots::read_at(&context.environment, &context.id, root, path, offset, out)
+    }
+}
+
+unsafe extern "C" fn storage_write<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::write(&context.environment, &context.id, root, path, data) }
+}
+
+unsafe extern "C" fn storage_append<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::append(&context.environment, &context.id, root, path, data) }
+}
+
+unsafe extern "C" fn storage_rename<S>(
+    ctx: *mut c_void,
+    root: u32,
+    from: PpBytes,
+    to: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::rename(&context.environment, &context.id, root, from, to) }
+}
+
+unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::remove(&context.environment, &context.id, root, path) }
+}
+
+unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::storage_slots::sync(&context.environment, &context.id)
+}
+
+unsafe extern "C" fn canvas_draw_line<S>(
+    ctx: *mut c_void,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    width: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context.canvas.draw_line(x0, y0, x1, y1, width, color)
+}
+
+unsafe extern "C" fn canvas_fill_round<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    radius: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context
+        .canvas
+        .fill_round(x, y, width, height, radius, color)
+}
+
+unsafe extern "C" fn canvas_stroke_round<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    radius: u32,
+    thickness: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context
+        .canvas
+        .stroke_round(x, y, width, height, radius, thickness, color)
+}
+
+unsafe extern "C" fn canvas_clip<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context.canvas.clip(x, y, width, height)
+}
+
+unsafe extern "C" fn font_acquire<S>(ctx: *mut c_void, key: PpBytes, out: *mut u32) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe { super::fonts::acquire(&context.environment, &context.resources, key, out) }
+}
+
+unsafe extern "C" fn handle_release<S>(ctx: *mut c_void, handle: u32) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::fonts::release(&context.resources, handle)
+}
+
+unsafe extern "C" fn text_measure<S>(
+    ctx: *mut c_void,
+    handle: u32,
+    size: f32,
+    text: PpBytes,
+    out: *mut f32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::fonts::measure(
+            &context.environment,
+            &context.resources,
+            handle,
+            size,
+            text,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn text_metrics<S>(
+    ctx: *mut c_void,
+    handle: u32,
+    size: f32,
+    ascent: *mut f32,
+    descent: *mut f32,
+    height: *mut f32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::fonts::metrics(
+            &context.environment,
+            &context.resources,
+            handle,
+            size,
+            ascent,
+            descent,
+            height,
+        )
+    }
+}
+
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
+unsafe extern "C" fn text_ink<S>(
+    ctx: *mut c_void,
+    handle: u32,
+    size: f32,
+    text: PpBytes,
+    top: *mut i32,
+    bottom: *mut i32,
+    left: *mut i32,
+    right: *mut i32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::fonts::ink(
+            &context.environment,
+            &context.resources,
+            handle,
+            size,
+            text,
+            top,
+            bottom,
+            left,
+            right,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
+unsafe extern "C" fn text_draw<S>(
+    ctx: *mut c_void,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    out: *mut f32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::fonts::draw(
+            &context.environment,
+            &context.resources,
+            &context.canvas,
+            handle,
+            size,
+            x,
+            baseline,
+            color,
+            text,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn services_query<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::service_slots::query(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+unsafe extern "C" fn blob_read<S>(ctx: *mut c_void, blob: u32, offset: u64, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint output storage.
+    unsafe {
+        super::service_slots::read(&context.environment, &context.resources, blob, offset, out)
+    }
+}
+unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::service_slots::release(&context.environment, &context.resources, blob)
+}
+
+unsafe extern "C" fn service_open<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::open(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn service_call<S>(
+    ctx: *mut c_void,
+    service: u32,
+    op: u32,
+    input: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::call(
+            &context.environment,
+            &context.resources,
+            service,
+            op,
+            input,
+            out,
+        )
+    }
+}
