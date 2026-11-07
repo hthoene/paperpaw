@@ -63,7 +63,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_moon::shows,
         settable: false,
     };
+    static WORLD: Behaviour = Behaviour {
+        height: crate::native_world::height,
+        draw: crate::native_world::draw,
+        shows: crate::native_world::shows,
+        settable: true,
+    };
     match token {
+        107 => Some(&WORLD),
         106 => Some(&MOON),
         105 => Some(&ANALOGUE),
         104 => Some(&YEAR),

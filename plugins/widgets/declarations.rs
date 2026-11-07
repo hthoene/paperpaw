@@ -366,6 +366,89 @@ const MOON_OPTIONS: &[Opt] = &[
     Opt::DateFormat("widgets.date-format.long"),
 ];
 
+/// The values of the first place's setting: the ids of the time zones the
+/// SDK knows, written out to stay in the program (a test keeps them the same).
+pub const WORLD_ZONES: [&str; 22] = [
+    "core.tz.utc",
+    "core.tz.honolulu",
+    "core.tz.anchorage",
+    "core.tz.los-angeles",
+    "core.tz.phoenix",
+    "core.tz.denver",
+    "core.tz.chicago",
+    "core.tz.new-york",
+    "core.tz.sao-paulo",
+    "core.tz.london",
+    "core.tz.lisbon",
+    "core.tz.berlin",
+    "core.tz.helsinki",
+    "core.tz.istanbul",
+    "core.tz.moscow",
+    "core.tz.dubai",
+    "core.tz.india",
+    "core.tz.bangkok",
+    "core.tz.china",
+    "core.tz.tokyo",
+    "core.tz.sydney",
+    "core.tz.auckland",
+];
+/// The values of the other places' settings: none, or one of the zones.
+pub const WORLD_ZONES_OR_NONE: [&str; 23] = {
+    let mut values = ["widgets.world-clock.none"; 23];
+    let mut n = 0;
+    while n < WORLD_ZONES.len() {
+        values[n + 1] = WORLD_ZONES[n];
+        n += 1;
+    }
+    values
+};
+
+const WORLD_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "place-1",
+        "widgets.setting.place-1",
+        &WORLD_ZONES,
+        "core.tz.new-york",
+        "widgets.world-clock.place.help",
+    ),
+    Opt::Choice(
+        "place-2",
+        "widgets.setting.place-2",
+        &WORLD_ZONES_OR_NONE,
+        "core.tz.tokyo",
+        "widgets.world-clock.place.help",
+    ),
+    Opt::Choice(
+        "place-3",
+        "widgets.setting.place-3",
+        &WORLD_ZONES_OR_NONE,
+        "widgets.world-clock.none",
+        "widgets.world-clock.place.help",
+    ),
+    Opt::Choice(
+        "layout",
+        "widgets.setting.layout",
+        &[
+            "widgets.layout.auto",
+            "widgets.layout.rows",
+            "widgets.layout.columns",
+        ],
+        "widgets.layout.auto",
+        "widgets.world-clock.layout.help",
+    ),
+    Opt::Part("here", "widgets.setting.here", false),
+    Opt::Part("day", "widgets.setting.day-difference", true),
+    Opt::Part("offset", "widgets.setting.offset", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -416,6 +499,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: MOON_OPTIONS,
+    },
+    Def {
+        name: "world-clock",
+        token: 107,
+        category: category::TIME,
+        live: true,
+        options: WORLD_OPTIONS,
     },
 ];
 
