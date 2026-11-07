@@ -20,7 +20,7 @@ use paperpaw_sdk::{
 /// widget's area is cut there, so that a slant or a slash's tail stays inside.
 const OVERHANG: u16 = 2;
 
-/// Where text placed in `area` may draw: `area`, [`OVERHANG`] wider on each side.
+/// Where text placed in `area` may draw: `area`, two pixels wider on each side.
 #[must_use]
 pub fn ink_room(area: Rect) -> Rect {
     let left = area.x.saturating_sub(OVERHANG);
