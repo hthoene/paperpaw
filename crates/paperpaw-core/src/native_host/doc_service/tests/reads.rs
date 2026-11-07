@@ -290,6 +290,26 @@ fn arguments_reach_the_format_as_the_contract_maps_them() {
 }
 
 #[test]
+fn image_index_max_is_the_cover() {
+    let last = |fake: &Rc<Fake>| *fake.calls.borrow().last().unwrap();
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    fake.say(&[picture()]);
+    // `index` `u32::MAX` is the cover: format op 17 at the cover's side, or larger.
+    let cover = |side| {
+        Record::ServiceDocImageAsk(wire::ServiceDocImageAsk {
+            document: id,
+            index: u32::MAX,
+            side,
+        })
+    };
+    call(&fake, 16, &[cover(0)]).unwrap();
+    assert_eq!((last(&fake)[0], last(&fake)[7]), (fmt::COVER, 300));
+    call(&fake, 16, &[cover(1200)]).unwrap();
+    assert_eq!((last(&fake)[0], last(&fake)[7]), (fmt::COVER, 1200));
+}
+
+#[test]
 fn bad_arguments_are_refused_before_the_format_is_asked() {
     let fake = Fake::new(Limits::X4);
     let id = opened(&fake);

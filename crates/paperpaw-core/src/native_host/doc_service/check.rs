@@ -7,6 +7,9 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
 /// `doc_state.flags`: bits 0-6 are defined.
 const STATE_FLAGS: u32 = 0x7f;
+/// `doc_block.flags`: bit 0 continues, bit 1 continued; a table row's bits 8-10
+/// say header, first, last row (`document.md` 4).
+const BLOCK_FLAGS: u32 = 0b11 | (0b111 << 8);
 /// `doc_meta.flags`: bit 0 title cut, bit 1 series.
 const META_FLAGS: u32 = 0b11;
 /// `doc_toc.flags`: bit 0 approximate, bit 1 title cut.
@@ -141,8 +144,8 @@ pub(super) fn progress(progress: &wire::ServiceDocProgress) -> Result<(), i32> {
 }
 
 /// What a fragment of a block stream said, to be checked against the block.
-#[derive(Default)]
-pub(super) struct Fragment {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Fragment {
     /// The header, when this fragment holds it.
     pub(super) kind: Option<u32>,
     pub(super) text_bytes: u32,
@@ -184,14 +187,15 @@ impl Fragment {
         match record {
             Record::ServiceDocBlock(block) => {
                 let heading_ok = block.kind != 1 || (1..=6).contains(&block.level);
-                require(heading_ok && block.flags & !0b11 == 0)?;
+                require(heading_ok && block.flags & !BLOCK_FLAGS == 0)?;
                 require(block.dir <= 1 && block.writing_mode <= 2)?;
                 self.kind = Some(block.kind);
                 self.text_bytes = block.text_bytes;
             }
             Record::ServiceDocTextPart(part) => {
                 self.parts += part.text.len() as u64;
-                require(self.parts <= u64::from(u32::MAX))?;
+                // Never past the header's whole length, across fragments.
+                require(self.parts <= u64::from(self.text_bytes))?;
             }
             Record::ServiceDocRun(run) => {
                 // Sorted, not overlapping; inside the text where it is known.
@@ -201,7 +205,10 @@ impl Fragment {
                     require(run.end <= self.text_bytes)?;
                 }
             }
-            Record::ServiceDocImage(_) => self.images += 1,
+            Record::ServiceDocImage(_) => {
+                self.images += 1;
+                require(self.images <= 1)?;
+            }
             Record::ServiceDocColumns(columns) => {
                 // Up to 16 little-endian u16 weights.
                 self.columns += 1;
@@ -223,11 +230,8 @@ impl Fragment {
     /// A block that goes no further (`more` clear), seen from its header: its
     /// parts add up, and its kind has the records it needs and no others.
     pub(super) fn complete(&self) -> Result<(), i32> {
-        let Some(kind) = self.kind else {
-            // The header came in an earlier fragment; the sum of parts and the
-            // kind's records are not known here (nothing is retained).
-            return Ok(());
-        };
+        // The header opened fragment 0 and the totals ran on across the rest.
+        let kind = self.kind.ok_or(ERR_INVALID)?;
         require(
             self.parts == u64::from(self.text_bytes)
                 && (self.images == 1) == (kind == 3)
@@ -238,18 +242,21 @@ impl Fragment {
     }
 }
 
-/// A fragment of a block stream: the records, then `end`. Returns the `end`.
-/// `cursor` is the record index the caller asked from, `generation` the one
-/// it named.
+/// A fragment of a block stream: the records, then `end`. Returns the `end`
+/// and the totals so far. `cursor` is the record index the caller asked from,
+/// `generation` the one it named; `resume` what the earlier fragments said
+/// (`Some` exactly when `cursor` is not 0).
 pub(super) fn block<'a>(
     bytes: &'a [u8],
     cursor: u32,
     generation: u32,
+    resume: Option<Fragment>,
     mut each: impl FnMut(&Record<'a>, usize) -> Result<(), i32>,
-) -> Result<wire::ServiceEnd, i32> {
+) -> Result<(wire::ServiceEnd, Fragment), i32> {
     // A fragment is a stage payload at most.
     require(bytes.len() <= FRAGMENT_MAX)?;
-    let mut fragment = Fragment::default();
+    require((cursor == 0) == resume.is_none())?;
+    let mut fragment = resume.unwrap_or_default();
     let mut index = 0;
     let end = rows(bytes, usize::MAX, |record| {
         fragment.feed(record, cursor == 0, index)?;
@@ -262,6 +269,14 @@ pub(super) fn block<'a>(
     if end.flags & !0b11 != 0 || sent == 0 {
         return Err(ERR_INVALID);
     }
+    // The block's identity holds to its last fragment: a different or missing
+    // one is a changed block.
+    if cursor != 0 && end.generation != generation {
+        return Err(ERR_STATE);
+    }
+    if generation != 0 && end.generation != 0 && end.generation != generation {
+        return Err(ERR_STATE);
+    }
     if end.flags & 2 != 0 {
         // The rest is asked for by record index, under the block's identity.
         if end.generation == 0 || Some(end.next) != cursor.checked_add(sent) {
@@ -270,8 +285,5 @@ pub(super) fn block<'a>(
     } else {
         fragment.complete()?;
     }
-    if generation != 0 && end.generation != 0 && end.generation != generation {
-        return Err(ERR_STATE);
-    }
-    Ok(end)
+    Ok((end, fragment))
 }

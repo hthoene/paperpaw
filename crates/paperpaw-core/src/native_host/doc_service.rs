@@ -20,7 +20,9 @@ use crate::abi7::{
     services_wire::ServiceOp,
 };
 use core::ops::ControlFlow;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
 
 mod args;
 mod check;
@@ -438,6 +440,17 @@ fn settle(host: &dyn DocHost, document: &Document, verdict: Result<(), i32>) -> 
     }
 }
 
+/// Where a block call reads: the address, the cursor and identity named, and
+/// what the earlier fragments said.
+#[derive(Clone, Copy)]
+struct BlockAt {
+    section: u32,
+    offset: u32,
+    cursor: u32,
+    generation: u32,
+    resume: Option<check::Fragment>,
+}
+
 /// What the host checks of a format's answer.
 enum Check {
     Meta,
@@ -446,7 +459,7 @@ enum Check {
     Toc { cursor: u32, generation: u32 },
     Fonts { cursor: u32, generation: u32 },
     Links { cursor: u32, generation: u32 },
-    Block { cursor: u32, generation: u32 },
+    Block(BlockAt),
     At,
     Label,
     Xpointer,
@@ -467,6 +480,11 @@ fn document_of(record: &Record<'_>) -> Option<u32> {
         Record::ServiceDocImageAsk(r) => r.document,
         _ => return None,
     })
+}
+
+/// A continuation the host did not begin (or that changed) is `ERR_STATE`.
+fn require_state(ok: bool) -> Result<(), i32> {
+    if ok { Ok(()) } else { Err(ERR_STATE) }
 }
 
 fn require(ok: bool) -> Result<(), i32> {
@@ -549,20 +567,7 @@ fn prepare<'a>(
             call.op = format_op;
             check
         }
-        (op::BLOCK, Record::ServiceDocAt(r)) => {
-            // `insert` is the reader's own (inserted content); never here.
-            require(r.insert == 0)?;
-            args::page_state(r.cursor, r.generation)?;
-            call.op = fmt::BLOCK;
-            call.section = r.section;
-            call.offset = r.offset;
-            call.cursor = r.cursor;
-            call.generation = r.generation;
-            Check::Block {
-                cursor: r.cursor,
-                generation: r.generation,
-            }
-        }
+        (op::BLOCK, Record::ServiceDocAt(r)) => block_ask(r, document, &mut call)?,
         (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, Record::ServiceDocAt(r)) => {
             position(r)?;
             call.section = r.section;
@@ -603,9 +608,16 @@ fn prepare<'a>(
             Check::At
         }
         (op::IMAGE, Record::ServiceDocImageAsk(r)) => {
-            call.op = fmt::IMAGE;
-            call.index = r.index;
-            call.image_side = args::image_side(r.side, document.image_side)?;
+            if r.index == u32::MAX {
+                // The cover is index `u32::MAX` (`document.md` 5): its own
+                // size, larger when asked.
+                call.op = fmt::COVER;
+                call.cover_side = args::image_side(r.side, document.cover_side)?;
+            } else {
+                call.op = fmt::IMAGE;
+                call.index = r.index;
+                call.image_side = args::image_side(r.side, document.image_side)?;
+            }
             Check::Image
         }
         _ => return Err(ERR_INVALID),
@@ -703,10 +715,7 @@ fn verify(
             })?;
             check::page_end(&end, cursor, generation)?;
         }
-        Check::Block { cursor, generation } => {
-            check::block(bytes, cursor, generation, |_, _| Ok(()))?;
-            return images(host, document, out, length, true);
-        }
+        Check::Block(at) => return block_verify(host, document, at, out, length),
         Check::At => {
             let Record::ServiceDocAt(at) = check::only(bytes)? else {
                 return Err(ERR_INVALID);
@@ -741,6 +750,66 @@ fn verify(
         }
     }
     Ok(length)
+}
+
+/// Op 6: the block at `at`, or the next fragment of the one in progress.
+fn block_ask(
+    r: &wire::ServiceDocAt,
+    document: &Document,
+    call: &mut FormatCall<'_>,
+) -> Result<Check, i32> {
+    // `insert` is the reader's own (inserted content); never here.
+    require(r.insert == 0)?;
+    args::page_state(r.cursor, r.generation)?;
+    // A later fragment continues the block the last call began: the table
+    // keeps what the earlier fragments said (`document.md` 4).
+    let resume = if r.cursor == 0 {
+        None
+    } else {
+        let pending = document.block.ok_or(ERR_STATE)?;
+        require_state(pending.is(r.section, r.offset, r.generation, r.cursor))?;
+        Some(pending.fragment)
+    };
+    call.op = fmt::BLOCK;
+    call.section = r.section;
+    call.offset = r.offset;
+    call.cursor = r.cursor;
+    call.generation = r.generation;
+    Ok(Check::Block(BlockAt {
+        section: r.section,
+        offset: r.offset,
+        cursor: r.cursor,
+        generation: r.generation,
+        resume,
+    }))
+}
+
+/// Op 6's answer: checked as the next fragment, then remembered when the block
+/// goes on and forgotten when it ends. Only a fragment that passed moves it.
+fn block_verify(
+    host: &dyn DocHost,
+    document: &Document,
+    at: BlockAt,
+    out: &mut [u8],
+    length: usize,
+) -> Result<usize, i32> {
+    let (end, fragment) = check::block(
+        &out[..length],
+        at.cursor,
+        at.generation,
+        at.resume,
+        |_, _| Ok(()),
+    )?;
+    let kept = images(host, document, out, length, true)?;
+    let pending = (end.flags & 2 != 0).then_some(table::Pending {
+        section: at.section,
+        offset: at.offset,
+        generation: end.generation,
+        next: end.next,
+        fragment,
+    });
+    host.table().keep_block(document.id, pending);
+    Ok(kept)
 }
 
 /// Rows per page of the document service's lists (`page_rows` 64).
