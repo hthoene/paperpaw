@@ -994,7 +994,11 @@ fn describe(q: &Query<'_>) -> String {
         q.facet
     )
 }
-impl super::super::LibExcluded for Fake {}
+impl super::super::LibExcluded for Fake {
+    fn excluded(&self, _first_segment: &str) -> bool {
+        false
+    }
+}
 impl LibQuery for Fake {
     fn screen_long_side(&self) -> Result<u32, i32> {
         self.long_side.get()

@@ -40,9 +40,10 @@ impl<T: query::LibQuery + write::LibWrite + LibExcluded> LibHost for T {}
 pub(crate) trait LibExcluded {
     /// Whether the path's first segment names one of them by another name,
     /// as FAT finds an entry (an 8.3 short alias).
-    fn excluded(&self, _first_segment: &str) -> bool {
-        false
-    }
+    ///
+    /// Required: a host that forgets it would let an alias reach the
+    /// protected folders.
+    fn excluded(&self, first_segment: &str) -> bool;
 }
 
 /// What the shell hands the frame under the key `core.library`.
