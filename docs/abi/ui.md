@@ -96,8 +96,10 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   in the native host state: the one checked id allocator (nonzero, never reused) for requests,
   hand-overs and host texts, the hand-overs, the requests and the texts. Input writes ops 2, 4,
   8-11 and 14-17 against it; the screen stack and command staging (Core, H1) only call it. Every
-  call takes the host-stamped `Stamp { owner, epoch }`; no borrow of the store spans plugin code;
-  a claim is a move-only token (`Claims`, no `Clone`), not a reference.
+  call takes the host-stamped `Stamp { owner, epoch }`: `owner` the plugin's `NativeInstances`
+  key (indices never move nor are reused), `epoch` the running callback's `CallbackEpoch`; a call
+  with no callback running is `ERR_STATE`, never epoch 0. No borrow of the store spans plugin
+  code; a claim is a move-only token (`Claims`, no `Clone`), not a reference.
   1. `handover_make(stamp, staged params) -> Result<u32, i32>` at op 16: published only after the
      batch walk returned `OK` (section 6), allocated fallibly (`ERR_NO_MEMORY`, X4 cap
      `ERR_FULL`); state **made**. Its text follows with op 9 on the same id.
