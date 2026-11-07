@@ -1350,5 +1350,8 @@ mod stage_broker_oom;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
+
+#[path = "shell_command_dispatch_tests.rs"]
+mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
