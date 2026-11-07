@@ -46,6 +46,18 @@ pub enum EventKind {
     StatusChanged,
     /// Subscribe to the charge changed host event.
     ChargeChanged,
+    /// Registry sections or pushed item state changed.
+    RegistryChanged,
+    /// The settings preview changed or ended.
+    PreviewChanged,
+    /// A plugin asks subscribers to offer installation.
+    PluginsRequested,
+    /// One requested plugin received an outcome.
+    PluginAnswered,
+    /// The visible screen stack changed.
+    StackChanged,
+    /// A screen drew its first page and is ready for help.
+    ScreenReady,
 }
 
 impl EventKind {
@@ -71,6 +83,12 @@ impl EventKind {
             Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,
             Self::StatusChanged => records_wire::EVENT_STATUS_CHANGED_TAG,
             Self::ChargeChanged => records_wire::EVENT_CHARGE_CHANGED_TAG,
+            Self::RegistryChanged => records_wire::EVENT_REGISTRY_CHANGED_TAG,
+            Self::PreviewChanged => records_wire::EVENT_PREVIEW_CHANGED_TAG,
+            Self::PluginsRequested => records_wire::EVENT_PLUGINS_REQUESTED_TAG,
+            Self::PluginAnswered => records_wire::EVENT_PLUGIN_ANSWERED_TAG,
+            Self::StackChanged => records_wire::EVENT_STACK_CHANGED_TAG,
+            Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
         }
     }
 }

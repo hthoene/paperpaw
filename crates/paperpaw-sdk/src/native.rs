@@ -335,12 +335,15 @@ pub mod fonts;
 pub mod formatting;
 pub mod keys;
 pub mod registrations;
+/// Borrowed registry rows and lossless generation-bound paging.
+pub mod registry;
 pub mod reply;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
 pub mod stages;
 pub mod storage;
+pub mod ui;
 mod wire;
 
 #[cfg(test)]

@@ -56,8 +56,11 @@ change the plugin SDK.
   the host wires it. `event.screen_shown` (38) gains the instance it shows. Service ops name
   their row counts (`ServiceOp::input_rows`, `paged`, `reply_rows`); an input batch above 8
   records is encoded with `records_encode_counted` and decoded by the host with
-  `host_records_visit` (op 16: 32 params). Interface draft 17 (`native::DRAFT`) refuses plugins
-  built for draft 16 (#228).
+  `host_records_visit` (op 16: 32 params). Typed SDK facades: `native::ui` (navigation,
+  hand-overs, questions and answers with host texts, widgets and status composition, help, speech,
+  clipboard) and `native::registry` (registry declarations, commands, paged queries and events),
+  without public wire records. Interface draft 17 (`native::DRAFT`) refuses plugins built for draft
+  16 (#228).
 - Interface 7, family 4 DOC and LIB (`docs/abi/document.md`, `docs/abi/library.md`): the
   `core.document` service (21 ops: open with book options, metadata, sections, lossless block
   fragments, table of contents, XPointers, links, fonts, cover and images by a stable picture

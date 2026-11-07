@@ -411,7 +411,9 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   `check_duplicates` at admission), not per batch: a duplicate refuses the plugin's whole
   declaration set with `ERR_INVALID`, never only the second record.
 - [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
-  `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
+  `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form)
+  and then needs an empty `value`: a value with bit 0 set is `ERR_INVALID`, never ignored. Other
+  `flags` bits are `ERR_UNSUPPORTED` (`records.md`, unknown flag bits).
 - [D] **Widgets:** their declaration and drawing (`add_widget`, `add_widget_place`, `make`,
   `preview`) are the `core.widget` stage's contract (STG own work, UIX composition). Discovery
   (`iter`, `kinds`, `category_icon`, `has`, `shown`) is REG op 19 over what that contract admits.
