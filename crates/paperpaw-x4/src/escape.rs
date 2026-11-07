@@ -482,7 +482,9 @@ mod tests {
         watch(&mut call, 7_000, 7_300, Some((2, 2, 1, false)));
         watch(&mut call, 7_300, FORCED + 5, Some((3, 3, 1, false)));
         assert_eq!(call.blame(FORCED), Blame::Innermost);
-        assert_eq!(call.blame(7_300 + GRACE_MS - 5), Blame::Nobody);
+        // Before the grace since B returned, A is blamed as the outermost call
+        // (it has run since 7 s and calls came and went inside it).
+        assert_eq!(call.blame(7_300 + GRACE_MS - 5), Blame::Outermost);
     }
 
     #[test]
