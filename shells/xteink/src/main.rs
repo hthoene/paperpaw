@@ -69,8 +69,6 @@ mod native;
 mod net;
 mod network;
 mod ota;
-#[cfg(feature = "ppn5")]
-mod secrets;
 #[cfg(feature = "remote")]
 mod peak;
 mod power;
@@ -80,6 +78,8 @@ mod provision;
 mod remote;
 mod roots;
 mod safe_mode;
+#[cfg(feature = "ppn5")]
+mod secrets;
 mod serve;
 mod sockets;
 mod stack;

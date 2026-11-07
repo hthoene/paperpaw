@@ -443,7 +443,11 @@ impl CodeLoader for Loader {
         let wired = self
             .resources
             .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()).secrets(secrets))
+            .wire(
+                HostWiring::new()
+                    .hyphenation(storage.clone())
+                    .secrets(secrets),
+            )
             .ok()?;
         wired.hyphen().cloned()
     }
