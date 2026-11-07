@@ -1932,6 +1932,235 @@ impl<'a> MenuDescribe<'a> {
         write_blob(self.key.as_bytes(), out, offset);
     }
 }
+/// Wire tag of the `stage.spec` record.
+pub const STAGE_SPEC_TAG: u32 = 19;
+/// Maximum bytes of `stage.spec.name`.
+pub const STAGE_SPEC_NAME_MAX_BYTES: usize = 96;
+
+/// The `stage.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// Little-endian u32.
+    pub schema: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub max_input: u32,
+    /// Little-endian u32.
+    pub max_reply: u32,
+    /// Little-endian u32.
+    pub max_records: u32,
+}
+
+impl<'a> StageSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StageSpec(Self {
+            name: body.string(STAGE_SPEC_NAME_MAX_BYTES)?,
+            schema: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            max_input: u32::from_le_bytes(body.scalar()?),
+            max_reply: u32::from_le_bytes(body.scalar()?),
+            max_records: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), STAGE_SPEC_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.schema.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.max_input.to_le_bytes(), out, offset);
+        write_bytes(&self.max_reply.to_le_bytes(), out, offset);
+        write_bytes(&self.max_records.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `registration.stage` record.
+pub const REGISTRATION_STAGE_TAG: u32 = 20;
+/// Maximum bytes of `registration.stage.stage`.
+pub const REGISTRATION_STAGE_STAGE_MAX_BYTES: usize = 128;
+
+/// The `registration.stage` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegistrationStage<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub stage: &'a str,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian i32.
+    pub order: i32,
+    /// Little-endian u64.
+    pub signature: u64,
+}
+
+impl<'a> RegistrationStage<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::RegistrationStage(Self {
+            stage: body.string(REGISTRATION_STAGE_STAGE_MAX_BYTES)?,
+            token: u32::from_le_bytes(body.scalar()?),
+            order: i32::from_le_bytes(body.scalar()?),
+            signature: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.stage.len(), REGISTRATION_STAGE_STAGE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.stage.as_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.order.to_le_bytes(), out, offset);
+        write_bytes(&self.signature.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `stage.call` record.
+pub const STAGE_CALL_TAG: u32 = 512;
+/// Maximum bytes of `stage.call.stage`.
+pub const STAGE_CALL_STAGE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `stage.call.payload`.
+pub const STAGE_CALL_PAYLOAD_MAX_BYTES: usize = 3840;
+
+/// The `stage.call` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageCall<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub stage: &'a str,
+    /// Little-endian u32.
+    pub schema: u32,
+    /// Opaque bytes, at most 3840.
+    pub payload: &'a [u8],
+}
+
+impl<'a> StageCall<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StageCall(Self {
+            stage: body.string(STAGE_CALL_STAGE_MAX_BYTES)?,
+            schema: u32::from_le_bytes(body.scalar()?),
+            payload: body.blob(STAGE_CALL_PAYLOAD_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.stage.len(), STAGE_CALL_STAGE_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.payload.len(), STAGE_CALL_PAYLOAD_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.stage.as_bytes(), out, offset);
+        write_bytes(&self.schema.to_le_bytes(), out, offset);
+        write_blob(self.payload, out, offset);
+    }
+}
+/// Wire tag of the `stage.reply` record.
+pub const STAGE_REPLY_TAG: u32 = 513;
+/// Maximum bytes of `stage.reply.subscriber`.
+pub const STAGE_REPLY_SUBSCRIBER_MAX_BYTES: usize = 64;
+/// Maximum bytes of `stage.reply.payload`.
+pub const STAGE_REPLY_PAYLOAD_MAX_BYTES: usize = 3840;
+
+/// The `stage.reply` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageReply<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub subscriber: &'a str,
+    /// Little-endian u32.
+    pub index: u32,
+    /// Little-endian i32.
+    pub status: i32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u64.
+    pub signature: u64,
+    /// Opaque bytes, at most 3840.
+    pub payload: &'a [u8],
+}
+
+impl<'a> StageReply<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StageReply(Self {
+            subscriber: body.string(STAGE_REPLY_SUBSCRIBER_MAX_BYTES)?,
+            index: u32::from_le_bytes(body.scalar()?),
+            status: i32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            signature: u64::from_le_bytes(body.scalar()?),
+            payload: body.blob(STAGE_REPLY_PAYLOAD_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.subscriber.len(), STAGE_REPLY_SUBSCRIBER_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += blob_len(self.payload.len(), STAGE_REPLY_PAYLOAD_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.subscriber.as_bytes(), out, offset);
+        write_bytes(&self.index.to_le_bytes(), out, offset);
+        write_bytes(&self.status.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.signature.to_le_bytes(), out, offset);
+        write_blob(self.payload, out, offset);
+    }
+}
+/// Wire tag of the `service.echo` record.
+pub const SERVICE_ECHO_TAG: u32 = 1024;
+/// Maximum bytes of `service.echo.text`.
+pub const SERVICE_ECHO_TEXT_MAX_BYTES: usize = 256;
+
+/// The `service.echo` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceEcho<'a> {
+    /// UTF-8 text of at most 256 bytes.
+    pub text: &'a str,
+}
+
+impl<'a> ServiceEcho<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceEcho(Self {
+            text: body.string(SERVICE_ECHO_TEXT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.text.len(), SERVICE_ECHO_TEXT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.text.as_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2009,6 +2238,16 @@ pub enum Record<'a> {
     MenuHide(MenuHide<'a>),
     /// A `MenuDescribe` record.
     MenuDescribe(MenuDescribe<'a>),
+    /// A `StageSpec` record.
+    StageSpec(StageSpec<'a>),
+    /// A `RegistrationStage` record.
+    RegistrationStage(RegistrationStage<'a>),
+    /// A `StageCall` record.
+    StageCall(StageCall<'a>),
+    /// A `StageReply` record.
+    StageReply(StageReply<'a>),
+    /// A `ServiceEcho` record.
+    ServiceEcho(ServiceEcho<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -2088,6 +2327,11 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         MENU_SECTION_TAG => MenuSection::decode(body)?,
         MENU_HIDE_TAG => MenuHide::decode(body)?,
         MENU_DESCRIBE_TAG => MenuDescribe::decode(body)?,
+        STAGE_SPEC_TAG => StageSpec::decode(body)?,
+        REGISTRATION_STAGE_TAG => RegistrationStage::decode(body)?,
+        STAGE_CALL_TAG => StageCall::decode(body)?,
+        STAGE_REPLY_TAG => StageReply::decode(body)?,
+        SERVICE_ECHO_TAG => ServiceEcho::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -2214,6 +2458,11 @@ impl Record<'_> {
             Record::MenuSection(_) => MENU_SECTION_TAG,
             Record::MenuHide(_) => MENU_HIDE_TAG,
             Record::MenuDescribe(_) => MENU_DESCRIBE_TAG,
+            Record::StageSpec(_) => STAGE_SPEC_TAG,
+            Record::RegistrationStage(_) => REGISTRATION_STAGE_TAG,
+            Record::StageCall(_) => STAGE_CALL_TAG,
+            Record::StageReply(_) => STAGE_REPLY_TAG,
+            Record::ServiceEcho(_) => SERVICE_ECHO_TAG,
         }
     }
 
@@ -2256,6 +2505,11 @@ impl Record<'_> {
             Record::MenuSection(record) => record.body_len(),
             Record::MenuHide(record) => record.body_len(),
             Record::MenuDescribe(record) => record.body_len(),
+            Record::StageSpec(record) => record.body_len(),
+            Record::RegistrationStage(record) => record.body_len(),
+            Record::StageCall(record) => record.body_len(),
+            Record::StageReply(record) => record.body_len(),
+            Record::ServiceEcho(record) => record.body_len(),
         }
     }
 
@@ -2303,6 +2557,11 @@ impl Record<'_> {
             Record::MenuSection(record) => record.write(out, offset),
             Record::MenuHide(record) => record.write(out, offset),
             Record::MenuDescribe(record) => record.write(out, offset),
+            Record::StageSpec(record) => record.write(out, offset),
+            Record::RegistrationStage(record) => record.write(out, offset),
+            Record::StageCall(record) => record.write(out, offset),
+            Record::StageReply(record) => record.write(out, offset),
+            Record::ServiceEcho(record) => record.write(out, offset),
         }
     }
 

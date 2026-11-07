@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 11;
+pub const DRAFT: u16 = 12;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -322,6 +322,7 @@ const INSTALLED: &str = crate::data_path!("plugin-code.txt");
 mod binding;
 #[doc(hidden)]
 pub use binding::entry as __entry;
+pub use binding::entry::Linked;
 pub use binding::heap as __heap;
 pub use binding::{Error, Host, Plugin};
 pub mod callbacks;

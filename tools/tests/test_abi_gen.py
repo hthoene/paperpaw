@@ -40,7 +40,7 @@ class SchemaTests(unittest.TestCase):
         ABI.compatible(self.base, copy.deepcopy(self.base))
         reordered = dict(reversed(list(self.base.items())))
         self.assertEqual(ABI.canonical(self.base), ABI.canonical(reordered))
-        self.assertEqual(len(self.base['host_entries']), 32)
+        self.assertEqual(len(self.base['host_entries']), 35)
 
     def test_each_existing_contract_is_frozen(self):
         changes = {'id': 400, 'name': 'renamed', 'since': 2,
@@ -194,6 +194,7 @@ class SchemaTests(unittest.TestCase):
         del prior['emitted_color']
         del prior['emitted_commands']
         del prior['emitted_streams']
+        del prior['emitted_services']
         ABI.check_lock(prior, self.base)
         with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
             with self.assertRaisesRegex(ValueError, 'emitted C contract'):

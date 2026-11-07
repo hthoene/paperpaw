@@ -31,6 +31,8 @@ Overlong, overflowing or truncated varints are malformed.
 | 16 | `menu.section` | `name: str 96`, `title: str 128`, `menu: str 128`, `order: i32` |
 | 17 | `menu.hide` | `menu: str 128`, `item: str 128` |
 | 18 | `menu.describe` | `item: str 96`, `key: str 128` |
+| 19 | `stage.spec` | `name: str 96`, `schema: u32`, `flags: u32`, `max_input: u32`, `max_reply: u32`, `max_records: u32` |
+| 20 | `registration.stage` | `stage: str 128`, `token: u32`, `order: i32`, `signature: u64` |
 | 32 | `event.started` | `now_ms: u64` |
 | 33 | `event.resume` | `now_ms: u64` |
 | 34 | `event.suspend` | `now_ms: u64` |
@@ -76,12 +78,14 @@ unknown family or a tag declared twice is refused; tags are never reused):
 | --- | --- |
 | 1-3 | `registration.event`, `registration.draw`, `event.tick` |
 | 4 | `command.set_setting` |
-| 5-31 | declarative registration: `setting.*`, `resource.*`, `action.*`, `menu.*`, `screen.*`, `icon.*` |
+| 5-31 | declarative registration: `setting.*`, `resource.*`, `action.*`, `menu.*`, `screen.*`, `icon.*`, `stage.spec`, `registration.stage` |
 | 32-43 | `event.*` |
 | 44-47 | `i18n.*` |
 | 48-55 | `service.*` |
 | 56-62 | `command.*` |
 | 63 | reserved |
+| 512-1023 | `stage.*`: 512 `stage.call`, 513 `stage.reply` (`docs/abi/stages-services.md`) |
+| 1024-1535 | `service.*` growth block: 1024 `service.echo` (host tests only) |
 
 Tags 48-52 are the service records of `docs/abi/proposals/interface-7-usage-clock.md`. The host writes
 them into service blobs, framed **bare**: tag, body length and body, with no count

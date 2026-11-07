@@ -21,6 +21,18 @@ change the plugin SDK.
 
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+- Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
+  `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
+  `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
+  service schemas in `abi/services/<key>@<major>.def`, validated by `tools/abi-gen.py`, which
+  writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
+  new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
+  declarations until they wire them (#228).
+- Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
+  linked into the program that hosts them (firmware built-ins): the same entry and metadata under
+  a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
+  several link into one program; the host reads the entry with `Linked::entry` (`kernel`) and
+  admits it as a loaded plugin (`abi/entry.md`, linked built-ins) (#228).
 - Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
   what menus show of its own actions and settings (label and badge as catalog keys with arguments,
   hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;

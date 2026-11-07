@@ -24,6 +24,7 @@ from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 from abi_color import validate_color, compatible_color, rust_color
 from abi_commands import validate_commands, compatible_commands, rust_commands
 from abi_i18n import validate_i18n, compatible_i18n, rust_i18n
+from abi_services import compatible_services, load_services, rust_services, validate_services
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -100,7 +101,8 @@ def validate(schema):
          (' command_codec' if 'command_codec' in schema else '') +
          (' snapshot_value' if 'snapshot_value' in schema else '') +
          (' color_value' if 'color_value' in schema else '') +
-         (' i18n_limits' if 'i18n_limits' in schema else ''))
+         (' i18n_limits' if 'i18n_limits' in schema else '') +
+         (' services' if 'services' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
@@ -147,6 +149,7 @@ def validate(schema):
     validate_records(schema)
     validate_commands(schema)
     validate_i18n(schema)
+    validate_services(schema)
     return schema
 
 
@@ -221,6 +224,7 @@ def compatible(old, new, released_minor=None):
     compatible_color(old, new, minimum_since)
     compatible_commands(old, new, minimum_since)
     compatible_i18n(old, new, minimum_since)
+    compatible_services(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -322,7 +326,7 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 8, 'released_minor': released_minor,
+    return {'lock_format': 9, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
             'emitted_rust': rust_module(schema),
             'emitted_metadata': resolved_metadata(schema),
@@ -330,7 +334,8 @@ def lock_record(schema, released_minor=0):
             'emitted_snapshot': rust_snapshot(schema),
             'emitted_color': rust_color(schema),
             'emitted_commands': rust_commands(schema),
-            'emitted_streams': rust_streams(schema)}
+            'emitted_streams': rust_streams(schema),
+            'emitted_services': rust_services(schema)}
 
 
 # The emitted sections of a lock: key, renderer name (looked up when used, so
@@ -345,7 +350,9 @@ EMITTED = (('emitted_c', 'header', 1, 'emitted C contract changed from prior loc
            ('emitted_color', 'rust_color', 6, 'emitted color contract changed from prior lock'),
            ('emitted_commands', 'rust_commands', 7,
             'emitted commands contract changed from prior lock'),
-           ('emitted_streams', 'rust_streams', 8, 'emitted streams contract changed from prior lock'))
+           ('emitted_streams', 'rust_streams', 8, 'emitted streams contract changed from prior lock'),
+           ('emitted_services', 'rust_services', 9,
+            'emitted services contract changed from prior lock'))
 # What a reviewed baseline replacement may waive, and nothing else: the lock's
 # shape, its format and major, and every check not named stay enforced.
 WAIVABLE = frozenset(['schema', 'compatible'] + [key for key, *_ in EMITTED])
@@ -355,7 +362,7 @@ def lock_shape(prior, schema):
     """The lock's structure and line (format, major), never waived."""
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8), 'unsupported lock format')
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8, 9), 'unsupported lock format')
     keys(prior, ' '.join(['lock_format released_minor schema'] +
                          [key for key, _, since, _ in EMITTED if version >= since]))
     old = prior['schema']
@@ -438,6 +445,14 @@ def baseline_replaced(folder, baseline_path, baseline):
     return frozenset(waives)
 
 
+def with_services(schema, folder):
+    """`abi.def` with the service schemas of `folder` (`abi/services`), if any."""
+    services = load_services(folder)
+    if services and type(schema) is dict:
+        schema = dict(schema, services=services)
+    return schema
+
+
 def run(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT)
@@ -447,7 +462,7 @@ def run(argv=None):
     args = parser.parse_args(argv)
     require(not (args.check and args.write_lock), 'check never writes the lock')
     folder = args.root / 'abi'
-    schema = validate(load(folder / 'abi.def'))
+    schema = validate(with_services(load(folder / 'abi.def'), folder / 'services'))
     lock = folder / 'abi.lock'
     release_floor = 0
     if args.baseline:
@@ -504,6 +519,12 @@ def run(argv=None):
         outputs[args.root / 'crates/paperpaw-core/src/abi7/commands_wire.rs'] = codec
         # The SDK's private copy (#228): byte for byte the same codec.
         outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/commands_wire.rs'] = codec
+    codec = rust_services(schema)
+    if codec:
+        outputs[folder / 'generated' / 'services_wire.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-core/src/abi7/services_wire.rs'] = codec
+        # The SDK's private copy (#228): byte for byte the same table.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/services_wire.rs'] = codec
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():
