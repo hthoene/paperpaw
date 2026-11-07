@@ -35,6 +35,7 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                         | "files.view.covers"
                         | "files.covers.mono"
                         | "files.covers.gray"
+                        | "files.books"
                 )
             {
                 asked += 1;
@@ -50,6 +51,18 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
         }
     }
     assert!(asked >= 15, "{asked}");
+}
+
+#[test]
+fn the_book_count_has_both_plural_forms_in_both_languages() {
+    for catalog in [EN, DE] {
+        for key in ["files.books.one", "files.books.other"] {
+            assert!(
+                catalog.lines().any(|l| l.starts_with(&format!("{key} = "))),
+                "{key}"
+            );
+        }
+    }
 }
 
 #[test]

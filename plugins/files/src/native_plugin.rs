@@ -5,7 +5,9 @@ use crate::{
     declarations::{
         BROWSER_TOKEN, FAVOURITES_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN, SHELVES_TOKEN, SORT,
     },
-    native_model::{self, BookLine, Filter, MOST_BOOKS, Order, Say, Scope, Selection, Window},
+    native_model::{
+        self, BookLine, Filter, MOST_BOOKS, Order, Replied, Say, Scope, Selection, Source, Window,
+    },
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -20,7 +22,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -36,8 +38,11 @@ mod image {
 /// The parameters that open a list of one scope.
 const KIND: &str = "kind";
 const VALUE: &str = "value";
-/// Replies read at most while one window is read again (the window's bound).
-const MOST_PAGES: usize = MOST_BOOKS.div_ceil(32);
+
+/// Where the library keeps books unless the setting says otherwise.
+const DEFAULT_FOLDER: &str = "books";
+/// The kernel's setting of it.
+const FOLDER_SETTING: &str = "core.library-folder";
 
 /// What a row of a list of books does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,8 +53,53 @@ enum Row {
     Note,
     /// Opens the book at this index of the window.
     Book(usize),
-    /// Reads more books.
+    /// Slides back to the window before this one.
+    Previous,
+    /// Reads more books: the window grows, or slides on when it is full.
     More,
+}
+
+/// Where a list is read from: its window's first reply, and the starts of
+/// the windows before it.
+#[derive(Debug)]
+struct Reading {
+    start: CatalogCursor,
+    starts: Vec<CatalogCursor>,
+}
+
+impl Reading {
+    const fn from(start: CatalogCursor, starts: Vec<CatalogCursor>) -> Self {
+        Self { start, starts }
+    }
+}
+
+/// Where the focus goes once a window is read.
+#[derive(Debug, Clone, Copy)]
+enum Then {
+    Keep,
+    FirstBook,
+    LastRow,
+}
+
+/// What to read for a list and where to leave the focus.
+#[derive(Debug)]
+struct Plan {
+    selection: Selection,
+    reading: Reading,
+    at_least: usize,
+    focus: usize,
+    then: Then,
+}
+
+/// A copy of window starts, fallibly.
+fn cursors(from: &[CatalogCursor]) -> Result<Vec<CatalogCursor>, Error> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(from.len())
+        .map_err(|_| Error::NoMemory)?;
+    for cursor in from {
+        push(&mut copy, *cursor)?;
+    }
+    Ok(copy)
 }
 
 #[derive(Debug)]
@@ -57,10 +107,14 @@ struct Browser {
     title: String,
     selection: Selection,
     window: Window,
+    /// Where the windows before this one began, the nearest last.
+    starts: Vec<CatalogCursor>,
     rows: Vec<Row>,
     list: ItemList,
     /// What an empty list says; empty when it is not empty.
     empty: String,
+    /// What it says below the title when it is empty (the folder to copy to).
+    empty_text: String,
 }
 
 #[derive(Debug)]
@@ -69,6 +123,10 @@ struct Shelves {
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing would allocate without a fallible path; the screen stack holds a few"
+)]
 enum View {
     /// The library (`Scope::Library`) or a list of one scope.
     Books(Browser),
@@ -138,7 +196,7 @@ impl Plugin for NativeFiles {
                 } else {
                     Footer::Empty {
                         title: &view.empty,
-                        text: "",
+                        text: &view.empty_text,
                     }
                 };
                 view.list
@@ -172,6 +230,35 @@ const fn is_screen(token: u32) -> bool {
     token == BROWSER_TOKEN || token == SHELF_TOKEN || token == SHELVES_TOKEN
 }
 
+/// The replies of the host's library query for one selection.
+struct Replies<'a, 'h> {
+    host: &'a Host<'h>,
+    library: &'a Library,
+    selection: &'a Selection,
+    input: &'a mut [u8],
+    out: &'a mut [u8],
+}
+
+impl Source<CatalogCursor> for Replies<'_, '_> {
+    fn read(&mut self, from: CatalogCursor) -> Result<Replied<CatalogCursor>, Error> {
+        let query = self.selection.query(from)?;
+        let page = self
+            .library
+            .query(self.host, &query, self.input, self.out)?;
+        let mut books = Vec::new();
+        for entry in page.rows() {
+            push(&mut books, BookLine::from_entry(entry?)?)?;
+        }
+        let end = page.end();
+        Ok(Replied {
+            books,
+            generation: end.generation(),
+            total: end.total(),
+            next: end.next(),
+        })
+    }
+}
+
 /// The catalog's words for the model, in the reader's language.
 struct Speaker<'h, 'a> {
     host: &'h Host<'a>,
@@ -202,6 +289,19 @@ impl NativeFiles {
             SettingValue::Text(key) => Order::from_key(key),
             _ => Order::default(),
         })
+    }
+
+    /// The library folder the user chose (`core.library-folder`), without
+    /// slashes around it; the default when the setting says nothing.
+    fn folder(host: &Host<'_>) -> Result<String, Error> {
+        let mut scratch = [0; 512];
+        match settings::read_setting(host, FOLDER_SETTING, &mut scratch) {
+            Ok(SettingValue::Text(text)) if !text.trim_matches('/').is_empty() => {
+                copy(text.trim_matches('/'))
+            }
+            Ok(_) | Err(Error::Denied | Error::NotFound | Error::NoSpace) => copy(DEFAULT_FOLDER),
+            Err(error) => Err(error),
+        }
     }
 
     /// Opens a list of books of `scope`.
@@ -259,7 +359,13 @@ impl NativeFiles {
                 order: Self::order(host)?,
                 scope,
             };
-            View::Books(self.read_browser(host, selection, 0, 0)?)
+            View::Books(self.read_browser(
+                host,
+                selection,
+                Reading::from(CatalogCursor::start(), Vec::new()),
+                0,
+                0,
+            )?)
         };
         self.screens.open(instance, view)
     }
@@ -275,7 +381,8 @@ impl NativeFiles {
                 ..old.selection.clone()
             };
             let (held, focus) = (old.window.books.len(), old.list.focus());
-            let fresh = self.read_browser(host, selection, held, focus)?;
+            let reading = Reading::from(old.window.start, cursors(&old.starts)?);
+            let fresh = self.read_browser(host, selection, reading, held, focus)?;
             if let Some(View::Books(old)) = self.screens.top(token) {
                 *old = fresh;
             }
@@ -302,6 +409,7 @@ impl NativeFiles {
         &self,
         host: &Host<'_>,
         selection: Selection,
+        reading: Reading,
         at_least: usize,
         focus: usize,
     ) -> Result<Browser, Error> {
@@ -309,15 +417,21 @@ impl NativeFiles {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut say = Messages::new()?;
         let title = Self::title(host, &mut say, &selection.scope)?;
-        let mut window = Window::default();
-        self.read_pages(
-            host,
-            &selection,
-            &mut window,
-            at_least.max(1),
-            &mut input,
-            &mut out,
-        )?;
+        let Reading { start, mut starts } = reading;
+        let (window, restarted) = {
+            let mut source = Replies {
+                host,
+                library,
+                selection: &selection,
+                input: &mut input,
+                out: &mut out,
+            };
+            native_model::read_window(&mut source, start, CatalogCursor::start(), at_least.max(1))?
+        };
+        if restarted {
+            // The windows before were read in another generation.
+            starts.clear();
+        }
         // The books are still being found: the rows so far say so.
         let walking = matches!(
             library.state(host, &mut input, &mut out)?.phase(),
@@ -327,55 +441,15 @@ impl NativeFiles {
             title,
             selection,
             window,
+            starts,
             rows: Vec::new(),
             list: ItemList::default(),
             empty: String::new(),
+            empty_text: String::new(),
         };
         self.layout(host, &mut browser, walking)?;
         browser.list.set_focus(focus);
         Ok(browser)
-    }
-
-    /// Reads replies into `window` until it holds `want` books or the last
-    /// one was read; a stale cursor starts the window over once.
-    fn read_pages(
-        &self,
-        host: &Host<'_>,
-        selection: &Selection,
-        window: &mut Window,
-        want: usize,
-        input: &mut [u8],
-        out: &mut [u8],
-    ) -> Result<(), Error> {
-        let library = self.library.as_ref().ok_or(Error::State)?;
-        let mut restarted = false;
-        let mut cursor = window.next.unwrap_or_else(CatalogCursor::start);
-        for _ in 0..MOST_PAGES {
-            let query = selection.query(cursor)?;
-            let page = match library.query(host, &query, input, out) {
-                Ok(page) => page,
-                // The catalog changed under the reading: start over, once.
-                Err(Error::State) if !restarted => {
-                    restarted = true;
-                    *window = Window::default();
-                    cursor = CatalogCursor::start();
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            for entry in page.rows() {
-                push(&mut window.books, BookLine::from_entry(entry?)?)?;
-            }
-            let end = page.end();
-            window.generation = end.generation();
-            window.total = end.total();
-            window.next = end.next();
-            match window.next {
-                Some(next) if window.books.len() < want.min(MOST_BOOKS) => cursor = next,
-                _ => return Ok(()),
-            }
-        }
-        Ok(())
     }
 
     fn title(host: &Host<'_>, say: &mut Messages, scope: &Scope) -> Result<String, Error> {
@@ -405,13 +479,27 @@ impl NativeFiles {
         if browser.selection.scope == Scope::Library {
             let show = say.say("files.list.show")?;
             let name = say.say(browser.selection.filter.key())?;
+            let count = if browser.selection.filter == Filter::Shelves {
+                String::new()
+            } else {
+                say.messages.format(
+                    host,
+                    "files.books",
+                    &[Arg::Count(i64::from(browser.window.total))],
+                )?
+            };
             push(&mut rows, Row::Filter)?;
-            push(&mut items, Item::row(&show, &name)?)?;
+            push(&mut items, Item::noted(&show, &name, &count)?)?;
         }
         if walking {
             let note = say.say("files.list.collecting")?;
             push(&mut rows, Row::Note)?;
             push(&mut items, Item::heading(&note)?)?;
+        }
+        if !browser.starts.is_empty() {
+            let previous = say.say("files.list.previous")?;
+            push(&mut rows, Row::Previous)?;
+            push(&mut items, Item::noted(&previous, "‹", "")?)?;
         }
         for (at, book) in browser.window.books.iter().enumerate() {
             let line = native_model::line(&mut say, book)?;
@@ -426,18 +514,108 @@ impl NativeFiles {
             push(&mut rows, Row::More)?;
             push(&mut items, Item::noted(&more, "›", "")?)?;
         }
-        browser.empty = if browser.window.books.is_empty() && !walking {
+        browser.empty = String::new();
+        browser.empty_text = String::new();
+        if browser.window.books.is_empty() && !walking {
+            let library = browser.selection.scope == Scope::Library;
             match browser.selection.filter.none_key() {
-                Some(key) if browser.selection.scope == Scope::Library => say.say(key)?,
-                _ if browser.selection.scope == Scope::Library => say.say("files.empty.title")?,
-                _ => say.say("files.search.none")?,
+                Some(key) if library => browser.empty = say.say(key)?,
+                _ if library => {
+                    browser.empty = say.say("files.empty.title")?;
+                    let folder = Self::folder(host)?;
+                    browser.empty_text = say.messages.format(
+                        host,
+                        "files.empty",
+                        &[Arg::Text {
+                            name: "dir",
+                            value: &folder,
+                        }],
+                    )?;
+                }
+                _ => browser.empty = say.say("files.search.none")?,
             }
-        } else {
-            String::new()
-        };
+        }
         browser.rows = rows;
         browser.list = ItemList::new(items);
         Ok(())
+    }
+
+    /// Reads the books of `token`'s screen as `plan` says, and shows them.
+    fn replace_books(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        plan: impl FnOnce(&Browser) -> Result<Option<Plan>, Error>,
+    ) -> Result<(), Error> {
+        let Some(View::Books(view)) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let Some(plan) = plan(view)? else {
+            return Ok(());
+        };
+        let mut fresh = self.read_browser(
+            host,
+            plan.selection,
+            plan.reading,
+            plan.at_least,
+            plan.focus,
+        )?;
+        match plan.then {
+            Then::Keep => {}
+            Then::FirstBook => fresh.focus_first_book(),
+            Then::LastRow => fresh.list.set_focus(fresh.rows.len().saturating_sub(1)),
+        }
+        if let Some(View::Books(old)) = self.screens.top(token) {
+            *old = fresh;
+        }
+        redraw(host)
+    }
+
+    /// "More books": a window with room grows, a full one slides on to the
+    /// books after it (the starts of the ones before are kept for "Previous").
+    fn slide_on(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
+        self.replace_books(host, token, |view| {
+            let selection = view.selection.clone();
+            let (held, focus) = (view.window.books.len(), view.list.focus());
+            let mut starts = cursors(&view.starts)?;
+            if view.window.can_grow() {
+                return Ok(Some(Plan {
+                    selection,
+                    reading: Reading::from(view.window.start, starts),
+                    at_least: held + 32,
+                    focus,
+                    then: Then::Keep,
+                }));
+            }
+            let next = view.window.next.ok_or(Error::State)?;
+            push(&mut starts, view.window.start)?;
+            Ok(Some(Plan {
+                selection,
+                reading: Reading::from(next, starts),
+                at_least: 0,
+                focus: 0,
+                then: Then::FirstBook,
+            }))
+        })
+    }
+
+    /// "Previous books": the window before, read in full, on the row that
+    /// goes on again.
+    fn slide_back(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
+        self.replace_books(host, token, |view| {
+            let selection = view.selection.clone();
+            let mut starts = cursors(&view.starts)?;
+            let Some(start) = starts.pop() else {
+                return Ok(None);
+            };
+            Ok(Some(Plan {
+                selection,
+                reading: Reading::from(start, starts),
+                at_least: MOST_BOOKS,
+                focus: 0,
+                then: Then::LastRow,
+            }))
+        })
     }
 
     fn chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
@@ -464,7 +642,13 @@ impl NativeFiles {
                         } else {
                             next
                         };
-                        let fresh = self.read_browser(host, selection, 0, index)?;
+                        let fresh = self.read_browser(
+                            host,
+                            selection,
+                            Reading::from(CatalogCursor::start(), Vec::new()),
+                            0,
+                            index,
+                        )?;
                         if let Some(View::Books(old)) = self.screens.top(token) {
                             *old = fresh;
                         }
@@ -475,21 +659,27 @@ impl NativeFiles {
                         }
                         redraw(host)
                     }
-                    Row::More => {
-                        let (selection, held) = (view.selection.clone(), view.window.books.len());
-                        let focus = view.list.focus();
-                        let fresh = self.read_browser(host, selection, held + 32, focus)?;
-                        if let Some(View::Books(old)) = self.screens.top(token) {
-                            *old = fresh;
-                        }
-                        redraw(host)
-                    }
+                    Row::More => self.slide_on(host, token),
+                    Row::Previous => self.slide_back(host, token),
                     Row::Book(at) => {
                         let Some(book) = view.window.books.get(at) else {
                             return Ok(());
                         };
                         let reference = BookRef::catalog(book.key, view.window.generation)?;
-                        self.open_book(host, reference)
+                        if self.open_book(host, reference)? {
+                            return Ok(());
+                        }
+                        // The book is gone (deleted on a computer, say): the
+                        // list is read again and the user is told.
+                        self.reread(host)?;
+                        let mut scratch = [0; 256];
+                        let mut say = Messages::new()?;
+                        let text = say.copy(host, "files.list.gone")?;
+                        // A notice is best effort: the list is already right.
+                        CommandSender::new(host, &mut scratch)
+                            .notify(Notify::new(&text)?)
+                            .ok();
+                        Ok(())
                     }
                 }
             }
@@ -499,13 +689,13 @@ impl NativeFiles {
 
     /// Opens the book in the reader the user bound to `core.reader`: a
     /// hand-over with its path (`document.md` section 1).
-    fn open_book(&self, host: &Host<'_>, reference: BookRef<'_>) -> Result<(), Error> {
+    /// `false` when the book is no longer in the catalog.
+    fn open_book(&self, host: &Host<'_>, reference: BookRef<'_>) -> Result<bool, Error> {
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let path = match library.book(host, reference, &mut input, &mut out) {
             Ok(book) => copy(book.path())?,
-            // The catalog changed: the list is read again when shown.
-            Err(Error::State | Error::NotFound) => return Ok(()),
+            Err(Error::State | Error::NotFound) => return Ok(false),
             Err(error) => return Err(error),
         };
         let params = [Param::new("path", &path)?];
@@ -515,7 +705,21 @@ impl NativeFiles {
             .ok_or(Error::State)?
             .handover(host, &params, &mut input, &mut out)?;
         let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+        CommandSender::new(host, &mut scratch)
+            .open(Open::slot("core.reader")?.handover(handover))?;
+        Ok(true)
+    }
+}
+
+impl Browser {
+    /// Focus on the first book (after the filter row and the way back).
+    fn focus_first_book(&mut self) {
+        let at = self
+            .rows
+            .iter()
+            .position(|row| matches!(row, Row::Book(_)))
+            .unwrap_or(0);
+        self.list.set_focus(at);
     }
 }
 

@@ -16,7 +16,8 @@ use paperpaw_ui_kit::{
 use crate::declarations::SORT_NAME;
 
 /// Books held in a window at most: three replies of a query (`PAGE_MAX_ROWS`
-/// 32 each). More are read when asked for, the earlier ones kept.
+/// 32 each). A longer list slides: "More books" starts the next window and
+/// "Previous books" returns to the one before.
 pub const MOST_BOOKS: usize = 96;
 
 /// What the library shows, by how far books are read.
@@ -53,15 +54,15 @@ impl Filter {
         }
     }
 
-    /// The key of its name.
+    /// The key of its name in the filter row (`show.*`, as interface 6 said it).
     #[must_use]
     pub const fn key(self) -> &'static str {
         match self {
-            Self::All => "files.list.filter.all",
-            Self::Reading => "files.list.filter.reading",
-            Self::Unread => "files.list.filter.unread",
-            Self::Finished => "files.list.filter.finished",
-            Self::Shelves => "files.list.filter.shelves",
+            Self::All => "files.list.show.all",
+            Self::Reading => "files.list.show.reading",
+            Self::Unread => "files.list.show.unread",
+            Self::Finished => "files.list.show.finished",
+            Self::Shelves => "files.list.show.shelves",
         }
     }
 
@@ -255,30 +256,108 @@ impl BookLine {
     }
 }
 
-/// The books of a list read so far.
-#[derive(Debug, Default)]
-pub struct Window {
+/// The books of a list read so far. `C` is the host's cursor (the model is
+/// generic over it so the reading is tested without a host).
+#[derive(Debug)]
+pub struct Window<C = CatalogCursor> {
     pub books: Vec<BookLine>,
+    /// Where the window's first reply was read from.
+    pub start: C,
     /// The catalog generation the books were read in.
     pub generation: u32,
     /// How many books match in all.
     pub total: u32,
     /// Where the next reply continues; none after the last.
-    pub next: Option<CatalogCursor>,
+    pub next: Option<C>,
 }
 
-impl Window {
+impl<C: Copy> Window<C> {
+    /// An empty window that will be read from `start`.
+    #[must_use]
+    pub const fn new(start: C) -> Self {
+        Self {
+            books: Vec::new(),
+            start,
+            generation: 0,
+            total: 0,
+            next: None,
+        }
+    }
+
     /// Whether more books can be read and the window has room for them.
     #[must_use]
     pub fn can_grow(&self) -> bool {
         self.next.is_some() && self.books.len() < MOST_BOOKS
     }
 
-    /// Whether books match that the window does not hold.
+    /// Whether books follow the window's last one (to grow it or to slide to).
     #[must_use]
-    pub fn has_more(&self) -> bool {
-        usize::try_from(self.total).map_or(true, |total| total > self.books.len())
+    pub const fn has_more(&self) -> bool {
+        self.next.is_some()
     }
+}
+
+/// One reply of the host's query.
+#[derive(Debug)]
+pub struct Replied<C> {
+    pub books: Vec<BookLine>,
+    pub generation: u32,
+    pub total: u32,
+    pub next: Option<C>,
+}
+
+/// Where replies come from: the host's library service.
+pub trait Source<C> {
+    /// The reply that continues at `from`; `Error::State` when the catalog
+    /// changed since the cursor was given.
+    ///
+    /// # Errors
+    /// The host's refusal or `NoMemory`.
+    fn read(&mut self, from: C) -> Result<Replied<C>, Error>;
+}
+
+/// Replies a window is read from at most (`MOST_BOOKS` of 32 each).
+const MOST_PAGES: usize = MOST_BOOKS.div_ceil(32);
+
+/// Reads replies into a window from `start` until it holds `want` books
+/// (never more than [`MOST_BOOKS`]) or the last one was read. A stale cursor
+/// starts the window over from `first` once; the flag is then true: the
+/// windows before it were read in another generation.
+///
+/// # Errors
+/// The source's refusal.
+pub fn read_window<C: Copy>(
+    source: &mut impl Source<C>,
+    start: C,
+    first: C,
+    want: usize,
+) -> Result<(Window<C>, bool), Error> {
+    let mut window = Window::new(start);
+    let mut restarted = false;
+    let mut cursor = start;
+    for _ in 0..=MOST_PAGES {
+        let reply = match source.read(cursor) {
+            Ok(reply) => reply,
+            Err(Error::State) if !restarted => {
+                restarted = true;
+                window = Window::new(first);
+                cursor = first;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        for book in reply.books {
+            push(&mut window.books, book)?;
+        }
+        window.generation = reply.generation;
+        window.total = reply.total;
+        window.next = reply.next;
+        match window.next {
+            Some(next) if window.books.len() < want.min(MOST_BOOKS) => cursor = next,
+            _ => break,
+        }
+    }
+    Ok((window, restarted))
 }
 
 /// The words a row is made of, in the reader's language.
@@ -306,7 +385,7 @@ pub struct Line {
 pub fn line(say: &mut impl Say, book: &BookLine) -> Result<Line, Error> {
     let value = if book.finished {
         say.say("files.list.filter.finished")?
-    } else if let Some(progress) = book.progress {
+    } else if let Some(progress) = book.progress.filter(|p| *p > 0) {
         let mut digits = [0; 20];
         concat(&[decimal(usize::from(progress), &mut digits), " %"])?
     } else if book.is_new {
@@ -449,6 +528,11 @@ mod tests {
         assert_eq!((row.value.as_str(), row.note.as_str()), ("", "A"));
         b.is_new = true;
         assert_eq!(line(&mut Words, &b).unwrap().value, "files.list.new");
+        b.progress = Some(0);
+        assert_eq!(line(&mut Words, &b).unwrap().value, "files.list.new");
+        b.is_new = false;
+        assert_eq!(line(&mut Words, &b).unwrap().value, "");
+        b.is_new = true;
         b.progress = Some(45);
         assert_eq!(line(&mut Words, &b).unwrap().value, "45 %");
         b.finished = true;
@@ -465,16 +549,107 @@ mod tests {
         assert_eq!(line(&mut Words, &b).unwrap().note, "Saga · On loan");
     }
 
+    /// A list of `len` books read 32 at a time; cursors are the offsets.
+    struct Fake {
+        len: u32,
+        stale_once: bool,
+        calls: Vec<u32>,
+    }
+
+    impl Source<u32> for Fake {
+        fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
+            self.calls.push(from);
+            if self.stale_once && from != 0 {
+                self.stale_once = false;
+                return Err(Error::State);
+            }
+            let end = (from + 32).min(self.len);
+            let books = (from..end)
+                .map(|n| {
+                    let mut b = book();
+                    b.key = n;
+                    b
+                })
+                .collect();
+            Ok(Replied {
+                books,
+                generation: 1,
+                total: self.len,
+                next: (end < self.len).then_some(end),
+            })
+        }
+    }
+
+    fn fake(len: u32) -> Fake {
+        Fake {
+            len,
+            stale_once: false,
+            calls: Vec::new(),
+        }
+    }
+
     #[test]
-    fn a_window_grows_until_its_bound() {
-        let mut window = Window::default();
-        assert!(!window.can_grow());
-        window.next = Some(CatalogCursor::start());
-        window.total = 200;
+    fn a_window_grows_by_replies_until_its_bound() {
+        let mut source = fake(200);
+        let (window, _) = read_window(&mut source, 0, 0, 1).unwrap();
+        assert_eq!(window.books.len(), 32);
         assert!(window.can_grow() && window.has_more());
-        window.books = (0..MOST_BOOKS).map(|_| book()).collect();
+        let (window, _) = read_window(&mut source, 0, 0, 64).unwrap();
+        assert_eq!(window.books.len(), 64);
+        let (window, _) = read_window(&mut source, 0, 0, 1_000).unwrap();
+        assert_eq!(window.books.len(), MOST_BOOKS);
         assert!(!window.can_grow() && window.has_more());
-        window.total = 96;
-        assert!(!window.has_more());
+        assert_eq!(window.next, Some(96));
+    }
+
+    #[test]
+    fn the_97th_book_and_the_rest_are_reached_by_sliding_on_and_back() {
+        let mut source = fake(250);
+        let (first, _) = read_window(&mut source, 0, 0, MOST_BOOKS).unwrap();
+        assert_eq!(first.books.len(), 96);
+        // "More books" on a full window starts the next at `next`; the
+        // window starts with one reply and grows by "More books" until full.
+        let (second, _) = read_window(&mut source, first.next.unwrap(), 0, 0).unwrap();
+        assert_eq!(second.books.first().map(|b| b.key), Some(96));
+        let (second, _) = read_window(&mut source, second.start, 0, MOST_BOOKS).unwrap();
+        assert_eq!(second.books.last().map(|b| b.key), Some(191));
+        let (third, _) = read_window(&mut source, second.next.unwrap(), 0, MOST_BOOKS).unwrap();
+        assert_eq!(third.books.len(), 250 - 192);
+        assert_eq!(third.books.last().map(|b| b.key), Some(249));
+        assert!(!third.has_more());
+        // "Previous books" reads the window before in full, from its start.
+        let (back, _) = read_window(&mut source, second.start, 0, MOST_BOOKS).unwrap();
+        assert_eq!(back.books.len(), 96);
+        assert_eq!(back.books.first().map(|b| b.key), Some(96));
+    }
+
+    #[test]
+    fn exactly_96_books_have_no_more_and_97_have_one() {
+        let (all, _) = read_window(&mut fake(96), 0, 0, MOST_BOOKS).unwrap();
+        assert!(!all.has_more());
+        let (more, _) = read_window(&mut fake(97), 0, 0, MOST_BOOKS).unwrap();
+        assert!(more.has_more());
+        let (tail, _) = read_window(&mut fake(97), more.next.unwrap(), 0, 0).unwrap();
+        assert_eq!(tail.books.len(), 1);
+        assert!(!tail.has_more());
+    }
+
+    #[test]
+    fn a_stale_cursor_starts_over_once_and_says_so() {
+        let mut source = fake(200);
+        source.stale_once = true;
+        let (window, restarted) = read_window(&mut source, 96, 0, MOST_BOOKS).unwrap();
+        assert!(restarted);
+        assert_eq!(window.start, 0);
+        assert_eq!(window.books.first().map(|b| b.key), Some(0));
+        assert_eq!(source.calls.first(), Some(&96));
+        // A second refusal is an error, not a loop.
+        struct Always;
+        impl Source<u32> for Always {
+            fn read(&mut self, _: u32) -> Result<Replied<u32>, Error> {
+                Err(Error::State)
+            }
+        }
+        assert_eq!(read_window(&mut Always, 5, 0, 1).err(), Some(Error::State));
     }
 }
