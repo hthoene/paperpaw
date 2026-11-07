@@ -587,7 +587,7 @@ fn host_entries_outside_their_scope_are_refused() {
     drop(hosted);
 }
 
-pub(super) fn arm_failure(nth: u32) {
+pub(crate) fn arm_failure(nth: u32) {
     FAIL_NTH.with(|n| n.set(nth));
 }
 

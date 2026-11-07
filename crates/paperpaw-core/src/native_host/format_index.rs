@@ -50,7 +50,7 @@ fn joined(plugin_id: &str, name: &str) -> Result<Box<str>, i32> {
 
 struct Format {
     reference: FormatRef,
-    plugin: usize,
+    plugin: u64,
     id: Box<str>,
     title: Box<str>,
     extensions: Box<str>,
@@ -115,7 +115,7 @@ impl FormatIndex {
     /// already claims, `ERR_NO_MEMORY`.
     pub(crate) fn declare_format(
         &mut self,
-        plugin: usize,
+        plugin: u64,
         plugin_id: &str,
         spec: &wire::FormatSpec<'_>,
     ) -> Result<FormatRef, i32> {
@@ -186,7 +186,7 @@ impl FormatIndex {
     /// (`format_stopped`).
     pub(crate) fn remove_plugin(
         &mut self,
-        plugin: usize,
+        plugin: u64,
         plugin_id: &str,
         mut gone: impl FnMut(FormatRef),
     ) {

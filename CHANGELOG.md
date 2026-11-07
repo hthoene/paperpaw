@@ -21,6 +21,8 @@ change the plugin SDK.
 
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
+- Core native callbacks carry authoritative registry owner keys and checked,
+  nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 
 - Core native screen admission uses a shared declaration entry, fallible factories,
   retained owners and declared instance policies. Native screen lifecycle events

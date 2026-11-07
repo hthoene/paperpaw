@@ -257,7 +257,11 @@ fn registry_declarations_round_trip_and_wait_for_the_host() {
     assert_eq!(batch.iter().collect::<Vec<_>>(), records);
     // Refused until the host admits them (Core hand-off).
     for record in records {
-        assert_eq!(validate_record("demo", &record), Err(ERR_UNSUPPORTED), "{record:?}");
+        assert_eq!(
+            validate_record("demo", &record),
+            Err(ERR_UNSUPPORTED),
+            "{record:?}"
+        );
     }
 }
 
