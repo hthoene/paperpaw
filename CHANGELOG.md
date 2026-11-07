@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
+  rows gain − and + buttons and show a title that is already translated as it is (#228).
+
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
