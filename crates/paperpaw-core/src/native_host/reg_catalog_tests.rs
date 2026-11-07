@@ -10,10 +10,11 @@ use paperpaw_sdk::Id;
 struct Image {
     bytes: RefCell<Vec<u8>>,
     generation: Cell<u32>,
+    plugin: Cell<&'static str>,
 }
 impl ImageOwner for Image {
     fn plugin_id(&self) -> &str {
-        "fixture"
+        self.plugin.get()
     }
     fn generation(&self) -> u32 {
         self.generation.get()
@@ -34,6 +35,9 @@ fn fixture() -> (Rc<Image>, Row) {
         page: "",
         parent: "",
     });
+    fixture_record(record)
+}
+fn fixture_record(record: Record<'_>) -> (Rc<Image>, Row) {
     let mut bytes = vec![0; wire::REGISTRATION_MAX_BYTES];
     let len = wire::records_encode(&[record], &mut bytes).unwrap();
     bytes.truncate(len);
@@ -43,6 +47,7 @@ fn fixture() -> (Rc<Image>, Row) {
         Rc::new(Image {
             bytes: RefCell::new(bytes),
             generation: Cell::new(1),
+            plugin: Cell::new("fixture"),
         }),
         Row::new(0, span).unwrap(),
     )
@@ -181,4 +186,25 @@ fn packed_rows_and_counts_refuse_narrowing_and_generation_wrap() {
         Err(ERR_NO_SPACE)
     );
     assert_eq!(catalog.generation(), u32::MAX);
+}
+
+#[test]
+fn owner_identity_mismatch_is_stale_instead_of_rewriting_full_ids() {
+    let (image, row) = fixture_record(Record::SlotOffer(wire::SlotOffer {
+        slot: "core.home",
+        screen: "fixture.reader",
+        priority: 0,
+    }));
+    let source: Rc<dyn ImageOwner> = image.clone();
+    let catalog = RegCatalog::new();
+    let generation = catalog
+        .replace(&[source], &[row], &mut Allocations::default())
+        .unwrap();
+    image.plugin.set("other");
+    assert_eq!(
+        catalog.with_record(generation, 0, &mut |_| panic!(
+            "mismatched row reached reader"
+        )),
+        Err(ERR_STATE)
+    );
 }

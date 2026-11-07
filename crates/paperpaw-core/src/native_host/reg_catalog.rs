@@ -164,7 +164,7 @@ fn visit_row(
 }
 
 fn tag(record: &Record<'_>) -> Option<u32> {
-    use crate::abi7::records_wire as wire;
+    use super::registrations as wire;
     Some(match record {
         Record::SettingGroup(_) => wire::SETTING_GROUP_TAG,
         Record::SettingSpec(_) => wire::SETTING_SPEC_TAG,

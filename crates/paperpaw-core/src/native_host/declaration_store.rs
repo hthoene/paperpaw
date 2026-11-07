@@ -19,6 +19,7 @@ use paperpaw_sdk::Id;
 /// The bridge holds the module guard and excludes image release during a visit.
 /// Methods must not invoke plugin callbacks or reenter the store.
 pub(crate) trait ImageOwner {
+    /// Host identity, unchanged within a source generation.
     fn plugin_id(&self) -> &str;
     fn generation(&self) -> u32;
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>));

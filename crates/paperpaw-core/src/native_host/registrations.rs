@@ -14,6 +14,8 @@
 )]
 mod wire;
 
+pub(crate) use wire::{SETTING_EXTRA_TAG, SETTING_GROUP_TAG, SETTING_SPEC_TAG};
+
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
     RegistrationBatch as DecodedRegistrations, registrations_decode, registrations_encode,
