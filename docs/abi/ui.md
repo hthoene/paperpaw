@@ -113,12 +113,13 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
   one of the submitter's own instances; other bits `ERR_INVALID`, another plugin's instance
   `ERR_DENIED`. **Turning `guards` on** is allowed only for the submitter's own top instance (the
-  top of the whole stack, so no other plugin's screen is above it): anywhere else `ERR_STATE`,
-  and the whole batch is refused. Turning it off, and bits 4 and 5 either way, work on any own
-  instance. The declared flags are the state at opening; a screen declared `guards` that opens
-  below a guard waits there (section 4.3) and never has screens of others above it. A change
-  takes effect when the batch is applied, before the next input is routed. Core's tests cover
-  both cases (own top: guards at once; not top: `ERR_STATE`, nothing changed).
+  top of the whole stack, so no other plugin's screen is above it; the host's own `core.sleep`
+  instance does not count, so a lock that locks while the sleep screen shows guards at once):
+  anywhere else `ERR_STATE`, and the whole batch is refused. Turning it off, and bits 4 and 5 either
+  way, work on any own instance. The declared flags are the state at opening; a screen declared
+  `guards` that opens below a guard waits there (section 4.3) and never has screens of others above
+  it. A change takes effect when the batch is applied, before the next input is routed. Core's tests
+  cover both cases (own top: guards at once; not top: `ERR_STATE`, nothing changed).
 - [D] **Secret** (interface 6 `Screen::secret`): an instance is secret when it says so, when it
   guards, and when it lies above a guarding instance. While the top instance is secret, input
   goes to the input filters of its own plugin and of the topmost guarding plugin only (others are
