@@ -352,29 +352,37 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1088 | `service.doc_image` | `image: u32`, `width: u32`, `height: u32`, `flags: u32` |
-| 1089 | `service.doc_image_ask` | `document: u32`, `image: u32`, `side: u32` |
+| 1088 | `service.doc_image` | `image: u32`, `index: u32`, `width: u32`, `height: u32`, `flags: u32` |
+| 1089 | `service.doc_image_ask` | `document: u32`, `index: u32`, `side: u32` |
 | 1559 | `command.image_prepare` | `root: u32`, `path: str 512`, `side: u32`, `cookie: u32`, `flags: u32` |
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
 
-- [D] An **image id** (`u32`, checked counter) names a decoded picture the host may draw. A
+- [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an image id for the
-  opener. **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each
-  `fmt.image` by a `doc_image` for the opener: it checks the path (root 2 rules, the cache file's
-  header against `width`/`height`, section 5's hostile-input rule), gives the picture an image id of
-  the opener (or the id it already has for that path in this document), and passes `width`, `height`
-  and `flags` bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps
-  its alt text, counted as a failed read) and never fails the whole stream. Over the 8 image ids per
-  plugin, the host ends the opener's least recently drawn document image first, so a long chapter of
-  pictures never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op
-  16). Op 16 (`doc_image_ask`: `image`, `side` 0 for the page's size, else the longest side for a
-  zoom, at most 1,600) asks the format to decode it now (interface 6 `prepare_image`,
-  `prepare_image_larger`): a new image id, or the same where nothing was to do.
+  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
+  is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
+  stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
+  **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
+  by a `doc_image` for the opener: it checks the path (root 2 rules, the cache file's header against
+  `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
+  the id it already has for that path in this document), and passes `width`, `height` and `flags`
+  bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
+  counted as a failed read) and never fails the whole stream. Over the 8 image ids per plugin, the
+  host ends the opener's least recently drawn document image first, so a long chapter of pictures
+  never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
+  picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
+  it has been drawn once: with all 8 handed out and none drawn yet, a ninth is `ERR_BUSY` for that
+  picture (in a block stream its `doc_image` comes with `image` 0, no id yet, and its `index`; the
+  reader asks with op 16 after drawing), so a page with more than 8 pictures is drawn picture by
+  picture (ask, draw, next) and never loops. Op 16 (`doc_image_ask`: `index`, `side` 0 for the
+  page's size, else the longest side for a zoom, at most 1,600) has the format decode that picture
+  now (op 18 with `index`, or op 17 for the cover; interface 6 `prepare_image`,
+  `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
   frame) or BMP of the caller's root 0 or
   root 1 (`uses.storage`) into the host's image cache at most `side` pixels on the longest side (0:
