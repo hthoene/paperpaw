@@ -16,6 +16,9 @@ pub mod registration_scope;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
+#[path = "native_host/host_slot.rs"]
+pub mod host_slot;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,
