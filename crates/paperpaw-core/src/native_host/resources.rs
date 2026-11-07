@@ -110,6 +110,15 @@ impl HostResources {
         &self.0.hosts
     }
 
+    /// The main loop's retry for owners whose retirement was busy when their
+    /// handle table dropped: `Ok(true)` while some are left, to call again.
+    ///
+    /// # Errors
+    /// The first error of an owner that stays queued (`ERR_BUSY`).
+    pub fn retry_retirements(&self) -> Result<bool, i32> {
+        self.0.hosts.retry_retirements()
+    }
+
     /// Assign a never-reused host owner, without allocation.
     ///
     /// # Errors
@@ -263,7 +272,11 @@ impl Drop for OwnerResources {
         self.release_leftovers();
         // Whatever a busy table left, the owner is retired: its documents,
         // image ids and transactions end (idempotent after `release_all`).
-        self.table.hosts.owner_retired(self.owner).unwrap_or(());
+        // A table that is busy here has no caller left to retry: the owner is
+        // queued and the main loop retries it until it is done.
+        if self.table.hosts.owner_retired(self.owner).is_err() {
+            self.table.hosts.queue_retirement(self.owner);
+        }
     }
 }
 

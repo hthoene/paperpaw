@@ -21,7 +21,9 @@ use crate::{
 };
 use core::pin::pin;
 use paperpaw_native::{
-    host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes},
+    host_glue::{
+        ERR_BUSY, ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    },
     metadata::{Declared, Feature},
 };
 use paperpaw_platform::Instant;
@@ -200,6 +202,56 @@ fn a_document_opens_reads_state_and_ends_with_its_opener() {
     assert_eq!(*fake.ended.borrow(), [id]);
     owner.release_all().unwrap();
     assert_eq!(*fake.ended.borrow(), [id], "retiring twice calls nothing");
+}
+
+#[test]
+fn a_drop_that_meets_a_busy_table_is_retried_by_the_main_loop_until_done() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let owner = pool.try_owner().unwrap();
+    fake.owner
+        .set(owner.caller("opener", AdmittedFeatures::NONE).owner);
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    let id = in_frame!(owner, |scope| {
+        let handle = open(&scope, &owner, &declared, "core.document").unwrap();
+        *fake.answer.borrow_mut() = state_answer(0, 0);
+        let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+        let reply = call(&scope, &owner, handle, op("core.document", 1), &input).unwrap();
+        state_of(&reply).document
+    });
+    {
+        // A call holds the document table while the owner drops.
+        let _busy = fake.table().hold().unwrap();
+        drop(owner);
+        assert!(fake.ended.borrow().is_empty(), "nothing could end yet");
+        assert_eq!(pool.retry_retirements(), Err(ERR_BUSY), "still busy");
+        assert!(pool.hosts().retirements_pending());
+    }
+    // The table is free: the main loop finishes the retirement, once.
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    assert_eq!(*fake.ended.borrow(), [id]);
+    assert!(!pool.hosts().retirements_pending());
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    assert_eq!(*fake.ended.borrow(), [id], "the close count is still one");
+}
+
+#[test]
+fn the_retirement_queue_is_bounded_and_queues_an_owner_once() {
+    let hosts = crate::native_host::host_services::HostServices::new();
+    assert!(hosts.queue_retirement(5));
+    assert!(hosts.queue_retirement(5), "once");
+    for owner in 6..=20 {
+        assert!(hosts.queue_retirement(owner));
+    }
+    assert!(!hosts.queue_retirement(99), "a full queue says so");
+    assert_eq!(
+        hosts.retry_retirements(),
+        Ok(false),
+        "nothing to retire clears it"
+    );
+    assert!(!hosts.retirements_pending());
 }
 
 #[test]
