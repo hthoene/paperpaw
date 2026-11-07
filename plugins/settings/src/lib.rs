@@ -39,7 +39,21 @@
 extern crate alloc;
 
 mod chooser;
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
 mod group_list;
+mod native_data;
+mod native_entry;
+pub mod native_model;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+/// The interface-7 plugin.
+pub mod native_plugin;
 mod page;
 mod search;
 mod secrets;
@@ -67,6 +81,15 @@ use paperpaw_sdk::{FixedAction, MenuEntry};
 use self::chooser::*;
 use self::group_list::*;
 use self::page::*;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
+/// Catalog sources published before native screen callbacks.
+pub static CATALOGS: [(&str, &str); 2] = [
+    ("en", include_str!("../i18n/en.ini")),
+    ("de", include_str!("../i18n/de.ini")),
+];
 
 pub const PLUGIN: Id = Id::new_static("settings");
 /// The main page: setting groups.
@@ -106,7 +129,7 @@ static SETTINGS: [SettingSpec; 1] = [SettingSpec::switch(
 .description("settings.advanced.help")];
 
 /// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
+pub static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
     ("de", include_str!("../how/de.txt")),
 ];
