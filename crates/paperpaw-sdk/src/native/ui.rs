@@ -96,17 +96,7 @@ impl Ui {
             return Err(Error::State);
         };
         let kind = QuestionKind::decode(row.kind)?;
-        if row.flags & !0xf7 != 0
-            || row.flags >> 4 & 15 > 4
-            || kind != QuestionKind::Text && row.flags != 0
-        {
-            return Err(Error::Invalid);
-        }
-        if kind == QuestionKind::Choice {
-            Question::choice(row.title, row.text, row.choices)?;
-        } else if !row.choices.is_empty() {
-            return Err(Error::Invalid);
-        }
+        types::validate_question(kind, row.flags, row.choices)?;
         Ok(QuestionInfo {
             kind,
             flags: row.flags,
