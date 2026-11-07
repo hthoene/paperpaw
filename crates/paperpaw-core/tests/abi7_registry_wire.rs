@@ -1,6 +1,6 @@
 //! Registry (REG) wire records (`docs/abi/registry.md`): the slot-15 commands
 //! 1536-1546 generated into the command codec, the declarations 21-28, the
-//! events 75-78 and the `core.registry` rows 1025-1040 in the record codec,
+//! events 75-78 and the `core.registry` rows 1025-1040 and 1059 in the record codec,
 //! and how the host classifies them before Core wires them.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::native_host::commands::{WireCommand, commands_decode, commands_encode};

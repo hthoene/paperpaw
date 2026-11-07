@@ -312,6 +312,18 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_reply: 4096,
                 bound: ServiceBound::None,
             },
+            ServiceOp {
+                id: 21,
+                name: "status",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1059, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
         ],
     },
     ServiceSchema {
@@ -362,7 +374,7 @@ pub static SERVICES: &[ServiceSchema] = &[
                 reply: &[1043],
                 max_input: 256,
                 max_reply: 4096,
-                bound: ServiceBound::None,
+                bound: ServiceBound::Card,
             },
             ServiceOp {
                 id: 3,
@@ -434,7 +446,7 @@ pub static SERVICES: &[ServiceSchema] = &[
                 reply: &[1042],
                 max_input: 4096,
                 max_reply: 4096,
-                bound: ServiceBound::None,
+                bound: ServiceBound::Card,
             },
             ServiceOp {
                 id: 9,
@@ -554,7 +566,7 @@ pub static SERVICES: &[ServiceSchema] = &[
                 reply: &[],
                 max_input: 4096,
                 max_reply: 64,
-                bound: ServiceBound::None,
+                bound: ServiceBound::Card,
             },
             ServiceOp {
                 id: 19,
@@ -566,7 +578,7 @@ pub static SERVICES: &[ServiceSchema] = &[
                 reply: &[1050],
                 max_input: 256,
                 max_reply: 4096,
-                bound: ServiceBound::None,
+                bound: ServiceBound::Card,
             },
         ],
     },
@@ -622,6 +634,8 @@ pub mod core_registry_v1 {
     pub const OP_WIDGETS: u32 = 19;
     /// Operation `needs`.
     pub const OP_NEEDS: u32 = 20;
+    /// Operation `status`.
+    pub const OP_STATUS: u32 = 21;
 }
 
 /// Constants of `core.test-echo` major 1.

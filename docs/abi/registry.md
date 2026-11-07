@@ -153,7 +153,7 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1038 | `service.reg_setup_step` | `id: str 128`, `page_kind: u32`, `page: str 128`, `order: i32`, `flags: u32`, `title: str 128` |
 | 1039 | `service.reg_value` | `key: str 128`, `value: bytes 512`, `flags: u32` |
 | 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128` |
-| (UIX) | `service.reg_status` | `id: str 128`, `plugin: str 64`, `kind: u32`, `flags: u32`, `priority: u32`, `size: u32`, `tap: str 128`, `title: str 128` |
+| 1059 | `service.reg_status` | `id: str 128`, `plugin: str 64`, `kind: u32`, `flags: u32`, `priority: u32`, `size: u32`, `tap: str 128`, `title: str 128` |
 
 Field meanings:
 
@@ -191,11 +191,13 @@ Field meanings:
   kind's icon, `flags` bit 0 shown somewhere now: a `widget.place` whose `shown_if` holds lists it
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private.
-- `reg_status` (tag numbered with the UIX records): `kind` 0 item, 1 line; `flags` bit 0 drawn
+- `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner, bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
   `min_width` or a line's `height`, in thousandths of the text size; `tap` an item's action (empty
   for lines and items without one); `title` translated as above. A row is at most 477 bytes framed,
-  so a page fits 4,096 bytes with 8 rows.
+  so a page fits 4,096 bytes with 8 rows. The status items and lines themselves are declared
+  through UIX (`ui.md` section 5.3); until those declarations are admitted op 21 answers an empty
+  page.
 - `reg_item` for presets: `id` the preset, `plugin` who added it, `title` its name.
 - `reg_binding.origin`: interface-6 `BindingOrigin` (0 plugin, 1 device, 2 preset, 3 user); an
   empty `action` is "bound to nothing".
@@ -397,6 +399,12 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
 - [D] **Slot offers**: `slot.offer` names a declared screen of the declaring plugin and a slot of
   any plugin (`core.*` included); the highest `priority` is the default, the user's
   `command.bind_slot` wins.
+- [D] **One per key, per plugin:** a plugin declares each `slot.offer` (`slot`, `screen`), each
+  `key.bind` (`layer`, `input`, `when_key`, `when_value`) and each `setting.default` (`key`) at
+  most once; a second one is `ERR_INVALID` (two priorities for one offer, two actions for one
+  input under one condition, two defaults for one setting are ambiguous). Several screens offered
+  for one slot, and one input bound under different conditions or layers, are separate keys.
+  Between plugins nothing is refused: the precedence rules above decide.
 - [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
   `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
 - [D] **Widgets:** their declaration and drawing (`add_widget`, `add_widget_place`, `make`,

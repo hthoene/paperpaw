@@ -5438,6 +5438,85 @@
         {
           "default": null,
           "max_bytes": 128,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "priority",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "tap",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1059,
+      "name": "service.reg_status",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
           "name": "key",
           "optional": false,
           "ordinal": null,
@@ -7913,6 +7992,23 @@
             "service.end"
           ],
           "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 21,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "status",
+          "reply": [
+            "service.reg_status",
+            "service.end"
+          ],
+          "since": 0
         }
       ],
       "page_rows": 32,
@@ -7967,7 +8063,7 @@
           "since": 0
         },
         {
-          "bound": "none",
+          "bound": "card",
           "effect": "query",
           "feature": null,
           "id": 2,
@@ -8061,7 +8157,7 @@
           "since": 0
         },
         {
-          "bound": "none",
+          "bound": "card",
           "effect": "mutate",
           "feature": null,
           "id": 8,
@@ -8217,7 +8313,7 @@
           "since": 0
         },
         {
-          "bound": "none",
+          "bound": "card",
           "effect": "mutate",
           "feature": null,
           "id": 18,
@@ -8231,7 +8327,7 @@
           "since": 0
         },
         {
-          "bound": "none",
+          "bound": "card",
           "effect": "query",
           "feature": null,
           "id": 19,

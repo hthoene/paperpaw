@@ -198,7 +198,8 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceUiStatusAsk(_)
         | Record::ServiceUiStatusValue(_)
         | Record::ServiceUiParam(_)
-        | Record::ServiceUiHandle(_) => Err(ERR_INVALID),
+        | Record::ServiceUiHandle(_)
+        | Record::ServiceRegStatus(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),

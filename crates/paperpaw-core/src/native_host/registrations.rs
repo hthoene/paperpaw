@@ -82,7 +82,7 @@ pub use wire::{
     EventSettingChanged, EventStatusChanged, EventWifiChanged,
 };
 // Registry (REG, `docs/abi/registry.md`): declarations 21-28, events 75-78 and
-// the `core.registry` rows 1025-1040; the host admits and answers them once
+// the `core.registry` rows 1025-1040 and 1059; the host admits and answers them once
 // wired (Core hand-off).
 pub use wire::{
     EVENT_PLUGIN_ANSWERED_TAG, EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES,
@@ -93,13 +93,13 @@ pub use wire::{
     SERVICE_REG_BINDING_TAG, SERVICE_REG_CHOICE_TAG, SERVICE_REG_GROUP_TAG, SERVICE_REG_ITEM_TAG,
     SERVICE_REG_KEY_TAG, SERVICE_REG_MENU_ROW_TAG, SERVICE_REG_NEED_TAG, SERVICE_REG_PLUGIN_TAG,
     SERVICE_REG_QUERY_TAG, SERVICE_REG_SETTING_EXTRA_TAG, SERVICE_REG_SETTING_TAG,
-    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_TEXT_TAG, SERVICE_REG_VALUE_TAG,
-    SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG, SETUP_STEP_TAG,
-    SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice, ServiceRegGroup,
-    ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed, ServiceRegPlugin,
-    ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra, ServiceRegSetupStep,
-    ServiceRegSlot, ServiceRegText, ServiceRegValue, ServiceRegWidget, SettingChoice,
-    SettingDefault, SetupStep, SlotOffer, SlotSpec,
+    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_STATUS_TAG, SERVICE_REG_TEXT_TAG,
+    SERVICE_REG_VALUE_TAG, SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG,
+    SETUP_STEP_TAG, SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice,
+    ServiceRegGroup, ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed,
+    ServiceRegPlugin, ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra,
+    ServiceRegSetupStep, ServiceRegSlot, ServiceRegStatus, ServiceRegText, ServiceRegValue,
+    ServiceRegWidget, SettingChoice, SettingDefault, SetupStep, SlotOffer, SlotSpec,
 };
 // Screens, dialogs and composition (UIX, `docs/abi/ui.md`): declarations 29-30
 // and 224-228, events 79-89, input 193 and the `core.ui` rows 1041-1058; the

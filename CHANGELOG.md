@@ -28,8 +28,9 @@ change the plugin SDK.
   the host wires it. `event.screen_shown` (38) gains the instance it shows. Interface draft
   15 (`native::DRAFT`) (#228).
 - Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
-  20 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
-  steps, presets and widgets; rows 1025-1040), the registry commands 1536-1546 (reset, preview,
+  21 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
+  steps, presets, widgets and status items and lines; rows 1025-1040 and 1059), the registry
+  commands 1536-1546 (reset, preview,
   book scope, menus, key and slot bindings, plugin switching, plugin requests and answers,
   presets), events 75-78 (registry and preview changes, plugin requests and answers) and the
   declarations 21-28 (`setup.step`, `slot.spec`, `slot.offer`, `key.bind`, `setting.default`,
