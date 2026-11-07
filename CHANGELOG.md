@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK format providers can decode typed stage requests and encode
+  borrowed metadata/text, preparation state and scalar replies without heap
+  allocation. Storage roots 2-4 expose the callback-scoped document cache,
+  book and user CSS, including empty-path book/CSS reads (#228).
+
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 

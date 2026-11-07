@@ -2665,6 +2665,34 @@ operation version and buffer limits before calling the host. Explicitly consume
 the handle with `release(host)` when done; teardown also releases it. There is
 no automatic Drop release because the handle retains no callback host. Per-family
 typed wrappers define the input and output records.
+### Format provider callbacks
+
+A format's declared token receives `core.format` major 1 stage calls. Decode
+its payload with `native::format::FormatCall::decode` and dispatch using
+`FormatOp`. These provider operation ids differ from the document service's
+ids. The call borrows its text and sniff bytes; `document()` and `conversion()`
+identify the state the provider owns for this document. Close releases it.
+
+Use `FormatState::preparing` to report incremental work and `ready` or `failed`
+to finish preparation. `reply_state` keeps the call's document and conversion
+identity. Scalar reply helpers validate the request operation before encoding
+into caller-owned output. Pass the returned bytes through `native::reply::Reply`.
+
+`reply_metadata` borrows the existing `document::Metadata`; title and series
+previews advertise UTF-8 cuts with flags. `reply_metadata_text` returns the
+requested value in UTF-8 parts, preserving its total byte length. It allocates
+no strings and refuses offsets inside a character. `reply_position` preserves
+the provider's source section and offset without reader insert ordinals.
+
+During a permitted format callback, `native::storage::Root::DocumentCache`
+selects root 2, `Book` root 3 and `UserCss` root 4. An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats read
+relative paths within root 3; for siblings, the call's `text()` names the
+opened file unless the operation uses text for an XPointer or href. Root 3 is
+read only. Root 4 is read only and available during open/prepare only. The host
+enforces the callback's scope, cache quota and reserved `.complete`/`.host/`
+paths. Never retain a callback's `Host`; `.complete` belongs to the host.
+
 ### Core event subscriptions
 
 `native::declare::EventKind` includes setting changes, book opened/closed/finished,
