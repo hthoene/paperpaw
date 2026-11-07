@@ -84,6 +84,10 @@ file's size, 2.1).
   (with a body) itself and refuses a plugin's own of those (`ERR_INVALID`); it adds
   `User-Agent: PaperPaw` when the plugin sends none. `value` is marked secret in the schema: it
   carries tokens and passwords, so it is never logged and the generated `Debug` hides it.
+- [D] **Nothing a request carries is logged.** The host and the shells never log a URL (its query
+  often holds an API key or a token: translate, wallabag, kosync), a header value or a body, of a
+  request or of a served request's `target`; a log line names the plugin, the request id, the
+  method, the host name alone and the outcome (`reason`, HTTP status, sizes).
 - [D] **Body:** at most one of `net_body` (inline bytes, at most 2,048) and a `net_file` with role
   0 `send` (a file sent as the body, root 0, 1 or 2). A file to send must exist (`ERR_NOT_FOUND`)
   and is sent whole with its size as `Content-Length`; its size is taken when the request
