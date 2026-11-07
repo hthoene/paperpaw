@@ -18,5 +18,7 @@
 9 the heap word PAPERPAW_HEAP and the context-free PpHeap table give interface-7 plugins a global allocator and panic path; native_plugin! emits the word, allocator and panic handler (heap = none opts out) (#228)
 10 Framebuffer::probe (a probe framebuffer keeping where ink lands, InkBounds) changes the pinned Framebuffer shape, so the next draft; host-only FontHandle::ink_drawn measures text.ink by the drawing path (#228)
 11 command.set_item_state (60) in the generated command codec changes the private SDK Command shape, so the next draft; hosts answer ERR_UNSUPPORTED until their menus take it (#228)
+11 additive: typed SDK menu entry, icon, need, section, hide and description builders (#228)
 11 additive: native::Linked and native_plugin!(..., linked = NAME), a plugin linked into its host program under a Rust name of its own; Linked::entry for the host (kernel) (#228)
 12 family 1a: stage.run, service.open and service.call appended to PpHost as slots 32-34 answering ERR_UNSUPPORTED until wired, stage records 19/20/512/513 and service.echo 1024 in the generated records codec, and the service schema table services_wire (lock format 9), change the one-line PpHost and Record shapes, so the next draft (#228)
+12 additive: host-only record decoding for the X4 (lock format 10, generated host decoder, RecordBatch::EMPTY for a heap-held batch) (#985)

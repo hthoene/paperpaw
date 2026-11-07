@@ -385,8 +385,14 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
     pub fn reject(&mut self) {
+        self.reject_with(Error::Invalid);
+    }
+
+    /// [`reject`](Self::reject) with a cause other than Invalid, such as
+    /// Memory when the host could not allocate to decode a batch.
+    pub fn reject_with(&mut self, cause: Error) {
         if self.failure.is_none() {
-            self.failure = Some(Error::Invalid);
+            self.failure = Some(cause);
         }
     }
 

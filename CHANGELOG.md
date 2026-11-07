@@ -22,6 +22,8 @@ change the plugin SDK.
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
   `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
   `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
@@ -44,9 +46,11 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
-- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
-  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).

@@ -288,7 +288,7 @@ impl RawDeclarations {
         let bytes = batch.view(image)?;
         let offset = usize::from(*batch.offsets.get(entry.record()).ok_or(ERR_INVALID)?);
         let (record, _) =
-            super::registrations::record_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
+            super::registrations::host_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
         let (kind, name) = key(record).ok_or(ERR_INVALID)?;
         if kind != entry.kind()
             || self.hash(kind, name) != entry.hash
@@ -389,6 +389,8 @@ fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usi
         base[i] + (desired[i] - base[i]) * spare / expansion
     }))
 }
+// Only these six kinds have individual count caps. Screen/action entries
+// share the aggregate index_cost budget and use no per-kind raw vectors.
 fn counts(batch: &RecordBatch<'_>) -> [usize; 6] {
     let mut counts = [0; 6];
     for record in batch.iter() {
