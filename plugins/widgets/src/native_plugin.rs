@@ -20,7 +20,9 @@ use paperpaw_sdk::{
         },
     },
 };
-use paperpaw_ui_kit::paint;
+use paperpaw_ui_kit::{Screens, paint};
+
+use crate::native_todo_screen::{self, TodoView};
 use paperpaw_ui_kit::widget::Cx;
 
 mod image {
@@ -37,21 +39,36 @@ const SETTINGS_SLOT: &str = "core.settings";
 const REPLY: usize = 1280;
 
 #[derive(Debug)]
-struct Item {
-    instance: Instance,
-    token: u32,
+pub(crate) struct Item {
+    pub(crate) instance: Instance,
+    pub(crate) token: u32,
     /// The widget's id as the host names it, with its placement.
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
 }
 
+/// What an open question is for.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// The text of the setting with this id.
+    Setting(String),
+    /// A new to-do.
+    Add,
+    /// New words for to-do `index`.
+    Edit { index: usize },
+    /// What to do with to-do `index` (worded `title` when asked).
+    Options { index: usize, title: String },
+}
+
 /// The widget pack.
 #[derive(Debug, Default)]
 pub struct NativeWidgets {
-    items: Vec<Item>,
-    /// The text asked for on the keyboard, and the setting it is for.
-    asked: Option<(RequestId, String)>,
+    pub(crate) items: Vec<Item>,
+    /// The question open, and what it is for.
+    pub(crate) asked: Option<(RequestId, Asked)>,
+    /// The to-do list's screens open.
+    pub(crate) screens: Screens<TodoView>,
 }
 
 impl NativeWidgets {
@@ -118,8 +135,11 @@ impl NativeWidgets {
         if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some((request, setting)) = self.asked.take() else {
+        let Some((request, asked)) = self.asked.take() else {
             return Ok(());
+        };
+        let Asked::Setting(setting) = asked else {
+            return self.todo_answered(host, (request, asked), answer);
         };
         if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
@@ -182,7 +202,12 @@ fn settle(
 
 impl Plugin for NativeWidgets {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::WIDGETS.iter().chain(image::EVENTS) {
+        for batch in image::WIDGETS
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -218,6 +243,19 @@ impl Plugin for NativeWidgets {
             } => self.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK => self.tick(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::ActionRun {
+                action: native_todo_screen::OPEN_ACTION,
+                ..
+            } if token == native_todo_screen::OPEN => Self::open_todo_screen(host),
+            Event::ScreenOpened { instance, .. } => self.todo_opened(host, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => self.screens.shown(native_todo_screen::SCREEN, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -228,6 +266,9 @@ impl Plugin for NativeWidgets {
         _token: u32,
         mut frame: DrawFrame<'_>,
     ) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Screen {
+            return self.todo_draw(host, frame);
+        }
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
@@ -253,7 +294,10 @@ impl Plugin for NativeWidgets {
         paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
     }
 
-    fn input(&mut self, host: &Host<'_>, _: u32, input: Input<'_>) -> Result<Handled, Error> {
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == native_todo_screen::SCREEN {
+            return self.todo_input(host, input);
+        }
         let Input::Widget {
             instance,
             target,
@@ -289,7 +333,8 @@ impl Plugin for NativeWidgets {
                 // One request at a time: the keyboard of the first is still
                 // open, and its answer is the one that counts.
                 if self.asked.is_none() {
-                    self.asked = Some(ask_text(host, base, key, title)?);
+                    let (request, setting) = ask_text(host, base, key, title)?;
+                    self.asked = Some((request, Asked::Setting(setting)));
                 }
             }
             _ => return Ok(Handled::No),

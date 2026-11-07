@@ -22,6 +22,9 @@ use paperpaw_ui_kit::{
 
 use crate::native_todo_list::{Item, Loaded, load, save};
 
+/// The token the widget is declared with.
+pub const TOKEN: u32 = 112;
+
 /// The target of a tap on the heading, "more" or an empty list: it opens the
 /// list's own screen.
 pub const OPEN_TARGET: u32 = 2;

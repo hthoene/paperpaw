@@ -2,12 +2,18 @@
 //! each, and the tick that keeps clocks right. Callback tokens are stable
 //! within this plugin; every widget's settings are declared here, none at
 //! run time.
-use paperpaw_sdk::native::declare::{Declarations, DeclareError, EventKind, GroupDecl, WidgetDecl};
+use paperpaw_sdk::native::declare::{
+    ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, ScreenDecl, WidgetDecl,
+};
 pub use paperpaw_ui_kit::widget::options::Opt;
 use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
+/// The callback token of the to-do list's screen.
+pub const TODO_SCREEN: u32 = 10;
+/// The callback token of the action that opens it.
+pub const TODO_OPEN: u32 = 11;
 
 /// The widget categories of the host's catalogue.
 pub mod category {
@@ -622,6 +628,25 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.submit()?;
     }
     Ok(())
+}
+
+/// The to-do list's own screen.
+pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.screen(
+        ScreenDecl::new("todo.list", "widgets.todo", TODO_SCREEN).instances(Instances::Single),
+    )?;
+    d.submit()
+}
+
+/// The action that opens it, with its icon.
+pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.action(ActionDecl::new("todo.open", "widgets.todo", TODO_OPEN))?;
+    d.icon("widgets.todo.open", "list-check")?;
+    d.submit()
 }
 
 /// The minute tick, for widgets that show the time.
