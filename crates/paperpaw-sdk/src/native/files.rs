@@ -33,6 +33,8 @@ const SPACE_TOTAL_KNOWN: u32 = 2;
 const SPACE_IGNORES_CASE: u32 = 4;
 const PROGRESS_DONE: u32 = 1;
 const END_LAST: u32 = 1;
+/// Calls of a whole-tree removal in a row that remove nothing before it gives up.
+const IDLE_CALLS: u32 = 1024;
 /// Most removals one `remove_tree` call makes.
 const REMOVED_MAX: u32 = 64;
 
@@ -455,58 +457,45 @@ impl Files {
     /// a time until it is gone; how many entries were removed. What was removed
     /// stays removed where it stops with an error.
     ///
-    /// The loop has a progress policy of its own, so no host can keep it
-    /// running: `cancel` is asked before every step (true stops with
-    /// Cancelled), at most `max_steps` calls are made (more is Timeout; each
-    /// call is at most 64 removals and 256 entries read, so a plugin sizes it
-    /// to its largest tree), and a run of calls that remove nothing which comes
-    /// back to a place it has been at, however many places away, is a cycle
-    /// (Invalid). Use [`Files::remove_step`] for work that resumes later.
+    /// This is the "loop until done" helper: it is bounded, but it has no
+    /// budget and cannot be cancelled. A caller that needs either, or a
+    /// progress display (a file manager, a transfer), calls
+    /// [`Files::remove_step`] across work runs or ticks instead.
     ///
     /// # Errors
-    /// As [`Files::remove_step`]; Cancelled, Timeout or Invalid as above.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the call's buffers and its progress policy"
-    )]
+    /// As [`Files::remove_step`]; Invalid where the host makes more than
+    /// `IDLE_CALLS` calls in a row that remove nothing.
     pub fn remove_tree(
         &self,
         host: &Host<'_>,
         root: Root,
         path: &str,
-        max_steps: u32,
-        mut cancel: impl FnMut() -> bool,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<u64, Error> {
-        let (mut cursor, mut total) = (0, 0u64);
-        // Brent's cycle search over the places of a run that removes nothing:
-        // the host keeps no state, so such a run is a function of the place
-        // and a place seen twice is a loop.
-        let (mut mark, mut power, mut seen) = (0u64, 1u32, 0u32);
-        for _ in 0..max_steps {
-            if cancel() {
-                return Err(Error::Cancelled);
-            }
+        let (mut cursor, mut total, mut idle) = (0, 0u64, 0u32);
+        loop {
             let step = self.remove_step(host, root, path, cursor, input, out)?;
             total = total.saturating_add(u64::from(step.removed));
             if step.done {
                 return Ok(total);
             }
+            // Why this ends: every call that removes something is progress on a
+            // finite tree, and a correct host reads at most 256 entries a call
+            // (`docs/abi/files.md` 2.5), so IDLE_CALLS calls without one removal
+            // are over 256k entries read, four full FAT folders. Whatever `next`
+            // says (a cursor that changes may still go in circles), such a host
+            // broke "every loop advances".
             if step.removed > 0 {
-                (mark, power, seen) = (step.next, 1, 0);
+                idle = 0;
             } else {
-                if step.next == mark || step.next == cursor {
+                idle += 1;
+                if idle > IDLE_CALLS {
                     return Err(Error::Invalid);
-                }
-                seen += 1;
-                if seen == power {
-                    (mark, power, seen) = (step.next, power.saturating_mul(2), 0);
                 }
             }
             cursor = step.next;
         }
-        Err(Error::Timeout)
     }
 
     /// Move or rename the file or folder `from` to `to` (also between the data

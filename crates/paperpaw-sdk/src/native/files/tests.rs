@@ -329,10 +329,6 @@ fn changes_check_their_empty_reply_and_carry_their_flags() {
     assert_eq!(state.calls.get(), calls);
 }
 
-fn never() -> bool {
-    false
-}
-
 #[test]
 fn a_tree_is_removed_step_by_step_until_done() {
     open_files!(state, host, files);
@@ -346,7 +342,7 @@ fn a_tree_is_removed_step_by_step_until_done() {
         ],
     );
     let total = files
-        .remove_tree(&host, Root::Data, "old", 100, never, &mut input, &mut out)
+        .remove_tree(&host, Root::Data, "old", &mut input, &mut out)
         .unwrap();
     assert_eq!(total, 69);
     assert_eq!(state.calls.get(), 3);
@@ -375,81 +371,40 @@ fn a_tree_is_removed_step_by_step_until_done() {
 fn a_tree_removal_that_goes_in_circles_is_given_up_on() {
     open_files!(state, host, files);
     let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
-    let mut run = |replies: &[&[Record<'_>]]| {
-        reply(&state, replies);
-        state.calls.set(0);
-        let r = files.remove_tree(
-            &host,
-            Root::Data,
-            "old",
-            10_000,
-            never,
-            &mut input,
-            &mut out,
-        );
-        (r, state.calls.get())
-    };
-    // The same place again.
-    let (r, calls) = run(&[&[progress(0, 0, 7)]]);
-    assert_eq!(r, Err(Error::Invalid));
-    assert!(calls <= 3);
-    // Two places taking turns, which a "the cursor changed" check would call
-    // progress for ever.
-    let (r, calls) = run(&[&[progress(0, 0, 1)], &[progress(0, 0, 2)]]);
-    assert_eq!(r, Err(Error::Invalid));
-    assert!(calls <= 6, "{calls}");
-    // A long loop with a tail in front of it.
-    let tail: Vec<Vec<Record<'_>>> = (1..=40u64)
-        .map(|n| vec![progress(0, 0, n % 37 + 100)])
-        .collect();
-    let rows: Vec<&[Record<'_>]> = tail.iter().map(Vec::as_slice).collect();
-    let (r, calls) = run(&rows);
-    assert_eq!(r, Err(Error::Invalid));
-    assert!(calls <= 200, "{calls}");
-    // A removal in between starts the search again: a long folder read in
-    // many calls with removals along the way is not a loop.
-    let mut long: Vec<Vec<Record<'_>>> = Vec::new();
-    for n in 0..300u64 {
-        long.push(vec![progress(u32::from(n % 5 == 0), 0, 1 + n % 3)]);
+    // Two places taking turns with nothing removed: a changing cursor is not
+    // progress. Over the idle cap after exactly cap + 1 calls.
+    reply(&state, &[&[progress(0, 0, 1)], &[progress(0, 0, 2)]]);
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "old", &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    assert_eq!(state.calls.get(), IDLE_CALLS + 1);
+    // The same place again is no different.
+    state.calls.set(0);
+    reply(&state, &[&[progress(0, 0, 7)]]);
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "old", &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    assert_eq!(state.calls.get(), IDLE_CALLS + 1);
+    // Runs of the cap's length with no removal, each broken by one removal,
+    // are a long tree, not a loop.
+    state.calls.set(0);
+    let mut rows: Vec<Vec<Record<'_>>> = Vec::new();
+    for round in 0..3u64 {
+        for n in 0..IDLE_CALLS {
+            rows.push(vec![progress(0, 0, 1 + u64::from(n) % 2 + round)]);
+        }
+        rows.push(vec![progress(1, 0, 50 + round)]);
     }
-    long.push(vec![progress(1, 1, 0)]);
-    let rows: Vec<&[Record<'_>]> = long.iter().map(Vec::as_slice).collect();
-    let (r, calls) = run(&rows);
-    assert_eq!(r, Ok(61), "{calls}");
-}
-
-#[test]
-fn a_tree_removal_stops_at_its_step_cap_or_when_cancelled() {
-    open_files!(state, host, files);
-    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
-    // Never done, always removing: only the cap ends it.
-    let rows: Vec<Vec<Record<'_>>> = (0..50u64).map(|n| vec![progress(1, 0, 1000 + n)]).collect();
+    rows.push(vec![progress(2, 1, 0)]);
     let rows: Vec<&[Record<'_>]> = rows.iter().map(Vec::as_slice).collect();
     reply(&state, &rows);
     assert_eq!(
-        files.remove_tree(&host, Root::Data, "old", 7, never, &mut input, &mut out),
-        Err(Error::Timeout)
+        files.remove_tree(&host, Root::Data, "old", &mut input, &mut out),
+        Ok(5)
     );
-    assert_eq!(state.calls.get(), 7);
-    // Cancel is asked before each call: true on the third stops it with two made.
-    state.calls.set(0);
-    let mut asked = 0;
-    let cancel = || {
-        asked += 1;
-        asked == 3
-    };
-    assert_eq!(
-        files.remove_tree(&host, Root::Data, "old", 100, cancel, &mut input, &mut out),
-        Err(Error::Cancelled)
-    );
-    assert_eq!(state.calls.get(), 2);
-    // No steps allowed, no call.
-    state.calls.set(0);
-    assert_eq!(
-        files.remove_tree(&host, Root::Data, "old", 0, never, &mut input, &mut out),
-        Err(Error::Timeout)
-    );
-    assert_eq!(state.calls.get(), 0);
+    assert_eq!(state.calls.get(), 3 * (IDLE_CALLS + 1) + 1);
 }
 
 #[test]
@@ -536,7 +491,7 @@ fn refusals_come_through_and_short_buffers_are_refused_before_a_call() {
         Err(Error::Busy)
     );
     assert_eq!(
-        files.remove_tree(&host, Root::Data, "a", 5, never, &mut input, &mut out),
+        files.remove_tree(&host, Root::Data, "a", &mut input, &mut out),
         Err(Error::Busy)
     );
     assert_eq!(
