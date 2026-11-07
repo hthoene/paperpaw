@@ -17,6 +17,8 @@
 extern crate alloc;
 
 mod document;
+#[cfg(test)]
+mod utf16;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
