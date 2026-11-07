@@ -1420,25 +1420,41 @@ pub struct InputPointer {
     pub y: i32,
     /// Little-endian u32.
     pub phase: u32,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub contact: Option<u32>,
 }
 
 impl InputPointer {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Record::InputPointer(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             x: i32::from_le_bytes(body.scalar()?),
             y: i32::from_le_bytes(body.scalar()?),
             phase: u32::from_le_bytes(body.scalar()?),
+            contact: body.maybe_u32(bits, 0x01)?,
         }))
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.contact.is_some() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 8;
         len += 4;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -1447,6 +1463,9 @@ impl InputPointer {
         write_bytes(&self.x.to_le_bytes(), out, offset);
         write_bytes(&self.y.to_le_bytes(), out, offset);
         write_bytes(&self.phase.to_le_bytes(), out, offset);
+        if let Some(value) = self.contact {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
     }
 }
 /// Wire tag of the `input.gesture` record.
@@ -10870,6 +10889,7 @@ impl Record<'_> {
         match self {
             Record::EventPageTurned(record) => record.bits(),
             Record::EventScreenShown(record) => record.bits(),
+            Record::InputPointer(record) => record.bits(),
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),

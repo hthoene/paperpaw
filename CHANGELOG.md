@@ -69,8 +69,9 @@ change the plugin SDK.
   catalog pages, books, texts, facets, covers, status, journalled delete, move and import,
   positions, annotations with staged transactions and paged receipts, fields, provided
   metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
-  the image commands 1559-1560. Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft
-  18 (`native::DRAFT`) refuses plugins built for draft 17 (#228).
+  the image commands 1559-1560; `input.pointer` gains the optional `contact` (simultaneous
+  touches told apart, interface 6 `PointerEvent::id`). Hosts answer `ERR_UNSUPPORTED` until
+  wired. Interface draft 18 (`native::DRAFT`) refuses plugins built for draft 17 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

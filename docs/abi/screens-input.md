@@ -118,7 +118,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | 38 | `event.screen_shown` | `now_ms: u64`, `screen: str 128` (full id), `width: u32`, `height: u32` |
 | 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id) |
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
-| 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel) |
+| 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
 | 43 | `input.action` | `now_ms: u64`, `action: str 128` (the kernel action the reader's key or touch mapped to, e.g. `core.page-next`) |
 
@@ -130,6 +130,12 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] Key names are the kernel's keymap names (`docs/keymaps.md`); an unknown name is passed
   through, plugins ignore keys they do not know. Coordinates are screen pixels of the
   screen's own pane, origin top left.
+- [D] `input.pointer.contact` (interface 6 `PointerEvent::id`) tells simultaneous contacts apart:
+  the host's number for one finger or pen, the same from its down to its up or cancel, and
+  distinct among the contacts down at the same time (a number may be used again after its up).
+  Absent means 0 (a device with one contact). The host delivers every contact; a plugin that
+  follows one (a drag, the lock's way out) ignores the others by `contact`. Tool, pressure and
+  tilt are not carried (no plugin uses them; additive later).
 - [D] `event.screen_shown` goes to the screen's token (through `dispatch_event`) each time it
   comes to the top or its pane size changes; a plugin re-acquires stale font handles there.
   There is no "hidden" event: a screen that is not on top gets no `draw` and no `input`.

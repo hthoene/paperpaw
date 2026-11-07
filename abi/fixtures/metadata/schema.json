@@ -2774,6 +2774,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "contact",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 41,

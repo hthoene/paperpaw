@@ -1926,7 +1926,7 @@ struct paperpaw_sdk::native::declare::records_wire::IconSpec<'a> { item: &'a str
 struct paperpaw_sdk::native::declare::records_wire::InputAction<'a> { now_ms: u64, action: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::InputGesture { now_ms: u64, kind: u32, x: i32, y: i32 }
 struct paperpaw_sdk::native::declare::records_wire::InputKey<'a> { now_ms: u64, key: &'a str, state: u32 }
-struct paperpaw_sdk::native::declare::records_wire::InputPointer { now_ms: u64, x: i32, y: i32, phase: u32 }
+struct paperpaw_sdk::native::declare::records_wire::InputPointer { now_ms: u64, x: i32, y: i32, phase: u32, contact: core::option::Option<u32> }
 struct paperpaw_sdk::native::declare::records_wire::InputSpec<'a> { name: &'a str, title: &'a str, kind: u32, need: u32, capability: u64, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::InputWidget { now_ms: u64, instance: u32, target: u32, x: i32, y: i32, kind: u32 }
 struct paperpaw_sdk::native::declare::records_wire::KeyBind<'a> { layer: &'a str, input: &'a str, action: &'a str, when_key: &'a str, when_value: &'a str }
