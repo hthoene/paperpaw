@@ -40,11 +40,12 @@ const CASES: [Case; 6] = [
         golden: None,
         blocked_by: &["SEC", "H1", "H2", "H4"],
     },
-    // Restart PaperPaw once asked. Needs the DEV restart command facade.
+    // Restart PaperPaw once asked (`CommandSender::restart`, `uses.power`). Needs
+    // the host's dialogs.
     Case {
         name: "settings-restart",
         golden: None,
-        blocked_by: &["DEV", "H2"],
+        blocked_by: &["H2", "H4"],
     },
 ];
 
@@ -89,7 +90,7 @@ fn settings_secrets() {
 }
 
 #[test]
-#[ignore = "BLOCKED DEV: no restart command facade yet (H10)"]
+#[ignore = "BLOCKED H2/H4: dialogs and input are not qualified"]
 fn settings_restart() {
     CASES[5].refuse().unwrap();
 }
