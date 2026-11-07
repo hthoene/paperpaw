@@ -896,3 +896,7 @@ mod pinned_owner_tests {
         assert_eq!(unsafe { (*context).canary }, 0x1234_5678);
     }
 }
+
+#[cfg(test)]
+#[path = "native_host/event_hook_tests.rs"]
+mod event_hook_tests;
