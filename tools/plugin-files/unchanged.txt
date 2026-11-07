@@ -57,3 +57,4 @@ d61a6204b2bae9177691957dd42f319dc21532d3 language-ar, language-es  # paperpaw-si
 55a67e203886b58f7884b8ee001db4b8d0f8c7f4 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): chain family word in the frame budget; catalog byte-identical (job #2925)
 350af9b96b4a146a152a87ce3bf446cb9c86d1d5 language-ar, language-es  # paperpaw-sign pack frame scan (#228): the frame limit only, catalog unchanged
 b306fe855cc85ea051ddf5ee8583547c60858d96 language-ar, language-es  # paperpaw-sign pack: sp alignment refusal (#228, PR #259 follow-up): pack only, catalog byte-identical (job #2892)
+60199918f483e32d404246689673efba5df6ac17 language-ar, language-es  # paperpaw-sign frames (#228, PR #235): callee-saved registers, outlined calls, jump-table state; catalog byte-identical (job #3012)
