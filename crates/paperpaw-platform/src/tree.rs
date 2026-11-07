@@ -34,10 +34,10 @@ use crate::storage::{DirEntry, Storage, StorageError, is_valid_path};
 pub const MAX_REMOVALS: u32 = 64;
 /// Most folder entries one [`remove_tree_step`] has a listing show.
 pub const MAX_READS: u32 = 256;
-/// Deepest folder the walk goes into itself; a folder deeper than that is
-/// not entered and cannot be removed by it (`InvalidPath`, as a folder that
-/// is not empty).
-pub const MAX_DEPTH: usize = 32;
+/// Deepest folder the walk goes into itself; a folder deeper than that, or
+/// one whose path does not fit, is taken away by its place with all in it
+/// ([`Storage::remove_listed`]) instead of being walked.
+pub const MAX_DEPTH: usize = 48;
 /// Longest path the walk builds, in bytes.
 pub const MAX_PATH: usize = 640;
 /// Longest name the walk uses, in bytes (a segment of a path).
@@ -61,7 +61,7 @@ pub enum Kind {
 /// # Errors
 /// The storage's own (`Io`, a card that is gone), never `NotFound` or
 /// `InvalidPath`.
-pub fn kind(storage: &dyn Storage, path: &str) -> Result<Kind, StorageError> {
+pub fn kind<S: Storage + ?Sized>(storage: &S, path: &str) -> Result<Kind, StorageError> {
     match storage.size(path) {
         Ok(_) => return Ok(Kind::File),
         Err(StorageError::NotFound) => {}
@@ -70,7 +70,7 @@ pub fn kind(storage: &dyn Storage, path: &str) -> Result<Kind, StorageError> {
     }
     // A folder is no file for `size`; listing tells whether it is one. The
     // first entry only is asked for.
-    match storage.list_from(path, 0, &mut |_| false) {
+    match storage.list_bounded(path, 0, &mut |_| false) {
         Ok(_) => Ok(Kind::Folder),
         Err(StorageError::NotFound | StorageError::InvalidPath) => Ok(Kind::Missing),
         Err(other) => Err(other),
@@ -192,8 +192,8 @@ enum Next {
 /// The entry at `position` of `dir` and the place after it. One listing call
 /// asking for two entries: it stops at the second, whose place is wanted and
 /// which is still there when the first is gone. Every entry shown is counted.
-fn fetch(
-    storage: &dyn Storage,
+fn fetch<S: Storage + ?Sized>(
+    storage: &S,
     dir: &str,
     position: u64,
     entry: &mut Entry,
@@ -201,7 +201,7 @@ fn fetch(
 ) -> Result<Next, StorageError> {
     let room = room(dir);
     let mut seen = 0u8;
-    let stopped = storage.list_from(dir, position, &mut |found| {
+    let stopped = storage.list_bounded(dir, position, &mut |found| {
         *reads += 1;
         if seen == 0 {
             entry.take(&found, room);
@@ -238,14 +238,15 @@ fn room(dir: &str) -> usize {
 ///
 /// Names that no path can hold (made by a computer: a trailing dot, a
 /// reserved name, over 255 bytes) are removed by their place, as is anything
-/// the walk cannot enter (too deep, too long a path); such a folder that is
-/// not empty ends the call with `InvalidPath`, nothing outside it touched.
+/// the walk cannot enter (deeper than [`MAX_DEPTH`], too long a path): a
+/// folder of that kind with something in it goes whole by its place
+/// ([`Storage::remove_listed`]), nothing outside it touched.
 ///
 /// # Errors
 /// The storage's own; a `root` path longer than [`MAX_PATH`] is
 /// [`StorageError::InvalidPath`].
-pub fn remove_tree_step(
-    storage: &dyn Storage,
+pub fn remove_tree_step<S: Storage + ?Sized>(
+    storage: &S,
     root: &str,
     keep_root: bool,
     place: u64,
@@ -269,7 +270,7 @@ pub fn remove_tree_step(
         Kind::Folder => {}
     }
     let mut path = Path::new(root).ok_or(StorageError::InvalidPath)?;
-    let (target, resume) = decode(place);
+    let (mut target, resume) = decode(place);
     // The check of the kind showed one entry.
     let (mut removed, mut reads) = (0u32, 1u32);
     let mut level = 0usize;
@@ -297,7 +298,21 @@ pub fn remove_tree_step(
             continue;
         }
         let here = positions[level];
-        let next = fetch(storage, folder, here, &mut entry, &mut reads)?;
+        let next = match fetch(storage, folder, here, &mut entry, &mut reads) {
+            Ok(next) => next,
+            // The folder a resumed place names is gone or no longer a
+            // folder: stale. That folder's parent starts over at 0 (the
+            // place is used once), never an error.
+            Err(StorageError::NotFound | StorageError::InvalidPath)
+                if level > 0 && level == target =>
+            {
+                target = usize::MAX;
+                level -= 1;
+                positions[level] = 0;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let after = match next {
             Next::Nothing if here != 0 => {
                 positions[level] = 0;
@@ -337,8 +352,10 @@ pub fn remove_tree_step(
             positions[level] = if level == target { resume } else { 0 };
             continue;
         }
-        // A name no path holds, or one the walk cannot enter: by its place
-        // (a folder only if it is empty).
+        // A name no path holds, or one the walk cannot enter: by its place,
+        // with all in it if it is a folder (the storage cuts it off or removes
+        // it in one step). The check that it is empty reads a few entries.
+        reads += 3;
         storage.remove_listed(path.at(level), here)?;
         removed += 1;
     }

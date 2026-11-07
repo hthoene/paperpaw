@@ -8,48 +8,18 @@
 
 use super::cuts_v1::{cuts_of, mounted};
 use super::*;
-use paperpaw_platform::tree::{MAX_READS, MAX_REMOVALS, remove_tree_step};
-use std::cell::Cell;
+use crate::walk::{DEPTH, DESCENT, Reads};
+use paperpaw_platform::tree::{MAX_READS, MAX_REMOVALS, TreeStep};
+use std::eprintln;
 
-/// The storage, counting the entries its listings show.
-struct Counted<'a, S: Storage> {
-    inner: &'a S,
-    reads: Cell<u32>,
-}
-
-impl<S: Storage> Storage for Counted<'_, S> {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.inner.read_at(path, offset, buf)
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.inner.size(path)
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.inner.write(path, data)
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.inner.append(path, data)
-    }
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        self.inner.list(dir, visit)
-    }
-    fn remove(&self, path: &str) -> Result<(), StorageError> {
-        self.inner.remove(path)
-    }
-    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
-        self.inner.remove_dir_all(path)
-    }
-    fn list_from(
-        &self,
-        dir: &str,
-        from: u64,
-        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
-    ) -> Result<Option<u64>, StorageError> {
-        self.inner.list_from(dir, from, &mut |entry| {
-            self.reads.set(self.reads.get() + 1);
-            visit(entry)
-        })
-    }
+/// One call of the card's own walk.
+fn remove_tree_step(
+    s: &impl Storage,
+    root: &str,
+    keep_root: bool,
+    place: u64,
+) -> Result<TreeStep, StorageError> {
+    s.remove_tree_step(root, keep_root, place)
 }
 
 fn options() -> FormatVolumeOptions {
@@ -100,39 +70,49 @@ fn exists_dir(s: &dyn Storage, path: &str) -> bool {
     s.list(path, &mut |_| {}).is_ok()
 }
 
+/// The entries the walk reads from the folders, counted where rust-fatfs gives
+/// them (not the ones a visitor is shown): in the folders being emptied at most
+/// the contract's 256, finding them again at most the descent's share, from a
+/// place and from the start; and the blocks
+/// read from the card do not grow with the folder.
 #[test]
-fn a_folder_over_the_read_cap_goes_in_several_calls() {
-    let card = Cut::formatted_of(4 << 20, options());
-    let s = card.storage();
-    for n in 0..700 {
-        s.write(&format!("Big/f{n:03}.txt"), b"x").unwrap();
-    }
-    s.write("Keep/k.txt", b"keep").unwrap();
-    let counted = Counted {
-        inner: &s,
-        reads: Cell::new(0),
-    };
-    let (mut place, mut calls) = (0, 0);
-    loop {
-        counted.reads.set(0);
-        let step = remove_tree_step(&counted, "Big", false, place).unwrap();
-        calls += 1;
-        assert!(step.removed <= MAX_REMOVALS);
-        // The entries shown: those taken, one look-ahead each, and a check
-        // that a folder is empty; never the folder whole.
-        assert!(
-            counted.reads.get() <= 2 * MAX_READS + 4,
-            "{}",
-            counted.reads.get()
-        );
-        if step.done {
-            break;
+fn a_call_reads_a_bounded_part_of_a_big_folder() {
+    let measure = |files: usize| {
+        let card = Cut::formatted_of(8 << 20, options());
+        let s = card.storage();
+        for n in 0..files {
+            s.write(&format!("Big/file-{n:04}.txt"), b"x").unwrap();
         }
-        place = step.next;
-    }
-    assert!(calls >= 700 / 64, "{calls} calls");
-    assert!(!exists_dir(&s, "Big"));
-    assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
+        s.write("Keep/k.txt", b"keep").unwrap();
+        s.sync().unwrap();
+        let (mut place, mut worst_blocks, mut calls) = (0, 0, 0);
+        let mut worst = Reads::default();
+        loop {
+            let before = card.reads.get();
+            let mut reads = Reads::default();
+            let step = s.walk_tree("Big", false, place, &mut reads).unwrap();
+            assert!(step.removed <= MAX_REMOVALS);
+            assert!(reads.work <= MAX_READS, "{reads:?}");
+            assert!(reads.descent <= DESCENT, "{reads:?}");
+            worst.work = worst.work.max(reads.work);
+            worst_blocks = worst_blocks.max(card.reads.get() - before);
+            calls += 1;
+            if step.done {
+                break;
+            }
+            place = step.next;
+        }
+        assert!(calls >= files / 64, "{calls} calls");
+        assert!(!exists_dir(&s, "Big"));
+        assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
+        (worst.work, worst_blocks)
+    };
+    let (small, big) = (measure(600), measure(3000));
+    eprintln!("entries and blocks per call: {small:?} for 600, {big:?} for 3000");
+    // 3,000 files are 9,000 slots of 32 bytes: 563 blocks; a call reads a
+    // fraction of that and as much as for 600.
+    assert!(big.1 < 100, "{} blocks in a call", big.1);
+    assert!(big.1 <= small.1 * 4, "{big:?} for 3000, {small:?} for 600");
 }
 
 #[test]
@@ -372,4 +352,119 @@ fn a_folder_that_is_not_empty_is_not_removed_by_its_place() {
     assert!(!exists_dir(&s, "T/sub"));
     assert_eq!(s.remove_listed("T", 0), Err(StorageError::NotFound));
     assert_eq!(s.remove_listed("T", 0x1234), Err(StorageError::NotFound));
+}
+
+/// Names no path holds on folders with content, nested, and a tree deeper
+/// than the walk goes: nothing is left below a kept root, nothing outside is
+/// touched, at any cut the rest is whole and the next walk finishes.
+#[test]
+fn junk_folders_with_content_and_deep_trees_are_gone_whole() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("T/ok.txt", b"ok").unwrap();
+    s.write("Keep/k.txt", b"keep").unwrap();
+    s.sync().unwrap();
+    // `nul` with files and a folder below it; a deep valid tree.
+    let junk = s.dir("T").unwrap().create_dir("nul").unwrap();
+    junk.create_file("a.txt").unwrap();
+    junk.create_dir("inner")
+        .unwrap()
+        .create_file("b.txt")
+        .unwrap();
+    let mut deep = String::from("T");
+    for i in 0..60 {
+        deep.push_str(&format!("/d{i}"));
+    }
+    s.write(&format!("{deep}/leaf.txt"), b"leaf").unwrap();
+    s.sync().unwrap();
+    let image = card.image();
+    let cuts = cuts_of(image, |s| {
+        walk(s, "T", true, 0);
+        s.sync().unwrap();
+    });
+    for (n, cut) in cuts.iter().enumerate() {
+        let check = mounted(cut.clone());
+        assert_eq!(
+            whole(&check, "Keep/k.txt").as_deref(),
+            Ok(&b"keep"[..]),
+            "cut {n}"
+        );
+        let again = mounted(cut.clone());
+        walk(&again, "T", true, 0);
+        let mut left = Vec::new();
+        again
+            .list("T", &mut |e| left.push(e.name.to_string()))
+            .unwrap();
+        assert!(left.is_empty(), "cut {n}: {left:?}");
+        assert_eq!(
+            whole(&again, "Keep/k.txt").as_deref(),
+            Ok(&b"keep"[..]),
+            "cut {n}"
+        );
+    }
+}
+
+/// A tree of `levels` folders one in the other below `at`, a file in the last
+/// (made through rust-fatfs: its path would be too long for the storage's).
+fn nest(s: &FatStorage<SharedDisk<Cut>>, at: &str, levels: usize) {
+    let mut dir = s.dir(at).unwrap();
+    for _ in 0..levels {
+        dir = dir.create_dir("a").unwrap();
+    }
+    dir.create_file("leaf.txt").unwrap();
+}
+
+/// A tree as deep as the walk goes is removed, a call at a time each within its
+/// reads (finding the folder again included) and removals, nothing outside
+/// touched.
+#[test]
+fn a_tree_as_deep_as_the_walk_goes_is_removed_in_bounded_calls() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("T/side.txt", b"side").unwrap();
+    s.write("Keep/k.txt", b"keep").unwrap();
+    nest(&s, "T", DEPTH);
+    s.sync().unwrap();
+    let (mut place, mut calls) = (0, 0);
+    loop {
+        let mut reads = Reads::default();
+        let step = s.walk_tree("T", false, place, &mut reads).unwrap();
+        assert!(
+            reads.work <= MAX_READS && reads.descent <= DESCENT,
+            "{reads:?}"
+        );
+        assert!(step.removed <= MAX_REMOVALS);
+        calls += 1;
+        assert!(calls < 3000, "never done");
+        if step.done {
+            break;
+        }
+        place = step.next;
+    }
+    eprintln!("{calls} calls for {DEPTH} levels");
+    assert!(!exists_dir(&s, "T"));
+    assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
+}
+
+/// A tree deeper than the walk goes ends the call with `InvalidData` (the
+/// service's `ERR_STATE`); what was removed stays removed and nothing outside is
+/// touched.
+#[test]
+fn a_tree_deeper_than_the_walk_goes_is_an_error_and_touches_nothing_outside() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("T/side.txt", b"side").unwrap();
+    s.write("Keep/k.txt", b"keep").unwrap();
+    nest(&s, "T", DEPTH + 1);
+    s.sync().unwrap();
+    let mut place = 0;
+    let error = loop {
+        match remove_tree_step(&s, "T", false, place) {
+            Ok(step) if step.done => panic!("done"),
+            Ok(step) => place = step.next,
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(error, StorageError::InvalidData);
+    assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
 }

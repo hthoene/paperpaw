@@ -12,7 +12,8 @@ use crate::native_host::{
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_platform::tree::{Kind, kind, remove_tree_step};
+use paperpaw_platform::StorageError;
+use paperpaw_platform::tree::{Kind, kind};
 
 /// `fs_move.flags`: replace an existing file at `to`.
 const MOVE_REPLACE: u32 = 1;
@@ -73,7 +74,14 @@ pub(super) fn remove_tree(
     }
     // Root 0 `""` empties the data folder; the folder itself stays.
     let keep = target.root == DATA && target.is_root();
-    let step = remove_tree_step(view.storage, joined, keep, input.cursor).map_err(status)?;
+    let step = view
+        .storage
+        .remove_tree_step(joined, keep, input.cursor)
+        .map_err(|error| match error {
+            // A folder nested deeper than the storage goes (files.md 2.5).
+            StorageError::InvalidData => ERR_STATE,
+            other => status(other),
+        })?;
     encode(
         &Record::ServiceFsProgress(wire::ServiceFsProgress {
             removed: step.removed,
