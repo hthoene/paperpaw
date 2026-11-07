@@ -40,7 +40,20 @@ impl Storage for Quiet {
         fixture(|| self.0.append(path, data))
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        fixture(|| self.0.list(dir, visit))
+        // The entries are collected on the storage's side; what the visitor
+        // does with them is the plugin's heap, and is counted and refused.
+        let mut entries: Vec<(String, bool, u64, Option<i64>)> = Vec::new();
+        fixture(|| {
+            self.0.list(dir, &mut |e| {
+                entries.push((String::from(e.name), e.is_dir, e.size, e.modified));
+            })
+        })?;
+        for (name, is_dir, size, modified) in &entries {
+            let mut entry = DirEntry::new(name, *is_dir, *size);
+            entry.modified = *modified;
+            visit(entry);
+        }
+        Ok(())
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         fixture(|| self.0.remove(path))
@@ -600,8 +613,8 @@ fn reading_a_table_refuses_cleanly() {
         },
         |_| {},
     );
-    // A record read again by its offset (`record_at` says `None` where the
-    // heap refuses: no card, never a half one).
+    // A record read again by its offset (an error where the heap refuses:
+    // no card, never a half one).
     sweep(
         "record_at",
         csv,
@@ -624,7 +637,7 @@ fn reading_a_table_refuses_cleanly() {
                 second
             });
             // Whole or not there; a record is never half made.
-            if let Some(record) = table::record_at(s, "f", &layout, offset) {
+            if let Some(record) = table::record_at(s, "f", &layout, offset)? {
                 assert_eq!(record.front, "word 1");
                 assert!(record.back.contains("meaning"));
             }
@@ -685,4 +698,142 @@ fn rebuilding_the_index_refuses_cleanly() {
         |s| cards::rebuild_index(s),
         healthy,
     );
+}
+
+// ---- The card folder: listing, the ledger and the job ----------------------
+
+mod folder {
+    use super::*;
+    use crate::cards;
+    use crate::sync::tests::{FOLDER, put, run};
+    use crate::sync::{self, Job, Mode, Outcome, Step};
+
+    /// A card folder with decks, made and merged once, then changed.
+    fn card() -> Quiet {
+        let q = Quiet::default();
+        fixture(|| {
+            put(&q.0, "Spanish.tsv", "casa\thouse\ngato\tcat\nperro\tdog\n");
+            put(&q.0, "French.csv", "maison,house\nchat,cat\n");
+            put(&q.0, "_Read me.txt", "how");
+            put(&q.0, "notes.pdf", "no deck");
+            run(&q.0, false, true);
+            // One line changed, one added, one file new.
+            put(
+                &q.0,
+                "Spanish.tsv",
+                "casa\ta house\ngato\tcat\nperro\tdog\nlibro\tbook\n",
+            );
+            put(&q.0, "Italian.tsv", "casa\thouse\n");
+        });
+        q
+    }
+
+    /// Every deck of the plugin still reads whole, and so does the ledger.
+    fn whole(q: &Quiet) {
+        fixture(|| {
+            for deck in cards::decks(q).unwrap() {
+                cards::each_card(q, deck.id, |_, _| core::ops::ControlFlow::Continue(())).unwrap();
+            }
+            sync::sources(q).unwrap();
+        });
+    }
+
+    #[test]
+    fn the_listing_refuses_cleanly() {
+        sweep(
+            "files",
+            card,
+            |s| {
+                let (there, found) = sync::files(s, FOLDER)?;
+                assert!(there && found.len() == 3);
+                Ok(())
+            },
+            |_| {},
+        );
+        sweep(
+            "pending",
+            card,
+            |s| sync::pending(s, FOLDER).map(|p| assert_eq!(p.todo, 2)),
+            |_| {},
+        );
+        sweep(
+            "make_folder",
+            Quiet::default,
+            |s| sync::make_folder(s, "Cards", "how to"),
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn names_refuse_cleanly() {
+        let listed =
+            fixture(|| alloc::vec![String::from("Spanish.csv"), String::from("Spanish.tsv")]);
+        sweep(
+            "deck names",
+            Quiet::default,
+            |_| {
+                sync::deck_name("Spanish.tsv")?;
+                sync::deck_name_among("Spanish.tsv", &listed)?;
+                sync::folder_of(" /Cards/ ")?;
+                Ok(())
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn the_ledger_refuses_cleanly_and_is_never_written_half() {
+        let before = fixture(|| {
+            let q = card();
+            sync::sources(&q).unwrap()
+        });
+        assert!(!before.sources.is_empty());
+        sweep(
+            "sources",
+            card,
+            |s| sync::sources(s).map(|l| assert_eq!(l.sources.len(), before.sources.len())),
+            |_| {},
+        );
+        sweep(
+            "write_sources",
+            card,
+            |s| {
+                let ledger = fixture(|| sync::sources(s).unwrap());
+                sync::write_sources(s, &ledger)
+            },
+            whole,
+        );
+    }
+
+    #[test]
+    fn a_job_refuses_cleanly_and_leaves_the_decks_whole() {
+        sweep(
+            "job",
+            card,
+            |s| {
+                let mut job = Job::new(s, FOLDER, Mode::Manual)?;
+                loop {
+                    match job.step(s) {
+                        Step::Working => {}
+                        Step::Ask => job.answer(s, true),
+                        Step::Done => break,
+                    }
+                }
+                // Nothing here is the file's fault: a refusal is never a verdict
+                // on the file (`Crowded` would mark it failed for good).
+                assert!(
+                    job.reports.iter().all(|r| r.outcome != Outcome::Crowded),
+                    "a refused allocation was reported as Crowded"
+                );
+                // A refusal is told, as a report or as the job's flag.
+                let unreadable = job.reports.iter().any(|r| r.outcome == Outcome::Unreadable);
+                if job.refused() || unreadable {
+                    return Err(StorageError::TooLarge);
+                }
+                assert_eq!(job.reports.len(), 2);
+                Ok(())
+            },
+            whole,
+        );
+    }
 }

@@ -78,7 +78,7 @@ const CHUNK: usize = 2048;
 /// The folder of the cards: the plugin's folder under the card (interface
 /// 6's names; the host's root 0 is that folder, see
 /// [`crate::files::DataFolder`]).
-const DIR: &str = ".paperpaw/plugins/vocabulary/cards";
+pub(crate) const DIR: &str = ".paperpaw/plugins/vocabulary/cards";
 const DECKS: &str = ".paperpaw/plugins/vocabulary/cards/decks.txt";
 const STATE: &str = ".paperpaw/plugins/vocabulary/cards/state.txt";
 const INDEX: &str = ".paperpaw/plugins/vocabulary/cards/due.txt";
@@ -198,12 +198,7 @@ fn unescape(field: &str) -> Result<String, StorageError> {
 
 /// `text` as kept: trimmed, at most `most` characters.
 pub(crate) fn clean(text: &str, most: usize) -> Result<String, StorageError> {
-    let text = text.trim();
-    let text = match text.char_indices().nth(most) {
-        Some((end, _)) => text.get(..end).unwrap_or(text),
-        None => text,
-    };
-    copy(text)
+    copy(lines::trimmed_cut(text, most))
 }
 
 /// [`clean`] for the modules of the plugin not ported yet: an empty text
