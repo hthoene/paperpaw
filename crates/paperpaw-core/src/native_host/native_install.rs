@@ -51,7 +51,7 @@ impl crate::Kernel {
                 _ => ERR_INVALID,
             })?;
             let mut owned = Vec::new();
-            let mut result = Ok(());
+            let mut result: Result<(), i32> = Ok(());
             view.visit(&mut |record| {
                 if result.is_err() {
                     return;

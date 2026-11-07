@@ -219,7 +219,7 @@ fn duplicate_native_screen_install_is_atomic_and_reserved_policy_is_refused() {
     assert_eq!(kernel.stack.len(), 1);
     assert!(matches!(
         install(&mut kernel, 3 << 6),
-        Err(Error::Status(ERR_INVALID))
+        Err(Error::Factory(ERR_INVALID))
     ));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
 }
