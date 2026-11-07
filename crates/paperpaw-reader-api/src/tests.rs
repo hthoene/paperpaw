@@ -66,14 +66,10 @@ fn stage_inputs_require_one_head_then_rows() {
     }
     let n = layer::encode(false, &[head, row], &mut out).unwrap();
     assert_eq!(layer::decode(false, &out[..n]).unwrap().count(), 2);
-    assert!(
-        layer::encode(
-            false,
-            &[head, row, row, row, row, row, row, row, row],
-            &mut out
-        )
-        .is_err()
-    );
+    let mut rows = [row; 65];
+    rows[0] = head;
+    assert!(layer::encode(false, &rows[..64], &mut out).is_ok());
+    assert!(layer::encode(false, &rows, &mut out).is_err());
     assert!(layer::decode(true, &out[..n]).is_err());
 }
 #[test]

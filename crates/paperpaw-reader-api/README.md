@@ -6,8 +6,8 @@ this file may be sent to `registrations.submit` or `commands.submit` directly.
 Each stage negotiates its schema version through N4. Unknown versions and exact
 unknown tags are refused; a numeric tag range never identifies a family.
 
-Each stage input is a head record followed by up to seven declared rows
-(style/decor/layer), or just the head (insert/status), at most 3840 bytes total.
+Each stage input is a head record followed by up to 63 declared geometry rows
+(decor/layer) or seven current-style rows (style), or just the head (insert/status), at most 3840 bytes total.
 Replies are bounded to
 3840 bytes and eight records. Insert replies have at
 most four items; at most 64 inserted items may be admitted per chapter across
@@ -24,7 +24,7 @@ Limits are proposed for Kernel review, not claims about a landed N4 broker.
 | `reader.status` | `status.query` | `status.item` | Bounded text or a custom draw item with measured dimensions. Unknown page counts remain optional. |
 
 Chunked inputs carry a zero-based chunk number and a final-chunk flag (0/1).
-Each invocation has its own query record followed by at most seven geometry or
+Each invocation has its own query record followed by at most 63 geometry records (decor/layer) or seven
 style records. Text positions are UTF-8 byte offsets in the source block;
 chunks must end at character boundaries. Geometry uses page coordinates and
 pixel units. The reader clips ranges to the supplied source context and rejects
@@ -32,9 +32,9 @@ invalid UTF-8 boundaries. No subscriber may retain callback-borrowed strings.
 
 ### Covering a whole page
 
-The eight-record input bound is per invocation, not a page limit. The reader
+The 64-record decor/layer input bound is per invocation, not a page limit. The reader
 walks all visible geometry in source order and sends several bounded calls:
-each repeats the query head, followed by at most seven rows. It cuts a batch
+each repeats the query head, followed by at most 63 rows. It cuts a batch
 earlier if the encoded input would exceed 3840 bytes. `chunk` increases from
 zero for that source context; only its last call sets `final_chunk = 1`.
 `page.word.index` and `page.line.index` remain page-wide indices across calls,

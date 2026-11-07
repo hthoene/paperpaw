@@ -116,7 +116,7 @@ pub mod reader_decor_v1 {
     /// Schema reply_tags.
     pub const REPLY_TAGS: &[u32] = &[49];
     /// Schema input_rows: the most records of one input batch.
-    pub const INPUT_ROWS: usize = 8;
+    pub const INPUT_ROWS: usize = 64;
     struct Reader<'a> {
         remaining: &'a [u8],
     }
@@ -1686,7 +1686,7 @@ pub mod reader_layer_v1 {
     /// Schema reply_tags.
     pub const REPLY_TAGS: &[u32] = &[65];
     /// Schema input_rows: the most records of one input batch.
-    pub const INPUT_ROWS: usize = 8;
+    pub const INPUT_ROWS: usize = 64;
     struct Reader<'a> {
         remaining: &'a [u8],
     }
