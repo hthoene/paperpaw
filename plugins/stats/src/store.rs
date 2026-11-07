@@ -590,7 +590,9 @@ pub(crate) fn replace_log(storage: &dyn Storage, file: &str) -> Result<(), Stora
 fn write_log(storage: &dyn Storage, file: &str, new: &str) -> Result<(), StorageError> {
     storage.write(new, &[])?;
     let mut chunk = [0u8; 20 * 64];
-    let mut out = Vec::with_capacity(64 * RECORD);
+    let mut out = Vec::new();
+    out.try_reserve_exact(64 * RECORD)
+        .map_err(|_| StorageError::TooLarge)?;
     let mut at = 0u64;
     loop {
         let n = storage.read_at(file, at, &mut chunk)?;

@@ -2,13 +2,17 @@
 //! that fit in memory are sorted in place and written to files, then
 //! merged a few at a time. Records are big-endian, so bytewise order is
 //! numeric order.
+//!
+//! Every allocation is fallible: a refused one ends the call with
+//! [`StorageError::TooLarge`], and the files of the runs are removed as
+//! after any other error.
 
-use alloc::format;
 use alloc::string::String;
-use alloc::vec;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::{Storage, StorageError};
+
+use crate::room;
 
 /// Bytes sorted in memory at once.
 const RUN: usize = 16 * 1024;
@@ -17,6 +21,19 @@ const RUN: usize = 16 * 1024;
 const FAN_IN: usize = 16;
 /// Bytes read ahead from each run while merging.
 const AHEAD: usize = 512;
+/// The longest record: the files of stays hold 20 bytes, their keys 16.
+pub(crate) const MAX_RECORD: usize = 20;
+
+/// A record read: its first `size` bytes are the record.
+pub(crate) type Record = [u8; MAX_RECORD];
+
+/// Records that are not 1 to [`MAX_RECORD`] bytes are not sorted.
+fn check(size: usize) -> Result<(), StorageError> {
+    if size == 0 || size > MAX_RECORD {
+        return Err(StorageError::TooLarge);
+    }
+    Ok(())
+}
 
 /// Sorts the records of `size` bytes in `input` into `output` (which may
 /// be `input`); `temp` names the files of the runs, which are gone
@@ -28,6 +45,7 @@ pub(crate) fn sort(
     size: usize,
     temp: &str,
 ) -> Result<(), StorageError> {
+    check(size)?;
     let mut runs: Vec<String> = Vec::new();
     let result = sort_in_runs(storage, input, output, size, temp, &mut runs);
     for run in &runs {
@@ -40,6 +58,14 @@ pub(crate) fn sort(
     result
 }
 
+/// A new name in `runs`; its place there.
+fn next_run(runs: &mut Vec<String>, temp: &str) -> Result<usize, StorageError> {
+    room::reserve(runs, 1)?;
+    let name = room::numbered(temp, runs.len())?;
+    runs.push(name);
+    Ok(runs.len() - 1)
+}
+
 fn sort_in_runs(
     storage: &dyn Storage,
     input: &str,
@@ -49,21 +75,18 @@ fn sort_in_runs(
     runs: &mut Vec<String>,
 ) -> Result<(), StorageError> {
     let per_run = (RUN / size).max(1) * size;
-    let mut buffer = vec![0u8; per_run];
+    let mut buffer = room::zeroed(per_run)?;
     let mut at = 0u64;
-    // Every run made, also those merged into others (to be removed).
-    let mut made = 0;
-    let mut run_name = |runs: &mut Vec<String>| {
-        let run = format!("{temp}.{made}");
-        made += 1;
-        runs.push(run.clone());
-        run
-    };
-    let mut pending: Vec<String> = Vec::new();
+    // The places in `runs` of those not merged yet. Every run made, also
+    // those merged into others, stays in `runs` to be removed.
+    let mut pending: Vec<usize> = Vec::new();
     loop {
         let mut filled = 0;
         while filled < per_run {
-            let n = match storage.read_at(input, at + filled as u64, &mut buffer[filled..]) {
+            let Some(rest) = buffer.get_mut(filled..) else {
+                break;
+            };
+            let n = match storage.read_at(input, at + filled as u64, rest) {
                 Ok(n) => n,
                 Err(StorageError::NotFound) if at == 0 && filled == 0 => 0,
                 Err(e) => return Err(e),
@@ -77,10 +100,13 @@ fn sort_in_runs(
         if whole == 0 {
             break;
         }
-        sort_records(&mut buffer[..whole], size);
-        let run = run_name(runs);
-        storage.write(&run, &buffer[..whole])?;
-        pending.push(run);
+        let Some(sorted) = buffer.get_mut(..whole) else {
+            break;
+        };
+        sort_records(sorted, size);
+        let run = next_run(runs, temp)?;
+        storage.write(runs.get(run).map_or("", String::as_str), sorted)?;
+        room::push(&mut pending, run)?;
         at += whole as u64;
         if filled < per_run {
             break;
@@ -89,22 +115,29 @@ fn sort_in_runs(
     drop(buffer);
     // Merged a few at a time until few enough are left for the output.
     while pending.len() > FAN_IN {
-        let mut merged = Vec::new();
+        let mut merged: Vec<usize> = Vec::new();
+        room::reserve(&mut merged, pending.len().div_ceil(FAN_IN))?;
         for group in pending.chunks(FAN_IN) {
-            let run = run_name(runs);
-            merge(storage, group, &run, size)?;
+            let run = next_run(runs, temp)?;
+            merge(
+                storage,
+                runs,
+                group,
+                runs.get(run).map_or("", String::as_str),
+                size,
+            )?;
             for done in group {
                 #[expect(
                     clippy::let_underscore_must_use,
                     reason = "a temporary file left behind is written over the next time"
                 )]
-                let _ = storage.remove(done);
+                let _ = storage.remove(runs.get(*done).map_or("", String::as_str));
             }
-            merged.push(run);
+            room::push(&mut merged, run)?;
         }
         pending = merged;
     }
-    merge(storage, &pending, output, size)
+    merge(storage, runs, &pending, output, size)
 }
 
 /// Sorts the records of `size` bytes in `data` in place (a heapsort: no
@@ -149,62 +182,80 @@ fn sort_records(data: &mut [u8], size: usize) {
 struct Reader<'a> {
     path: &'a str,
     at: u64,
+    /// Read ahead: `filled` bytes of it are records not taken yet from
+    /// `start`.
     buffer: Vec<u8>,
+    filled: usize,
     start: usize,
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
+    fn new(path: &'a str, size: usize) -> Result<Self, StorageError> {
+        Ok(Self {
+            path,
+            at: 0,
+            buffer: room::zeroed(AHEAD.max(size) / size * size)?,
+            filled: 0,
+            start: 0,
+        })
+    }
+
     fn head(&mut self, storage: &dyn Storage, size: usize) -> Result<Option<&[u8]>, StorageError> {
-        if self.start + size > self.buffer.len() {
-            self.buffer.resize(AHEAD.max(size) / size * size, 0);
+        if self.start + size > self.filled {
             let n = storage.read_at(self.path, self.at, &mut self.buffer)?;
             let whole = n - n % size;
             self.at += whole as u64;
-            self.buffer.truncate(whole);
+            self.filled = whole;
             self.start = 0;
             if whole == 0 {
                 return Ok(None);
             }
         }
-        Ok(Some(&self.buffer[self.start..self.start + size]))
+        Ok(self.buffer.get(self.start..self.start + size))
     }
 }
 
-/// Merges the sorted `runs` into `output`.
+/// Merges the sorted runs `group` (places in `runs`) into `output`.
 fn merge(
     storage: &dyn Storage,
     runs: &[String],
+    group: &[usize],
     output: &str,
     size: usize,
 ) -> Result<(), StorageError> {
     storage.write(output, &[])?;
-    let mut readers: Vec<Reader<'_>> = runs
-        .iter()
-        .map(|path| Reader {
-            path,
-            at: 0,
-            buffer: Vec::new(),
-            start: 0,
-        })
-        .collect();
-    let mut out: Vec<u8> = Vec::with_capacity(AHEAD * 4);
-    let mut record = vec![0u8; size];
+    let mut readers: Vec<Reader<'_>> = Vec::new();
+    room::reserve(&mut readers, group.len())?;
+    for run in group {
+        let path = runs.get(*run).map_or("", String::as_str);
+        readers.push(Reader::new(path, size)?);
+    }
+    // Room for a whole record beyond the limit: pushing never grows it.
+    let mut out: Vec<u8> = Vec::new();
+    out.try_reserve_exact(AHEAD * 4 + MAX_RECORD)
+        .map_err(|_| StorageError::TooLarge)?;
+    let mut record: Record = [0; MAX_RECORD];
     loop {
         // The run with the smallest head (few runs: a scan is fine).
         let mut best: Option<usize> = None;
         for (i, reader) in readers.iter_mut().enumerate() {
             if let Some(head) = reader.head(storage, size)?
-                && best.is_none_or(|_| head < record.as_slice())
+                && best.is_none_or(|_| head < record.get(..size).unwrap_or_default())
             {
-                record.copy_from_slice(head);
+                record
+                    .get_mut(..size)
+                    .unwrap_or_default()
+                    .copy_from_slice(head);
                 best = Some(i);
             }
         }
         let Some(i) = best else {
             break;
         };
-        readers[i].start += size;
-        out.extend_from_slice(&record);
+        if let Some(reader) = readers.get_mut(i) {
+            reader.start += size;
+        }
+        out.extend_from_slice(record.get(..size).unwrap_or_default());
         if out.len() >= AHEAD * 4 {
             storage.append(output, &out)?;
             out.clear();
@@ -213,14 +264,16 @@ fn merge(
     storage.append(output, &out)
 }
 
-/// Calls `visit` with every record of `path`, in order.
+/// Calls `visit` with every record of `path`, in order; its error ends
+/// the walk.
 pub(crate) fn each(
     storage: &dyn Storage,
     path: &str,
     size: usize,
-    mut visit: impl FnMut(&[u8]),
+    mut visit: impl FnMut(&[u8]) -> Result<(), StorageError>,
 ) -> Result<(), StorageError> {
-    let mut chunk = vec![0u8; (AHEAD * 4 / size).max(1) * size];
+    check(size)?;
+    let mut chunk = room::zeroed((AHEAD * 4 / size).max(1) * size)?;
     let mut at = 0u64;
     loop {
         let n = match storage.read_at(path, at, &mut chunk) {
@@ -229,8 +282,8 @@ pub(crate) fn each(
             Err(e) => return Err(e),
         };
         let whole = n - n % size;
-        for record in chunk[..whole].chunks_exact(size) {
-            visit(record);
+        for record in chunk.get(..whole).unwrap_or_default().chunks_exact(size) {
+            visit(record)?;
         }
         // Only a read without a whole record is the end: a read may
         // return less than asked for.
@@ -249,31 +302,38 @@ pub(crate) struct Records<'s> {
     size: usize,
     at: u64,
     buffer: Vec<u8>,
+    filled: usize,
     start: usize,
     pub failed: Option<StorageError>,
 }
 
 impl<'s> Records<'s> {
-    pub(crate) fn new(storage: &'s dyn Storage, path: &str, size: usize) -> Self {
-        Self {
+    /// The records of `size` bytes in `path`; the memory they take is
+    /// taken now.
+    pub(crate) fn new(
+        storage: &'s dyn Storage,
+        path: &str,
+        size: usize,
+    ) -> Result<Self, StorageError> {
+        check(size)?;
+        Ok(Self {
             storage,
-            path: String::from(path),
+            path: room::string(&[path])?,
             size,
             at: 0,
-            buffer: Vec::new(),
+            buffer: room::zeroed((AHEAD * 4 / size).max(1) * size)?,
+            filled: 0,
             start: 0,
             failed: None,
-        }
+        })
     }
 }
 
 impl Iterator for Records<'_> {
-    type Item = Vec<u8>;
+    type Item = Record;
 
-    fn next(&mut self) -> Option<Vec<u8>> {
-        if self.start + self.size > self.buffer.len() {
-            self.buffer
-                .resize((AHEAD * 4 / self.size).max(1) * self.size, 0);
+    fn next(&mut self) -> Option<Record> {
+        if self.start + self.size > self.filled {
             let n = match self.storage.read_at(&self.path, self.at, &mut self.buffer) {
                 Ok(n) => n,
                 Err(StorageError::NotFound) if self.at == 0 => 0,
@@ -283,14 +343,17 @@ impl Iterator for Records<'_> {
                 }
             };
             let whole = n - n % self.size;
-            self.buffer.truncate(whole);
+            self.filled = whole;
             self.at += whole as u64;
             self.start = 0;
             if whole == 0 {
                 return None;
             }
         }
-        let record = self.buffer[self.start..self.start + self.size].to_vec();
+        let mut record: Record = [0; MAX_RECORD];
+        record
+            .get_mut(..self.size)?
+            .copy_from_slice(self.buffer.get(self.start..self.start + self.size)?);
         self.start += self.size;
         Some(record)
     }
@@ -299,6 +362,7 @@ impl Iterator for Records<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
     use paperpaw_sdk::MemoryStorage;
 
     /// `count` records of 8 bytes in a jumbled order.
@@ -320,11 +384,18 @@ mod tests {
         storage.write("in", &jumbled(10_000)).unwrap();
         sort(&storage, "in", "in", 8, "tmp").unwrap();
         let mut records = Vec::new();
-        each(&storage, "in", 8, |r| records.push(r.to_vec())).unwrap();
+        each(&storage, "in", 8, |r| {
+            records.push(r.to_vec());
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(records.len(), 10_000);
         assert!(records.windows(2).all(|w| w[0] <= w[1]));
         assert!(storage.size("tmp.0").is_err(), "runs are removed");
-        let streamed: Vec<Vec<u8>> = Records::new(&storage, "in", 8).collect();
+        let streamed: Vec<Vec<u8>> = Records::new(&storage, "in", 8)
+            .unwrap()
+            .map(|r| r[..8].to_vec())
+            .collect();
         assert_eq!(streamed, records);
         // Nothing to sort.
         sort(&storage, "none", "out", 8, "tmp").unwrap();
@@ -342,7 +413,11 @@ mod tests {
         sort(&storage, "in", "out", 8, "tmp").unwrap();
         expected.sort_unstable();
         let mut records = Vec::new();
-        each(&storage, "out", 8, |r| records.push(r.to_vec())).unwrap();
+        each(&storage, "out", 8, |r| {
+            records.push(r.to_vec());
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(
             records,
             expected.iter().map(|r| r.to_vec()).collect::<Vec<_>>()
