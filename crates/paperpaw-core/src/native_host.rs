@@ -72,6 +72,7 @@ mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -85,6 +86,8 @@ pub(crate) mod host_services;
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+#[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
+pub(crate) mod net_service;
 mod service_slots;
 #[allow(
     dead_code,
@@ -103,6 +106,10 @@ pub mod canvas;
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
+
+/// The device-wide table of Wi-Fi join and host requests (DEV).
+#[path = "native_host/radio_requests.rs"]
+pub mod radio_requests;
 
 #[path = "native_host/declaration_index.rs"]
 mod declaration_index;
@@ -194,6 +201,9 @@ mod native_values;
 )]
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
+
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
 
 #[allow(
     dead_code,
