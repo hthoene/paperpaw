@@ -195,10 +195,7 @@ unsafe extern "C" fn service_call(
 
 #[test]
 fn menu_and_handover_temporaries_do_not_overlap_in_one_callback() {
-    use crate::native::{
-        declare::records_wire as records,
-        ui::{Param, Ui},
-    };
+    use crate::native::ui::{Param, Ui};
     let mut table = abi::host_table();
     table.commands_submit = submit;
     table.service_open = service_open;

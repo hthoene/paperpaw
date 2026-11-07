@@ -143,7 +143,7 @@ fn raw_records_decode_by_type_as_the_enum_decoders_do() {
     assert_eq!(len, bare(&END).len());
     assert_eq!(first.decode::<wire::ServiceEnd>(), Ok(END));
     assert_eq!(
-        wire::record_decode_prefix(&two).map(|(r, l)| (r, l)),
+        wire::record_decode_prefix(&two),
         first.record().map(|r| (r, len))
     );
 }
