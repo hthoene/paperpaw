@@ -91,30 +91,42 @@ impl NativeWidgets {
     }
 
     /// Tells the makers whose widget shows something new since the last minute.
+    /// A widget that fails (its time or its command) is left for the next
+    /// tick and costs the others nothing: the tick itself is not refused.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
-        // One widget that fails does not stop the rest: the first refusal is
-        // returned after every widget had its turn.
-        let mut first = Ok(());
         for item in &mut self.items {
             let Some(behaviour) = behaviour(item.token) else {
                 continue;
             };
-            let result = (behaviour.shows)(host, &item.widget).and_then(|now| {
-                let changed = item.shown.is_some_and(|before| before != now);
-                item.shown = Some(now);
-                if changed {
-                    commands.widget_changed(item.instance)?;
-                }
-                Ok(())
-            });
-            if first.is_ok() {
-                first = result;
-            }
+            let instance = item.instance;
+            settle(
+                &mut item.shown,
+                (behaviour.shows)(host, &item.widget),
+                || commands.widget_changed(instance),
+            );
         }
-        first
+        Ok(())
     }
+}
+
+/// Notes what a widget shows now. If it differs from what it showed before,
+/// `queue` tells the maker, and only once that is queued is it remembered as
+/// shown; a refusal of either leaves `shown` as it was, so the next tick
+/// tries again.
+fn settle(
+    shown: &mut Option<u64>,
+    now: Result<u64, Error>,
+    queue: impl FnOnce() -> Result<(), Error>,
+) {
+    let Ok(now) = now else {
+        return;
+    };
+    if shown.is_some_and(|before| before != now) && queue().is_err() {
+        return;
+    }
+    *shown = Some(now);
 }
 
 impl Plugin for NativeWidgets {
@@ -175,5 +187,63 @@ impl Plugin for NativeWidgets {
 
     fn input(&mut self, _: &Host<'_>, _: u32, _: Input<'_>) -> Result<Handled, Error> {
         Ok(Handled::No)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_look_remembers_and_tells_nobody() {
+        let mut shown = None;
+        settle(&mut shown, Ok(7), || panic!("nothing changed"));
+        assert_eq!(shown, Some(7));
+    }
+
+    #[test]
+    fn a_change_is_queued_and_then_remembered() {
+        let mut shown = Some(7);
+        let mut told = 0;
+        settle(&mut shown, Ok(8), || {
+            told += 1;
+            Ok(())
+        });
+        assert_eq!((shown, told), (Some(8), 1));
+        settle(&mut shown, Ok(8), || panic!("nothing changed"));
+    }
+
+    #[test]
+    fn a_refused_command_is_tried_again_at_the_next_tick() {
+        let mut shown = Some(7);
+        settle(&mut shown, Ok(8), || Err(Error::NoSpace));
+        assert_eq!(shown, Some(7));
+        let mut told = 0;
+        settle(&mut shown, Ok(8), || {
+            told += 1;
+            Ok(())
+        });
+        assert_eq!((shown, told), (Some(8), 1));
+    }
+
+    #[test]
+    fn a_widget_that_cannot_tell_its_time_is_left_alone() {
+        let mut shown = Some(7);
+        settle(&mut shown, Err(Error::NoMemory), || panic!("no time"));
+        assert_eq!(shown, Some(7));
+    }
+
+    #[test]
+    fn one_failing_widget_does_not_stop_the_others() {
+        let mut states = [Some(1), Some(1), Some(1)];
+        let nows = [Ok(2), Err(Error::NoMemory), Ok(2)];
+        let mut queued = 0;
+        for (shown, now) in states.iter_mut().zip(nows) {
+            settle(shown, now, || {
+                queued += 1;
+                Ok(())
+            });
+        }
+        assert_eq!((states, queued), ([Some(2), Some(1), Some(2)], 2));
     }
 }
