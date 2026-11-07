@@ -574,3 +574,110 @@ fn the_x4_environment_sets_its_limits() {
     assert_eq!((env.max_side, env.png_row_max), (1_600, 8 * 1024));
     assert_eq!((env.screen, env.colour), (480, true));
 }
+
+/// A card that lists a folder from a place without reading what is before
+/// it, and says how many entries it handed out.
+struct Paged {
+    inner: MemoryStorage,
+    visited: core::cell::Cell<usize>,
+}
+
+impl Storage for Paged {
+    fn read_at(
+        &self,
+        p: &str,
+        o: u64,
+        b: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.inner.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.inner.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.append(p, d)
+    }
+    fn list(
+        &self,
+        _: &str,
+        _: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        panic!("a sweep never lists a whole folder");
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        let mut names = std::vec::Vec::new();
+        self.inner.list(dir, &mut |e| {
+            names.push((std::string::String::from(e.name), e.is_dir, e.size));
+        })?;
+        // A place that no longer holds starts the listing over.
+        let from = if from as usize > names.len() {
+            0
+        } else {
+            from as usize
+        };
+        for (at, (name, is_dir, size)) in names.iter().enumerate().skip(from) {
+            self.visited.set(self.visited.get() + 1);
+            if !visit(paperpaw_platform::DirEntry::new(name, *is_dir, *size)) {
+                return Ok(Some(at as u64));
+            }
+        }
+        Ok(None)
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.remove(p)
+    }
+}
+
+#[test]
+fn a_sweep_call_reads_at_most_a_bounded_piece_from_the_start_a_place_or_a_stale_place() {
+    let t = ImageTable::new();
+    let card = Paged {
+        inner: MemoryStorage::new(),
+        visited: core::cell::Cell::new(0),
+    };
+    for n in 0..200 {
+        card.write(&std::format!("{DIR}/n{n:03}.txt"), b"x")
+            .unwrap();
+    }
+    for n in 0..5 {
+        card.write(&std::format!("{DIR}/a{n}-1.img"), b"x").unwrap();
+    }
+    let mut calls = 0;
+    // From the start, then resumed, then (a cursor the card no longer has)
+    // stale: each call hands out at most the entries looked at, and one more
+    // (the one it stopped at).
+    for stale in [false, true] {
+        let mut cursor = SweepCursor::default();
+        if stale {
+            card.write(&std::format!("{DIR}/a0-1.img"), b"x").unwrap();
+            cursor = SweepCursor::default();
+            // Walk a call in, then make the folder shorter than the place.
+            assert_eq!(t.sweep_cache(&card, 1, &mut cursor), Ok(true));
+            for n in 0..200 {
+                card.remove(&std::format!("{DIR}/n{n:03}.txt")).unwrap();
+            }
+        }
+        loop {
+            card.visited.set(0);
+            let more = t.sweep_cache(&card, 1, &mut cursor).unwrap();
+            assert!(card.visited.get() <= SWEEP_SCAN + 1, "a bounded piece");
+            calls += 1;
+            assert!(calls < 400, "the sweep must end");
+            if !more {
+                break;
+            }
+        }
+    }
+    for n in 0..5 {
+        assert!(!card.exists(&std::format!("{DIR}/a{n}-1.img")), "a{n}");
+    }
+    assert!(calls > 8, "{calls}: more than one call was needed");
+}
