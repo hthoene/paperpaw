@@ -8,6 +8,8 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 static WIFI: AtomicBool = AtomicBool::new(false);
+// Read by `strong` (ppn5); set where Bluetooth is built.
+#[cfg_attr(not(feature = "ppn5"), allow(dead_code))]
 static BLUETOOTH: AtomicBool = AtomicBool::new(false);
 
 /// The Wi-Fi radio is on (`true`) or off.
