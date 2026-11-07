@@ -211,9 +211,10 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
     let mut books: Vec<Book> = Vec::new();
     // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
-    // Whether the book of this section was made by it (else an earlier section
-    // of the same id has it, and this one is ignored).
-    let mut made = false;
+    // The id of the book made last: a section of it goes on filling that book
+    // (sections in a row, empty ones between, merge); one of an id read before
+    // that is ignored, so the first book of an id is the book.
+    let mut last: Option<u16> = None;
     let mut skip = false;
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
@@ -222,7 +223,6 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
                 .trim()
                 .strip_prefix("book.")
                 .and_then(|id| id.parse::<u16>().ok());
-            made = false;
             skip = false;
             return Ok(());
         }
@@ -238,7 +238,7 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
             return Ok(());
         }
         let at = match books.binary_search_by_key(&id, |b| b.id) {
-            Ok(at) if made => at,
+            Ok(at) if last == Some(id) => at,
             // Another section of this id came before: the first one is the book.
             Ok(_) => {
                 skip = true;
@@ -253,7 +253,7 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
                         ..Book::default()
                     },
                 );
-                made = true;
+                last = Some(id);
                 at
             }
         };
@@ -1594,17 +1594,18 @@ title = Eins
     }
 
     #[test]
-    fn the_first_section_of_an_id_is_the_book_and_empty_sections_make_none() {
+    fn sections_in_a_row_merge_a_later_one_of_an_id_read_before_is_ignored() {
         let storage = MemoryStorage::new().with(
             BOOKS,
-            b"[book.7]\ntitle = First\n\n[book.3]\n\n[book.7]\ntitle = Second\npages = 9\n\n[book.2]\ntitle = Two\n".to_vec(),
+            b"[book.7]\ntitle = First\n\n[book.3]\n\n[book.7]\npages = 9\n\n[book.2]\ntitle = Two\n\n[book.7]\ntitle = Late\npages = 1\n".to_vec(),
         );
         let books = load_books(&storage).unwrap();
         let seen: Vec<_> = books
             .iter()
             .map(|b| (b.id, b.title.as_str(), b.pages))
             .collect();
-        assert_eq!(seen, [(2, "Two", 0), (7, "First", 0)]);
+        // 7 and the empty 3 and 7 again merge; the last 7 comes after 2: ignored.
+        assert_eq!(seen, [(2, "Two", 0), (7, "First", 9)]);
     }
 }
 

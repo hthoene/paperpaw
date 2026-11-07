@@ -14,6 +14,14 @@ events) is still in place. It is removed in the PR that finishes the port.
 - `DataFolder` (`files.rs`) takes the plugin folder off the paths, so the layer runs on the
   host's root 0 (`native::storage::DataStorage`, PR #358) unchanged. `put_in_place` needs
   `rename`, which root 0 has. It goes when the layer's paths are the short ones.
+- `books.ini` is loaded in id order with fallible allocation (no stable sort, which
+  allocates) and written in pieces of at most 3.5 KiB, never held whole. Sections in a
+  row of one id (also with empty sections between) still merge as in interface 6; a
+  section of an id read before that is ignored, so the first book of an id is the book
+  (interface 6 kept it too, by sorting stably and dropping later copies).
+- Still infallible: `Value::as_str()` of `paperpaw-config` allocates for a quoted value with
+  escapes. Its `quoted` flag is private, so it cannot be redone here cheaply; it wants a
+  fallible variant in `paperpaw-config` (Kernel).
 - Callers that read today's seconds (`read_today`) do not cache a failed read as 0.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
@@ -26,6 +34,6 @@ events) is still in place. It is removed in the PR that finishes the port.
   and emitting `stats.read-today` as a stage for reading-goal.
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).
-- Allocation hygiene of `books.ini` (load/save), `merge`, `extsort`, `koreader` (fallible).
+- Allocation hygiene of `merge`, `extsort`, `koreader` (fallible).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
 - The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.
