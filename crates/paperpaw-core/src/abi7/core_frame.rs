@@ -11,6 +11,7 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 pub(crate) struct CallbackStamp {
     pub(crate) owner: u64,
     pub(crate) epoch: u64,
+    pub(crate) instance: Option<u32>,
 }
 
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
@@ -36,6 +37,23 @@ impl Frame for CoreFrame<'_> {
         self.callback
             .filter(|stamp| stamp.epoch != 0)
             .map(|stamp| stamp.epoch)
+            .ok_or(ERR_STATE)
+    }
+
+    fn calling_instance(&self) -> Result<u32, i32> {
+        let stamp = self
+            .callback
+            .filter(|stamp| stamp.epoch != 0)
+            .ok_or(ERR_STATE)?;
+        let instance = stamp
+            .instance
+            .filter(|instance| *instance != 0)
+            .ok_or(ERR_STATE)?;
+        self.env
+            .stack()
+            .iter()
+            .any(|entry| entry.key.serial() == instance)
+            .then_some(instance)
             .ok_or(ERR_STATE)
     }
 

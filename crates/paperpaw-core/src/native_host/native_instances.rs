@@ -55,6 +55,28 @@ impl Dispatch for NativeLease {
     ) -> Result<i32, i32> {
         self.live()?.draw(token, frame, env, canvas)
     }
+    fn screen_callback(
+        &self,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        self.live()?
+            .screen_callback(instance, token, bytes, env, input)
+    }
+    fn screen_draw(
+        &self,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        token: u32,
+        frame: &super::registrations::DrawFrame<'_>,
+        env: &paperpaw_sdk::Env<'_>,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?
+            .screen_draw(instance, token, frame, env, canvas)
+    }
     fn stage(
         &self,
         token: u32,

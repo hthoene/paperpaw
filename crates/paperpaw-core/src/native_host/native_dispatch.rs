@@ -33,11 +33,17 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         }
     }
 
-    fn frame<'a>(&'a self, env: &'a Env<'a>, epoch: u64) -> CoreFrame<'a> {
+    fn frame<'a>(
+        &'a self,
+        env: &'a Env<'a>,
+        epoch: u64,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+    ) -> CoreFrame<'a> {
         CoreFrame {
             callback: Some(crate::abi7::core_frame::CallbackStamp {
                 owner: self.identity.owner(),
                 epoch,
+                instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             }),
             env,
             meter: &self.host.meter,
@@ -52,6 +58,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         &self,
         token: u32,
         env: &Env<'_>,
+        instance: Option<paperpaw_sdk::ScreenKey>,
         invocation: shell::TokenInvocation<'_>,
     ) -> Result<i32, i32> {
         let epoch = self.identity.callback()?;
@@ -60,8 +67,28 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch()),
+            &self.frame(env, epoch.epoch(), instance),
             invocation,
+        )
+        .map_err(status)
+    }
+    fn render(
+        &self,
+        token: u32,
+        frame: &DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+    ) -> Result<i32, i32> {
+        let epoch = self.identity.callback()?;
+        let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        shell::dispatch_token_draw(
+            batch,
+            token,
+            self.depth.as_depth(),
+            &self.frame(env, epoch.epoch(), instance),
+            frame,
+            canvas,
         )
         .map_err(status)
     }
@@ -69,11 +96,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
-        self.invoke(token, env, shell::TokenInvocation::Event(bytes))
+        self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }
 
     fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
-        self.invoke(token, env, shell::TokenInvocation::Input(bytes))
+        self.invoke(token, env, None, shell::TokenInvocation::Input(bytes))
     }
 
     fn draw(
@@ -83,17 +110,32 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         env: &Env<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
-        let epoch = self.identity.callback()?;
-        let batch = self.instance.batch().map_err(|e| status(e.into()))?;
-        shell::dispatch_token_draw(
-            batch,
-            token,
-            self.depth.as_depth(),
-            &self.frame(env, epoch.epoch()),
-            frame,
-            canvas,
-        )
-        .map_err(status)
+        self.render(token, frame, env, canvas, None)
+    }
+    fn screen_callback(
+        &self,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        let invocation = if input {
+            shell::TokenInvocation::Input(bytes)
+        } else {
+            shell::TokenInvocation::Event(bytes)
+        };
+        self.invoke(token, env, instance, invocation)
+    }
+    fn screen_draw(
+        &self,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        token: u32,
+        frame: &DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<i32, i32> {
+        self.render(token, frame, env, canvas, instance)
     }
 
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
@@ -103,7 +145,7 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch()),
+            &self.frame(env, epoch.epoch(), None),
             bytes,
             out,
         )

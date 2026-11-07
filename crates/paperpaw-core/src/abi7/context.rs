@@ -58,6 +58,10 @@ pub(crate) trait Frame {
     fn callback_epoch(&self) -> Result<u64, i32> {
         Err(ERR_STATE)
     }
+    /// The host-resolved screen instance running this callback.
+    fn calling_instance(&self) -> Result<u32, i32> {
+        Err(ERR_STATE)
+    }
     /// The host view a service family keeps behind its key (`core.document`,
     /// `core.library`, `core.lookup`), downcast by that family's backend; a
     /// frame without one answers the family `ERR_UNSUPPORTED`.

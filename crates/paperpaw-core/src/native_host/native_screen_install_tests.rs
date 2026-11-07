@@ -144,6 +144,12 @@ unsafe extern "C" fn screen_event(
         wire::Record::EventScreenClosed(event) => (80, event.instance, 0, 0),
         _ => return ERR_INVALID,
     };
+    let instance = context
+        .environment
+        .with_frame(|frame| frame.calling_instance());
+    if instance != Ok(Ok(row.1)) {
+        return host_glue::ERR_STATE;
+    }
     EVENTS.with(|events| events.borrow_mut().push(row));
     OK
 }

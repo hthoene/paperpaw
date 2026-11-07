@@ -19,6 +19,33 @@ pub(crate) trait Dispatch {
         env: &Env<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32>;
+    /// Screen wrappers supply their own key, never a plugin-provided value.
+    fn screen_callback(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        let _ = instance;
+        if input {
+            self.input(token, bytes, env)
+        } else {
+            self.event(token, bytes, env)
+        }
+    }
+    fn screen_draw(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        frame: &wire::DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<i32, i32> {
+        let _ = instance;
+        self.draw(token, frame, env, canvas)
+    }
     fn stage(
         &self,
         _token: u32,
@@ -48,6 +75,26 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
     }
+    fn screen_callback(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        (**self).screen_callback(instance, token, bytes, env, input)
+    }
+    fn screen_draw(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        frame: &wire::DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<i32, i32> {
+        (**self).screen_draw(instance, token, frame, env, canvas)
+    }
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
     }
@@ -71,6 +118,26 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
+    }
+    fn screen_callback(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        (**self).screen_callback(instance, token, bytes, env, input)
+    }
+    fn screen_draw(
+        &self,
+        instance: Option<ScreenKey>,
+        token: u32,
+        frame: &wire::DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<i32, i32> {
+        (**self).screen_draw(instance, token, frame, env, canvas)
     }
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
@@ -123,8 +190,10 @@ impl<D: Dispatch> NativeScreen<D> {
             instance: self.key.map(ScreenKey::serial),
         });
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes)
-            .and_then(|len| self.dispatch.event(self.token, &bytes[..len], env));
+        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+            self.dispatch
+                .screen_callback(self.key, self.token, &bytes[..len], env, false)
+        });
         self.status(result)
     }
 
@@ -155,8 +224,10 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn event(&self, record: Record<'_>, env: &Env<'_>) {
         let mut bytes = [0; 384];
-        let result = wire::records_encode(&[record], &mut bytes)
-            .and_then(|len| self.dispatch.event(self.token, &bytes[..len], env));
+        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+            self.dispatch
+                .screen_callback(self.key, self.token, &bytes[..len], env, false)
+        });
         self.status(result);
     }
 
@@ -177,8 +248,10 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn input(&self, record: Record<'_>, env: &Env<'_>) -> Handled {
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes)
-            .and_then(|len| self.dispatch.input(self.token, &bytes[..len], env));
+        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+            self.dispatch
+                .screen_callback(self.key, self.token, &bytes[..len], env, true)
+        });
         match result {
             Ok(0) => Handled::No,
             Ok(1) => Handled::Yes,
@@ -191,6 +264,9 @@ impl<D: Dispatch> NativeScreen<D> {
     }
 
     fn draw_visible(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+        let Some(key) = self.key else {
+            return;
+        };
         let pane = env.content();
         let pane = Rect::new(0, 0, pane.width, pane.height);
         let Some(clip) = pane.intersection(&canvas.clip()) else {
@@ -207,9 +283,13 @@ impl<D: Dispatch> NativeScreen<D> {
             u32::from(pane.height),
             (top, top + i32::from(clip.height)),
         );
-        let result = self
-            .dispatch
-            .draw(self.token, &frame, env, &mut canvas.clipped(pane));
+        let result = self.dispatch.screen_draw(
+            Some(key),
+            self.token,
+            &frame,
+            env,
+            &mut canvas.clipped(pane),
+        );
         self.status(result);
     }
 }
