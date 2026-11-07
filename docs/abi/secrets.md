@@ -21,18 +21,13 @@ first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets),
 - [D] **Values never go to another plugin.** Only the owner reads a value. The settings editor
   (the plugin with `uses.secrets`, 1.1) may list every plugin's secrets (names and labels, never
   values) and change or remove them for the user; it cannot read them, as in interface 6.
-- [D] **Honest about storage.** Secrets are kept apart from settings and logs. Android keeps them
-  in the app's private folder. On the X4 and the emulator they are on the card, today veiled, not
-  encrypted: whoever has the card (also a computer in USB drive mode) can read them (interface 6's
-  wording, kept in the user's help).
-- [Q-owner, decision 138] Senior recommends **encrypting the values on the X4** with a device key
-  kept in the chip's internal flash. Then a card read elsewhere shows no secret, and the cost is
-  that secrets no longer move with the card (a card moved to another device, or a device whose
-  flash is erased, reads as no secrets; the user enters them again). The contract does not change
-  either way: ops, records and statuses are the same; only the file's value encoding, the help text
-  and section 3's "unreadable" rule follow the decision: a value that does not decrypt counts as
-  absent for reads only, and its line is written back unchanged by every `keep` and `remove`
-  (never dropped), so a card moved back to its own device still finds its secrets.
+- [D] **Encrypted on the X4 (owner decision 138, 2026-11-07).** Secrets are kept apart from
+  settings and logs. On the X4 their values are **encrypted at rest** with a device key kept in the
+  chip's internal flash (section 3.1): the card alone, also read by a computer in USB drive mode,
+  shows no secret. They do not move with the card: on another device, or after the device's flash
+  was erased, they read as absent and the user enters them again. Android keeps them in the app's
+  private folder; the desktop emulator keeps interface 6's veiling (not encryption) and its help
+  says so. This is a host rule: ops, records and statuses are the same on every device.
 - Out of SEC: TLS trust and pinning (NET, SOCK), the server key guard (the SDK's `served`, over
   `random`), Wi-Fi joining (DEV: `join` with `remember` keeps the password as the Wi-Fi plugin's
   secret, 4), hashing (plugin code, e.g. lock's salted hash).
@@ -149,6 +144,25 @@ and `remove`, `none` for the others.
   memory only; this draft refuses them so `OK` always means saved.
 - [D] Android keeps the file in the app's private folder; the X4 and desktop on the card.
 
+### 3.1 Encryption at rest on the X4 (decision 138)
+
+- [D] **The device key:** 32 bytes drawn from the chip's generator while it is fully random
+  (`strong`, 2.5), made once on the first start that needs it and kept in the chip's internal
+  flash, never on the card and never given to a plugin. Firmware updates keep it; a full erase of
+  the flash loses it (and with it every secret on the card, which then reads as absent).
+- [D] **Each value** is sealed with AES-256-GCM under the device key, a fresh 12-byte nonce from the
+  generator per write, and the line's owner and name as associated data (a value copied to another
+  line does not open there). The line keeps interface 6's layout; the value field holds a marker,
+  the nonce, the sealed value and the tag in hex. Owner, name, label and flags stay readable, as the
+  settings editor lists them anyway; only values are secret.
+- [D] **A value that does not open** (another device's card, a lost key, a damaged line) counts as
+  **absent**: `get` answers `ERR_NOT_FOUND`, `list` leaves it out, never a crash or a log of the
+  bytes. Its line is written back unchanged by every `keep` and `remove` (never dropped), so the
+  card works again in its own device; a `keep` of the same owner and name replaces it, which is how
+  the user enters it again.
+- [D] **From interface 6:** a veiled value found on the X4 is read once and rewritten sealed at the
+  next save (the first start after the update saves at once); the veiled form is then gone.
+
 ## 4. Settings, Wi-Fi, uninstall
 
 - [D] **Secret settings.** A setting declared secret (`reg_setting` flag, `registry.md`) is the
@@ -208,8 +222,12 @@ and `remove`, `none` for the others.
   `random` over the device source with `strong`; tests for each status. Generator: `secret` on
   service record fields (Kernel, at the records step).
 - **Firmware (with H10):** the device-side secret store (the card file on the X4 and the
-  emulator, the private folder on Android; the device key in internal flash if decision 138
-  says so), the random sources with the X4's `strong` signal (radio on), a check whether the
+  emulator, the private folder on Android), **decision 138 on the X4:** making the device key
+  (32 strong random bytes, once) and keeping it in internal flash across firmware updates, sealing
+  and opening values with AES-256-GCM (mbedTLS, already in the firmware) as section 3.1 says,
+  treating a value that does not open as absent and writing its line back unchanged, rewriting
+  interface 6's veiled values sealed at the first start, and tests for a card from another device,
+  a lost key and a damaged line (absent, never a panic); the random sources with the X4's `strong` signal (radio on), a check whether the
   ESP32-C3's SAR ADC entropy source makes draws fully random with the radio off, and the shells
   advertising `uses.secrets` where the settings editor runs.
 - **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
