@@ -374,7 +374,11 @@ fn room_closures_reserve_restore_keys_and_refuse_when_none_remain() {
             .build()
             .unwrap();
         kernel.start(Instant(0));
-        kernel.open_screen(Instant(5), Id::new_static("b.screen"), Params::new());
+        kernel.open_screen(
+            Instant(5),
+            Id::new_static("b.screen"),
+            Params::new().with("n", "2"),
+        );
         let old = kernel.stack.last().unwrap().serial;
         kernel.next_serial = u32::MAX - available;
         kernel.open_screen(Instant(10), Id::new_static("game.play"), Params::new());
