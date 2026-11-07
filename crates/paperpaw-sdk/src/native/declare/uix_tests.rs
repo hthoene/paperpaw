@@ -74,13 +74,25 @@ fn all_uix_declarations_round_trip_with_private_and_own_metadata() {
     let mut tags = Vec::new();
     for bytes in batches.iter() {
         for row in records_wire::records_decode(bytes).unwrap().iter() {
-            tags.push(row.tag());
-            match row {
-                records_wire::Record::WidgetSpec(r) => assert_eq!((r.flags, r.cells), (3, 0x302)),
-                records_wire::Record::StatusItem(r) => assert_eq!((r.flags, r.priority), (2, 255)),
-                records_wire::Record::StatusLine(r) => assert_eq!(r.flags, 2),
-                _ => {}
-            }
+            tags.push(match row {
+                records_wire::Record::InputSpec(_) => 29,
+                records_wire::Record::HelpHint(_) => 30,
+                records_wire::Record::WidgetSpec(r) => {
+                    assert_eq!((r.flags, r.cells), (3, 0x302));
+                    224
+                }
+                records_wire::Record::WidgetPlace(_) => 225,
+                records_wire::Record::StatusItem(r) => {
+                    assert_eq!((r.flags, r.priority), (2, 255));
+                    226
+                }
+                records_wire::Record::StatusLine(r) => {
+                    assert_eq!(r.flags, 2);
+                    227
+                }
+                records_wire::Record::StatusPlace(_) => 228,
+                _ => panic!("unexpected declaration"),
+            });
         }
     }
     assert_eq!(tags, [29, 30, 224, 225, 226, 227, 228]);
