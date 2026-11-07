@@ -44,16 +44,15 @@
 //! due cards' state and where their lines are, never their texts but the
 //! one shown.
 
-use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
-use paperpaw_sdk::{Env, Storage, StorageError, files};
+use paperpaw_sdk::{Env, Storage, StorageError};
 
-use crate::PLUGIN;
+use crate::files::{part_of, put_in_place};
 use crate::fsrs::{self, Fx, Grade, Memory};
+use crate::lines::{self, copy, push, push_number, push_signed, same_folded};
 
 /// Decks kept at most.
 pub(crate) const MAX_DECKS: usize = 50;
@@ -76,28 +75,48 @@ const NEXT: &str = "next\t";
 /// Bytes written at a time.
 const CHUNK: usize = 2048;
 
-fn dir() -> String {
-    format!("{}/cards", Env::plugin_dir(PLUGIN.as_str()))
-}
+/// The folder of the cards: the plugin's folder under the card (interface
+/// 6's names; the host's root 0 is that folder, see
+/// [`crate::files::DataFolder`]).
+const DIR: &str = ".paperpaw/plugins/vocabulary/cards";
+const DECKS: &str = ".paperpaw/plugins/vocabulary/cards/decks.txt";
+const STATE: &str = ".paperpaw/plugins/vocabulary/cards/state.txt";
+const INDEX: &str = ".paperpaw/plugins/vocabulary/cards/due.txt";
+const INDEX_TEMPORARY: &str = ".paperpaw/plugins/vocabulary/cards/due.tmp";
+const ANSWERS: &str = ".paperpaw/plugins/vocabulary/cards/answers.txt";
+const LOOKUPS: &str = ".paperpaw/plugins/vocabulary/cards/looked-up.txt";
+const ADDING: &str = ".paperpaw/plugins/vocabulary/cards/adding.txt";
 
+/// The file `name` of the cards' folder. For the modules of the plugin
+/// not ported yet; the ported ones use the constants and [`deck_path`].
 pub(crate) fn path(name: &str) -> String {
-    format!("{}/{name}", dir())
+    alloc::format!("{DIR}/{name}")
 }
 
-fn deck_path(deck: u32) -> String {
-    path(&format!("deck-{deck}.txt"))
+/// `deck-<id><suffix>` in the cards' folder.
+fn deck_file(deck: u32, suffix: &str) -> Result<String, StorageError> {
+    let mut out = String::new();
+    push(&mut out, DIR)?;
+    push(&mut out, "/deck-")?;
+    push_number(&mut out, deck)?;
+    push(&mut out, suffix)?;
+    Ok(out)
 }
 
-fn deck_temporary(deck: u32) -> String {
-    path(&format!("deck-{deck}.tmp"))
+fn deck_path(deck: u32) -> Result<String, StorageError> {
+    deck_file(deck, ".txt")
+}
+
+fn deck_temporary(deck: u32) -> Result<String, StorageError> {
+    deck_file(deck, ".tmp")
 }
 
 /// Writes `bytes` as the whole of `file`: beside it first, then in its
 /// place, so a cut never leaves half of it.
 fn write_whole(storage: &dyn Storage, file: &str, bytes: &[u8]) -> Result<(), StorageError> {
-    let part = files::part_path(file);
+    let part = part_of(file)?;
     storage.write(&part, bytes)?;
-    files::put_in_place(storage, &part, file)
+    put_in_place(storage, &part, file)
 }
 
 /// After a cut while `file` was written whole: the new one where the old
@@ -138,10 +157,12 @@ impl From<StorageError> for Problem {
     }
 }
 
-/// `text` as a field: a tab, a line break, a backslash written with a
-/// backslash.
-fn escape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
+/// Appends `text` as a field: a tab, a line break, a backslash written
+/// with a backslash.
+fn push_escaped(out: &mut String, text: &str) -> Result<(), StorageError> {
+    // No character takes more than twice its bytes.
+    out.try_reserve(text.len().saturating_mul(2))
+        .map_err(|_| StorageError::TooLarge)?;
     for c in text.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
@@ -151,12 +172,14 @@ fn escape(text: &str) -> String {
             c => out.push(c),
         }
     }
-    out
+    Ok(())
 }
 
-/// A field as it was written by [`escape`].
-fn unescape(field: &str) -> String {
-    let mut out = String::with_capacity(field.len());
+/// A field as it was written by [`push_escaped`].
+fn unescape(field: &str) -> Result<String, StorageError> {
+    let mut out = String::new();
+    out.try_reserve_exact(field.len())
+        .map_err(|_| StorageError::TooLarge)?;
     let mut chars = field.chars();
     while let Some(c) = chars.next() {
         if c != '\\' {
@@ -170,12 +193,23 @@ fn unescape(field: &str) -> String {
             None => {}
         }
     }
-    out
+    Ok(out)
 }
 
 /// `text` as kept: trimmed, at most `most` characters.
-pub(crate) fn clean(text: &str, most: usize) -> String {
-    text.trim().chars().take(most).collect()
+pub(crate) fn clean(text: &str, most: usize) -> Result<String, StorageError> {
+    let text = text.trim();
+    let text = match text.char_indices().nth(most) {
+        Some((end, _)) => text.get(..end).unwrap_or(text),
+        None => text,
+    };
+    copy(text)
+}
+
+/// [`clean`] for the modules of the plugin not ported yet: an empty text
+/// where the heap refuses (a name or a front is then missing, not wrong).
+pub(crate) fn clean_or_empty(text: &str, most: usize) -> String {
+    clean(text, most).unwrap_or_default()
 }
 
 /// What FSRS knows of a card, and when it is due.
@@ -227,11 +261,21 @@ impl State {
         }
     }
 
-    fn fields(&self) -> String {
-        format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            self.id, self.due, self.last, self.stability, self.difficulty, self.reps, self.lapses
-        )
+    /// Appends the fields, separated by tabs.
+    fn push_fields(&self, out: &mut String) -> Result<(), StorageError> {
+        push_number(out, self.id)?;
+        push(out, "\t")?;
+        push_signed(out, self.due)?;
+        push(out, "\t")?;
+        push_signed(out, self.last)?;
+        push(out, "\t")?;
+        push_number(out, self.stability)?;
+        push(out, "\t")?;
+        push_number(out, self.difficulty)?;
+        push(out, "\t")?;
+        push_number(out, self.reps)?;
+        push(out, "\t")?;
+        push_number(out, self.lapses)
     }
 
     fn parse<'a>(fields: &mut impl Iterator<Item = &'a str>) -> Option<State> {
@@ -258,14 +302,28 @@ pub(crate) struct Card {
 }
 
 impl Card {
+    /// Appends the card's line, with its line break.
+    fn push_line(&self, out: &mut String) -> Result<(), StorageError> {
+        self.state.push_fields(out)?;
+        for text in [&self.front, &self.back, &self.example] {
+            push(out, "\t")?;
+            push_escaped(out, text)?;
+        }
+        push(out, "\n")
+    }
+
+    /// The card's line, for the tests.
+    #[cfg(test)]
     fn line(&self) -> String {
-        format!(
-            "{}\t{}\t{}\t{}\n",
-            self.state.fields(),
-            escape(&self.front),
-            escape(&self.back),
-            escape(&self.example)
-        )
+        let mut out = String::new();
+        self.push_line(&mut out).unwrap();
+        out
+    }
+
+    /// [`Card::parse`] for the tests: `None` for no card.
+    #[cfg(test)]
+    fn parsed(line: &str) -> Option<Card> {
+        Card::parse(line).unwrap()
     }
 
     /// A number that changes with the card's texts (FNV-1a over them):
@@ -281,15 +339,22 @@ impl Card {
         hash
     }
 
-    fn parse(line: &str) -> Option<Card> {
+    /// The card `line` holds, `None` where it holds none; an error where
+    /// the heap refuses its texts.
+    fn parse(line: &str) -> Result<Option<Card>, StorageError> {
         let mut fields = line.split('\t');
-        let state = State::parse(&mut fields)?;
-        Some(Card {
+        let Some(state) = State::parse(&mut fields) else {
+            return Ok(None);
+        };
+        let Some(front) = fields.next() else {
+            return Ok(None);
+        };
+        Ok(Some(Card {
             state,
-            front: unescape(fields.next()?),
-            back: unescape(fields.next().unwrap_or_default()),
-            example: unescape(fields.next().unwrap_or_default()),
-        })
+            front: unescape(front)?,
+            back: unescape(fields.next().unwrap_or_default())?,
+            example: unescape(fields.next().unwrap_or_default())?,
+        }))
     }
 }
 
@@ -303,13 +368,16 @@ pub(crate) struct Texts {
 
 impl Texts {
     /// Trimmed and cut to what is kept; `None` without a front.
-    pub(crate) fn cleaned(&self) -> Option<Texts> {
-        let texts = Texts {
-            front: clean(&self.front, MAX_TEXT),
-            back: clean(&self.back, MAX_TEXT),
-            example: clean(&self.example, MAX_TEXT),
-        };
-        (!texts.front.is_empty()).then_some(texts)
+    pub(crate) fn cleaned(&self) -> Result<Option<Texts>, StorageError> {
+        let front = clean(&self.front, MAX_TEXT)?;
+        if front.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Texts {
+            front,
+            back: clean(&self.back, MAX_TEXT)?,
+            example: clean(&self.example, MAX_TEXT)?,
+        }))
     }
 }
 
@@ -328,63 +396,20 @@ fn each_line_from(
     storage: &dyn Storage,
     path: &str,
     from: u64,
-    mut visit: impl FnMut(u64, &str) -> ControlFlow<()>,
+    visit: impl FnMut(u64, &str) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
-    let mut chunk = [0u8; 512];
-    let mut line: Vec<u8> = Vec::new();
-    let (mut at, mut start) = (from, from);
-    loop {
-        let n = match storage.read_at(path, at, &mut chunk) {
-            Ok(n) => n,
-            Err(StorageError::NotFound) if at == from => return Ok(()),
-            Err(e) => return Err(e),
-        };
-        if n == 0 {
-            break;
-        }
-        for (i, &byte) in chunk[..n].iter().enumerate() {
-            if byte == b'\n' {
-                if line.last() == Some(&b'\r') {
-                    line.pop();
-                }
-                if visit(start, &String::from_utf8_lossy(&line)).is_break() {
-                    return Ok(());
-                }
-                line.clear();
-                start = at + i as u64 + 1;
-            } else if line.len() < MAX_LINE {
-                line.push(byte);
-            }
-        }
-        at += n as u64;
-    }
-    if !line.is_empty() {
-        let _ = visit(start, &String::from_utf8_lossy(&line));
-    }
-    Ok(())
+    lines::each_line_limited(storage, path, from, MAX_LINE, visit)
 }
 
 /// The line of `path` that begins at `offset`.
 fn line_at(storage: &dyn Storage, path: &str, offset: u64) -> Option<String> {
-    let mut out: Vec<u8> = Vec::new();
-    let mut chunk = [0u8; 512];
-    let mut at = offset;
-    while out.len() < MAX_LINE {
-        let n = storage.read_at(path, at, &mut chunk).ok()?;
-        if n == 0 {
-            break;
-        }
-        match chunk[..n].iter().position(|b| *b == b'\n') {
-            Some(end) => {
-                out.extend_from_slice(&chunk[..end]);
-                break;
-            }
-            None => out.extend_from_slice(&chunk[..n]),
-        }
-        at += n as u64;
-    }
-    out.truncate(MAX_LINE);
-    Some(String::from_utf8_lossy(&out).into_owned())
+    let mut found = None;
+    each_line_from(storage, path, offset, |_, line| {
+        found = copy(line).ok();
+        ControlFlow::Break(())
+    })
+    .ok()?;
+    found
 }
 
 // ---- Decks -------------------------------------------------------------
@@ -406,39 +431,64 @@ pub(crate) fn decks(storage: &dyn Storage) -> Result<Vec<Deck>, StorageError> {
 fn decks_and_next(storage: &dyn Storage) -> Result<(Vec<Deck>, u32), StorageError> {
     let mut decks: Vec<Deck> = Vec::new();
     let mut next = 1u32;
-    each_line(storage, &path("decks.txt"), |_, line| {
+    let mut failed = Ok(());
+    each_line(storage, DECKS, |_, line| {
         if let Some(n) = counter(line) {
             next = next.max(n);
             return ControlFlow::Continue(());
         }
         let (id, name) = line.split_once('\t').unwrap_or((line, ""));
         if let Ok(id) = id.parse() {
-            decks.push(Deck {
-                id,
-                name: unescape(name),
-            });
+            let made = decks
+                .try_reserve(1)
+                .map_err(|_| StorageError::TooLarge)
+                .and_then(|()| unescape(name));
+            match made {
+                Ok(name) => decks.push(Deck { id, name }),
+                Err(e) => {
+                    failed = Err(e);
+                    return ControlFlow::Break(());
+                }
+            }
         }
         if decks.len() >= MAX_DECKS {
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
     })?;
+    failed?;
     let after_highest = decks.iter().map(|d| d.id.saturating_add(1)).max();
     Ok((decks, next.max(after_highest.unwrap_or(1))))
 }
 
 /// Writes the list of decks, `next` the id the next one gets.
 fn write_decks(storage: &dyn Storage, decks: &[Deck], next: u32) -> Result<(), StorageError> {
-    let mut text = format!("{DECKS_HEADER}\n{NEXT}{next}\n");
+    let mut text = String::new();
+    push(&mut text, DECKS_HEADER)?;
+    push(&mut text, "\n")?;
+    push(&mut text, NEXT)?;
+    push_number(&mut text, next)?;
+    push(&mut text, "\n")?;
     for deck in decks {
-        text.push_str(&format!("{}\t{}\n", deck.id, escape(&deck.name)));
+        push_number(&mut text, deck.id)?;
+        push(&mut text, "\t")?;
+        push_escaped(&mut text, &deck.name)?;
+        push(&mut text, "\n")?;
     }
-    write_whole(storage, &path("decks.txt"), text.as_bytes())
+    write_whole(storage, DECKS, text.as_bytes())
+}
+
+/// The first line of a deck's file.
+fn cards_header() -> Result<String, StorageError> {
+    let mut out = String::new();
+    push(&mut out, CARDS_HEADER)?;
+    push(&mut out, "\n")?;
+    Ok(out)
 }
 
 /// A new deck named `name`: its id.
 pub(crate) fn add_deck(storage: &dyn Storage, name: &str) -> Result<u32, Problem> {
-    let name = clean(name, MAX_NAME);
+    let name = clean(name, MAX_NAME)?;
     if name.is_empty() {
         return Err(Problem::Empty);
     }
@@ -448,14 +498,11 @@ pub(crate) fn add_deck(storage: &dyn Storage, name: &str) -> Result<u32, Problem
     }
     // Past a deck's file left by a cut (its list not written): never over
     // its cards.
-    while storage.exists(&deck_path(id)) {
+    while storage.exists(&deck_path(id)?) {
         id += 1;
     }
-    write_whole(
-        storage,
-        &deck_path(id),
-        format!("{CARDS_HEADER}\n").as_bytes(),
-    )?;
+    write_whole(storage, &deck_path(id)?, cards_header()?.as_bytes())?;
+    decks.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
     decks.push(Deck { id, name });
     write_decks(storage, &decks, id.saturating_add(1))?;
     Ok(id)
@@ -463,10 +510,9 @@ pub(crate) fn add_deck(storage: &dyn Storage, name: &str) -> Result<u32, Problem
 
 /// The deck named `name` (in any case), made if there is none.
 pub(crate) fn deck_named(storage: &dyn Storage, name: &str) -> Result<u32, Problem> {
-    let lower = name.to_lowercase();
     match decks(storage)?
         .into_iter()
-        .find(|d| d.name.to_lowercase() == lower)
+        .find(|d| same_folded(&d.name, name))
     {
         Some(deck) => Ok(deck.id),
         None => add_deck(storage, name),
@@ -474,7 +520,7 @@ pub(crate) fn deck_named(storage: &dyn Storage, name: &str) -> Result<u32, Probl
 }
 
 pub(crate) fn rename_deck(storage: &dyn Storage, deck: u32, name: &str) -> Result<(), Problem> {
-    let name = clean(name, MAX_NAME);
+    let name = clean(name, MAX_NAME)?;
     if name.is_empty() {
         return Err(Problem::Empty);
     }
@@ -490,6 +536,8 @@ pub(crate) fn rename_deck(storage: &dyn Storage, deck: u32, name: &str) -> Resul
 
 /// Deletes a deck and its cards.
 pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Problem> {
+    // Every allocation before anything is changed.
+    let file = deck_path(deck)?;
     fold(storage)?;
     // The counter is read with the deck still there: its id is past it.
     let (mut decks, next) = decks_and_next(storage)?;
@@ -499,8 +547,10 @@ pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Proble
         return Err(Problem::Missing);
     }
     write_decks(storage, &decks, next)?;
-    storage.remove(&deck_path(deck))?;
-    set_index(storage, deck, None)?;
+    // The deck is out of the list: what follows is not to be left half done.
+    let removed = storage.remove(&file);
+    keep_index(storage, set_index(storage, deck, None))?;
+    removed?;
     Ok(())
 }
 
@@ -523,15 +573,21 @@ pub(crate) fn each_card_from(
     from: u64,
     mut card: impl FnMut(u64, Card) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
+    let mut failed = Ok(());
     each_line_from(
         storage,
-        &deck_path(deck),
+        &deck_path(deck)?,
         from,
         |at, line| match Card::parse(line) {
-            Some(c) => card(at, c),
-            None => ControlFlow::Continue(()),
+            Ok(Some(c)) => card(at, c),
+            Ok(None) => ControlFlow::Continue(()),
+            Err(e) => {
+                failed = Err(e);
+                ControlFlow::Break(())
+            }
         },
-    )
+    )?;
+    failed
 }
 
 /// Calls `card` with each card of `deck` from number `from` on, one at a
@@ -543,12 +599,22 @@ pub(crate) fn visit_page(
     mut card: impl FnMut(&Card) -> bool,
 ) -> usize {
     let (mut n, mut wanted) = (0, true);
-    let _ = each_card(storage, deck, |_, c| {
-        if wanted && n >= from {
-            wanted = card(&c);
-        }
-        n += 1;
-        ControlFlow::Continue(())
+    // Only the cards asked for are made: the others are counted from
+    // their lines (a card is a line that parses).
+    let _ = deck_path(deck).and_then(|file| {
+        each_line(storage, &file, |_, line| {
+            if wanted && n >= from {
+                match Card::parse(line) {
+                    Ok(Some(c)) => wanted = card(&c),
+                    Ok(None) => return ControlFlow::Continue(()),
+                    Err(_) => wanted = false,
+                }
+            } else if !looks_like_card(line) {
+                return ControlFlow::Continue(());
+            }
+            n += 1;
+            ControlFlow::Continue(())
+        })
     });
     n
 }
@@ -570,9 +636,18 @@ pub(crate) fn page(
     (cards, total)
 }
 
+/// Whether `line` is a card's (what [`Card::parse`] reads), told without
+/// making one.
+fn looks_like_card(line: &str) -> bool {
+    let mut fields = line.split('\t');
+    State::parse(&mut fields).is_some() && fields.next().is_some()
+}
+
 /// The card whose line begins at `offset` in `deck` (as [`due`] says).
 pub(crate) fn card_at(storage: &dyn Storage, deck: u32, offset: u64) -> Option<Card> {
-    Card::parse(&line_at(storage, &deck_path(deck), offset)?)
+    Card::parse(&line_at(storage, &deck_path(deck).ok()?, offset)?)
+        .ok()
+        .flatten()
 }
 
 /// Adds `texts` to `deck` as new cards, as many as it has room for; how
@@ -598,13 +673,15 @@ pub(crate) fn add_from(storage: &dyn Storage, deck: u32, file: &str) -> Result<u
     let mut adder = Adder::new(storage, deck)?;
     let mut failed = Ok(());
     each_line(storage, file, |_, line| {
-        let mut fields = line.split('\t').map(unescape);
-        let texts = Texts {
-            front: fields.next().unwrap_or_default(),
-            back: fields.next().unwrap_or_default(),
-            example: fields.next().unwrap_or_default(),
-        };
-        match adder.push(texts) {
+        let mut fields = line.split('\t');
+        let made = (|| {
+            Ok::<_, StorageError>(Texts {
+                front: unescape(fields.next().unwrap_or_default())?,
+                back: unescape(fields.next().unwrap_or_default())?,
+                example: unescape(fields.next().unwrap_or_default())?,
+            })
+        })();
+        match made.map_err(Problem::from).and_then(|t| adder.push(t)) {
             Ok(true) => ControlFlow::Continue(()),
             Ok(false) => ControlFlow::Break(()),
             Err(e) => {
@@ -644,28 +721,38 @@ impl<'a> Adder<'a> {
             return Err(Problem::Missing);
         }
         let (mut count, mut next) = (0usize, 1u32);
-        each_line(storage, &deck_path(deck), |_, line| {
-            if let Some(card) = Card::parse(line) {
-                count += 1;
-                next = next.max(card.state.id.saturating_add(1));
-                seen(&card);
-            } else if let Some(n) = counter(line) {
-                next = next.max(n);
+        let file = deck_path(deck)?;
+        let mut failed = Ok(());
+        each_line(storage, &file, |_, line| {
+            match Card::parse(line) {
+                Ok(Some(card)) => {
+                    count += 1;
+                    next = next.max(card.state.id.saturating_add(1));
+                    seen(&card);
+                }
+                Ok(None) => {
+                    if let Some(n) = counter(line) {
+                        next = next.max(n);
+                    }
+                }
+                Err(e) => {
+                    failed = Err(e);
+                    return ControlFlow::Break(());
+                }
             }
             ControlFlow::Continue(())
         })?;
+        failed?;
         // A last line cut off is ended first, so no card joins it.
-        let file = deck_path(deck);
         let size = storage.size(&file).unwrap_or(0);
         let mut last = *b"\n";
         if size > 0 {
             let _ = storage.read_at(&file, size - 1, &mut last);
         }
-        let out = if last[0] == b'\n' {
-            String::new()
-        } else {
-            String::from("\n")
-        };
+        let mut out = String::new();
+        if last[0] != b'\n' {
+            push(&mut out, "\n")?;
+        }
         Ok(Self {
             storage,
             deck,
@@ -682,12 +769,14 @@ impl<'a> Adder<'a> {
         if self.out.is_empty() {
             return Ok(());
         }
-        if self.added > 0 && !self.storage.exists(&adding()) {
-            self.storage
-                .write(&adding(), format!("{}\n", self.deck).as_bytes())?;
+        if self.added > 0 && !self.storage.exists(ADDING) {
+            let mut which = String::new();
+            push_number(&mut which, self.deck)?;
+            push(&mut which, "\n")?;
+            self.storage.write(ADDING, which.as_bytes())?;
         }
         self.storage
-            .append(&deck_path(self.deck), self.out.as_bytes())?;
+            .append(&deck_path(self.deck)?, self.out.as_bytes())?;
         self.out.clear();
         Ok(())
     }
@@ -698,7 +787,7 @@ impl<'a> Adder<'a> {
         if self.count + self.added >= MAX_CARDS {
             return Ok(false);
         }
-        let Some(texts) = texts.cleaned() else {
+        let Some(texts) = texts.cleaned()? else {
             return Ok(true);
         };
         let card = Card {
@@ -710,9 +799,9 @@ impl<'a> Adder<'a> {
             back: texts.back,
             example: texts.example,
         };
+        card.push_line(&mut self.out)?;
         self.next += 1;
         self.added += 1;
-        self.out.push_str(&card.line());
         if self.out.len() >= CHUNK {
             self.flush()?;
         }
@@ -722,8 +811,11 @@ impl<'a> Adder<'a> {
     fn finish(mut self) -> Result<usize, Problem> {
         if self.added > 0 {
             self.flush()?;
-            add_to_index(self.storage, self.deck, self.added as u32)?;
-            self.storage.remove(&adding())?;
+            keep_index(
+                self.storage,
+                add_to_index(self.storage, self.deck, self.added as u32),
+            )?;
+            self.storage.remove(ADDING)?;
         } else if self.count >= MAX_CARDS {
             return Err(Problem::Full);
         }
@@ -752,11 +844,6 @@ pub(crate) fn add_each(
     adder.finish()
 }
 
-/// Which deck cards are being added to (see [`Adder::flush`]).
-fn adding() -> String {
-    path("adding.txt")
-}
-
 /// Changes the texts of card `id` of `deck`; refused where `seen` is
 /// given and the card's [`Card::version`] is no longer it.
 pub(crate) fn edit(
@@ -766,21 +853,29 @@ pub(crate) fn edit(
     seen: Option<u32>,
     texts: &Texts,
 ) -> Result<(), Problem> {
-    let texts = texts.cleaned().ok_or(Problem::Empty)?;
+    let texts = texts.cleaned()?.ok_or(Problem::Empty)?;
     fold(storage)?;
     let (mut found, mut changed) = (false, false);
+    let mut refused = Ok(());
     rewrite(storage, deck, |card| {
         if card.state.id == id {
             found = true;
             changed = seen.is_some_and(|v| v != card.version());
             if !changed {
-                card.front.clone_from(&texts.front);
-                card.back.clone_from(&texts.back);
-                card.example.clone_from(&texts.example);
+                // Where the heap refuses, the card is left as it was.
+                match (copy(&texts.front), copy(&texts.back), copy(&texts.example)) {
+                    (Ok(front), Ok(back), Ok(example)) => {
+                        card.front = front;
+                        card.back = back;
+                        card.example = example;
+                    }
+                    (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => refused = Err(e),
+                }
             }
         }
         true
     })?;
+    refused?;
     match (found, changed) {
         (false, _) => Err(Problem::Missing),
         (true, true) => Err(Problem::Changed),
@@ -832,11 +927,11 @@ pub(crate) fn rewrite_with(
     mut change: impl FnMut(&mut Card) -> bool,
     adds: &mut dyn FnMut() -> Option<Texts>,
 ) -> Result<usize, Problem> {
-    let (file, temporary) = (deck_path(deck), deck_temporary(deck));
+    let (file, temporary) = (deck_path(deck)?, deck_temporary(deck)?);
     if !storage.exists(&file) {
         return Err(Problem::Missing);
     }
-    storage.write(&temporary, format!("{CARDS_HEADER}\n").as_bytes())?;
+    storage.write(&temporary, cards_header()?.as_bytes())?;
     let mut index = Index {
         deck,
         ..Index::default()
@@ -844,44 +939,50 @@ pub(crate) fn rewrite_with(
     let mut out = String::new();
     let mut written = Ok(());
     let (mut next, mut count, mut added) = (1u32, 0usize, 0usize);
-    each_line(storage, &file, |_, line| {
-        // The counter goes after the cards, the highest found.
-        if let Some(n) = counter(line) {
-            next = next.max(n);
-            return ControlFlow::Continue(());
-        }
-        match Card::parse(line) {
-            Some(mut card) => {
-                next = next.max(card.state.id.saturating_add(1));
-                if !change(&mut card) {
-                    return ControlFlow::Continue(());
+    let mut work = || -> Result<(), StorageError> {
+        each_line(storage, &file, |_, line| {
+            let mut step = || -> Result<(), StorageError> {
+                // The counter goes after the cards, the highest found.
+                if let Some(n) = counter(line) {
+                    next = next.max(n);
+                    return Ok(());
                 }
-                index.count(&card.state);
-                count += 1;
-                out.push_str(&card.line());
+                match Card::parse(line)? {
+                    Some(mut card) => {
+                        next = next.max(card.state.id.saturating_add(1));
+                        if !change(&mut card) {
+                            return Ok(());
+                        }
+                        index.count(&card.state)?;
+                        count += 1;
+                        card.push_line(&mut out)?;
+                    }
+                    // The version line is written above; empty lines go; what is
+                    // no card (written by a later version, damaged) stays.
+                    None if line == CARDS_HEADER || line.trim().is_empty() => {}
+                    None => {
+                        push(&mut out, line)?;
+                        push(&mut out, "\n")?;
+                    }
+                }
+                if out.len() >= CHUNK {
+                    storage.append(&temporary, out.as_bytes())?;
+                    out.clear();
+                }
+                Ok(())
+            };
+            match step() {
+                Ok(()) => ControlFlow::Continue(()),
+                Err(e) => {
+                    written = Err(e);
+                    ControlFlow::Break(())
+                }
             }
-            // The version line is written above; empty lines go; what is
-            // no card (written by a later version, damaged) stays.
-            None if line == CARDS_HEADER || line.trim().is_empty() => {}
-            None => {
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-        if out.len() >= CHUNK {
-            written = storage.append(&temporary, out.as_bytes());
-            out.clear();
-            if written.is_err() {
-                return ControlFlow::Break(());
-            }
-        }
-        ControlFlow::Continue(())
-    })
-    .and(written)
-    .and_then(|()| {
+        })?;
+        written?;
         while count < MAX_CARDS {
             let Some(texts) = adds() else { break };
-            let Some(texts) = texts.cleaned() else {
+            let Some(texts) = texts.cleaned()? else {
                 continue;
             };
             let card = Card {
@@ -896,21 +997,23 @@ pub(crate) fn rewrite_with(
             next = next.saturating_add(1);
             count += 1;
             added += 1;
-            index.count(&card.state);
-            out.push_str(&card.line());
+            index.count(&card.state)?;
+            card.push_line(&mut out)?;
             if out.len() >= CHUNK {
                 storage.append(&temporary, out.as_bytes())?;
                 out.clear();
             }
         }
-        out.push_str(&format!("{NEXT}{next}\n"));
+        push(&mut out, NEXT)?;
+        push_number(&mut out, next)?;
+        push(&mut out, "\n")?;
         storage.append(&temporary, out.as_bytes())
-    })
-    .inspect_err(|_| {
+    };
+    work().inspect_err(|_| {
         let _ = storage.remove(&temporary);
     })?;
-    files::put_in_place(storage, &temporary, &file)?;
-    set_index(storage, deck, Some(index))?;
+    put_in_place(storage, &temporary, &file)?;
+    keep_index(storage, set_index(storage, deck, Some(index)))?;
     Ok(added)
 }
 
@@ -918,13 +1021,16 @@ pub(crate) fn rewrite_with(
 /// the old one is gone already, else the unfinished one goes; and the
 /// answers given are folded in. Called at start.
 pub(crate) fn recover(storage: &dyn Storage) {
-    for name in ["decks.txt", "state.txt", "due.txt"] {
-        let file = path(name);
-        recover_whole(storage, &file, &files::part_path(&file));
+    for file in [DECKS, STATE, INDEX] {
+        if let Ok(part) = part_of(file) {
+            recover_whole(storage, file, &part);
+        }
     }
-    recover_whole(storage, &index_file(), &path("due.tmp"));
+    recover_whole(storage, INDEX, INDEX_TEMPORARY);
     for deck in decks(storage).unwrap_or_default() {
-        let (file, temporary) = (deck_path(deck.id), deck_temporary(deck.id));
+        let (Ok(file), Ok(temporary)) = (deck_path(deck.id), deck_temporary(deck.id)) else {
+            continue;
+        };
         if !storage.exists(&temporary) {
             continue;
         }
@@ -935,508 +1041,32 @@ pub(crate) fn recover(storage: &dyn Storage) {
         }
     }
     // Cards added while the power went: counted into the index anew.
-    let cut_off = paperpaw_sdk::read_file(storage, &adding(), 32)
-        .ok()
-        .and_then(|d| core::str::from_utf8(&d).ok()?.trim().parse::<u32>().ok());
+    let mut which = [0u8; 32];
+    let cut_off = storage.read_at(ADDING, 0, &mut which).ok().and_then(|n| {
+        core::str::from_utf8(which.get(..n)?)
+            .ok()?
+            .trim()
+            .parse::<u32>()
+            .ok()
+    });
     if let Some(deck) = cut_off {
         let _ = rewrite(storage, deck, |_| true);
     }
-    let _ = storage.remove(&adding());
+    let _ = storage.remove(ADDING);
     let _ = fold(storage);
+    let _ = rebuild_index(storage);
 }
 
-// ---- Words looked up ---------------------------------------------------
-
-fn lookups() -> String {
-    path("looked-up.txt")
-}
-
-/// The longest the list of words waiting to become cards grows.
-const MAX_LOOKUPS: u64 = 64 * 1024;
-/// Words taken from that list into the deck at a time.
-const LOOKUPS_AT_ONCE: usize = 64;
-
-/// Keeps `word` looked up in `sentence`, to become a card when the flash
-/// cards open next: a line appended, nothing read.
-pub(crate) fn queue_lookup(
-    storage: &dyn Storage,
-    word: &str,
-    sentence: &str,
-) -> Result<(), StorageError> {
-    if storage.size(&lookups()).unwrap_or(0) >= MAX_LOOKUPS {
-        return Ok(());
-    }
-    let word = clean(word, MAX_TEXT);
-    if word.is_empty() {
-        return Ok(());
-    }
-    let line = format!(
-        "{}\t{}\n",
-        escape(&word),
-        escape(&clean(sentence, MAX_TEXT))
-    );
-    storage.append(&lookups(), line.as_bytes())
-}
-
-/// How many words wait to become cards (some may be there already).
-fn lookups_waiting(storage: &dyn Storage) -> usize {
-    let mut n = 0;
-    let _ = each_line(storage, &lookups(), |_, line| {
-        n += usize::from(!line.is_empty());
-        ControlFlow::Continue(())
-    });
-    n
-}
-
-/// The words looked up as cards of the deck `deck_name` (made where there
-/// is none), each front once, its sentence the example; a part at a time,
-/// one pass over the deck each. How many became cards.
-pub(crate) fn take_lookups(storage: &dyn Storage, deck_name: &str) -> Result<usize, Problem> {
-    let mut added = 0;
-    while storage.exists(&lookups()) {
-        // A part of the list, each word once.
-        let mut part: Vec<Texts> = Vec::new();
-        let mut rest = String::new();
-        each_line(storage, &lookups(), |_, line| {
-            if part.len() >= LOOKUPS_AT_ONCE {
-                rest.push_str(line);
-                rest.push('\n');
-                return ControlFlow::Continue(());
-            }
-            let (word, sentence) = line.split_once('\t').unwrap_or((line, ""));
-            let texts = Texts {
-                front: unescape(word),
-                back: String::new(),
-                example: unescape(sentence),
-            };
-            let lower = texts.front.to_lowercase();
-            if !texts.front.is_empty() && !part.iter().any(|t| t.front.to_lowercase() == lower) {
-                part.push(texts);
-            }
-            ControlFlow::Continue(())
-        })?;
-        let deck = deck_named(storage, deck_name)?;
-        // Those the deck has already are left out, seen in the pass that
-        // counts its cards.
-        let mut there = alloc::vec![false; part.len()];
-        let mut adder = Adder::seeing(storage, deck, |card| {
-            let lower = card.front.to_lowercase();
-            if let Some(at) = part.iter().position(|t| t.front.to_lowercase() == lower) {
-                there[at] = true;
-            }
-        })?;
-        for (texts, there) in part.into_iter().zip(there) {
-            if !there && !adder.push(texts)? {
-                break;
-            }
-        }
-        added += adder.finish()?;
-        if rest.is_empty() {
-            storage.remove(&lookups())?;
-        } else {
-            write_whole(storage, &lookups(), rest.as_bytes())?;
-        }
-    }
-    Ok(added)
-}
-
-// ---- Answers -----------------------------------------------------------
-
-fn answers() -> String {
-    path("answers.txt")
-}
-
-/// Keeps the answer that made a card of `deck` `after`; it was due at
-/// `before` (0 if new).
-pub(crate) fn record(
-    storage: &dyn Storage,
-    deck: u32,
-    before: i64,
-    after: &State,
-) -> Result<(), StorageError> {
-    let line = format!("{deck}\t{}\t{before}\n", after.fields());
-    storage.append(&answers(), line.as_bytes())?;
-    remember_clock(storage, after.last);
-    Ok(())
-}
-
-/// Each card's last state, and when it was due before, by deck and id.
-type Answers = BTreeMap<(u32, u32), (State, i64)>;
-
-/// The answers given since the decks were written: each card's last
-/// state, and when it was due before the first of them, by deck and id.
-/// An error where they could not be read to their end.
-fn answered(storage: &dyn Storage) -> Result<Answers, StorageError> {
-    let mut found = Answers::new();
-    each_line(storage, &answers(), |_, line| {
-        let mut fields = line.split('\t');
-        let parsed = (|| {
-            let deck: u32 = fields.next()?.parse().ok()?;
-            let state = State::parse(&mut fields)?;
-            let before: i64 = fields.next()?.parse().ok()?;
-            Some((deck, state, before))
-        })();
-        if let Some((deck, state, before)) = parsed {
-            found
-                .entry((deck, state.id))
-                .and_modify(|(last, _)| *last = state)
-                .or_insert((state, before));
-        }
-        ControlFlow::Continue(())
-    })?;
-    Ok(found)
-}
-
-/// Writes the answers given into their decks. Answers that cannot be
-/// read are kept for the next time.
-pub(crate) fn fold(storage: &dyn Storage) -> Result<(), StorageError> {
-    if !storage.exists(&answers()) {
-        return Ok(());
-    }
-    let answered = answered(storage)?;
-    let mut decks: Vec<u32> = answered.keys().map(|(deck, _)| *deck).collect();
-    decks.dedup();
-    for deck in decks {
-        let result = rewrite(storage, deck, |card| {
-            if let Some((state, _)) = answered.get(&(deck, card.state.id)) {
-                card.state = *state;
-            }
-            true
-        });
-        match result {
-            Ok(()) | Err(Problem::Missing) => {}
-            Err(Problem::Storage(e)) => return Err(e),
-            Err(_) => {}
-        }
-    }
-    storage.remove(&answers())
-}
-
-// ---- What is due -------------------------------------------------------
-
-/// A card due, as a review holds it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Due {
-    pub deck: u32,
-    /// Where its line begins in the deck.
-    pub offset: u64,
-    pub state: State,
-}
-
-/// The cards to review by `until` (of the deck `only`, or of all): at
-/// most `most` due ones, those due longest first, then up to `new` new
-/// ones, deck by deck. The answers given are folded in first.
-pub(crate) fn due(
-    storage: &dyn Storage,
-    until: i64,
-    new: usize,
-    most: usize,
-    only: Option<u32>,
-) -> Vec<Due> {
-    let _ = fold(storage);
-    let (mut reviews, mut fresh) = (Vec::new(), Vec::new());
-    let decks = decks(storage).unwrap_or_default();
-    for deck in decks.iter().filter(|d| only.is_none_or(|o| o == d.id)) {
-        let _ = each_card(storage, deck.id, |offset, card| {
-            let state = card.state;
-            let due = Due {
-                deck: deck.id,
-                offset,
-                state,
-            };
-            if state.is_new() {
-                if fresh.len() < new {
-                    fresh.push(due);
-                }
-            } else if state.due < until {
-                reviews.push(due);
-                // Keep those due longest, without holding more than twice
-                // as many at a time.
-                if reviews.len() >= most * 2 {
-                    reviews.sort_by_key(|d: &Due| d.state.due);
-                    reviews.truncate(most);
-                }
-            }
-            ControlFlow::Continue(())
-        });
-    }
-    reviews.sort_by_key(|d| d.state.due);
-    reviews.truncate(most);
-    reviews.extend(fresh);
-    reviews
-}
-
-/// The cards due by `until`, and the new ones to show today (at most
-/// `new`), as the widget counts them: from the index and the answers
-/// given since, without reading the decks.
-pub(crate) fn due_count(storage: &dyn Storage, until: i64, new: usize) -> usize {
-    let mut reviews: i64 = 0;
-    let mut fresh: i64 = 0;
-    each_index(storage, |part| {
-        fresh += i64::from(part.new);
-        // A quarter hour all before `until`: every day begins on one.
-        reviews += part
-            .hours
-            .iter()
-            .filter(|(quarter, _)| (quarter + 1) * QUARTER <= until)
-            .map(|(_, n)| i64::from(*n))
-            .sum::<i64>();
-    });
-    for (state, before) in answered(storage).unwrap_or_default().values() {
-        match *before {
-            0 => fresh -= 1,
-            b if b < until => reviews -= 1,
-            _ => {}
-        }
-        if state.due < until {
-            reviews += 1;
-        }
-    }
-    // Words looked up that become cards when the flash cards open.
-    fresh += lookups_waiting(storage) as i64;
-    reviews.max(0) as usize + (fresh.max(0) as usize).min(new)
-}
-
-/// When the next card that is not new comes due after `after`, if any
-/// does (from the index: the answers given since are not looked at).
-pub(crate) fn next_due(storage: &dyn Storage, after: i64) -> Option<i64> {
-    let mut next: Option<i64> = None;
-    each_index(storage, |part| {
-        for (quarter, _) in &part.hours {
-            let at = quarter * QUARTER;
-            if at > after && next.is_none_or(|n| at < n) {
-                next = Some(at);
-            }
-        }
-    });
-    next
-}
-
-/// How many cards each deck has, by deck.
-pub(crate) fn sizes(storage: &dyn Storage) -> BTreeMap<u32, usize> {
-    let mut sizes: BTreeMap<u32, usize> = BTreeMap::new();
-    each_index(storage, |part| {
-        let others: u32 = part.hours.iter().map(|(_, n)| n).sum();
-        *sizes.entry(part.deck).or_default() += (part.new + others) as usize;
-    });
-    sizes
-}
-
-// ---- The index ---------------------------------------------------------
-
-/// When a deck's cards are due (or a part of that, a line of `due.txt`):
-/// its new ones, and the others by quarter hour. A deck's lines add up.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Index {
-    deck: u32,
-    new: u32,
-    hours: Vec<(i64, u32)>,
-}
-
-/// Hours on a line of the index at most: far below [`MAX_LINE`].
-const HOURS_A_LINE: usize = 300;
-
-impl Index {
-    fn count(&mut self, state: &State) {
-        if state.is_new() {
-            self.new += 1;
-            return;
-        }
-        let quarter = state.due.div_euclid(QUARTER);
-        match self.hours.binary_search_by_key(&quarter, |(q, _)| *q) {
-            Ok(at) => self.hours[at].1 += 1,
-            Err(at) => self.hours.insert(at, (quarter, 1)),
-        }
-    }
-
-    /// Its lines: the new cards on the first, [`HOURS_A_LINE`] hours a
-    /// line.
-    fn lines(&self) -> String {
-        let mut text = String::new();
-        let mut parts = self.hours.chunks(HOURS_A_LINE);
-        let mut first = true;
-        loop {
-            let part = parts.next();
-            if part.is_none() && !first {
-                break;
-            }
-            let new = if first { self.new } else { 0 };
-            text.push_str(&format!("{}\t{new}\t", self.deck));
-            for (i, (hour, n)) in part.unwrap_or_default().iter().enumerate() {
-                if i > 0 {
-                    text.push(' ');
-                }
-                text.push_str(&format!("{hour}={n}"));
-            }
-            text.push('\n');
-            first = false;
-        }
-        text
-    }
-
-    fn parse(line: &str) -> Option<Index> {
-        let mut fields = line.split('\t');
-        let deck = fields.next()?.parse().ok()?;
-        let new = fields.next()?.parse().ok()?;
-        let hours = fields
-            .next()
-            .unwrap_or_default()
-            .split(' ')
-            .filter_map(|pair| {
-                let (hour, n) = pair.split_once('=')?;
-                Some((hour.parse().ok()?, n.parse().ok()?))
-            })
-            .collect();
-        Some(Index { deck, new, hours })
-    }
-}
-
-fn index_file() -> String {
-    path("due.txt")
-}
-
-/// Calls `part` with each line of the index, read one at a time.
-fn each_index(storage: &dyn Storage, mut part: impl FnMut(Index)) {
-    let _ = each_line(storage, &index_file(), |_, line| {
-        if let Some(i) = Index::parse(line) {
-            part(i);
-        }
-        ControlFlow::Continue(())
-    });
-}
-
-/// `added` new cards more in `deck`: a line of the index more.
-fn add_to_index(storage: &dyn Storage, deck: u32, added: u32) -> Result<(), StorageError> {
-    if !storage.exists(&index_file()) {
-        storage.write(&index_file(), format!("{DUE_HEADER}\n").as_bytes())?;
-    }
-    storage.append(&index_file(), format!("{deck}\t{added}\t\n").as_bytes())
-}
-
-/// Puts `index` in place of `deck`'s (or takes it out), the others'
-/// lines copied a line at a time.
-fn set_index(storage: &dyn Storage, deck: u32, index: Option<Index>) -> Result<(), StorageError> {
-    let (file, temporary) = (index_file(), path("due.tmp"));
-    storage.write(&temporary, format!("{DUE_HEADER}\n").as_bytes())?;
-    let mut out = String::new();
-    let mut written = Ok(());
-    each_line(storage, &file, |_, line| {
-        if Index::parse(line).is_some_and(|i| i.deck != deck) {
-            out.push_str(line);
-            out.push('\n');
-        }
-        if out.len() >= CHUNK {
-            written = storage.append(&temporary, out.as_bytes());
-            out.clear();
-        }
-        if written.is_err() {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    })?;
-    written?;
-    if let Some(index) = index {
-        out.push_str(&index.lines());
-    }
-    storage.append(&temporary, out.as_bytes())?;
-    files::put_in_place(storage, &temporary, &file)
-}
-
-// ---- The clock and the day ---------------------------------------------
-
-fn state_file() -> String {
-    path("state.txt")
-}
-
-/// What `state.txt` says: the time last known, and the new cards shown
-/// on a day.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Kept {
-    clock: i64,
-    day: i64,
-    new: u32,
-}
-
-fn kept(storage: &dyn Storage) -> Kept {
-    let mut kept = Kept::default();
-    let _ = each_line(storage, &state_file(), |_, line| {
-        let mut words = line.split(' ');
-        match (words.next(), words.next(), words.next()) {
-            (Some("clock"), Some(t), _) => kept.clock = t.parse().unwrap_or(0),
-            (Some("new"), Some(day), Some(n)) => {
-                kept.day = day.parse().unwrap_or(0);
-                kept.new = n.parse().unwrap_or(0);
-            }
-            _ => {}
-        }
-        ControlFlow::Continue(())
-    });
-    kept
-}
-
-fn write_kept(storage: &dyn Storage, kept: Kept) {
-    let text = format!("clock {}\nnew {} {}\n", kept.clock, kept.day, kept.new);
-    let _ = write_whole(storage, &state_file(), text.as_bytes());
-}
-
-fn remember_clock(storage: &dyn Storage, now: i64) {
-    let mut k = kept(storage);
-    if now > k.clock {
-        k.clock = now;
-        write_kept(storage, k);
-    }
-}
-
-/// The time now, in seconds since 1970: the device's, else the last one
-/// known (time stands still then: what was due is, new cards come).
-pub(crate) fn now(env: &Env<'_>) -> i64 {
-    paperpaw_sdk::time::unix_seconds(env).unwrap_or_else(|| kept(env.storage()).clock)
-}
-
-/// The local day a time is in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Day {
-    /// Days since 1970, by the local time.
-    pub number: i64,
-    /// When it ends, in seconds since 1970: what is due by then is due
-    /// today.
-    pub end: i64,
-}
-
-impl Day {
-    /// The day `now` is in, where the local time is `local`.
-    pub(crate) fn of(now: i64, local: i64) -> Day {
-        Day {
-            number: local.div_euclid(DAY),
-            end: now + (DAY - local.rem_euclid(DAY)),
-        }
-    }
-
-    /// The day `now` is in on this device.
-    pub(crate) fn now(env: &Env<'_>, now: i64) -> Day {
-        Day::of(now, paperpaw_sdk::time::local_seconds(env, now))
-    }
-}
-
-/// How many new cards may still be shown on `day`, `per_day` a day.
-pub(crate) fn new_left(storage: &dyn Storage, day: Day, per_day: u32) -> usize {
-    let k = kept(storage);
-    let shown = if k.day == day.number { k.new } else { 0 };
-    per_day.saturating_sub(shown) as usize
-}
-
-/// A new card was shown (and answered) on `day`, at `now`.
-pub(crate) fn new_shown(storage: &dyn Storage, day: Day, now: i64) {
-    let mut k = kept(storage);
-    if k.day != day.number {
-        k.day = day.number;
-        k.new = 0;
-    }
-    k.new += 1;
-    k.clock = k.clock.max(now);
-    write_kept(storage, k);
-}
+mod answers;
+mod clock;
+mod index;
+mod lookups;
+mod schedule;
+pub(crate) use self::answers::*;
+pub(crate) use self::clock::*;
+pub(crate) use self::index::*;
+pub(crate) use self::lookups::*;
+pub(crate) use self::schedule::*;
 
 #[cfg(test)]
 #[path = "cards_tests.rs"]
