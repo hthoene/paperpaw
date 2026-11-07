@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 17;
+pub const DRAFT: u16 = 18;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -840,6 +840,10 @@ pub enum SafeModeReason {
     FailedStarts,
     /// The reader held the key for it at power-on.
     KeyHeld,
+    /// The reader held Power for the 8 s escape while a call into a code
+    /// plugin ran past the grace, and the device was reset:
+    /// [`SafeMode::crashed`] names that plugin, which is switched off.
+    PowerEscape,
 }
 
 /// A plugin the shell had to install at this start (one the web flasher

@@ -355,7 +355,8 @@ class CommandTests(unittest.TestCase):
         # the command codec only, never into the record codec.
         from abi_declarations import wire_records
         self.assertEqual([item['id'] for item in self.growth(self.schema)],
-                         list(range(1536, 1553)) + [1556, 1557, 1558, 1561, 1562, 1563])
+                         list(range(1536, 1553)) + [1556, 1557, 1558, 1561, 1562, 1563,
+                                                                   1559, 1560])
         self.assertFalse([r for r in wire_records(self.schema) if r['name'].startswith('command.')])
         source = rust_commands(self.schema)
         for line in ['pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;',

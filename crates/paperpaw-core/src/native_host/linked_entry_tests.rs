@@ -12,6 +12,20 @@ extern crate std;
 // floor 1, and empty used/services/features. This is the packed metadata form.
 const METADATA: &[u8] = b"PPAM\x02\x00 \x00N\x00\x00\x00\x07\x00\x01\x00\x01\x00 \x00\x00\x00\x00\x00\x16\x00\x00\x00\x00\x00\x01\x00linux-x86_64-sysv64-le\x18\x00\x01\x00 \x00\x00\x00\x0e\x00PAPERPAW_ENTRY";
 
+struct NoHeap;
+impl Services for NoHeap {
+    fn alloc(&self, _: usize, _: usize) -> *mut u8 {
+        ptr::null_mut()
+    }
+    unsafe fn dealloc(&self, _: *mut u8, _: usize, _: usize) {}
+    unsafe fn realloc(&self, _: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
+        ptr::null_mut()
+    }
+    fn micros(&self) -> u64 {
+        0
+    }
+}
+
 std::thread_local! {
     static MAKES: Cell<u32> = const { Cell::new(0) };
 }
@@ -163,19 +177,6 @@ fn linked_entry_preserves_required_feature_refusals() {
 
 #[test]
 fn linked_host_copies_service_admission_before_any_factory_call() {
-    struct NoHeap;
-    impl Services for NoHeap {
-        fn alloc(&self, _: usize, _: usize) -> *mut u8 {
-            ptr::null_mut()
-        }
-        unsafe fn dealloc(&self, _: *mut u8, _: usize, _: usize) {}
-        unsafe fn realloc(&self, _: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
-            ptr::null_mut()
-        }
-        fn micros(&self) -> u64 {
-            0
-        }
-    }
     MAKES.with(|count| count.set(0));
     let admitted = check(entry(METADATA, |_| {}), METADATA, &host()).unwrap();
     // SAFETY: this test's factory and data are static and never unloaded.
@@ -198,4 +199,43 @@ fn linked_host_copies_service_admission_before_any_factory_call() {
         Some(shell::Error::Factory(host_glue::ERR_UNSUPPORTED))
     );
     assert_eq!(MAKES.with(Cell::get), 1);
+}
+
+#[test]
+fn linked_host_retains_available_features_after_admission() {
+    const FEATURES: &[metadata::Feature<'static>] = &[metadata::Feature {
+        key: "uses.registry",
+        revision: 1,
+    }];
+    let mut bytes = METADATA.to_vec();
+    let key = FEATURES[0].key;
+    bytes.extend_from_slice(&u16::try_from(8 + key.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&u16::try_from(key.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.extend_from_slice(key.as_bytes());
+    let length = u32::try_from(bytes.len()).unwrap();
+    bytes[8..12].copy_from_slice(&length.to_le_bytes());
+    bytes[28..30].copy_from_slice(&1_u16.to_le_bytes());
+    let bytes = Box::leak(bytes.into_boxed_slice());
+    let capabilities = metadata::Host {
+        features: FEATURES,
+        ..host()
+    };
+    let admitted = check(entry(bytes, |_| {}), bytes, &capabilities).unwrap();
+    // SAFETY: the fixture's factory and metadata are static for the whole test.
+    let hosted = unsafe {
+        admitted.hosted(
+            NoHeap,
+            "fixture",
+            |_, _, _, _| {},
+            super::super::HostResources::try_new().unwrap(),
+        )
+    }
+    .unwrap();
+    assert_eq!(hosted.features().feature(key), Ok(()));
+    assert_eq!(
+        hosted.features().feature("uses.unknown"),
+        Err(host_glue::ERR_UNSUPPORTED)
+    );
 }
