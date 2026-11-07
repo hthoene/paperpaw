@@ -130,9 +130,9 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 
 - [D] Removes the folder at `path` and everything in it, at most **64 entries per call**, deepest
   first, and replies `fs_progress`: `removed` this call, `flags` bit 0 `done`. The plugin calls
-  again with the same path until `done`; a missing folder is `done` at once with `removed` 0. A
-  file at the path is removed as a one-entry tree. Interface 6's `remove_dir_all` becomes a loop in the SDK
-  helper, so every call stays bounded.
+  again with the same path until `done`; a missing folder is `done` at once with `removed` 0. A file
+  at the path is removed as a one-entry tree. Interface 6's `remove_dir_all` becomes a loop in the
+  SDK helper, so every call stays bounded.
 - [D] Root 0 `""` empties the whole data folder (the folder itself stays). Root 1 `""` is
   `ERR_INVALID` (never the whole card); root 2 is `ERR_DENIED`.
 - [D] Power cut or a call that fails part of the way: what was removed is gone, the rest is whole
@@ -188,8 +188,8 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 Every op checks, in this order, before it touches anything: the record framing (generic,
 `stages-services.md`), the root (`ERR_UNSUPPORTED` for 3 and above, `ERR_DENIED` for root 1
 without `uses.storage` and for a change on root 2), the path rules (`ERR_INVALID`, `ERR_UTF8`,
-`ERR_NO_SPACE` over a cap), the root-1 exclusions (`ERR_INVALID`), then the op's own rules above. A refused call
-changes nothing.
+`ERR_NO_SPACE` over a cap), the root-1 exclusions (`ERR_INVALID`), then the op's own rules
+above. A refused call changes nothing.
 
 | Condition | Status |
 | --- | --- |
