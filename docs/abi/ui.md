@@ -252,19 +252,18 @@ asker learns its request id at once and long texts move in pages, never cut.
   dialog opens: no partial text ever reaches a dialog, and the asker gets `event.answered`
   outcome 1 with `flags` bit 1 `not_started`. The same holds when the dialog's `open` cannot be
   applied (the stack is full).
-- [D] Limits: at most 4 open requests device-wide, 1 on the X4 (Senior's answer to [Q] 4), and 1
-  per asker (asking again cancels the open one: outcome 1); over that `ERR_FULL`. The request and
-  the first part of its text are allocated fallibly at `ask` (`ERR_NO_MEMORY`). **One nested
-  question:** the dialog instance of an open request may ask one more, of kind 0 on slot
-  `core.remote-keyboard` only (the keyboard's "type on the phone", `keyboard/src/lib.rs:644`),
-  also on the X4; the nested one is cancelled when its parent request ends, and it cannot nest
-  again (`ERR_FULL`). It inherits the parent's `secret` flag (its dialog instance is secret too).
-  **While any instance guards** a nested question is `ERR_DENIED`: the phone keyboard would carry
-  the PIN over the network. Allowing it under a guard is the owner's decision (open, default
-  refused). A request ends when answered (not `typing`), when its dialog closes without
-  an answer (cancelled), or when the asker stops (no event). Asking from a screen ties the request
-  to that instance: when it closes, the request is cancelled and its dialog closed. Asking from an
-  action or an event is allowed.
+- [D] Limits: at most 4 open requests device-wide, 1 on the X4 (Senior's answer to [Q] 4), and 1 per
+  asker (asking again cancels the open one: outcome 1); over that `ERR_FULL`. The request and the
+  first part of its text are allocated fallibly at `ask` (`ERR_NO_MEMORY`). **One nested question:**
+  the dialog instance of an open request may ask one more, of kind 0 on slot `core.remote-keyboard`
+  only (the keyboard's "type on the phone", `keyboard/src/lib.rs:644`), also on the X4; the nested
+  one is cancelled when its parent request ends, and it cannot nest again (`ERR_FULL`). It inherits
+  the parent's `secret` flag (its dialog instance is secret too). **While any instance guards** a
+  nested question is `ERR_DENIED`: the phone keyboard would carry the PIN over the network. Refused
+  for 1.0 (Manager's decision); allowing it later is an additive change. A request ends when
+  answered (not `typing`), when its dialog closes without an answer (cancelled), or when the asker
+  stops (no event). Asking from a screen ties the request to that instance: when it closes, the
+  request is cancelled and its dialog closed. Asking from an action or an event is allowed.
 
 ### 3.2 Answering
 
