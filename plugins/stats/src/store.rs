@@ -137,8 +137,9 @@ const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
 const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
 const DAYS: &str = ".paperpaw/plugins/stats/days.bin";
 const DAYS_NEW: &str = ".paperpaw/plugins/stats/days.new";
-/// The most days a `days.bin` may hold (about 2,800 years).
-const MOST_DAYS: u64 = 1 << 20;
+/// The most days a kept `days.bin` is read for: 4,096 days (11 years) are
+/// 48 KiB, which the X4's heap holds. A longer one is summed anew.
+const MOST_DAYS: u64 = 4096;
 
 /// The sizes of the log and of the books: they change as one reads and
 /// finishes books (or the statistics are merged).
@@ -631,8 +632,10 @@ fn kept_days(
         return Ok(None);
     }
     let mut days: Vec<Day> = Vec::new();
-    days.try_reserve_exact(count as usize)
-        .map_err(|_| StorageError::TooLarge)?;
+    // No room for the kept days: they are summed anew, not refused.
+    if days.try_reserve_exact(count as usize).is_err() {
+        return Ok(None);
+    }
     let mut chunk = [0u8; DAY * 64];
     let mut at = HEADER as u64;
     while (days.len() as u64) < count {
@@ -1306,6 +1309,45 @@ title = Eins
         let mut count = 0;
         scan(&storage.inner, |_| count += 1).unwrap();
         assert_eq!(count, 100);
+    }
+
+    #[test]
+    fn kept_days_over_the_limit_are_summed_anew_not_refused() {
+        let storage = MemoryStorage::new();
+        append(&storage, stat(1, 1, 100, 10)).unwrap();
+        let day_of = |unix: u32| (unix / 100) as i32;
+        let first = {
+            let mut first = [0u8; RECORD];
+            storage.read_at(PAGES, 0, &mut first).unwrap();
+            first
+        };
+        // A `days.bin` that claims the whole log is summed but holds too many days.
+        let header = Summed {
+            covered: RECORD as u64,
+            zone: zone(&day_of),
+            first,
+        };
+        let mut kept = header.encode().to_vec();
+        for day in 0..=MOST_DAYS as i32 {
+            kept.extend_from_slice(
+                &Day {
+                    day,
+                    seconds: 99,
+                    stays: 1,
+                }
+                .encode(),
+            );
+        }
+        storage.write(DAYS, &kept).unwrap();
+        let summed = days(&storage, day_of);
+        assert_eq!(
+            summed,
+            [Day {
+                day: 1,
+                seconds: 10,
+                stays: 1
+            }]
+        );
     }
 }
 
