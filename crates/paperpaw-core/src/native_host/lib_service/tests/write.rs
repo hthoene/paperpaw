@@ -578,14 +578,14 @@ fn import_names_come_from_outside_and_are_checked_before_anything_is_written() {
 fn import_never_lands_in_the_hosts_folder_or_beyond_a_path() {
     let fake = Fake::new();
     *fake.library.borrow_mut() = String::new();
-    assert_eq!(import(&fake, ".paperpaw", "x.epub", 0), Err(ERR_DENIED));
+    assert_eq!(import(&fake, ".paperpaw", "x.epub", 0), Err(ERR_INVALID));
     assert_eq!(
         import(&fake, ".PaperPaw/cache", "x.epub", 0),
-        Err(ERR_DENIED)
+        Err(ERR_INVALID)
     );
     assert!(import(&fake, "paperpaw", "x.epub", 0).is_ok());
     *fake.library.borrow_mut() = ".paperpaw".into();
-    assert_eq!(import(&fake, "", "x.epub", 0), Err(ERR_DENIED));
+    assert_eq!(import(&fake, "", "x.epub", 0), Err(ERR_INVALID));
     *fake.library.borrow_mut() = "Books".into();
     assert!(
         import(&fake, ".paperpaw", "x.epub", 0).is_ok(),
@@ -667,19 +667,19 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
     for folder in ["plugins", "Plugins/x", "PAPERP~1", ".paperpaw"] {
         assert_eq!(
             import(&fake, folder, "x.epub", 0),
-            Err(ERR_DENIED),
+            Err(ERR_INVALID),
             "{folder}"
         );
     }
     assert_eq!(
         import(&fake, "", "plugins", 0),
-        Err(ERR_DENIED),
+        Err(ERR_INVALID),
         "a file named so"
     );
     *fake.library.borrow_mut() = "Plugins".into();
     assert_eq!(
         import(&fake, "", "x.epub", 0),
-        Err(ERR_DENIED),
+        Err(ERR_INVALID),
         "library folder"
     );
     *fake.library.borrow_mut() = "Books".into();

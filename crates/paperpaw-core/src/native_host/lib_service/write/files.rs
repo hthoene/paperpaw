@@ -4,7 +4,7 @@ use super::{
     need_storage, require, result_row,
 };
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK,
+    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK,
 };
 
 /// The most paths of one `can_delete` or `delete` (`lib_paths`, 7 x 512).
@@ -185,7 +185,8 @@ fn check_names(folder: &str, name: &str) -> Result<(), i32> {
 
 /// The joined path ends below the library folder and not in `.paperpaw/` or
 /// `plugins/`, which a library folder at the card's root would reach
-/// (`ERR_DENIED`), and fits a path (`ERR_NO_SPACE`).
+/// (`ERR_INVALID`, as root 1 of the files service), and fits a path
+/// (`ERR_NO_SPACE`).
 fn check_join(
     host: &dyn super::super::LibHost,
     library: &str,
@@ -204,7 +205,7 @@ fn check_join(
         length += part.len() + usize::from(length != 0);
     }
     if first.is_some_and(|segment| args::excluded(host, segment)) {
-        return Err(ERR_DENIED);
+        return Err(ERR_INVALID);
     }
     if length > PATH_MAX {
         return Err(ERR_NO_SPACE);
