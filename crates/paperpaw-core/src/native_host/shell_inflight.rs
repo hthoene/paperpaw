@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn the_token_wraps_without_confusing_depth() {
         let mut inflight = Inflight::EMPTY;
-        inflight.head = u32::MAX & !0xff;
+        inflight.head = !0xff;
         inflight.enter("a");
         assert_eq!(inflight.depth(), 1);
         assert_eq!(inflight.current(), Some("a"));
