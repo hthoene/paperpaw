@@ -24,6 +24,8 @@ impl Kernel {
     ) -> Result<i32, Error> {
         let env = self.shared.env(now);
         let frame = CoreFrame {
+            callback: None,
+            instance: None,
             env: &env,
             meter: &self.shared.meter,
             font_removals: &self.shared.font_removals,
@@ -59,6 +61,8 @@ impl Kernel {
         };
         let env = self.shared.env(now);
         let frame = CoreFrame {
+            callback: None,
+            instance: None,
             env: &env,
             meter: &self.shared.meter,
             font_removals: &self.shared.font_removals,
