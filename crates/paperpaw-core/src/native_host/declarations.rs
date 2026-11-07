@@ -157,7 +157,8 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceRegBinding(_)
         | Record::ServiceRegSetupStep(_)
         | Record::ServiceRegValue(_)
-        | Record::ServiceRegWidget(_) => Err(ERR_INVALID),
+        | Record::ServiceRegWidget(_)
+        | Record::ServiceRegStatus(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),

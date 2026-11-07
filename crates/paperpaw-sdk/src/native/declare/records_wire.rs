@@ -4248,6 +4248,77 @@ impl<'a> ServiceRegWidget<'a> {
         write_blob(self.title.as_bytes(), out, offset);
     }
 }
+/// Wire tag of the `service.reg_status` record.
+pub const SERVICE_REG_STATUS_TAG: u32 = 1059;
+/// Maximum bytes of `service.reg_status.id`.
+pub const SERVICE_REG_STATUS_ID_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_status.plugin`.
+pub const SERVICE_REG_STATUS_PLUGIN_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.reg_status.tap`.
+pub const SERVICE_REG_STATUS_TAP_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_status.title`.
+pub const SERVICE_REG_STATUS_TITLE_MAX_BYTES: usize = 128;
+
+/// The `service.reg_status` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceRegStatus<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub id: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub plugin: &'a str,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub priority: u32,
+    /// Little-endian u32.
+    pub size: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub tap: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub title: &'a str,
+}
+
+impl<'a> ServiceRegStatus<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceRegStatus(Self {
+            id: body.string(SERVICE_REG_STATUS_ID_MAX_BYTES)?,
+            plugin: body.string(SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?,
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            priority: u32::from_le_bytes(body.scalar()?),
+            size: u32::from_le_bytes(body.scalar()?),
+            tap: body.string(SERVICE_REG_STATUS_TAP_MAX_BYTES)?,
+            title: body.string(SERVICE_REG_STATUS_TITLE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.id.len(), SERVICE_REG_STATUS_ID_MAX_BYTES)?;
+        len += blob_len(self.plugin.len(), SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.tap.len(), SERVICE_REG_STATUS_TAP_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SERVICE_REG_STATUS_TITLE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.id.as_bytes(), out, offset);
+        write_blob(self.plugin.as_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        write_bytes(&self.size.to_le_bytes(), out, offset);
+        write_blob(self.tap.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4413,6 +4484,8 @@ pub enum Record<'a> {
     ServiceRegValue(ServiceRegValue<'a>),
     /// A `ServiceRegWidget` record.
     ServiceRegWidget(ServiceRegWidget<'a>),
+    /// A `ServiceRegStatus` record.
+    ServiceRegStatus(ServiceRegStatus<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -4536,6 +4609,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_REG_SETUP_STEP_TAG => ServiceRegSetupStep::decode(body)?,
         SERVICE_REG_VALUE_TAG => ServiceRegValue::decode(body)?,
         SERVICE_REG_WIDGET_TAG => ServiceRegWidget::decode(body)?,
+        SERVICE_REG_STATUS_TAG => ServiceRegStatus::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -4706,6 +4780,7 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(_) => SERVICE_REG_SETUP_STEP_TAG,
             Record::ServiceRegValue(_) => SERVICE_REG_VALUE_TAG,
             Record::ServiceRegWidget(_) => SERVICE_REG_WIDGET_TAG,
+            Record::ServiceRegStatus(_) => SERVICE_REG_STATUS_TAG,
         }
     }
 
@@ -4792,6 +4867,7 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(record) => record.body_len(),
             Record::ServiceRegValue(record) => record.body_len(),
             Record::ServiceRegWidget(record) => record.body_len(),
+            Record::ServiceRegStatus(record) => record.body_len(),
         }
     }
 
@@ -4883,6 +4959,7 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(record) => record.write(out, offset),
             Record::ServiceRegValue(record) => record.write(out, offset),
             Record::ServiceRegWidget(record) => record.write(out, offset),
+            Record::ServiceRegStatus(record) => record.write(out, offset),
         }
     }
 
@@ -5238,7 +5315,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_REG_BINDING_TAG
         | SERVICE_REG_SETUP_STEP_TAG
         | SERVICE_REG_VALUE_TAG
-        | SERVICE_REG_WIDGET_TAG => return Err(-2),
+        | SERVICE_REG_WIDGET_TAG
+        | SERVICE_REG_STATUS_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

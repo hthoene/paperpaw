@@ -312,6 +312,18 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_reply: 4096,
                 bound: ServiceBound::None,
             },
+            ServiceOp {
+                id: 21,
+                name: "status",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1059, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
         ],
     },
     ServiceSchema {
@@ -386,6 +398,8 @@ pub mod core_registry_v1 {
     pub const OP_WIDGETS: u32 = 19;
     /// Operation `needs`.
     pub const OP_NEEDS: u32 = 20;
+    /// Operation `status`.
+    pub const OP_STATUS: u32 = 21;
 }
 
 /// Constants of `core.test-echo` major 1.

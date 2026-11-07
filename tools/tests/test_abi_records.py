@@ -255,6 +255,7 @@ class RecordsTests(unittest.TestCase):
                           ('service.reg_slot', 1035), ('service.reg_menu_row', 1036),
                           ('service.reg_binding', 1037), ('service.reg_setup_step', 1038),
                           ('service.reg_value', 1039), ('service.reg_widget', 1040),
+                          ('service.reg_status', 1059),
                           ('command.reset_setting', 1536), ('command.preview_setting', 1537),
                           ('command.preview_end', 1538), ('command.set_scope', 1539),
                           ('command.set_menu', 1540), ('command.bind_key', 1541),
