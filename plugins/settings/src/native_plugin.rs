@@ -1013,7 +1013,7 @@ impl NativeSettings {
                 // Refused where the shell does not allow it (`uses.power` is
                 // not required): say so, and let that notice fail silently.
                 if CommandSender::new(host, &mut scratch).restart().is_err() {
-                    let _ = Self::notify(host, "settings.restart.refused");
+                    Self::notify(host, "settings.restart.refused").unwrap_or(());
                 }
                 Ok(())
             }
