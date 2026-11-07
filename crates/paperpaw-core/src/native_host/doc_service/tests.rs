@@ -572,18 +572,18 @@ fn a_preparing_book_answers_state_and_close_and_is_busy_for_the_rest() {
 fn limits_ids_and_leases() {
     let fake = Fake::new(Limits::X4);
     let first = opened(&fake);
-    let second = opened(&fake);
-    assert_eq!((first, second), (1, 2));
-    // Two per opener and two on the device: the third is ERR_FULL, no id spent.
+    // On the X4 (two slots) an opener keeps off the last one, so that the
+    // reader's shown book can always open: no background index takes both.
     *fake.answer.borrow_mut() = state_answer(0, 0);
     let open = [Record::ServiceDocOpen(open_record())];
+    assert_eq!(call(&fake, 1, &open), Err(ERR_FULL), "no id spent");
+    fake.owner.set(8);
+    let second = opened(&fake);
+    assert_eq!((first, second), (1, 2));
+    // The device limit: a third opener is full too, no id spent.
+    fake.owner.set(9);
     assert_eq!(call(&fake, 1, &open), Err(ERR_FULL));
     fake.owner.set(8);
-    assert_eq!(
-        call(&fake, 1, &open),
-        Err(ERR_FULL),
-        "the device limit, not the opener's"
-    );
     // Another opener's document is denied, an unknown one is not found.
     assert_eq!(call(&fake, 2, &[doc_ref(first)]), Err(ERR_DENIED));
     assert_eq!(call(&fake, 18, &[doc_ref(first)]), Err(ERR_DENIED));
@@ -623,16 +623,36 @@ fn a_document_the_host_closed_is_cancelled_until_its_opener_closes_it() {
     assert_eq!(call(&fake, 3, &[doc_ref(id)]), Err(ERR_CANCELLED));
     assert_eq!(fake.table.lease(OWNER, id), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(id)]).unwrap();
-    assert_eq!(fake.table.close_owner(OWNER), 0);
+    assert_eq!(fake.table.close_owner(OWNER, |_| ()), 0);
 }
 
 #[test]
 fn a_stopped_opener_loses_all_its_documents() {
-    let fake = Fake::new(Limits::X4);
-    opened(&fake);
-    opened(&fake);
-    assert_eq!(fake.table.close_owner(OWNER), 2);
+    let fake = Fake::new(Limits::LARGE);
+    let ids = [opened(&fake), opened(&fake)];
+    assert_eq!(opener_stopped(&*fake, OWNER), ids.len());
     assert_eq!(fake.table.len(), 0);
+    // Each document's format was told to close it, once, after the table was
+    // released (the host's callback could use the table).
+    assert_eq!(*fake.ended.borrow(), ids);
+}
+
+#[test]
+fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
+    let fake = Fake::new(Limits::LARGE);
+    let a = opened(&fake);
+    fake.owner.set(9);
+    let b = opened(&fake);
+    fake.owner.set(OWNER);
+    // The other format's documents stay.
+    assert_eq!(format_stopped(&*fake, FormatRef(FORMAT.0 + 1)), 0);
+    assert_eq!(format_stopped(&*fake, FORMAT), 2);
+    assert_eq!(*fake.closed.borrow(), [(a, 1), (b, 1)]);
+    // Told once; the format is not called again; the opener closes the id.
+    assert_eq!(format_stopped(&*fake, FORMAT), 0);
+    assert!(fake.ended.borrow().is_empty());
+    assert_eq!(call(&fake, 2, &[doc_ref(a)]), Err(ERR_CANCELLED));
+    call(&fake, 18, &[doc_ref(a)]).unwrap();
 }
 
 #[test]
@@ -658,6 +678,7 @@ fn the_table_allocates_once_and_ids_run_out_without_wrapping() {
     );
     fake.table.set_next_id(u32::MAX);
     *fake.answer.borrow_mut() = state_answer(0, 0);
+    fake.owner.set(8);
     assert_eq!(
         call(&fake, 1, &[Record::ServiceDocOpen(open_record())]),
         Err(ERR_NO_SPACE)
