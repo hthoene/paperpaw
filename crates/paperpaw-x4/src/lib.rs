@@ -45,6 +45,7 @@ pub mod dhcp;
 pub mod display;
 pub mod ds3231;
 pub mod dual_boot;
+pub mod escape;
 pub mod flash_room;
 pub mod generation;
 pub mod gt911;
