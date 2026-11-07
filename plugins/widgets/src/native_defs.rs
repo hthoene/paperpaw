@@ -79,7 +79,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_word_clock::shows,
         settable: false,
     };
+    static GREETING: Behaviour = Behaviour {
+        height: crate::native_greeting::height,
+        draw: crate::native_greeting::draw,
+        shows: crate::native_greeting::shows,
+        settable: false,
+    };
     match token {
+        109 => Some(&GREETING),
         108 => Some(&WORD_CLOCK),
         107 => Some(&WORLD),
         106 => Some(&MOON),

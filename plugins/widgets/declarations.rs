@@ -4,7 +4,7 @@
 //! run time.
 use paperpaw_sdk::native::declare::{Declarations, DeclareError, EventKind, GroupDecl, WidgetDecl};
 pub use paperpaw_ui_kit::widget::options::Opt;
-use paperpaw_ui_kit::widget::options::declare_all;
+use paperpaw_ui_kit::widget::options::{FACES, declare_all};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
@@ -12,6 +12,7 @@ pub const TICK: u32 = 1;
 /// The widget categories of the host's catalogue.
 pub mod category {
     pub const TIME: &str = "core.widgets.time";
+    pub const PERSONAL: &str = "core.widgets.personal";
 }
 
 /// A widget of the pack.
@@ -412,6 +413,39 @@ const WORD_CLOCK_OPTIONS: &[Opt] = &[
     Opt::Part("dots", "widgets.setting.minute-dots", false),
 ];
 
+const GREETING_OPTIONS: &[Opt] = &[
+    Opt::Text(
+        "name",
+        "widgets.greeting.setting.name",
+        "",
+        "widgets.greeting.setting.name.help",
+    ),
+    Opt::Choice(
+        "line",
+        "widgets.greeting.setting.line",
+        &["widgets.greeting.line.none", "widgets.greeting.line.date"],
+        "widgets.greeting.line.date",
+        "widgets.greeting.line.help",
+    ),
+    Opt::Part("icon", "widgets.greeting.setting.icon", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+    Opt::Align("core.align.center"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -476,6 +510,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: WORD_CLOCK_OPTIONS,
+    },
+    Def {
+        name: "greeting",
+        token: 109,
+        category: category::PERSONAL,
+        live: true,
+        options: GREETING_OPTIONS,
     },
 ];
 

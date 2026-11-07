@@ -48,6 +48,14 @@ pub const LINES: &[&str] = &[
 ];
 pub const SHADOWS: &[&str] = &["core.shadow.none", "core.shadow.hard"];
 
+/// The values of a widget's font setting: the menus' font, the book's, the
+/// book's italic.
+pub const FACES: &[&str] = &[
+    "widgets.face.ui",
+    "widgets.face.book",
+    "widgets.face.italic",
+];
+
 /// The values of a date-format setting.
 pub const DATE_FORMATS: &[&str] = &[
     "widgets.date-format.long",
