@@ -201,6 +201,8 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
         meter: &kernel.shared.meter,
         depth: None,
         directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
@@ -459,6 +461,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
         super::super::FlatHost {
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
@@ -516,6 +519,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
         super::super::FlatHost {
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},

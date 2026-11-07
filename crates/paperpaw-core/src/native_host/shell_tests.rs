@@ -791,6 +791,7 @@ mod instance_tests {
         let host = FlatHost {
             meter: crate::meter::Meter::new(None),
             directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
@@ -843,6 +844,7 @@ mod instance_tests {
             let host = FlatHost {
                 meter: crate::meter::Meter::new(None),
                 directory: None,
+                stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
@@ -929,6 +931,7 @@ mod instance_tests {
         crate::native_host::FlatHost {
             meter: crate::meter::Meter::new(None),
             directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),

@@ -202,6 +202,7 @@ impl Plugin for ReentryDriver {
                     host: FlatHost {
                         meter: Rc::clone(&meter),
                         directory: None,
+                        stack_rows: alloc::rc::Rc::new(Default::default()),
                         font_removals: Rc::clone(&font_removals),
                     },
                 };
@@ -234,6 +235,7 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
                 host: FlatHost {
                     meter: Rc::clone(&code.host.meter),
                     directory: None,
+                    stack_rows: Rc::clone(&code.host.stack_rows),
                     font_removals: Rc::clone(&code.host.font_removals),
                 },
             }))

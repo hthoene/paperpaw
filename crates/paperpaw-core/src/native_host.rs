@@ -63,12 +63,10 @@ pub(crate) mod ui_compose;
 )]
 pub(crate) mod ui_handles;
 
-#[path = "native_host/ui_guard.rs"]
-#[allow(
-    dead_code,
-    reason = "consumers are the UIX stack applier and the core.ui ops"
-)]
-pub(crate) mod ui_guard;
+#[path = "native_host/stack_rows.rs"]
+pub(crate) mod stack_rows;
+
+pub(crate) use crate::abi7::context::ui_guard;
 
 #[path = "native_host/shared.rs"]
 mod shared;
@@ -276,6 +274,7 @@ use staged::Declarations;
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct FlatHost {
+    pub(crate) stack_rows: alloc::rc::Rc<stack_rows::StackRows>,
     pub(crate) directory: Option<native_declarations::DirectoryHandle>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,

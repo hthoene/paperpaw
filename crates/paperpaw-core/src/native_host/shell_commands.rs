@@ -40,6 +40,8 @@ impl Kernel {
                 meter: &self.shared.meter,
                 depth: None,
                 directory: None,
+                stack_generation: self.shared.stack_rows.generation(),
+                stack_rows: &self.shared.stack_rows,
                 font_removals: &self.shared.font_removals,
                 usage: &self.shared.usage,
                 plugins: &self.shared.plugins,

@@ -21,6 +21,11 @@ use paperpaw_sdk::Settings;
 pub(crate) mod usage_views;
 pub(crate) use usage_views::{DeviceUsageView, PluginRow};
 
+#[path = "../native_host/ui_guard.rs"]
+pub(crate) mod ui_guard;
+#[path = "ui_views.rs"]
+pub(crate) mod ui_views;
+
 /// Table position after a scoped visitor stops; counters are not snapshotted.
 #[allow(dead_code, reason = "row offsets are read by the service encoder")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,7 +104,17 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
-    fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
+    fn with_stack(&self, _visit: &mut dyn FnMut(&dyn ui_guard::UiStackView)) -> Result<(), i32> {
+        Err(ERR_STATE)
+    }
+    fn ui_x4(&self) -> Result<bool, i32> {
+        Err(ERR_STATE)
+    }
+    fn close_dialog(&self, _instance: u32) -> Result<(), i32> {
+        Err(ERR_STATE)
+    }
+
+    fn ui_directory(&self) -> Result<&dyn ui_views::UiDirectory, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     fn status_ask(

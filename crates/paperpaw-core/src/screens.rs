@@ -10,6 +10,8 @@ use paperpaw_sdk::Pane;
 
 /// A screen on the navigation stack.
 pub(crate) struct ActiveScreen {
+    /// Set only by the host when authorizing a guard question dialog.
+    pub(crate) guard_dialog: bool,
     pub(crate) id: Id,
     /// Tells this opening of the screen from every other, also once it was
     /// made anew (see `Kernel::remake_screens`): e.g. the owner of a
@@ -92,6 +94,9 @@ impl Kernel {
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
+        if self.stack.len() >= native_host::stack_rows::STACK_MAX {
+            return self.warn_runtime("screen stack is full");
+        }
         if !self.require_screen_keys(1) {
             return;
         }
@@ -171,6 +176,7 @@ impl Kernel {
             }
         }
         let active = ActiveScreen {
+            guard_dialog: false,
             id,
             serial,
             slot,
@@ -421,6 +427,32 @@ impl Kernel {
                     .guarding(active.screen.guards())
             })
             .collect();
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        self.shared
+            .stack_rows
+            .update(self.stack.iter().zip(&entries).map(|(active, entry)| {
+                use native_host::stack_rows::{
+                    GUARD_DIALOG, GUARDS, HOST, OVERLAY, SECRET, StackRow,
+                };
+                let host = active.id.namespace() == "core";
+                let owner = if host {
+                    0
+                } else {
+                    self.shared
+                        .native_instances
+                        .find(active.id.namespace())
+                        .unwrap_or(0)
+                };
+                StackRow {
+                    instance: active.serial,
+                    owner,
+                    flags: u8::from(entry.overlay) * OVERLAY
+                        | u8::from(entry.guards) * GUARDS
+                        | u8::from(active.screen.secret()) * SECRET
+                        | u8::from(host) * HOST
+                        | u8::from(active.guard_dialog) * GUARD_DIALOG,
+                }
+            }));
         self.shared.stack.clear();
         self.shared.stack.extend(entries);
         self.sync_chromes();

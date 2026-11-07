@@ -191,6 +191,7 @@ impl Kernel {
         let host = crate::native_host::FlatHost {
             meter: alloc::rc::Rc::clone(&self.shared.meter),
             directory: None,
+            stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
         };
         for plugin in found {

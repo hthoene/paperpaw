@@ -204,6 +204,7 @@ impl crate::Kernel {
                 .as_ref()
                 .map(|directory| directory.try_clone().ok_or(shell::Error::Allocation))
                 .transpose()?,
+            stack_rows: Rc::clone(&self.shared.stack_rows),
             font_removals: Rc::clone(&self.shared.font_removals),
         };
         let instance = NativeLease::try_new(NativeDispatch::new(

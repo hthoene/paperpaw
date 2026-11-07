@@ -47,6 +47,8 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             meter: &self.host.meter,
             depth: Some(self.depth.as_depth()),
             directory: self.host.directory.as_deref(),
+            stack_generation: self.host.stack_rows.generation(),
+            stack_rows: &self.host.stack_rows,
             font_removals: &self.host.font_removals,
             usage: env.usage(),
             plugins: env.plugins(),
