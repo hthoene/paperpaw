@@ -56,6 +56,8 @@ struct Page {
 struct Adder {
     search: Search,
     list: ItemList,
+    /// The ids of the devices bonded with this one: *paired before* in the search.
+    bonded: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -421,22 +423,37 @@ impl NativeBluetooth {
             let page = self.read_page(host)?;
             return self.screens.open(instance, View::Page(page));
         }
+        // The scan is asked for first: a refusal leaves no search showing.
+        let mut scratch = [0; 128];
+        CommandSender::new(host, &mut scratch).bt_scan(SEARCH_MS)?;
         let mut search = Search::default();
         search.start();
+        let bonded = self.bonded_ids(host)?;
         let items = Self::search_items(host, &search)?;
         self.screens.open(
             instance,
             View::Search(Adder {
                 search,
                 list: ItemList::new(items),
+                bonded,
             }),
-        )?;
-        let mut scratch = [0; 128];
-        CommandSender::new(host, &mut scratch).bt_scan(SEARCH_MS)
+        )
+    }
+
+    /// The ids of the bonded devices.
+    fn bonded_ids(&self, host: &Host<'_>) -> Result<Vec<u32>, Error> {
+        let mut ids = Vec::new();
+        for bond in self.read_bonds(host)? {
+            push(&mut ids, bond.id)?;
+        }
+        Ok(ids)
     }
 
     /// The rows as they are now: devices come, go and change while a screen is open.
     fn reread(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if !self.showing() {
+            return Ok(());
+        }
         if self.screens.top(PAGE_TOKEN).is_some() {
             let mut fresh = self.read_page(host)?;
             if let Some(View::Page(old)) = self.screens.top(PAGE_TOKEN) {
@@ -446,6 +463,11 @@ impl NativeBluetooth {
         }
         self.refresh_search(host)?;
         redraw(host)
+    }
+
+    /// Whether the page or the search is open: nothing is read or drawn otherwise.
+    fn showing(&mut self) -> bool {
+        self.screens.top(PAGE_TOKEN).is_some() || self.screens.top(SEARCH_TOKEN).is_some()
     }
 
     fn refresh_search(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -467,11 +489,32 @@ impl NativeBluetooth {
         host: &Host<'_>,
         change: paperpaw_sdk::native::events::BluetoothChange<'_>,
     ) -> Result<(), Error> {
+        // Nothing is read or drawn while neither screen is open.
+        if !self.showing() {
+            return Ok(());
+        }
         let mut step = Step::Nothing;
         let device = change.device();
         let mut searched = false;
+        // A bond came or went: *paired before* follows the bonded list.
+        let fresh = if self.screens.top(SEARCH_TOKEN).is_some()
+            && matches!(
+                change.kind(),
+                BluetoothKind::Changed | BluetoothKind::Paired
+            ) {
+            Some(self.bonded_ids(host)?)
+        } else {
+            None
+        };
         if let Some(View::Search(view)) = self.screens.top(SEARCH_TOKEN) {
             searched = true;
+            if let Some(fresh) = fresh {
+                view.bonded = fresh;
+                for known in &mut view.search.found {
+                    known.bonded = view.bonded.contains(&known.id);
+                }
+            }
+            let bonded = &view.bonded;
             let search = &mut view.search;
             match change.kind() {
                 BluetoothKind::Found => search.found(Found {
@@ -479,7 +522,7 @@ impl NativeBluetooth {
                     name: copy(change.name())?,
                     kind: Kind::from_event(change.device_kind()),
                     signal: change.signal(),
-                    bonded: false,
+                    bonded: bonded.contains(&device),
                 })?,
                 BluetoothKind::ScanEnded => search.ended(),
                 BluetoothKind::Failed => search.failed(device, change.reason()),
@@ -505,11 +548,13 @@ impl NativeBluetooth {
                 CommandSender::new(host, &mut scratch).bt_pair(id)?;
             }
             Step::Paired { id, typing, name } => {
-                let mut scratch = [0; 256];
+                let mut scratch = [0; 512];
                 if typing {
                     CommandSender::new(host, &mut scratch).bt_keys(id, true)?;
                 }
                 CommandSender::new(host, &mut scratch).bt_disconnect(id)?;
+                CommandSender::new(host, &mut scratch).back()?;
+                // The notice is last: if it cannot be said, the pairing is done all the same.
                 let mut say = Messages::new()?;
                 let text = say.format(
                     host,
@@ -519,9 +564,7 @@ impl NativeBluetooth {
                         value: &name,
                     }],
                 )?;
-                let mut sender = CommandSender::new(host, &mut scratch);
-                sender.notify(Notify::new(&text)?)?;
-                sender.back()?;
+                CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)?;
             }
             Step::Nothing => {}
         }
@@ -577,9 +620,10 @@ impl NativeBluetooth {
                 redraw(host)
             }
             Some(View::Search(view)) => match view.search.choose(index) {
+                // The state follows the command: a refused command shows nothing new.
                 Choice::Search => {
-                    view.search.start();
                     CommandSender::new(host, &mut scratch).bt_scan(SEARCH_MS)?;
+                    view.search.start();
                     self.refresh_search(host)?;
                     redraw(host)
                 }
@@ -587,6 +631,7 @@ impl NativeBluetooth {
                     let mut sender = CommandSender::new(host, &mut scratch);
                     sender.bt_stop_scan()?;
                     sender.bt_connect(id)?;
+                    view.search.begin_add(id);
                     self.refresh_search(host)?;
                     redraw(host)
                 }

@@ -48,6 +48,7 @@ fn rows_and_searches_survive_refused_allocations() {
             })?;
         }
         let _ = search.choose(0);
+        search.begin_add(1);
         search.connected(1);
         search.paired(1, Kind::Other, "")?;
         Ok(())

@@ -314,22 +314,23 @@ impl Search {
         self.problem = None;
     }
 
-    /// What choosing row `index` does.
+    /// What choosing row `index` does. Nothing changes until the command is
+    /// queued: then [`Self::begin_add`] or [`Self::start`].
     #[must_use]
-    pub fn choose(&mut self, index: usize) -> Choice {
+    pub fn choose(&self, index: usize) -> Choice {
         if index == self.found.len() {
             return Choice::Search;
         }
-        let Some(device) = self.found.get(index) else {
-            return Choice::Nothing;
-        };
-        if self.adding.is_some() {
-            return Choice::Nothing;
+        match self.found.get(index) {
+            Some(device) if self.adding.is_none() => Choice::Add(device.id),
+            _ => Choice::Nothing,
         }
-        let id = device.id;
+    }
+
+    /// Adding `device` was asked for: connecting.
+    pub fn begin_add(&mut self, device: u32) {
         self.problem = None;
-        self.adding = Some(Adding::Connecting(id));
-        Choice::Add(id)
+        self.adding = Some(Adding::Connecting(device));
     }
 
     /// A device was found: the strongest first.
@@ -337,6 +338,8 @@ impl Search {
     /// # Errors
     /// `NoMemory` when it cannot be kept.
     pub fn found(&mut self, device: Found) -> Result<(), Error> {
+        // Room first: a refused allocation keeps the entry that was there.
+        self.found.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.found.retain(|known| known.id != device.id);
         push(&mut self.found, device)?;
         stable_sort_by(&mut self.found, |a, b| {
@@ -533,6 +536,9 @@ mod tests {
         let mut search = Search::default();
         search.found(found(7, Some(-50), Kind::Remote)).unwrap();
         assert_eq!(search.choose(0), Choice::Add(7));
+        // Nothing changes until the command is queued.
+        assert_eq!(search.adding, None);
+        search.begin_add(7);
         // Nothing else is chosen while one is being added.
         assert_eq!(search.choose(0), Choice::Nothing);
         assert_eq!(search.connected(8), Step::Nothing);
@@ -553,11 +559,11 @@ mod tests {
     fn a_declined_pairing_and_a_lost_link_say_why() {
         let mut search = Search::default();
         search.found(found(7, None, Kind::Sensor)).unwrap();
-        let _ = search.choose(0);
+        search.begin_add(7);
         search.failed(7, Some(BluetoothReason::Declined));
         assert_eq!(search.problem, Some(Problem::Refused));
         assert_eq!(search.adding, None);
-        let _ = search.choose(0);
+        search.begin_add(7);
         search.lost(7, BluetoothReason::Lost);
         assert_eq!(search.problem, Some(Problem::Failed));
         // A failure of another device or a link nobody is adding changes nothing.

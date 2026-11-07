@@ -28,11 +28,15 @@ senders and event 98 of the SDK (PR #363).
   then pairs (the kernel asks the reader to confirm); on *paired* a remote's or
   keyboard's keys go to the key maps, the device is disconnected, a notice says
   so and the screen goes back; a declined pairing, a failed link and a failed
-  scan say why (*Not paired*, *It did not answer*, *Bluetooth is off*).
+  scan say why (*Not paired*, *It did not answer*, *Bluetooth is off*). Event 98 has no
+  bonded flag, so *paired* beside a found device comes from comparing its id with the
+  bonded list (read when the search opens and on every *changed* or *paired*). The
+  state of a search (*connecting*, *searching*) follows the command that was queued: a
+  refused command shows nothing new.
 - **Remotes** (events `Started`, `Resume`, book opened/closed): by hand nothing
   connects by itself and the remotes switched on are wanted again; while
   reading the remotes connect while a book is open; always at start and on
-  waking.
+  waking. Nothing is read or drawn on an event while neither screen is open.
 - **Slot** `core.bluetooth` is offered for `bluetooth.page`: the plugin bound to
   it sees `given` in device op 11 and gets event 98 (no subscription; Kernel
   ruled the same for `event.answered`).

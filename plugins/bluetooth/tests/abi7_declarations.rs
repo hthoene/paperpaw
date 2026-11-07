@@ -80,5 +80,9 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
             }
         }
     }
-    assert_eq!(refused.len(), 5, "the two icons, the two menu needs and the slot offer: {refused:?}");
+    assert_eq!(
+        refused.len(),
+        5,
+        "the two icons, the two menu needs and the slot offer: {refused:?}"
+    );
 }
