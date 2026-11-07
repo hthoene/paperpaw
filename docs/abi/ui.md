@@ -228,9 +228,11 @@ asker learns its request id at once and long texts move in pages, never cut.
   the host keeps the first 512 bytes of a text in memory and the rest in a host file on the card
   (deleted when the text ends and at start). **Card failures** (Senior G): a full card is
   `ERR_NO_SPACE` for the part; with no card the request's question and the X4 host texts live in
-  memory only, at most 2 KiB together (the secret text below aside), `ERR_IO` beyond; a card
-  pulled while a text has a card part makes every later read of that text `ERR_IO`, never a short
-  text, and the asker's answer for it cancelled (outcome 1); a write at 0 starts it over.
+  memory only, capped at what fits there: at most 2 KiB together (the secret text below aside),
+  `ERR_IO` beyond; a missing or failing card is `ERR_IO`. A card pulled while a text has a card
+  part makes every later read of that text `ERR_IO`, never a short text; a write at 0 starts it
+  over. An answer committed before the card went is still delivered (outcome, choice and
+  `length`), only its op 10 read fails (section 3.2).
   **Secret texts never touch the card**: a `secret` question's text stays in memory, at most
   2,048 bytes on the X4 (a PIN, a Wi-Fi or account password), `ERR_NO_SPACE` beyond.
   **Live typing on the X4**: a `typing` answer (outcome 2) is accepted only while the text is in
@@ -251,7 +253,10 @@ asker learns its request id at once and long texts move in pages, never cut.
   question:** the dialog instance of an open request may ask one more, of kind 0 on slot
   `core.remote-keyboard` only (the keyboard's "type on the phone", `keyboard/src/lib.rs:644`),
   also on the X4; the nested one is cancelled when its parent request ends, and it cannot nest
-  again (`ERR_FULL`). A request ends when answered (not `typing`), when its dialog closes without
+  again (`ERR_FULL`). It inherits the parent's `secret` flag (its dialog instance is secret too).
+  **While any instance guards** a nested question is `ERR_DENIED`: the phone keyboard would carry
+  the PIN over the network. Allowing it under a guard is the owner's decision (open, default
+  refused). A request ends when answered (not `typing`), when its dialog closes without
   an answer (cancelled), or when the asker stops (no event). Asking from a screen ties the request
   to that instance: when it closes, the request is cancelled and its dialog closed. Asking from an
   action or an event is allowed.
@@ -275,7 +280,10 @@ asker learns its request id at once and long texts move in pages, never cut.
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
-  has (`core-events.md` 3.3), so the held-event store being full never drops it. The host encodes
+  has (`core-events.md` 3.3), so the held-event store being full never drops it. The one
+  exception is the X4 card: if it is pulled after the answer is committed, the event still comes
+  with its outcome, choice and `length`, but the asker's op 10 read of a text with a card part is
+  `ERR_IO` (section 3.1). The host encodes
   the event from the request when it delivers it to the asker (only the asker), in order with the
   asker's other events (the answer's place is when the dialog committed it). The asker reads the
   text with op 10 inside that callback. Memory is the request's own (section 8), bounded by the
@@ -592,16 +600,16 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
   messages and rules the user set up; never sync results or offers). Without bit 0 a message from a
   plugin with no instance on the stack is dropped (`OK`, logged). Other bits `ERR_INVALID`.
 - [D] **Clipboard.** Text only, at most 4,096 bytes (interface 6 `MAX_CLIPBOARD`), not across
-  restarts; every device has one (Senior's answer). It is a host text with the fixed id 0
-  (section 3.1 rules: append-only parts, start over at 0, committed by `last`): op 18
-  `clipboard_write` (`ui_text`, `text` 0) writes it in parts, a write at 0 replaces the old
-  clipboard only when its new text is committed (until then reads see the old one; an
-  uncommitted new text is dropped when the writer's callback returns); op 19 `clipboard_read`
-  (`ui_text_at`, `text` 0) reads it in parts (`total` 0: empty), any plugin, at once. Keeping a
-  `secret` answer (section 3.1) off it is the dialog plugin's duty; the host cannot enforce it
-  (decision 44). On the X4 it lives in a host file on the card (none in memory but the part
-  being moved); with no card, op 18 is `ERR_IO` and op 19 reads it empty; a pulled card makes op
-  19 `ERR_IO`. Android may back it with the system clipboard.
+  restarts; every device has one (Senior's answer). It is a host text with the fixed id 0 (section
+  3.1 rules: append-only parts, start over at 0, committed by `last`): op 18 `clipboard_write`
+  (`ui_text`, `text` 0) writes it in parts, a write at 0 replaces the old clipboard only when its
+  new text is committed (until then reads see the old one; an uncommitted new text is dropped when
+  the writer's callback returns); op 19 `clipboard_read` (`ui_text_at`, `text` 0) reads it in parts
+  (`total` 0: empty), any plugin, at once. Keeping a `secret` answer (section 3.1) off it is the
+  dialog plugin's duty; the host cannot enforce it (decision 44). On the X4 it lives in a host file
+  on the card (none in memory but the part being moved), deleted at start as host texts are; with no
+  card, op 18 is `ERR_IO` and op 19 reads it empty; a pulled card makes op 19 `ERR_IO`. Android may
+  back it with the system clipboard.
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
   `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
