@@ -76,8 +76,9 @@ record.
   twice.
 - [D] **Declared while work is delivered:** a work declared or replaced during a main-loop pass
   that delivers due work (in a `work_due` callback or any other callback of that pass) is due at
-  the next pass at the earliest, never in the same one; a key declared again from its own run is
-  due no sooner than 1 s after the declaration, whatever its times say. So a callback that
+  the next pass at the earliest, never in the same one; any work declared from a run's callbacks
+  (its own key or another) is due no sooner than 1 s after the declaration, whatever its times
+  say. So a callback that
   declares with nothing set, or with an `at_ms` in the past, cannot loop inside one pass or keep
   the main loop from napping.
 
@@ -242,7 +243,7 @@ record.
   charging), deadlines and stretch, offline and saving holds, the device-wide 15-minute deadline
   gap, `network_wanted`, runs and their end, the 10-minute run limit ending the run's requests and
   sockets with `work_ended`, quiet scoped to the run's own callbacks, work declared during a pass
-  due at the next one (1 s for a key from its own run), the device-wide cap, events 103-105 from
+  due at the next one (1 s for any work declared from a run), the device-wide cap, events 103-105 from
   the table, `state`; tests for each rule and status, one for a callback that declares itself
   again at once (no loop in one pass) and one for a dialog from the screen during a run. The
   kernel's own catalog and clean-up jobs stay host-internal.
