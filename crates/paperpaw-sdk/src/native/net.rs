@@ -441,8 +441,10 @@ impl HttpDone {
         self.flags & 1 != 0
     }
 
-    /// The memory body was cut at `max_body`; an error body (status 400 or
-    /// more) is cut at the lesser of 4,096 and `max_body`.
+    /// The body was cut: at `max_body`, and an error body (a non-2xx answer, or
+    /// a failure with a status) at the lesser of 4,096 and `max_body` when it is
+    /// kept in memory, at 4,096 when the request saves (then it is never written
+    /// to the file).
     #[must_use]
     pub const fn truncated(&self) -> bool {
         self.flags & 2 != 0
