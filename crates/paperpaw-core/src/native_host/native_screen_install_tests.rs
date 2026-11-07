@@ -745,3 +745,22 @@ fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
     kernel.tick(paperpaw_platform::Instant(wake.millis() + 50));
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
+
+#[test]
+fn kernel_main_loop_drains_the_host_services_orphan_retirement_queue() {
+    let mut kernel = kernel(0);
+    let pool = POOL.with(|pool| pool.borrow().as_ref().unwrap().try_clone().unwrap());
+    let orphan = pool.try_owner().unwrap();
+    let owner = orphan.owner_id();
+    drop(orphan);
+    assert!(pool.hosts().queue_retirement(owner));
+    assert!(pool.hosts().retirements_pending());
+    assert!(kernel.native_unload_due().is_some());
+    kernel.tick(paperpaw_platform::Instant(10));
+    assert!(!pool.hosts().retirements_pending());
+    assert!(kernel.native_unload_due().is_none());
+    assert!(
+        kernel.shared.native_instances.find("factory").is_some(),
+        "an orphan retry does not unload a different live owner"
+    );
+}

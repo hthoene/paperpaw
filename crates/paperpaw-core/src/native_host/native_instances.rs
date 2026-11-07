@@ -289,6 +289,23 @@ impl NativeInstances {
             .any(|entry| entry.id == *id && entry.replacement.is_some())
     }
 
+    /// Orphaned Drop cleanup uses HostServices' one fixed retry queue. Rows
+    /// retained here still own lifecycle/handle cleanup and replacement state;
+    /// they are never enqueued as orphaned owners.
+    pub(crate) fn retry_orphaned_retirements(&self) -> Result<bool, i32> {
+        self.pool
+            .as_ref()
+            .map_or(Ok(false), OwnerResourceView::retry_retirements)
+    }
+
+    pub(crate) fn retirements_pending(&self) -> bool {
+        self.pending_unload(None).is_some()
+            || self
+                .pool
+                .as_ref()
+                .is_some_and(OwnerResourceView::retirements_pending)
+    }
+
     /// Also notices a Hosted::stop request made through a retained owner.
     pub(crate) fn pending_unload(&self, after: Option<u64>) -> Option<(u64, &Id)> {
         self.entries

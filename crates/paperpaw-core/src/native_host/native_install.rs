@@ -114,6 +114,13 @@ impl crate::Kernel {
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
+        // The same driver handles HostServices' orphan queue and the retained
+        // rows whose lifecycle cleanup has not completed. No second queue.
+        if let Err(status) = self.shared.native_instances.retry_orphaned_retirements()
+            && status != paperpaw_native::host_glue::ERR_BUSY
+        {
+            self.warn_runtime("orphaned native owner cleanup failed; retry scheduled");
+        }
         let mut after = None;
         while let Some((key, owner)) = self.shared.native_instances.pending_unload(after) {
             after = Some(key);
@@ -127,8 +134,8 @@ impl crate::Kernel {
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         self.shared
             .native_instances
-            .pending_unload(None)
-            .map(|_| paperpaw_platform::Instant(self.now.millis().saturating_add(50)))
+            .retirements_pending()
+            .then(|| paperpaw_platform::Instant(self.now.millis().saturating_add(50)))
     }
 
     fn bind_native<S: Services + 'static, M: 'static>(

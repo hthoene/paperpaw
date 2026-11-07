@@ -152,6 +152,12 @@ impl OwnerResourceView {
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
     }
+    pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
+        self.table.hosts.retry_retirements()
+    }
+    pub(crate) fn retirements_pending(&self) -> bool {
+        self.table.hosts.retirements_pending()
+    }
     pub(crate) fn same_pool(&self, other: &Self) -> bool {
         core::ptr::eq(&*self.table, &*other.table)
     }
