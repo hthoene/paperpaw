@@ -207,9 +207,9 @@ fn host_only(tag: u32) -> bool {
 
 #[test]
 fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before() {
-    // Sixty-four zero bytes are a valid body of every generated record: an
+    // 128 zero bytes are a valid body of every generated record: an
     // empty bitmap, zero scalars, empty text, trailing bytes skipped.
-    let zeros = [0; 64];
+    let zeros = [0; 128];
     let (mut refused, mut decoded) = (Vec::new(), Vec::new());
     for tag in 0..2048 {
         let bytes = framed(tag, &zeros);
