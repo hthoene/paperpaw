@@ -130,9 +130,11 @@ impl HostServices {
 
     /// Whether an owner still waits for its retirement.
     pub(crate) fn retirements_pending(&self) -> bool {
-        self.retiring
-            .try_borrow()
-            .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+        self.lost.get() != 0
+            || self
+                .retiring
+                .try_borrow()
+                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An

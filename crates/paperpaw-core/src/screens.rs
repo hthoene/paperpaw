@@ -447,6 +447,26 @@ impl Kernel {
         }
     }
 
+    /// A retired owner cannot veto removal, including its root or guard.
+    pub(crate) fn remove_retired_native_screens(&mut self, owner: &Id) {
+        let mut removed = false;
+        for index in (0..self.stack.len()).rev() {
+            if self.stack[index].id.namespace() == owner.as_str() {
+                // The owner is revoked already. Dropping its private wrapper
+                // releases the lease without calling retired plugin code.
+                self.native_instance_closed(self.stack[index].serial);
+                self.stack.remove(index);
+                removed = true;
+            }
+        }
+        if removed {
+            self.screens_changed = true;
+            self.sync_stack();
+            self.stop_for_closed_screens();
+            self.screen_changed(self.content(), false);
+        }
+    }
+
     /// Whether the screens above `index` may close for `why` (see
     /// [`Kernel::may_close_from`]).
     pub(crate) fn may_close_above(&mut self, index: usize, why: paperpaw_sdk::CloseCause) -> bool {
