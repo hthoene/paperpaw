@@ -4,7 +4,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-const DIGITS: &[u8; 16] = b"0123456789abcdef";
+pub(crate) const DIGITS: &[u8; 16] = b"0123456789abcdef";
 
 /// Writes `byte` as two digits onto `out`.
 pub fn push(out: &mut String, byte: u8) {
