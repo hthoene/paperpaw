@@ -33,17 +33,22 @@ pub struct Admitted {
     pub entry_bytes: u16,
 }
 
-/// Checks `record` against `host` and keeps its declared services.
+/// Checks `record` against `host` and keeps its declared services and the
+/// features of `host` it asked for (`DeclaredServices::features`): a host
+/// that advertises a feature checks it there, per instance, before it serves
+/// what the feature gates. `host.features` is the shell's static catalog and
+/// the very one the check uses.
 ///
 /// # Errors
 /// [`Admission`]: the check's refusal, an invalid list, or no room.
-pub fn admit<'a>(record: &'a [u8], host: &Host<'_>) -> Result<Admitted, Admission<'a>> {
+pub fn admit<'a>(record: &'a [u8], host: &Host<'static>) -> Result<Admitted, Admission<'a>> {
     let checked = metadata::check(record, host).map_err(Admission::Refused)?;
-    let declared =
-        DeclaredServices::try_from_iter(checked.services()).map_err(|error| match error {
+    let declared = DeclaredServices::try_from_metadata(&checked, host.features).map_err(
+        |error| match error {
             DeclaredServicesError::Invalid => Admission::Invalid,
             DeclaredServicesError::NoMemory => Admission::NoRoom,
-        })?;
+        },
+    )?;
     Ok(Admitted {
         declared,
         abi_major: checked.abi_major,
@@ -56,7 +61,7 @@ pub fn admit<'a>(record: &'a [u8], host: &Host<'_>) -> Result<Admitted, Admissio
 mod tests {
     use super::*;
     use alloc::vec::Vec;
-    use paperpaw_native::metadata::{Profile, Service};
+    use paperpaw_native::metadata::{Feature, Profile, Service};
 
     const TARGET: &str = "esp32c3-riscv32imc-ilp32-soft-le";
     const OFFERED: &[Service<'static>] = &[
@@ -74,6 +79,20 @@ mod tests {
         },
     ];
 
+    const REGISTRY: &str = "uses.registry";
+    const DEVICE_WIFI: &str = "uses.wifi";
+    /// What a shell that wired two families would advertise.
+    const WIRED: &[Feature<'static>] = &[
+        Feature {
+            key: REGISTRY,
+            revision: 1,
+        },
+        Feature {
+            key: DEVICE_WIFI,
+            revision: 1,
+        },
+    ];
+
     fn host() -> Host<'static> {
         Host {
             abi_major: 7,
@@ -88,9 +107,21 @@ mod tests {
         }
     }
 
+    fn wired() -> Host<'static> {
+        Host {
+            features: WIRED,
+            ..host()
+        }
+    }
+
     /// A metadata record (format 2) of a plugin for [`host`] that declares
     /// `services` (key, major, semantic revision, minimum table bytes).
     fn record(services: &[(&str, u16, u16, u32)]) -> Vec<u8> {
+        record_with(services, &[])
+    }
+
+    /// As [`record`], also asking for `features` (key, revision, required).
+    fn record_with(services: &[(&str, u16, u16, u32)], features: &[(&str, u16, bool)]) -> Vec<u8> {
         let mut body = Vec::new();
         body.extend_from_slice(TARGET.as_bytes());
         // The entry export: total, kind 1 / reserved 0, entry bytes, name.
@@ -108,6 +139,13 @@ mod tests {
             body.extend_from_slice(&table.to_le_bytes());
             body.extend_from_slice(key.as_bytes());
         }
+        for &(key, revision, required) in features {
+            body.extend_from_slice(&(8 + key.len() as u16).to_le_bytes());
+            body.extend_from_slice(&(key.len() as u16).to_le_bytes());
+            body.extend_from_slice(&revision.to_le_bytes());
+            body.extend_from_slice(&u16::from(required).to_le_bytes());
+            body.extend_from_slice(key.as_bytes());
+        }
         let total = 32 + body.len();
         let mut out = Vec::new();
         out.extend_from_slice(b"PPAM");
@@ -121,7 +159,7 @@ mod tests {
         out.extend_from_slice(&0u32.to_le_bytes()); // reserved
         out.extend_from_slice(&(TARGET.len() as u16).to_le_bytes());
         out.extend_from_slice(&(services.len() as u16).to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes()); // features
+        out.extend_from_slice(&(features.len() as u16).to_le_bytes()); // features
         out.extend_from_slice(&1u16.to_le_bytes()); // exports
         out.extend_from_slice(&body);
         out
@@ -200,5 +238,55 @@ mod tests {
             admit(&long, &host()).unwrap_err(),
             Admission::Refused(Refusal::Malformed)
         );
+    }
+
+    #[test]
+    fn a_feature_is_refused_while_its_bit_is_not_kept_and_served_once_it_is() {
+        use paperpaw_native::host_glue::{ERR_DENIED, ERR_UNSUPPORTED};
+        // The plugin asks for nothing: the host's feature is advertised, and
+        // this instance has no bit for it.
+        let bytes = record(&[]);
+        let features = admit(&bytes, &wired()).unwrap().declared.features();
+        assert_eq!(features.feature(REGISTRY), Err(ERR_DENIED));
+        assert_eq!(features.feature(DEVICE_WIFI), Err(ERR_DENIED));
+        // Asking for one keeps that bit alone.
+        let bytes = record_with(&[], &[(REGISTRY, 1, false)]);
+        let features = admit(&bytes, &wired()).unwrap().declared.features();
+        assert_eq!(features.feature(REGISTRY), Ok(()));
+        assert_eq!(features.feature(DEVICE_WIFI), Err(ERR_DENIED));
+        // A required one is the same; the bits survive the record's drop.
+        let bytes = record_with(&[], &[(DEVICE_WIFI, 1, true), (REGISTRY, 1, false)]);
+        let features = admit(&bytes, &wired()).unwrap().declared.features();
+        drop(bytes);
+        assert_eq!(features.feature(REGISTRY), Ok(()));
+        assert_eq!(features.feature(DEVICE_WIFI), Ok(()));
+        // A feature the host does not advertise is unsupported, not denied.
+        assert_eq!(features.feature("uses.other"), Err(ERR_UNSUPPORTED));
+    }
+
+    #[test]
+    fn a_host_that_advertises_nothing_keeps_no_bit_and_refuses_a_required_feature() {
+        use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+        let bytes = record_with(&[], &[(REGISTRY, 1, false)]);
+        let features = admit(&bytes, &host()).unwrap().declared.features();
+        assert_eq!(features.feature(REGISTRY), Err(ERR_UNSUPPORTED));
+        let bytes = record_with(&[], &[(REGISTRY, 1, true)]);
+        assert_eq!(
+            admit(&bytes, &host()).unwrap_err(),
+            Admission::Refused(Refusal::RequiredFeature {
+                key: REGISTRY,
+                revision: 1
+            })
+        );
+        // A revision newer than the host's: required is refused, optional is
+        // kept without a bit.
+        let bytes = record_with(&[], &[(REGISTRY, 2, true)]);
+        assert!(matches!(
+            admit(&bytes, &wired()).unwrap_err(),
+            Admission::Refused(Refusal::RequiredFeature { .. })
+        ));
+        let bytes = record_with(&[], &[(REGISTRY, 2, false)]);
+        let features = admit(&bytes, &wired()).unwrap().declared.features();
+        assert!(features.feature(REGISTRY).is_err());
     }
 }
