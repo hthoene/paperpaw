@@ -25,6 +25,10 @@ change the plugin SDK.
   before every reservation, and puts it back only on success; out of memory, the
   limit or the filter's own error leave the block unchanged. `Block::replace` shares
   its code and leaves the block unchanged where memory runs out (#228).
+- Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
+  cursors expose host-stamped style grants; schema-checked service handles survive
+  callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
+  draft 13 are refused (#228).
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
