@@ -38,7 +38,9 @@ impl NameEntry {
         Ok(Self {
             hash,
             batch,
-            record_kind: (u16::from(kind) << 3) | (u16::from(extension) << 8) | record as u16,
+            record_kind: (u16::from(kind) << 3)
+                | (u16::from(extension) << 8)
+                | u16::try_from(record).map_err(|_| paperpaw_native::host_glue::ERR_INVALID)?,
         })
     }
 
@@ -187,6 +189,7 @@ mod sort_tests {
 
 #[cfg(test)]
 mod packed_tests {
+    #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
     use super::*;
     #[test]
     fn every_five_bit_kind_preserves_record_and_extension_in_eight_bytes() {
