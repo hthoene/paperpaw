@@ -83,22 +83,22 @@ agree (a host test).
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1092 | `service.dev_device` | `id: str 64`, `model: str 64`, `catalog: str 32`, `class: u32`, `caps: u64`, `controls: u32`, `tls_sessions: u32`, `start: u32`, `slept_ms: u64`, `flags: u32` |
-| 1093 | `service.dev_value` | `name: str 32`, `value: i64` |
-| 1094 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `failure: u32`, `request: u32` |
-| 1095 | `service.dev_builtin` | `id: str 64`, `version: str 32` |
-| 1096 | `service.dev_native` | `abi_major: u32`, `abi_draft: u32`, `target: u32`, `code_file: str 32`, `safe_mode: u32`, `safe_mode_plugin: str 64`, `not_installed: u32`, `room_free: u64`, `room_largest: u64` |
-| 1097 | `service.dev_check_ask` | `root: u32`, `path: str 512`, `kind: u32` |
-| 1098 | `service.dev_check` | `verdict: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `id: str 64`, `version: str 64`, `flags: u32` |
-| 1099 | `service.dev_memory` | `heap_free: u32`, `heap_size: u32`, `largest: u32`, `stack_free: u32`, `stack_size: u32`, `external_free: u32`, `external_size: u32`, `flags: u32` |
-| 1100 | `service.dev_wifi` | `state: u32`, `ssid: str 32`, `address: str 45`, `host_name: str 63`, `guests: u32`, `flags: u32` |
-| 1101 | `service.dev_network` | `ssid: str 32`, `signal: i32`, `flags: u32` |
-| 1102 | `service.dev_bluetooth` | `radio: u32`, `max_links: u32`, `flags: u32` |
-| 1103 | `service.dev_bonded` | `device: u32`, `name: str 64`, `kind: u32`, `flags: u32`, `given: str 64` |
-| 1104 | `service.dev_interval` | `base_ms: u32` |
-| 1105 | `service.dev_power` | `level: u32`, `mode: str 128`, `flags: u32`, `stretch: u32`, `every_ms: u32` |
-| 1106 | `service.dev_request` | `request: u32` |
-| 1107 | `service.dev_install` | `request: u32`, `kind: u32`, `state: u32`, `status: i32`, `done: u64`, `total: u64`, `id: str 64` |
+| 1094 | `service.dev_device` | `id: str 64`, `model: str 64`, `catalog: str 32`, `class: u32`, `caps: u64`, `controls: u32`, `tls_sessions: u32`, `start: u32`, `slept_ms: u64`, `flags: u32` |
+| 1095 | `service.dev_value` | `name: str 32`, `value: i64` |
+| 1096 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `failure: u32`, `request: u32` |
+| 1097 | `service.dev_builtin` | `id: str 64`, `version: str 32` |
+| 1098 | `service.dev_native` | `abi_major: u32`, `abi_draft: u32`, `target: u32`, `code_file: str 32`, `safe_mode: u32`, `safe_mode_plugin: str 64`, `not_installed: u32`, `room_free: u64`, `room_largest: u64` |
+| 1099 | `service.dev_check_ask` | `root: u32`, `path: str 512`, `kind: u32` |
+| 1100 | `service.dev_check` | `verdict: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `id: str 64`, `version: str 64`, `flags: u32` |
+| 1101 | `service.dev_memory` | `heap_free: u32`, `heap_size: u32`, `largest: u32`, `stack_free: u32`, `stack_size: u32`, `external_free: u32`, `external_size: u32`, `flags: u32` |
+| 1102 | `service.dev_wifi` | `state: u32`, `ssid: str 32`, `address: str 45`, `host_name: str 63`, `guests: u32`, `flags: u32` |
+| 1103 | `service.dev_network` | `ssid: str 32`, `signal: i32`, `flags: u32` |
+| 1104 | `service.dev_bluetooth` | `radio: u32`, `max_links: u32`, `flags: u32` |
+| 1105 | `service.dev_bonded` | `device: u32`, `name: str 64`, `kind: u32`, `flags: u32`, `given: str 64` |
+| 1106 | `service.dev_interval` | `base_ms: u32` |
+| 1107 | `service.dev_power` | `level: u32`, `mode: str 128`, `flags: u32`, `stretch: u32`, `every_ms: u32` |
+| 1108 | `service.dev_request` | `request: u32` |
+| 1109 | `service.dev_install` | `request: u32`, `kind: u32`, `state: u32`, `status: i32`, `done: u64`, `total: u64`, `id: str 64` |
 
 - [D] `dev_device` (interface 6 `env.device()`, `caps()`, `catalog_device()`): `id` the stable
   device id (`xteink-x4`), `model` its name, `catalog` the store's device name (`x4`, empty for
