@@ -264,6 +264,8 @@ fn read_entries(
 }
 
 mod edits;
+mod navigation;
+pub use navigation::ScreenState;
 
 #[cfg(test)]
 mod tests;
