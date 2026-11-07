@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+extern crate std;
 use super::*;
 use crate::{
     abi7::{
@@ -290,4 +291,81 @@ fn generic_schema_validation_accepts_multiplicity_but_echo_requires_one_record()
     assert_eq!(echo(&env, op, &two, &mut out), Err(ERR_INVALID));
     assert_eq!(echo(&env, op, &[0], &mut out), Err(ERR_INVALID));
     assert_eq!(out, [0xa5; 512]);
+}
+
+std::thread_local! {
+    static BROKEN_REPLY: core::cell::Cell<u8> = const { core::cell::Cell::new(0) };
+}
+fn broken_then_echo(
+    frame: &dyn Frame,
+    op: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    match BROKEN_REPLY.with(core::cell::Cell::get) {
+        1 => {
+            out[0] = 0;
+            Ok(out.len() + 1)
+        }
+        2 => {
+            out[0] = 1;
+            Ok(1)
+        } // One record promised, no frame.
+        3 => registrations::records_encode(
+            &[registrations::Record::EventStarted(
+                registrations::EventStarted { now_ms: 0 },
+            )],
+            out,
+        ),
+        _ => echo(frame, op, input, out),
+    }
+}
+
+#[test]
+fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
+    let pool = HostResources::with_test_service(broken_then_echo).unwrap();
+    let owner = pool.try_owner().unwrap();
+    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let input = batch("after broken reply");
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    scope
+        .as_ref()
+        .scope(&env, || {
+            let mut handle = 0;
+            // SAFETY: all fixture pairs are live, bounded and disjoint.
+            unsafe {
+                assert_eq!(
+                    open(
+                        &scope,
+                        &owner,
+                        &declared(),
+                        pair(b"core.test-echo"),
+                        1,
+                        0,
+                        &mut handle
+                    ),
+                    OK
+                );
+                for (mode, status) in [(1, ERR_INVALID), (2, ERR_INVALID), (3, ERR_UNSUPPORTED)] {
+                    let mut out = [0xa5; 512];
+                    BROKEN_REPLY.with(|value| value.set(mode));
+                    assert_eq!(
+                        call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                        status
+                    );
+                    assert_eq!(out, [0xa5; 512]);
+                    BROKEN_REPLY.with(|value| value.set(0));
+                    assert_eq!(
+                        call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                        input.len() as i32
+                    );
+                    assert_eq!(&out[..input.len()], input);
+                    assert!(out[input.len()..].iter().all(|byte| *byte == 0xa5));
+                }
+            }
+        })
+        .unwrap();
 }

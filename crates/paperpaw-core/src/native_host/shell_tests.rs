@@ -725,3 +725,6 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
     drop(batch);
     finish(&hosted);
 }
+
+#[path = "shell_service_oom_tests.rs"]
+mod service_oom;
