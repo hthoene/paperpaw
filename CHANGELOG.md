@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Power is a native interface-7 plugin only (1.1.2): the interface-6 plugin and its Kernel
+  tests are removed; the mode choice, the power menu and the sleep-screen-first ordering move
+  to a host-free model with tests, the DEV commands (sleep, power off, restart, wear) have
+  typed SDK methods, and `EventKind::Answered` subscribes to question answers (#228).
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native
