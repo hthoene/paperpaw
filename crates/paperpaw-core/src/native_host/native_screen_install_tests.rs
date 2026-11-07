@@ -4,6 +4,7 @@ use crate::native_host::{flat::FlatDepth, registrations as wire};
 use paperpaw_sdk::{Command, Handled, Id, Params};
 
 std::thread_local! {
+    static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
@@ -13,6 +14,7 @@ std::thread_local! {
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
+    static STAMPS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
     static EVENTS: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -107,10 +109,33 @@ unsafe extern "C" fn screen_destroy(state: *mut c_void) {
     // SAFETY: the host returns exactly the allocation published by screen_make.
     unsafe { drop(Box::from_raw(state.cast::<ScreenState>())) };
 }
-unsafe extern "C" fn screen_event(_: *mut c_void, token: u32, bytes: PpBytes, _: PpBuffer) -> i32 {
+unsafe extern "C" fn screen_event(
+    state: *mut c_void,
+    token: u32,
+    bytes: PpBytes,
+    _: PpBuffer,
+) -> i32 {
     if token != 91 {
         return ERR_INVALID;
     }
+    // SAFETY: the owner retains the initialized fixture and its pinned context.
+    let context = unsafe {
+        &*(*state.cast::<ScreenState>())
+            .context
+            .cast::<Context<Heap>>()
+    };
+    let stamp = context
+        .environment
+        .with_frame(|frame| Ok::<_, i32>((frame.caller()?, frame.callback_epoch()?)));
+    let (owner, epoch) = match stamp {
+        Ok(Ok(stamp)) => stamp,
+        _ => return host_glue::ERR_STATE,
+    };
+    if owner != context.resources.owner_id() {
+        return host_glue::ERR_STATE;
+    }
+    STAMPS.with(|stamps| stamps.borrow_mut().push((owner, epoch)));
+
     // SAFETY: the callback borrows the host's initialized event for this call.
     let bytes = unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) };
     let record = match wire::records_decode_single(bytes) {
@@ -140,7 +165,13 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
             owner,
             (ptr::null(), 0),
             |_, _, _, _| {},
-            super::super::super::HostResources::try_new().unwrap(),
+            POOL.with(|pool| {
+                let mut pool = pool.borrow_mut();
+                if pool.is_none() {
+                    *pool = Some(crate::native_host::HostResources::try_new().unwrap());
+                }
+                pool.as_ref().unwrap().try_clone().unwrap()
+            }),
             DeclaredServices::none(),
         )
     }
@@ -430,12 +461,15 @@ fn retiring_open_registered_owner_refuses_callbacks_and_tears_down_under_kernel_
     let mut kernel = kernel(0);
     open(&mut kernel, Params::new());
     let before = EVENTS.with(|events| events.borrow().len());
-    let Some(crate::registry::Maker::Native(made)) =
-        kernel.shared.registry.screens.get("factory.screen")
-    else {
-        panic!("native maker missing");
-    };
-    made.retire_for_test();
+    let owner = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .retire(owner)
+            .unwrap()
+            .is_none()
+    );
     kernel.with_screen(0, |screen, cx| {
         screen.on_show(cx);
         Handled::Yes
@@ -468,4 +502,316 @@ fn wait_ready_flag_is_refused_until_its_host_policy_is_wired() {
         install(&mut kernel, 1 << 3),
         Err(Error::Factory(host_glue::ERR_UNSUPPORTED))
     ));
+}
+
+#[test]
+fn real_callback_stamps_use_registered_owner_and_distinct_live_epochs() {
+    let mut kernel = kernel(0);
+    STAMPS.with(|stamps| stamps.borrow_mut().clear());
+    let owner = kernel.shared.native_instances.find("factory").unwrap();
+    open(&mut kernel, Params::new());
+    open(&mut kernel, Params::new());
+    let stamps = STAMPS.with(|stamps| stamps.borrow().clone());
+    assert!(stamps.len() >= 3);
+    assert!(stamps.iter().all(|stamp| stamp.0 == owner && stamp.1 != 0));
+    assert!(stamps.windows(2).all(|pair| pair[0].1 < pair[1].1));
+    assert_eq!(kernel.shared.native_instances.depth(), 0);
+}
+
+#[test]
+fn repeated_failed_admissions_reclaim_rows_and_recover_in_the_same_kernel() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    let mut capacity = None;
+    let mut recovered = false;
+    for allocation in 1..64 {
+        INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        let result = install(&mut kernel, 0);
+        arm_failure(0);
+        INSTALL_FAIL_NTH.with(|value| value.set(0));
+        let (rows, reserved) = kernel.shared.native_instances.retained_rows();
+        if result.is_ok() {
+            assert_eq!(rows, 1);
+            let key = kernel.shared.native_instances.find("factory").unwrap();
+            assert!(key > 1, "multiple failed admissions consumed unique keys");
+            open(&mut kernel, Params::new());
+            assert_eq!(kernel.stack.len(), 1);
+            recovered = true;
+            break;
+        }
+        assert_eq!(rows, 0, "failed admission must release its row");
+        if reserved != 0 {
+            assert_eq!(*capacity.get_or_insert(reserved), reserved);
+        }
+        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        assert_eq!(DESTROYED.with(Cell::get), allocation);
+    }
+    assert!(
+        recovered,
+        "a later retry must install and open successfully"
+    );
+}
+
+#[test]
+fn native_unload_cleans_up_and_reinstall_uses_a_fresh_key() {
+    let mut kernel = kernel(0);
+    open(&mut kernel, Params::new());
+    let owner = Id::new_static("factory");
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    CHECK_TEARDOWN.with(|value| value.set(true));
+    kernel.unload_plugin(&owner);
+    CHECK_TEARDOWN.with(|value| value.set(false));
+    assert!(kernel.shared.native_instances.id(old).is_none());
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    assert!(
+        !kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
+    assert!(kernel.stack.is_empty());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    assert_eq!(TEARDOWN_STATUS.with(Cell::get), host_glue::ERR_STATE);
+    install(&mut kernel, 0).unwrap();
+    let new = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(new > old);
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+}
+
+#[test]
+fn failed_publication_reclaims_row_then_retry_publishes_under_a_fresh_key() {
+    let mut kernel = kernel(0);
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    // Keep the old factory to force a conflict at publication, after binding.
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .retire(old)
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        install(&mut kernel, 0),
+        Err(Error::Status(ERR_INVALID))
+    ));
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    kernel
+        .shared
+        .registry
+        .screens
+        .remove_native_owner("factory");
+    install(&mut kernel, 0).unwrap();
+    let new = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(
+        new > old + 1,
+        "the refused publication consumed its own identity"
+    );
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+}
+
+#[test]
+fn one_unload_request_continues_cleanup_and_retries_busy_retirement_on_tick() {
+    let mut kernel = kernel(0);
+    open(&mut kernel, Params::new());
+    let owner = Id::new_static("factory");
+    let key = kernel.shared.native_instances.find("factory").unwrap();
+    kernel
+        .shared
+        .data_folders
+        .push((owner.clone(), "retiring-plugin".into()));
+    crate::native_host::shell::teardown_fault::arm_persistent(
+        crate::native_host::TeardownStep::Release,
+        crate::native_host::Error::Busy,
+    );
+    kernel.unload_plugin(&owner);
+    assert!(kernel.shared.native_instances.id(key).is_none());
+    assert_eq!(kernel.shared.native_instances.find("factory"), Some(key));
+    assert!(
+        kernel
+            .shared
+            .data_folders
+            .iter()
+            .all(|(id, _)| id != &owner)
+    );
+    assert!(kernel.stack.is_empty());
+    assert!(
+        !kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    let effects = kernel.tick(paperpaw_platform::Instant(10));
+    let wake = effects
+        .wake_at()
+        .expect("pending cleanup schedules a main-loop wake");
+    assert!(wake <= paperpaw_platform::Instant(60));
+    crate::native_host::shell::teardown_fault::disarm();
+    kernel.tick(wake);
+    assert_eq!(kernel.shared.native_instances.find("factory"), None);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    install(&mut kernel, 0).unwrap();
+    assert!(kernel.shared.native_instances.find("factory").unwrap() > key);
+}
+
+#[test]
+fn retained_host_stop_enters_the_same_kernel_unload_path() {
+    let mut kernel = kernel(0);
+    open(&mut kernel, Params::new());
+    let key = kernel.shared.native_instances.find("factory").unwrap();
+    let crate::native_host::native_instances::InstanceState::Running(lease) =
+        kernel.shared.native_instances.state(key).unwrap()
+    else {
+        panic!("running owner");
+    };
+    lease.stop();
+    kernel.tick(paperpaw_platform::Instant(10));
+    assert_eq!(kernel.shared.native_instances.find("factory"), None);
+    assert!(
+        !kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
+    assert!(kernel.stack.is_empty());
+    assert_eq!(
+        DESTROYED.with(Cell::get),
+        0,
+        "the test lease still pins the owner"
+    );
+    drop(lease);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    install(&mut kernel, 0).unwrap();
+    assert!(kernel.shared.native_instances.find("factory").unwrap() > key);
+}
+
+#[test]
+fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let storage = paperpaw_sdk::MemoryStorage::new().with(
+        "plugins/.factory.part/plugin.ini",
+        "[plugin]\nid = factory\nname = Replacement\nversion = 2.0.0\n",
+    );
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(storage)
+        .build()
+        .unwrap();
+    install(&mut kernel, 0).unwrap();
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    crate::native_host::shell::teardown_fault::arm_persistent(
+        crate::native_host::TeardownStep::Release,
+        crate::native_host::Error::Busy,
+    );
+    kernel.apply(Command::InstallPlugin(
+        Id::new_static("factory"),
+        "plugins/.factory.part".into(),
+    ));
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .replacement_pending(&Id::new_static("factory"))
+    );
+    assert!(
+        kernel.plugins().get("factory").is_none(),
+        "new declarations must not publish during cleanup"
+    );
+    let wake = kernel
+        .tick(paperpaw_platform::Instant(10))
+        .wake_at()
+        .unwrap();
+    assert!(kernel.shared.native_instances.id(old).is_none());
+    assert!(kernel.plugins().get("factory").is_none());
+    crate::native_host::shell::teardown_fault::disarm();
+    kernel.tick(wake);
+    assert_eq!(kernel.shared.native_instances.find("factory"), None);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    let replacement = kernel
+        .plugins()
+        .get("factory")
+        .expect("completion publishes replacement");
+    assert_eq!(replacement.manifest.version.major, 2);
+    kernel.tick(paperpaw_platform::Instant(wake.millis() + 50));
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn kernel_main_loop_drains_more_than_sixteen_orphan_retirements() {
+    use crate::native_host::doc_service::{DocHost, Limits, tests::Fake};
+    let mut kernel = kernel(0);
+    let pool = POOL.with(|pool| pool.borrow().as_ref().unwrap().try_clone().unwrap());
+    let documents = Fake::new(Limits::LARGE);
+    pool.hosts().wire_documents(documents.clone()).unwrap();
+    let owners: Vec<_> = (0..40).map(|_| pool.try_owner().unwrap()).collect();
+    let wake;
+    {
+        let _busy = documents.table().hold().unwrap();
+        drop(owners);
+        assert!(pool.hosts().retirements_pending());
+        assert!(kernel.native_unload_due().is_some());
+        wake = kernel
+            .tick(paperpaw_platform::Instant(10))
+            .wake_at()
+            .unwrap();
+        assert!(pool.hosts().retirements_pending());
+    }
+    kernel.tick(wake);
+    assert!(!pool.hosts().retirements_pending());
+    assert!(kernel.native_unload_due().is_none());
+    assert!(
+        kernel.shared.native_instances.find("factory").is_some(),
+        "orphan retries preserve a different live owner"
+    );
+}
+
+#[test]
+fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists() {
+    use crate::native_host::doc_service::{DocHost, Limits, tests::Fake};
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let pool = crate::native_host::HostResources::try_new().unwrap();
+    let documents = Fake::new(Limits::LARGE);
+    pool.hosts().wire_documents(documents.clone()).unwrap();
+    POOL.with(|slot| *slot.borrow_mut() = Some(pool.try_clone().unwrap()));
+    let hosted = host(0);
+    let depth = FlatDepth::try_new().unwrap();
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    {
+        let _busy = documents.table().hold().unwrap();
+        EMPTY.with(|value| value.set(true));
+        let result = kernel.register_native(hosted, &depth, |_, _, _| {});
+        EMPTY.with(|value| value.set(false));
+        assert!(matches!(
+            result,
+            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        ));
+        assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+        assert!(pool.hosts().retirements_pending());
+        assert!(kernel.native_unload_due().is_some());
+        assert!(
+            kernel
+                .tick(paperpaw_platform::Instant(1))
+                .wake_at()
+                .is_some()
+        );
+        assert!(pool.hosts().retirements_pending());
+    }
+    kernel.tick(paperpaw_platform::Instant(51));
+    assert!(!pool.hosts().retirements_pending());
+    assert!(kernel.native_unload_due().is_none());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
 }

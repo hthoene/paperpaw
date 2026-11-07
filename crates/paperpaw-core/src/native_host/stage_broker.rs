@@ -31,7 +31,7 @@ pub(crate) struct Schema {
 #[derive(Clone, Copy)]
 pub(crate) struct Subscription<'a> {
     pub(crate) stage: &'a str,
-    pub(crate) plugin: usize,
+    pub(crate) plugin: u64,
     pub(crate) token: u32,
     pub(crate) order: i16,
     pub(crate) index: u32,

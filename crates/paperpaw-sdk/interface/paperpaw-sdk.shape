@@ -1974,6 +1974,17 @@ enum paperpaw_sdk::native::declare::registry::SetupPage<'a> { Setting(0: &'a str
 enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::declare::uix::InputKind { Input, Gesture }
 enum paperpaw_sdk::native::declare::uix::WidgetLayout { Grid, Stack }
+enum paperpaw_sdk::native::device::rows::DeviceCapability { Touch, Network, Wifi, Bluetooth, Firmware, Speech, Sleep, Rotation, Colours, ButtonRow, Clipboard, Frontlight, Monochrome, PowerOff, Pen }
+enum paperpaw_sdk::native::device::rows::DeviceClass { Small, Medium, Large, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::DeviceOutcome { Ok, Other, Declined, Dismissed, Damaged, OtherAuthor, KeyChanged, Revoked, Unsigned, UnknownKey, NewerInterface, OlderInterface, OtherChip, NoRoom, NotNewer, IdTaken, CardError, CardFull, ContentChanged, Unsupported, Cancelled, RestartPending }
+enum paperpaw_sdk::native::device::rows::FirmwareState { Idle, Waiting, Installing, Installed, Failed, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::InstallKind { Plugin, Firmware, Removal, Check, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::NativeSafeMode { None, StartupFailures, User }
+enum paperpaw_sdk::native::device::rows::NotInstalledReason { OtherAuthor, Damaged, Revoked, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::PowerControl { Radio, CpuClock, Buttons, Frontlight, SystemSaver }
+enum paperpaw_sdk::native::device::rows::PowerLevel { Normal, Saving, Offline, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::StartKind { UnknownStart, PowerOn, Wake, Restart, Fault, Unknown(0: u32) }
+enum paperpaw_sdk::native::device::rows::WifiState { Off, On, Joining, Online, Hosting, Unknown(0: u32) }
 enum paperpaw_sdk::native::events::Event<'a> { Tick { now_ms: u64 }, Started { now_ms: u64 }, Resume { now_ms: u64 }, Suspend { now_ms: u64 }, Stopping { now_ms: u64 }, BatteryMeasured { now_ms: u64 }, PageTurned(0: paperpaw_sdk::native::events::ReadingView<'a>), ScreenShown { now_ms: u64, screen: &'a str, width: u32, height: u32, instance: core::option::Option<paperpaw_sdk::native::ui::types::Instance> }, ActionRun { now_ms: u64, action: &'a str }, StageCall { stage: &'a str, schema: u32, payload: &'a [u8] }, SettingChanged { now_ms: u64, key: &'a str, old: core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>> }, Book { kind: paperpaw_sdk::native::events::states::BookKind, reason: u32, reading: paperpaw_sdk::native::events::ReadingView<'a> }, BookMoved { now_ms: u64, from: &'a str, path: &'a str }, BookRemoved { now_ms: u64, path: &'a str }, PluginsChanged { now_ms: u64 }, WifiChanged { now_ms: u64, state: paperpaw_sdk::native::events::states::WifiLinkState }, PowerChanged(0: paperpaw_sdk::native::events::states::PowerChange<'a>), StatusChanged { now_ms: u64 }, ChargeChanged { now_ms: u64, flags: paperpaw_sdk::native::events::states::ChargeFlags }, RegistryChanged { now_ms: u64, what: paperpaw_sdk::native::events::RegistryChanges }, PreviewChanged { now_ms: u64 }, PluginsRequested { now_ms: u64, request: paperpaw_sdk::native::events::PluginRequestId, by: &'a str, plugins: paperpaw_sdk::native::events::RequestedPlugins<'a> }, PluginAnswered { now_ms: u64, request: paperpaw_sdk::native::events::PluginRequestId, plugin: &'a str, outcome: paperpaw_sdk::native::commands::registry::PluginOutcome }, ScreenOpened { now_ms: u64, screen: &'a str, instance: paperpaw_sdk::native::ui::types::Instance, slot: &'a str, handover: core::option::Option<paperpaw_sdk::native::ui::types::HandoverId>, params: u32, text_bytes: u32, again: bool, restored: bool }, ScreenClosed { now_ms: u64, screen: &'a str, instance: paperpaw_sdk::native::ui::types::Instance }, StackChanged { now_ms: u64 }, Answered { now_ms: u64, answer: paperpaw_sdk::native::events::uix_events::Answered }, WidgetMade { now_ms: u64, widget: &'a str, instance: paperpaw_sdk::native::ui::types::Instance, place: &'a str }, WidgetDropped { now_ms: u64, instance: paperpaw_sdk::native::ui::types::Instance }, WidgetChanged { now_ms: u64, instance: paperpaw_sdk::native::ui::types::Instance }, ScreenReady { now_ms: u64, screen: &'a str, instance: paperpaw_sdk::native::ui::types::Instance }, Spoken { now_ms: u64, cookie: u32, status: paperpaw_sdk::native::events::uix_events::SpeechStatus } }
 enum paperpaw_sdk::native::events::states::BookKind { Opened, Closed, Finished }
 enum paperpaw_sdk::native::events::states::WifiLinkState { Off, On, Connecting, Connected, AccessPoint }
@@ -1983,6 +1994,9 @@ enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
+enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
+enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
+enum paperpaw_sdk::native::library::rows::CatalogPhase { Empty, Walking, Ready, Unknown(0: u32) }
 enum paperpaw_sdk::native::registry::MenuQuery { Current, All, Declared }
 enum paperpaw_sdk::native::registry::ValuesQuery<'a> { Preset(0: &'a str), Placement(0: &'a str) }
 enum paperpaw_sdk::native::registry::rows::RegistryBindingOrigin { Plugin, Device, Preset, User, Unknown(0: u32) }
@@ -2004,6 +2018,7 @@ enum paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a> { StatusAsk
 enum paperpaw_sdk::native::stage_schemas::core_widget_v1::Record { WidgetMeasure(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure), WidgetPlace(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetPlace), WidgetTargets(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets), WidgetSize(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetSize), WidgetTarget(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTarget) }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
 enum paperpaw_sdk::native::ui::queries::HintInput { Any, Touch, Buttons }
+enum paperpaw_sdk::native::ui::stages::widget::WidgetCall { Measure { instance: paperpaw_sdk::native::ui::types::Instance, width: u32 }, Place { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect }, Targets { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect } }
 enum paperpaw_sdk::native::ui::status::StatusLine<'cb> { Own, Draw(0: paperpaw_sdk::native::ui::widgets::StatusLineHandle<'cb>) }
 enum paperpaw_sdk::native::ui::types::Answer { Accept, Cancel, Typing, Pick(0: u32), Yes, No }
 enum paperpaw_sdk::native::ui::types::QuestionKind { Text, Choice, Confirm, Folder }
@@ -2585,6 +2600,27 @@ struct paperpaw_sdk::native::declare::uix::StatusLineDecl<'a>(0: paperpaw_sdk::n
 struct paperpaw_sdk::native::declare::uix::StatusPlaceDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::StatusPlace<'a>)
 struct paperpaw_sdk::native::declare::uix::WidgetDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::WidgetSpec<'a>)
 struct paperpaw_sdk::native::declare::uix::WidgetPlaceDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::WidgetPlace<'a>)
+struct paperpaw_sdk::native::device::Device { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::device::DeviceCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::device::DevicePage<'a, T> { bytes: &'a [u8], len: usize, end: paperpaw_sdk::native::device::DevicePageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::device::DevicePageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::device::DeviceCursor> }
+struct paperpaw_sdk::native::device::DeviceRequest(0: core::num::nonzero::NonZeroU32)
+struct paperpaw_sdk::native::device::DeviceRows<'a, T> { bytes: &'a [u8], remaining: usize, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error>, _row: core::marker::PhantomData<T> }
+struct paperpaw_sdk::native::device::rows::BluetoothInfo { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBluetooth }
+struct paperpaw_sdk::native::device::rows::BondedDevice<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBonded<'a> }
+struct paperpaw_sdk::native::device::rows::BuiltinPlugin<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBuiltin<'a> }
+struct paperpaw_sdk::native::device::rows::DeviceIdentity<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevDevice<'a> }
+struct paperpaw_sdk::native::device::rows::FileCheck<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevCheck<'a> }
+struct paperpaw_sdk::native::device::rows::FirmwareInfo<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevFirmware<'a> }
+struct paperpaw_sdk::native::device::rows::HardwareValue<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevValue<'a> }
+struct paperpaw_sdk::native::device::rows::InstallProgress<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevInstall<'a> }
+struct paperpaw_sdk::native::device::rows::MemoryInfo { row: paperpaw_sdk::native::declare::records_wire::ServiceDevMemory }
+struct paperpaw_sdk::native::device::rows::NativeBuild<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevNative<'a> }
+struct paperpaw_sdk::native::device::rows::NotInstalledPlugin<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevNotInstalled<'a> }
+struct paperpaw_sdk::native::device::rows::PhysicalKey<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevKey<'a> }
+struct paperpaw_sdk::native::device::rows::PowerInfo<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevPower<'a> }
+struct paperpaw_sdk::native::device::rows::WifiInfo<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevWifi<'a> }
+struct paperpaw_sdk::native::device::rows::WifiNetwork<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevNetwork<'a> }
 struct paperpaw_sdk::native::events::PluginRequestId(0: u32)
 struct paperpaw_sdk::native::events::ReadingView<'a> { now_ms: u64, section: u32, offset: u32, insert: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32> }
 struct paperpaw_sdk::native::events::RegistryChanges(0: u32)
@@ -2597,6 +2633,15 @@ struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
+struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
+struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::library::query::CatalogCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceLibQuery<'a>, cursor: paperpaw_sdk::native::library::query::CatalogCursor }
+struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)
+struct paperpaw_sdk::native::library::rows::CatalogState(0: paperpaw_sdk::native::declare::records_wire::ServiceLibState)
+struct paperpaw_sdk::native::library::rows::Entry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibEntry<'a>)
+struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::library::rows::LibraryPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::query::CatalogCursor> }
 struct paperpaw_sdk::native::registry::PageCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::registry::Registry { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::registry::RegistryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::registry::RegistryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
@@ -2681,6 +2726,9 @@ struct paperpaw_sdk::native::ui::paging::UiPageEnd { total: u32, generation: u32
 struct paperpaw_sdk::native::ui::params::Param<'a> { key: &'a str, value: &'a str }
 struct paperpaw_sdk::native::ui::queries::UiHint<'a> { input: paperpaw_sdk::native::ui::queries::HintInput, zone: paperpaw_platform::geometry::Rect, text: &'a str, owner: &'a str }
 struct paperpaw_sdk::native::ui::queries::UiScreen<'a> { screen: &'a str, instance: paperpaw_sdk::native::ui::types::Instance, slot: &'a str, owner: &'a str, flags: u32 }
+struct paperpaw_sdk::native::ui::stages::status::ContextParams<'a> { bytes: &'a [u8] }
+struct paperpaw_sdk::native::ui::stages::status::StatusAnswer<'a> { item: &'a str, flags: u32, text: &'a str }
+struct paperpaw_sdk::native::ui::stages::status::StatusCall<'a> { items: &'a str, context: &'a [u8] }
 struct paperpaw_sdk::native::ui::status::StatusValue<'a> { item: &'a str, text: &'a str, flags: u32, handle: core::option::Option<paperpaw_sdk::native::ui::widgets::StatusHandle<'a>> }
 struct paperpaw_sdk::native::ui::types::HandoverId(0: core::num::nonzero::NonZeroU32)
 struct paperpaw_sdk::native::ui::types::Instance(0: core::num::nonzero::NonZeroU32)

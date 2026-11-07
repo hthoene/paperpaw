@@ -284,6 +284,10 @@ fn a_retirement_that_cannot_be_queued_is_reported_to_every_retry() {
     // An owner that was never admitted has no room reserved: the broken
     // invariant is not silent.
     hosts.owner_gone(5, false);
+    assert!(
+        hosts.retirements_pending(),
+        "a lost owner must remain visible to the main loop"
+    );
     assert_eq!(hosts.retry_retirements(), Err(ERR_FULL));
     assert_eq!(hosts.retry_retirements(), Err(ERR_FULL), "durable");
 }
