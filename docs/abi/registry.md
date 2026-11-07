@@ -221,8 +221,10 @@ key and text bytes within the stage budget.
   guarded key it may not write is `ERR_INVALID`. In a book scope it forgets the scope's value.
 - [D] **Mass resets need consent.** Bit 1 for another plugin's settings and bit 2 (every setting)
   need the feature `uses.registry` (else `ERR_DENIED`), and the host asks the user before it applies
-  them (as decision 132): the command is accepted, and declined means nothing changes; the
-  submitter learns the outcome from event 64 (an empty key: read again) or its absence.
+  them (as decision 132): the command is accepted, and only an explicit yes applies it. Refused,
+  dismissed, or no answer within 10 minutes all change nothing; if the plugin that asked stops
+  first, the pending request is discarded. The submitter learns the outcome from event 64 (an
+  empty key: read again) or its absence.
 - [D] `set_scope`: the book scope for scoped settings, by a path on root 1, while the submitting
   screen stays open; empty ends it. The screen identity is stamped at submit (as `command.redraw`):
   not the submitter's own top screen gives `ERR_STATE`.
@@ -251,6 +253,9 @@ These change the user's configuration of the whole device, so they need the D1 f
   is `ERR_DENIED`. As a second line, the host refuses (`ERR_DENIED`) a `bind_key` batch, and drops
   at admission a `key.bind`, that would leave the **global** layer without an input to the main
   menu. Screen layers, conditions and declarations can still shadow it; the chord is the guarantee.
+  **Device gate (owner):** on the X4 and X4 Pro, holding Power for 8 s must not end in a hardware
+  power-off or reset before the host sees it; if it does, the escape takes another chord before the
+  freeze.
 - [D] `bind_slot`: binds `slot` to `screen`; empty `screen` returns to the default. The screen must
   be declared and offered for that slot, else `ERR_INVALID`.
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
@@ -296,7 +301,8 @@ These change the user's configuration of the whole device, so they need the D1 f
   (section 2.1) changed with it. Plugin set changes stay `event.plugins_changed` (70); setting
   values stay `event.setting_changed` (64). Bit 0 also covers item state pushed with command 60
   (live, no generation change, coalesced). Bit 31 (`dropped`) goes to one plugin only: a staged REG
-  batch of its own was dropped when applied (section 4).
+  batch of its own was dropped when applied (section 4). Coalescing never loses a bit: pending
+  `what` bits are OR-ed together until the event is delivered.
 - [D] **Plugin requests.** A request never installs anything by itself: an install stays the DEV
   family's `core.install` with the host's confirmation (decision 132; firmware always confirmed,
   decision 134). `command.request_plugins` (ids, one per line, at most 16, the interface-6
@@ -422,4 +428,7 @@ declaring plugin, as in `setting.spec`.
    back to the setting itself (`widgets.clock.face`) as interface 6 `with_placement` did: one
    place for precedence and authority, one call. The SDK never asks twice.
 2. [D] **Plugin inputs and gestures** (`InputSpec`, `GestureSpec`) are needed in 1.0 (keys and lock
-   declare them): UIX carries their declaration, and op 14 lists them with flag 4 and `plugin`.
+   declare them): UIX carries their declaration records, with ownership stamped by the host, and
+   op 14 lists them with flag 4 and `plugin`. No plugin input or gesture can take the hold-Power
+   escape (section 4.2).
+3. [D] Op 18 for a placement lists only the values that placement sets itself, not the fallbacks.
