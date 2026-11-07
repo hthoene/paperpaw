@@ -11,7 +11,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_json::stream::{Event, MAX_DEPTH, MAX_STRING, Parser, read_file};
+use paperpaw_json::stream::{Event, MAX_DEPTH, MAX_STRING, Parser, read_file, try_read_file};
 use paperpaw_json::{Value, number, object, raw_member, string, string_array, text, unquote};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 use proptest::prelude::*;
@@ -550,6 +550,22 @@ fn read_file_reads_a_file_larger_than_its_chunks() {
         events[3999],
         Ev::Value(path(&["items", "[]", "t"]), "ü1999".into())
     );
+}
+
+#[test]
+fn the_fallible_file_reader_reports_the_same() {
+    let doc = r#"{"a": [1, "zwei", {"b": null}], "c": "\u00fc"}"#;
+    let storage = OneFile(doc.as_bytes().to_vec());
+    let (mut infallible, mut fallible) = (Vec::new(), Vec::new());
+    read_file(&storage, "f.json", &mut |event| {
+        infallible.push(format!("{event:?}"))
+    });
+    try_read_file(&storage, "f.json", &mut |event| {
+        fallible.push(format!("{event:?}"))
+    })
+    .unwrap();
+    assert_eq!(fallible, infallible);
+    assert_eq!(fallible.len(), 10);
 }
 
 proptest! {

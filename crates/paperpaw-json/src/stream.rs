@@ -4,6 +4,11 @@
 //! cut at [`MAX_STRING`] bytes, keys at 256, and objects and arrays nested
 //! deeper than [`MAX_DEPTH`] are skipped.
 //!
+//! [`Parser::try_feed`] and [`Parser::try_finish`] allocate fallibly: memory
+//! refused is [`OutOfMemory`], after which the parser is dropped, never an
+//! abort. [`Parser::feed`] and [`Parser::finish`] abort as other infallible
+//! allocations do.
+//!
 //! ```
 //! use paperpaw_json::stream::{Event, Parser};
 //!
@@ -38,6 +43,74 @@ const REPLACEMENT: &[u8] = "\u{fffd}".as_bytes();
 
 /// Where a value is: the keys from the top, `[]` for array items.
 pub type Path = Vec<String>;
+
+/// Memory for the parser's path or text was refused
+/// ([`Parser::try_feed`], [`Parser::try_finish`], [`try_read_file`]). The
+/// parser is in no state to go on: drop it. Events reported before were
+/// whole; nothing cut or partial is reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct OutOfMemory;
+
+impl core::fmt::Display for OutOfMemory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("not enough memory to read the JSON")
+    }
+}
+
+type Step = Result<(), OutOfMemory>;
+
+/// Room for `more` items in `items`.
+fn reserve<T>(items: &mut Vec<T>, more: usize) -> Step {
+    items.try_reserve(more).map_err(|_| OutOfMemory)
+}
+
+/// `text` as an owned string, allocated fallibly.
+fn owned(text: &str) -> Result<String, OutOfMemory> {
+    let mut out = String::new();
+    out.try_reserve_exact(text.len()).map_err(|_| OutOfMemory)?;
+    out.push_str(text);
+    Ok(out)
+}
+
+/// `bytes` as text, invalid UTF-8 replaced (as `String::from_utf8_lossy`),
+/// reusing their buffer where they are valid and allocating fallibly where
+/// not.
+fn lossy(bytes: Vec<u8>) -> Result<String, OutOfMemory> {
+    let bytes = match String::from_utf8(bytes) {
+        Ok(text) => return Ok(text),
+        Err(e) => e.into_bytes(),
+    };
+    let replacement = char::REPLACEMENT_CHARACTER.len_utf8();
+    let len = bytes
+        .utf8_chunks()
+        .map(|c| {
+            c.valid().len()
+                + if c.invalid().is_empty() {
+                    0
+                } else {
+                    replacement
+                }
+        })
+        .sum();
+    let mut text = String::new();
+    text.try_reserve_exact(len).map_err(|_| OutOfMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        text.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            text.push(char::REPLACEMENT_CHARACTER);
+        }
+    }
+    Ok(text)
+}
+
+/// The infallible forms: memory refused aborts, as an infallible
+/// allocation does.
+fn or_abort(step: Step) {
+    if step.is_err() {
+        alloc::alloc::handle_alloc_error(core::alloc::Layout::new::<u8>());
+    }
+}
 
 /// What the parser reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,9 +165,7 @@ impl Parser {
     paperpaw_table::shared! {
     /// Reads `data`, the next piece of the text, reporting what it finds.
     pub fn feed(&mut self, data: &[u8], emit: &mut dyn FnMut(Event<'_>)) {
-        for &b in data {
-            self.byte(b, emit);
-        }
+        or_abort(self.try_feed(data, emit));
     } @ data::JSON_STREAM_FEED
     }
 
@@ -103,57 +174,89 @@ impl Parser {
     /// with, which only what follows it could end otherwise (e.g. `42` as
     /// the whole text). A string left open is not reported.
     pub fn finish(&mut self, emit: &mut dyn FnMut(Event<'_>)) {
-        if matches!(self.state, State::Plain) {
-            self.end_plain(emit);
-        }
+        or_abort(self.try_finish(emit));
     } @ data::JSON_STREAM_FINISH
     }
 
-    /// Adds `bytes` to the text being read.
-    fn push_bytes(&mut self, bytes: &[u8]) {
-        self.flush_surrogate();
-        if self.bytes.len() < MAX_STRING {
-            self.bytes.extend_from_slice(bytes);
+    /// As [`Parser::feed`], allocating fallibly.
+    ///
+    /// # Errors
+    /// [`OutOfMemory`] where memory for the path or a text is refused; the
+    /// parser is then dropped.
+    pub fn try_feed(
+        &mut self,
+        data: &[u8],
+        emit: &mut dyn FnMut(Event<'_>),
+    ) -> Result<(), OutOfMemory> {
+        for &b in data {
+            self.byte(b, emit)?;
         }
+        Ok(())
     }
 
-    fn push_char(&mut self, c: char) {
+    /// As [`Parser::finish`], allocating fallibly.
+    ///
+    /// # Errors
+    /// [`OutOfMemory`] where memory for the last value is refused.
+    pub fn try_finish(&mut self, emit: &mut dyn FnMut(Event<'_>)) -> Result<(), OutOfMemory> {
+        if matches!(self.state, State::Plain) {
+            self.end_plain(emit)?;
+        }
+        Ok(())
+    }
+
+    /// Adds `bytes` to the text being read.
+    fn push_bytes(&mut self, bytes: &[u8]) -> Step {
+        self.flush_surrogate()?;
+        if self.bytes.len() < MAX_STRING {
+            reserve(&mut self.bytes, bytes.len())?;
+            self.bytes.extend_from_slice(bytes);
+        }
+        Ok(())
+    }
+
+    fn push_char(&mut self, c: char) -> Step {
         let mut buf = [0u8; 4];
-        self.push_bytes(c.encode_utf8(&mut buf).as_bytes());
+        self.push_bytes(c.encode_utf8(&mut buf).as_bytes())
     }
 
     /// Adds the UTF-16 code unit of a `\u` escape.
-    fn push_unit(&mut self, unit: u32) {
+    fn push_unit(&mut self, unit: u32) -> Step {
         match (self.surrogate, unit) {
             (Some(high), 0xdc00..=0xdfff) => {
                 self.surrogate = None;
                 let code = 0x10000 + ((high - 0xd800) << 10) + (unit - 0xdc00);
-                self.push_char(char::from_u32(code).unwrap_or('\u{fffd}'));
+                self.push_char(char::from_u32(code).unwrap_or('\u{fffd}'))
             }
             (_, 0xd800..=0xdbff) => {
-                self.flush_surrogate();
+                self.flush_surrogate()?;
                 self.surrogate = Some(unit);
+                Ok(())
             }
             _ => self.push_char(char::from_u32(unit).unwrap_or('\u{fffd}')),
         }
     }
 
     /// A high surrogate not followed by its low half stands for U+FFFD.
-    fn flush_surrogate(&mut self) {
+    fn flush_surrogate(&mut self) -> Step {
         if self.surrogate.take().is_some() && self.bytes.len() < MAX_STRING {
+            reserve(&mut self.bytes, REPLACEMENT.len())?;
             self.bytes.extend_from_slice(REPLACEMENT);
         }
+        Ok(())
     }
 
     /// Reports `text` as the next value of the open object or array.
-    fn value(&mut self, text: &str, emit: &mut dyn FnMut(Event<'_>)) {
+    fn value(&mut self, text: &str, emit: &mut dyn FnMut(Event<'_>)) -> Result<(), OutOfMemory> {
         match self.containers.last() {
             Some(Container::Array) => {
-                self.path.push(String::from("[]"));
+                reserve(&mut self.path, 1)?;
+                self.path.push(owned("[]")?);
                 emit(Event::Value(&self.path, text));
                 self.path.pop();
             }
             Some(Container::Object) => {
+                reserve(&mut self.path, 1)?;
                 let key = self.key.take();
                 let has_key = key.is_some();
                 self.path.push(key.unwrap_or_default());
@@ -163,21 +266,34 @@ impl Parser {
             }
             None => emit(Event::Value(&self.path, text)),
         }
+        Ok(())
     }
 
-    fn open(&mut self, container: Container, emit: &mut dyn FnMut(Event<'_>)) {
+    fn open(
+        &mut self,
+        container: Container,
+        emit: &mut dyn FnMut(Event<'_>),
+    ) -> Result<(), OutOfMemory> {
         if self.skipped > 0 || self.containers.len() >= MAX_DEPTH {
             self.skipped = self.skipped.saturating_add(1);
-            return;
+            return Ok(());
         }
+        reserve(&mut self.containers, 1)?;
         match self.containers.last() {
-            Some(Container::Array) => self.path.push(String::from("[]")),
-            Some(Container::Object) => self.path.push(self.key.take().unwrap_or_default()),
+            Some(Container::Array) => {
+                reserve(&mut self.path, 1)?;
+                self.path.push(owned("[]")?);
+            }
+            Some(Container::Object) => {
+                reserve(&mut self.path, 1)?;
+                self.path.push(self.key.take().unwrap_or_default());
+            }
             None => {}
         }
         emit(Event::Open(&self.path));
         self.containers.push(container);
         self.key = None;
+        Ok(())
     }
 
     fn close(&mut self, emit: &mut dyn FnMut(Event<'_>)) {
@@ -195,33 +311,44 @@ impl Parser {
         };
     }
 
-    fn end_string(&mut self, key: bool, emit: &mut dyn FnMut(Event<'_>)) {
-        self.flush_surrogate();
+    fn end_string(
+        &mut self,
+        key: bool,
+        emit: &mut dyn FnMut(Event<'_>),
+    ) -> Result<(), OutOfMemory> {
+        self.flush_surrogate()?;
+        self.state = State::Between;
         if self.skipped == 0 {
             if key {
                 self.bytes.truncate(MAX_KEY);
+                // The key keeps the buffer; the next text gets another.
+                self.key = Some(lossy(core::mem::take(&mut self.bytes))?);
+                return Ok(());
             }
-            let text = String::from_utf8_lossy(&self.bytes).into_owned();
-            if key {
-                self.key = Some(text);
-            } else {
-                self.value(&text, emit);
-            }
+            self.emit_text(emit)?;
         }
         self.bytes.clear();
-        self.state = State::Between;
+        Ok(())
     }
 
-    fn end_plain(&mut self, emit: &mut dyn FnMut(Event<'_>)) {
+    fn end_plain(&mut self, emit: &mut dyn FnMut(Event<'_>)) -> Result<(), OutOfMemory> {
+        self.state = State::Between;
         if self.skipped == 0 {
-            let text = String::from_utf8_lossy(&self.bytes).into_owned();
-            self.value(&text, emit);
+            self.emit_text(emit)?;
         }
         self.bytes.clear();
-        self.state = State::Between;
+        Ok(())
     }
 
-    fn byte(&mut self, b: u8, emit: &mut dyn FnMut(Event<'_>)) {
+    /// Reports the text read as a value; its buffer is kept for the next.
+    fn emit_text(&mut self, emit: &mut dyn FnMut(Event<'_>)) -> Result<(), OutOfMemory> {
+        let text = lossy(core::mem::take(&mut self.bytes))?;
+        let reported = self.value(&text, emit);
+        self.bytes = text.into_bytes();
+        reported
+    }
+
+    fn byte(&mut self, b: u8, emit: &mut dyn FnMut(Event<'_>)) -> Result<(), OutOfMemory> {
         match &mut self.state {
             State::Text {
                 key,
@@ -232,18 +359,17 @@ impl Parser {
                     let Some(digit) = char::from(b).to_digit(16) else {
                         // A cut escape: the byte is read as it is.
                         *unicode = None;
-                        self.push_bytes(REPLACEMENT);
-                        self.byte(b, emit);
-                        return;
+                        self.push_bytes(REPLACEMENT)?;
+                        return self.byte(b, emit);
                     };
                     *value = *value * 16 + digit;
                     *digits += 1;
                     if *digits == 4 {
                         let unit = *value;
                         *unicode = None;
-                        self.push_unit(unit);
+                        self.push_unit(unit)?;
                     }
-                    return;
+                    return Ok(());
                 }
                 if *escape {
                     *escape = false;
@@ -254,34 +380,39 @@ impl Parser {
                         b'b' | b'f' => b' ',
                         b'u' => {
                             *unicode = Some((0, 0));
-                            return;
+                            return Ok(());
                         }
                         other => other,
                     };
-                    self.push_bytes(&[b]);
-                    return;
+                    return self.push_bytes(&[b]);
                 }
                 match b {
-                    b'\\' => *escape = true,
+                    b'\\' => {
+                        *escape = true;
+                        Ok(())
+                    }
                     b'"' => {
                         let key = *key;
-                        self.end_string(key, emit);
+                        self.end_string(key, emit)
                     }
                     _ => self.push_bytes(&[b]),
                 }
             }
             State::Plain => {
                 if b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+') {
-                    self.push_bytes(&[b]);
+                    self.push_bytes(&[b])
                 } else {
-                    self.end_plain(emit);
-                    self.byte(b, emit);
+                    self.end_plain(emit)?;
+                    self.byte(b, emit)
                 }
             }
             State::Between => match b {
                 b'{' => self.open(Container::Object, emit),
                 b'[' => self.open(Container::Array, emit),
-                b'}' | b']' => self.close(emit),
+                b'}' | b']' => {
+                    self.close(emit);
+                    Ok(())
+                }
                 b'"' => {
                     let key = self.skipped == 0
                         && self.containers.last() == Some(&Container::Object)
@@ -291,17 +422,19 @@ impl Parser {
                         escape: false,
                         unicode: None,
                     };
+                    Ok(())
                 }
                 b',' => {
                     if self.skipped == 0 && self.containers.last() == Some(&Container::Object) {
                         self.key = None;
                     }
+                    Ok(())
                 }
-                b':' => {}
-                b if b.is_ascii_whitespace() => {}
+                b':' => Ok(()),
+                b if b.is_ascii_whitespace() => Ok(()),
                 b => {
                     self.state = State::Plain;
-                    self.push_bytes(&[b]);
+                    self.push_bytes(&[b])
                 }
             },
         }
@@ -324,6 +457,28 @@ pub fn read_file(storage: &dyn Storage, path: &str, emit: &mut dyn FnMut(Event<'
     }
     parser.finish(emit);
 } @ data::JSON_READ_FILE
+}
+
+/// As [`read_file`], allocating fallibly: reading ends at the first refusal.
+///
+/// # Errors
+/// [`OutOfMemory`] where memory for the path or a text is refused.
+pub fn try_read_file(
+    storage: &dyn Storage,
+    path: &str,
+    emit: &mut dyn FnMut(Event<'_>),
+) -> Result<(), OutOfMemory> {
+    let mut parser = Parser::default();
+    let mut buf = [0u8; CHUNK];
+    let mut offset = 0;
+    while let Ok(n) = storage.read_at(path, offset, &mut buf) {
+        if n == 0 {
+            break;
+        }
+        parser.try_feed(&buf[..n], emit)?;
+        offset += n as u64;
+    }
+    parser.try_finish(emit)
 }
 
 #[cfg(test)]
