@@ -6,9 +6,27 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 
+/// Host-only callback identity, never decoded from plugin bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CallbackStamp {
+    pub(crate) owner: u64,
+    pub(crate) epoch: u64,
+}
+
+impl CallbackStamp {
+    pub(crate) fn new(owner: u64, epoch: u64) -> Result<Self, i32> {
+        if epoch == 0 {
+            return Err(ERR_STATE);
+        }
+        Ok(Self { owner, epoch })
+    }
+}
+
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
+    pub(crate) callback: Option<CallbackStamp>,
+    pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
@@ -18,6 +36,33 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
+    fn caller(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.owner)
+            .ok_or(ERR_STATE)
+    }
+    fn callback_epoch(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.epoch)
+            .ok_or(ERR_STATE)
+    }
+
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.callback_epoch()?;
+        let instance = self
+            .instance
+            .filter(|instance| *instance != 0)
+            .ok_or(ERR_STATE)?;
+        self.env
+            .stack()
+            .iter()
+            .any(|entry| entry.key.serial() == instance)
+            .then_some(instance)
+            .ok_or(ERR_STATE)
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
     }

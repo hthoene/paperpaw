@@ -110,6 +110,16 @@ impl HostResources {
         &self.0.hosts
     }
 
+    /// The main loop's retry for owners whose retirement was busy when their
+    /// handle table dropped: call it again after `Ok(true)` (some are left) and
+    /// after `Err(ERR_BUSY)` (one is still busy).
+    ///
+    /// # Errors
+    /// The first error of an owner that stays queued (`ERR_BUSY`).
+    pub fn retry_retirements(&self) -> Result<bool, i32> {
+        self.0.hosts.retry_retirements()
+    }
+
     /// Assign a never-reused host owner, without allocation.
     ///
     /// # Errors
@@ -118,6 +128,8 @@ impl HostResources {
         let owner = self.0.next_owner.get();
         let next = owner.checked_add(1).ok_or(ERR_NO_SPACE)?;
         let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
+        // Room for this owner's retirement is reserved now (see the queue).
+        self.0.hosts.admit_owner()?;
         self.0.next_owner.set(next);
         Ok(OwnerResources { table, owner })
     }
@@ -139,11 +151,30 @@ pub(crate) struct OwnerResourceView {
     owner: u64,
 }
 
+impl OwnerResourceView {
+    pub(crate) fn owner_id(&self) -> u64 {
+        self.owner
+    }
+    pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
+        self.table.hosts.retry_retirements()
+    }
+    pub(crate) fn retirements_pending(&self) -> bool {
+        self.table.hosts.retirements_pending()
+    }
+    pub(crate) fn same_pool(&self, other: &Self) -> bool {
+        core::ptr::eq(&*self.table, &*other.table)
+    }
+}
+
 impl OwnerResources {
+    pub(crate) fn owner_id(&self) -> u64 {
+        self.owner
+    }
+
     pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {
         self.table.try_clone().map(|table| OwnerResourceView {
             table,
-            owner: self.owner,
+            owner: self.owner_id(),
         })
     }
 
@@ -250,7 +281,10 @@ impl Drop for OwnerResources {
         self.release_leftovers();
         // Whatever a busy table left, the owner is retired: its documents,
         // image ids and transactions end (idempotent after `release_all`).
-        self.table.hosts.owner_retired(self.owner).unwrap_or(());
+        // A table that is busy here has no caller left to retry: the owner is
+        // queued and the main loop retries it until it is done.
+        let retired = self.table.hosts.owner_retired(self.owner).is_ok();
+        self.table.hosts.owner_gone(self.owner, retired);
     }
 }
 

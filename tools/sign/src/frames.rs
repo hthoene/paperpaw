@@ -26,10 +26,19 @@
 //!   `lw` loads it, `jr` jumps. The table is read from the plugin's `.rodata`:
 //!   the run of its relocated words (they move with the plugin) from that
 //!   address, up to the first that does not point into this function. Each
-//!   entry is a target with the frame the jump has, and no register known,
-//!   and the walk goes on from every one. The table's length is the run, not
-//!   the compiler's bound check on the index. A table the scan cannot read
-//!   (no entry, a word not relocated, an entry into the middle of an
+//!   entry is a target with the frame and the registers the jump has, and the
+//!   walk goes on from every one. Where the compiler's bound check on the
+//!   index (`bltu`/`bgeu` against a constant, on every path to the jump) is
+//!   seen, the table is that many words and no more (tables lie one after the
+//!   other in `.rodata`; the run of labels would read the next one as this
+//!   one's cases, with registers that do not hold there). The scan assumes a
+//!   table ends at its first word that is no label of this function (the
+//!   compiler's table entries point into their own function, so a word that
+//!   points elsewhere, is not relocated, or lies past `.rodata` is the start
+//!   of other data): the run ends the table earlier than a bound that is
+//!   longer than it. With no bound seen, the table's length is the run. A
+//!   table the scan cannot
+//!   read (no entry, a word not relocated, an entry into the middle of an
 //!   instruction) is a jump through a register as below;
 //! - with the frame given back (`sp` at the function's start): a tail call
 //!   (`jr a5` after the epilogue), or a jump anywhere in the function; the
@@ -85,6 +94,9 @@
 
 use crate::elf::{Elf, Section, Symbol};
 
+mod state;
+use state::{State, Tab};
+
 /// A frame this large (in bytes) or larger is refused: the band's height
 /// (2 KiB, `paperpaw_x4::stack_band`). A frame of less cannot step over the
 /// band, and the reserve below it keeps the room the panic handler needs
@@ -110,174 +122,6 @@ pub enum Finding {
     Misaligned { at: usize },
 }
 
-/// What a register holds, as far as the scan knows.
-type Regs = [Option<i32>; 32];
-
-/// What a register holds of a jump table, as far as the scan follows it: the
-/// code that jumps by a table is `base + index` (an add of a constant and an
-/// index), a load of the word at it, a jump to that word.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    None,
-    /// A constant (the table's address, whole or its upper part) plus an index.
-    Indexed(u32),
-    /// The word loaded at that address of `.rodata`.
-    Entry(u32),
-}
-
-/// The registers an instruction sequence wrote, as a mask (bit `r` for
-/// `x{r}`). Not part of what two states are equal by: it only reports what a
-/// sequence did, it is not something the walk follows.
-#[derive(Clone, Copy, Default)]
-struct Written(u32);
-
-impl PartialEq for Written {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-impl Eq for Written {}
-
-/// What the walk knows before an instruction.
-#[derive(Clone, PartialEq, Eq)]
-struct State {
-    regs: Regs,
-    /// What the registers hold of a jump table.
-    tab: [Tab; 32],
-    /// `sp` relative to the function's start (negative: the frame).
-    sp: i64,
-    /// `s0` as `sp` was when it was set from it, relative to the start;
-    /// `None` when it is not known to be a frame pointer.
-    fp: Option<i64>,
-    /// Every register written since the start, by its destination register
-    /// (what `set` is told), not by comparing values.
-    written: Written,
-}
-
-impl State {
-    /// The state at a function's start.
-    fn entry() -> Self {
-        let mut regs: Regs = [None; 32];
-        regs[0] = Some(0);
-        State {
-            regs,
-            tab: [Tab::None; 32],
-            sp: 0,
-            fp: None,
-            written: Written(0),
-        }
-    }
-
-    /// No register known (but zero), as at a jump's targets.
-    fn forget_regs(&mut self) {
-        self.regs = [None; 32];
-        self.regs[0] = Some(0);
-        self.tab = [Tab::None; 32];
-    }
-
-    /// Where paths meet: a register that differs is unknown, the frame
-    /// pointer is kept only if it is the same, `sp` is the lowest.
-    fn join(&self, other: &State) -> State {
-        let mut regs = self.regs;
-        for (r, o) in regs.iter_mut().zip(other.regs) {
-            if *r != o {
-                *r = None;
-            }
-        }
-        let mut tab = self.tab;
-        for (t, o) in tab.iter_mut().zip(other.tab) {
-            if *t != o {
-                *t = Tab::None;
-            }
-        }
-        State {
-            regs,
-            tab,
-            sp: self.sp.min(other.sp),
-            fp: if self.fp == other.fp { self.fp } else { None },
-            written: Written(self.written.0 | other.written.0),
-        }
-    }
-
-    /// After a call that links in `link`: what a callee may change is unknown;
-    /// the callee-saved registers (`s0` to `s11`) and `sp` are kept, as the
-    /// calling convention keeps them (a table's base in `s8`, set before a
-    /// call, still holds after it). A call that links in `t0` is an outlined
-    /// sequence of the compiler's (a prologue's or epilogue's saves and
-    /// restores), which sets callee-saved registers: all are forgotten then,
-    /// but `s0` (as before).
-    fn called(&mut self, link: usize) {
-        let kept = self.regs;
-        let kept_tab = self.tab;
-        self.regs = [None; 32];
-        self.tab = [Tab::None; 32];
-        self.regs[0] = kept[0];
-        self.regs[8] = kept[8];
-        if link != 5 {
-            for r in [9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27] {
-                self.regs[r] = kept[r];
-                self.tab[r] = kept_tab[r];
-            }
-            self.tab[8] = kept_tab[8];
-        }
-    }
-
-    fn set(&mut self, rd: usize, value: Option<i32>) {
-        if rd == 8 {
-            // Written otherwise than as the frame pointer's set: not one.
-            self.fp = None;
-        }
-        if rd != 0 {
-            self.regs[rd] = value;
-            self.tab[rd] = Tab::None;
-            self.written.0 |= 1 << rd;
-        }
-    }
-
-    /// `rd = rs1 + rs2`: a constant if both are; a table's address plus an
-    /// index if one is a constant and the other is not known at all.
-    fn add(&mut self, rd: usize, rs1: usize, rs2: usize) {
-        let (a, b) = (self.regs[rs1], self.regs[rs2]);
-        let value = a.zip(b).map(|(a, b)| a.wrapping_add(b));
-        let tab = match (a, b, self.tab[rs1], self.tab[rs2]) {
-            (Some(c), None, _, Tab::None) | (None, Some(c), Tab::None, _) => Tab::Indexed(c as u32),
-            _ => Tab::None,
-        };
-        self.set(rd, value);
-        if rd != 0 {
-            self.tab[rd] = tab;
-        }
-    }
-
-    /// `rd = rs1 + imm`.
-    fn add_imm(&mut self, rd: usize, rs1: usize, imm: i32) {
-        let value = self.regs[rs1].map(|v| v.wrapping_add(imm));
-        let tab = match self.tab[rs1] {
-            Tab::Indexed(b) => Tab::Indexed(b.wrapping_add(imm as u32)),
-            t if imm == 0 => t,
-            _ => Tab::None,
-        };
-        self.set(rd, value);
-        if rd != 0 {
-            self.tab[rd] = tab;
-        }
-    }
-
-    /// `rd = word at rs1 + imm`: the entry of a table if `rs1` is an index
-    /// into one.
-    fn load(&mut self, rd: usize, rs1: usize, imm: i32) {
-        let tab = match self.tab[rs1] {
-            Tab::Indexed(b) => Tab::Entry(b.wrapping_add(imm as u32)),
-            _ => Tab::None,
-        };
-        self.set(rd, None);
-        if rd != 0 {
-            self.tab[rd] = tab;
-        }
-    }
-}
-
 /// How an instruction goes on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ctl {
@@ -291,8 +135,9 @@ enum Ctl {
     NoReturn,
     /// A jump through a register that is not a return.
     Indirect,
-    /// A jump through the word at this address of `.rodata`: a jump table.
-    Table(u32),
+    /// A jump through the word at this address of `.rodata`: a jump table,
+    /// and how far (in bytes) from its first word the index was bounded.
+    Table(u32, Option<u32>),
     /// `ebreak`, `unimp`: the CPU takes an exception and the firmware's
     /// handler never resumes the code (`shells/xteink/src/crash.rs`).
     Trap,
@@ -307,6 +152,9 @@ struct Effect {
     /// outlined sequences, whose writes are read from its code (the caller
     /// keeps the callee-saved registers it does not write).
     outlined: Option<u32>,
+    /// An unsigned compare a branch makes: `bgeu` if the first is true, and
+    /// the two registers.
+    cond: Option<(bool, usize, usize)>,
 }
 
 fn fall() -> Effect {
@@ -314,6 +162,7 @@ fn fall() -> Effect {
         ctl: Ctl::Fall,
         unbounded: false,
         outlined: None,
+        cond: None,
     }
 }
 
@@ -375,7 +224,7 @@ fn call(effect: &mut Effect, state: &mut State, env: &Env<'_>, rd: usize, target
 fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
     match (rs1, imm_i, state.tab[rs1]) {
         (1, 0, _) => Ctl::Ret,
-        (_, 0, Tab::Entry(at)) => Ctl::Table(at),
+        (_, 0, Tab::Entry(at, lim)) => Ctl::Table(at, lim),
         _ => match state.regs[rs1] {
             // The address as the CPU makes it: the sum wraps in 32 bits and
             // the low bit is cleared (`jalr`).
@@ -422,6 +271,8 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     return effect;
                 }
                 state.add_imm(rd, rs1, imm_i);
+            } else if funct3 == 1 {
+                state.shift_left(rd, rs1, w >> 20 & 31);
             } else {
                 state.set(rd, None);
             }
@@ -453,6 +304,9 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 << 19
                 >> 19) as i64;
             effect.ctl = Ctl::Branch(offset);
+            if funct3 == 6 || funct3 == 7 {
+                effect.cond = Some((funct3 == 7, rs1, rs2));
+            }
         }
         // jal: imm[20|10:1|11|19:12]. A call falls through, a jump does not.
         0x6f => {
@@ -514,6 +368,17 @@ fn cj_offset(w: u32) -> i32 {
         >> 20
 }
 
+/// The offset of `c.beqz` and `c.bnez`: imm[8|4:3|7:6|2:1|5].
+fn cb_offset(w: u32) -> i32 {
+    (((w >> 12 & 1) << 8
+        | (w >> 10 & 3) << 3
+        | (w >> 5 & 3) << 6
+        | (w >> 3 & 3) << 1
+        | (w >> 2 & 1) << 5) as i32)
+        << 23
+        >> 23
+}
+
 /// A 16-bit (compressed) instruction.
 fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let w = u32::from(w);
@@ -573,18 +438,10 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         // c.j
         (1, 5) => effect.ctl = Ctl::Jump(i64::from(cj_offset(w))),
         // c.beqz, c.bnez: imm[8|4:3|7:6|2:1|5]
-        (1, 6 | 7) => {
-            let offset = (((w >> 12 & 1) << 8
-                | (w >> 10 & 3) << 3
-                | (w >> 5 & 3) << 6
-                | (w >> 3 & 3) << 1
-                | (w >> 2 & 1) << 5) as i32)
-                << 23
-                >> 23;
-            effect.ctl = Ctl::Branch(i64::from(offset));
-        }
-        // c.slli, c.lwsp
+        (1, 6 | 7) => effect.ctl = Ctl::Branch(i64::from(cb_offset(w))),
+        // c.slli (32 or more is reserved), c.lwsp
         (2, 0 | 2) if rd == 2 => effect.unbounded = true,
+        (2, 0) if w >> 12 & 1 == 0 => state.shift_left(rd, rd, w >> 2 & 31),
         (2, 0 | 2) => state.set(rd, None),
         (2, 4) => {
             let bit12 = w >> 12 & 1;
@@ -593,7 +450,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 (0, 0) => {
                     effect.ctl = match (rd, state.tab[rd]) {
                         (1, _) => Ctl::Ret,
-                        (_, Tab::Entry(at)) => Ctl::Table(at),
+                        (_, Tab::Entry(at, lim)) => Ctl::Table(at, lim),
                         _ => Ctl::Indirect,
                     }
                 }
@@ -731,6 +588,11 @@ pub struct Walked {
 /// (a loop that moves `sp` never settles).
 const VISITS: u8 = 64;
 
+/// Most instructions of an outlined sequence the scan reads before it gives up
+/// (the compiler outlines parts of a large `match` decode into sequences of
+/// about eighty; the end must still be a plain `jr t0`).
+const OUTLINED_MAX: usize = 256;
+
 /// The walk of one function.
 struct Walk<'c> {
     code: &'c [u8],
@@ -796,14 +658,21 @@ impl Walk<'_> {
     /// function they jump in, so a word that points elsewhere is the start of
     /// other data). `None` if there is none, or one points into the middle of
     /// an instruction.
-    fn table_targets(&self, b: u32) -> Option<Vec<usize>> {
+    fn table_targets(&self, b: u32, lim: Option<u32>) -> Option<Vec<usize>> {
         let tables = self.env.tables;
         let mut at = usize::try_from(b.checked_sub(tables.addr)?).ok()?;
         if !at.is_multiple_of(4) {
             return None;
         }
         let mut out = Vec::new();
-        while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
+        // With the index bounded by a compare, the table is no longer than
+        // that (the next table may follow it); it may be shorter, as a compare
+        // before the index was scaled may have been looser than the one after
+        // it. Else the run of labels is the table.
+        let words = lim.map(|l| l as usize / 4 + 1);
+        while words.is_none_or(|n| out.len() < n)
+            && let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end))
+        {
             if let Some(relocated) = tables.relocated
                 && !u32::try_from(at).is_ok_and(|o| relocated.contains(&o))
             {
@@ -838,7 +707,8 @@ impl Walk<'_> {
     /// includes). Read from its code, straight to its `jr t0`. `None` for the
     /// move of `sp`, and all the registers (but zero), if it is not
     /// straight-line code in this section, ends otherwise, moves `sp` by more
-    /// than the scan can follow, or is longer than 64 instructions.
+    /// than the scan can follow, dips below its end value (lowers `sp` and
+    /// gives it back), or is longer than [`OUTLINED_MAX`] instructions.
     fn outlined_effect(&self, target: u32) -> (u32, Option<i64>) {
         const ALL: (u32, Option<i64>) = (!1, None);
         let Some(mut at) = target
@@ -848,8 +718,17 @@ impl Walk<'_> {
             return ALL;
         };
         let mut st = State::entry();
-        let done = |st: &State| (st.written.0 & !(1 | 1 << 2), Some(st.sp));
-        for _ in 0..64 {
+        // The lowest `sp` the sequence reaches: a dip that is given back before
+        // the end would be missing from the end value, so it is refused.
+        let mut lowest = 0_i64;
+        let done = |st: &State, lowest: i64| {
+            if lowest < st.sp.min(0) {
+                ALL
+            } else {
+                (st.written.0 & !(1 | 1 << 2), Some(st.sp))
+            }
+        };
+        for _ in 0..OUTLINED_MAX {
             let Some(h) = self.code.get(at..at + 2) else {
                 return ALL;
             };
@@ -861,20 +740,21 @@ impl Walk<'_> {
                 let w = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
                 // `jalr x0, 0(t0)`: the sequence's end.
                 if w == 0x0002_8067 {
-                    return done(&st);
+                    return done(&st, lowest);
                 }
                 (wide(w, &mut st, pc, &self.env), 4)
             } else {
                 let w = u16::from_le_bytes([h[0], h[1]]);
                 // `c.jr t0`.
                 if w == 0x8282 {
-                    return done(&st);
+                    return done(&st, lowest);
                 }
                 (narrow(w, &mut st, pc, &self.env), 2)
             };
             if !matches!(effect.ctl, Ctl::Fall) || effect.unbounded || effect.outlined.is_some() {
                 return ALL;
             }
+            lowest = lowest.min(st.sp);
             at += len;
         }
         ALL
@@ -893,6 +773,7 @@ impl Walk<'_> {
             if written >> r & 1 == 1 {
                 state.regs[r] = None;
                 state.tab[r] = Tab::None;
+                state.lim[r] = None;
             }
         }
         if written >> 8 & 1 == 1 {
@@ -942,13 +823,13 @@ impl Walk<'_> {
             self.out.frame = u32::try_from(-state.sp).unwrap_or(u32::MAX);
             self.out.frame_at = at;
         }
-        if let Ctl::Table(b) = effect.ctl {
+        if let Ctl::Table(b, lim) = effect.ctl {
             // Through the table: to each of its entries, with the frame and the
             // registers it has here (every path to an entry through this jump
             // has them; other paths join in). What the jump read is no table
             // entry any more. A table that cannot be read is a jump through a
             // register.
-            if let Some(targets) = self.table_targets(b) {
+            if let Some(targets) = self.table_targets(b, lim) {
                 let mut at_target = state.clone();
                 at_target.tab = [Tab::None; 32];
                 for j in targets {
@@ -972,7 +853,7 @@ impl Walk<'_> {
                 [None, None]
             }
             Ctl::NoReturn | Ctl::Trap => [None, None],
-            Ctl::Indirect | Ctl::Table(_) => {
+            Ctl::Indirect | Ctl::Table(..) => {
                 self.out.returns = true;
                 if state.sp != 0 {
                     // Inside a frame: where it goes is not known (a jump
@@ -1007,8 +888,18 @@ impl Walk<'_> {
                 [None, None]
             }
         };
-        for j in goes.into_iter().flatten() {
-            self.join_into(j, &state);
+        for (way, j) in goes.into_iter().enumerate() {
+            let Some(j) = j else { continue };
+            match (effect.ctl, effect.cond) {
+                // A compare says something on each edge (the bound of a
+                // `match`'s index, before its table).
+                (Ctl::Branch(_), Some((ge, a, b))) => {
+                    let mut edge = state.clone();
+                    edge.refine(way == 1, ge, a, b);
+                    self.join_into(j, &edge);
+                }
+                _ => self.join_into(j, &state),
+            }
         }
     }
 }

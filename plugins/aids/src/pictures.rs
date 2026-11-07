@@ -56,7 +56,10 @@ pub fn apply(choice: &str, path: &str, i18n: &Translator, block: &mut Block) -> 
 /// `block` as a centred line in italics: the word for a picture and what
 /// the book says about it.
 fn caption(i18n: &Translator, block: &mut Block) {
-    let word = i18n.tr("aids.picture");
+    caption_word(i18n.tr("aids.picture"), block);
+}
+
+fn caption_word(word: &str, block: &mut Block) {
     let alt = block.text.trim();
     let line: String = if alt.is_empty() {
         format!("[{word}]")

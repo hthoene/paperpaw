@@ -41,6 +41,14 @@ runner = "espflash flash --monitor --chip esp32s3 --erase-parts otadata"
 [target.riscv32imc-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c3 --erase-parts otadata"
 # Frame pointers for backtraces; the linker script is in build.rs.
+# Jump tables stay on for the default builds (about 9 KB of flash less than
+# without). The `ppn5` build is the exception: its frame scan
+# (`paperpaw-sign frames`, `frame-budget-ppn5.txt`) cannot yet size a function
+# that jumps through a table inside its frame (todo 68 of #228), so it is built
+# with `-C jump-tables=no`, given on the command line beside these flags:
+#   cargo build ... --features x4,ppn5 \
+#     --config 'target.riscv32imc-unknown-none-elf.rustflags=["-C","jump-tables=no"]'
+# (cargo joins the lists). build.rs fails a `ppn5` build without it.
 rustflags = ["-C", "force-frame-pointers"]
 
 [env]

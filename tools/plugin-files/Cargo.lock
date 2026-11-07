@@ -109,7 +109,7 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-aids"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -341,9 +341,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-keys"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -369,9 +370,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu-editor"
-version = "1.0.6"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -405,9 +407,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-profiles"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -530,6 +533,13 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-table",
+]
+
+[[package]]
+name = "paperpaw-ui-kit"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-sdk",
 ]
 
 [[package]]

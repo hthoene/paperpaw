@@ -4,12 +4,23 @@ use super::{
     environment::EnvironmentScope,
     registrations,
     resources::{OwnerResources, ServiceKey},
+    secret_bytes::wipe,
 };
 use crate::abi7::services_wire::ServiceOp;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
 };
+
+/// Every service can return private data. Wipe the whole host scratch on all
+/// exits, including a backend error or a malformed reply. Never format bytes.
+struct ReplyScratch<'a>(&'a mut [u8]);
+
+impl Drop for ReplyScratch<'_> {
+    fn drop(&mut self) {
+        wipe(self.0);
+    }
+}
 
 fn input_pair(pair: PpBytes) -> Result<(), i32> {
     if pair.len > buffers::TEXT_MAX
@@ -220,9 +231,10 @@ pub(super) unsafe fn call(
                 .try_reserve_exact(op.max_reply)
                 .map_err(|_| ERR_NO_MEMORY)?;
             scratch.resize(op.max_reply, 0);
+            let scratch = ReplyScratch(&mut scratch);
             let caller = owner.caller(plugin, key.features);
-            let length = running.run(frame, &caller, op, input, &mut scratch)?;
-            let reply = scratch.get(..length).ok_or(ERR_INVALID)?;
+            let length = running.run(frame, &caller, op, input, scratch.0)?;
+            let reply = scratch.0.get(..length).ok_or(ERR_INVALID)?;
             validate_reply(reply, op)?;
             // SAFETY: output has the declared capacity; no output was written on
             // any earlier failure, including a service's own failure.

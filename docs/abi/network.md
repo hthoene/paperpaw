@@ -144,12 +144,13 @@ file's size, 2.1).
 - [D] `body` replies one `net_bytes` with the bytes from `offset`, at most 3,840 per call; at or
   past the end it replies zero bytes (`data` empty). A 64 KiB body is read in 18 calls.
 - [D] **Error bodies are at most 4,096 bytes.** A non-2xx answer (`reason` 0, its status for the
-  plugin to judge) and a failure with a status keep only the first 4,096 bytes of their body in
-  memory, whatever `max_body` says and whether the request saves or not; the rest is read and
-  dropped (`flags` bit 1 `truncated`), and an error body is never written to the file. So a large
-  error page never takes a memory body of its own on the X4: a saving request's 4 KiB buffer holds
-  it, and a memory request uses at most 4 KiB of the `max_body` it reserved. A failure without a
-  status has `body_len` 0.
+  plugin to judge) and a failure with a status keep only the first `min(4,096, max_body)` bytes
+  of their body in memory when the request answers in memory, and the first 4,096 when it saves;
+  the rest is read and dropped (`flags` bit 1 `truncated`), and an error body is never written to
+  the file. A request never holds more than it reserved: a memory request its `max_body` (a
+  `max_body` of 16 keeps 16 bytes of an error page; admission reserves `max_body`, never more), a
+  saving request its 4 KiB buffer. So a large error page never takes a memory body of its own on
+  the X4. A failure without a status has `body_len` 0.
 
 ## 3. Behaviour
 
