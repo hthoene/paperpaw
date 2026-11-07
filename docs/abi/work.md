@@ -244,7 +244,8 @@ record.
   sockets with `work_ended`, quiet scoped to the run's own callbacks, work declared during a pass
   due at the next one (1 s for a key from its own run), the device-wide cap, events 103-105 from
   the table, `state`; tests for each rule and status, one for a callback that declares itself
-  again at once (no loop in one pass) and one for a dialog from the screen during a run. The kernel's own catalog and clean-up jobs stay host-internal.
+  again at once (no loop in one pass) and one for a dialog from the screen during a run. The
+  kernel's own catalog and clean-up jobs stay host-internal.
 - **Firmware:** the X4 main loop's naps already wake for the host's earliest time
   (`effects.wake_at`); nothing new while asleep.
 - **Services:** `native::work` (a builder like interface 6's `Work`, `retry` backoff, `state`
