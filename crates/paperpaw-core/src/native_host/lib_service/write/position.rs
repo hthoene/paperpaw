@@ -44,7 +44,7 @@ pub(super) fn set(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let parsed = args::with_ref::<2>(input)?;
-    let book = args::book_ref(&parsed.reference)?;
+    let book = args::book_ref(host, &parsed.reference)?;
     let [
         Some(Record::ServiceLibPosition(position)),
         Some(Record::ServiceLibPositionSet(how)),

@@ -159,7 +159,7 @@ pub(super) fn require(ok: bool) -> Result<(), i32> {
 
 fn set_status(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {
     let parsed = args::with_ref::<1>(input)?;
-    let book = args::book_ref(&parsed.reference)?;
+    let book = args::book_ref(host, &parsed.reference)?;
     let [Some(Record::ServiceLibStatus(status))] = parsed.rest else {
         return Err(ERR_INVALID);
     };
@@ -171,7 +171,7 @@ fn set_status(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {
 
 fn set_field(host: &dyn super::LibHost, who: &Caller<'_>, input: &[u8]) -> Result<usize, i32> {
     let parsed = args::with_ref::<1>(input)?;
-    let book = args::book_ref(&parsed.reference)?;
+    let book = args::book_ref(host, &parsed.reference)?;
     let [Some(Record::ServiceLibFieldSet(set))] = parsed.rest else {
         return Err(ERR_INVALID);
     };
@@ -194,7 +194,7 @@ fn set_field(host: &dyn super::LibHost, who: &Caller<'_>, input: &[u8]) -> Resul
 
 fn provide(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {
     let parsed = args::with_ref::<1>(input)?;
-    let book = args::book_ref(&parsed.reference)?;
+    let book = args::book_ref(host, &parsed.reference)?;
     let [Some(Record::ServiceLibProvided(provided))] = parsed.rest else {
         return Err(ERR_INVALID);
     };

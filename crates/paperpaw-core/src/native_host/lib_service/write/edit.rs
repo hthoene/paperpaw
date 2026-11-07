@@ -265,7 +265,7 @@ fn begin(
     now: u64,
 ) -> Result<usize, i32> {
     let parsed = args::with_ref::<1>(input)?;
-    let book = args::book_ref(&parsed.reference)?;
+    let book = args::book_ref(host, &parsed.reference)?;
     let [Some(Record::ServiceLibEditHead(head))] = parsed.rest else {
         return Err(ERR_INVALID);
     };

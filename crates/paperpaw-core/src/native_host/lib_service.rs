@@ -32,8 +32,18 @@ pub(crate) struct Caller<'a> {
 
 /// Everything the library service needs from the host's catalog, card and
 /// clock. The shell implements it; the tests use fakes.
-pub(crate) trait LibHost: query::LibQuery + write::LibWrite {}
-impl<T: query::LibQuery + write::LibWrite> LibHost for T {}
+pub(crate) trait LibHost: query::LibQuery + write::LibWrite + LibExcluded {}
+impl<T: query::LibQuery + write::LibWrite + LibExcluded> LibHost for T {}
+
+/// The card folders root 1 never reaches (`plugins`, `.paperpaw`), as the host
+/// resolves them. The service already refuses their spelling in any case.
+pub(crate) trait LibExcluded {
+    /// Whether the path's first segment names one of them by another name,
+    /// as FAT finds an entry (an 8.3 short alias).
+    fn excluded(&self, _first_segment: &str) -> bool {
+        false
+    }
+}
 
 /// What the shell hands the frame under the key `core.library`.
 pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);

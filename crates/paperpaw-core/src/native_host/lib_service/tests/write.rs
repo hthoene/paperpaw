@@ -61,6 +61,12 @@ impl Fake {
     }
 }
 impl LibQuery for Fake {}
+impl super::super::LibExcluded for Fake {
+    /// A short alias the fake card resolves to `.paperpaw`.
+    fn excluded(&self, first: &str) -> bool {
+        first == "PAPERP~1"
+    }
+}
 impl LibWrite for Fake {
     fn resolve_book(&self, book: BookRef<'_>) -> Result<w::BookId, i32> {
         match book {
@@ -592,6 +598,96 @@ fn import_never_lands_in_the_hosts_folder_or_beyond_a_path() {
         Err(ERR_NO_SPACE)
     );
     assert!(import(&fake, &folder, &"n".repeat(90), 0).is_ok());
+}
+
+fn paths_op(fake: &Rc<Fake>, paths: &str, op: u32) -> Result<std::vec::Vec<u8>, i32> {
+    go_rows(
+        fake,
+        op,
+        &[Record::ServiceLibPaths(Paths { paths, flags: 0 })],
+    )
+}
+
+#[test]
+fn no_library_path_reaches_plugins_or_the_hosts_folder() {
+    // The same as root 1 of the files service: by identity, not spelling.
+    let fake = Fake::new();
+    let before = fake.log.borrow().len();
+    let excluded = [
+        "plugins/x/lib.so",
+        "Plugins/x.epub",
+        "PLUGINS",
+        ".paperpaw/library/keys",
+        ".PaperPaw/x.epub",
+        "PAPERP~1/x.epub",
+    ];
+    for path in excluded {
+        // One line among others refuses the whole list, before any is touched.
+        let list = std::format!("ok.epub\n{path}");
+        assert_eq!(paths_op(&fake, &list, 10), Err(ERR_INVALID), "{path}");
+        assert_eq!(paths_op(&fake, path, 9), Err(ERR_INVALID));
+        let mv = |from, to| {
+            go(
+                &fake,
+                11,
+                &[Record::ServiceLibMove(Move { from, to, flags: 0 })],
+            )
+        };
+        assert_eq!(mv(path, "b.epub"), Err(ERR_INVALID), "from {path}");
+        assert_eq!(mv("a.epub", path), Err(ERR_INVALID), "to {path}");
+        let from = go(
+            &fake,
+            12,
+            &[Record::ServiceLibImport(Import {
+                from: path,
+                folder: "",
+                name: "x.epub",
+                flags: 0,
+            })],
+        );
+        assert_eq!(from, Err(ERR_INVALID), "import from {path}");
+        let book = go(
+            &fake,
+            14,
+            &[
+                Record::ServiceLibRef(wire::ServiceLibRef {
+                    path,
+                    generation: 0,
+                    key: None,
+                }),
+                position(1, 0),
+                Record::ServiceLibPositionSet(PositionSet { flags: 0 }),
+            ],
+        );
+        assert_eq!(book, Err(ERR_INVALID), "position of {path}");
+    }
+    assert_eq!(fake.log.borrow().len(), before, "nothing was touched");
+    // Into the library folder at the card's root: plugins and the host's folder.
+    *fake.library.borrow_mut() = String::new();
+    for folder in ["plugins", "Plugins/x", "PAPERP~1", ".paperpaw"] {
+        assert_eq!(
+            import(&fake, folder, "x.epub", 0),
+            Err(ERR_DENIED),
+            "{folder}"
+        );
+    }
+    assert_eq!(
+        import(&fake, "", "plugins", 0),
+        Err(ERR_DENIED),
+        "a file named so"
+    );
+    *fake.library.borrow_mut() = "Plugins".into();
+    assert_eq!(
+        import(&fake, "", "x.epub", 0),
+        Err(ERR_DENIED),
+        "library folder"
+    );
+    *fake.library.borrow_mut() = "Books".into();
+    assert!(
+        import(&fake, "plugins", "x.epub", 0).is_ok(),
+        "a folder like any below it"
+    );
+    assert!(paths_op(&fake, "Books/plugins/x.epub", 10).is_ok());
 }
 
 fn position(updated: u64, flags: u32) -> Record<'static> {

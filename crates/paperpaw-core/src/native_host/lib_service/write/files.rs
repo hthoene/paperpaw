@@ -30,11 +30,15 @@ pub(crate) struct ImportRequest<'a> {
 
 /// `lib_paths.paths`: one per line, 1 to 7 valid paths. A line with a control
 /// character cannot exist (the catalog has none), so nothing breaks the list.
-fn each_path<'a>(paths: &'a str, mut visit: impl FnMut(&'a str)) -> Result<(), i32> {
+fn each_path<'a>(
+    host: &dyn super::super::LibHost,
+    paths: &'a str,
+    mut visit: impl FnMut(&'a str),
+) -> Result<(), i32> {
     require(!paths.is_empty())?;
     let mut count = 0;
     for path in paths.split('\n') {
-        require(args::path_valid(path))?;
+        require(args::root1_path(host, path))?;
         count += 1;
         if count > MAX_PATHS {
             return Err(ERR_NO_SPACE);
@@ -61,10 +65,10 @@ pub(super) fn paths(
         need_storage(who)?;
     }
     // Check the whole list first: a malformed line refuses all of it.
-    each_path(list.paths, |_| ())?;
+    each_path(host, list.paths, |_| ())?;
     let mut used = 0;
     let mut failure = None;
-    each_path(list.paths, |path| {
+    each_path(host, list.paths, |path| {
         if failure.is_some() {
             return;
         }
@@ -104,8 +108,8 @@ pub(super) fn move_book(
     };
     require(
         request.flags & !1 == 0
-            && args::path_valid(request.from)
-            && args::path_valid(request.to)
+            && args::root1_path(host, request.from)
+            && args::root1_path(host, request.to)
             && request.from != request.to,
     )?;
     need_storage(who)?;
@@ -125,11 +129,11 @@ pub(super) fn import(
     };
     // Bit 0 replace, bit 1 take a free name; both is a contradiction.
     require(request.flags & !0b11 == 0 && request.flags != 0b11)?;
-    require(args::path_valid(request.from))?;
+    require(args::root1_path(host, request.from))?;
     check_names(request.folder, request.name)?;
     let mut joined = Ok(());
     host.library_folder(&mut |library| {
-        joined = check_join(library, request.folder, request.name);
+        joined = check_join(host, library, request.folder, request.name);
     })?;
     joined?;
     let import = ImportRequest {
@@ -167,9 +171,15 @@ fn check_names(folder: &str, name: &str) -> Result<(), i32> {
     require(folder.is_empty() || folder.split('/').all(segment_ok))
 }
 
-/// The joined path ends below the library folder and not in `.paperpaw/`
+/// The joined path ends below the library folder and not in `.paperpaw/` or
+/// `plugins/`, which a library folder at the card's root would reach
 /// (`ERR_DENIED`), and fits a path (`ERR_NO_SPACE`).
-fn check_join(library: &str, folder: &str, name: &str) -> Result<(), i32> {
+fn check_join(
+    host: &dyn super::super::LibHost,
+    library: &str,
+    folder: &str,
+    name: &str,
+) -> Result<(), i32> {
     let mut length = 0;
     let mut first = None;
     for part in [library, folder, name]
@@ -181,7 +191,7 @@ fn check_join(library: &str, folder: &str, name: &str) -> Result<(), i32> {
         }
         length += part.len() + usize::from(length != 0);
     }
-    if first.is_some_and(|segment| segment.eq_ignore_ascii_case(".paperpaw")) {
+    if first.is_some_and(|segment| args::excluded(host, segment)) {
         return Err(ERR_DENIED);
     }
     if length > PATH_MAX {

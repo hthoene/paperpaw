@@ -167,10 +167,14 @@ fn page_state(cursor: u32, generation: u32) -> Result<(), i32> {
 
 /// `lib_ref` first and exactly `own` more records (0 or 1) of the op's own.
 /// A missing, repeated or out-of-order record is `ERR_INVALID`.
-fn named(input: &[u8], own: usize) -> Result<(BookRef<'_>, Option<Record<'_>>), i32> {
+fn named<'a>(
+    host: &dyn super::LibHost,
+    input: &'a [u8],
+    own: usize,
+) -> Result<(BookRef<'a>, Option<Record<'a>>), i32> {
     let parsed = args::with_ref::<2>(input)?;
     require(parsed.count == own)?;
-    Ok((args::book_ref(&parsed.reference)?, parsed.rest[0]))
+    Ok((args::book_ref(host, &parsed.reference)?, parsed.rest[0]))
 }
 
 /// Op 1 takes no record.
@@ -234,7 +238,7 @@ fn book_alone(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let (book, _) = named(input, 0)?;
+    let (book, _) = named(host, input, 0)?;
     match id {
         op::BOOK => page::one(
             out,
@@ -281,7 +285,7 @@ fn book_alone(
 /// Op 4: kinds 0 title, 1 author, 2 series are whole texts; 3 tag, 4 field, 5
 /// annotation text, 6 annotation note are lists, read by `index`.
 fn text(host: &dyn super::LibHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let (book, Some(Record::ServiceLibTextAt(at))) = named(input, 1)? else {
+    let (book, Some(Record::ServiceLibTextAt(at))) = named(host, input, 1)? else {
         return Err(ERR_INVALID);
     };
     require(at.kind <= 6)?;
@@ -305,7 +309,7 @@ fn cover(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let (book, Some(Record::ServiceLibCover(cover))) = named(input, 1)? else {
+    let (book, Some(Record::ServiceLibCover(cover))) = named(host, input, 1)? else {
         return Err(ERR_INVALID);
     };
     require(cover.side <= host.screen_long_side()?)?;
@@ -327,7 +331,7 @@ fn annotated(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let (book, Some(Record::ServiceLibPage(ask))) = named(input, 1)? else {
+    let (book, Some(Record::ServiceLibPage(ask))) = named(host, input, 1)? else {
         return Err(ERR_INVALID);
     };
     page_state(ask.cursor, ask.annotation_generation)?;

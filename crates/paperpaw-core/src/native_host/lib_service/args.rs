@@ -14,10 +14,13 @@ pub(crate) enum BookRef<'a> {
 /// `lib_ref`: exactly one of `path` and `key`, else `ERR_INVALID`. A key
 /// needs the catalog generation it came from; 0 is no generation, so a key
 /// without one is stale (`ERR_STATE`).
-pub(super) fn book_ref<'a>(reference: &wire::ServiceLibRef<'a>) -> Result<BookRef<'a>, i32> {
+pub(super) fn book_ref<'a>(
+    host: &dyn super::LibHost,
+    reference: &wire::ServiceLibRef<'a>,
+) -> Result<BookRef<'a>, i32> {
     match (reference.path.is_empty(), reference.key) {
         (false, None) => {
-            if path_valid(reference.path) {
+            if root1_path(host, reference.path) {
                 Ok(BookRef::Path(reference.path))
             } else {
                 Err(ERR_INVALID)
@@ -30,6 +33,22 @@ pub(super) fn book_ref<'a>(reference: &wire::ServiceLibRef<'a>) -> Result<BookRe
         (true, Some(_)) => Err(ERR_STATE),
         _ => Err(ERR_INVALID),
     }
+}
+
+/// A first path segment root 1 never reaches: `plugins` (the install folders)
+/// and `.paperpaw` (the kernel's data and every plugin's), by identity: the
+/// service compares the spelling (FAT ignores case), the host resolves what
+/// else names them (an 8.3 alias such as `PAPERP~1`).
+pub(super) fn excluded(host: &dyn super::LibHost, first: &str) -> bool {
+    first.eq_ignore_ascii_case("plugins")
+        || first.eq_ignore_ascii_case(".paperpaw")
+        || host.excluded(first)
+}
+
+/// A path of the library: root 1's grammar, and not below an excluded folder
+/// (`files` root 1 refuses the same: the card's `plugins` and `.paperpaw`).
+pub(super) fn root1_path(host: &dyn super::LibHost, path: &str) -> bool {
+    path_valid(path) && !excluded(host, path.split('/').next().unwrap_or_default())
 }
 
 /// A root-1 path: relative, the storage grammar (no control characters, so
