@@ -60,6 +60,20 @@ the port.
 - Ties between cards due at the same time are broken by the deck's place in `decks.txt`, then the
   card's offset: as the stable sort did (a test lists the decks with the higher id first).
 
+## Ported: reading cards from files (`src/table.rs`)
+
+- The CSV/TSV/TXT reader allocates fallibly: the parser's field and column buffers grow after
+  `try_reserve` (`Parser::feed` returns `Result`), the header's roles are an array, not a `Vec`
+  of `String`s, column names are compared case-folded without a lower-case copy, Windows-1252
+  and UTF-8 fields are decoded into reserved strings, and slicing of read chunks is `get(..n)`.
+- `plain` (HTML to text) is one pass with one reservation (the text is never longer than the
+  HTML): tags out, the six character references turned, white space collapsed. `plain_or_empty`
+  stays for `apkg` (interface 6) until it is ported: where the heap refuses, the text of that
+  Anki note field becomes empty (a note whose front is then empty is skipped as a card without
+  a front), not an abort and not half a text.
+- `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
+  `plain`.
+
 ## Interim: interface-6 callers
 
 `lib.rs` and `widget.rs` (still interface 6) call the Result API with `unwrap_or(0)` /
@@ -70,7 +84,7 @@ native screens replace these callers.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `export`, `table`, `sync`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
+- `export`, `sync`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.

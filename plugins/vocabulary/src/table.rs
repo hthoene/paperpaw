@@ -33,6 +33,8 @@ use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
+use crate::lines::{copy, folded, lossy};
+
 /// The most a record may take, in bytes: a card's three texts at their
 /// longest, with room for quotes.
 pub(crate) const MAX_RECORD: usize = 8 * 1024;
@@ -108,18 +110,34 @@ pub(crate) enum Item {
 
 /// A column name's meaning, in any case.
 fn role(name: &str) -> Option<Role> {
-    let name = name.trim().trim_start_matches('\u{feff}').to_lowercase();
-    Some(match name.as_str() {
-        "front" | "vorderseite" | "word" | "wort" | "question" | "frage" => Role::Front,
-        "back" | "rückseite" | "rueckseite" | "answer" | "antwort" | "meaning" => Role::Back,
-        "example" | "beispiel" | "sentence" | "satz" => Role::Example,
-        "id" => Role::Id,
-        "tags" | "tag" => Role::Other,
-        _ => return None,
-    })
+    let name = name.trim().trim_start_matches('\u{feff}');
+    // Whatever the case, told without making a lower-case copy.
+    let is = |names: &[&str]| names.iter().any(|n| folded(name).eq(n.chars()));
+    Some(
+        if is(&["front", "vorderseite", "word", "wort", "question", "frage"]) {
+            Role::Front
+        } else if is(&[
+            "back",
+            "rückseite",
+            "rueckseite",
+            "answer",
+            "antwort",
+            "meaning",
+        ]) {
+            Role::Back
+        } else if is(&["example", "beispiel", "sentence", "satz"]) {
+            Role::Example
+        } else if is(&["id"]) {
+            Role::Id
+        } else if is(&["tags", "tag"]) {
+            Role::Other
+        } else {
+            return None;
+        },
+    )
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Role {
     Front,
     Back,
@@ -131,13 +149,16 @@ enum Role {
 /// Reads up to `limit` bytes from the start of `path`.
 fn head(storage: &dyn Storage, path: &str, limit: usize) -> Result<Vec<u8>, StorageError> {
     let mut out = Vec::new();
+    out.try_reserve_exact(limit)
+        .map_err(|_| StorageError::TooLarge)?;
     let mut chunk = [0u8; 512];
     while out.len() < limit {
         let n = storage.read_at(path, out.len() as u64, &mut chunk)?;
         if n == 0 {
             break;
         }
-        out.extend_from_slice(&chunk[..n.min(limit - out.len())]);
+        let take = n.min(limit - out.len());
+        out.extend_from_slice(chunk.get(..take).ok_or(StorageError::Io)?);
     }
     Ok(out)
 }
@@ -181,11 +202,13 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
     let (mut separator, mut html, mut paperpaw) = (None, false, None);
     // The lines of an Anki text export that start with `#`.
     while bytes.get(at) == Some(&b'#') {
-        let end = bytes[at..]
+        let end = bytes
+            .get(at..)
+            .unwrap_or_default()
             .iter()
             .position(|&b| b == b'\n')
             .map_or(bytes.len(), |n| at + n);
-        let text = String::from_utf8_lossy(&bytes[at..end]);
+        let text = lossy(bytes.get(at..end).unwrap_or_default())?;
         let text = text.trim_end_matches('\r');
         if let Some(name) = text.strip_prefix("#separator:") {
             separator = match name.trim() {
@@ -206,9 +229,9 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
         at = (end + 1).min(bytes.len());
         line += 1;
     }
-    let rest = &bytes[at..];
+    let rest = bytes.get(at..).unwrap_or_default();
     let first_end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
-    let first = &rest[..first_end];
+    let first = rest.get(..first_end).unwrap_or_default();
     let mut layout = Layout {
         separator: separator.unwrap_or_else(|| guess_separator(first)),
         columns: Columns {
@@ -227,10 +250,8 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
     // A first record that names columns is not a card (a line too long
     // to be seen whole is no header).
     let seen_whole = first_end < rest.len() || bytes.len() < SNIFF;
-    let roles: Vec<Option<Role>> = cells_of(first, layout.separator, latin1)
-        .iter()
-        .map(|c| role(c))
-        .collect();
+    // At most `MAX_COLUMNS` cells are kept, so the roles fit an array.
+    let roles = roles_of(first, layout.separator, latin1)?;
     if seen_whole && roles.contains(&Some(Role::Front)) {
         let find = |wanted: Role| roles.iter().position(|r| *r == Some(wanted));
         layout.columns = Columns {
@@ -246,25 +267,27 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
     Ok(layout)
 }
 
-/// The cells of one line.
-fn cells_of(line: &[u8], separator: u8, latin1: bool) -> Vec<String> {
+/// What the cells of one line say they are.
+fn roles_of(
+    line: &[u8],
+    separator: u8,
+    latin1: bool,
+) -> Result<[Option<Role>; MAX_COLUMNS], StorageError> {
+    let mut roles = [None; MAX_COLUMNS];
     let mut parser = Parser::new(separator);
-    line.iter()
-        .chain(b"\n")
-        .find_map(|&byte| parser.feed(byte))
-        .map_or_else(Vec::new, |cells| {
-            cells
-                .fields
-                .iter()
-                .map(|f| {
-                    if latin1 {
-                        windows_1252(f)
-                    } else {
-                        String::from_utf8_lossy(f).into_owned()
-                    }
-                })
-                .collect()
-        })
+    for &byte in line.iter().chain(b"\n") {
+        if let Some(cells) = parser.feed(byte)? {
+            for (slot, field) in roles.iter_mut().zip(&cells.fields) {
+                *slot = if latin1 {
+                    role(&windows_1252(field)?)
+                } else {
+                    role(&lossy(field)?)
+                };
+            }
+            break;
+        }
+    }
+    Ok(roles)
 }
 
 /// Whether the start of a file is Windows-1252 text: not UTF-8 (an end cut
@@ -281,7 +304,7 @@ fn is_latin1(bytes: &[u8]) -> bool {
 }
 
 /// Windows-1252 as text: Latin-1, but for the 32 characters of 0x80-0x9F.
-fn windows_1252(bytes: &[u8]) -> String {
+fn windows_1252(bytes: &[u8]) -> Result<String, StorageError> {
     const HIGH: [char; 32] = [
         '\u{20AC}', '\u{81}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}', '\u{2020}',
         '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}', '\u{0152}', '\u{8D}',
@@ -289,27 +312,35 @@ fn windows_1252(bytes: &[u8]) -> String {
         '\u{2013}', '\u{2014}', '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}', '\u{0153}',
         '\u{9D}', '\u{017E}', '\u{0178}',
     ];
-    bytes
-        .iter()
-        .map(|&b| match b {
+    let mut out = String::new();
+    // No character takes more than 3 bytes.
+    out.try_reserve_exact(bytes.len().saturating_mul(3))
+        .map_err(|_| StorageError::TooLarge)?;
+    for &b in bytes {
+        out.push(match b {
             0x80..=0x9F => HIGH[usize::from(b - 0x80)],
             _ => char::from(b),
-        })
-        .collect()
+        });
+    }
+    Ok(out)
 }
 
 /// A field's bytes as text. One cut at [`MAX_FIELD`] may end in the middle of
 /// a character: that end is dropped.
-fn decode(bytes: &[u8], layout: &Layout) -> Result<String, ()> {
+/// `Ok(None)` where it is no text of the file's encoding.
+fn decode(bytes: &[u8], layout: &Layout) -> Result<Option<String>, StorageError> {
     if layout.latin1 {
-        return Ok(windows_1252(bytes));
+        return windows_1252(bytes).map(Some);
     }
     match core::str::from_utf8(bytes) {
-        Ok(text) => Ok(String::from(text)),
-        Err(e) if e.error_len().is_none() && bytes.len() >= MAX_FIELD => Ok(String::from(
-            core::str::from_utf8(&bytes[..e.valid_up_to()]).map_err(|_| ())?,
-        )),
-        Err(_) => Err(()),
+        Ok(text) => copy(text).map(Some),
+        Err(e) if e.error_len().is_none() && bytes.len() >= MAX_FIELD => {
+            match bytes.get(..e.valid_up_to()).map(core::str::from_utf8) {
+                Some(Ok(text)) => copy(text).map(Some),
+                _ => Ok(None),
+            }
+        }
+        Err(_) => Ok(None),
     }
 }
 
@@ -373,31 +404,40 @@ impl Parser {
         self.in_quotes && !self.quote_pending
     }
 
-    fn push(&mut self, byte: u8) {
+    fn push(&mut self, byte: u8) -> Result<(), StorageError> {
         self.size += 1;
         if self.size > MAX_RECORD {
             self.too_long = true;
         } else if self.field.len() < MAX_FIELD {
+            self.field
+                .try_reserve(1)
+                .map_err(|_| StorageError::TooLarge)?;
             self.field.push(byte);
         }
+        Ok(())
     }
 
-    fn end_field(&mut self) {
-        let field = core::mem::take(&mut self.field);
+    fn end_field(&mut self) -> Result<(), StorageError> {
         if self.fields.len() < MAX_COLUMNS {
-            self.fields.push(field);
+            self.fields
+                .try_reserve(1)
+                .map_err(|_| StorageError::TooLarge)?;
+            self.fields.push(core::mem::take(&mut self.field));
+        } else {
+            self.field.clear();
         }
         self.quoted_field = false;
+        Ok(())
     }
 
     /// The record this byte ends, if it does.
-    fn feed(&mut self, byte: u8) -> Option<Cells> {
+    fn feed(&mut self, byte: u8) -> Result<Option<Cells>, StorageError> {
         self.started = true;
         if self.quote_pending {
             self.quote_pending = false;
             if byte == b'"' {
-                self.push(b'"');
-                return None;
+                self.push(b'"')?;
+                return Ok(None);
             }
             self.in_quotes = false;
             if byte != self.separator && byte != b'\n' && byte != b'\r' {
@@ -408,21 +448,21 @@ impl Parser {
             if byte == b'"' {
                 self.quote_pending = true;
             } else {
-                self.push(byte);
+                self.push(byte)?;
             }
-            return None;
+            return Ok(None);
         }
         match byte {
             b'"' if self.field.is_empty() && !self.quoted_field => {
                 self.in_quotes = true;
                 self.quoted_field = true;
             }
-            b if b == self.separator => self.end_field(),
+            b if b == self.separator => self.end_field()?,
             b'\n' => {
                 if self.field.last() == Some(&b'\r') {
                     self.field.pop();
                 }
-                self.end_field();
+                self.end_field()?;
                 let done = Cells {
                     fields: core::mem::take(&mut self.fields),
                     too_long: self.too_long,
@@ -430,17 +470,17 @@ impl Parser {
                 self.size = 0;
                 self.too_long = false;
                 self.started = false;
-                return Some(done);
+                return Ok(Some(done));
             }
-            b => self.push(b),
+            b => self.push(b)?,
         }
-        None
+        Ok(None)
     }
 
     /// The record the file's end leaves, if there is one.
-    fn finish(&mut self) -> Option<Cells> {
+    fn finish(&mut self) -> Result<Option<Cells>, StorageError> {
         if !self.started {
-            return None;
+            return Ok(None);
         }
         self.quote_pending = false;
         self.in_quotes = false;
@@ -449,45 +489,53 @@ impl Parser {
 }
 
 /// Turns a record's cells into a card, or what is wrong with it.
-fn card(cells: Cells, layout: &Layout, offset: u64, line: u32) -> Option<Item> {
+fn card(
+    cells: Cells,
+    layout: &Layout,
+    offset: u64,
+    line: u32,
+) -> Result<Option<Item>, StorageError> {
     // A line with nothing on it is no card, and no problem.
     if cells
         .fields
         .iter()
         .all(|f| f.iter().all(u8::is_ascii_whitespace))
     {
-        return None;
+        return Ok(None);
     }
-    let skipped = |fault| Some(Item::Skipped { line, fault });
+    let skipped = |fault| Ok(Some(Item::Skipped { line, fault }));
     if cells.too_long {
         return skipped(Fault::TooLong);
     }
-    let text = |at: Option<usize>| -> Result<String, ()> {
+    // `Ok(None)`: not text of the file's encoding.
+    let text = |at: Option<usize>| -> Result<Option<String>, StorageError> {
         let Some(bytes) = at.and_then(|i| cells.fields.get(i)) else {
-            return Ok(String::new());
+            return Ok(Some(String::new()));
         };
-        let text = decode(bytes, layout)?;
-        Ok(if layout.html { plain(&text) } else { text })
+        let Some(text) = decode(bytes, layout)? else {
+            return Ok(None);
+        };
+        Ok(Some(if layout.html { plain(&text)? } else { text }))
     };
-    let (Ok(front), Ok(back), Ok(example), Ok(id)) = (
-        text(Some(layout.columns.front)),
-        text(layout.columns.back),
-        text(layout.columns.example),
-        text(layout.columns.id),
+    let (Some(front), Some(back), Some(example), Some(id)) = (
+        text(Some(layout.columns.front))?,
+        text(layout.columns.back)?,
+        text(layout.columns.example)?,
+        text(layout.columns.id)?,
     ) else {
         return skipped(Fault::NotUtf8);
     };
     if front.trim().is_empty() {
         return skipped(Fault::NoFront);
     }
-    Some(Item::Record(Record {
+    Ok(Some(Item::Record(Record {
         offset,
         line,
         front,
         back,
         example,
         id: id.trim().parse().ok(),
-    }))
+    })))
 }
 
 /// Where reading a file goes on: a record's start and its line (1-based; 0
@@ -539,7 +587,7 @@ pub(crate) fn scan(
         if n == 0 && !lone {
             break;
         }
-        for (i, &byte) in chunk[..n].iter().enumerate() {
+        for (i, &byte) in chunk.get(..n).ok_or(StorageError::Io)?.iter().enumerate() {
             if !parser.started() {
                 start = at + i as u64;
                 start_line = line;
@@ -547,9 +595,9 @@ pub(crate) fn scan(
             if byte == b'\n' {
                 line = line.saturating_add(1);
             }
-            let ended = parser.feed(byte);
+            let ended = parser.feed(byte)?;
             if let Some(cells) = ended {
-                if let Some(item) = card(cells, layout, start, start_line)
+                if let Some(item) = card(cells, layout, start, start_line)?
                     && visit(item).is_break()
                 {
                     return Ok(None);
@@ -581,8 +629,8 @@ pub(crate) fn scan(
         }
         at += n as u64;
     }
-    if let Some(cells) = parser.finish()
-        && let Some(item) = card(cells, layout, start, start_line)
+    if let Some(cells) = parser.finish()?
+        && let Some(item) = card(cells, layout, start, start_line)?
     {
         let _ = visit(item);
     }
@@ -598,7 +646,12 @@ fn line_after(storage: &dyn Storage, path: &str, from: u64) -> Result<u64, Stora
         if n == 0 {
             return Ok(at);
         }
-        if let Some(i) = chunk[..n].iter().position(|&b| b == b'\n') {
+        if let Some(i) = chunk
+            .get(..n)
+            .ok_or(StorageError::Io)?
+            .iter()
+            .position(|&b| b == b'\n')
+        {
             return Ok(at + i as u64 + 1);
         }
         at += n as u64;
@@ -623,36 +676,90 @@ pub(crate) fn record_at(
 }
 
 /// `html` as plain text: tags out (a line break is a space), the usual
-/// character references turned.
-pub(crate) fn plain(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
+/// character references turned, runs of white space one space, none at the
+/// ends. One reservation: the text is never longer than the html.
+pub(crate) fn plain(html: &str) -> Result<String, StorageError> {
+    let mut out = String::new();
+    out.try_reserve_exact(html.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    // The name of the tag being read (after a `/`), as far as it matters:
+    // its first 3 characters in lower case and how many it has.
+    let mut tag = ['\0'; 3];
+    let mut tag_len = 0usize;
     let mut in_tag = false;
-    let mut tag = String::new();
-    for c in html.chars() {
-        match (in_tag, c) {
-            (false, '<') => {
-                in_tag = true;
-                tag.clear();
+    let mut slashes = true;
+    let mut space = false;
+    let put = |out: &mut String, c: char, space: &mut bool| {
+        if c.is_whitespace() {
+            *space = !out.is_empty();
+        } else {
+            if *space {
+                out.push(' ');
+                *space = false;
             }
-            (true, '>') => {
-                in_tag = false;
-                let name = tag.trim_start_matches('/').to_lowercase();
-                if name.starts_with("br") || name == "div" || name == "p" {
-                    out.push(' ');
-                }
-            }
-            (true, c) => tag.push(c),
-            (false, c) => out.push(c),
+            out.push(c);
         }
+    };
+    let mut rest = html;
+    while let Some(c) = rest.chars().next() {
+        let after = rest.get(c.len_utf8()..).unwrap_or_default();
+        if in_tag {
+            if c == '>' {
+                in_tag = false;
+                let [a, b, d] = tag;
+                let line_break = tag_len >= 2 && a == 'b' && b == 'r';
+                let block =
+                    (tag_len == 3 && [a, b, d] == ['d', 'i', 'v']) || (tag_len == 1 && a == 'p');
+                if line_break || block {
+                    put(&mut out, ' ', &mut space);
+                }
+            } else if slashes && c == '/' {
+                // Leading slashes are not the name.
+            } else {
+                slashes = false;
+                if let Some(slot) = tag.get_mut(tag_len) {
+                    *slot = c.to_lowercase().next().unwrap_or(c);
+                }
+                tag_len += 1;
+            }
+            rest = after;
+            continue;
+        }
+        if c == '<' {
+            in_tag = true;
+            slashes = true;
+            tag_len = 0;
+            tag = ['\0'; 3];
+            rest = after;
+            continue;
+        }
+        if c == '&' {
+            let entity = [
+                ("&nbsp;", ' '),
+                ("&lt;", '<'),
+                ("&gt;", '>'),
+                ("&quot;", '"'),
+                ("&#39;", '\''),
+                ("&amp;", '&'),
+            ]
+            .into_iter()
+            .find(|(name, _)| rest.starts_with(name));
+            if let Some((name, turned)) = entity {
+                put(&mut out, turned, &mut space);
+                rest = rest.get(name.len()..).unwrap_or_default();
+                continue;
+            }
+        }
+        put(&mut out, c, &mut space);
+        rest = after;
     }
-    let out = out
-        .replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&amp;", "&");
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    Ok(out)
+}
+
+/// [`plain`] for the modules of the plugin not ported yet: an empty text
+/// where the heap refuses.
+pub(crate) fn plain_or_empty(html: &str) -> String {
+    plain(html).unwrap_or_default()
 }
 
 #[cfg(test)]
