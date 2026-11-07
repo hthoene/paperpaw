@@ -44,7 +44,7 @@ use core::ops::ControlFlow;
 use paperpaw_sdk::{Storage, StorageError};
 
 use crate::apkg;
-use crate::cards::{self, MAX_NAME, MAX_TEXT, Problem, Texts, clean};
+use crate::cards::{self, MAX_NAME, MAX_TEXT, Problem, Texts, clean_or_empty as clean};
 use crate::table::{self, Fault, Item, Layout};
 
 /// The folder files are looked for in, if the setting names none.

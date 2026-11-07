@@ -123,7 +123,7 @@ pub(crate) fn file_name_of(deck: &str) -> String {
         .trim()
         .trim_start_matches(['_', '.'])
         .trim_end_matches(['.', ' ']);
-    let name = cards::clean(name, MAX_NAME);
+    let name = cards::clean_or_empty(name, MAX_NAME);
     if name.is_empty() {
         String::from("Deck.tsv")
     } else {
@@ -270,7 +270,11 @@ impl Saver {
             return Err(Outcome::NoDeck);
         };
         self.name.clone_from(&deck.name);
-        self.total = cards::sizes(storage).get(&self.deck).copied().unwrap_or(0);
+        self.total = cards::sizes(storage)
+            .unwrap_or_default()
+            .get(&self.deck)
+            .copied()
+            .unwrap_or(0);
         let ledger = sync::sources(storage).map_err(|_| Outcome::Unreadable)?;
         if sync::link_of(&ledger, self.deck).is_some_and(|s| s.left_out > 0 || s.failed()) {
             self.file = String::new();

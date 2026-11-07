@@ -52,10 +52,10 @@ pub(crate) fn push(out: &mut String, text: &str) -> Result<(), StorageError> {
 }
 
 /// Appends `number` in decimal to `out` with fallible allocation.
-pub(crate) fn push_number(out: &mut String, number: u32) -> Result<(), StorageError> {
-    let mut digits = [0u8; 10];
+pub(crate) fn push_number(out: &mut String, number: impl Into<u64>) -> Result<(), StorageError> {
+    let mut digits = [0u8; 20];
     let mut at = digits.len();
-    let mut rest = number;
+    let mut rest: u64 = number.into();
     loop {
         at -= 1;
         if let Some(slot) = digits.get_mut(at) {
@@ -71,6 +71,28 @@ pub(crate) fn push_number(out: &mut String, number: u32) -> Result<(), StorageEr
         .and_then(|d| core::str::from_utf8(d).ok())
         .unwrap_or("0");
     push(out, text)
+}
+
+/// Appends `number` in decimal to `out` (with a minus sign where it is
+/// negative), with fallible allocation.
+pub(crate) fn push_signed(out: &mut String, number: i64) -> Result<(), StorageError> {
+    if number < 0 {
+        push(out, "-")?;
+    }
+    push_number(out, number.unsigned_abs())
+}
+
+/// The characters of `text`, lower case, the final sigma as any: what the
+/// same word's spellings share.
+pub(crate) fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| if c == 'ς' { 'σ' } else { c })
+}
+
+/// Whether `a` and `b` are the same text, whatever the case.
+pub(crate) fn same_folded(a: &str, b: &str) -> bool {
+    folded(a).eq(folded(b))
 }
 
 /// Calls `visit` with each line of `path` and where it begins, in order,
@@ -91,6 +113,17 @@ pub(crate) fn each_line_from(
     storage: &dyn Storage,
     path: &str,
     from: u64,
+    visit: impl FnMut(u64, &str) -> ControlFlow<()>,
+) -> Result<(), StorageError> {
+    each_line_limited(storage, path, from, MAX_LINE, visit)
+}
+
+/// [`each_line_from`] with lines cut at `max_line` bytes.
+pub(crate) fn each_line_limited(
+    storage: &dyn Storage,
+    path: &str,
+    from: u64,
+    max_line: usize,
     mut visit: impl FnMut(u64, &str) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
@@ -126,7 +159,7 @@ pub(crate) fn each_line_from(
                 Some((b'\n', text)) => (text, true),
                 _ => (piece, false),
             };
-            let room = MAX_LINE.saturating_sub(line.len()).min(text.len());
+            let room = max_line.saturating_sub(line.len()).min(text.len());
             line.try_reserve(room).map_err(|_| StorageError::TooLarge)?;
             line.extend_from_slice(text.get(..room).unwrap_or_default());
             offset += piece.len() as u64;
