@@ -5,6 +5,11 @@
 //! Where the heap refuses the line's buffer, the read ends with
 //! [`StorageError::TooLarge`] instead of aborting the plugin.
 
+#![allow(
+    dead_code,
+    reason = "the sync and export slices use the sink and the hex writer; until then only the tests do"
+)]
+
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -93,6 +98,157 @@ pub(crate) fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
 /// Whether `a` and `b` are the same text, whatever the case.
 pub(crate) fn same_folded(a: &str, b: &str) -> bool {
     folded(a).eq(folded(b))
+}
+
+/// `text` trimmed and cut to at most `most` characters, borrowed.
+pub(crate) fn trimmed_cut(text: &str, most: usize) -> &str {
+    let text = text.trim();
+    match text.char_indices().nth(most) {
+        Some((end, _)) => text.get(..end).unwrap_or(text),
+        None => text,
+    }
+}
+
+/// Appends `number` in lower-case hexadecimal to `out` with fallible
+/// allocation.
+pub(crate) fn push_hex(out: &mut String, number: u64) -> Result<(), StorageError> {
+    let mut digits = [0u8; 16];
+    let mut at = digits.len();
+    let mut rest = number;
+    loop {
+        at -= 1;
+        if let Some(slot) = digits.get_mut(at) {
+            *slot = b"0123456789abcdef"[(rest & 15) as usize];
+        }
+        rest >>= 4;
+        if rest == 0 {
+            break;
+        }
+    }
+    let text = digits
+        .get(at..)
+        .and_then(|d| core::str::from_utf8(d).ok())
+        .unwrap_or("0");
+    push(out, text)
+}
+
+/// A file written a piece at a time: text is collected in one buffer
+/// (reserved when the sink is made) and appended when it is full, so a
+/// file of any size is written with the heap of one piece.
+pub(crate) struct Sink<'a> {
+    storage: &'a dyn Storage,
+    path: &'a str,
+    buffer: Vec<u8>,
+    begun: bool,
+}
+
+impl core::fmt::Debug for Sink<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Sink")
+            .field("path", &self.path)
+            .field("buffered", &self.buffer.len())
+            .finish()
+    }
+}
+
+/// What a [`Sink`] collects before it writes (the host takes 4 KiB a call).
+const PIECE: usize = 3584;
+
+impl<'a> Sink<'a> {
+    /// A sink for `path`, which is made (or emptied) by the first write.
+    pub(crate) fn new(storage: &'a dyn Storage, path: &'a str) -> Result<Self, StorageError> {
+        let mut buffer = Vec::new();
+        buffer
+            .try_reserve_exact(PIECE)
+            .map_err(|_| StorageError::TooLarge)?;
+        Ok(Self {
+            storage,
+            path,
+            buffer,
+            begun: false,
+        })
+    }
+
+    /// Adds `text` to the file.
+    pub(crate) fn put(&mut self, text: &str) -> Result<(), StorageError> {
+        for part in text.as_bytes().chunks(PIECE) {
+            if self.buffer.len() + part.len() > PIECE {
+                self.flush()?;
+            }
+            // Within what was reserved: no allocation.
+            self.buffer.extend_from_slice(part);
+        }
+        Ok(())
+    }
+
+    /// Adds `number` in decimal.
+    pub(crate) fn put_number(&mut self, number: impl Into<u64>) -> Result<(), StorageError> {
+        let mut text = [0u8; 20];
+        let mut at = text.len();
+        let mut rest: u64 = number.into();
+        loop {
+            at -= 1;
+            if let Some(slot) = text.get_mut(at) {
+                *slot = b'0' + (rest % 10) as u8;
+            }
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        self.put(
+            text.get(at..)
+                .and_then(|d| core::str::from_utf8(d).ok())
+                .unwrap_or("0"),
+        )
+    }
+
+    /// Adds `number` in decimal, with a minus sign where it is negative.
+    pub(crate) fn put_signed(&mut self, number: i64) -> Result<(), StorageError> {
+        if number < 0 {
+            self.put("-")?;
+        }
+        self.put_number(number.unsigned_abs())
+    }
+
+    /// Adds `number` in lower-case hexadecimal.
+    pub(crate) fn put_hex(&mut self, number: u64) -> Result<(), StorageError> {
+        let mut digits = [0u8; 16];
+        let mut at = digits.len();
+        let mut rest = number;
+        loop {
+            at -= 1;
+            if let Some(slot) = digits.get_mut(at) {
+                *slot = b"0123456789abcdef"[(rest & 15) as usize];
+            }
+            rest >>= 4;
+            if rest == 0 {
+                break;
+            }
+        }
+        self.put(
+            digits
+                .get(at..)
+                .and_then(|d| core::str::from_utf8(d).ok())
+                .unwrap_or("0"),
+        )
+    }
+
+    fn flush(&mut self) -> Result<(), StorageError> {
+        if self.begun {
+            self.storage.append(self.path, &self.buffer)?;
+        } else {
+            self.storage.write(self.path, &self.buffer)?;
+            self.begun = true;
+        }
+        self.buffer.clear();
+        Ok(())
+    }
+
+    /// Writes what is left (an empty file if nothing was added).
+    pub(crate) fn finish(mut self) -> Result<(), StorageError> {
+        self.flush()
+    }
 }
 
 /// Calls `visit` with each line of `path` and where it begins, in order,
@@ -232,6 +388,37 @@ mod tests {
         // A mark in the middle is text.
         let storage = MemoryStorage::new().with("f", "a\n\u{feff}b\n");
         assert_eq!(lines(&storage)[1].1, "\u{feff}b");
+    }
+
+    #[test]
+    fn a_sink_writes_a_file_of_any_size_in_pieces() {
+        let storage = MemoryStorage::new().with("f", "old");
+        let mut sink = Sink::new(&storage, "f").unwrap();
+        let mut expected = String::new();
+        for i in 0..3000u32 {
+            sink.put_number(i).unwrap();
+            sink.put("\t").unwrap();
+            sink.put_signed(-i64::from(i)).unwrap();
+            sink.put("\t").unwrap();
+            sink.put_hex(u64::from(i) * 977).unwrap();
+            sink.put("\n").unwrap();
+            expected.push_str(&format!(
+                "{i}\t{}\t{:x}\n",
+                -i64::from(i),
+                u64::from(i) * 977
+            ));
+        }
+        sink.finish().unwrap();
+        assert_eq!(storage.get("f"), Some(expected.into_bytes()));
+        // Nothing added: the file is made empty.
+        let sink = Sink::new(&storage, "g").unwrap();
+        sink.finish().unwrap();
+        assert_eq!(storage.get("g"), Some(Vec::new()));
+        let mut out = String::new();
+        push_hex(&mut out, 0).unwrap();
+        push_hex(&mut out, u64::MAX).unwrap();
+        assert_eq!(out, "0ffffffffffffffff");
+        assert_eq!(trimmed_cut("  abcdef ", 3), "abc");
     }
 
     #[test]
