@@ -118,7 +118,38 @@ pub fn apply(
             return Err(Error::Invalid);
         }
     }
+    verify_signature(&batch, rules.signature)?;
     transaction::apply(&batch, rules, path, block, 64 * 1024)
+}
+
+// Re-encode through the generated codec; never depend on field byte offsets.
+// Scratch is dropped before the document transaction reserves its working copy.
+fn verify_signature(batch: &wire::RecordBatch<'_>, signature: u64) -> Result<(), Error> {
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(batch.len())
+        .map_err(|_| Error::NoMemory)?;
+    for mut record in batch.iter() {
+        if let wire::Record::FilterRules(rules) = &mut record {
+            rules.signature = 0;
+        }
+        records.push(record);
+    }
+    let mut scratch = Vec::new();
+    scratch
+        .try_reserve_exact(wire::RECORD_MAX_BYTES)
+        .map_err(|_| Error::NoMemory)?;
+    scratch.resize(wire::RECORD_MAX_BYTES, 0);
+    let len = wire::records_encode(&records, &mut scratch).map_err(Error::Wire)?;
+    let computed = scratch[..len]
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    if computed != signature {
+        return Err(Error::Invalid);
+    }
+    Ok(())
 }
 
 impl From<paperpaw_document::EditError> for Error {

@@ -66,7 +66,9 @@ and reply lists and limits, and `since` starting at 0. Keep generated output
 plugin-owned; remove the separate `abi_stage_codec.py` and `reader-filter-gen.py`
 path, preserving its regression coverage in the shared generator.
 
-Before activation, stop trusting the sender-provided signature. Prefer removing
-the field and deriving the cache key at the receiver; if retained, verify FNV-1a
-64 over the canonical encoding with that field zeroed before any mutation. The
-current application does not verify it and must not supply a trusted cache key.
+The receiver now verifies FNV-1a 64 over the canonical generated encoding with
+signature zeroed before mutation. Stale signatures return Invalid. Both
+validation buffers are fallibly allocated and dropped before the transaction;
+allocator sweeps include these allocations. Shared-generator migration must
+preserve this verification or remove the transmitted signature and derive the
+cache key entirely at the receiver.

@@ -189,3 +189,22 @@ fn punctuation_matches_use_boundaries_before_the_rule() {
     apply(&bytes, "book.epub", &mut actual).unwrap();
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn stale_cache_signature_refuses_before_mutation() {
+    let bytes = encoded(true, "a=b", crate::pictures::SHOW, "Picture");
+    let batch = wire::records_decode(&bytes).unwrap();
+    let mut records: Vec<_> = batch.iter().collect();
+    if let wire::Record::FilterPair(pair) = &mut records[1] {
+        pair.to = "changed";
+    }
+    let mut altered = alloc::vec![0; 3840];
+    let len = wire::records_encode(&records, &mut altered).unwrap();
+    let original = Block::new(BlockKind::Paragraph, 0, 1, "a".to_string());
+    let mut block = original.clone();
+    assert_eq!(
+        apply(&altered[..len], "book.epub", &mut block),
+        Err(Error::Invalid)
+    );
+    assert_eq!(block, original);
+}
