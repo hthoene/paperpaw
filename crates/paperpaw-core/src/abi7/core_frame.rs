@@ -61,7 +61,7 @@ impl Frame for CoreFrame<'_> {
             .ok_or(ERR_STATE)?;
         self.stack_rows
             .instance(instance, self.stack_generation)
-            .filter(|row| row.owner != 0 && self.caller() == Ok(row.owner))
+            .filter(|row| !row.host && row.owner != 0 && self.caller() == Ok(row.owner))
             .map(|row| row.instance)
             .ok_or(ERR_STATE)
     }

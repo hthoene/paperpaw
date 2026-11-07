@@ -134,3 +134,10 @@ fn nested_frame_directory_upgrades_have_independent_scoped_strong_counts() {
         Err(paperpaw_native::host_glue::ERR_STATE)
     ));
 }
+
+#[test]
+fn fixed_stack_and_deferred_cleanup_have_a_bounded_resident_size() {
+    let size = core::mem::size_of::<crate::native_host::stack_rows::StackRows>();
+    assert!(size <= 512);
+    std::println!("StackRows incl fixed deferred cleanup: {size} bytes");
+}

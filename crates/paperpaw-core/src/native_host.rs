@@ -288,7 +288,7 @@ impl FlatHost {
             None => Ok(None),
             Some(directory) => directory
                 .upgrade()
-                .map_err(|_| ERR_NO_MEMORY)?
+                .map_err(|_| paperpaw_native::host_glue::ERR_STATE)?
                 .map(Some)
                 .ok_or(paperpaw_native::host_glue::ERR_STATE),
         }
