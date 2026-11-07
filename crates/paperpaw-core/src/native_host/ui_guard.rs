@@ -138,6 +138,18 @@ pub(crate) fn open_index(
     }
 }
 
+/// `command.open` (any mode) and command 56 from the callback of the screen
+/// instance `from` (`None`: an action or event): a guard dialog opens nothing
+/// but its one nested question, so any ordinary open from it is `ERR_DENIED`
+/// at the caller (section 4.3). Where the new instance goes is [`open_index`].
+pub(crate) fn open_allowed(view: &dyn UiStackView, from: Option<u32>) -> Result<(), i32> {
+    let dialog = from
+        .and_then(|instance| find(view, instance))
+        .and_then(|i| view.row(i))
+        .is_some_and(|r| r.guard_dialog);
+    if dialog { Err(ERR_DENIED) } else { Ok(()) }
+}
+
 /// Whether the `core.input-filter` subscriber `filter_plugin` is called for
 /// the next input. While the top instance is secret, only the filters of its
 /// own plugin and of the topmost guard's plugin run (sections 1.2 and 4.3: with

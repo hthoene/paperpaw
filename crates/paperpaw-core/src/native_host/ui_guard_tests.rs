@@ -518,3 +518,22 @@ fn a_lower_guarding_overlay_is_not_closable_by_an_unrelated_plugin() {
     // A non-guarding overlay below the topmost guard follows the ordinary rule.
     assert_eq!(close_allowed(v, "help", 3), Ok(Close::Instance(2)));
 }
+
+#[test]
+fn a_guard_dialog_opens_nothing_but_its_nested_question() {
+    let rows = locked();
+    let v = view(&rows);
+    // The keyboard dialog (instance 3) cannot open a screen; the lock (2) and
+    // the page (1), an action or event (None) and an unknown instance can.
+    assert_eq!(open_allowed(v, Some(3)), Err(ERR_DENIED));
+    for from in [Some(1), Some(2), None, Some(99)] {
+        assert_eq!(open_allowed(v, from), Ok(()), "{from:?}");
+    }
+    // Its one nested phone question is the op 8 path, which the guard denies too.
+    let mut phone = ask("keyboard", 0, REMOTE_KEYBOARD);
+    phone.parent = nested(true);
+    assert_eq!(
+        ask_admission(v, &phone, OpenRequests::default(), false),
+        Err(ERR_DENIED)
+    );
+}
