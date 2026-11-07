@@ -296,6 +296,56 @@ class StageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_stages(candidate)
 
+    def test_independent_row_and_byte_caps_at_exact_boundaries(self):
+        schema, _ = revision_schemas(self.schema['minor'])
+        stage = self.stage(schema)
+        stage['reply_rows'] = 2
+        stage['records'][1]['fields'] = [dict(name='bytes', type='bytes', since=0,
+            optional=False, ordinal=None, default=None, max_bytes=3833)]
+        validate_stages(schema)
+        tests = r'''
+#[cfg(test)]
+mod tests {
+    use super::core_test_stage_v1::*;
+    #[test]
+    fn rows_and_bytes_are_independent_and_no_output_is_truncated() {
+        let mut out = [0xa5; 4096];
+        let full = [7; 3829];
+        let rows = [Record::SampleReply(SampleReply::new(&full)),
+                    Record::SampleReply(SampleReply::new(&[]))];
+        let len = reply_encode(&rows, &mut out).unwrap();
+        assert_eq!(len, 3840);
+        assert_eq!(reply_decode(&out[..len]).unwrap().len(), 2);
+        assert!(out[3840..].iter().all(|b| *b == 0xa5));
+        let over = [7; 3830];
+        let rows = [Record::SampleReply(SampleReply::new(&over)),
+                    Record::SampleReply(SampleReply::new(&[]))];
+        out.fill(0xa5);
+        assert_eq!(reply_encode(&rows, &mut out), Err(-3));
+        assert!(out.iter().all(|b| *b == 0xa5));
+        let three = [Record::SampleReply(SampleReply::new(&[])); 3];
+        assert_eq!(reply_encode(&three, &mut out), Err(-2));
+        assert!(out.iter().all(|b| *b == 0xa5));
+        assert_eq!(reply_decode(&[3, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0]).err(), Some(-2));
+        let len = SampleReply::new(&over).encode(&mut out).unwrap();
+        out[0] = 2;
+        out[len..len + 4].copy_from_slice(&[2, 2, 0, 0]);
+        assert_eq!(len + 4, 3841);
+        assert_eq!(reply_decode(&out[..len + 4]).err(), Some(-2));
+    }
+}
+'''
+        rustc = shutil.which('rustc') or str(Path.home() / '.cargo/bin/rustc')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            source = path / 'stage-caps.rs'
+            # Keep the generated inner attribute first in the crate.
+            source.write_text(rust_stages(schema) + tests)
+            binary = path / 'stage-caps-tests'
+            subprocess.run([rustc, '--edition=2024', '--test', '-Dwarnings', str(source),
+                            '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_size_checks_name_stage_and_required_and_available_bytes(self):
         for cap in ['max_input', 'max_reply']:
             candidate = copy.deepcopy(self.schema)
@@ -305,8 +355,7 @@ class StageTests(unittest.TestCase):
         candidate = copy.deepcopy(self.schema)
         status = candidate['stages'][1]
         status['reply_rows'] = 64
-        with self.assertRaisesRegex(ValueError, r'core\.status.*[0-9].*3840'):
-            validate_stages(candidate)
+        validate_stages(candidate)  # Row and byte caps bind independently.
 
     def test_compatible_growth_requires_new_revisions(self):
         grown = copy.deepcopy(self.schema)

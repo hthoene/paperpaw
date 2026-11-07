@@ -284,8 +284,8 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] `input` and `reply` each name 1..=8 distinct records from this schema; no record belongs to
   both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
   `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at
-  its field caps exceeds `max_input`, or `reply_rows` times the largest framed reply record
-  exceeds `max_reply`.
+  its field caps exceeds `max_input`, or one framed reply record exceeds `max_reply`.
+  Row and byte caps bind independently; the host sizes reply room by `max_reply`.
 - [D] `tools/abi-gen.py` emits `stages_wire.rs` to `abi/generated/`,
   `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`. All copies are
   identical. Each `<key>_v<major>` module carries the key, version, bounds, input/reply tags and

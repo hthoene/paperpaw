@@ -80,7 +80,7 @@ def _validate_stage(stage, minor):
     for side in ('input', 'reply'):
         largest = max(_framed_cap(r) for r in declared if r['name'] in stage[side])
         # Count prefix is part of every batch, including an empty reply.
-        required = 1 + largest if side == 'input' else _varint_len(stage['reply_rows']) + stage['reply_rows'] * largest
+        required = 1 + largest
         cap = stage['max_' + side]
         _require(required <= cap, f'{key}: {side} encoded size {required} exceeds cap {cap}')
 

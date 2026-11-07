@@ -494,7 +494,7 @@ pub mod core_input_filter_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);
@@ -976,7 +976,7 @@ pub mod core_status_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);
@@ -1638,7 +1638,7 @@ pub mod core_widget_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);

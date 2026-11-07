@@ -551,7 +551,7 @@ fn encode_with(records: &[@RECORD@], out: &mut [u8], cap: usize, rows: usize, ta
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
     }
-    if required > cap { return Err(-2); }
+    if required > cap { return Err(-3); }
     if out.len() < required { return Err(-3); }
     let mut offset = 0;
     write_varint(records.len() as u32, out, &mut offset);
