@@ -21,11 +21,13 @@ const MOVE_REPLACE: u32 = 1;
 const PROGRESS_DONE: u32 = 1;
 
 /// Op 4.
+#[inline(never)]
 pub(super) fn make_dir(view: &View<'_>, record: Record<'_>) -> Result<usize, i32> {
     let Record::ServiceFsPath(input) = record else {
         return Err(ERR_INVALID);
     };
-    let target = target::resolve(view, input.root, input.path, Intent::Change)?;
+    let mut target = Target::EMPTY;
+    target::resolve(view, &mut target, input.root, input.path, Intent::Change)?;
     // The root itself always exists, while the card is there.
     if target.is_root() {
         return super::read::root_present(view, &target).map(|()| 0);
@@ -52,6 +54,7 @@ pub(super) fn make_dir(view: &View<'_>, record: Record<'_>) -> Result<usize, i32
 }
 
 /// Op 5.
+#[inline(never)]
 pub(super) fn remove_tree(
     view: &View<'_>,
     record: Record<'_>,
@@ -60,7 +63,8 @@ pub(super) fn remove_tree(
     let Record::ServiceFsList(input) = record else {
         return Err(ERR_INVALID);
     };
-    let target = target::resolve(view, input.root, input.path, Intent::Change)?;
+    let mut target = Target::EMPTY;
+    target::resolve(view, &mut target, input.root, input.path, Intent::Change)?;
     if input.flags != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -93,12 +97,14 @@ pub(super) fn remove_tree(
 }
 
 /// Op 6.
+#[inline(never)]
 pub(super) fn move_entry(view: &View<'_>, record: Record<'_>) -> Result<usize, i32> {
     let Record::ServiceFsMove(input) = record else {
         return Err(ERR_INVALID);
     };
-    let from = target::resolve(view, input.from_root, input.from, Intent::Change)?;
-    let to = target::resolve(view, input.to_root, input.to, Intent::Change)?;
+    let (mut from, mut to) = (Target::EMPTY, Target::EMPTY);
+    target::resolve(view, &mut from, input.from_root, input.from, Intent::Change)?;
+    target::resolve(view, &mut to, input.to_root, input.to, Intent::Change)?;
     if input.flags & !MOVE_REPLACE != 0 {
         return Err(ERR_UNSUPPORTED);
     }

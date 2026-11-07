@@ -42,11 +42,13 @@ fn card_present(storage: &dyn Storage) -> Result<(), i32> {
 }
 
 /// Op 1.
+#[inline(never)]
 pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
     let Record::ServiceFsList(input) = record else {
         return Err(ERR_INVALID);
     };
-    let target = target::resolve(view, input.root, input.path, Intent::Read)?;
+    let mut target = Target::EMPTY;
+    target::resolve(view, &mut target, input.root, input.path, Intent::Read)?;
     if input.flags != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -159,11 +161,13 @@ fn entry_row<'a>(entry: &paperpaw_platform::DirEntry<'a>) -> Result<Record<'a>, 
 }
 
 /// Op 2.
+#[inline(never)]
 pub(super) fn stat(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
     let Record::ServiceFsPath(input) = record else {
         return Err(ERR_INVALID);
     };
-    let target = target::resolve(view, input.root, input.path, Intent::Read)?;
+    let mut target = Target::EMPTY;
+    target::resolve(view, &mut target, input.root, input.path, Intent::Read)?;
     let (flags, size, modified) = if target.is_root() {
         root_present(view, &target)?;
         (ENTRY_FOLDER, 0, None)
@@ -205,11 +209,13 @@ pub(super) fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> 
 }
 
 /// Op 3.
+#[inline(never)]
 pub(super) fn space(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
     let Record::ServiceFsPath(input) = record else {
         return Err(ERR_INVALID);
     };
-    let _target = target::resolve(view, input.root, input.path, Intent::Read)?;
+    let mut target = Target::EMPTY;
+    target::resolve(view, &mut target, input.root, input.path, Intent::Read)?;
     if !input.path.is_empty() {
         return Err(ERR_INVALID);
     }

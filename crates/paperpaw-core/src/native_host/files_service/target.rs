@@ -39,6 +39,16 @@ pub(super) struct Target {
 }
 
 impl Target {
+    /// A target not yet resolved; [`resolve`] fills it.
+    pub(super) const EMPTY: Self = Self {
+        buf: [0; MAX_JOINED],
+        len: 0,
+        start: 0,
+        base: 0,
+        root: 0,
+        received: false,
+    };
+
     /// The path for the storage, from the card's root.
     pub(super) fn joined(&self) -> &str {
         // Built from `&str` parts at their boundaries below.
@@ -98,12 +108,14 @@ impl Target {
 /// `uses.storage` on root 1 and for a change on root 2), the path rules
 /// (`ERR_INVALID`, `ERR_UTF8`, `ERR_NO_SPACE`), the root-1 exclusions
 /// (`ERR_INVALID`). The path may be `""`, the root.
+#[inline(never)]
 pub(super) fn resolve(
     view: &View<'_>,
+    target: &mut Target,
     root: u32,
     path: &str,
     intent: Intent,
-) -> Result<Target, i32> {
+) -> Result<(), i32> {
     match root {
         DATA => {}
         CARD => view.who.storage?,
@@ -121,14 +133,13 @@ pub(super) fn resolve(
     let received = root == DATA
         && !first.is_empty()
         && (first.eq_ignore_ascii_case(RECEIVED) || view.host.excluded(DATA, first));
-    let mut target = Target {
-        buf: [0; MAX_JOINED],
-        len: 0,
-        start: 0,
-        base: 0,
-        root,
-        received,
-    };
+    // Filled in the caller's place: a path is 640 bytes, and a copy of it per
+    // return would put several of them in the frame of an op with two.
+    target.len = 0;
+    target.start = 0;
+    target.base = 0;
+    target.root = root;
+    target.received = received;
     let (kind, folder) = match root {
         DATA => (PREFIX, Some(view.who.plugin)),
         BUNDLE => ("plugins/", Some(view.who.plugin)),
@@ -143,16 +154,16 @@ pub(super) fn resolve(
         {
             return Err(ERR_INVALID);
         }
-        push(&mut target, kind.as_bytes())?;
-        push(&mut target, id.as_bytes())?;
+        push(target, kind.as_bytes())?;
+        push(target, id.as_bytes())?;
         target.base = target.len;
         if !path.is_empty() {
-            push(&mut target, b"/")?;
+            push(target, b"/")?;
         }
     }
     target.start = target.len;
-    push(&mut target, path.as_bytes())?;
-    Ok(target)
+    push(target, path.as_bytes())?;
+    Ok(())
 }
 
 fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
