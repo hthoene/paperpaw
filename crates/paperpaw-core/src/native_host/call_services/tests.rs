@@ -19,12 +19,8 @@ use paperpaw_native::{
 use paperpaw_platform::Instant;
 
 fn echo(_: &dyn Frame, _: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let records = registrations::records_decode(input)?;
-    if records.len() != 1 {
-        return Err(ERR_INVALID);
-    }
-    out[..input.len()].copy_from_slice(input);
-    Ok(input.len())
+    let record = registrations::records_decode_single(input)?;
+    registrations::record_encode_one(&record, out)
 }
 fn failing(_: &dyn Frame, _: &ServiceOp, _: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     out[0] = 0;
@@ -212,10 +208,10 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                 drop(running);
                 assert_eq!(
                     call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
-                    input.len() as i32
+                    (input.len() - 1) as i32
                 );
-                assert_eq!(&out[..input.len()], input);
-                assert!(out[input.len()..].iter().all(|byte| *byte == 0xa5));
+                assert_eq!(&out[..input.len() - 1], &input[1..]);
+                assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
             }
         })
         .unwrap();
@@ -266,21 +262,21 @@ fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
 fn generic_schema_validation_accepts_multiplicity_but_echo_requires_one_record() {
     let bytes = batch("one");
     assert_eq!(
-        validate_batch(&bytes, &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&bytes, &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
     let mut two = bytes.clone();
     two[0] = 2;
     two.extend_from_slice(&bytes[1..]);
     assert_eq!(
-        validate_batch(&two, &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&two, &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
     assert_eq!(
-        validate_batch(&[0], &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&[0], &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
-    assert_eq!(validate_batch(&bytes, &[]), Err(ERR_UNSUPPORTED));
+    assert_eq!(validate_batch(&bytes, &[], 2), Err(ERR_UNSUPPORTED));
     let key = services_wire::service_schema("core.test-echo", 1).unwrap();
     let op = key.op(1).unwrap();
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -349,7 +345,7 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
                     ),
                     OK
                 );
-                for (mode, status) in [(1, ERR_INVALID), (2, ERR_INVALID), (3, ERR_UNSUPPORTED)] {
+                for (mode, status) in [(1, ERR_INVALID), (2, ERR_INVALID), (3, ERR_INVALID)] {
                     let mut out = [0xa5; 512];
                     BROKEN_REPLY.with(|value| value.set(mode));
                     assert_eq!(
@@ -360,12 +356,15 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
                     BROKEN_REPLY.with(|value| value.set(0));
                     assert_eq!(
                         call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
-                        input.len() as i32
+                        (input.len() - 1) as i32
                     );
-                    assert_eq!(&out[..input.len()], input);
-                    assert!(out[input.len()..].iter().all(|byte| *byte == 0xa5));
+                    assert_eq!(&out[..input.len() - 1], &input[1..]);
+                    assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
                 }
             }
         })
         .unwrap();
 }
+
+#[path = "row_tests.rs"]
+mod row_tests;
