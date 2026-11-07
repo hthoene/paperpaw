@@ -21,8 +21,8 @@ OP_KEYS = {'id', 'name', 'since', 'effect', 'feature', 'input', 'reply', 'max_in
 # Row counts, each written only where it is not its default, so ops that never
 # set them keep their exact form (and their lock):
 # - `input_rows`: the most records one input batch holds (default 1);
-# - `paged`: a list op (its reply ends with `service.end`) that pages through
-#   `service.reg_query` cursors (default true for list ops, never for others);
+# - `paged`: a list op (its reply ends with `service.end`) that pages by a
+#   cursor in its input (default true for list ops, never for others);
 # - `reply_rows`: the most rows before `service.end` of an unpaged list op (a
 #   paged one holds `page_rows`; an op that is no list op has no rows).
 OPTIONAL_OP_KEYS = {'input_rows', 'paged', 'reply_rows'}
@@ -244,7 +244,7 @@ pub struct ServiceOp {
     pub bound: ServiceBound,
     /// Most records one input batch holds (a counted batch, never cut).
     pub input_rows: u16,
-    /// Whether it is a list op that pages by `service.reg_query` cursor.
+    /// Whether it is a list op that pages by a cursor in its input record.
     pub paged: bool,
     /// Most rows before the reply's `service.end`: the schema's page rows for
     /// a paged op, its own for an unpaged list op, 0 for an op that is no list.
