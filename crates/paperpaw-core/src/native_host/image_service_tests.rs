@@ -506,3 +506,24 @@ fn the_ninth_unseen_picture_is_busy_or_a_zero_id_in_a_block() {
         Ok(Some(id)) if id != 0
     ));
 }
+
+#[test]
+fn a_fmt_image_record_becomes_the_openers_doc_image() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0);
+    let doc = t
+        .map_fmt_image(&storage, A, 7, CACHE, &fmt, true)
+        .unwrap()
+        .unwrap();
+    assert_ne!(doc.image, 0);
+    assert_eq!((doc.index, doc.width, doc.height), (6, 8, 4));
+    // A picture the card does not vouch for is no doc_image.
+    let lying = FmtImage::new("a.gray", 6, 9, 4, 0);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &lying, true),
+        Ok(None)
+    );
+}

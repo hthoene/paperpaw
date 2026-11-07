@@ -7,6 +7,7 @@
 use super::{ImageTable, Origin, PREPARED_IMAGES};
 use super::{MAX_SIDE, wire};
 use alloc::string::String;
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::image::{ColorWriter, Decoded, Fit, Format, GrayWriter, ImageError, Source};
@@ -59,6 +60,18 @@ impl Ready {
     }
 }
 
+/// Whether `name` is one this host gives a prepared image: `<hex>-<hex>.img`.
+fn ours(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".img") else {
+        return false;
+    };
+    let Some((owner, number)) = stem.split_once('-') else {
+        return false;
+    };
+    let hex = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_hexdigit());
+    hex(owner) && hex(number)
+}
+
 /// A source file on the card.
 struct FileSource<'a> {
     storage: &'a dyn Storage,
@@ -108,7 +121,12 @@ impl ImageTable {
             return Err(ERR_INVALID);
         }
         let mut inner = self.lock()?;
-        let waiting = inner.waiting.iter().filter(|w| w.owner == owner).count();
+        let waiting = inner.waiting.iter().filter(|w| w.owner == owner).count()
+            + inner
+                .ready
+                .iter()
+                .filter(|r| r.owner == owner && r.image == 0)
+                .count();
         let prepared = inner
             .entries
             .iter()
@@ -123,6 +141,12 @@ impl ImageTable {
             .map_err(|_| ERR_NO_MEMORY)?;
         owned.push_str(source);
         inner.waiting.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Room for every answer that can be pending: waiting ones and these.
+        let pending = inner.waiting.len() + 1;
+        inner
+            .ready
+            .try_reserve(pending)
+            .map_err(|_| ERR_NO_MEMORY)?;
         inner.waiting.push(Waiting {
             owner,
             cookie,
@@ -133,19 +157,20 @@ impl ImageTable {
         Ok(())
     }
 
-    /// Any request waiting, or a cache file to delete.
+    /// Any request waiting, an answer to tell or a cache file to delete.
     #[must_use]
     pub(crate) fn prepare_pending(&self) -> bool {
-        self.inner
-            .try_borrow()
-            .map_or(true, |i| !i.waiting.is_empty() || !i.garbage.is_empty())
+        self.inner.try_borrow().map_or(true, |i| {
+            !i.waiting.is_empty() || !i.garbage.is_empty() || !i.ready.is_empty()
+        })
     }
 
     /// One main-loop turn: deletes one cache file of an ended image and
     /// decodes the oldest request. `screen` is the longest side `side` 0
-    /// stands for, `colour_screen` whether colour is kept at all.
+    /// stands for, `colour_screen` whether colour is kept at all. The answer
+    /// is held for [`ImageTable::take_ready`]; true if a request was decoded.
     ///
-    /// The request's own failure is its `Ready` (a status), not an error.
+    /// The request's own failure is its answer (a status), not an error.
     ///
     /// # Errors
     /// `ERR_BUSY`: the table is borrowed; nothing was taken, call again.
@@ -154,7 +179,7 @@ impl ImageTable {
         storage: &dyn Storage,
         screen: u32,
         colour_screen: bool,
-    ) -> Result<Option<Ready>, i32> {
+    ) -> Result<bool, i32> {
         let (job, garbage, number) = {
             let mut inner = self.lock()?;
             // One file a turn; the list keeps the room it was given.
@@ -177,15 +202,120 @@ impl ImageTable {
             let _ = storage.remove(&path);
         }
         let Some(job) = job else {
-            return Ok(None);
+            return Ok(false);
         };
-        Ok(Some(self.decode(
-            storage,
-            job,
-            number,
-            screen,
-            colour_screen,
-        )))
+        let answer = self.decode(storage, job, number, screen, colour_screen);
+        // Nothing else holds the table here, and its room was reserved with
+        // the request: this cannot fail or allocate.
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.ready.push(answer);
+        }
+        Ok(true)
+    }
+
+    /// A request that cannot even be queued for the decoder (its source did
+    /// not resolve on the card): the plugin is told `status` at once.
+    ///
+    /// # Errors
+    /// `ERR_FULL`, `ERR_NO_MEMORY`, `ERR_BUSY`.
+    pub(crate) fn refuse(&self, owner: u64, cookie: u32, status: u32) -> Result<(), i32> {
+        let mut inner = self.lock()?;
+        let count = inner.waiting.iter().filter(|w| w.owner == owner).count()
+            + inner
+                .ready
+                .iter()
+                .filter(|r| r.owner == owner && r.image == 0)
+                .count();
+        if count >= WAITING {
+            return Err(ERR_FULL);
+        }
+        let pending = inner.waiting.len() + 1;
+        inner
+            .ready
+            .try_reserve(pending)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        inner.ready.push(Ready {
+            owner,
+            cookie,
+            status,
+            image: 0,
+            width: 0,
+            height: 0,
+        });
+        Ok(())
+    }
+
+    /// Tells the oldest answer: `deliver` queues it for its plugin and
+    /// returns `Ok`, and it is gone; an `Err` leaves it for the next try.
+    /// `Ok(false)`: nothing to tell.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the table is borrowed), else `deliver`'s.
+    pub(crate) fn take_ready(
+        &self,
+        deliver: &mut dyn FnMut(&Ready) -> Result<(), i32>,
+    ) -> Result<bool, i32> {
+        let mut inner = self.lock()?;
+        let Some(first) = inner.ready.first() else {
+            return Ok(false);
+        };
+        deliver(first)?;
+        inner.ready.remove(0);
+        Ok(true)
+    }
+
+    /// Boot cleanup of the folder of prepared images: the files this host
+    /// made there (`<owner>-<n>.img`) and no live image uses go, at most
+    /// `max` in a call. Nothing outside the folder is touched, no
+    /// subfolder is entered and any other name is left alone. `Ok(true)`: it
+    /// may hold more, call again.
+    ///
+    /// # Errors
+    /// `ERR_IO` (the card cannot list the folder; a missing folder is
+    /// fine), `ERR_NO_MEMORY`, `ERR_BUSY`.
+    pub(crate) fn sweep_cache(&self, storage: &dyn Storage, max: usize) -> Result<bool, i32> {
+        let mut names: Vec<String> = Vec::new();
+        let mut failure = None;
+        let listed = storage.list(DIR, &mut |entry| {
+            if failure.is_some() || names.len() >= max || entry.is_dir || !ours(entry.name) {
+                return;
+            }
+            let mut name = String::new();
+            if name
+                .try_reserve_exact(DIR.len() + 1 + entry.name.len())
+                .is_err()
+                || names.try_reserve(1).is_err()
+            {
+                failure = Some(ERR_NO_MEMORY);
+                return;
+            }
+            name.push_str(DIR);
+            name.push('/');
+            name.push_str(entry.name);
+            names.push(name);
+        });
+        match listed {
+            Ok(()) => {}
+            Err(paperpaw_platform::StorageError::NotFound) => return Ok(false),
+            Err(_) => return Err(paperpaw_native::host_glue::ERR_IO),
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let inner = self
+            .inner
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        let mut removed = 0;
+        for name in &names {
+            if inner.entries.iter().any(|e| &e.path == name) {
+                continue;
+            }
+            if storage.remove(name).is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(names.len() >= max && removed > 0)
     }
 
     fn decode(

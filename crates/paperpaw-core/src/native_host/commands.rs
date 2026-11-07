@@ -4,6 +4,10 @@
 //! the callback; the kernel applies them, so the next callback reads them back.
 
 use super::Error;
+use super::image_service::{
+    self,
+    commands::{ImageAdmit, ImageCommand},
+};
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
     Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
@@ -60,6 +64,10 @@ pub struct CommandStage<'a> {
     ui: Option<ui::UiContext<'a>>,
     redraw: Option<u32>,
     accepted: usize,
+    /// `image_prepare` / `image_release` admission, once the host gave it.
+    images: Option<ImageAdmit>,
+    /// The admitted image commands, applied by the host after the callback.
+    staged_images: Vec<ImageCommand>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -88,7 +96,34 @@ impl<'a> CommandStage<'a> {
             ui: None,
             redraw: None,
             accepted: 0,
+            images: None,
+            staged_images: Vec::new(),
         }
+    }
+
+    /// Admits `command.image_prepare` and `command.image_release` for this
+    /// callback (otherwise they are `ERR_UNSUPPORTED`): see
+    /// [`ImageAdmit`]. The admitted ones come back from
+    /// [`Self::take_image_commands`].
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
+        self.images = Some(images);
+        self
+    }
+
+    /// The admitted image commands, in order, for the host to apply after
+    /// the callback (call it before [`Self::into_commands`]).
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn take_image_commands(&mut self) -> Vec<ImageCommand> {
+        core::mem::take(&mut self.staged_images)
     }
 
     /// Commands accepted so far, in submission order.
@@ -140,7 +175,16 @@ impl<'a> CommandStage<'a> {
         }
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
+        let mut images = self.images;
         for command in batch.iter() {
+            if let Some(admit) = images.as_mut()
+                && let Some(result) = admit.admit(&command)
+            {
+                if let Err(error) = result {
+                    return error;
+                }
+                continue;
+            }
             let WireCommand::SetSetting { key, value } = command else {
                 match self.validate_ui(command) {
                     Ok(extra) => bytes = bytes.saturating_add(extra),
@@ -172,26 +216,8 @@ impl<'a> CommandStage<'a> {
                 return ERR_INVALID;
             }
         }
-        let stored = batch
-            .iter()
-            .filter(|command| !matches!(command, WireCommand::Redraw { .. }))
-            .count();
-        if self.staged.try_reserve(stored).is_err() {
-            return ERR_NO_MEMORY;
-        }
-        let start = self.staged.len();
-        for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. }) {
-                continue;
-            }
-            match self.owned(command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                Ok(command) => self.staged.push(command),
-                Err(error) => {
-                    self.staged.truncate(start);
-                    return error;
-                }
-            }
+        if let Err(error) = self.push_batch(batch, images.is_some()) {
+            return error;
         }
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -200,7 +226,56 @@ impl<'a> CommandStage<'a> {
         }
         self.accepted += batch.len();
         self.bytes = bytes;
+        self.images = images;
         OK
+    }
+
+    /// Reserves room for an admitted batch and converts it; on an error
+    /// nothing of it stays staged.
+    fn push_batch(&mut self, batch: &CommandBatch<'_>, images: bool) -> Result<(), i32> {
+        let image_commands = if images {
+            batch
+                .iter()
+                .filter(|command| image_service::commands::owned_kind(command))
+                .count()
+        } else {
+            0
+        };
+        let stored = batch
+            .iter()
+            .filter(|command| !matches!(command, WireCommand::Redraw { .. }))
+            .count()
+            - image_commands;
+        if self.staged.try_reserve(stored).is_err()
+            || self.staged_images.try_reserve(image_commands).is_err()
+        {
+            return Err(ERR_NO_MEMORY);
+        }
+        let start = self.staged.len();
+        let start_images = self.staged_images.len();
+        for command in batch.iter() {
+            if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
+            let pushed = match images
+                .then(|| image_service::commands::owned(&command))
+                .flatten()
+            {
+                Some(Ok(image)) => {
+                    self.staged_images.push(image);
+                    Ok(())
+                }
+                Some(Err(error)) => Err(error),
+                // Capacity is reserved, so this push cannot reallocate.
+                None => self.owned(command).map(|command| self.staged.push(command)),
+            };
+            if let Err(error) = pushed {
+                self.staged.truncate(start);
+                self.staged_images.truncate(start_images);
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.

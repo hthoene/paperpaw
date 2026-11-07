@@ -17,8 +17,19 @@ fn png(storage: &MemoryStorage, path: &str, w: u32, h: u32) {
     }
 }
 
+fn told(t: &ImageTable) -> Option<Ready> {
+    let mut got = None;
+    t.take_ready(&mut |r| {
+        got = Some(r.clone());
+        Ok(())
+    })
+    .unwrap();
+    got
+}
+
 fn step(t: &ImageTable, storage: &MemoryStorage) -> Option<Ready> {
-    t.prepare_step(storage, 480, false).unwrap()
+    t.prepare_step(storage, 480, false).unwrap();
+    told(t)
 }
 
 #[test]
@@ -57,7 +68,8 @@ fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 64, 64);
     t.prepare(A, "a.png", 0, 1, false).unwrap();
-    let ready = t.prepare_step(&storage, 32, false).unwrap().unwrap();
+    t.prepare_step(&storage, 32, false).unwrap();
+    let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.width), (READY, 32));
     t.prepare(A, "a.png", 0, 2, false).unwrap();
     t.owner_stopped(A).unwrap();
@@ -138,4 +150,57 @@ fn ready_is_one_event_record() {
         ),
         (99, 5, 3, 10, 20)
     );
+}
+
+#[test]
+fn boot_cleanup_removes_only_this_hosts_files_in_its_folder_a_few_at_a_time() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    for n in 0..5 {
+        storage
+            .write(&std::format!("{DIR}/a{n}-1f.img"), b"x")
+            .unwrap();
+    }
+    // Not ours: another name, a file beside the folder, one further down.
+    storage
+        .write(&std::format!("{DIR}/notes.txt"), b"x")
+        .unwrap();
+    storage
+        .write(&std::format!("{DIR}/a-b.img.bak"), b"x")
+        .unwrap();
+    storage.write(".paperpaw/cache/keep.img", b"x").unwrap();
+    storage
+        .write(&std::format!("{DIR}/sub/1-1.img"), b"x")
+        .unwrap();
+    assert_eq!(t.sweep_cache(&storage, 2), Ok(true));
+    let mut left = 0;
+    storage
+        .list(DIR, &mut |e| left += usize::from(ours(e.name)))
+        .unwrap();
+    assert_eq!(left, 3);
+    assert_eq!(t.sweep_cache(&storage, 2), Ok(true));
+    assert_eq!(
+        t.sweep_cache(&storage, 2),
+        Ok(false),
+        "the last one: nothing more"
+    );
+    assert!(storage.exists(&std::format!("{DIR}/notes.txt")));
+    assert!(storage.exists(&std::format!("{DIR}/a-b.img.bak")));
+    assert!(storage.exists(".paperpaw/cache/keep.img"));
+    assert!(storage.exists(&std::format!("{DIR}/sub/1-1.img")));
+    // A card without the folder is fine.
+    assert_eq!(t.sweep_cache(&MemoryStorage::new(), 2), Ok(false));
+}
+
+#[test]
+fn boot_cleanup_spares_a_file_a_live_image_uses() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!(t.sweep_cache(&storage, 8), Ok(false));
+    assert!(t.info(A, ready.image).is_ok());
+    let file = t.lock().unwrap().entries[0].path.clone();
+    assert!(storage.exists(&file), "a live image keeps its file");
 }

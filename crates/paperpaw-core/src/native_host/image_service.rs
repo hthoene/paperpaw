@@ -101,6 +101,9 @@ struct Inner {
     garbage: Vec<String>,
     /// Names the cache files of prepared images.
     seq: u32,
+    /// `event.image_ready` told to no plugin yet, oldest first; room is
+    /// reserved with each request, so a decode never loses its answer.
+    ready: Vec<prepare::Ready>,
 }
 
 impl Inner {
@@ -112,7 +115,8 @@ impl Inner {
     }
 }
 
-mod prepare;
+pub(crate) mod commands;
+pub(crate) mod prepare;
 
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
@@ -163,6 +167,7 @@ impl ImageTable {
                 waiting: Vec::new(),
                 garbage: Vec::new(),
                 seq: 0,
+                ready: Vec::new(),
             }),
         }
     }
@@ -315,19 +320,40 @@ impl ImageTable {
             document,
             index: image.index,
         };
-        match self.add(
-            owner,
-            origin,
-            &full,
-            image.width,
-            image.height,
-            image.flags & 1 != 0,
-        ) {
+        let colour = matches!(decoded, paperpaw_sdk::image::Decoded::Color(_));
+        match self.add(owner, origin, &full, image.width, image.height, colour) {
             Ok(id) => Ok(Some(id)),
             Err(ERR_INVALID) => Ok(None),
             Err(ERR_BUSY) if in_block => Ok(Some(0)),
             Err(error) => Err(error),
         }
+    }
+
+    /// The stage adapter's step for one `fmt.image` of a reply: the record
+    /// the opener gets, or `None` where the picture is left out (see
+    /// [`ImageTable::map_document`]). `cache` is the document's root 2 on the
+    /// card. The `flags` of the format's record pass on, the id is the host's.
+    ///
+    /// # Errors
+    /// As [`ImageTable::map_document`].
+    pub(crate) fn map_fmt_image(
+        &self,
+        storage: &dyn Storage,
+        owner: u64,
+        document: u32,
+        cache: &str,
+        image: &super::stages_wire::core_format_v1::FmtImage<'_>,
+        in_block: bool,
+    ) -> Result<Option<wire::ServiceDocImage>, i32> {
+        let doc = wire::ServiceDocImage {
+            image: 0,
+            index: image.index,
+            width: image.width,
+            height: image.height,
+            flags: image.flags,
+        };
+        let id = self.map_document(storage, owner, document, cache, image.path, &doc, in_block)?;
+        Ok(id.map(|image| wire::ServiceDocImage { image, ..doc }))
     }
 
     /// `image_release`, or a reader giving a document image up.
@@ -387,6 +413,7 @@ impl ImageTable {
     pub(crate) fn owner_stopped(&self, owner: u64) -> Result<(), i32> {
         let mut inner = self.lock()?;
         inner.waiting.retain(|w| w.owner != owner);
+        inner.ready.retain(|r| r.owner != owner);
         let mut at = 0;
         while at < inner.entries.len() {
             if inner.entries[at].owner == owner {

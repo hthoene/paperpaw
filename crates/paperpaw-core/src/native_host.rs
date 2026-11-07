@@ -55,6 +55,7 @@ pub(crate) mod host_services;
     dead_code,
     reason = "wired into the shell table; a shell wires its host view"
 )]
+pub(crate) mod hyphen_card;
 pub(crate) mod hyphen_service;
 #[allow(
     dead_code,
