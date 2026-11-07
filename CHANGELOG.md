@@ -33,6 +33,9 @@ change the plugin SDK.
 - `paperpaw-ui-kit`: drawing helpers for interface-7 plugin screens (stock UI style,
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
+- Core native screen admission uses a shared declaration entry, fallible factories,
+  retained owners and declared instance policies. Native screen lifecycle events
+  carry nonzero instance ids. Other declaration families remain refused until wired (#228).
 
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).
