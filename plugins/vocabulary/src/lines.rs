@@ -49,6 +49,11 @@ pub(crate) fn copy(text: &str) -> Result<String, StorageError> {
 }
 
 /// Appends `text` to `out` with fallible allocation.
+/// Room for `more` items, taken at once.
+pub(crate) fn reserve<T>(items: &mut Vec<T>, more: usize) -> Result<(), StorageError> {
+    items.try_reserve(more).map_err(|_| StorageError::TooLarge)
+}
+
 pub(crate) fn push(out: &mut String, text: &str) -> Result<(), StorageError> {
     out.try_reserve(text.len())
         .map_err(|_| StorageError::TooLarge)?;

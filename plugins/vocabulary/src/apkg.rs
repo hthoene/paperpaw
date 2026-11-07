@@ -90,6 +90,10 @@ pub(crate) fn is_apkg(name: &str) -> bool {
 }
 
 /// Where the database is inflated to.
+const DATABASE: &str = ".paperpaw/plugins/vocabulary/cards/apkg.db";
+/// Where the notes are written to as text.
+const TEXT: &str = ".paperpaw/plugins/vocabulary/cards/apkg.tsv";
+
 fn database_path() -> String {
     cards::path("apkg.db")
 }
@@ -102,10 +106,12 @@ pub(crate) fn text_path() -> String {
 
 /// Removes what a deck left in the plugin's folder.
 pub(crate) fn tidy(storage: &dyn Storage) {
-    for path in [database_path(), text_path()] {
-        if storage.exists(&path) {
+    // The names are constants: tidying allocates nothing, so it runs
+    // whatever the heap says.
+    for path in [DATABASE, TEXT] {
+        if storage.exists(path) {
             // A leftover is overwritten by the next deck; nothing to tell.
-            let _ = storage.remove(&path);
+            let _ = storage.remove(path);
         }
     }
 }
