@@ -64,6 +64,17 @@ impl Maker<'_> {
         }
     }
 
+    /// Native allocation must finish before the open path changes any state.
+    pub(crate) fn prepare_native(
+        self,
+        params: &paperpaw_sdk::Params,
+    ) -> Result<Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>>, i32> {
+        match self {
+            Maker::Native(made) => made.make(params).map(Some),
+            _ => Ok(None),
+        }
+    }
+
     /// Native wrappers keep their instance identity while the viewport changes.
     pub(crate) fn remake(
         self,

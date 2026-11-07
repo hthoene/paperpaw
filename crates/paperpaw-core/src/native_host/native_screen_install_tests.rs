@@ -5,6 +5,7 @@ use paperpaw_sdk::{Command, Handled, Id, Params};
 
 std::thread_local! {
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
+    static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
@@ -58,6 +59,8 @@ unsafe extern "C" fn screen_make(
         (*state).table.state = state.cast();
         out.write(&raw const (*state).table);
     }
+    // Faults begin after the plugin allocation, in host mapping and publication.
+    arm_failure(INSTALL_FAIL_NTH.with(Cell::get));
     OK
 }
 unsafe extern "C" fn screen_destroy(state: *mut c_void) {
@@ -241,4 +244,38 @@ fn unsupported_native_family_discards_every_staged_screen() {
     ));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
     assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn every_post_factory_host_allocation_refuses_without_partial_publication() {
+    let mut reached_success = false;
+    for allocation in 1..48 {
+        reset(NORMAL);
+        DESTROYED.with(|value| value.set(0));
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let before = kernel.shared.registry.screens.list().iter().count();
+        INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        let result = install(&mut kernel, 0);
+        arm_failure(0);
+        INSTALL_FAIL_NTH.with(|value| value.set(0));
+        if result.is_ok() {
+            reached_success = true;
+            assert_eq!(
+                kernel.shared.registry.screens.list().iter().count(),
+                before + 1
+            );
+            assert_eq!(DESTROYED.with(Cell::get), 0);
+            drop(kernel);
+            assert_eq!(DESTROYED.with(Cell::get), 1);
+            break;
+        }
+        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        assert_eq!(DESTROYED.with(Cell::get), 1);
+    }
+    assert!(
+        reached_success,
+        "the fault walk reached a fully admitted owner"
+    );
 }

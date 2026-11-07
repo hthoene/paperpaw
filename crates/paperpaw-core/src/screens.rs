@@ -75,15 +75,9 @@ impl Kernel {
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
-        // A native factory is fallible and independent of the viewport. Finish
-        // it before changing the serial, layout or current screen.
-        let native_screen = if spec.is_native() {
-            match spec.make(&self.shared.env(self.now), params) {
-                Ok(screen) => Some(screen),
-                Err(_) => return,
-            }
-        } else {
-            None
+        // Native allocation finishes before changing the serial, layout or screen.
+        let Ok(native_screen) = spec.prepare_native(params) else {
+            return;
         };
         let on_open = spec.refresh_on_open();
         let serial = if spec.is_native() {
