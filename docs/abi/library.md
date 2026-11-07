@@ -144,16 +144,18 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 
 - [D] **Wire shapes** (records round): an op that names a book takes `lib_ref` as its **first
   record**, followed by the op's own record (ops 4, 7, 8, 14-17, 23, 24; ops 3, 6, 13, 22, 25 take
-  `lib_ref` alone), so no record repeats the reference. `lib_ref.key` is optional: present names the
-  book by catalog handle (with `path` empty), absent by `path`; both or neither `ERR_INVALID`.
-  `set_position` takes `lib_ref`, `lib_position` (the position, its own `flags`) and
-  `lib_position_set` (`flags` bit 0 `sync`, bit 1 `confirmed`). Times (`updated`, `created`) are
-  `u64` seconds since 1970, 0 unknown (the wire has no `i64`; no stored time precedes 1970).
-  `lib_edit.text_bytes` and `note_bytes` give the whole length of a text or note sent in `edit_text`
-  parts (0 when inline), so a commit checks that every part arrived. `lib_paths.paths` holds the
-  paths one per line (at most 7). `lib_import.name` is at most 765 bytes: 255 UTF-16 units, the FAT
-  limit checked below, are at most 765 UTF-8 bytes, so no name the card allows is refused by its
-  size on the wire.
+  `lib_ref` alone), so no record repeats the reference. The schema carries each op's record count
+  (`input_rows`): 2 for the ops that take `lib_ref` and one record, 3 for `set_position`, 4 for
+  `edit_add` (the transaction and at most 3 edits); more is `ERR_NO_SPACE` before the service runs.
+  `lib_ref.key` is optional: present names the book by catalog handle (with `path` empty), absent by
+  `path`; both or neither `ERR_INVALID`. `set_position` takes `lib_ref`, `lib_position` (the
+  position, its own `flags`) and `lib_position_set` (`flags` bit 0 `sync`, bit 1 `confirmed`). Times
+  (`updated`, `created`) are `u64` seconds since 1970, 0 unknown (the wire has no `i64`; no stored
+  time precedes 1970). `lib_edit.text_bytes` and `note_bytes` give the whole length of a text or
+  note sent in `edit_text` parts (0 when inline), so a commit checks that every part arrived.
+  `lib_paths.paths` holds the paths one per line (at most 7). `lib_import.name` is at most 765
+  bytes: 255 UTF-16 units, the FAT limit checked below, are at most 765 UTF-8 bytes, so no name the
+  card allows is refused by its size on the wire.
 - [D] **Edit parts** (`edit_add`, `edit_text`): a `lib_edit` whose `text_bytes` (or `note_bytes`)
   is above 0 sends its `text` (or `note`) inline empty, else `ERR_INVALID`; its parts follow in
   `edit_text` with `offset` 0 first and each next `offset` the end of the one before (no gap, no
@@ -258,9 +260,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   bounded record whatever the size of the transaction. The ids of the edits are read after it with
   op 26 `edit_receipt` (`lib_receipt_ask`: `transaction`, `cursor`), paged rows `lib_receipt`
   (`edit` the edit's index in the transaction, `id` the annotation's id, `action` what was done: 0
-  added, 1 replaced, 2 removed, 3 updated by `client_key`) then `end`, 64 rows a page; the receipt
-  is kept on the card until the plugin's next `edit_begin`, 10 minutes, or the plugin stops
-  (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit answered `OK`.
+  added, 1 replaced, 2 removed, 3 updated by `client_key`) then `end`, 32 rows a page (the schema's
+  `page_rows`); the receipt is kept on the card until the plugin's next `edit_begin`, 10 minutes, or
+  the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
+  answered `OK`.
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
   3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
   it by the annotation file alone); each part of `edit_text` at most 3,072

@@ -63,6 +63,7 @@
         "service.lib_ref",
         "service.lib_text_at"
       ],
+      "input_rows": 2,
       "reply": [
         "service.lib_text"
       ],
@@ -113,6 +114,7 @@
         "service.lib_ref",
         "service.lib_cover"
       ],
+      "input_rows": 2,
       "reply": [
         "service.doc_image"
       ],
@@ -130,6 +132,7 @@
         "service.lib_ref",
         "service.lib_status"
       ],
+      "input_rows": 2,
       "reply": [],
       "max_input": 1024,
       "max_reply": 64,
@@ -226,6 +229,7 @@
         "service.lib_position",
         "service.lib_position_set"
       ],
+      "input_rows": 3,
       "reply": [
         "service.lib_result"
       ],
@@ -243,6 +247,7 @@
         "service.lib_ref",
         "service.lib_page"
       ],
+      "input_rows": 2,
       "reply": [
         "service.lib_annotation",
         "service.end"
@@ -261,6 +266,7 @@
         "service.lib_ref",
         "service.lib_page"
       ],
+      "input_rows": 2,
       "reply": [
         "service.lib_anchor",
         "service.end"
@@ -279,6 +285,7 @@
         "service.lib_ref",
         "service.lib_edit_head"
       ],
+      "input_rows": 2,
       "reply": [
         "service.lib_transaction"
       ],
@@ -296,6 +303,7 @@
         "service.lib_transaction_ref",
         "service.lib_edit"
       ],
+      "input_rows": 4,
       "reply": [],
       "max_input": 4096,
       "max_reply": 64,
@@ -372,6 +380,7 @@
         "service.lib_ref",
         "service.lib_field_set"
       ],
+      "input_rows": 2,
       "reply": [],
       "max_input": 2048,
       "max_reply": 64,
@@ -387,6 +396,7 @@
         "service.lib_ref",
         "service.lib_provided"
       ],
+      "input_rows": 2,
       "reply": [],
       "max_input": 4096,
       "max_reply": 64,

@@ -139,14 +139,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `open` (`doc_open`: `root` 0 or 1, `path` at most 512 bytes, `format` empty for section 1's
   choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
-  rows `key`/`value`, interface 6 `OpenOptions::settings`): `flags` bit 0 publisher styles, bit 1
-  colour, bit 2 background (an index build, not for showing; section 8); `image_side` the longest
-  side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600), `cover_side` of the cover (0:
-  interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's long side; at most the screen's
-  long side); `css_path` a file of user CSS (at most 65,536 bytes, empty for none) on
-  `css_root` (0 or 1 under the same rule as `path`). Other flag bits `ERR_INVALID`. The host checks
-  the roots, finds the format, gives a new document id and calls the format's op 2 `open`; its
-  answer becomes `doc_state`.
+  rows `key`/`value`, so `input_rows` 13 in the schema; interface 6 `OpenOptions::settings`):
+  `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
+  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600),
+  `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
+  long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
+  empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
+  `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
+  format's op 2 `open`; its answer becomes `doc_state`.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
   (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
   `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,

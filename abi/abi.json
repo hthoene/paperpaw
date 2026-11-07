@@ -11222,6 +11222,7 @@
             "service.doc_open",
             "service.doc_option"
           ],
+          "input_rows": 13,
           "max_input": 4096,
           "max_reply": 4096,
           "name": "open",
@@ -11629,6 +11630,7 @@
             "service.lib_ref",
             "service.lib_text_at"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "text",
@@ -11679,6 +11681,7 @@
             "service.lib_ref",
             "service.lib_cover"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "cover",
@@ -11696,6 +11699,7 @@
             "service.lib_ref",
             "service.lib_status"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 64,
           "name": "set_status",
@@ -11792,6 +11796,7 @@
             "service.lib_position",
             "service.lib_position_set"
           ],
+          "input_rows": 3,
           "max_input": 2048,
           "max_reply": 4096,
           "name": "set_position",
@@ -11809,6 +11814,7 @@
             "service.lib_ref",
             "service.lib_page"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "annotations",
@@ -11827,6 +11833,7 @@
             "service.lib_ref",
             "service.lib_page"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "anchors",
@@ -11845,6 +11852,7 @@
             "service.lib_ref",
             "service.lib_edit_head"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "edit_begin",
@@ -11862,6 +11870,7 @@
             "service.lib_transaction_ref",
             "service.lib_edit"
           ],
+          "input_rows": 4,
           "max_input": 4096,
           "max_reply": 64,
           "name": "edit_add",
@@ -11938,6 +11947,7 @@
             "service.lib_ref",
             "service.lib_field_set"
           ],
+          "input_rows": 2,
           "max_input": 2048,
           "max_reply": 64,
           "name": "set_field",
@@ -11953,6 +11963,7 @@
             "service.lib_ref",
             "service.lib_provided"
           ],
+          "input_rows": 2,
           "max_input": 4096,
           "max_reply": 64,
           "name": "provide",
@@ -12526,10 +12537,12 @@
           "max_input": 256,
           "max_reply": 4096,
           "name": "widget_targets",
+          "paged": false,
           "reply": [
             "service.ui_target",
             "service.end"
           ],
+          "reply_rows": 32,
           "since": 0
         },
         {
@@ -12633,10 +12646,12 @@
           "max_input": 4096,
           "max_reply": 4096,
           "name": "status_values",
+          "paged": false,
           "reply": [
             "service.ui_status_value",
             "service.end"
           ],
+          "reply_rows": 8,
           "since": 0
         },
         {
@@ -12663,6 +12678,7 @@
           "input": [
             "service.ui_param"
           ],
+          "input_rows": 32,
           "max_input": 2048,
           "max_reply": 4096,
           "name": "handover",
@@ -12682,10 +12698,12 @@
           "max_input": 256,
           "max_reply": 4096,
           "name": "params",
+          "paged": false,
           "reply": [
             "service.ui_param",
             "service.end"
           ],
+          "reply_rows": 32,
           "since": 0
         },
         {

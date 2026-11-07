@@ -18,6 +18,16 @@ OPTIONAL_SCHEMA_KEYS = {'page_rows'}
 MAX_PAGE_ROWS = 64
 OP_KEYS = {'id', 'name', 'since', 'effect', 'feature', 'input', 'reply', 'max_input',
            'max_reply', 'bound'}
+# Row counts, each written only where it is not its default, so ops that never
+# set them keep their exact form (and their lock):
+# - `input_rows`: the most records one input batch holds (default 1);
+# - `paged`: a list op (its reply ends with `service.end`) that pages through
+#   `service.reg_query` cursors (default true for list ops, never for others);
+# - `reply_rows`: the most rows before `service.end` of an unpaged list op (a
+#   paged one holds `page_rows`; an op that is no list op has no rows).
+OPTIONAL_OP_KEYS = {'input_rows', 'paged', 'reply_rows'}
+MAX_INPUT_ROWS = 64
+END = 'service.end'
 EFFECTS = ('query', 'mutate')
 # What a call may wait for. `radio` work is never a call: it is an operation handle.
 BOUNDS = ('none', 'card')
@@ -55,7 +65,8 @@ def load_services(folder):
 
 def _validate_op(op, service, records, features):
     name = service['key']
-    _require(type(op) is dict and set(op) == OP_KEYS, f'{name}: op keys')
+    _require(type(op) is dict and OP_KEYS <= set(op) <= OP_KEYS | OPTIONAL_OP_KEYS,
+             f'{name}: op keys')
     _integer(op['id'], 1, 65535, f'{name}: op id 1..=65535')
     _require(type(op['name']) is str and OP_NAME.fullmatch(op['name']) and
              len(op['name']) <= 64, f'{name}: op name')
@@ -74,6 +85,40 @@ def _validate_op(op, service, records, features):
                      f'{name}.{op["name"]}: {side} names an abi.def service record')
     for bound in ('max_input', 'max_reply'):
         _integer(op[bound], 1, MAX_CALL_BYTES, f'{name}.{op["name"]}: {bound} 1..=4096')
+    _validate_rows(op, service)
+
+
+def _validate_rows(op, service):
+    where = f'{service["key"]}.{op["name"]}'
+    if 'input_rows' in op:
+        _integer(op['input_rows'], 2, MAX_INPUT_ROWS,
+                 f'{where}: input_rows 2..={MAX_INPUT_ROWS} (1 is the default, left out)')
+    listing = END in op['reply']
+    _require(not listing or op['reply'][-1] == END, f'{where}: service.end is the last reply record')
+    if 'paged' in op:
+        _require(op['paged'] is False and listing,
+                 f'{where}: paged is written only as false, on a list op')
+    if not listing:
+        _require('reply_rows' not in op, f'{where}: reply_rows only on a list op')
+    elif op.get('paged', True):
+        _require('page_rows' in service, f'{where}: a paged list op needs the schema page_rows')
+        _require('reply_rows' not in op, f'{where}: a paged op holds page_rows, no reply_rows')
+    else:
+        _require('reply_rows' in op, f'{where}: an unpaged list op names its reply_rows')
+        _integer(op['reply_rows'], 1, MAX_PAGE_ROWS, f'{where}: reply_rows 1..={MAX_PAGE_ROWS}')
+
+
+def op_rows(op, service):
+    """`(input_rows, paged, reply_rows)` of `op`, defaults filled in."""
+    listing = END in op['reply']
+    paged = listing and op.get('paged', True)
+    if paged:
+        rows = service['page_rows']
+    elif listing:
+        rows = op['reply_rows']
+    else:
+        rows = 0
+    return op.get('input_rows', 1), paged, rows
 
 
 def validate_services(schema):
@@ -198,6 +243,13 @@ pub struct ServiceOp {
     pub max_reply: usize,
     /// What the call may wait for.
     pub bound: ServiceBound,
+    /// Most records one input batch holds (a counted batch, never cut).
+    pub input_rows: u16,
+    /// Whether it is a list op that pages by `service.reg_query` cursor.
+    pub paged: bool,
+    /// Most rows before the reply's `service.end`: the schema's page rows for
+    /// a paged op, its own for an unpaged list op, 0 for an op that is no list.
+    pub reply_rows: u16,
 }
 
 /// One call service: its key, version and ops in id order.
@@ -236,7 +288,8 @@ pub static SERVICES: &[ServiceSchema] = &[
 @MODULES@'''
 
 
-def _op_source(schema, op):
+def _op_source(schema, service, op):
+    input_rows, paged, reply_rows = op_rows(op, service)
     feature = 'None' if op['feature'] is None else f'Some("{op["feature"]}")'
     return (f'            ServiceOp {{\n'
             f'                id: {op["id"]},\n'
@@ -249,6 +302,9 @@ def _op_source(schema, op):
             f'                max_input: {op["max_input"]},\n'
             f'                max_reply: {op["max_reply"]},\n'
             f'                bound: ServiceBound::{op["bound"].capitalize()},\n'
+            f'                input_rows: {input_rows},\n'
+            f'                paged: {"true" if paged else "false"},\n'
+            f'                reply_rows: {reply_rows},\n'
             f'            }},\n')
 
 
@@ -260,7 +316,7 @@ def rust_services(schema):
         return ''
     schemas, modules = [], []
     for service in services:
-        ops = ''.join(_op_source(schema, op) for op in service['ops'])
+        ops = ''.join(_op_source(schema, service, op) for op in service['ops'])
         schemas.append(f'    ServiceSchema {{\n'
                        f'        key: "{service["key"]}",\n'
                        f'        major: {service["major"]},\n'

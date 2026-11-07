@@ -42,13 +42,14 @@ It builds on: the service rules (`stages-services.md` section 2, D4), the comman
   `flags`, `total`, `generation`, `next`), the paging record of `core.usage`.
 - [D] A page holds as many **whole** rows as fit in the op's `max_reply` (4,096 bytes), at most 32
   (`page_rows` of the schema, generated as `core_registry_v1::PAGE_MAX_ROWS`).
-- [D] **Framing.** Input is one counted record batch (the generated `records_decode`). A reply is
-  a **bare record stream**, no count, as `core.usage`'s pages: a list op writes its rows, then
-  exactly one `service.end`, last; a detail op (2, 6, 17) writes exactly the records of its row in
-  section 2.2, in that order, and no `end`. Readers decode it with the generated
-  `record_decode_prefix` or `RecordStream` (then `finish`); a missing or repeated record, a record
-  out of order or of another op, anything after `end` and trailing bytes are `ERR_INVALID`.
-  A row is never cut; text fields inside a row are cut at a UTF-8 boundary where section 3 says so.
+- [D] **Framing.** Input is one counted record batch (the generated `records_decode`); REG ops take
+  one record (`input_rows` 1). A reply is a **bare record stream**, no count, as `core.usage`'s
+  pages: a list op writes its rows, then exactly one `service.end`, last; a detail op (2, 6, 17)
+  writes exactly the records of its row in section 2.2, in that order, and no `end`. Readers decode
+  it with the generated `record_decode_prefix` or `RecordStream` (then `finish`); a missing or
+  repeated record, a record out of order or of another op, anything after `end` and trailing bytes
+  are `ERR_INVALID`. A row is never cut; text fields inside a row are cut at a UTF-8 boundary where
+  section 3 says so.
 - [D] `generation` is the host's **registry generation**: it changes when the set or order of a
   list changes (a plugin loaded, stopped, enabled, removed; a declaration admitted; a menu, binding
   or slot changed). It is never 0: the host skips 0 when it wraps. The first call passes `cursor`
@@ -157,11 +158,11 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 
 Field meanings:
 
-- `reg_setting.kind`: the `setting.spec` kind numbers. `flags`: bit 0 guarded, 1 secret, 2 scoped,
-  3 kept on reset, 4 advanced, 5 hidden (value withheld), 6 has value, 7 long (value over 64
-  bytes: read it with slot 5), 8 preview (the value shown is a preview, section 4.4), 9 shown (its `shown_if` holds now), 10
-  governs (another setting's `shown_if` names it: re-read the list when it changes). `source`:
-  0 default, 1 preset, 2 profile, 3 user, 4 book scope.
+- `reg_setting.kind`: the `setting.spec` kind numbers. `flags`: bit 0 guarded, 1 secret, 2 scoped, 3
+  kept on reset, 4 advanced, 5 hidden (value withheld), 6 has value, 7 long (value over 64 bytes:
+  read it with slot 5), 8 preview (the value shown is a preview, section 4.4), 9 shown (its
+  `shown_if` holds now), 10 governs (another setting's `shown_if` names it: re-read the list when it
+  changes). `source`: 0 default, 1 preset, 2 profile, 3 user, 4 book scope.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
 - `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs, with their
   types (`min`/`max`/`step` are `i32` there; `shown_id`/`shown_value` are `setting.extra`'s);
@@ -192,7 +193,8 @@ Field meanings:
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
-  by its owner, bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
+  by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
+  bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
   `min_width` or a line's `height`, in thousandths of the text size; `tap` an item's action (empty
   for lines and items without one); `title` translated as above. A row is at most 477 bytes framed,
   so a page fits 4,096 bytes with 8 rows. The status items and lines themselves are declared
@@ -241,12 +243,12 @@ key and text bytes within the stage budget.
 
 ### 4.1 Settings
 
-- [D] `reset_setting`: `flags` 0 resets `key`; bit 0 resets the group `key`; bit 1 every setting
-  of plugin `key`; bit 2 every setting (`key` empty); bit 3 every value placement `key` sets
-  (a widget place that goes, interface 6 `placement_values`). Settings kept on reset and secrets are left
-  as they are, as in interface 6. Authority per setting as `command.set_setting`: a group or plugin
-  reset skips guarded settings the submitter may not write, and says so in the log; a single
-  guarded key it may not write is `ERR_INVALID`. In a book scope it forgets the scope's value.
+- [D] `reset_setting`: `flags` 0 resets `key`; bit 0 resets the group `key`; bit 1 every setting of
+  plugin `key`; bit 2 every setting (`key` empty); bit 3 every value placement `key` sets (a widget
+  place that goes, interface 6 `placement_values`). Settings kept on reset and secrets are left as
+  they are, as in interface 6. Authority per setting as `command.set_setting`: a group or plugin
+  reset skips guarded settings the submitter may not write, and says so in the log; a single guarded
+  key it may not write is `ERR_INVALID`. In a book scope it forgets the scope's value.
 - [D] **Mass resets need consent.** Bit 1 for another plugin's settings and bit 2 (every setting)
   need the feature `uses.registry` (else `ERR_DENIED`), and the host asks the user before it applies
   them (as decision 132): the command is accepted, and only an explicit yes applies it. Refused,
@@ -328,32 +330,34 @@ These change the user's configuration of the whole device, so they need the D1 f
 | 78 | `event.plugin_answered` | `now_ms: u64`, `request: u32`, `plugin: str 64`, `outcome: u32` | the requesting plugin only |
 
 - [D] `registry_changed.what` bits: 0 menus, 1 bindings, 2 slots, 3 actions/screens, 4 setup, 5
-  groups, 6 presets, 7 widgets. A hint (`core-events.md` section 2): re-read what you show. The registry generation
-  (section 2.1) changed with it. Plugin set changes stay `event.plugins_changed` (70); setting
-  values stay `event.setting_changed` (64). Bit 0 also covers item state pushed with command 60
-  (live, no generation change, coalesced). Bit 31 (`dropped`) goes to one plugin only: a staged REG
-  batch of its own was dropped when applied (section 4). Coalescing never loses a bit: pending
-  `what` bits are OR-ed together until the event is delivered.
+  groups, 6 presets, 7 widgets. A hint (`core-events.md` section 2): re-read what you show. The
+  registry generation (section 2.1) changed with it. Plugin set changes stay `event.plugins_changed`
+  (70); setting values stay `event.setting_changed` (64). Bit 0 also covers item state pushed with
+  command 60 (live, no generation change, coalesced). Bit 31 (`dropped`) goes to one plugin only: a
+  staged REG batch of its own was dropped when applied (section 4). Coalescing never loses a bit:
+  pending `what` bits are OR-ed together until the event is delivered.
 - [D] **Plugin requests.** A request never installs anything by itself: an install stays the DEV
   family's `core.install` with the host's confirmation (decision 132; firmware always confirmed,
   decision 134). `command.request_plugins` (ids, one per line, at most 16, the interface-6
   `MAX_REQUESTED_PLUGINS`) is refused with `ERR_INVALID` for a bad id, and with `ERR_FULL` while 4
-  requests are open device-wide. The host drops ids already on
-  the device (any version, on or off); if none is left, nothing is sent. Otherwise it numbers the
-  request and raises `plugins_requested`, with the host-known submitter as `by`, to the plugins
-  subscribed to it, as interface 6 does (the store subscribes; there is no installer role). With no
-  subscriber that may answer, every id is answered `failed` at once. A subscriber asks the user and
-  answers each id with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not
-  found; the host refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an
-  outcome it does not know as `failed`, never as installed). Only a plugin that declares the install feature (`uses.install`, DEV) may answer; any
-  other gets `ERR_DENIED`, so a plugin that merely subscribes can neither fake an install nor block
-  the store. **Until DEV defines `uses.install` in the catalog, a host refuses `answer_plugin` from
-  every plugin with `ERR_DENIED`** (the whole batch, wherever the command sits in it); it never
-  falls back to "any subscriber". With no plugin able to answer, every request is answered
-  `failed` at once (the no-subscriber rule above). The host checks that the request and the id are open (else `ERR_STATE`; the first
-  answer for an id wins), and checks `installed` itself: the id must be on the device now, else
-  the answer is stored as `failed`. It raises `plugin_answered` to the requester only. A request stays open until every id is answered, every subscriber stopped, or
-  the device restarts; then the open ids are answered `failed` by the host.
+  requests are open device-wide. The host drops ids already on the device (any version, on or off);
+  if none is left, nothing is sent. Otherwise it numbers the request and raises `plugins_requested`,
+  with the host-known submitter as `by`, to the plugins subscribed to it, as interface 6 does (the
+  store subscribes; there is no installer role). With no subscriber that may answer, every id is
+  answered `failed` at once. A subscriber asks the user and answers each id with
+  `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not found; the host
+  refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an outcome it does not
+  know as `failed`, never as installed). Only a plugin that declares the install feature
+  (`uses.install`, DEV) may answer; any other gets `ERR_DENIED`, so a plugin that merely subscribes
+  can neither fake an install nor block the store. **Until DEV defines `uses.install` in the
+  catalog, a host refuses `answer_plugin` from every plugin with `ERR_DENIED`** (the whole batch,
+  wherever the command sits in it); it never falls back to "any subscriber". With no plugin able to
+  answer, every request is answered `failed` at once (the no-subscriber rule above). The host checks
+  that the request and the id are open (else `ERR_STATE`; the first answer for an id wins), and
+  checks `installed` itself: the id must be on the device now, else the answer is stored as
+  `failed`. It raises `plugin_answered` to the requester only. A request stays open until every id
+  is answered, every subscriber stopped, or the device restarts; then the open ids are answered
+  `failed` by the host.
 - [D] All four follow the EVT pending limits and drop rules (`core-events.md` section 3.3).
   `plugins_requested` and `plugin_answered` are edges and never coalesced; the two hints are.
 
@@ -377,20 +381,18 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
 | 28 | `preset.value` | `preset: str 128`, `key: str 128`, `value: bytes 512`, `flags: u32` | the preset's lines |
 
 - [D] **Setup applicability** replaces the interface-6 `AppliesFn` callback; no plugin code runs
-  while the host answers op `setup`. A step applies when all three hold:
-  1. the `shown_if` rule of `setting.extra`: setting `applies_key` has the value `applies_value`
-     (empty key: always);
-  2. the device meets `need`/`capability`, with the meaning of `menu.need` (Wi-Fi present,
-     firmware updates present, ...), where `flags` bit 1 (`has_need`) is set; with bit 1 clear the
-     step has no device requirement and `need` and `capability` must be 0 (`ERR_INVALID`). There
-     is no sentinel `need` value: an unknown need stays "not met";
-  3. the declaring plugin's last pushed state for the step: `command.set_item_state` (60) naming
-     the step's id, flag `shown` = applies. Before any push, `flags` bit 0 of the declaration
-     decides (set: applies; other bits than 0 and 1 are `ERR_INVALID`). This carries what only the plugin knows (the store: "offerings to
-     install exist"). Pushed state is kept per plugin version: an update clears it.
-  A step name equal to an action, screen, setting or menu item name of the same plugin is refused
-  at admission (`ERR_INVALID`), so one item-state push never sets two things.
-  `key.bind`'s `when_*` is rule 1 for `add_keymap_when`.
+  while the host answers op `setup`. A step applies when all three hold: 1. the `shown_if` rule of
+  `setting.extra`: setting `applies_key` has the value `applies_value` (empty key: always); 2. the
+  device meets `need`/`capability`, with the meaning of `menu.need` (Wi-Fi present, firmware updates
+  present, ...), where `flags` bit 1 (`has_need`) is set; with bit 1 clear the step has no device
+  requirement and `need` and `capability` must be 0 (`ERR_INVALID`). There is no sentinel `need`
+  value: an unknown need stays "not met"; 3. the declaring plugin's last pushed state for the step:
+  `command.set_item_state` (60) naming the step's id, flag `shown` = applies. Before any push,
+  `flags` bit 0 of the declaration decides (set: applies; other bits than 0 and 1 are
+  `ERR_INVALID`). This carries what only the plugin knows (the store: "offerings to install exist").
+  Pushed state is kept per plugin version: an update clears it. A step name equal to an action,
+  screen, setting or menu item name of the same plugin is refused at admission (`ERR_INVALID`), so
+  one item-state push never sets two things. `key.bind`'s `when_*` is rule 1 for `add_keymap_when`.
 - [D] **Foreign extensions** (`setting.default`, `setting.choice`) name another plugin's setting.
   Precedence is interface 6's: the owner's default, then extensions in plugin load order; the user's
   value always wins. An extension of a secret setting or a grant, of a guarded setting of another
@@ -404,7 +406,10 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   most once; a second one is `ERR_INVALID` (two priorities for one offer, two actions for one
   input under one condition, two defaults for one setting are ambiguous). Several screens offered
   for one slot, and one input bound under different conditions or layers, are separate keys.
-  Between plugins nothing is refused: the precedence rules above decide.
+  Between plugins nothing is refused: the precedence rules above decide. The host checks this
+  over the plugin's whole declaration set, across all of its batches (Core's
+  `check_duplicates` at admission), not per batch: a duplicate refuses the plugin's whole
+  declaration set with `ERR_INVALID`, never only the second record.
 - [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
   `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
 - [D] **Widgets:** their declaration and drawing (`add_widget`, `add_widget_place`, `make`,

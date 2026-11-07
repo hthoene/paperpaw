@@ -10,8 +10,6 @@
 //! The flash's table says where the partitions are and how large, also
 //! another firmware's (CrossPoint's), which PaperPaw never writes.
 
-use alloc::boxed::Box;
-
 use esp_bootloader_esp_idf::partitions::{self, FlashStorage, PARTITION_TABLE_MAX_LEN};
 use log::{info, warn};
 use paperpaw_platform::Storage;
@@ -434,7 +432,14 @@ fn running_from() -> Option<u32> {
 /// checks each image's table); `None` without two app partitions (and
 /// only two) or when which runs cannot be told.
 fn partitions_of(flash: &mut FlashStorage<'static>) -> Option<Partitions> {
-    let mut table = Box::new([0u8; TABLE_LEN]);
+    // Fallible: without room the device goes without updates, not without
+    // starting.
+    let mut table = alloc::vec::Vec::new();
+    if table.try_reserve_exact(TABLE_LEN).is_err() {
+        warn!("OTA: no memory to read the partition table");
+        return None;
+    }
+    table.resize(TABLE_LEN, 0u8);
     flash.read(TABLE_AT, &mut table[..]).ok()?;
     let slots = match Slots::find(&table[..]) {
         Ok(slots) => slots,

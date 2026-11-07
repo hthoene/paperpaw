@@ -16,6 +16,7 @@
         "service.doc_open",
         "service.doc_option"
       ],
+      "input_rows": 13,
       "reply": [
         "service.doc_state"
       ],

@@ -10966,6 +10966,40 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     Ok(record)
 }
 
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if records.len() > max_records || records.len() > u32::MAX as usize {
+        return Err(-3);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        required += record_framed_len(record)?;
+        if required > max_bytes {
+            return Err(-3);
+        }
+    }
+    if out.len() < required {
+        return Err(-3);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let rest = out.get_mut(offset..).ok_or(-3)?;
+        offset += record_encode_one(record, rest)?;
+    }
+    Ok(offset)
+}
+
 // Single-record and streaming decoders (lock format 8).
 
 /// Bytes a [`RecordStream`] keeps between chunks: every framed table row and
@@ -11442,4 +11476,43 @@ pub fn host_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = host_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// A counted batch a plugin sent that may hold more records than
+/// [`REGISTRATION_MAX_RECORDS`] (a service op's input: at most `max_records`,
+/// its `input_rows`), as the host decodes it. The whole batch is decoded and
+/// checked first, and only then is `visit` called for each record in wire
+/// order, so a refused batch visits nothing. No record array is kept: each
+/// record is decoded again for its visit. Statuses are those of
+/// [`host_records_decode_into`], a count over `max_records` is ERR_NO_SPACE,
+/// and an error from `visit` stops and is returned. Returns the record count.
+pub fn host_records_visit<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    let len = host_records_pass(bytes, max_records, &mut |_| Ok(()))?;
+    host_records_pass(bytes, max_records, visit)?;
+    Ok(len)
+}
+
+fn host_records_pass<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > max_records {
+        return Err(-3);
+    }
+    for _ in 0..len {
+        let (tag, mut body) = reader.record()?;
+        visit(host_decode(tag, &mut body)?)?;
+    }
+    reader.finish()?;
+    Ok(len)
 }

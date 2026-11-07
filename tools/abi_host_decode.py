@@ -196,4 +196,43 @@ pub fn host_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     reader.finish()?;
     Ok(record)
 }
+
+/// A counted batch a plugin sent that may hold more records than
+/// [`REGISTRATION_MAX_RECORDS`] (a service op's input: at most `max_records`,
+/// its `input_rows`), as the host decodes it. The whole batch is decoded and
+/// checked first, and only then is `visit` called for each record in wire
+/// order, so a refused batch visits nothing. No record array is kept: each
+/// record is decoded again for its visit. Statuses are those of
+/// [`host_records_decode_into`], a count over `max_records` is ERR_NO_SPACE,
+/// and an error from `visit` stops and is returned. Returns the record count.
+pub fn host_records_visit<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let len = host_records_pass(bytes, max_records, &mut |_| Ok(()))?;
+    host_records_pass(bytes, max_records, visit)?;
+    Ok(len)
+}
+
+fn host_records_pass<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > max_records {
+        return Err(@NO_SPACE@);
+    }
+    for _ in 0..len {
+        let (tag, mut body) = reader.record()?;
+        visit(host_decode(tag, &mut body)?)?;
+    }
+    reader.finish()?;
+    Ok(len)
+}
 '''

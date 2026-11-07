@@ -699,6 +699,40 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     reader.finish()?;
     Ok(record)
 }
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if records.len() > max_records || records.len() > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        required += record_framed_len(record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let rest = out.get_mut(offset..).ok_or(@NO_SPACE@)?;
+        offset += record_encode_one(record, rest)?;
+    }
+    Ok(offset)
+}
 '''
 
 
