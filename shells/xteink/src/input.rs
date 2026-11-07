@@ -103,8 +103,10 @@ static POWER_DOWN: AtomicBool = AtomicBool::new(false);
 /// loop to switch off (`ESCAPE_ASKED`); the main loop took it
 /// (`ESCAPE_TAKEN`); `ESCAPE_ON` false while the device switches off by
 /// itself. Plain loads and stores: the chip has no atomic swaps, and each
-/// has one writer at a time (the interrupt sets the first, the main loop
-/// the second).
+/// has one writer (the interrupt sets the first, the main loop the second
+/// and the third), only ever from false to true: letting go of the key
+/// withdraws nothing. A taken request ends in the power-off or a reset, and
+/// a reset starts them all anew.
 static ESCAPE_ASKED: AtomicBool = AtomicBool::new(false);
 static ESCAPE_TAKEN: AtomicBool = AtomicBool::new(false);
 static ESCAPE_ON: AtomicBool = AtomicBool::new(true);
@@ -152,10 +154,6 @@ impl Sampler {
             ESCAPE_ON.load(Ordering::Relaxed),
             ESCAPE_TAKEN.load(Ordering::Relaxed),
         ) {
-            Step::Idle if !held => {
-                ESCAPE_ASKED.store(false, Ordering::Relaxed);
-                ESCAPE_TAKEN.store(false, Ordering::Relaxed);
-            }
             Step::Idle => {}
             Step::Ask => ESCAPE_ASKED.store(true, Ordering::Relaxed),
             Step::Force => escape_reset(),
@@ -349,11 +347,6 @@ fn escape_reset() -> ! {
 /// taken it yet: it switches off the way it does when it sleeps for good.
 pub fn escape_requested() -> bool {
     ESCAPE_ASKED.load(Ordering::Relaxed) && !ESCAPE_TAKEN.load(Ordering::Relaxed)
-}
-
-/// The main loop took a request and is on its way out.
-pub fn escape_active() -> bool {
-    ESCAPE_ASKED.load(Ordering::Relaxed) && ESCAPE_TAKEN.load(Ordering::Relaxed)
 }
 
 /// The main loop takes the request: the reset stays off, the clean way goes

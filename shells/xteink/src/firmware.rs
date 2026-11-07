@@ -96,6 +96,11 @@ pub struct State {
     /// What the card's watch said last, where it was not `No` (logged as
     /// it changes).
     card_said: Option<paperpaw_fat::Swapped>,
+    /// Power was held 8 s and the main loop took the request (G12): the
+    /// switch-off is decided, and what the key does from now on (let go,
+    /// pressed again) does not change it. Set only in `step`; it ends in the
+    /// power-off or a reset, so nothing clears it.
+    escape: bool,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
@@ -228,6 +233,9 @@ impl Firmware {
         // readings reset the processor if this is not reached in time.
         if input::escape_requested() {
             input::escape_take();
+            // Latched here, in the main loop: letting go of the key from now
+            // on does not turn this into the normal suspend decision.
+            self.state.escape = true;
             info!("Power held: switching off");
             return self.sleep(false);
         }
@@ -763,7 +771,7 @@ impl Firmware {
         // A plugin may have asked to switch off while it heard core.suspend
         // or in the work finished: that is honoured now, not after a wake.
         // Power held 8 s (G12) is out, whatever else was pressed meanwhile.
-        let next = if input::escape_active() {
+        let next = if self.state.escape {
             paperpaw_x4::sleeping::After::SwitchOff
         } else {
             paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed)

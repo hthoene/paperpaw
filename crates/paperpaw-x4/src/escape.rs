@@ -13,9 +13,12 @@
 //! 2. If the main loop has not taken the request [`GRACE_MS`] later (it hangs,
 //!    or a plugin does), or took it but the switch-off has not begun
 //!    [`CLEAN_MS`] after the request (a plugin hangs in `core.suspend`), the
-//!    readings reset the processor ([`Step::Force`]).
-//!    RTC memory survives the reset, so the next start knows which plugin's
-//!    call was running (`safe_mode`) and switches it off.
+//!    readings reset the processor ([`Step::Force`]). A request the main
+//!    loop has not taken stands when the key is let go; one it took is
+//!    watched only while the key is down.
+//!    This step blames no plugin: the reset only leaves its place in RTC
+//!    memory (`power::at::ESCAPE`). Which plugin's call was running, if any,
+//!    is the interface-7 loader's record of calls (`safe_mode`).
 //!
 //! A button held from before the start, or from before a light sleep ended,
 //! counts only after it was let go once (the caller's `armed`).
@@ -73,20 +76,50 @@ impl Escape {
     /// escape would only start it again); `taken`, whether the main loop
     /// took the request.
     pub fn update(&mut self, now: u64, down: bool, enabled: bool, taken: bool) -> Step {
-        if !down || !enabled {
+        if !enabled {
             *self = Escape::new();
             return Step::Idle;
         }
-        let since = *self.since.get_or_insert(now);
         match self.asked {
-            None if now.saturating_sub(since) >= HOLD_MS => {
-                self.asked = Some(now);
-                Step::Ask
+            // A request the main loop has not taken stands whether the key is
+            // still down or not: a user who lets go when nothing happens
+            // must not cancel the way out of a hung main loop.
+            Some(asked) if !taken => {
+                if now.saturating_sub(asked) >= GRACE_MS {
+                    Step::Force
+                } else {
+                    Step::Idle
+                }
             }
-            Some(asked) if now.saturating_sub(asked) >= if taken { CLEAN_MS } else { GRACE_MS } => {
-                Step::Force
+            // Taken: the main loop is on its clean way out and does not come
+            // back (it ends in the power-off or a reset). The key is the
+            // user's watch over it: while it is down the clean way has
+            // [`CLEAN_MS`]; let go, the watchdogs are its guard, and a new
+            // hold counts from its start.
+            Some(_) if !down => {
+                *self = Escape::new();
+                Step::Idle
             }
-            _ => Step::Idle,
+            Some(asked) => {
+                if now.saturating_sub(asked) >= CLEAN_MS {
+                    Step::Force
+                } else {
+                    Step::Idle
+                }
+            }
+            None if !down => {
+                *self = Escape::new();
+                Step::Idle
+            }
+            None => {
+                let since = *self.since.get_or_insert(now);
+                if now.saturating_sub(since) >= HOLD_MS {
+                    self.asked = Some(now);
+                    Step::Ask
+                } else {
+                    Step::Idle
+                }
+            }
         }
     }
 }
@@ -154,13 +187,37 @@ mod tests {
     }
 
     #[test]
-    fn a_hold_that_is_let_go_after_the_request_is_over() {
+    fn a_request_the_main_loop_has_not_taken_stands_when_the_key_is_let_go() {
         let mut escape = Escape::new();
-        hold(&mut escape, 0, 20_000, false).unwrap();
-        assert_eq!(escape.update(9_100, false, true, false), Step::Idle);
-        // A new hold asks again after its own 8 s.
-        assert_eq!(escape.update(9_105, true, true, false), Step::Idle);
-        assert_eq!(escape.update(9_105 + HOLD_MS, true, true, false), Step::Ask);
+        let (asked, step) = hold(&mut escape, 0, 20_000, false).unwrap();
+        assert_eq!((asked, step), (HOLD_MS, Step::Ask));
+        // Let go at once: a hung main loop is still reset after the grace.
+        assert_eq!(escape.update(asked + 100, false, true, false), Step::Idle);
+        assert_eq!(
+            escape.update(asked + GRACE_MS, false, true, false),
+            Step::Force
+        );
+        // Taken in time, the request is the main loop's; no reset follows.
+        let mut escape = Escape::new();
+        let (asked, _) = hold(&mut escape, 0, 20_000, false).unwrap();
+        assert_eq!(escape.update(asked + 100, false, true, true), Step::Idle);
+        assert_eq!(escape.update(asked + 20_000, false, true, true), Step::Idle);
+    }
+
+    #[test]
+    fn a_taken_request_is_watched_only_while_the_key_is_down() {
+        let mut escape = Escape::new();
+        let (asked, _) = hold(&mut escape, 0, 20_000, false).unwrap();
+        assert_eq!(escape.update(asked + 100, true, true, true), Step::Idle);
+        // Let go: the clean way goes on, the watchdogs guard it.
+        assert_eq!(escape.update(asked + 200, false, true, true), Step::Idle);
+        assert_eq!(
+            escape.update(asked + CLEAN_MS + 50, true, true, true),
+            Step::Idle
+        );
+        // A new hold counts from its own start, and asks again after 8 s.
+        let from = asked + CLEAN_MS + 50;
+        assert_eq!(escape.update(from + HOLD_MS, true, true, true), Step::Ask);
     }
 
     #[test]
