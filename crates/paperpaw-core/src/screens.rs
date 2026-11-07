@@ -168,8 +168,7 @@ impl Kernel {
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
             self.stack.insert(guard, active);
             self.sync_stack();
-            let _running = self.shared.meter.enter(self.stack[guard].id.namespace());
-            self.stack[guard].screen.on_hide();
+            self.hidden_screen_opened(guard, params);
             return;
         }
         // The list a detail shows beside stays shown.
@@ -180,11 +179,36 @@ impl Kernel {
         self.stack.push(active);
         self.sync_stack();
         let top = self.stack.len() - 1;
+        self.native_screen_opened(top, params);
         let overlay = self.overlay(top);
         self.screen_changed(self.changed_region(top), overlay.is_some());
         // As the screen asks, where it does.
         if let Some(mode) = on_open {
             self.output.refresh_set = Some(mode);
+        }
+    }
+
+    fn hidden_screen_opened(&mut self, index: usize, params: &Params) {
+        {
+            let _running = self.shared.meter.enter(self.stack[index].id.namespace());
+            self.stack[index].screen.on_hide();
+        }
+        self.native_screen_opened(index, params);
+    }
+
+    fn native_screen_opened(&mut self, index: usize, params: &Params) {
+        let native = self
+            .stack
+            .get(index)
+            .and_then(|active| self.shared.registry.screens.get(&active.id))
+            .is_some_and(|maker| maker.is_native());
+        if native {
+            // The private wrapper uses this hook to announce an instance before
+            // it is shown, including instances hidden below a guarding screen.
+            self.with_screen(index, |screen, cx| {
+                screen.on_reopen(params, cx);
+                Handled::Yes
+            });
         }
     }
 

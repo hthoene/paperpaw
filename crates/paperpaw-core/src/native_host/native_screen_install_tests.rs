@@ -107,6 +107,9 @@ unsafe extern "C" fn screen_event(_: *mut c_void, token: u32, bytes: PpBytes, _:
     OK
 }
 fn host(flags: u32) -> Hosted<Heap, ()> {
+    host_named("factory", flags)
+}
+fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
     FLAGS.with(|value| value.set(flags));
     // SAFETY: the linked factory and code remain available throughout the owner lifetime.
     unsafe {
@@ -114,7 +117,7 @@ fn host(flags: u32) -> Hosted<Heap, ()> {
             Heap,
             (),
             screen_make,
-            "factory",
+            owner,
             (ptr::null(), 0),
             |_, _, _, _| {},
             super::super::super::HostResources::try_new().unwrap(),
@@ -320,4 +323,46 @@ fn empty_or_unmapped_callback_install_is_refused_without_publication() {
         assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
         assert_eq!(DESTROYED.with(Cell::get), 1);
     }
+}
+
+#[test]
+fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
+    let mut kernel = kernel(1 << 1);
+    for owner in ["base", "other"] {
+        kernel
+            .register_native(
+                host_named(owner, 0),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _| {},
+            )
+            .unwrap();
+    }
+    kernel.open_screen(
+        paperpaw_platform::Instant(1),
+        Id::new_static("base.screen"),
+        Params::new(),
+    );
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.guard(), Some(1));
+    kernel.open_screen(
+        paperpaw_platform::Instant(2),
+        Id::new_static("other.screen"),
+        Params::new(),
+    );
+    let hidden = kernel
+        .stack
+        .iter()
+        .find(|screen| screen.id.as_str() == "other.screen")
+        .unwrap()
+        .serial;
+    assert_eq!(kernel.stack.last().unwrap().id.as_str(), "factory.screen");
+    assert!(EVENTS.with(|events| events.borrow().contains(&(79, hidden, 0, 0))));
+    assert!(!EVENTS.with(|events| {
+        events
+            .borrow()
+            .iter()
+            .any(|event| event.0 == 38 && event.1 == hidden)
+    }));
+    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(hidden)));
+    assert!(EVENTS.with(|events| events.borrow().contains(&(80, hidden, 0, 0))));
 }

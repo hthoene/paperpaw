@@ -264,8 +264,13 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             return;
         };
         self.params_count = count;
-        self.opened(true, count, cx.env());
-        self.shown(cx.env());
+        let again = self.opened;
+        self.key = cx.key();
+        self.opened = self.key.is_some();
+        self.opened(again, count, cx.env());
+        if again && self.is_top(cx) {
+            self.shown(cx.env());
+        }
     }
 
     fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
