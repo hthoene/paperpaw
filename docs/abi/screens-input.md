@@ -508,9 +508,10 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   out of time. Both stay distinct from `ERR_UNSUPPORTED` (the host lacks the function) and
   `ERR_CANCELLED` (dismissed, stopped). SDK status types name both from 1.0 on.
 - [D] **Feature records (D1).** A plugin states the families it uses as metadata feature records,
-  `uses.<family>` (`uses.net`, `uses.secrets`, `uses.sockets`, `uses.library`, `uses.registry`,
-  `uses.device`). Bit 0 of the record's `flags` means required. Feature revisions only add: a host
-  at revision N serves every request for revision N or lower. A feature the host lacks, or has
+  `uses.<family>` (for example `uses.network`, `uses.secrets`, `uses.storage`, `uses.library`,
+  `uses.registry`, `uses.wifi`; the family documents name them). Bit 0 of the record's `flags`
+  means required. Feature revisions only add: a host at revision N serves every request for
+  revision N or lower. A feature the host lacks, or has
   only at a lower revision than the record asks for, is unavailable: an optional one is left out
   and the plugin learns it is missing at run time, a required one refuses the load and names the
   key. So a feature can move to a new revision without breaking plugins built for an older one.
