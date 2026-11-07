@@ -99,7 +99,18 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => Err(ERR_INVALID),
+        | Record::EventActionRun(_)
+        | Record::EventSettingChanged(_)
+        | Record::EventBookOpened(_)
+        | Record::EventBookClosed(_)
+        | Record::EventBookFinished(_)
+        | Record::EventBookMoved(_)
+        | Record::EventBookRemoved(_)
+        | Record::EventPluginsChanged(_)
+        | Record::EventWifiChanged(_)
+        | Record::EventPowerChanged(_)
+        | Record::EventStatusChanged(_)
+        | Record::EventChargeChanged(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
@@ -128,7 +139,7 @@ fn is_name_byte(byte: u8) -> bool {
 }
 
 /// Dot-separated segments of `[a-z0-9-]`, none empty, at most 128 bytes.
-fn full_id(id: &str) -> Check {
+pub(crate) fn full_id(id: &str) -> Check {
     ensure(
         id.len() <= FULL_ID_MAX_BYTES
             && id

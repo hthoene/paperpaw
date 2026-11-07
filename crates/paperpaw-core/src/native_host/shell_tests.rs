@@ -15,6 +15,7 @@ std::thread_local! {
     static MODE: Cell<u8> = const { Cell::new(0) };
     static MODULE_ALIVE: Cell<bool> = const { Cell::new(false) };
     static EVENTS: Cell<u32> = const { Cell::new(0) };
+    static EXPECT_CORE: Cell<bool> = const { Cell::new(false) };
     static MAKES: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
@@ -73,6 +74,7 @@ fn logged() -> Vec<&'static str> {
 }
 
 fn reset(mode: u8) {
+    EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
     EVENTS.with(|e| e.set(0));
@@ -223,16 +225,22 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     }
 }
 
-unsafe extern "C" fn event(_: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
+unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
     // Started and the other events 32-39 have no reply family (section 6).
     if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
+    }
+    if !has_expected_core_frame(state) {
+        return host_glue::ERR_STATE;
     }
     EVENTS.with(|e| e.set(e.get() + 1));
     OK
 }
 
-unsafe extern "C" fn draw(_: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    if !has_expected_core_frame(state) {
+        return host_glue::ERR_STATE;
+    }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
     }
@@ -255,7 +263,7 @@ fn fake() -> Hosted<Heap, Module> {
             Module::new(),
             make,
             "fake",
-            (0, 0),
+            (core::ptr::null(), 0),
             report,
             super::super::HostResources::try_new().unwrap(),
             DeclaredServices::none(),
@@ -386,7 +394,7 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             Module::new(),
             make,
             "fake",
-            (IMAGE.as_ptr() as usize, IMAGE.len()),
+            (IMAGE.as_ptr(), IMAGE.len()),
             report,
             super::super::HostResources::try_new().unwrap(),
             DeclaredServices::none(),
@@ -543,7 +551,7 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
                 module,
                 make,
                 "fake",
-                (0, 0),
+                (core::ptr::null(), 0),
                 report,
                 resources,
                 DeclaredServices::none(),
@@ -726,5 +734,54 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
     finish(&hosted);
 }
 
+fn has_expected_core_frame(state: *mut c_void) -> bool {
+    if !EXPECT_CORE.with(Cell::get) {
+        return true;
+    }
+    // SAFETY: the admitted callback retains this fixture and its host context.
+    let context = unsafe { &*(*state.cast::<Fake>()).ctx.cast::<Context<Heap>>() };
+    context
+        .environment
+        .with_frame(|frame| frame.device_usage().is_ok())
+        .unwrap_or(false)
+}
+
+#[test]
+fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
+    reset(NORMAL);
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let depth = DispatchDepth::new();
+    let now = paperpaw_platform::Instant(12);
+    EXPECT_CORE.with(|expected| expected.set(true));
+    let env = kernel.shared.env(now);
+    assert_eq!(
+        dispatch_with_env(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), &env),
+        Ok(host_glue::ERR_STATE)
+    );
+    assert_eq!(
+        kernel.dispatch_native_for_test(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), now),
+        Ok(OK)
+    );
+    let mut framebuffer =
+        paperpaw_graphics::Framebuffer::new(20, 80, paperpaw_platform::PixelFormat::Gray8).unwrap();
+    assert_eq!(
+        kernel.draw_native_for_test(&batch, 1, &depth, now, &mut framebuffer.canvas()),
+        Ok(OK)
+    );
+    assert_eq!(
+        hosted.owner().context().environment.with_frame(|_| ()),
+        Err(host_glue::ERR_STATE)
+    );
+    drop(batch);
+    finish(&hosted);
+}
 #[path = "shell_service_oom_tests.rs"]
 mod service_oom;

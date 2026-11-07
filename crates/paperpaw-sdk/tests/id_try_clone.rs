@@ -1,9 +1,9 @@
-//! `Id::try_clone` under a real allocator: kept ids never allocate, parsed
+//! `Id::try_clone` and `Id::try_parse` under a real allocator: kept ids never allocate, parsed
 //! ids take one allocation of their length and give `None` where it is
 //! refused, never aborting.
 #![allow(clippy::unwrap_used, reason = "test setup and checks fail loudly")]
 
-use paperpaw_sdk::Id;
+use paperpaw_sdk::{Id, IdError};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -87,4 +87,27 @@ fn a_placed_parsed_id_copies_as_clone_does() {
     let copy = id.try_clone().unwrap();
     assert_eq!(copy, id.clone());
     assert_eq!(copy.unplaced(), id.unplaced());
+}
+
+#[test]
+fn try_parse_checks_first_then_takes_one_allocation_of_its_length() {
+    let (id, count) = allocations(|| Id::try_parse("battery.open"));
+    assert_eq!(count, 1);
+    assert_eq!(LAST_SIZE.with(Cell::get), "battery.open".len());
+    assert_eq!(id.unwrap(), Id::new_static("battery.open"));
+    for invalid in ["", "Battery.open", "a..b", "a@1@2"] {
+        let (result, count) = allocations(|| refused(|| Id::try_parse(invalid)));
+        assert_eq!((result, count), (Err(IdError::Invalid), 0), "{invalid}");
+    }
+}
+
+#[test]
+fn try_parse_gives_no_memory_where_the_heap_refuses() {
+    assert_eq!(
+        refused(|| Id::try_parse("battery.open")),
+        Err(IdError::NoMemory)
+    );
+    let id = Id::try_parse("widgets.clock@2.face").unwrap();
+    assert_eq!(id, Id::parse("widgets.clock@2.face").unwrap());
+    assert_eq!(id.unplaced(), Some(Id::new_static("widgets.clock.face")));
 }
