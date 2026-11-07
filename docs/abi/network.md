@@ -215,10 +215,10 @@ file's size, 2.1).
 
 | Tag | Event | Fields |
 | --- | --- | --- |
-| 99 | `event.http_done` | `id: u32`, `token: u32`, `status: u32`, `reason: u32`, `flags: u32`, `body_len: u32` |
-| 100 | `event.http_progress` | `id: u32`, `token: u32`, `received: u64`, `total: u64`, `flags: u32` |
-| 101 | `event.server` | `server: u32`, `state: u32`, `reason: u32`, `address: str 64` |
-| 102 | `event.served_request` | `server: u32`, `request: u32`, `method: str 16`, `target: str 1024`, `flags: u32`, `body_len: u64` |
+| 99 | `event.http_done` | `now_ms: u64`, `id: u32`, `token: u32`, `status: u32`, `reason: u32`, `flags: u32`, `body_len: u32` |
+| 100 | `event.http_progress` | `now_ms: u64`, `id: u32`, `token: u32`, `received: u64`, `total: u64`, `flags: u32` |
+| 101 | `event.server` | `now_ms: u64`, `server: u32`, `state: u32`, `reason: u32`, `address: str 64` |
+| 102 | `event.served_request` | `now_ms: u64`, `server: u32`, `request: u32`, `method: str 16`, `target: str 1024`, `flags: u32`, `body_len: u64` |
 
 - [D] Events go only to the plugin that made the request or server, never to subscribers of other
   plugins; a plugin subscribes with `registration.event` as for every event, and a request made
