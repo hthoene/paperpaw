@@ -7,7 +7,7 @@ use super::{
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::cell::Cell;
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
 
 pub(crate) trait NativeInstance: Dispatch {
@@ -92,7 +92,8 @@ impl Dispatch for NativeLease {
 }
 
 struct Entry {
-    id: Option<Id>,
+    key: usize,
+    id: Id,
     instance: Option<NativeLease>,
     enabled: bool,
     start: Cell<bool>,
@@ -102,6 +103,7 @@ struct Entry {
 pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
     callbacks: CallbackClock,
+    next_key: usize,
 }
 
 pub(crate) enum InstanceState {
@@ -126,24 +128,23 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
-    /// Only fallible storage growth precedes publication; indices never move.
+    /// Keys never repeat; storage rows may move when failed admission is reclaimed.
     pub(crate) fn insert(
         &mut self,
         id: Id,
         instance: Option<NativeLease>,
         enabled: bool,
     ) -> Result<usize, i32> {
-        if self
-            .entries
-            .iter()
-            .any(|entry| entry.id.as_ref() == Some(&id))
-        {
+        if self.entries.iter().any(|entry| entry.id == id) {
             return Err(ERR_INVALID);
         }
+        let key = self.next_key;
+        let next = key.checked_add(1).ok_or(ERR_FULL)?;
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        let key = self.entries.len();
+        self.next_key = next;
         self.entries.push(Entry {
-            id: Some(id),
+            key,
+            id,
             instance,
             enabled,
             start: Cell::new(false),
@@ -152,17 +153,18 @@ impl NativeInstances {
     }
 
     pub(crate) fn id(&self, key: usize) -> Option<&Id> {
-        self.entries.get(key).and_then(|entry| entry.id.as_ref())
+        self.entry(key).map(|entry| &entry.id)
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<usize> {
         self.entries
             .iter()
-            .position(|entry| entry.id.as_ref().is_some_and(|value| value.as_str() == id))
+            .find(|entry| entry.id.as_str() == id)
+            .map(|entry| entry.key)
     }
 
     pub(crate) fn state(&self, key: usize) -> Result<InstanceState, i32> {
-        let entry = self.entries.get(key).ok_or(ERR_STATE)?;
+        let entry = self.entry(key).ok_or(ERR_STATE)?;
         if !entry.enabled {
             return Ok(InstanceState::Stopped);
         }
@@ -178,7 +180,7 @@ impl NativeInstances {
     /// A frozen run may retain the returned lease after this entry stops.
     /// Revocation makes that old lease CANCELLED without invoking foreign code.
     pub(crate) fn stop(&mut self, key: usize) -> Result<(), i32> {
-        let entry = self.entries.get_mut(key).ok_or(ERR_STATE)?;
+        let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.start.set(false);
         if let Some(instance) = entry.instance.take() {
@@ -188,7 +190,7 @@ impl NativeInstances {
     }
 
     pub(crate) fn request_start(&self, key: usize) -> Result<(), i32> {
-        let entry = self.entries.get(key).ok_or(ERR_STATE)?;
+        let entry = self.entry(key).ok_or(ERR_STATE)?;
         if entry.enabled && entry.instance.is_none() {
             entry.start.set(true);
         }
@@ -202,14 +204,15 @@ impl NativeInstances {
         }
         self.entries
             .iter()
-            .position(|entry| entry.enabled && entry.start.replace(false))
+            .find(|entry| entry.enabled && entry.start.replace(false))
+            .map(|entry| entry.key)
     }
 
     pub(crate) fn install(&mut self, key: usize, instance: NativeLease) -> Result<(), i32> {
         if self.callbacks.depth() != 0 {
             return Err(ERR_STATE);
         }
-        let entry = self.entries.get_mut(key).ok_or(ERR_STATE)?;
+        let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         if !entry.enabled || entry.instance.is_some() {
             return Err(ERR_STATE);
         }
@@ -227,11 +230,7 @@ impl NativeInstances {
 
     /// Bind only an existing, enabled registry slot to an actual callback owner.
     pub(crate) fn identity(&mut self, key: usize) -> Result<NativeIdentity, i32> {
-        if !self
-            .entries
-            .get(key)
-            .is_some_and(|entry| entry.enabled && entry.id.is_some())
-        {
+        if !self.entry(key).is_some_and(|entry| entry.enabled) {
             return Err(ERR_STATE);
         }
         let owner = u64::try_from(key).map_err(|_| paperpaw_native::host_glue::ERR_FULL)?;
@@ -241,11 +240,29 @@ impl NativeInstances {
         })
     }
 
-    /// Failed admission leaves a tombstone: neither the slot nor its identity is reused.
+    /// Reclaim a failed admission without reusing its key or moving any identity.
     pub(crate) fn abandon(&mut self, key: usize) -> Result<(), i32> {
         self.stop(key)?;
-        self.entries.get_mut(key).ok_or(ERR_STATE)?.id = None;
+        let at = self
+            .entries
+            .iter()
+            .position(|entry| entry.key == key)
+            .ok_or(ERR_STATE)?;
+        self.entries.swap_remove(at);
         Ok(())
+    }
+
+    fn entry(&self, key: usize) -> Option<&Entry> {
+        self.entries.iter().find(|entry| entry.key == key)
+    }
+
+    fn entry_mut(&mut self, key: usize) -> Option<&mut Entry> {
+        self.entries.iter_mut().find(|entry| entry.key == key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_rows(&self) -> (usize, usize) {
+        (self.entries.len(), self.entries.capacity())
     }
 
     pub(crate) fn depth(&self) -> u8 {
@@ -392,5 +409,26 @@ mod tests {
         let next = registry.identity(second).unwrap();
         assert_ne!(identity.owner(), next.owner());
         assert!(next.callback().unwrap().epoch() > epoch);
+    }
+    #[test]
+    fn reclaiming_middle_row_preserves_live_keys_and_pending_starts() {
+        let mut registry = NativeInstances::default();
+        let failed = registry
+            .insert(Id::new_static("failed"), None, true)
+            .unwrap();
+        let live = registry.insert(Id::new_static("live"), None, true).unwrap();
+        registry.request_start(live).unwrap();
+        registry.abandon(failed).unwrap();
+        assert_eq!(registry.id(live).unwrap().as_str(), "live");
+        assert_eq!(registry.find("live"), Some(live));
+        assert_eq!(registry.take_start(), Some(live));
+        assert_eq!(registry.identity(live).unwrap().owner(), live as u64);
+        assert!(matches!(registry.state(failed), Err(ERR_STATE)));
+        registry.next_key = usize::MAX;
+        assert_eq!(
+            registry.insert(Id::new_static("overflow"), None, true),
+            Err(ERR_FULL)
+        );
+        assert_eq!(registry.retained_rows().0, 1);
     }
 }
