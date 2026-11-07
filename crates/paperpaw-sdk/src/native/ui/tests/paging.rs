@@ -26,6 +26,7 @@ fn unpaged_params_require_exact_total_and_zero_continuation_metadata() {
                 total: u32::try_from(rows).unwrap(),
                 generation: 0,
                 next: 0,
+                cursor: None,
             },
             rows,
         )
@@ -45,6 +46,7 @@ fn unpaged_params_require_exact_total_and_zero_continuation_metadata() {
                     total,
                     generation,
                     next,
+                    cursor: None,
                 },
                 rows,
             ),
@@ -96,6 +98,7 @@ fn paged_stack_refuses_stale_generation_and_nonprogressing_pages() {
                 total,
                 generation,
                 next: 0,
+                cursor: None,
             })],
         );
         let bytes = state.reply.borrow();
@@ -148,6 +151,7 @@ fn help_zones_reject_out_of_range_values_and_extent_overflow() {
                     total: 1,
                     generation: 1,
                     next: 1,
+                    cursor: None,
                 }),
             ],
         );

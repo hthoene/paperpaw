@@ -46,6 +46,7 @@ fn end() -> Record<'static> {
         total: u32::MAX,
         generation: u32::MAX,
         next: u32::MAX,
+        cursor: None,
     })
 }
 

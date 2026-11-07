@@ -238,10 +238,11 @@ pub mod qr {
 /// The format-independent document model (see `paperpaw-document`).
 pub mod document {
     pub use paperpaw_document::{
-        Align, Block, BlockKind, Document, DocumentError, EmbeddedFont, ImageRef,
+        Align, Block, BlockKind, Document, DocumentError, EditError, EmbeddedFont, ImageRef,
         LETTER_SPACING_STEPS, LineStyle, Link, LinkKind, Locator, MAX_COLUMNS, MAX_FAMILIES,
         MAX_INLINE_LANGS, MAX_LETTER_SPACING, MIN_LETTER_SPACING, Metadata, OffsetMap,
-        PageProgression, Run, TableCell, TableRow, TextStyle, TocEntry, VerticalAlign, is_external,
+        PageProgression, Run, TableCell, TableRow, TextEdit, TextStyle, TocEntry, VerticalAlign,
+        is_external,
     };
 }
 
