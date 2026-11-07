@@ -1,20 +1,19 @@
 {
-  "stage": "reader.tap",
-  "schema": 1,
-  "max_input": 256,
-  "max_reply": 256,
-  "max_records": 1,
+  "payload": "reader.tap",
+  "major": 1,
+  "revision": 0,
+  "max_bytes": 256,
   "records": [
     {
       "name": "input.tap",
       "id": 97,
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "id",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -23,7 +22,7 @@
           "name": "x",
           "type": "i32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -32,7 +31,7 @@
           "name": "y",
           "type": "i32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null

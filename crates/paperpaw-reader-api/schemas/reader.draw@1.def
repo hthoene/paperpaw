@@ -1,20 +1,19 @@
 {
-  "stage": "reader.draw",
-  "schema": 1,
-  "max_input": 256,
-  "max_reply": 256,
-  "max_records": 1,
+  "payload": "reader.draw",
+  "major": 1,
+  "revision": 0,
+  "max_bytes": 256,
   "records": [
     {
       "name": "draw.item",
       "id": 96,
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "section",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -23,7 +22,7 @@
           "name": "offset",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -32,7 +31,7 @@
           "name": "insert",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -41,7 +40,7 @@
           "name": "id",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null

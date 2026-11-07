@@ -1,46 +1,81 @@
 //! Versioned, bounded reader-owned stage payloads. No host ABI types cross here.
 #![no_std]
 
-#[allow(dead_code, reason = "canonical codec includes helpers unused by some schemas")]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::match_single_binding,
+    clippy::unnecessary_min_or_max,
+    reason = "shared generated codec; constructors and caps follow schema shape"
+)]
 #[rustfmt::skip]
 pub mod wire;
-
-use wire::Record;
-
 pub const VERSION: u32 = 1;
-pub use wire::{MAX_BLOCK_INSERTS, MAX_CHAPTER_INSERTS};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stage {
-    Insert,
-    Style,
-    Decor,
-    Layer,
-    Status,
-}
+pub const MAX_BLOCK_INSERTS: usize = 4;
+pub const MAX_CHAPTER_INSERTS: u32 = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Wire(i32),
     Invalid,
-    WrongStage,
     Limit,
 }
 
-impl Stage {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Insert => "reader.insert",
-            Self::Style => "reader.style",
-            Self::Decor => "reader.decor",
-            Self::Layer => "reader.layer",
-            Self::Status => "reader.status",
+// The generated codec enforces direction and framing. These wrappers also enforce
+// reader semantics, before encoding or exposing any decoded record.
+macro_rules! stage {
+    ($module:ident, $wire:ident, $head:ident, $valid:expr) => {
+        pub mod $module {
+            pub use crate::wire::$wire::{Record, RecordStream};
+            use crate::{Error, wire::$wire as codec};
+            fn valid(record: Record<'_>) -> bool {
+                ($valid)(record)
+            }
+            fn check<'a>(
+                reply: bool,
+                records: impl Iterator<Item = Result<Record<'a>, i32>>,
+            ) -> Result<(), Error> {
+                for (index, record) in records.enumerate() {
+                    let record = record.map_err(Error::Wire)?;
+                    if !reply && matches!(record, Record::$head(_)) != (index == 0) {
+                        return Err(Error::Invalid);
+                    }
+                    if !valid(record) {
+                        return Err(Error::Invalid);
+                    }
+                }
+                Ok(())
+            }
+            pub fn decode(reply: bool, bytes: &[u8]) -> Result<RecordStream<'_>, Error> {
+                let decode = if reply {
+                    codec::reply_decode
+                } else {
+                    codec::input_decode
+                };
+                check(reply, decode(bytes).map_err(Error::Wire)?)?;
+                decode(bytes).map_err(Error::Wire)
+            }
+            pub fn encode(
+                reply: bool,
+                records: &[Record<'_>],
+                out: &mut [u8],
+            ) -> Result<usize, Error> {
+                check(reply, records.iter().copied().map(Ok))?;
+                (if reply {
+                    codec::reply_encode
+                } else {
+                    codec::input_encode
+                })(records, out)
+                .map_err(Error::Wire)
+            }
         }
-    }
+    };
 }
 
-fn valid(record: Record<'_>) -> bool {
-    match record {
+stage!(
+    insert,
+    reader_insert_v1,
+    InsertQuery,
+    |record| match record {
         Record::InsertQuery(q) => {
             q.start <= q.end
                 && q.width > 0
@@ -49,27 +84,59 @@ fn valid(record: Record<'_>) -> bool {
                 && q.font_size > 0
         }
         Record::InsertItem(i) => i.side <= 1 && i.height > 0 && i.flags & !7 == 0,
-        Record::StyleQuery(q) => {
-            q.start <= q.end && q.end - q.start == q.text.len() as u32 && q.final_chunk <= 1
-        }
-        Record::StyleBlock(s) => {
-            s.align.is_none_or(|v| v <= 3)
-                && s.size.is_none_or(|v| (1..=1000).contains(&v))
-                && s.line_height.is_none_or(|v| (1..=1000).contains(&v))
-                && s.drop_cap.is_none_or(|v| v <= 16)
-        }
-        Record::StyleRun(s) => {
-            s.start <= s.end
-                && s.set & s.clear == 0
-                && s.color.is_none_or(|v| v >> 24 == 0)
-                && s.weight.is_none_or(|v| (1..=1000).contains(&v))
-        }
-        Record::DecorQuery(q) => {
-            q.start <= q.end && q.end - q.start == q.text.len() as u32 && q.final_chunk <= 1
-        }
-        Record::DecorRange(r) => r.start < r.end && !r.role.is_empty() && r.flags & !1 == 0,
-        Record::LayerQuery(q) => q.width > 0 && q.height > 0 && q.final_chunk <= 1,
-        Record::LayerItem(i) => i.side <= 3 && i.flags & !3 == 0,
+    }
+);
+
+stage!(style, reader_style_v1, StyleQuery, |record| match record {
+    Record::StyleQuery(q) => {
+        q.start <= q.end && q.end - q.start == q.text.len() as u32 && q.final_chunk <= 1
+    }
+    Record::StyleBlock(s) => {
+        s.align.is_none_or(|v| v <= 3)
+            && s.size.is_none_or(|v| (1..=1000).contains(&v))
+            && s.line_height.is_none_or(|v| (1..=1000).contains(&v))
+            && s.drop_cap.is_none_or(|v| v <= 16)
+    }
+    Record::StyleRun(s) => {
+        s.start <= s.end
+            && s.set & s.clear == 0
+            && s.color.is_none_or(|v| v >> 24 == 0)
+            && s.weight.is_none_or(|v| (1..=1000).contains(&v))
+    }
+    Record::StyleNowBlock(s) => {
+        s.align.is_none_or(|v| v <= 3)
+            && s.size.is_none_or(|v| (1..=1000).contains(&v))
+            && s.line_height.is_none_or(|v| (1..=1000).contains(&v))
+            && s.drop_cap.is_none_or(|v| v <= 16)
+    }
+    Record::StyleNowRun(s) => {
+        s.start <= s.end
+            && s.set & s.clear == 0
+            && s.color.is_none_or(|v| v >> 24 == 0)
+            && s.weight.is_none_or(|v| (1..=1000).contains(&v))
+    }
+});
+
+stage!(decor, reader_decor_v1, DecorQuery, |record| match record {
+    Record::DecorQuery(q) => {
+        q.start <= q.end && q.end - q.start == q.text.len() as u32 && q.final_chunk <= 1
+    }
+    Record::DecorRange(r) => r.start < r.end && !r.role.is_empty() && r.flags & !1 == 0,
+    Record::PageWord(w) => w.start < w.end && w.width > 0 && w.height > 0,
+});
+
+stage!(layer, reader_layer_v1, LayerQuery, |record| match record {
+    Record::LayerQuery(q) => q.width > 0 && q.height > 0 && q.final_chunk <= 1,
+    Record::LayerItem(i) => i.side <= 3 && i.flags & !3 == 0,
+    Record::PageLine(l) => l.start <= l.end && l.width > 0 && l.height > 0,
+    Record::PageWord(w) => w.start < w.end && w.width > 0 && w.height > 0,
+});
+
+stage!(
+    status,
+    reader_status_v1,
+    StatusQuery,
+    |record| match record {
         Record::StatusQuery(q) => {
             q.progress_ppm <= 1_000_000
                 && q.page != Some(0)
@@ -77,90 +144,8 @@ fn valid(record: Record<'_>) -> bool {
                 && !matches!((q.page,q.pages), (Some(p),Some(n)) if p>n)
         }
         Record::StatusItem(i) => i.width > 0 && i.height > 0 && i.flags & !3 == 0,
-        Record::PageLine(l) => l.start <= l.end && l.width > 0 && l.height > 0,
-        Record::PageWord(w) => w.start < w.end && w.width > 0 && w.height > 0,
-        Record::DrawItem(_) | Record::InputTap(_) => true,
     }
-}
-
-fn allowed(stage: Stage, reply: bool, r: Record<'_>) -> bool {
-    matches!(
-        (stage, reply, r),
-        (Stage::Insert, false, Record::InsertQuery(_))
-            | (Stage::Insert, true, Record::InsertItem(_))
-            | (Stage::Style, false, Record::StyleQuery(_))
-            | (Stage::Style, _, Record::StyleBlock(_) | Record::StyleRun(_))
-            | (
-                Stage::Decor,
-                false,
-                Record::DecorQuery(_) | Record::PageWord(_)
-            )
-            | (Stage::Decor, true, Record::DecorRange(_))
-            | (
-                Stage::Layer,
-                false,
-                Record::LayerQuery(_) | Record::PageLine(_) | Record::PageWord(_)
-            )
-            | (Stage::Layer, true, Record::LayerItem(_))
-            | (Stage::Status, false, Record::StatusQuery(_))
-            | (Stage::Status, true, Record::StatusItem(_))
-    )
-}
-
-fn validate<'a>(
-    stage: Stage,
-    reply: bool,
-    records: impl Iterator<Item = Record<'a>>,
-) -> Result<(), Error> {
-    let mut count = 0;
-    for record in records {
-        if !reply {
-            let query = matches!(
-                record,
-                Record::InsertQuery(_)
-                    | Record::StyleQuery(_)
-                    | Record::DecorQuery(_)
-                    | Record::LayerQuery(_)
-                    | Record::StatusQuery(_)
-            );
-            if query != (count == 0) {
-                return Err(Error::Invalid);
-            }
-        }
-        if !allowed(stage, reply, record) {
-            return Err(Error::WrongStage);
-        }
-        if !valid(record) {
-            return Err(Error::Invalid);
-        }
-        count += 1;
-    }
-    if count > wire::RECORD_MAX_RECORDS
-        || (stage == Stage::Insert && reply && count > MAX_BLOCK_INSERTS)
-    {
-        return Err(Error::Limit);
-    }
-    if !reply && count == 0 {
-        return Err(Error::Invalid);
-    }
-    Ok(())
-}
-
-pub fn decode(stage: Stage, reply: bool, bytes: &[u8]) -> Result<wire::RecordBatch<'_>, Error> {
-    let batch = wire::records_decode(bytes).map_err(Error::Wire)?;
-    validate(stage, reply, batch.iter())?;
-    Ok(batch)
-}
-
-pub fn encode(
-    stage: Stage,
-    reply: bool,
-    records: &[Record<'_>],
-    out: &mut [u8],
-) -> Result<usize, Error> {
-    validate(stage, reply, records.iter().copied())?;
-    wire::records_encode(records, out).map_err(Error::Wire)
-}
+);
 
 /// Breakable pieces get distinct reader-assigned ordinals, never one ambiguous locator.
 pub fn insert_pieces(height: u32, page_height: u32, breakable: bool) -> Result<u32, Error> {

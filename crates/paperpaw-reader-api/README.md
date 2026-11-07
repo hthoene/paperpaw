@@ -1,12 +1,15 @@
 # Reader-owned stages, schema version 1 (review draft)
 
-`reader.def` indexes the per-stage canonical JSON schemas under `schemas/`. These tags
+Canonical stage and payload JSON schemas live in `schemas/<key>@<major>.def`. These tags
 are **local to this reader schema**, not interface-7 kernel tags. No record in
 this file may be sent to `registrations.submit` or `commands.submit` directly.
 Each stage negotiates its schema version through N4. Unknown versions and exact
 unknown tags are refused; a numeric tag range never identifies a family.
 
-Every batch is bounded to 4096 bytes and eight records. Insert replies have at
+Each stage input is a head record followed by up to seven declared rows
+(style/decor/layer), or just the head (insert/status), at most 3840 bytes total.
+Replies are bounded to
+3840 bytes and eight records. Insert replies have at
 most four items; at most 64 inserted items may be admitted per chapter across
 all subscribers. The reader validates aggregate limits, subscriber identity,
 source ranges and permissions, not just a structurally valid decoded record.
@@ -15,7 +18,7 @@ Limits are proposed for Kernel review, not claims about a landed N4 broker.
 | Stage | Input | Reply | Meaning |
 |---|---|---|---|
 | `reader.insert` | `insert.query` | 0–4 `insert.item` | Before/after source block, stable subscriber-local id, measured height and keep/tap flags. |
-| `reader.style` | `style.query`, source `style.block`/`style.run` | `style.block`/`style.run` | Optional fields retain book/reader values when absent. Query text is a bounded UTF-8 chunk. |
+| `reader.style` | `style.query`, source `style.now_block`/`style.now_run` | `style.block`/`style.run` | Optional fields retain book/reader values when absent. Query text is a bounded UTF-8 chunk. |
 | `reader.decor` | `decor.query`, `page.word` | `decor.range` | Source-byte spans with a user-restylable role, item id and tap flag; never change layout metrics. |
 | `reader.layer` | `layer.query`, `page.line`/`page.word` | `layer.item` | Side-room reservation and drawing item identity. Layer order is N4 subscriber order. |
 | `reader.status` | `status.query` | `status.item` | Bounded text or a custom draw item with measured dimensions. Unknown page counts remain optional. |
@@ -66,7 +69,8 @@ bands. `input.tap` routes only to the owning subscriber's admitted tap target;
 normal reader input remains unconsumed elsewhere.
 
 For an image placeholder, obtain dimensions through N6 `image.info` before
-layout, then use async `image.open`. On `event.image_ready`, invalidate only the
+layout using `image.info` (slot 36, draft 21), then submit
+`command.image_prepare`. On `event.image_ready`, draw through `canvas.draw_image` (slot 37) and invalidate only the
 reserved region through `command.invalidate`. Unknown dimensions use a stable
 chosen aspect; the loaded image fits that box. Opt-in relayout changes the
 layout signature. The owner releases each image/operation handle exactly once;
@@ -77,5 +81,13 @@ This crate defines stage payloads, not a replacement image protocol.
 
 The generic broker, N2 envelope, font/image handles, permissions, document
 provider protocol and host drawing belong to their existing owners. This work
-does not start the Reader port or provide a compatibility shim. Wire generation reuses the canonical field/framing templates through
-`tools/abi_stage_codec.py`; existing ABI generator outputs remain unchanged.
+does not start the Reader port or provide a compatibility shim. Wire generation uses the shared stage generator; host ABI outputs remain unchanged.
+
+```sh
+python3 tools/stage-codec.py crates/paperpaw-reader-api/schemas crates/paperpaw-reader-api/src/wire.rs
+python3 tools/stage-codec.py crates/paperpaw-reader-api/schemas crates/paperpaw-reader-api/src/wire.rs --check
+```
+
+Use the typed `insert`, `style`, `decor`, `layer` and `status` validation modules
+with their generated `wire::reader_*_v1` record types. Draw/tap payloads use their
+generated modules directly and are not entries in `STAGES`.

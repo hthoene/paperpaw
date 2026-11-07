@@ -234,6 +234,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' }}
+      - name: Check reader-owned stage codecs
+        run: python3 tools/stage-codec.py crates/paperpaw-reader-api/schemas crates/paperpaw-reader-api/src/wire.rs --check
       - name: Build kernel and first-party plugins
         # The standard app pulls in every first-party plugin, so a new
         # one is built here without being listed.

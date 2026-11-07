@@ -1,29 +1,30 @@
 {
-  "stage": "reader.status",
-  "schema": 1,
-  "max_input": 4096,
-  "max_reply": 4096,
-  "max_records": 8,
-  "version": 1,
-  "query": [
-    80
+  "key": "reader.status",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "status.query"
   ],
   "reply": [
-    81
+    "status.item"
   ],
-  "max_reply_records": 8,
-  "changes_layout": true,
+  "reply_rows": 8,
   "records": [
     {
       "name": "status.query",
       "id": 80,
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "section",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -32,7 +33,7 @@
           "name": "offset",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -41,7 +42,7 @@
           "name": "insert",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -50,7 +51,7 @@
           "name": "progress_ppm",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -59,7 +60,7 @@
           "name": "title",
           "type": "str",
           "max_bytes": 512,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -68,7 +69,7 @@
           "name": "chapter",
           "type": "str",
           "max_bytes": 256,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -77,7 +78,7 @@
           "name": "page",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": true,
           "ordinal": 0,
           "default": null
@@ -86,7 +87,7 @@
           "name": "pages",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": true,
           "ordinal": 1,
           "default": null
@@ -96,13 +97,13 @@
     {
       "name": "status.item",
       "id": 81,
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "id",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -111,7 +112,7 @@
           "name": "width",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -120,7 +121,7 @@
           "name": "height",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -129,7 +130,7 @@
           "name": "text",
           "type": "str",
           "max_bytes": 512,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
@@ -138,7 +139,7 @@
           "name": "flags",
           "type": "u32",
           "max_bytes": 0,
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null
