@@ -1,6 +1,6 @@
 //! Native screen identity preparation; runtime adapters remain open.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, Instances, MenuEntryDecl, ScreenDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, Instances, MenuEntryDecl, ScreenDecl,
 };
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
@@ -21,6 +21,15 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     entry.order = 75;
     d.menu_entry(entry)?;
     d.icon("keys.open", "hand-finger")?;
+    d.submit()?;
+    Ok(())
+}
+
+/// Bindings changed: the lists follow.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::RegistryChanged, 2)?;
     d.submit()?;
     Ok(())
 }

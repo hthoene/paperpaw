@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Buttons and gestures 1.0.8: the interface-7 native plugin (list of inputs, place chooser, action
+  picker) on `paperpaw-native-kit`'s item lists (#228).
+
 - Menu editor 1.0.8: the interface-7 native plugin (menus, entries, entry options, add), built
   on `paperpaw-native-kit`; dragging an entry and the soft focus style wait for host input and
   display support (#228).

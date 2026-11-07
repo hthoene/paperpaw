@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-keys"
 description = "PaperPaw buttons and gestures: what every button, tap zone and swipe does, changed on the device"
-version = "1.0.7"
+version = "1.0.8"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,7 +10,15 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-native-kit.workspace = true
+
+[build-dependencies]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]

@@ -6,7 +6,8 @@ use pending::Case;
 
 /// Opening the editor, the menu list and a finger dragging an entry.
 const MENU_DRAG: Case = Case {
-    golden: "boox-menu-drag",
+    name: "boox-menu-drag",
+    golden: Some("boox-menu-drag"),
     blocked_by: &["H1", "H3", "H4"],
 };
 

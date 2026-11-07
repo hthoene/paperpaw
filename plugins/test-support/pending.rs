@@ -7,8 +7,12 @@ use std::path::Path;
 
 /// One acceptance case of a port.
 pub struct Case {
-    /// The interface-6 snapshot (`shells/desktop/tests/snapshots/<name>.png`).
-    pub golden: &'static str,
+    /// What is accepted.
+    pub name: &'static str,
+    /// The interface-6 snapshot (`shells/desktop/tests/snapshots/<name>.png`),
+    /// or `None` where the case is behavioural (tests of the interface-6
+    /// plugin that drive a kernel) and has no picture.
+    pub golden: Option<&'static str>,
     /// What is missing: H1 screen commands, H2 dialogs, H3 composition, H4 input.
     pub blocked_by: &'static [&'static str],
 }
@@ -16,10 +20,12 @@ pub struct Case {
 impl Case {
     /// The golden must still exist: the port is accepted against it.
     pub fn golden_exists(&self) -> bool {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../shells/desktop/tests/snapshots")
-            .join(format!("{}.png", self.golden))
-            .is_file()
+        self.golden.is_none_or(|golden| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../shells/desktop/tests/snapshots")
+                .join(format!("{golden}.png"))
+                .is_file()
+        })
     }
 
     /// The explicit refusal. Never turn this into success.
@@ -27,7 +33,7 @@ impl Case {
         Err(format!(
             "BLOCKED {}: native acceptance of {} is not qualified",
             self.blocked_by.join("/"),
-            self.golden
+            self.name
         ))
     }
 }
