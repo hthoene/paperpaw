@@ -12,6 +12,8 @@ use super::{
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
+    secrets_service::SecretsServices,
+    work_service::WorkServices,
 };
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -37,6 +39,8 @@ pub(crate) struct HostServices {
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
     net: OnceCell<NetServices>,
+    work: OnceCell<WorkServices>,
+    secrets: OnceCell<SecretsServices>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -58,6 +62,8 @@ impl core::fmt::Debug for HostServices {
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
             .field("net", &self.net.get().is_some())
+            .field("work", &self.work.get().is_some())
+            .field("secrets", &self.secrets.get().is_some())
             .finish()
     }
 }
@@ -69,6 +75,8 @@ impl HostServices {
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             net: OnceCell::new(),
+            work: OnceCell::new(),
+            secrets: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -193,6 +201,27 @@ impl HostServices {
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
     }
+
+    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
+    /// Wire `core.work` once.
+    pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
+        self.work.set(work).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn work(&self) -> Option<&WorkServices> {
+        self.work.get()
+    }
+
+    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
+    /// Wire `core.secrets` once.
+    pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
+        self.secrets.set(secrets).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn secrets(&self) -> Option<&SecretsServices> {
+        self.secrets.get()
+    }
+
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
     }
@@ -229,6 +258,10 @@ impl HostServices {
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));
+        }
+        // Last: whatever the owner declared as work is gone (idempotent).
+        if let Some(work) = self.work.get() {
+            result = result.and(work.sched.owner_stopped(owner));
         }
         result
     }
