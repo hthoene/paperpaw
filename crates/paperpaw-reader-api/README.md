@@ -30,6 +30,28 @@ chunks must end at character boundaries. Geometry uses page coordinates and
 pixel units. The reader clips ranges to the supplied source context and rejects
 invalid UTF-8 boundaries. No subscriber may retain callback-borrowed strings.
 
+### Covering a whole page
+
+The eight-record input bound is per invocation, not a page limit. The reader
+walks all visible geometry in source order and sends several bounded calls:
+each repeats the query head, followed by at most seven rows. It cuts a batch
+earlier if the encoded input would exceed 3840 bytes. `chunk` increases from
+zero for that source context; only its last call sets `final_chunk = 1`.
+`page.word.index` and `page.line.index` remain page-wide indices across calls,
+and geometry remains in page coordinates. Rows are never silently dropped.
+Decor text is additionally sliced on UTF-8 boundaries to its 1024-byte field
+cap; its start/end describe that text slice. An individual row that cannot fit
+its field bounds is refused explicitly, never shortened into different text.
+
+The reader processes replies in chunk order and retains owned results until the
+whole page succeeds; an error or abandoned page discards those pending results.
+Subscribers must copy any data they need across calls and use the final-chunk
+flag for whole-context results. This is the intended reader implementation,
+not implemented runtime acceptance. It implies multiple calls on dense pages;
+X4 page-turn timing and heap measurements remain gates. The row bound must not
+be used to truncate a page to satisfy those gates. `reader.filter` rules remain
+one declarative reply per layout build, not a call for every geometry chunk.
+
 ## Pagination and identity
 
 The reader assigns insert ordinals after deterministic N4 subscriber ordering;
