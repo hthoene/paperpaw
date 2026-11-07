@@ -87,8 +87,28 @@ pub enum ItemStep {
     Focus(usize),
     /// This item was chosen.
     Chosen(usize),
+    /// This item was held: offer what else can be done with it.
+    Held(usize),
     /// The header's action should run.
     Header(&'static str),
+}
+
+/// What a list shows besides its rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Footer<'a> {
+    /// Nothing.
+    #[default]
+    None,
+    /// A note at the bottom of the screen under a light line (what a tap or a
+    /// hold does there), as high as its words need, at least a row and a half.
+    Note(&'a str),
+    /// What a list with nothing in it says, centred below its rows.
+    Empty {
+        /// Said larger.
+        title: &'a str,
+        /// Said in small letters, wrapped.
+        text: &'a str,
+    },
 }
 
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.
@@ -191,6 +211,14 @@ impl ItemList {
                 kind: InputGestureKind::Tap,
                 ..
             } => self.tap(position),
+            Input::Gesture {
+                position,
+                kind: InputGestureKind::LongPress,
+                ..
+            } => match self.tap(position) {
+                ItemStep::Chosen(item) => ItemStep::Held(item),
+                _ => ItemStep::Ignored,
+            },
             _ => ItemStep::Ignored,
         }
     }
@@ -220,7 +248,7 @@ impl ItemList {
                     self.focus = to;
                 }
             }
-            ItemStep::Chosen(item) => self.focus = item,
+            ItemStep::Chosen(item) | ItemStep::Held(item) => self.focus = item,
             ItemStep::Header(action) => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
@@ -252,6 +280,21 @@ impl ItemList {
         title: &str,
         shown: bool,
     ) -> Result<(), Error> {
+        self.draw_with(host, frame, title, shown, Footer::None)
+    }
+
+    /// As [`Self::draw`], with a [`Footer`].
+    ///
+    /// # Errors
+    /// As [`Self::draw`].
+    pub fn draw_with(
+        &mut self,
+        host: &Host<'_>,
+        frame: &mut DrawFrame<'_>,
+        title: &str,
+        shown: bool,
+        footer: Footer<'_>,
+    ) -> Result<(), Error> {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
@@ -260,7 +303,23 @@ impl ItemList {
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
-        let area = Rect::new(0, top, width, height.saturating_sub(top));
+        let mut area = Rect::new(0, top, width, height.saturating_sub(top));
+        let mut note = None;
+        if let Footer::Note(text) = footer {
+            let lines = text::wrap_with(
+                |line| font.measure_text(style.small, line),
+                text,
+                f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
+                4,
+            )?;
+            let line = font.read_line_metrics(style.small)?.line_height;
+            let high = (style.row * 3 / 2).max(style.line + (line * lines.len() as f32) as u16 + 1);
+            area.height = area.height.saturating_sub(high);
+            note = Some((
+                Rect::new(0, height.saturating_sub(high), width, high),
+                lines,
+            ));
+        }
         let mut heights = Vec::new();
         heights
             .try_reserve_exact(self.items.len())
@@ -306,6 +365,15 @@ impl ItemList {
             }
             y = y.saturating_add(high);
         }
+        if let Some((rect, lines)) = &note {
+            draw_note(&mut body, &font, &style, *rect, lines)?;
+        }
+        if let Footer::Empty { title, text } = footer
+            && starts.len() == 1
+        {
+            let area = Rect::new(0, y, width, height.saturating_sub(y));
+            draw_empty(&mut body, &font, &style, area, title, text)?;
+        }
         paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
         font.release()?;
         header.paint = Vec::new();
@@ -314,6 +382,91 @@ impl ItemList {
         self.hits = hits;
         Ok(())
     }
+}
+
+fn draw_note(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    lines: &[String],
+) -> Result<(), Error> {
+    paint::push(paint, Paint::Fill(rect, style.paper))?;
+    if style.separators != "core.separators.none" {
+        let width = rect.width.saturating_sub(2 * style.margin);
+        paint::push(
+            paint,
+            Paint::Fill(
+                Rect::new(rect.x + style.margin, rect.y, width, style.line),
+                style.rule,
+            ),
+        )?;
+    }
+    let line = font.read_line_metrics(style.small)?.line_height as u16;
+    let mut y = rect.y + style.line;
+    for text in lines {
+        let area = Rect::new(rect.x, y, rect.width, line);
+        text::label(
+            paint,
+            font,
+            text,
+            style.small,
+            f32::from(style.margin),
+            area,
+            style.note,
+            None,
+        )?;
+        y = y.saturating_add(line);
+    }
+    Ok(())
+}
+
+/// A title and a few lines, centred in `area`.
+fn draw_empty(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    area: Rect,
+    title: &str,
+    text: &str,
+) -> Result<(), Error> {
+    let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
+    let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
+    let head = font.read_line_metrics(style.title)?.line_height as u16;
+    let line = font.read_line_metrics(style.small)?.line_height as u16;
+    let total = head + style.gap + line * lines.len() as u16;
+    let mut y = area.y + area.height.saturating_sub(total) / 2;
+    let centred = |font: &Font<'_>, size: f32, text: &str| -> Result<f32, Error> {
+        Ok((f32::from(area.width) - font.measure_text(size, text)?).max(0.0) / 2.0)
+    };
+    let fitted = text::fit(font, style.title, title, room)?;
+    let x = centred(font, style.title, &fitted)?;
+    text::label(
+        paint,
+        font,
+        &fitted,
+        style.title,
+        x,
+        Rect::new(0, y, area.width, head),
+        style.ink,
+        None,
+    )?;
+    y = y.saturating_add(head + style.gap);
+    for text in &lines {
+        let x = centred(font, style.small, text)?;
+        text::label(
+            paint,
+            font,
+            text,
+            style.small,
+            x,
+            Rect::new(0, y, area.width, line),
+            style.muted,
+            None,
+        )?;
+        y = y.saturating_add(line);
+    }
+    Ok(())
 }
 
 /// Where each page starts: items are placed one after the other and a page
@@ -556,6 +709,19 @@ mod tests {
         list.set_focus(5);
         assert_eq!(list.decide(&action("core.prev-page")), ItemStep::Focus(1));
         assert_eq!(list.decide(&action("core.confirm")), ItemStep::Chosen(5));
+    }
+
+    #[test]
+    fn a_long_press_holds_the_row_and_never_the_header() {
+        let mut list = ItemList::new(items("hr"));
+        list.hits = Vec::from([(Rect::new(0, 40, 100, 40), 1)]);
+        let press = |y| Input::Gesture {
+            now_ms: 0,
+            position: Point::new(5, y),
+            kind: InputGestureKind::LongPress,
+        };
+        assert_eq!(list.decide(&press(45)), ItemStep::Held(1));
+        assert_eq!(list.decide(&press(5)), ItemStep::Ignored);
     }
 
     #[test]

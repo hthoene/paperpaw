@@ -20,6 +20,21 @@ extern crate alloc;
 
 mod profile;
 
+mod native_data;
+mod native_entry;
+/// The file of profiles and their values, without the host.
+pub mod store;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
+
+/// Catalog sources published before native screen callbacks.
+pub static CATALOGS: [(&str, &str); 2] = [
+    ("en", include_str!("../i18n/en.ini")),
+    ("de", include_str!("../i18n/de.ini")),
+];
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -71,7 +86,7 @@ fn apply(env: &Env<'_>, profile: &Profile, out: &mut Commands) {
 pub struct Profiles;
 
 /// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
+pub static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
     ("de", include_str!("../how/de.txt")),
 ];

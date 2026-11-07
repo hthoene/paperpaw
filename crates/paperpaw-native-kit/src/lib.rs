@@ -13,6 +13,7 @@
 
 extern crate alloc;
 
+pub mod files;
 pub mod focus;
 pub mod header;
 pub mod items;
@@ -24,7 +25,7 @@ pub mod style;
 pub mod text;
 
 pub use focus::{ListFocus, ListInput, Step};
-pub use items::{Item, ItemList, ItemStep, RowItem};
+pub use items::{Footer, Item, ItemList, ItemStep, RowItem};
 pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};

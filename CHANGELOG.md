@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
+  `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-native-kit` gains item lists with
+  footers, whole-file storage helpers and a screen registry (#228).
+
 - Buttons and gestures 1.0.8: the interface-7 native plugin (list of inputs, place chooser, action
   picker) on `paperpaw-native-kit`'s item lists (#228).
 

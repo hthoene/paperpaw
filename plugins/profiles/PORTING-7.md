@@ -1,9 +1,45 @@
-# Interface-7 preparation
+# Interface-7 port
 
-Base: checked PR #268 c4afa03b7. Screen identity/title encoding parity only.
+Version 1.0.9. Native plugin: `src/native_plugin.rs` (`NativeProfiles`), settings
+reads and changes in `src/native_data.rs`, the file of profiles and the values
+without the host in `src/store.rs` (version 2 of `profiles.ini`, version 1 read,
+names, tidying, value parsing). `NATIVE_ENTRY` (feature `linked`), declarations in
+`declarations.rs` built into the image by `build.rs`, metadata in `native/`
+(regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
+likewise `metadata.host.*`). Drawing uses `paperpaw-native-kit` (`ItemList` with a note
+footer or the empty message).
 
-Missing: REG settings enumeration, validation and scopes. Runtime behavior, instance policy, actions, menus and other declarations are not yet ported. No ready PR or runtime-size claim. Keep en/de and goldens unchanged. Patch-bump with runtime port.
+## Ported
 
-Native store build migration must switch to paperpaw-plugin7.x and set `-C jump-tables=no`, then pass the 2 KiB frame scan. Current shared store template remains interface 6; todo 22 stays open.
+- The list (profile with *In use* and its number of settings, *Save as new profile*,
+  the hint, the empty message), tap to apply, hold or the menu button to update,
+  rename or remove (host questions with the original words and labels), *Next profile*.
+- `profiles.ini` and `last.txt` in the plugin's data folder, byte-compatible with
+  versions 1 and 2 (the version 2 test file is written back byte for byte). Files over
+  one storage call (4 KiB) are written under another name and renamed over the old.
+  Where the file cannot be read nothing is saved over it, as before.
+- The settings are those of the reading, display and status line groups (and their
+  subgroups) except folders, languages, *scope only* and *notice seconds*; applying
+  changes only what differs and only values the setting accepts.
 
-TODO (#1048, todo 50): adopt checked Services typed confirmation labels and SINGLE screen policy from Kernel contract 2b07b85f9 once available. Preserve original labels and yes/no outcomes; no choice-question or caller-side stack workaround.
+## Tests
+
+`store`: round trip with odd names, version 2 byte for byte, version 1 upgrade, files
+of another version, names, values by kind and bounds. Kit: item lists (held rows,
+focus, pages), word wrapping. Declaration parity with the interface-6 registration
+and linked entry.
+
+## Acceptance pending on the host
+
+No desktop golden. `tests/apply.rs`/`tests/names.rs` pin the interface-6 behaviour on
+a kernel. Native cases in `tests/acceptance_pending.rs` are refusals (never pass):
+save new (H1, H2, H4), apply (H1, H4), hold options (H1, H2, H4), next (H1).
+
+## Not ported yet (explicit)
+
+- The empty message has no icon (the stack icon): the kit draws no icons yet.
+- Integer bounds come from one registry call per differing number when applying or
+  checking *In use*; a profile with many differing numbers makes that many calls.
+- Legacy `Plugin` registration and the app's `offered(.., Profiles)` stay until the host
+  activates native plugins; then they go together (no shim).

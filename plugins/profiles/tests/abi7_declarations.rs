@@ -1,6 +1,10 @@
 //! Screen identity and instance-policy parity; callback acceptance is separate.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script also uses the event declarations"
+)]
 mod declarations;
 use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
