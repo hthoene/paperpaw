@@ -1,6 +1,6 @@
 //! What a loader reads from a format-5 plugin's metadata record before it
 //! places the image: the record's body checked against what this host offers
-//! (the same [`metadata::check`] the desktop uses), and the services the
+//! (the same [`paperpaw_native::metadata::check`] the desktop uses), and the services the
 //! plugin declares, copied for `Hosted::new` (a query of a service the plugin
 //! did not declare is refused there).
 //!
