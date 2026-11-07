@@ -223,6 +223,13 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   (needs the user). A `join` of a network with a stored password, `wifi_on`, `scan`, `leave` and
   `off` need no input. `go_online` (`for_ms` 1-600,000) is honoured only within 2,000 ms after a
   user input (else `OK` and ignored, logged): no plugin turns the radio on in the background by it.
+- [D] **The 2,000 ms input window is the submitting plugin's own.** It counts only a user input
+  that went to that plugin: an input record (key, pointer, gesture, widget) delivered to one of its
+  callbacks, or the user running one of its actions (a menu entry, a key binding, a slot), and it
+  runs from the moment that input was delivered. Input that went to another plugin, to the host or
+  to a screen of the host does not open it; neither do events, works, timers or `run_action`
+  chains (`screens-input.md` 3) that started without the user. Every 2,000 ms rule of DEV and
+  NET (`network.md` 3.2, the offline exception) uses this one window.
 - [D] **Power** (`Sleep`, `PowerOff`, `Restart`, `Wear`): commands of a batch apply in order. A
   power command waits until every screen command before it in the same batch (`command.open`,
   `ui.md`, e.g. the sleep slot with `off=1`, as power does today) has drawn its first frame and that
@@ -233,6 +240,21 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   16-18; an unknown id is `ERR_NOT_FOUND` at submit), `flags` bit 0 automatic. While an instance
   guards (`ui.md` 4.3) only the guard's plugin and the host may restart or switch off
   (`ERR_DENIED`); sleep stays open to all.
+- [D] **Loop guard.** A plugin cannot keep the device from being used by restarting, sleeping or
+  switching off right after every start or wake. A `restart`, `sleep` or `power_off` counts as
+  *early* when it is submitted within 30 s after a start or wake and outside the plugin's input
+  window (above). The host keeps, per plugin, the number of starts and wakes in a row that ended in
+  an early command of that plugin, in a small host file (`.paperpaw/power-guard`, written
+  atomically and only when a count changes, so the count survives the restart it guards against
+  and a quiet start writes nothing). The guard never fails open: a missing file is all counts 0,
+  but a file that cannot be read or a count that cannot be written (card error) refuses that
+  plugin's early power commands as from the third, until the count is stored. From the third in
+  a row on,
+  that plugin's early power commands are refused at submit with `ERR_DENIED` and logged, and the
+  plugin is named in the diagnostics (`dev_native.crashed` stays for crashes; the log names it).
+  The count goes back to 0 at a start or wake that ends its 30 s without an early command of the
+  plugin, and at any user input to that plugin. The user's own power actions (the Power key, the
+  host's menus) never count and are never refused, and the 8 s Power escape stays as it is.
 - [D] **The Power-key escape (G12) can never be blocked.** No power mode, `controls` bit (buttons,
   CPU clock), guard, filter, key map, confirmation or plugin stops the Power key or its 8 s hold.
   The hold is timed by a timer or the key's interrupt, not polled from the main loop, so a 64 KiB

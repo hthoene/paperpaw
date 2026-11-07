@@ -148,6 +148,18 @@ impl Screens {
         }
     }
 
+    pub(crate) fn remove_native_owner(&mut self, owner: &str) {
+        let mut at = 0;
+        while at < self.made.len() {
+            if self.titles[at].0.namespace() == owner && matches!(self.made[at], Made::Native(_)) {
+                self.titles.remove(at);
+                self.made.remove(at);
+            } else {
+                at += 1;
+            }
+        }
+    }
+
     fn title(&self, id: &str) -> Option<&str> {
         match self.find(id) {
             Ok(at) => Some(self.titles[at].1.as_ref()),

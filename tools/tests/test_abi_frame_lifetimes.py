@@ -1,24 +1,32 @@
 """Compile probes for borrowed ABI frame views, independent of Cargo artifacts."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / 'crates/paperpaw-core/src/abi7/context.rs'
+# Every status the generated glue defines, read from it, so a status the
+# module comes to use never needs this fixture changed.
+GLUE = ROOT / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs'
+STATUSES = '\n'.join(f'    {line}' for line in re.findall(
+    r'^pub const ERR_[A-Z0-9_]+: i32 = -?\d+;$', GLUE.read_text(encoding='utf-8'), re.M))
 PREFIX = '''#![allow(dead_code, reason = "compile-only lifetime probe")]
 extern crate self as paperpaw_sdk;
 extern crate self as paperpaw_i18n;
 extern crate self as paperpaw_native;
 extern crate self as paperpaw_platform;
+extern crate self as paperpaw_graphics;
 pub mod host_glue {
-    pub const ERR_STATE: i32 = -6;
-    pub const ERR_UNSUPPORTED: i32 = -1;
-    pub const ERR_DENIED: i32 = -12;
+STATUSES
 }
 mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect;
+pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);
 pub struct Fonts;
 pub trait Storage {}
 pub struct Translator;
@@ -38,7 +46,7 @@ pub mod usage {
 }
 #[path = MODULE_PATH]
 mod context;
-'''.replace('MODULE_PATH', json.dumps(str(MODULE)))
+'''.replace('MODULE_PATH', json.dumps(str(MODULE))).replace('STATUSES', STATUSES)
 
 
 class FrameLifetimes(unittest.TestCase):
