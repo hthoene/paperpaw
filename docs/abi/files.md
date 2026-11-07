@@ -189,14 +189,17 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   `append`. No first-party host has one today.
 - [D] **The library follows every move on root 1** (Plugin's condition; interface 6's
   `tell_moved`, which file-manager and the SDK sent for every recognised file below a moved path,
-  goes away). After a root-1 `move` or `storage.rename` succeeds, the host itself, before the
-  reply: carries every book below `from` (catalogued or not yet, by format, a renamed `.epub.bak`
-  too) to its new key with its position, annotations and plugins' book data; moves folder reader
-  assignments and updates folder-valued settings that name `from` or a folder below it; and sends
-  the library's book-moved events. A move on one storage is one rename, so it is whole or not done;
-  if the library's own bookkeeping fails after the rename, the move still answers `OK` (the files
-  are moved), the host logs it and the library repairs the keys at its next walk, never leaving a
-  book's data under the old key for good. Plugins that move books as books may still use LIB's
+  goes away). For a root-1 `move` or `storage.rename`, the host:
+  1. writes a **library journal entry** (`from`, `to`) before the rename, as LIB's `move` does;
+  2. renames (one rename on one storage: whole or not done) and answers the call;
+  3. then, as a **bounded host job from the main loop** (a step at a time, the catalog walk paused
+     meanwhile), carries every book below `from` (catalogued or not yet, by format, a renamed
+     `.epub.bak` too) to its new key with its position, annotations and plugins' book data, moves
+     folder reader assignments, updates folder-valued settings that name `from` or a folder below
+     it, sends the library's book-moved events, and clears the entry.
+  The call so stays bounded however many books the folder holds. A cut after the rename leaves the
+  journal entry, and the next start finishes the job from it; a cut before it leaves the entry
+  with nothing moved, and the start drops it. Plugins that move books as books may still use LIB's
   `move` (`library.md`); both end in the same state.
 
 ### 2.7 Records
@@ -324,8 +327,9 @@ Uses the audit found that are **not FS**, and where they go:
 - **Core:** `ERR_BUSY` from the paths-in-use table on slots 22-25 as on `core.files` (section 3).
 - **Host Engineer (LIB host):** the library following root-1 moves (section 2.6): books below the
   moved path, catalogued or not, keep their data under the new key; folder reader assignments and
-  folder-valued settings follow; the book-moved events; repair at the next walk when the
-  bookkeeping failed. Tests from file-manager's cases (`plugins/file-manager/src/lib.rs:873`,
+  folder-valued settings follow; the book-moved events; the journal entry before the rename and
+  the bounded main-loop job after it, finished at start. Tests: a cut right after the rename, a
+  1,000-book folder move that answers within one bounded call, and file-manager's cases (`plugins/file-manager/src/lib.rs:873`,
   `crates/paperpaw-sdk/src/library/mod.rs:1221`).
 - **Kernel (records step):** the optional `cursor: u64` on `service.end` (52), `fs_entry.name` 765,
   the u64 cursors.
