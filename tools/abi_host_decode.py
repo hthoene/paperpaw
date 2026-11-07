@@ -12,7 +12,9 @@ from abi_declarations import _camel, _const, wire_records
 # Families whose records only the host sends.
 HOST_SENT_FAMILIES = ('event', 'input', 'draw')
 # Records only the host sends, in families a plugin also sends.
-HOST_SENT_RECORDS = ('stage.call',)
+# The host writes both stage records (`stage.call` to a subscriber, `stage.reply`
+# into the caller's `out`); subscribers answer in their stage's own tags.
+HOST_SENT_RECORDS = ('stage.call', 'stage.reply')
 
 
 def service_inputs(schema):

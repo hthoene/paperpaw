@@ -92,12 +92,35 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Kinds only the host sends, by tag (`docs/abi/stages-services.md`): the
-/// tick, events, inputs and frames, the stage call, and every service record
-/// no service schema takes as input (`service.echo`, 1024, is one).
+/// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
+/// Every other known kind (`service.echo`, 1024, a service input, among them)
+/// is one a plugin sends.
+const HOST_ONLY: [u32; 21] = [
+    3,   // event.tick
+    32,  // event.started
+    33,  // event.resume
+    34,  // event.suspend
+    35,  // event.stopping
+    36,  // event.battery_measured
+    37,  // event.page_turned
+    38,  // event.screen_shown
+    39,  // event.action_run
+    40,  // input.key
+    41,  // input.pointer
+    42,  // input.gesture
+    43,  // input.action
+    48,  // service.usage
+    49,  // service.plugin_usage
+    50,  // service.plugin
+    51,  // service.work_note
+    52,  // service.end
+    192, // draw.frame
+    512, // stage.call
+    513, // stage.reply
+];
+
 fn host_only(tag: u32) -> bool {
-    matches!(tag, 3 | 32..=43 | 48..=55 | 64..=223 | 512)
-        || ((1024..=1535).contains(&tag) && tag != 1024)
+    HOST_ONLY.contains(&tag)
 }
 
 #[test]
@@ -129,8 +152,8 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
         }
     }
     // Pinned: a new record kind must be placed on one side on purpose.
-    assert_eq!(refused.len(), 20, "{refused:?}");
-    assert_eq!(decoded.len(), 23, "{decoded:?}");
+    assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
+    assert_eq!(decoded.len(), 22, "{decoded:?}");
 }
 
 #[test]

@@ -2854,7 +2854,6 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         MENU_DESCRIBE_TAG => MenuDescribe::decode(body)?,
         STAGE_SPEC_TAG => StageSpec::decode(body)?,
         REGISTRATION_STAGE_TAG => RegistrationStage::decode(body)?,
-        STAGE_REPLY_TAG => StageReply::decode(body)?,
         SERVICE_ECHO_TAG => ServiceEcho::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
@@ -2875,7 +2874,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | INPUT_GESTURE_TAG
         | INPUT_ACTION_TAG
         | DRAW_FRAME_TAG
-        | STAGE_CALL_TAG => return Err(-2),
+        | STAGE_CALL_TAG
+        | STAGE_REPLY_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

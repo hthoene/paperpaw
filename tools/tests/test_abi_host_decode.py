@@ -28,7 +28,8 @@ class HostDecode(unittest.TestCase):
         sent = {r['name'] for r in self.schema['records'] if host_sent(self.schema, r['name'])}
         self.assertTrue({'event.started', 'input.key', 'draw.frame', 'stage.call',
                          'service.usage', 'service.plugin'} <= sent)
-        for name in ('setting.spec', 'menu.entry', 'i18n.arg_str', 'stage.reply',
+        self.assertTrue(host_sent(self.schema, 'stage.reply'))
+        for name in ('setting.spec', 'menu.entry', 'i18n.arg_str',
                      'registration.stage', 'service.echo'):
             self.assertFalse(host_sent(self.schema, name), name)
         self.assertIn('EVENT_STARTED_TAG\n', arms)
