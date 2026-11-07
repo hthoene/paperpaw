@@ -19,6 +19,12 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks. Interface draft
+  15 (`native::DRAFT`) refuses plugins built for draft 14 (#228).
+
 - Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
   cursors expose host-stamped style grants; schema-checked service handles survive
   callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
