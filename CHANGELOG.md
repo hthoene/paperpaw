@@ -19,6 +19,13 @@ change the plugin SDK.
 
 ### Added
 
+- Plugin manager 1.0.6: the interface-7 native plugin (the list of plugins with their state and notes,
+  switching on and off, the places to get more, *Screens* with its question when a plugin offers a screen
+  for a place, the notices after a start in safe mode or with plugins not installed) on
+  `paperpaw-ui-kit`, the registry and the device reads; the interface-6 plugin and its app registration
+  are gone. How a plugin works, the places it is needed for, where it came from, *Restart now* and the
+  reading-app row wait on the SDK and the host (#228).
+
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
