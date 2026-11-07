@@ -1,4 +1,4 @@
-use super::Paint;
+use crate::Paint;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Rect,
@@ -7,9 +7,9 @@ use paperpaw_sdk::{
         fonts::{Font, TextOrigin},
     },
 };
-pub(super) fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String, Error> {
+pub fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String, Error> {
     if font.measure_text(size, text)? <= width {
-        return super::super::copy(text);
+        return crate::text::copy(text);
     }
     let mut result = String::new();
     result
@@ -32,7 +32,7 @@ pub(super) fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<
     clippy::too_many_arguments,
     reason = "one measured text run and its target geometry"
 )]
-pub(super) fn label(
+pub fn label(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     text: &str,
@@ -46,7 +46,7 @@ pub(super) fn label(
     let text = if room > 0.0 && font.measure_text(size, text)? > room + 1.0 {
         fit(font, size, text, room)?
     } else {
-        super::super::copy(text)?
+        crate::text::copy(text)?
     };
     let metrics = font.read_line_metrics(size)?;
     let baseline = i32::from(area.y)
@@ -61,7 +61,7 @@ pub(super) fn label(
     });
     Ok(())
 }
-pub(super) fn cap_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32, Error> {
+pub fn cap_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32, Error> {
     let (top, bottom) = if let Some(ink) = font.ink(size, "H")? {
         (ink.top, ink.bottom)
     } else {
@@ -69,4 +69,17 @@ pub(super) fn cap_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32
         (-(m.ascent as i32), -(m.descent as i32))
     };
     Ok(i32::from(area.y) + (i32::from(area.height) - (bottom - top)).div_euclid(2) - top)
+}
+
+/// An owned copy of `text` made with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the copy cannot be allocated.
+pub fn copy(text: &str) -> Result<String, Error> {
+    let mut result = String::new();
+    result
+        .try_reserve_exact(text.len())
+        .map_err(|_| Error::NoMemory)?;
+    result.push_str(text);
+    Ok(result)
 }

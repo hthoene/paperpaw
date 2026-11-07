@@ -12,6 +12,7 @@ categories = ["no-std"]
 
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-native-kit.workspace = true
 
 [dev-dependencies]
 paperpaw-sdk = { workspace = true, features = ["kernel"] }

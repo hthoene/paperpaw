@@ -28,16 +28,20 @@ fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
     })
 }
 
-pub(super) fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
+pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut bytes = [0; 512];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
-        SettingValue::Text(value) => super::super::copy(value)?,
+        SettingValue::Text(value) => crate::text::copy(value)?,
         _ => String::new(),
     })
 }
 
 #[derive(Debug)]
-pub(super) struct Style {
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the stock look is a set of switches"
+)]
+pub struct Style {
     pub corner: u32,
     pub pill: bool,
     pub ring: bool,
@@ -58,14 +62,16 @@ pub(super) struct Style {
     pub paper: Color,
     pub disabled: Color,
     pub rule: Color,
+    /// Secondary text.
+    pub muted: Color,
+    /// Notes and footers.
+    pub note: Color,
+    /// Height of a section heading line.
+    pub heading: u16,
 }
 
 impl Style {
-    pub(super) fn read(
-        host: &Host<'_>,
-        display: &Snapshot,
-        font: &Font<'_>,
-    ) -> Result<Self, Error> {
+    pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
         let dpi = u32::from(display.display_dpi());
         let tenth = |value: u32| {
             let pixels = (value * dpi + 127) / 254;
@@ -93,6 +99,14 @@ impl Style {
         let header = setting_text(host, UI_HEADER)?;
         let palette = setting_text(host, UI_PALETTE)?;
         let color = |name, default| palette_color(&palette, name, default);
+        let strong = setting_text(host, "core.ui-contrast")? == "core.contrast.strong";
+        let faint = |name, default| {
+            if strong {
+                color("text", Color::BLACK)
+            } else {
+                color(name, default)
+            }
+        };
         let focus = setting_text(host, "core.ui-focus")?;
         // The soft-focus shade depends on DEV display gray levels, which the
         // current snapshot facade does not expose. Never silently draw Fill.
@@ -132,6 +146,9 @@ impl Style {
             paper: color("paper", Color::WHITE),
             disabled: color("disabled", Color::gray(150)),
             rule: color("rule", Color::gray(150)),
+            muted: faint("muted", Color::gray(90)),
+            note: faint("note", Color::gray(60)),
+            heading: (font.read_line_metrics(small)?.line_height * 1.25) as u16 + gap,
         })
     }
 }

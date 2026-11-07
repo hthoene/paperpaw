@@ -1,4 +1,4 @@
-use super::{Messages, Page, Paint, Style, text};
+use crate::{Messages, Page, Paint, Style, text};
 use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Rect,
@@ -12,7 +12,7 @@ use paperpaw_sdk::{
     clippy::too_many_arguments,
     reason = "header geometry, localization and paging inputs"
 )]
-pub(super) fn prepare(
+pub fn prepare(
     page: &mut Page,
     host: &Host<'_>,
     font: &Font<'_>,

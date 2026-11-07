@@ -1835,6 +1835,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-native-kit"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-platform"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2305,6 +2312,7 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native-kit",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",

@@ -1,39 +1,15 @@
-//! Callback-local native text/canvas rendering for the menu editor.
+//! A paged list screen: header, rows of title and value, focus, hit-testing.
+use crate::{Messages, Page, Paint, Style, header, paint, text};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, FrameRect},
-        fonts::{Font, FontRole, TextOrigin},
+        callbacks::{DrawFrame, DrawPurpose},
+        fonts::{Font, FontRole},
         snapshot,
     },
 };
-mod header;
-mod messages;
-mod style;
-mod text;
-use messages::Messages;
-use style::Style;
-
-#[derive(Debug)]
-enum Paint {
-    Fill(Rect, Color),
-    Focus(Rect, u32, Option<u32>, Color),
-    Text {
-        text: String,
-        size: f32,
-        origin: TextOrigin,
-        color: Color,
-        clip: Option<Rect>,
-    },
-}
-#[derive(Debug, Default)]
-struct Page {
-    paint: Vec<Paint>,
-    back: Option<Rect>,
-    pager: Option<(Rect, Rect, Rect)>,
-}
 
 /// Retains scalar hit regions only; fonts and canvas never escape callbacks.
 #[derive(Debug, Default)]
@@ -141,36 +117,8 @@ impl ListRenderer {
             let focused = shown && index * per_page + slot == focus;
             row(&mut body, &font, &style, rect, label, value, focused)?;
         }
-        let mut canvas = frame.draw_canvas()?;
-        for op in header.paint.iter().chain(body.iter()) {
-            match op {
-                Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
-                Paint::Focus(rect, radius, thickness, color) => match thickness {
-                    Some(thickness) => canvas.stroke_rounded_rectangle(
-                        frame_rect(*rect),
-                        *radius,
-                        *thickness,
-                        *color,
-                    )?,
-                    None => canvas.fill_rounded_rectangle(frame_rect(*rect), *radius, *color)?,
-                },
-                Paint::Text {
-                    text,
-                    size,
-                    origin,
-                    color,
-                    clip,
-                } => {
-                    if let Some(rect) = clip {
-                        let clip = canvas.clip_region(frame_rect(*rect))?;
-                        font.render_text(&clip, *size, *origin, *color, text)?;
-                        clip.restore()?;
-                    } else {
-                        font.render_text(&canvas, *size, *origin, *color, text)?;
-                    }
-                }
-            }
-        }
+
+        paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
         font.release()?;
         // Only hit geometry survives the draw callback.
         header.paint = Vec::new();
@@ -181,14 +129,6 @@ impl ListRenderer {
         self.page = index;
         Ok(())
     }
-}
-fn frame_rect(rect: Rect) -> FrameRect {
-    FrameRect::new(
-        i32::from(rect.x),
-        i32::from(rect.y),
-        u32::from(rect.width),
-        u32::from(rect.height),
-    )
 }
 #[allow(
     clippy::too_many_arguments,

@@ -32,6 +32,7 @@ members = [
     "crates/paperpaw-native",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
+    "crates/paperpaw-native-kit",
     "crates/paperpaw-hid",
     "plugins/diagnostics",
     "plugins/dictionary",
@@ -151,6 +152,7 @@ paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
 paperpaw-publish = { path = "tools/publish" }
 paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
 paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
+paperpaw-native-kit = { path = "crates/paperpaw-native-kit", version = "0.6.0-beta.3" }
 paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.3" }
 paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.3" }
 paperpaw-core = { path = "crates/paperpaw-core", version = "0.6.0-beta.3" }
