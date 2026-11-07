@@ -803,6 +803,10 @@ mod instance_tests {
         }
     }
 
+    /// Points at the hosted plugin that `a_release_that_stays_busy...` keeps for good.
+    static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
+        core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
     #[test]
     fn a_release_that_stays_busy_keeps_the_owner_and_reports_leaked_without_destroying() {
         use crate::native_host::{Error as HostError, TeardownStep};
@@ -816,6 +820,13 @@ mod instance_tests {
         let watched = watched_ptr.addr();
         WATCH_FREED.with(|f| f.set(false));
         WATCH.with(|w| w.set(watched));
+        // The kept hosted plugin (with its owner) is never freed, by design: a
+        // static that points at it keeps it reachable, so Miri's leak check
+        // (a leak is a bug elsewhere) does not report this one.
+        KEPT_OWNER.store(
+            instance.hosted_address(),
+            core::sync::atomic::Ordering::Relaxed,
+        );
         let plugin = instance.into_plugin(manifest(), &mut depth, &host).unwrap();
         teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
         drop(plugin);

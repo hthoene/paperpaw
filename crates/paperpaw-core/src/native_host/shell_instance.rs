@@ -183,6 +183,14 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         self.hosted.stop();
     }
 
+    /// Where the hosted plugin lives, for a test that keeps it on purpose
+    /// (a static pointing at it keeps Miri's leak check quiet).
+    #[cfg(test)]
+    pub(super) fn hosted_address(&self) -> *mut u8 {
+        let hosted: &Hosted<S, M> = &self.hosted;
+        core::ptr::from_ref(hosted).cast::<u8>().cast_mut()
+    }
+
     /// The plugin's read-only data (`DeclRef::Image` offsets index it);
     /// `None` once stopped. Decoders re-validate: a plugin has no sandbox.
     #[must_use]
