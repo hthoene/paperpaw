@@ -101,6 +101,26 @@ impl RegCatalog {
         })
     }
 
+    pub(crate) fn prune(&self, store: &DeclarationStore) -> Result<(), i32> {
+        let mut current = self.data.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let before = current.rows.len();
+        current
+            .rows
+            .retain(|row| store.visit_record(*row, &mut |_| {}));
+        if current.rows.len() != before {
+            current.registry_order.clear();
+            current.scope_order.clear();
+            for index in 0..current.rows.len() {
+                let index = u16::try_from(index).map_err(|_| ERR_NO_SPACE)?;
+                current.registry_order.push(index);
+                current.scope_order.push(index);
+            }
+            self.generation
+                .set(self.generation.get().wrapping_add(1).max(1));
+        }
+        Ok(())
+    }
+
     /// The callback may encode into reply scratch but must not invoke plugins,
     /// reenter the store or retain metadata. Visibility is checked by the query.
     pub(crate) fn with_record(

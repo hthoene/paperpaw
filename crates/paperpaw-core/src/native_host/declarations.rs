@@ -112,13 +112,12 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         }
         // Screen, widget and status declarations (`docs/abi/ui.md`): refused
         // until the host admits them (UIX hand-off).
-        Record::InputSpec(_)
-        | Record::HelpHint(_)
-        | Record::WidgetSpec(_)
+        Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
+        Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
         | Record::StatusLine(_)
-        | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
+        | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
         // `library.md`): refused until the host admits them (DOC/LIB hand-off).
         // Checked, then refused until the host admits them (the format index).

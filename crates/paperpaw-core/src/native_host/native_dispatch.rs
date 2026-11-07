@@ -180,6 +180,9 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn stop(&self) {
         self.instance.host().stop();
     }
+    fn callback_depth(&self) -> u8 {
+        self.depth.as_depth().0.current()
+    }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
     }

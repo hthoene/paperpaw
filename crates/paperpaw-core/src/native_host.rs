@@ -110,6 +110,9 @@ mod declaration_index;
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
 
+#[path = "native_host/declarations_uix.rs"]
+mod declarations_uix;
+
 #[path = "native_host/declaration_reg_checks.rs"]
 mod declaration_reg_checks;
 
@@ -184,6 +187,13 @@ mod retained;
     reason = "shared declaration producer is attached by the UI admission slice"
 )]
 pub(crate) mod native_declarations;
+
+#[path = "native_host/native_status.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame hook attachment follows the owner-directed status path"
+)]
+mod native_status;
 
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;

@@ -19,12 +19,17 @@ enum Owned {
     Screen(Callback),
 }
 
-fn map_record(owner: &str, record: Record<'_>) -> Result<Owned, i32> {
+fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
     match record {
         Record::ScreenSpec(_) => match native_values::from_record(owner, record)? {
-            Value::Screen(callback) => Ok(Owned::Screen(callback)),
+            Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
             _ => Err(ERR_INVALID),
         },
+        Record::WidgetSpec(_)
+        | Record::WidgetPlace(_)
+        | Record::StatusItem(_)
+        | Record::StatusLine(_)
+        | Record::StatusPlace(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -106,6 +111,9 @@ impl crate::Kernel {
                 return None;
             };
             store.remove_host_owner(key);
+            if declarations.catalog.prune(&store).is_err() {
+                return None;
+            }
         }
         self.native_owner_stopped(key);
         self.remove_retired_native_screens(owner);
@@ -253,20 +261,23 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    let mut any = false;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
             return;
         }
         result = (|| {
-            let value = map_record(view.plugin, record)?;
-            owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-            owned.push(value);
+            if let Some(value) = map_record(view.plugin, record)? {
+                owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                owned.push(value);
+            }
+            any = true;
             Ok(())
         })();
     })?;
     result?;
-    if owned.is_empty() {
+    if !any {
         return Err(ERR_UNSUPPORTED);
     }
     Ok((owner, owned))

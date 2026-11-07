@@ -14,6 +14,9 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    fn callback_depth(&self) -> u8 {
+        0
+    }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(None);
     }

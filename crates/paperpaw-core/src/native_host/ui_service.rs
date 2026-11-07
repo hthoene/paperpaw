@@ -78,8 +78,14 @@ pub(crate) trait UiDirectory {
 /// reads the owner's reply into `out` and returns the bytes used.
 #[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait StatusAsk {
-    fn ask(&self, owner: u64, items: &[&str], context: &[u8], out: &mut [u8])
-    -> Result<usize, i32>;
+    fn ask(
+        &self,
+        owner: u64,
+        token: u32,
+        items: &[&str],
+        context: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32>;
 }
 
 /// What the shell wires under `core.ui`: the store and the stack's view.

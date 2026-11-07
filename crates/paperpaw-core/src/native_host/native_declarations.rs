@@ -23,6 +23,10 @@ impl ImageOwner for Source {
     fn owner_id(&self) -> Result<u64, i32> {
         Ok(self.owner)
     }
+    fn native_lease(&self) -> Result<NativeLease, i32> {
+        self.lease.live()?;
+        self.lease.try_clone()
+    }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         match self.lease.live() {
             Ok(instance) => instance.with_image(visit),
@@ -104,6 +108,7 @@ impl NativeDeclarations {
             .store
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        store.prune_stopped_native();
         store.prepare(pending, allocations)?.commit();
         let prepared = store
             .all_keys(allocations)

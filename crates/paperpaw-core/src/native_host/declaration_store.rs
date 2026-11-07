@@ -27,6 +27,9 @@ pub(crate) trait ImageOwner {
     fn owner_id(&self) -> Result<u64, i32> {
         Err(ERR_STATE)
     }
+    fn native_lease(&self) -> Result<super::native_instances::NativeLease, i32> {
+        Err(ERR_STATE)
+    }
 }
 
 /// Test fixtures may use Rc; native admission uses checked shared ownership.
@@ -503,6 +506,16 @@ impl DeclarationStore {
         }
     }
 
+    pub(crate) fn prune_stopped_native(&mut self) {
+        for owner in &mut self.owners {
+            if owner.as_ref().is_some_and(|owner| {
+                owner.source.owner_id().is_ok() && owner.source.generation() != owner.generation
+            }) {
+                *owner = None;
+            }
+        }
+    }
+
     pub(crate) fn remove_host_owner(&mut self, key: u64) {
         for owner in &mut self.owners {
             if owner
@@ -512,6 +525,20 @@ impl DeclarationStore {
                 *owner = None;
             }
         }
+    }
+
+    pub(crate) fn native_lease(
+        &self,
+        key: u64,
+    ) -> Result<super::native_instances::NativeLease, i32> {
+        let owner = self
+            .owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .filter(|owner| owner.source.generation() == owner.generation)
+            .ok_or(paperpaw_native::host_glue::ERR_NOT_FOUND)?;
+        owner.source.native_lease()
     }
 
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
