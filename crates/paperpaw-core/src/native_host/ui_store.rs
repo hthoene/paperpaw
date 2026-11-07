@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 
 /// Most params of one hand-over.
@@ -50,6 +50,18 @@ pub(crate) struct Limits {
     pub(crate) typing_bytes: usize,
     /// Open requests (not counting a nested one).
     pub(crate) requests: u8,
+    /// Hand-overs alive at once, whatever their params (an empty one still
+    /// costs a record).
+    pub(crate) handovers: usize,
+    /// Request rows kept at once: open ones, nested ones and those done and
+    /// waiting to be delivered (a cancelled request is one until its event).
+    pub(crate) requests_kept: usize,
+    /// Bytes of secret text kept in memory, all secret texts together (their
+    /// own pool: a secret text never uses the ordinary one).
+    pub(crate) secret_memory: usize,
+    /// Bytes of the questions kept (title, text, choices of every request row
+    /// kept, a question being up to 3.3 KiB): `ERR_FULL` at `ask` beyond.
+    pub(crate) question_memory: usize,
 }
 
 impl Limits {
@@ -60,6 +72,11 @@ impl Limits {
         text_memory: 2_048,
         typing_bytes: 512,
         requests: 1,
+        handovers: 12,
+        requests_kept: 3,
+        // 8,192 bytes of password in 32 chunks of 256 and their descriptors.
+        secret_memory: 8_192 + 32 * 24,
+        question_memory: 4_096,
     };
     /// Elsewhere: 16 texts, each in memory.
     pub(crate) const ELSEWHERE: Self = Self {
@@ -68,6 +85,10 @@ impl Limits {
         text_memory: usize::MAX,
         typing_bytes: usize::MAX,
         requests: 4,
+        handovers: 64,
+        requests_kept: 16,
+        secret_memory: 40_960,
+        question_memory: 65_536,
     };
 }
 
@@ -115,13 +136,13 @@ pub(crate) struct Info {
     pub(crate) text_bytes: u32,
 }
 
-/// Bytes wiped when they are freed.
+/// Bytes wiped when they are freed (with the shared volatile wipe). Room
+/// beyond `len` was never written, so it holds nothing to wipe.
 pub(super) struct Wiped(pub(super) Vec<u8>);
 
 impl Drop for Wiped {
     fn drop(&mut self) {
-        self.0.fill(0);
-        core::hint::black_box(&mut self.0);
+        super::secret_bytes::wipe(&mut self.0);
     }
 }
 
@@ -141,12 +162,23 @@ enum State {
     Owned { instance: u32 },
 }
 
+/// A text is kept in chunks: a chunk is one allocation, filled in place by
+/// later writes until it is full, so a text written a byte at a time costs a
+/// chunk per [`CHUNK`] bytes and no more.
 #[derive(Default)]
 pub(super) struct Text {
     pub(super) parts: Vec<Wiped>,
     pub(super) bytes: usize,
     pub(super) committed: bool,
+    /// What the text is charged to its pool: the capacity of its chunks and a
+    /// descriptor for each (not just the bytes written).
+    pub(super) charged: usize,
 }
+
+/// A chunk that takes small writes in place.
+const CHUNK: usize = 256;
+/// The charge of a chunk's descriptor (its `Vec` header).
+const DESCRIPTOR: usize = core::mem::size_of::<Wiped>();
 
 pub(super) struct Entry {
     pub(super) id: u32,
@@ -161,7 +193,11 @@ pub(super) struct Inner {
     pub(super) entries: Vec<Entry>,
     pub(super) requests: Vec<super::ui_requests::Request>,
     pub(super) params_bytes: usize,
+    /// Ordinary texts' charge; secret texts have their own pool.
     pub(super) text_memory: usize,
+    pub(super) secret_memory: usize,
+    /// The questions kept.
+    pub(super) question_memory: usize,
 }
 
 /// The store.
@@ -202,7 +238,10 @@ pub(super) struct WriteRules {
 /// A part of a text (ui.md 3.1): an offset 0 starts the text over, any other
 /// must be the bytes written so far (`ERR_INVALID`); `last` commits. Every
 /// fallible step comes before the first change, so a refusal leaves the text
-/// at the parts before it.
+/// at the parts before it. Bytes go into the spare room of the last chunk; the
+/// rest into one new chunk (so many small parts never mean many allocations),
+/// and the pool is charged the chunks' capacity and descriptors, not only the
+/// bytes.
 pub(super) fn write_part(
     text: &mut Text,
     memory: &mut usize,
@@ -227,17 +266,43 @@ pub(super) fn write_part(
     if !had_slot && (!data.is_empty() || last) && !rules.slots_free {
         return Err(ERR_FULL);
     }
-    let dropped = if restart { had } else { 0 };
-    if *memory - dropped + data.len() > rules.memory_cap {
+    let spare = if restart {
+        0
+    } else {
+        text.parts
+            .last()
+            .map_or(0, |part| part.0.capacity() - part.0.len())
+    };
+    let into_last = data.len().min(spare);
+    let rest = data.len() - into_last;
+    // A new chunk is as big as what does not fit, rounded up to CHUNK (never
+    // past the text's own cap).
+    let room_after = rules.text_cap - (kept + data.len());
+    let chunk = if rest == 0 {
+        0
+    } else if rest >= CHUNK {
+        rest
+    } else {
+        rest + room_after.min(CHUNK - rest)
+    };
+    let charge = if chunk == 0 { 0 } else { chunk + DESCRIPTOR };
+    let dropped = if restart { text.charged } else { 0 };
+    if (*memory - dropped).saturating_add(charge) > rules.memory_cap {
         return Err(ERR_IO);
     }
-    let part = Wiped::copy(data)?;
-    // The room for the part is reserved before anything changes.
+    let fresh_chunk = if chunk == 0 {
+        None
+    } else {
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(chunk).map_err(|_| ERR_NO_MEMORY)?;
+        Some(Wiped(bytes))
+    };
+    // The room for the descriptor is reserved before anything changes.
     let mut fresh = Vec::new();
     if restart {
-        fresh.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-    } else {
-        text.parts.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        fresh.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
+    } else if fresh_chunk.is_some() {
+        text.parts.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
     }
     // Nothing fails past this point.
     if restart {
@@ -245,15 +310,23 @@ pub(super) fn write_part(
             parts: fresh,
             bytes: 0,
             committed: false,
+            charged: 0,
         };
-        *memory -= had;
+        *memory -= dropped;
     }
-    if !data.is_empty() {
-        text.parts.push(part);
+    if into_last > 0
+        && let Some(part) = text.parts.last_mut()
+    {
+        part.0.extend_from_slice(&data[..into_last]);
+    }
+    if let Some(mut chunk) = fresh_chunk {
+        chunk.0.extend_from_slice(&data[into_last..]);
+        text.parts.push(chunk);
+        text.charged += charge;
+        *memory += charge;
     }
     text.bytes += data.len();
     text.committed = last;
-    *memory += data.len();
     Ok(())
 }
 
@@ -268,6 +341,8 @@ impl UiStore {
                 requests: Vec::new(),
                 params_bytes: 0,
                 text_memory: 0,
+                secret_memory: 0,
+                question_memory: 0,
             }),
         }
     }
@@ -281,6 +356,12 @@ impl UiStore {
         }
         self.next.set(id + 1);
         Ok(id)
+    }
+
+    /// The store for a cleanup that must not be skipped: `ERR_BUSY` when it is
+    /// borrowed, so the caller retries.
+    pub(super) fn inner_busy(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
+        self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
 
     pub(super) fn inner(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
@@ -316,7 +397,9 @@ impl UiStore {
             }))?;
         }
         let mut inner = self.inner()?;
-        if inner.params_bytes + framed > self.limits.params_bytes {
+        if inner.params_bytes + framed > self.limits.params_bytes
+            || inner.entries.len() >= self.limits.handovers
+        {
             return Err(ERR_FULL);
         }
         let mut block = Vec::new();
@@ -459,9 +542,13 @@ impl UiStore {
     /// A refused submit or a callback whose result drops its staged commands:
     /// everything of exactly this batch still claimed is freed. Other batches
     /// stay.
-    pub(crate) fn rollback(&self, claims: Claims) {
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the store is borrowed: the claims are handed back
+    /// unchanged to roll back again, never dropped.
+    pub(crate) fn rollback(&self, claims: Claims) -> Result<(), (i32, Claims)> {
         let Ok(mut inner) = self.inner() else {
-            return;
+            return Err((ERR_BUSY, claims));
         };
         let mut at = 0;
         while at < inner.entries.len() {
@@ -475,20 +562,20 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     /// An `open` that applies as a no-op (a guard refused), names a stale
     /// target or fails: that one **claimed** hand-over is freed. The instance's
     /// old hand-over stays.
-    pub(crate) fn release(&self, id: u32) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn release(&self, id: u32) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         if let Some(at) = Self::position(&inner, id)
             && matches!(inner.entries[at].state, State::Claimed { .. })
         {
             Self::free(&mut inner, at);
         }
+        Ok(())
     }
 
     /// The `open` applies: **claimed** to **owned** by `instance`, allocation
@@ -525,10 +612,8 @@ impl UiStore {
 
     /// The callback of `who` returned: what it made and no submit claimed is
     /// freed. Claimed ones stay until their `open` drains.
-    pub(crate) fn end_callback(&self, who: Stamp) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn end_callback(&self, who: Stamp) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         let mut at = 0;
         while at < inner.entries.len() {
             let ours = matches!(
@@ -541,13 +626,12 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     /// An instance closed: what it owns is freed.
-    pub(crate) fn instance_closed(&self, instance: u32) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         let owned = inner
             .entries
             .iter()
@@ -555,15 +639,18 @@ impl UiStore {
         if let Some(at) = owned {
             Self::free(&mut inner, at);
         }
+        Ok(())
     }
 
     /// A plugin stopped: what it made or has claimed is freed; what it handed
     /// to another live instance stays with that instance. No plugin is called.
-    pub(crate) fn owner_stopped(&self, owner: u64) {
-        self.requests_owner_stopped(owner);
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the store is borrowed: nothing was freed and the caller
+    /// retries (the plugin's retirement waits).
+    pub(crate) fn owner_stopped(&self, owner: u64) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        Self::requests_owner_stopped(&mut inner, owner);
         let mut at = 0;
         while at < inner.entries.len() {
             let theirs = match inner.entries[at].state {
@@ -576,12 +663,13 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     fn free(inner: &mut Inner, at: usize) {
         let entry = inner.entries.remove(at);
         inner.params_bytes -= entry.params.0.len();
-        inner.text_memory -= entry.text.bytes.min(inner.text_memory);
+        inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }
 
     /// What the opened event says about `instance`'s hand-over, if it has one.

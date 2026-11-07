@@ -260,7 +260,7 @@ impl HostServices {
         }
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
-            ui.store.owner_stopped(owner);
+            result = result.and(ui.store.owner_stopped(owner));
         }
 
         // Last: whatever the owner declared as work is gone (idempotent).

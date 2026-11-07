@@ -112,7 +112,7 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
     // Another instance does not read it.
     assert_eq!(read_params(&s, 8, second).err(), Some(ERR_STATE));
     // Hand-over 0 clears the old data; close frees it.
-    s.instance_closed(7);
+    s.instance_closed(7).unwrap();
     assert_eq!(s.len(), 0);
     assert_eq!(s.held(), (0, 0));
 }
@@ -135,15 +135,15 @@ fn a_refused_batch_claims_nothing_and_the_old_data_stays() {
     s.handover_check(who(1, 2), refused).unwrap();
     // A refused submit rolls back its own claims only.
     let second = s.claim(who(1, 2), &[refused]).unwrap();
-    s.rollback(second);
+    s.rollback(second).unwrap();
     assert_eq!(s.handover_check(who(1, 2), refused), Err(ERR_NOT_FOUND));
     assert_eq!(s.handover_check(who(1, 2), kept), Err(ERR_STATE));
     assert_eq!(read_params(&s, 5, old).unwrap()[0].1, "old");
     // The callback returns: the claim stays until its open drains; a no-op
     // open releases it and the instance keeps its old hand-over.
-    s.end_callback(who(1, 2));
+    s.end_callback(who(1, 2)).unwrap();
     assert_eq!(s.len(), 2);
-    s.release(kept);
+    s.release(kept).unwrap();
     drop(first);
     assert_eq!(s.len(), 1);
     assert_eq!(read_params(&s, 5, old).unwrap()[0].1, "old");
@@ -154,11 +154,11 @@ fn rollback_frees_only_its_own_batch_and_attach_none_clears() {
     let s = store();
     let a = s.handover_make(who(1, 1), &[]).unwrap();
     let ca = s.claim(who(1, 1), &[a]).unwrap();
-    s.end_callback(who(1, 1));
+    s.end_callback(who(1, 1)).unwrap();
     // A later callback's claims roll back without touching the earlier batch.
     let b = s.handover_make(who(1, 2), &[]).unwrap();
     let cb = s.claim(who(1, 2), &[b]).unwrap();
-    s.rollback(cb);
+    s.rollback(cb).unwrap();
     assert_eq!(s.len(), 1);
     s.attach(Some(a), 6).unwrap();
     drop(ca);
@@ -200,7 +200,7 @@ fn check_claim_and_the_epoch_rules() {
     assert_eq!(s.handover_check(who(1, 4), id), Err(ERR_STATE), "claimed");
     s.attach(Some(id), 3).unwrap();
     drop(held);
-    s.end_callback(who(1, 4));
+    s.end_callback(who(1, 4)).unwrap();
     s.handover_check(who(1, 5), later).unwrap();
     assert_eq!(s.handover_check(who(1, 4), other), Err(ERR_NOT_FOUND));
     assert_eq!(s.len(), 2, "the owned one stays");
@@ -211,7 +211,7 @@ fn an_owner_that_stopped_cannot_be_claimed_for() {
     let s = store();
     let id = s.handover_make(who(1, 1), &[]).unwrap();
     let claims = s.claim(who(1, 1), &[id]).unwrap();
-    s.owner_stopped(1);
+    s.owner_stopped(1).unwrap();
     assert_eq!(s.attach(Some(id), 3), Err(ERR_STATE));
     drop(claims);
     assert_eq!(s.len(), 0);
@@ -259,7 +259,7 @@ fn the_x4_params_share_1536_bytes() {
         s.handover_make(who(1, 1), &[p("d", &v)]).err(),
         Some(ERR_FULL)
     );
-    s.end_callback(who(1, 1));
+    s.end_callback(who(1, 1)).unwrap();
     assert_eq!(s.held().0, 0);
     s.handover_make(who(1, 1), &[p("d", &v)]).unwrap();
 }
@@ -298,7 +298,7 @@ fn a_text_is_written_in_parts_committed_and_read_by_its_instance_only() {
     assert_eq!((total, n), ("hällo wörld".len(), 1));
     assert_eq!(s.text_read(4, id, 99, &mut out).err(), Some(ERR_INVALID));
     // Freed with the instance.
-    s.instance_closed(4);
+    s.instance_closed(4).unwrap();
     assert_eq!(s.held(), (0, 0));
 }
 
@@ -339,7 +339,8 @@ fn the_text_cap_24576_and_the_part_cap_3072() {
     );
     // Not cut: the text stays at the parts before.
     s.text_write(who(1, 1), id, 24_576, b"", true).unwrap();
-    assert_eq!(s.held().1, 24_576);
+    // Eight chunks of 3,072 bytes and their descriptors are charged.
+    assert_eq!(s.held().1, 8 * (3_072 + DESCRIPTOR));
 }
 
 #[test]
@@ -353,10 +354,12 @@ fn the_x4_has_four_texts_and_2_kib_without_a_card() {
     }
     let fifth = s.handover_make(who(1, 1), &[]).unwrap();
     assert_eq!(s.text_write(who(1, 1), fifth, 0, b"t", true), Err(ERR_FULL));
-    s.text_write(who(1, 1), ids[0], 0, &[b'z'; 1_900], true)
+    // Each small text is charged a 256-byte chunk and its descriptor.
+    assert_eq!(s.held().1, 4 * (CHUNK + DESCRIPTOR));
+    s.text_write(who(1, 1), ids[0], 0, &[b'z'; 1_100], true)
         .unwrap();
     assert_eq!(
-        s.text_write(who(1, 1), ids[1], 0, &[b'z'; 200], true),
+        s.text_write(who(1, 1), ids[1], 0, &[b'z'; 400], true),
         Err(ERR_IO)
     );
     assert_eq!(
@@ -375,7 +378,7 @@ fn teardown_frees_what_a_plugin_made_and_keeps_what_another_instance_owns() {
     let claimed = s.handover_make(who(1, 2), &[p("c", "3")]).unwrap();
     let claims = s.claim(who(1, 2), &[claimed]).unwrap();
     let other = s.handover_make(who(2, 1), &[]).unwrap();
-    s.owner_stopped(1);
+    s.owner_stopped(1).unwrap();
     assert_eq!(s.len(), 2, "the owned one and the other plugin's");
     assert_eq!(read_params(&s, 9, handed).unwrap().len(), 1);
     assert_eq!(s.handover_check(who(1, 2), made), Err(ERR_NOT_FOUND));
@@ -387,7 +390,7 @@ fn teardown_frees_what_a_plugin_made_and_keeps_what_another_instance_owns() {
     drop(claims);
     s.handover_check(who(2, 1), other).unwrap();
     // The instance closes: the last owner is gone.
-    s.instance_closed(9);
+    s.instance_closed(9).unwrap();
     assert_eq!(s.len(), 1);
 }
 
@@ -413,15 +416,71 @@ fn every_failed_allocation_leaves_the_store_unchanged() {
         for error in [made.err(), wrote.err()].into_iter().flatten() {
             assert_eq!(error, ERR_NO_MEMORY, "allocation {nth}");
         }
-        s.end_callback(who(1, 99));
+        s.end_callback(who(1, 99)).unwrap();
     }
     // Unchanged ledger: only what succeeded is held.
     let (params, text) = s.held();
-    assert!(params > 0 && text <= 4);
+    assert!(params > 0 && text <= CHUNK + DESCRIPTOR);
     let count = s.len();
     FAIL_NTH.with(|n| n.set(1));
     let refused = s.handover_make(who(1, 1), &[p("zz", "1")]);
     FAIL_NTH.with(|n| n.set(0));
     assert_eq!(refused.err(), Some(ERR_NO_MEMORY));
     assert_eq!((s.held().0, s.len()), (params, count));
+}
+
+#[test]
+fn empty_hand_overs_are_bounded_too() {
+    let s = UiStore::new(Limits::X4);
+    let cap = Limits::X4.handovers;
+    for _ in 0..cap {
+        s.handover_make(who(1, 1), &[]).unwrap();
+    }
+    assert_eq!(s.handover_make(who(1, 1), &[]).err(), Some(ERR_FULL));
+    assert_eq!(s.len(), cap);
+    // The callback ends: the made ones are freed and making works again.
+    s.end_callback(who(1, 1)).unwrap();
+    assert_eq!(s.len(), 0);
+    s.handover_make(who(1, 2), &[]).unwrap();
+}
+
+/// Cleanup that meets a busy store says `ERR_BUSY`, changes nothing and works
+/// when called again: nothing is dropped silently.
+#[test]
+fn cleanup_on_a_busy_store_is_busy_and_retried_never_dropped() {
+    use paperpaw_native::host_glue::ERR_BUSY;
+    let s = store();
+    let made = s.handover_make(who(1, 1), &[p("a", "1")]).unwrap();
+    let claimed = s.handover_make(who(1, 1), &[p("b", "2")]).unwrap();
+    let owned = s.handover_make(who(2, 1), &[p("c", "3")]).unwrap();
+    own(&s, who(2, 1), owned, 8);
+    let claims = s.claim(who(1, 1), &[claimed]).unwrap();
+    assert_eq!(s.len(), 3);
+    let held = s.held();
+    let busy = s.inner.borrow_mut();
+    // Plugin stop, callback end, screen close, one release: all busy.
+    assert_eq!(s.owner_stopped(1), Err(ERR_BUSY));
+    assert_eq!(s.end_callback(who(1, 1)), Err(ERR_BUSY));
+    assert_eq!(s.instance_closed(8), Err(ERR_BUSY));
+    assert_eq!(s.release(claimed), Err(ERR_BUSY));
+    // A submit rollback gives the claims back to try again.
+    let Err((status, claims)) = s.rollback(claims) else {
+        panic!("a busy store must not drop the claims")
+    };
+    assert_eq!(status, ERR_BUSY);
+    drop(busy);
+    assert_eq!((s.len(), s.held()), (3, held), "nothing changed");
+    // The retries work.
+    s.rollback(claims).unwrap();
+    assert_eq!(s.len(), 2);
+    s.end_callback(who(1, 1)).unwrap();
+    assert_eq!(s.len(), 1);
+    assert_eq!(s.instance_closed(8), Ok(()));
+    assert_eq!(s.len(), 0);
+    let again = s.handover_make(who(3, 1), &[]).unwrap();
+    let claim = s.claim(who(3, 1), &[again]).unwrap();
+    s.release(again).unwrap();
+    drop(claim);
+    assert_eq!(s.owner_stopped(3), Ok(()));
+    let _ = made;
 }

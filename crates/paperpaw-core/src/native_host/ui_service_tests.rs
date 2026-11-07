@@ -428,7 +428,8 @@ fn open_dialog(v: &View<'_>, owner: u64, id: u32, dialog: u32) {
     let stamp = Stamp::new(owner, v.stack.epoch.get()).unwrap();
     let mut started = 0;
     v.store
-        .callback_returned(stamp, false, &mut |_| started += 1);
+        .callback_returned(stamp, false, &mut |_| started += 1)
+        .unwrap();
     assert_eq!(started, 1);
     v.store.dialog_opened(id, dialog).unwrap();
 }
