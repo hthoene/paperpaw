@@ -2675,6 +2675,20 @@ so retry when the result exceeds the output capacity.
 
 ### Native host wrappers for the Battery pilot
 
+Menu declarations use `native::declare::{MenuEntryDecl, EntryPlacement, MenuSectionDecl}`.
+Construct a `MenuEntryDecl::new("core.tools", "battery.open")`, set `order = 37`,
+then add it through `Declarations::menu_entry` and assign the icon through
+`icon("battery.open", "battery")`. Entry and section order are typed `i16` values.
+`EntryPlacement` carries an anchor only for after, before and section placement.
+Entry items, icon items and device-need items are full ids; foreign items are allowed.
+`menu_need(item, MenuNeed)` uses the existing SDK need enum. `menu_section` takes
+a `MenuSectionDecl`; `hide_menu_entry(menu, item)` uses full ids, while
+`describe_item(item, key)` names an owned item relatively. The builder checks
+syntax and generated field limits; the host resolves ids and checks duplicates.
+Hosts without menu wiring return `Unsupported` rather than dropping declarations.
+These methods also work in build scripts that emit static batches. Card catalogs
+remain at `plugins/<id>/i18n/<language>.ini`, with language fallback ending in English.
+
 `native::declare::Declarations::subscribe_event(EventKind::Started, token)`
 registers a typed event subscription; `register_draw(token)` registers a draw
 callback. `EventKind` lives in `native::declare` and covers tick, lifecycle,

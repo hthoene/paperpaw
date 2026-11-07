@@ -734,6 +734,8 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
     finish(&hosted);
 }
 
+#[path = "shell_service_oom_tests.rs"]
+mod service_oom;
 fn has_expected_core_frame(state: *mut c_void) -> bool {
     if !EXPECT_CORE.with(Cell::get) {
         return true;

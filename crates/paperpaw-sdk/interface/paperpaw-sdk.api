@@ -3131,6 +3131,13 @@ pub fn paperpaw_sdk::native::declare::DeclareError::fmt(&self, &mut core::fmt::F
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EditorDecl<'a>
 pub paperpaw_sdk::native::declare::EditorDecl::Screen(&'a str)
 pub paperpaw_sdk::native::declare::EditorDecl::Slot(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::EntryPlacement<'a>
+pub paperpaw_sdk::native::declare::EntryPlacement::After(&'a str)
+pub paperpaw_sdk::native::declare::EntryPlacement::Before(&'a str)
+pub paperpaw_sdk::native::declare::EntryPlacement::First
+pub paperpaw_sdk::native::declare::EntryPlacement::InSection(&'a str)
+pub paperpaw_sdk::native::declare::EntryPlacement::Last
+pub paperpaw_sdk::native::declare::EntryPlacement::Order
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
 pub paperpaw_sdk::native::declare::EventKind::ActionRun
 pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
@@ -3186,6 +3193,13 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::screen(&mut self, paperpa
 pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_sdk::native::declare::SpecDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::describe_item(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::hide_menu_entry(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::icon(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_entry(&mut self, paperpaw_sdk::native::declare::MenuEntryDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_need(&mut self, &str, paperpaw_sdk::MenuNeed) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_section(&mut self, paperpaw_sdk::native::declare::MenuSectionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
@@ -3229,6 +3243,20 @@ pub paperpaw_sdk::native::declare::GroupDecl::parent: &'a str
 pub paperpaw_sdk::native::declare::GroupDecl::title: &'a str
 impl<'a> paperpaw_sdk::native::declare::GroupDecl<'a>
 pub fn paperpaw_sdk::native::declare::GroupDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::MenuEntryDecl<'a>
+pub paperpaw_sdk::native::declare::MenuEntryDecl::item: &'a str
+pub paperpaw_sdk::native::declare::MenuEntryDecl::menu: &'a str
+pub paperpaw_sdk::native::declare::MenuEntryDecl::order: i16
+pub paperpaw_sdk::native::declare::MenuEntryDecl::place: paperpaw_sdk::native::declare::EntryPlacement<'a>
+impl<'a> paperpaw_sdk::native::declare::MenuEntryDecl<'a>
+pub const fn paperpaw_sdk::native::declare::MenuEntryDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::MenuSectionDecl<'a>
+pub paperpaw_sdk::native::declare::MenuSectionDecl::menu: &'a str
+pub paperpaw_sdk::native::declare::MenuSectionDecl::name: &'a str
+pub paperpaw_sdk::native::declare::MenuSectionDecl::order: i16
+pub paperpaw_sdk::native::declare::MenuSectionDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::MenuSectionDecl<'a>
+pub const fn paperpaw_sdk::native::declare::MenuSectionDecl<'a>::new(&'a str, &'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
 pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str

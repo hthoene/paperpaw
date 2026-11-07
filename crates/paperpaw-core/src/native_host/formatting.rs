@@ -116,7 +116,9 @@ struct Arguments<'a> {
 
 impl<'a> Arguments<'a> {
     fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
-        let batch = wire::records_decode(bytes)?;
+        // Only the argument decoder (#985): another record kind is ERR_UNSUPPORTED.
+        let mut batch = wire::RecordBatch::EMPTY;
+        wire::host_arguments_decode_into(bytes, &mut batch)?;
         if batch.len() > wire::I18N_FORMAT_MAX_RECORDS {
             return Err(ERR_NO_SPACE);
         }

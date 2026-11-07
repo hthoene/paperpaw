@@ -15,6 +15,7 @@ SPEC.loader.exec_module(ABI)
 from abi_records import rust_records, validate_records
 from abi_declarations import rust_streams
 from abi_i18n import rust_i18n
+from abi_host_decode import rust_host_decode
 
 
 RUST_TESTS = r'''
@@ -355,8 +356,10 @@ class RecordsTests(unittest.TestCase):
 
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)
+        served = ABI.with_services(self.schema, ROOT / 'abi/services')
         for path in COPIES:
-            self.assertEqual((ROOT / path).read_text(), source)
+            self.assertEqual((ROOT / path).read_text(), source + rust_host_decode(served))
+        source += rust_host_decode(self.schema)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'abi').mkdir()

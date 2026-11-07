@@ -19,6 +19,8 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
   book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
   turns and book edges share `ReadingView` accessors; malformed values are
@@ -32,6 +34,9 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
   `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
   `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
@@ -57,6 +62,11 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
+
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 
@@ -84,6 +94,8 @@ change the plugin SDK.
   is not shown), so plugins for a later host still load. Hosts check them and answer
   `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
   `i18n/<language>.ini` files of its folder (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer

@@ -29,7 +29,7 @@ class I18nLimitTests(unittest.TestCase):
         for path in ['abi/generated/records_wire.rs',
                      'crates/paperpaw-core/src/abi7/records_wire.rs',
                      'crates/paperpaw-sdk/src/native/declare/records_wire.rs']:
-            self.assertTrue((ROOT / path).read_text().endswith(source), path)
+            self.assertIn(source, (ROOT / path).read_text(), path)
         # Without the descriptor nothing is emitted: older locks re-render alike.
         without = copy.deepcopy(self.schema)
         without.pop('i18n_limits')
