@@ -100,7 +100,8 @@ change the plugin SDK.
   works, sockets) and 108 `event.document_closed`, the features `uses.storage`, `uses.network`
   and `uses.secrets`, an optional `cursor` on `service.end`, and the stage schemas `core.format`
   and `core.lookup` that mirror their service rows. Secret-bearing record fields print redacted.
-  `paperpaw_sdk::document` re-exports `TextEdit` and `EditError`.
+  `paperpaw_sdk::document` re-exports `TextEdit` and `EditError`; `TextEdit::try_set_text` sets a
+  whole text mapped from the block's own source range.
   Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
   plugins built for draft 19 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
