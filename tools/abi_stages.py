@@ -9,6 +9,9 @@ SCHEMA_KEYS = set('key major revision since test_only max_subscribers max_input 
                   'input reply reply_rows records'.split())
 FIELD_KEYS = set('name type since optional ordinal default max_bytes'.split())
 RECORD_KEYS = {'id', 'name', 'since', 'fields'}
+# A plugin's payload schema: records it carries inside a host frame (a `draw.frame` or input
+# payload), one record each time, in one direction; no subscribers and no reply.
+PAYLOAD_KEYS = set('payload major revision max_bytes records'.split())
 # A stage whose replies are a service's rows (`core.format`: the DOC rows and the
 # block stream) names more reply kinds than a verdict stage.
 MAX_INPUT_TAGS = 8
@@ -76,11 +79,12 @@ def load_stages(folder):
                 out[key] = value
             return out
         stage = json.loads(path.read_text(), object_pairs_hook=unique)
-        _require(type(stage) is dict and
-                 f'{stage.get("key")}@{stage.get("major")}' == path.stem,
+        name = stage.get('key', stage.get('payload')) if type(stage) is dict else None
+        _require(type(stage) is dict and f'{name}@{stage.get("major")}' == path.stem,
                  f'stage schema {path.name} must name its own key and major')
         stages.append(stage)
-    return sorted(stages, key=lambda s: (str(s['key']), str(type(s['major'])), s['major']))
+    return sorted(stages, key=lambda s: (str(s.get('key', s.get('payload'))),
+                                         str(type(s['major'])), s['major']))
 
 
 def _varint_len(value):
@@ -98,18 +102,32 @@ def _framed_cap(record):
     return _varint_len(record['id']) + _varint_len(body) + body
 
 
-def _validate_stage(stage, minor, plugin=False):
+def payload_stage(payload):
+    """A payload schema as the stage the emitters take: its records are the one-record input
+    side; the reply side is sealed (no tags, no rows, cap 0), so it refuses every batch."""
+    _require(type(payload) is dict and set(payload) == PAYLOAD_KEYS, 'payload schema keys')
+    records = payload['records']
+    names = [r.get('name') for r in records if type(r) is dict] if type(records) is list else []
+    return dict(key=payload['payload'], major=payload['major'], revision=payload['revision'],
+                since=1, test_only=False, max_subscribers=1, max_input=payload['max_bytes'],
+                max_reply=0, reply_rows=0, input=names, reply=[], records=records)
+
+
+def _validate_stage(stage, minor, plugin=False, payload=False):
     """A host stage (`core.*`, `since` at most the interface minor) or, with `plugin`, a
-    plugin-defined one (`<plugin>.<name>`, never `core.*`, `since` its own schema version)."""
+    plugin-defined one (`<plugin>.<name>`, never `core.*`, `since` its own schema version);
+    with `payload`, a plugin's payload made by `payload_stage`."""
     _require(type(stage) is dict and set(stage) == SCHEMA_KEYS, 'stage schema keys')
+    _require(plugin or not payload, 'payload schemas are a plugin\'s')
     key = stage['key']
     owned = type(key) is str and key.startswith('core.') != plugin
     _require(type(key) is str and KEY.fullmatch(key) and owned and len(key.encode()) <= 128,
              f'stage key {key!r} must be {"<plugin>.<name>, not core.*" if plugin else "core.*"}'
              ' and at most 128 bytes')
+    reply = 0 if payload else 1
     for name, low, high in [('major', 1, 65535), ('revision', 0, 65535), ('since', 1, minor),
-                            ('max_subscribers', 1, 32), ('reply_rows', 1, 64),
-                            ('max_input', 1, 3840), ('max_reply', 1, 3840)]:
+                            ('max_subscribers', 1, 32), ('reply_rows', reply, reply * 64),
+                            ('max_input', 1, 3840), ('max_reply', reply, reply * 3840)]:
         _integer(stage[name], low, high, f'{key}: {name} {low}..={high}')
     _require(type(stage['test_only']) is bool, f'{key}: test_only is true or false')
     records = stage['records']
@@ -133,6 +151,8 @@ def _validate_stage(stage, minor, plugin=False):
     declared = local_records(records, stage['revision'])
     for side, most in (('input', MAX_INPUT_TAGS), ('reply', MAX_REPLY_TAGS)):
         tags = stage[side]
+        if payload and side == 'reply':
+            continue
         _require(type(tags) is list and 1 <= len(tags) <= most and
                  all(type(t) is str and t in names for t in tags) and
                  len(set(tags)) == len(tags),
@@ -140,7 +160,7 @@ def _validate_stage(stage, minor, plugin=False):
     _require(not set(stage['input']) & set(stage['reply']), f'{key}: record in input and reply')
     _require(set(names) == set(stage['input']) | set(stage['reply']),
              f'{key}: every record belongs to input or reply')
-    for side in ('input', 'reply'):
+    for side in ('input',) if payload else ('input', 'reply'):
         largest = max(_framed_cap(r) for r in declared if r['name'] in stage[side])
         # Count prefix is part of every batch, including an empty reply.
         required = 1 + largest
@@ -236,12 +256,15 @@ def plugin_stages_source(stages):
     record emitters as the host's stages, plus the same `STAGES` table. No lock, no digest:
     the owning crate keeps the output and checks it with `tools/stage-codec.py --check`."""
     _require(type(stages) is list and stages, 'plugin stage schemas: at least one')
-    for stage in stages:
-        _validate_stage(stage, 65535, plugin=True)
+    # A payload schema (`PAYLOAD_KEYS`) gets the same codec module, outside `STAGES`.
+    payloads = [type(s) is dict and 'payload' in s for s in stages]
+    stages = [payload_stage(s) if p else s for s, p in zip(stages, payloads)]
+    for stage, payload in zip(stages, payloads):
+        _validate_stage(stage, 65535, plugin=True, payload=payload)
     keys = [(s['key'], s['major']) for s in stages]
     _require(keys == sorted(set(keys)), 'stage schemas sorted by key and major, one per key and major')
-    modules = [_module_name(*k) for k in keys]
-    _require(len(set(modules)) == len(modules), 'stage module name collision')
+    _require(len({_module_name(*k) for k in keys}) == len(keys), 'stage module name collision')
+    modules = [_module_name(*k) for k, p in zip(keys, payloads) if not p]
     source = '// Generated by tools/stage-codec.py; do not edit.\n'
     source += '#![allow(dead_code, reason = "shared codec helpers also cover future schema fields")]\n'
     source += TABLE_TEMPLATE.replace('One host stage', 'One stage')

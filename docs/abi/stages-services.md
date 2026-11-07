@@ -304,6 +304,12 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   the schema's own version) use this format, one `<key>@<major>.def` per file in the owning
   crate; `tools/stage-codec.py <folder> <file.rs>` emits their codecs and `STAGES` table with
   the host stages' validators and emitters, and `--check` (in CI) refuses stale output.
+- [D] **Payload schemas.** Records a plugin carries inside a host frame (a `draw.frame` or
+  input payload: one record each time, one direction, no subscribers, no reply) use the same
+  folder with keys `payload` (`<plugin>.<name>`), `major`, `revision`, `max_bytes` (1-3,840) and
+  `records`. `stage-codec.py` emits the same codec module for them, the records as its
+  one-record input side (`input_encode`, `input_decode`, each record's `encode`/`decode`), the
+  reply side sealed (no tags, no rows, cap 0), and lists no payload in `STAGES`.
 - [D] **Mirrors.** A record may name `"mirrors": "service.<name>"` instead of `fields`: it is
   the same record as that `abi.def` service row under its stage-local tag, and the generator
   copies the row's fields (at the record's `since`), so the two never drift apart. The module's
