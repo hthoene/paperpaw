@@ -30,6 +30,11 @@ change the plugin SDK.
   `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
   growth block are generated from their `abi.def` fields into the command codec. Hosts answer
   `ERR_UNSUPPORTED` until wired (#228).
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks (#228).
+
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
@@ -60,6 +65,9 @@ change the plugin SDK.
   writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
   new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
   declarations until they wire them (#228).
+- Native host text ink probes the shaped raster path with the target frame's
+  coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
+
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
