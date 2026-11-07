@@ -165,11 +165,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             let outcome = self.work(&frame, depth, slot, root.is_empty(), &mut removed, reads)?;
             match outcome {
                 Outcome::Yield(next) => {
-                    return Ok(TreeStep {
-                        removed,
-                        done: false,
-                        next: encode(depth, next),
-                    });
+                    return Ok(TreeStep::new(removed, false, encode(depth, next)));
                 }
                 Outcome::Down(child) => {
                     frame = child;
@@ -203,11 +199,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                         }
                         // This call's share of finding folders is used.
                         None => {
-                            return Ok(TreeStep {
-                                removed,
-                                done: false,
-                                next: encode(depth, slot),
-                            });
+                            return Ok(TreeStep::new(removed, false, encode(depth, slot)));
                         }
                     }
                 }
@@ -218,11 +210,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     /// The folder at `root`, or the step that is the whole answer: nothing
     /// there (done), or a file there (removed).
     fn open_tree(&self, root: &str) -> Result<Result<FatDir<IO>, TreeStep>, StorageError> {
-        let done = |removed| TreeStep {
-            removed,
-            done: true,
-            next: 0,
-        };
+        let done = |removed| TreeStep::new(removed, true, 0);
         if !root.is_empty() {
             check(root)?;
             self.hold(root)?;
@@ -272,11 +260,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             }
         }
         self.forget(root);
-        Ok(TreeStep {
-            removed,
-            done: true,
-            next: 0,
-        })
+        Ok(TreeStep::new(removed, true, 0))
     }
 
     /// File `entry` (`name`) of `frame`'s folder taken away: open ones

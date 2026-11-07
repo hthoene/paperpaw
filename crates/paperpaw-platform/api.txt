@@ -366,14 +366,16 @@ pub fn paperpaw_platform::storage::is_valid_path(&str) -> bool
 pub fn paperpaw_platform::storage::list_counted<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::remove_listed_by_path<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub mod paperpaw_platform::tree
-pub enum paperpaw_platform::tree::Kind
+#[non_exhaustive] pub enum paperpaw_platform::tree::Kind
 pub paperpaw_platform::tree::Kind::File
 pub paperpaw_platform::tree::Kind::Folder
 pub paperpaw_platform::tree::Kind::Missing
-pub struct paperpaw_platform::tree::TreeStep
+#[non_exhaustive] pub struct paperpaw_platform::tree::TreeStep
 pub paperpaw_platform::tree::TreeStep::done: bool
 pub paperpaw_platform::tree::TreeStep::next: u64
 pub paperpaw_platform::tree::TreeStep::removed: u32
+impl paperpaw_platform::tree::TreeStep
+pub const fn paperpaw_platform::tree::TreeStep::new(u32, bool, u64) -> Self
 pub const paperpaw_platform::tree::DESCENT: u32
 pub const paperpaw_platform::tree::MAX_DEPTH: usize
 pub const paperpaw_platform::tree::MAX_NAME: usize

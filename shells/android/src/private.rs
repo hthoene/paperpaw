@@ -157,11 +157,11 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
             // base: it is removed there, and done is told only then.
             let existed = self.has_secrets()?;
             self.private.remove(NAME)?;
-            return Ok(paperpaw_platform::tree::TreeStep {
-                removed: u32::from(existed),
-                done: true,
-                next: 0,
-            });
+            return Ok(paperpaw_platform::tree::TreeStep::new(
+                u32::from(existed),
+                true,
+                0,
+            ));
         }
         let mut step = self.base.remove_tree_step(root, keep_root, place)?;
         // The secrets go with the folder that holds them, as one removal of
@@ -369,12 +369,12 @@ mod tests {
         ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
             let calls = self.calls.get() + 1;
             self.calls.set(calls);
-            Ok(paperpaw_platform::tree::TreeStep {
+            Ok(paperpaw_platform::tree::TreeStep::new(
                 // Once done, a tree has nothing left to remove.
-                removed: if calls > 3 { 0 } else { self.removed },
-                done: calls >= 3,
-                next: u64::from(calls),
-            })
+                if calls > 3 { 0 } else { self.removed },
+                calls >= 3,
+                u64::from(calls),
+            ))
         }
     }
 

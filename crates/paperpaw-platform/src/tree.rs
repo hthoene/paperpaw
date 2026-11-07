@@ -60,6 +60,7 @@ pub const MAX_NAME: usize = 255;
 const POSITION_BITS: u32 = 48;
 /// What a path names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Kind {
     /// There is none.
     Missing,
@@ -101,6 +102,7 @@ pub fn is_usable_name(name: &str) -> bool {
 
 /// What one [`remove_tree_step`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TreeStep {
     /// Entries removed by this call.
     pub removed: u32,
@@ -108,6 +110,19 @@ pub struct TreeStep {
     pub done: bool,
     /// Where to go on (0 once `done`).
     pub next: u64,
+}
+
+impl TreeStep {
+    /// A step that removed `removed` entries; `done` once the tree is gone,
+    /// `next` the place to go on from (0 once done).
+    #[must_use]
+    pub const fn new(removed: u32, done: bool, next: u64) -> Self {
+        Self {
+            removed,
+            done,
+            next,
+        }
+    }
 }
 
 fn encode(depth: usize, position: u64) -> Result<u64, StorageError> {

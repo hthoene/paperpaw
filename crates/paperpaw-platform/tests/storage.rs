@@ -115,11 +115,7 @@ impl Storage for Log {
         place: u64,
     ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
         self.note(format!("remove_tree_step {root} {keep_root} {place}"))?;
-        Ok(paperpaw_platform::tree::TreeStep {
-            removed: 0,
-            done: true,
-            next: 0,
-        })
+        Ok(paperpaw_platform::tree::TreeStep::new(0, true, 0))
     }
 
     fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {

@@ -46,6 +46,7 @@ pub(super) fn make_dir(view: &View<'_>, record: Record<'_>) -> Result<usize, i32
         Kind::Folder => return Ok(0),
         Kind::File => return Err(ERR_INVALID),
         Kind::Missing => {}
+        _ => return Err(ERR_STATE),
     }
     // A folder takes a cluster: the reserve is kept (S4).
     check_room(view.storage, 0)?;
@@ -174,5 +175,6 @@ fn check_parent(view: &View<'_>, to: &Target) -> Result<(), i32> {
         Kind::Folder => Ok(()),
         Kind::File => Err(ERR_INVALID),
         Kind::Missing => Err(ERR_NOT_FOUND),
+        _ => Err(ERR_STATE),
     }
 }

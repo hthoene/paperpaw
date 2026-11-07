@@ -87,11 +87,7 @@ impl DirStorage {
     fn step(&self, root: &str, keep_root: bool) -> Result<(TreeStep, Budget), StorageError> {
         let mut target = self.resolve_dir(root)?;
         *self.open.borrow_mut() = None;
-        let done = |removed| TreeStep {
-            removed,
-            done: true,
-            next: 0,
-        };
+        let done = |removed| TreeStep::new(removed, true, 0);
         let mut budget = Budget::default();
         match fs::symlink_metadata(&target) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((done(0), budget)),
@@ -103,11 +99,7 @@ impl DirStorage {
             }
             Ok(_) => {}
         }
-        let more = |budget: &Budget| TreeStep {
-            removed: budget.removed,
-            done: false,
-            next: 1,
-        };
+        let more = |budget: &Budget| TreeStep::new(budget.removed, false, 1);
         if !sweep(&mut target, 0, &mut budget)? {
             return Ok((more(&budget), budget));
         }

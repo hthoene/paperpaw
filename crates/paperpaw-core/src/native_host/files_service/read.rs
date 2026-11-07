@@ -181,6 +181,7 @@ pub(super) fn stat(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
                 view.storage.modified(joined),
             ),
             Kind::Folder => (ENTRY_FOLDER, 0, view.storage.modified(joined)),
+            _ => return Err(ERR_IO),
         }
     };
     encode(
