@@ -81,7 +81,7 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
         name: "panel",
         title: "Panel",
         token: 1,
-        flags: 2,
+        flags: 1 << 8,
     })]);
     let mut allocations = Allocations::default();
     assert!(matches!(

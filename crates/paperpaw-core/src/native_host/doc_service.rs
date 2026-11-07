@@ -14,7 +14,10 @@
 //! answer is written into it, checked there and, for pictures, rewritten in
 //! place. No call keeps anything. The peak of the DOC host side beyond the
 //! scratch is the table: 80 bytes.
-use super::registrations::{self as wire, Record};
+use super::{
+    host_services::Caller,
+    registrations::{self as wire, Record},
+};
 use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::ServiceOp,
@@ -139,7 +142,9 @@ pub(crate) trait DocHost {
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
     /// Tell the format plugin to close a document (op 4 `close`). Best
     /// effort; nothing the format says can fail it. The service never calls
-    /// it for a document whose format stopped (`format_gone`).
+    /// it for a document whose format stopped (`format_gone`). The host
+    /// refuses it itself for a plugin that is retired (its instance is
+    /// revoked), whatever it is asked.
     fn close_format(&self, document: &Document);
     /// Every image id of the document ends now. It may be called twice for the
     /// same document (ids are generation-checked); the second call does
@@ -160,6 +165,10 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The owner is a format plugin that stopped: it is removed from the
+    /// format index and `visit` gets each format reference it had. Nothing
+    /// is called on the plugin.
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
     /// Section 1's formats in a stable order; `ERR_STATE` for a stale
     /// generation (never 0, as REG's).
     fn formats(
@@ -191,7 +200,10 @@ pub(crate) trait DocHost {
 /// The opener stopped: its documents end, and each format gets op 4 `close`
 /// and the document's image ids end (`document.md` 2.1). The shell calls it
 /// when a plugin stops.
-pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry ends the rest.
+pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> Result<usize, i32> {
     host.table()
         .close_owner(owner, |document| end(host, document))
 }
@@ -217,9 +229,26 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// host (reason 1), their image ids end, each opener hears
 /// `event.document_closed`, and the format is not called again (not even by
 /// the opener's later `close`). The shell calls it when a format plugin stops.
-pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry finishes the rest.
+pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> Result<usize, i32> {
+    format_retired(host, format, None)
+}
+
+/// As [`format_stopped`], for a format plugin that is retiring: `owner`, if it
+/// is also an opener, hears nothing and its documents are marked gone, so its
+/// own opener cleanup (`opener_stopped`, right after) never calls the format.
+///
+/// # Errors
+/// As [`format_stopped`].
+pub(crate) fn format_retired(
+    host: &dyn DocHost,
+    format: FormatRef,
+    owner: Option<u64>,
+) -> Result<usize, i32> {
     host.table()
-        .cancel_format(format, 1, |document| host_closed(host, document, 1))
+        .cancel_format(format, 1, owner, |document| host_closed(host, document, 1))
 }
 
 /// What the shell hands the frame under the key `core.document`.
@@ -277,6 +306,9 @@ impl DocHost for Cx<'_> {
     ) -> Result<Option<u32>, i32> {
         self.host.map_image(document, image, in_block)
     }
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.host.formats_of_owner(owner, visit);
+    }
     fn formats(
         &self,
         cursor: u32,
@@ -331,18 +363,16 @@ mod op {
 
 /// The `core.document` backend.
 pub(crate) fn backend(
-    frame: &dyn Frame,
+    _frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = frame
-        .host_service("core.document")
-        .and_then(<dyn core::any::Any>::downcast_ref::<DocServices>)
-        .ok_or(ERR_UNSUPPORTED)?;
+    let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
     let host = &Cx {
         host: &*services.0,
-        owner: frame.caller()?,
+        owner: who.owner,
     };
     let host: &dyn DocHost = host;
     match op.id {
@@ -907,6 +937,7 @@ fn list(
         total: 0,
         generation: 0,
         next: 0,
+        cursor: None,
     };
     let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
@@ -996,4 +1027,4 @@ fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize,
 
 #[cfg(test)]
 #[path = "doc_service/tests.rs"]
-mod tests;
+pub(crate) mod tests;

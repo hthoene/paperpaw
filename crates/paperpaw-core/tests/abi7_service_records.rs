@@ -51,6 +51,7 @@ fn end() -> ServiceEnd {
         total: 70,
         generation: 3,
         next: 4,
+        cursor: None,
     }
 }
 

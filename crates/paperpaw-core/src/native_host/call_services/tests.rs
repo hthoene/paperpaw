@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::native_host::host_services::Caller;
 use crate::{
     abi7::{
         context::Frame,
@@ -18,11 +19,23 @@ use paperpaw_native::{
 };
 use paperpaw_platform::Instant;
 
-fn echo(_: &dyn Frame, _: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+fn echo(
+    _: &dyn Frame,
+    _: &Caller<'_>,
+    _: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
     let record = registrations::records_decode_single(input)?;
     registrations::record_encode_one(&record, out)
 }
-fn failing(_: &dyn Frame, _: &ServiceOp, _: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+fn failing(
+    _: &dyn Frame,
+    _: &Caller<'_>,
+    _: &ServiceOp,
+    _: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
     out[0] = 0;
     Err(ERR_BUSY)
 }
@@ -187,6 +200,7 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                         call(
                             &scope,
                             target,
+                            "files",
                             handle,
                             op,
                             pair(bytes),
@@ -201,13 +215,29 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                 }
                 let running = owner.enter_service(owner.service(handle).unwrap()).unwrap();
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&input),
+                        output(&mut out)
+                    ),
                     ERR_BUSY
                 );
                 assert_eq!(out, [0xa5; 512]);
                 drop(running);
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&input),
+                        output(&mut out)
+                    ),
                     (input.len() - 1) as i32
                 );
                 assert_eq!(&out[..input.len() - 1], &input[1..]);
@@ -248,7 +278,15 @@ fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
                 );
                 for _ in 0..2 {
                     assert_eq!(
-                        call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                        call(
+                            &scope,
+                            &owner,
+                            "files",
+                            handle,
+                            1,
+                            pair(&input),
+                            output(&mut out)
+                        ),
                         ERR_BUSY
                     );
                     assert_eq!(out, [0xa5; 512]);
@@ -284,8 +322,15 @@ fn generic_schema_validation_accepts_multiplicity_but_echo_requires_one_record()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let mut out = [0xa5; 512];
-    assert_eq!(echo(&env, op, &two, &mut out), Err(ERR_INVALID));
-    assert_eq!(echo(&env, op, &[0], &mut out), Err(ERR_INVALID));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    let who = Caller {
+        owner: 1,
+        plugin: "files",
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+        hosts: &hosts,
+    };
+    assert_eq!(echo(&env, &who, op, &two, &mut out), Err(ERR_INVALID));
+    assert_eq!(echo(&env, &who, op, &[0], &mut out), Err(ERR_INVALID));
     assert_eq!(out, [0xa5; 512]);
 }
 
@@ -294,6 +339,7 @@ std::thread_local! {
 }
 fn broken_then_echo(
     frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
@@ -313,7 +359,7 @@ fn broken_then_echo(
             )],
             out,
         ),
-        _ => echo(frame, op, input, out),
+        _ => echo(frame, who, op, input, out),
     }
 }
 
@@ -349,13 +395,29 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
                     let mut out = [0xa5; 512];
                     BROKEN_REPLY.with(|value| value.set(mode));
                     assert_eq!(
-                        call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                        call(
+                            &scope,
+                            &owner,
+                            "files",
+                            handle,
+                            1,
+                            pair(&input),
+                            output(&mut out)
+                        ),
                         status
                     );
                     assert_eq!(out, [0xa5; 512]);
                     BROKEN_REPLY.with(|value| value.set(0));
                     assert_eq!(
-                        call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                        call(
+                            &scope,
+                            &owner,
+                            "files",
+                            handle,
+                            1,
+                            pair(&input),
+                            output(&mut out)
+                        ),
                         (input.len() - 1) as i32
                     );
                     assert_eq!(&out[..input.len() - 1], &input[1..]);
