@@ -314,16 +314,29 @@ impl RadioRequests {
         self.end_waiting(Outcome::failed(reason::SUPERSEDED), |_| true);
     }
 
-    /// What the radio reported: a network up ends the waiting join (online)
-    /// or host (hosting), a failure ends the waiting request for that ssid,
-    /// the radio off ends any waiting one as "other".
+    /// What the radio reported: the network a waiting join named up (online)
+    /// or a waiting host's (hosting) ends it, a failure ends the waiting
+    /// request for that ssid, the radio off ends any waiting one as "other".
+    ///
+    /// The radio's events carry no request number, so they are matched by
+    /// ssid. A stale report of the same ssid as the waiting request (join A,
+    /// join A again) cannot be told apart: success is the goal state either
+    /// way, but a stale *failure* can end the newer attempt early. Closing
+    /// that needs a request generation in the radio API (open item before the
+    /// feature is activated).
     pub fn on_wifi_event(&mut self, event: &WifiEvent) {
         match event {
-            WifiEvent::State(WifiState::Online { .. }) => {
-                self.end_waiting(Outcome::success(STATE_ONLINE), |entry| !entry.host);
+            // Only the network the request named completes it: a late report of
+            // an earlier, superseded attempt (another ssid) is not its outcome.
+            WifiEvent::State(WifiState::Online { ssid, .. }) => {
+                self.end_waiting(Outcome::success(STATE_ONLINE), |entry| {
+                    !entry.host && entry.ssid.as_str() == ssid.as_str()
+                });
             }
-            WifiEvent::State(WifiState::Hosting { .. }) => {
-                self.end_waiting(Outcome::success(STATE_HOSTING), |entry| entry.host);
+            WifiEvent::State(WifiState::Hosting { ssid, .. }) => {
+                self.end_waiting(Outcome::success(STATE_HOSTING), |entry| {
+                    entry.host && entry.ssid.as_str() == ssid.as_str()
+                });
             }
             WifiEvent::State(WifiState::Off) => {
                 self.end_waiting(Outcome::failed(reason::OTHER), |_| true);

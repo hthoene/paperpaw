@@ -92,6 +92,52 @@ fn a_newer_join_supersedes_the_waiting_one_and_each_ends_exactly_once() {
 }
 
 #[test]
+fn a_late_online_or_hosting_report_of_another_ssid_does_not_complete_the_waiting_request() {
+    let (a, b) = (id("a"), id("b"));
+    let online = |ssid: &str| {
+        WifiEvent::State(WifiState::Online {
+            ssid: ssid.to_string(),
+            address: String::new(),
+            name: None,
+        })
+    };
+    let hosting = |ssid: &str| {
+        WifiEvent::State(WifiState::Hosting {
+            ssid: ssid.to_string(),
+            address: String::new(),
+            guests: 0,
+        })
+    };
+    // Join A is superseded by join B; the radio then reports A online.
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "net-a");
+    waiting(&mut table, &b, 7, "net-b");
+    table.on_wifi_event(&online("net-a"));
+    assert!(table.next_outcome("b").is_none(), "B is still waiting");
+    table.on_wifi_event(&online("net-b"));
+    assert_eq!(
+        table.next_outcome("b").unwrap().outcome,
+        Outcome::success(STATE_ONLINE)
+    );
+    // The same for a host request and a stale hosting report.
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "ap-old");
+    table.reserve(&b, 7, true, "ap-new").unwrap();
+    table.supersede_waiting();
+    table.activate("b", 7, 20);
+    table.on_wifi_event(&hosting("ap-old"));
+    assert!(table.next_outcome("b").is_none());
+    // A hosting report completes no join, an online report no host.
+    table.on_wifi_event(&online("ap-new"));
+    assert!(table.next_outcome("b").is_none());
+    table.on_wifi_event(&hosting("ap-new"));
+    assert_eq!(
+        table.next_outcome("b").unwrap().outcome,
+        Outcome::success(STATE_HOSTING)
+    );
+}
+
+#[test]
 fn radio_reports_map_to_statuses_and_reasons() {
     let a = id("a");
     for (failure, expected) in [
