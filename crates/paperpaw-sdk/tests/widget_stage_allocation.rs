@@ -89,19 +89,27 @@ fn full_widget_and_status_replies_allocate_nothing() {
         "fixture.h",
     ]
     .map(|item| StatusAnswer::text(item, "text").unwrap());
+    // Two bare service.ui_param records (tag 1057): title=Book, chapter=Part1.
+    // Keep a golden wire fixture here so this integration test needs no private codec.
+    const CONTEXT: &[u8] = b"\xa1\x08\x0c\0\x05title\x04Book\xa1\x08\x0f\0\x07chapter\x05Part1";
     let n = status::input_encode(
         &[status::Record::StatusAsk(status::StatusAsk::new(
-            items,
-            &[],
+            items, CONTEXT,
         ))],
         &mut input,
     )
     .unwrap();
     let n = no_alloc(|| {
-        StatusCall::decode(&input[..n])
-            .unwrap()
-            .reply(&values, &mut out)
-            .unwrap()
+        let call = StatusCall::decode(&input[..n]).unwrap();
+        let mut context = call.context();
+        let title = context.next().unwrap().unwrap();
+        let chapter = context.next().unwrap().unwrap();
+        assert_eq!((title.key(), title.value()), ("title", "Book"));
+        assert_eq!((chapter.key(), chapter.value()), ("chapter", "Part1"));
+        assert!(input.as_ptr_range().contains(&title.value().as_ptr()));
+        assert!(input.as_ptr_range().contains(&chapter.value().as_ptr()));
+        assert!(context.next().is_none());
+        call.reply(&values, &mut out).unwrap()
     });
     assert_eq!(status::reply_decode(&out[..n]).unwrap().len(), values.len());
 }
