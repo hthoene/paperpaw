@@ -10,7 +10,6 @@
 //! The flash's table says where the partitions are and how large, also
 //! another firmware's (CrossPoint's), which PaperPaw never writes.
 
-
 use esp_bootloader_esp_idf::partitions::{self, FlashStorage, PARTITION_TABLE_MAX_LEN};
 use log::{info, warn};
 use paperpaw_platform::Storage;
