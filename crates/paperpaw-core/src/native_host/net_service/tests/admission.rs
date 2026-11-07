@@ -281,7 +281,7 @@ fn four_requests_per_plugin_and_sixteen_per_device() {
     }
     assert_eq!(request(&fake, 23, &get(1)), Err(ERR_BUSY));
     // One ends: its plugin has room again, others still wait for the device.
-    let ids = fake.table.lock().unwrap().used;
+    let ids = fake.pool_used();
     assert_eq!(ids, 0, "no pool on this device");
     cancel_all(&fake, OWNER, 1);
     // The plugin has to hear of the ends first: they count until then.
