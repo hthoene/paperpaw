@@ -299,6 +299,9 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
   target rows) and `core.status` (32 subscribers, up to 8 value rows).
 
+The stage codec is pinned as `emitted_stages` in ABI lock format 11. Older lock
+formats still validate their original emitted sections. This adds no wire draft.
+
 ## 3. Memory (X4)
 
 - `service.open`: one `Service` handle (registry slot, about 40 bytes) per declared key in use.

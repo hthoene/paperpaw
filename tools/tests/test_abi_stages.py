@@ -26,6 +26,22 @@ class StageTests(unittest.TestCase):
     def stage(self, schema):
         return schema['stages'][0]
 
+    def test_lock_pins_stage_codec_and_accepts_format_ten(self):
+        schema = ABI.with_services(self.schema, ROOT / 'abi/services')
+        trusted = ABI.lock_record(schema)
+        self.assertEqual(trusted['lock_format'], 11)
+        self.assertEqual(trusted['emitted_stages'], rust_stages(schema))
+        changed = copy.deepcopy(trusted)
+        changed['emitted_stages'] += '// changed\n'
+        with self.assertRaisesRegex(ValueError, 'emitted stages'):
+            ABI.check_lock(changed, schema)
+        old = copy.deepcopy(schema)
+        del old['stages']
+        legacy = ABI.lock_record(old)
+        legacy['lock_format'] = 10
+        del legacy['emitted_stages']
+        ABI.check_lock(legacy, schema)
+
     def test_repository_schemas_are_stage_local_and_copies_match(self):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],
