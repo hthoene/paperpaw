@@ -124,6 +124,12 @@ impl DocumentTable {
         })
     }
 
+    /// Hold the table as a running call does (tests of a busy table).
+    #[cfg(test)]
+    pub(crate) fn hold(&self) -> Result<core::cell::RefMut<'_, Vec<Document>>, i32> {
+        self.rows()
+    }
+
     fn rows(&self) -> Result<core::cell::RefMut<'_, Vec<Document>>, i32> {
         self.documents.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
