@@ -173,3 +173,41 @@ fn exporting_refuses_cleanly() {
     sweep("export", make, |s| store::export(s, "out.tsv"), |_| {});
     assert_eq!(words(&make()).len(), 40);
 }
+
+/// Where the heap refuses a line buffer while a word is added again, the
+/// word is only appended and the old entry stays (as for a read error): the
+/// list then has the word twice. Adding it again once it is no longer the
+/// newest removes every older entry: nothing is lost, duplicates heal.
+#[test]
+fn a_later_add_heals_duplicates_left_by_a_refused_read() {
+    let make = || Quiet::default().with(store::file(), list(10));
+    let again = word("w3");
+    let (_, count) = armed(usize::MAX, || store::add(&make(), &again));
+    let mut healed = 0;
+    for at in 1..=count {
+        let storage = fixture(make);
+        let _ = armed(at, || store::add(&storage, &again));
+        let text = String::from_utf8(storage.get(store::file()).unwrap()).unwrap();
+        if text.lines().filter(|l| l.starts_with("w3\t")).count() < 2 {
+            continue;
+        }
+        healed += 1;
+        fixture(|| {
+            // Another word, then the word once more: one entry of it.
+            store::add(&storage, &word("x")).unwrap();
+            store::add(&storage, &again).unwrap();
+            let words: Vec<String> = store::range(&storage, 0, usize::MAX)
+                .unwrap()
+                .into_iter()
+                .map(|(_, w)| w.word)
+                .collect();
+            assert_eq!(words.iter().filter(|w| *w == "w3").count(), 1, "{words:?}");
+            assert_eq!(words.last().map(String::as_str), Some("w3"));
+            assert_eq!(words.len(), 10 + 1, "{words:?}");
+        });
+    }
+    assert!(
+        healed > 0,
+        "no refusal left a duplicate: the case proves nothing"
+    );
+}

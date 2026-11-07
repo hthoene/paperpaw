@@ -458,10 +458,12 @@ fn push_export_field(out: &mut String, text: &str) -> Result<(), StorageError> {
 /// a line each with the word, its sentence and the book, separated by
 /// tabs, oldest first, after the lines that tell Anki how to read them.
 pub(crate) fn export(storage: &dyn Storage, path: &str) -> Result<(), StorageError> {
-    storage.write(path, b"#separator:tab\n#html:false\n")?;
+    // The buffer first: where the heap refuses it, nothing is written (an
+    // export already there is not cut to its header).
     let mut out = String::new();
     out.try_reserve_exact(CHUNK * 4 + lines::MAX_LINE * 2)
         .map_err(|_| StorageError::TooLarge)?;
+    storage.write(path, b"#separator:tab\n#html:false\n")?;
     let mut failed = Ok(());
     each_word_line(storage, |l| {
         if failed.is_err() {
