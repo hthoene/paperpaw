@@ -107,8 +107,13 @@ gaps (commands 1553-1555 and events 83 and 90 are free after the first review ro
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
   one of the submitter's own instances; other bits `ERR_INVALID`, another plugin's instance
-  `ERR_DENIED`. The declared flags are the state at opening. A change takes effect when the batch
-  is applied, before the next input is routed.
+  `ERR_DENIED`. **Turning `guards` on** is allowed only for the submitter's own top instance (the
+  top of the whole stack, so no other plugin's screen is above it): anywhere else `ERR_STATE`,
+  and the whole batch is refused. Turning it off, and bits 4 and 5 either way, work on any own
+  instance. The declared flags are the state at opening; a screen declared `guards` that opens
+  below a guard waits there (section 4.3) and never has screens of others above it. A change
+  takes effect when the batch is applied, before the next input is routed. Core's tests cover
+  both cases (own top: guards at once; not top: `ERR_STATE`, nothing changed).
 - [D] **Secret** (interface 6 `Screen::secret`): an instance is secret when it says so, when it
   guards, and when it lies above a guarding instance. While the top instance is secret, input
   goes to the input filters of its own plugin and of the topmost guarding plugin only (others are
@@ -315,6 +320,10 @@ asker learns its request id at once and long texts move in pages, never cut.
   - **Input.** Only the guard's plugin's input filters are called (the others are skipped, not
     called and ignored); keys and pointers then go to the top instance, which is the guard's
     plugin's. `raise_input` from any other plugin is `ERR_DENIED`.
+  - **Key maps.** Only the guard instance's own key layer (`set_key_layer`) and bindings to host
+    actions or to the guard's plugin's own actions apply; a binding in the slot or global layer
+    that names another plugin's action or input does nothing while the guard is up (logged), so a
+    key map can never run another plugin's code past the lock.
   - **Closing.** Only the guard's plugin closes the guarding instance or any instance above it
     (`close`, `back_to`: `ERR_DENIED` for others), so no plugin closes the lock's own keyboard.
   - **Stack.** For every other plugin, `core.ui` op 1 lists only the topmost guarding instance
@@ -379,10 +388,11 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   `ERR_DENIED`, guard or not. Secret is judged at each call by section 1.2 (declared, set at run
   time, guarding, or above a guarding instance), so a password keyboard is never drawn inside
   another plugin's screen.
-- [D] **X4 stack.** Two plugin `draw` frames and the slot-35 host frame share the main stack: slot
-  35 joins the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case
+- [D] **X4 stack.** Two plugin frames and the host frame between them share the main stack, for
+  slot 35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's):
+  they join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case
   (sleep over the reader with widgets) before activation; until the stack gate passes, the X4
-  answers slot 35 with `ERR_UNSUPPORTED`.
+  answers slot 35 and those ops with `ERR_UNSUPPORTED`.
 
 ### 5.2 Widgets
 
@@ -441,7 +451,15 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   once per owning plugin for its items (stage-local `status.ask` / `status.value`) and caches the
   values per (item, context) until event 73 (`status_changed`) or the minute tick. A value is text
   (at most 128 bytes) or, with `flags` bit 0, drawn: the showing screen composes it with
-  `ui.compose` kind 2 and the row's `handle` (valid until its callback returns).
+  `ui.compose` kind 2 and the row's `handle`. A handle is valid only inside the callback that got
+  it, so a drawn item is asked for with op 14 inside `draw`, then composed in the same `draw`.
+- [D] **Own items are not called back.** The host never re-enters the caller (section 5.1): an
+  item of the caller's own plugin (the reader showing its own page number) comes back from op 14
+  with `flags` bit 2 `own`, no text and no handle, without a `core.status` call; the caller fills
+  it itself. Op 15 for an own line returns `ui_instance` with `flags` bit 0 `own` and instance 0.
+  Likewise op 4 for an own widget returns `flags` bit 0 `own`; for such an instance ops 6, 7, 12
+  and 13 and slot 35 are `ERR_BUSY` without a call, and the plugin measures, places and draws its
+  own widget itself.
 - [D] A status line (whole line drawn by its owner) gets its handle from op 15 `status_line`
   (`line`, `context` → `handle`) and is composed with kind 3.
 - [D] `status.item.tap` is one of the owner's actions, run as the owner with the line's context;
@@ -485,7 +503,7 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
 | 1043 | `service.ui_question` | `kind: u32`, `flags: u32`, `max_bytes: u32`, `title: str 256`, `text: str 1024`, `choices: str 2048` |
 | 1044 | `service.ui_hint` | `input: u32`, `x: u32`, `y: u32`, `width: u32`, `height: u32`, `text: str 128`, `owner: str 64` |
 | 1045 | `service.ui_widget_ref` | `widget: str 128`, `place: str 128` |
-| 1046 | `service.ui_instance` | `instance: u32` |
+| 1046 | `service.ui_instance` | `instance: u32`, `flags: u32` |
 | 1047 | `service.ui_widget_input` | `instance: u32`, `target: u32`, `x: i32`, `y: i32`, `kind: u32` |
 | 1048 | `service.ui_target` | `target: u32`, `x: i32`, `y: i32`, `width: u32`, `height: u32` |
 | 1049 | `service.ui_ask` | `kind: u32`, `flags: u32`, `slot: str 128`, `title: str 256`, `text: str 1024`, `choices: str 2048` |
@@ -503,8 +521,13 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
   waits ready and not yet ready, 4 secret. `owner` is host-stamped.
 - [D] No feature is needed: what is on screen is not private (guarded parts are left out), and
   every op that touches a request, an instance or a handle checks that it is the caller's.
-- [D] `ui_param` (Senior's answer to [Q] 3) is a service row of this block: in op 16's input, op
-  17's reply and nested in `ui_status_ask.context`, nowhere else. `ui_text.data` is cut only at
+- [D] `ui_param` (Senior's answer to [Q] 3) is a service row of this block, a neutral tag outside
+  the event block: in op 16's input, op 17's reply and nested in `ui_status_ask.context`, nowhere
+  else. **Two-way records** (sent by plugins and by the host, so never in the host-sent-only list
+  of #270, `abi7_host_decode.rs` `HOST_ONLY`): `ui_param`, `ui_handle` (op 16 out, op 17 in),
+  `ui_text` (op 9 in, op 10 out), `ui_instance` (ops 4 and 15 out, op 5 in) and `ui_request` (op 8
+  out, op 2 in). Host-sent only: `ui_screen`, `ui_question`, `ui_hint`, `ui_target`, `ui_size`,
+  `ui_status_value`; the rest are plugin-sent. `ui_text.data` is cut only at
   UTF-8 boundaries; `items` at most 8 lines of at most 128 bytes.
 
 ## 7. Messages, help, clipboard, speech
@@ -540,8 +563,8 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
   `read_clipboard` answers with `event.clipboard_read` to the reader only (`status` 0 text, 1
   empty, 2 no clipboard on this device). Keeping a `secret` answer (section 3.1) off it is the
   dialog plugin's duty; the host cannot enforce it (decision 44).
-  Whether a device has a clipboard: `menu.need` capability bit (new) [Q] or always (host memory)?
-  Proposal: always; Android may back it with the system clipboard.
+  Every device has one (Senior): always in host memory; Android may back it with the system
+  clipboard. `status` 2 stays for a later device without one.
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
   `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
@@ -587,14 +610,19 @@ its caps (hand-off).
   bytes each plus the question (title, text, choices: at most 3.3 KiB), allocated fallibly at
   `ask` (`ERR_NO_MEMORY`). On the X4 questions cost at most about 6.7 KiB plus their texts, and
   nothing when none is open.
-- X4 worst case for this family: 8 KiB params + 8 KiB texts + 6.7 KiB questions + the small
-  tables below, all fallible; the R3 heap measurement covers the typical case (one question, a
-  few instances with small params).
+- **X4 worst case, in the device heap budget.** Instances 0.25 + params 8 + texts 8 + questions
+  6.7 + widgets 0.5 + status cache 2 + op 7 target cache 0.8 + clipboard 3 + messages 1 = about
+  30.3 KiB, every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`, never a
+  panic). This total is a line of the X4 heap budget (hand-off: Firmware, with the R3 heap
+  measurement); the measured typical case (one question, a few instances with small params) goes
+  beside it.
 - Answers are not held-store edges: each request carries its answer and a pending mark (section
   3.2), so they cost nothing beyond the request.
 - Filters: at most 4 subscribers; one stage call per input on the host scratch.
 - Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
-  stage call each on the host scratch.
+  stage call each on the host scratch and nest another plugin's callback inside the caller's just
+  as slot 35 does: they share slot 35's frame-budget entry and X4 stack gate (section 5.1), and
+  answer `ERR_UNSUPPORTED` on the X4 until it passes.
 - Widgets: about 16 bytes per made instance, at most 32 device-wide.
 - Status values: a cache of at most 2 KiB, dropped on event 73.
 - Clipboard: at most 3 KiB host heap, fallible. Messages: at most 4 waiting, 1 KiB.
@@ -634,7 +662,9 @@ its caps (hand-off).
   table with nested questions, the host text pool (X4 card part), filter capture release, filter
   dispatch and guards, `ui.compose`, widget instances, status cache, clipboard and speech arms
   (speech through the shell), `core.ui` ops.
-- **Firmware/shells:** speech and clipboard backends (Android), notify drawing, the X4 measurements.
+- **Firmware/shells:** speech and clipboard backends (Android), notify drawing, the X4
+  measurements: the nested-callback stack gate (slot 35, ops 7 and 12-15) and the UIX line of the
+  heap budget (section 8.2).
 - **Services:** SDK facade (navigation builders, `ask` helpers with typed answers, filter and
   status stage helpers, widget make/compose, help builders).
 - **Plugin:** the ports, starting with keyboard, help, lock, sleep, home.
