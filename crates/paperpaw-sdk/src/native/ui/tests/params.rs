@@ -85,3 +85,45 @@ fn param_syntax_and_caps_are_checked_without_truncation() {
     let value = "界".repeat(341);
     assert_eq!(Param::new("x", &value).unwrap().value(), value);
 }
+
+#[test]
+fn dialog_parameters_decode_only_canonical_host_values() {
+    fn host_param<'a>(key: &'a str, value: &'a str) -> Param<'a> {
+        Param::decode(wire::Record::ServiceUiParam(wire::ServiceUiParam {
+            key,
+            value,
+        }))
+        .unwrap()
+    }
+    for raw in [1, u32::MAX] {
+        let text = alloc::format!("{raw}");
+        assert_eq!(
+            host_param("core.request", &text)
+                .request()
+                .unwrap()
+                .unwrap()
+                .get(),
+            raw
+        );
+    }
+    for value in ["", "0", "01", "+1", "-1", " 1", "1 ", "4294967296", "١"] {
+        assert_eq!(
+            host_param("core.request", value).request(),
+            Err(Error::Invalid)
+        );
+    }
+    for (value, kind) in [
+        ("0", QuestionKind::Text),
+        ("1", QuestionKind::Choice),
+        ("2", QuestionKind::Confirm),
+        ("3", QuestionKind::Folder),
+    ] {
+        assert_eq!(host_param("core.kind", value).kind(), Ok(Some(kind)));
+    }
+    for value in ["", "00", "01", "+1", "4", "1 "] {
+        assert_eq!(host_param("core.kind", value).kind(), Err(Error::Invalid));
+    }
+    let other = Param::new("other", "not a number").unwrap();
+    assert_eq!(other.request(), Ok(None));
+    assert_eq!(other.kind(), Ok(None));
+}

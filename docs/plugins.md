@@ -1834,6 +1834,12 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
+The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
+for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
+`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
+call; parameter text and transport buffers remain borrowed. This type-layout
+measurement does not replace the runtime X4 heap gate.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run

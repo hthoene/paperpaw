@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     ffi::c_void,
@@ -14,6 +14,7 @@ struct Fixture {
     result: Cell<i32>,
     calls: Cell<u32>,
     queries: RefCell<Vec<(u32, u32, u32, u32)>>,
+    scopes: RefCell<Vec<String>>,
 }
 unsafe extern "C" fn open(
     _: *mut c_void,
@@ -51,6 +52,7 @@ unsafe extern "C" fn call(
     let record = wire::records_decode_single(bytes).unwrap();
     match record {
         Record::ServiceRegQuery(q) => {
+            fixture.scopes.borrow_mut().push(q.scope.into());
             fixture
                 .queries
                 .borrow_mut()
@@ -620,4 +622,102 @@ fn choices_and_encoded_setting_values_keep_their_distinct_types() {
         page.rows().next().unwrap().value(),
         Some(SettingValue::Bool(true))
     );
+}
+
+#[test]
+fn status_discovery_maps_scopes_and_borrows_named_rows() {
+    let table = table();
+    let mut fixture = Fixture::default();
+    let host = host(&table, &mut fixture);
+    let registry = Registry::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for (scope, kind, expected) in [
+        (StatusScope::All, 0, StatusKind::Item),
+        (StatusScope::Items, 0, StatusKind::Item),
+        (StatusScope::Lines, 1, StatusKind::Line),
+    ] {
+        *fixture.response.borrow_mut() = encode(&[
+            Record::ServiceRegStatus(wire::ServiceRegStatus {
+                id: "fixture.clock",
+                plugin: "fixture",
+                kind,
+                flags: kind | 2,
+                priority: 0,
+                size: 1000,
+                tap: "",
+                title: "Clock",
+            }),
+            end(1, 1, 9, true),
+        ]);
+        let page = registry
+            .status(&host, scope, PageCursor::start(), &mut input, &mut out)
+            .unwrap();
+        let row = page.rows().next().unwrap();
+        assert_eq!(
+            (row.id(), row.plugin(), row.title()),
+            ("fixture.clock", "fixture", "Clock")
+        );
+        assert_eq!(row.kind(), expected);
+        assert_eq!(row.is_drawn(), kind == 1);
+        assert!(row.is_private());
+        assert_eq!((row.priority(), row.size(), row.tap()), (0, 1000, ""));
+        assert!(out.as_ptr_range().contains(&row.title().as_ptr()));
+    }
+    assert_eq!(&*fixture.scopes.borrow(), &["", "item", "line"]);
+    assert!(
+        fixture
+            .queries
+            .borrow()
+            .iter()
+            .all(|query| query.0 == schema::OP_STATUS)
+    );
+}
+
+#[test]
+fn status_discovery_checks_empty_pages_unknown_kinds_and_scope_mismatch() {
+    let table = table();
+    let mut fixture = Fixture::default();
+    let host = host(&table, &mut fixture);
+    let registry = Registry::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    *fixture.response.borrow_mut() = encode(&[end(0, 0, 1, true)]);
+    assert_eq!(
+        registry
+            .status(
+                &host,
+                StatusScope::All,
+                PageCursor::start(),
+                &mut input,
+                &mut out
+            )
+            .unwrap()
+            .len(),
+        0
+    );
+    for (scope, kind, flags) in [
+        (StatusScope::All, 2, 0),
+        (StatusScope::Items, 1, 1),
+        (StatusScope::Lines, 0, 0),
+        (StatusScope::All, 1, 0),
+    ] {
+        *fixture.response.borrow_mut() = encode(&[
+            Record::ServiceRegStatus(wire::ServiceRegStatus {
+                id: "fixture.clock",
+                plugin: "fixture",
+                kind,
+                flags,
+                priority: 0,
+                size: 1000,
+                tap: "",
+                title: "Clock",
+            }),
+            end(1, 1, 1, true),
+        ]);
+        assert!(matches!(
+            registry.status(&host, scope, PageCursor::start(), &mut input, &mut out),
+            Err(Error::Invalid)
+        ));
+    }
 }

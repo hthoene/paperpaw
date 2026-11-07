@@ -10,6 +10,7 @@ use super::{
 use core::{fmt, marker::PhantomData};
 
 mod rows;
+mod status;
 pub use rows::{
     RegistryBinding, RegistryBindingOrigin, RegistryChoice, RegistryGroup, RegistryItem,
     RegistryMenuKind, RegistryMenuRow, RegistryNeed, RegistryNeedKind, RegistryPlugin,
@@ -17,6 +18,7 @@ pub use rows::{
     RegistrySettingKind, RegistrySetupPageKind, RegistrySetupStep, RegistrySlot, RegistryValue,
     RegistryValueSource, RegistryWidget,
 };
+pub use status::{RegistryStatus, StatusKind, StatusScope};
 
 /// A registry position. Only a page's next cursor may continue a generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

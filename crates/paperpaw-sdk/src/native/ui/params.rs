@@ -1,5 +1,5 @@
 //! Lossless handover parameters. Transport uses Kernel's service batch encoder.
-use super::{Error, wire};
+use super::{Error, QuestionKind, RequestId, wire};
 
 /// One borrowed handover parameter, checked without allocating or truncating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,6 +39,35 @@ impl<'a> Param<'a> {
     #[must_use]
     pub const fn value(self) -> &'a str {
         self.value
+    }
+    /// Decode the host's dialog request parameter. Other keys return None.
+    ///
+    /// # Errors
+    /// Invalid unless core.request is canonical decimal in 1..=u32::MAX.
+    pub fn request(self) -> Result<Option<RequestId>, Error> {
+        if self.key != "core.request" {
+            return Ok(None);
+        }
+        if !matches!(self.value.as_bytes().first(), Some(b'1'..=b'9'))
+            || !self.value.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(Error::Invalid);
+        }
+        let raw = self.value.parse::<u32>().map_err(|_| Error::Invalid)?;
+        RequestId::new(raw).map(Some).ok_or(Error::Invalid)
+    }
+    /// Decode the host's dialog kind parameter. Other keys return None.
+    ///
+    /// # Errors
+    /// Invalid unless core.kind is exactly one decimal digit from 0 to 3.
+    pub fn kind(self) -> Result<Option<QuestionKind>, Error> {
+        if self.key != "core.kind" {
+            return Ok(None);
+        }
+        match self.value.as_bytes() {
+            [digit @ b'0'..=b'3'] => QuestionKind::decode(u32::from(digit - b'0')).map(Some),
+            _ => Err(Error::Invalid),
+        }
     }
     pub(super) const fn record(self) -> wire::Record<'a> {
         wire::Record::ServiceUiParam(wire::ServiceUiParam {

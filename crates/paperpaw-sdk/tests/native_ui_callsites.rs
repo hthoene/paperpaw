@@ -3,6 +3,7 @@ use paperpaw_sdk::native::callbacks::FrameRect as Rect;
 use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
+    events::Event,
     ui::{Answer, Compose, Notify, Open, Param, Question, RequestId, TextPart, TextWrite, Ui},
 };
 
@@ -95,11 +96,35 @@ fn folder_question(
 fn dialog_answer(
     host: &Host<'_>,
     ui: &Ui,
-    request: RequestId,
+    opening: Event<'_>,
     answer: Answer,
     input: &mut [u8],
     out: &mut [u8],
 ) -> Result<(), Error> {
+    let Event::ScreenOpened {
+        handover: Some(handover),
+        ..
+    } = opening
+    else {
+        return Err(Error::State);
+    };
+    let (request, kind) = {
+        let mut request = None;
+        let mut kind = None;
+        for param in ui.params(host, handover, input, out)? {
+            let param = param?;
+            if let Some(value) = param.request()? {
+                request = Some(value);
+            }
+            if let Some(value) = param.kind()? {
+                kind = Some(value);
+            }
+        }
+        (request.ok_or(Error::State)?, kind.ok_or(Error::State)?)
+    };
+    if ui.question(host, request, input, out)?.kind() != kind {
+        return Err(Error::State);
+    }
     ui.answer(host, request, answer, input, out)
 }
 fn reply_outlives_service_handle<'a>(
