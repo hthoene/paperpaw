@@ -292,7 +292,8 @@ fn list(
         }
         opener.plain.clear();
         seen += 1;
-        if seen <= ask.cursor {
+        if seen <= ask.cursor || more {
+            // Before the page, or after it: only counted.
             return Ok(Flow::Go);
         }
         let record = Record::ServiceSecEntry(wire::ServiceSecEntry {
@@ -318,8 +319,9 @@ fn list(
                 more = true;
                 if rows == 0 {
                     failure = Some(ERR_NO_SPACE);
+                    return Ok(Flow::Stop);
                 }
-                Ok(Flow::Stop)
+                Ok(Flow::Go)
             }
         }
     })
@@ -329,6 +331,7 @@ fn list(
     }
     let end = wire::ServiceEnd {
         flags: u32::from(!more),
+        total: seen,
         next: ask.cursor.checked_add(rows).ok_or(ERR_INVALID)?,
         ..end
     };

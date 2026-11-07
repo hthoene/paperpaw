@@ -238,6 +238,8 @@ struct View<'a> {
     fail: Cell<u32>,
     /// The most the last call held beyond what it started with.
     held: Cell<usize>,
+    /// The `total` of the last list's `end`.
+    total: Cell<u32>,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
@@ -363,13 +365,14 @@ impl View<'_> {
                 Record::ServiceSecEntry(e) => {
                     rows.push((e.plugin.into(), e.name.into(), e.label.into(), e.flags));
                 }
-                Record::ServiceEnd(e) => end = Some((e.next, e.flags & 1 == 1)),
+                Record::ServiceEnd(e) => end = Some((e.next, e.flags & 1 == 1, e.total)),
                 other => panic!("{other:?}"),
             }
             Ok(())
         })
         .unwrap();
-        let (next, last) = end.unwrap();
+        let (next, last, total) = end.unwrap();
+        self.total.set(total);
         Ok((rows, next, last))
     }
     fn names(&self, plugin: &str) -> Vec<String> {
@@ -418,6 +421,7 @@ fn with_host<R>(host: Rc<Host>, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         host,
         fail: Cell::new(0),
         held: Cell::new(0),
+        total: Cell::new(0),
     })
 }
 
@@ -864,6 +868,7 @@ fn list_pages_in_file_order_with_a_cursor_and_a_last_flag() {
         assert!(page.iter().all(|r| r.0 == "wifi"));
         assert_eq!(page[0].1, "n39");
         assert_eq!(page[31].1, "n08");
+        assert_eq!(v.total.get(), 64, "the rows the caller may see");
         let (rest, next, last) = v.list("settings", editor(), true, next).unwrap();
         assert!(last);
         assert_eq!(rest.len(), 32);
