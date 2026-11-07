@@ -142,7 +142,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
   `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
-  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600),
+  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600;
+  at most 1,600, the most a picture is ever decoded to, larger is `ERR_INVALID`),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
@@ -181,12 +182,22 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] `close` frees the id; the format gets op 4 `close` (its state for it goes) and every image id
   of the document (section 5) ends. The host closes the opener's documents when the opener stops,
   and closes a format's documents when the format plugin stops or is uninstalled: the opener gets
-  `event.document_closed` (89: `document`, `reason` 1 the format stopped, 2 the card went, 3 the
-  book was moved or removed; others treated as 1) and every later call on the id is `ERR_CANCELLED`
+  `event.document_closed` (108: `document`, `reason` 1 the format stopped, 2 the card went, 3 the
+  book was moved or removed, 4 `needed`: the place went to a book to show, below; others treated
+  as 1) and every later call on the id is `ERR_CANCELLED`
   until it closes it. A reply the format produces after that is never delivered (it is not called
   again).
 - [D] Limits: at most 2 open documents per opener and 2 on the X4 device-wide (the shown book and a
-  background index), 8 elsewhere; over that `ERR_FULL`.
+  background index), 8 elsewhere; over that `ERR_FULL`. On the X4 the cap is in effect 1 per
+  opener, so no one plugin can take both places.
+- [D] **A book to show always gets a place.** An `open` without `flags` bit 2 `background` from
+  the plugin whose screen is showing, when the device-wide places are full, takes the place of
+  another opener's document: first one opened with `background`, else one whose opener shows no
+  screen, the oldest first. That document is closed as by `close` (the format gets op 4, its
+  image ids end) and its opener gets `event.document_closed` with `reason` 4 `needed`; later calls
+  on its id are `ERR_CANCELLED`. The shown book itself is never taken. Only when no document can
+  be taken (the opener's own cap) is the `open` `ERR_FULL`. An index build that lost its place
+  starts again later (the library's walk tries it again).
 
 ### 2.2 Metadata
 
@@ -251,15 +262,15 @@ host passes them on after checking them.
 | 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
 | 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
 
-- [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12,
-  11 → 13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service
-  are the host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 9×4 + 8 + 1,026
-  + 514 + 5 = 1,590, with 12 options 4,014: over the 3,840 payload, so op 2 carries `arg` empty
-  and `text` empty except for a `siblings` format, where it names the opened file within the book's
-  folder (at most 255 bytes, a FAT name: 1,590 − 512 − 1,024 + 257 + 2,424 = 2,735, within 3,840).
-  Every later call of that document carries the same name in `text` where the op uses no other
-  `text` (ops 13 and 15 name their XPointer or href instead; the host keeps the name with the
-  document).
+- [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
+  13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
+  host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
+  3 = 1,592 framed (`abi/stages/core.format@1.def`), with 12 options 4,016: over the 3,840 payload,
+  so op 2 carries `arg` empty and `text` empty except for a `siblings` format, where it names the
+  opened file within the book's folder (at most 255 bytes, a FAT name: 1,592 − 512 − 1,024 + 257 +
+  2,424 = 2,737, within 3,840). Every later call of that document carries the same name in `text`
+  where the op uses no other `text` (ops 13 and 15 name their XPointer or href instead; the host
+  keeps the name with the document).
 
 - [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 2 the
   document's cache for its conversion (section 2.1; read and write; the book key is LIB's, so the
@@ -358,6 +369,11 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
 | 1559 | `command.image_prepare` | `root: u32`, `path: str 512`, `side: u32`, `cookie: u32`, `flags: u32` |
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
+| 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
+
+- [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
+  is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
+  device), never from the held-event store, so it is never dropped.
 
 - [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)
@@ -459,8 +475,8 @@ reply 4,096 bytes, stage payload 3,840.
 | `doc_toc` page | row 1 + 5×4 + 514 + 5 = 540; 7 rows + `end` = 3,810 | 4,096 |
 | `doc_link` page | row 1 + 3×4 + 1,026 + 5 = 1,044; 3 rows + `end` | 4,096 |
 | `doc_section` page | row 1 + 12 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
-| `fmt.call` (+ 12 `fmt.option` for op 2) | 1,590 (section 3); op 2: 1,590 − 1,536 + 12 × 202 = 2,478 | 3,840 |
-| `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,590 − 514 = 1,076 | 3,840 |
+| `fmt.call` (+ 12 `fmt.option` for op 2) | 1,592 (section 3); op 2: 1,592 − 1,536 + 12 × 202 = 2,480 | 3,840 |
+| `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,592 − 514 = 1,078 | 3,840 |
 | `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
 | `command.image_prepare` | 1 + 4 + 514 + 12 + 5 = 536 | 4,096 |
 
