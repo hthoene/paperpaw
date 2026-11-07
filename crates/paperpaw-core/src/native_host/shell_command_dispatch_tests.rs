@@ -4,7 +4,8 @@ use crate::native_host::commands::{WireCommand, commands_encode};
 
 #[test]
 fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() {
-    for fail in [false, true] {
+    for returned in [None, Some(0), Some(1), Some(2), Some(host_glue::ERR_DENIED)] {
+        let success = returned == Some(0);
         reset(NORMAL);
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
@@ -40,6 +41,7 @@ fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() 
             super::super::command_dispatch::CommandTarget {
                 screen: None,
                 hop: 0,
+                result: super::super::command_dispatch::CommandResult::Status,
             },
             paperpaw_platform::Instant(0),
             |context, frame| {
@@ -52,20 +54,16 @@ fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() 
                         !frame.env.settings().bool("fake.toggle"),
                         "application is deferred"
                     );
-                    if fail {
-                        Err(Error::Status(ERR_INVALID))
-                    } else {
-                        Ok(OK)
-                    }
+                    returned.ok_or(Error::Status(ERR_INVALID))
                 })?
             },
         );
-        if fail {
-            assert!(matches!(result, Err(Error::Status(ERR_INVALID))));
+        if !success {
+            assert!(matches!(result, Err(Error::Status(_))));
         } else {
             assert_eq!(result, Ok(OK));
         }
-        assert_eq!(kernel.shared.settings.bool("fake.toggle"), !fail);
+        assert_eq!(kernel.shared.settings.bool("fake.toggle"), success);
         let context = hosted.owner().context();
         assert_eq!(
             context.environment.with_frame(|_| ()),

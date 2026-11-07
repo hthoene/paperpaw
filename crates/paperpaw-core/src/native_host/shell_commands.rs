@@ -6,10 +6,17 @@ use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, IdError, ScreenKey};
 
+/// Valid result values for the callback family lent this command stage.
+pub(crate) enum CommandResult {
+    Status,
+    Input,
+}
+
 /// Host-resolved source instance and bounded command-chain depth.
 pub(crate) struct CommandTarget {
     pub(crate) screen: Option<ScreenKey>,
     pub(crate) hop: u8,
+    pub(crate) result: CommandResult,
 }
 
 impl Kernel {
@@ -55,8 +62,10 @@ impl Kernel {
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
-                if status < 0 {
-                    return Err(Error::Status(status));
+                let valid =
+                    status == 0 || (matches!(target.result, CommandResult::Input) && status == 1);
+                if !valid {
+                    return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
                 let output = stage.into_ui_output();
                 Ok::<_, Error>((status, owner, output))

@@ -96,7 +96,11 @@ impl Kernel {
         self.with_native_commands(
             batch,
             depth,
-            super::command_dispatch::CommandTarget { screen, hop },
+            super::command_dispatch::CommandTarget {
+                screen,
+                hop,
+                result: super::command_dispatch::CommandResult::Input,
+            },
             now,
             |context, frame| {
                 super::tokens::invoke_token(

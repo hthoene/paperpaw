@@ -127,6 +127,11 @@ fn check_status(input: bool, status: i32, expected: Result<i32, i32>) {
         super::super::super::command_dispatch::CommandTarget {
             screen: Some(ScreenKey::new(7)),
             hop: 0,
+            result: if input {
+                super::super::super::command_dispatch::CommandResult::Input
+            } else {
+                super::super::super::command_dispatch::CommandResult::Status
+            },
         },
         paperpaw_platform::Instant(0),
         |context, frame| {
