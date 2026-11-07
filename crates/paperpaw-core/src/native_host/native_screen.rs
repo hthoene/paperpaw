@@ -264,9 +264,6 @@ impl<D: Dispatch> NativeScreen<D> {
     }
 
     fn draw_visible(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let Some(key) = self.key else {
-            return;
-        };
         let pane = env.content();
         let pane = Rect::new(0, 0, pane.width, pane.height);
         let Some(clip) = pane.intersection(&canvas.clip()) else {
@@ -283,13 +280,9 @@ impl<D: Dispatch> NativeScreen<D> {
             u32::from(pane.height),
             (top, top + i32::from(clip.height)),
         );
-        let result = self.dispatch.screen_draw(
-            Some(key),
-            self.token,
-            &frame,
-            env,
-            &mut canvas.clipped(pane),
-        );
+        let result =
+            self.dispatch
+                .screen_draw(self.key, self.token, &frame, env, &mut canvas.clipped(pane));
         self.status(result);
     }
 }
