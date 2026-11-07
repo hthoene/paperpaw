@@ -58,6 +58,14 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod stages;
+pub use stages::{StageDecl, SubscribeDecl};
+
+mod registry;
+pub use registry::{
+    KeyBindingDecl, PresetDecl, PresetValueDecl, SetupPage, SetupStepDecl, SlotDecl, SlotOfferDecl,
+};
+
 mod callbacks;
 pub use callbacks::EventKind;
 mod menus;
@@ -407,6 +415,7 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registry(Record<'a>),
     MenuEntry(records_wire::MenuEntry<'a>),
     Icon(records_wire::IconSpec<'a>),
     MenuNeed(records_wire::MenuNeed<'a>),
@@ -422,6 +431,8 @@ enum Item<'a> {
     FontExtension(FontExtensionDecl<'a>),
     Screen(ScreenDecl<'a>),
     Action(ActionDecl<'a>),
+    Stage(StageDecl<'a>),
+    Subscribe(SubscribeDecl<'a>),
 }
 
 /// The items a plugin declares, in the order it declares them.
@@ -1028,6 +1039,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registry(record) => *record,
             Item::MenuEntry(entry) => Record::MenuEntry(*entry),
             Item::Icon(icon) => Record::IconSpec(*icon),
             Item::MenuNeed(need) => Record::MenuNeed(*need),
@@ -1067,6 +1079,8 @@ impl<'a> Item<'a> {
                 token: s.token,
                 flags: u32::from(s.full_refresh_on_open),
             }),
+            Item::Stage(stage) => Record::StageSpec(stage.record()),
+            Item::Subscribe(to) => Record::RegistrationStage(to.record()),
             Item::Action(a) => Record::ActionSpec(ActionSpec {
                 name: a.name,
                 title: a.title,

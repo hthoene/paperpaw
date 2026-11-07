@@ -27,6 +27,9 @@ change the plugin SDK.
   clipboard (ops 18-19), and host slot 35 `ui.compose`, which answers `ERR_UNSUPPORTED` until
   the host wires it. `event.screen_shown` (38) gains the instance it shows. Interface draft
   15 (`native::DRAFT`) (#228).
+- Interface-7 typed registry declarations, staged registry commands and borrowed
+  paged queries cover settings, menus, bindings, slots, presets and plugin requests.
+  Registry events preserve borrowed host identities and unknown hint bits (#228).
 - Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
   21 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
   steps, presets, widgets and status items and lines; rows 1025-1040 and 1059), the registry
@@ -37,6 +40,11 @@ change the plugin SDK.
   `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
   growth block are generated from their `abi.def` fields into the command codec. Hosts answer
   `ERR_UNSUPPORTED` until wired (#228).
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks (#228).
+
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
@@ -45,6 +53,10 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+- Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
+  cursors expose host-stamped style grants; schema-checked service handles survive
+  callbacks and release explicitly (#228).
+
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
