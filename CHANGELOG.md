@@ -23,6 +23,8 @@ change the plugin SDK.
   callback-scoped format namespaces 2-4. Empty paths identify the book/CSS
   files; the host enforces permissions, lifetime and cache limits (#228).
 
+- `paperpaw-document`: `OffsetMap::try_checkpoint` (fallible, refuses out-of-order and
+  oversized indices) and `OffsetMap::checkpoints`, the rows of `doc_map` (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
