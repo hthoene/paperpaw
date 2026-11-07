@@ -58,6 +58,9 @@ mod declaration_index;
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
 
+#[path = "native_host/declaration_reg_checks.rs"]
+mod declaration_reg_checks;
+
 #[path = "native_host/raw_declarations.rs"]
 mod raw_declarations;
 

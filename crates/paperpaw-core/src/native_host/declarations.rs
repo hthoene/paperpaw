@@ -92,8 +92,10 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         }
         // Registry declarations (`docs/abi/registry.md` section 6): refused
         // until the host admits them (Core, REG hand-off).
-        Record::SetupStep(_)
-        | Record::SlotSpec(_)
+        Record::SetupStep(step) => {
+            super::declaration_reg_checks::setup_step(plugin_id, step).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
         | Record::SettingDefault(_)
@@ -179,7 +181,7 @@ pub(crate) fn full_id(id: &str) -> Check {
 }
 
 /// A name relative to the plugin; the joined full id must also fit.
-fn relative(plugin_id: &str, name: &str) -> Check {
+pub(crate) fn relative(plugin_id: &str, name: &str) -> Check {
     full_id(name)?;
     ensure(plugin_id.len() + 1 + name.len() <= FULL_ID_MAX_BYTES)
 }
@@ -536,10 +538,14 @@ pub(crate) fn need_check(need: &MenuNeed<'_>) -> Check {
         capability,
     } = need;
     item_id(item)?;
-    let known = usize::try_from(*need).is_ok_and(|need| need < MENU_NEEDS.len());
+    need_value_check(*need, *capability)
+}
+
+pub(crate) fn need_value_check(need: u32, capability: u64) -> Check {
+    let known = usize::try_from(need).is_ok_and(|need| need < MENU_NEEDS.len());
     // `capability` names the bits for `has` and is 0 for every other known
     // need; a later need may give it a meaning.
-    ensure(!known || (*need == MENU_NEED_HAS) == (*capability != 0))
+    ensure(!known || (need == MENU_NEED_HAS) == (capability != 0))
 }
 
 /// The syntax of one `menu.section`: a heading of the plugin's own in any menu.
