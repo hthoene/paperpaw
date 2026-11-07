@@ -12,6 +12,9 @@ std::thread_local! {
     static DESTROYS: Cell<u32> = const { Cell::new(0) };
     static RESULT: Cell<i32> = const { Cell::new(0) };
     static CALLS: Cell<u32> = const { Cell::new(0) };
+    static REPLY: Cell<bool> = const { Cell::new(false) };
+    static NO_EVENT: Cell<bool> = const { Cell::new(false) };
+    static CAPACITY: Cell<usize> = const { Cell::new(0) };
     static SHORT: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -85,7 +88,11 @@ unsafe extern "C" fn make(
             size: u32::try_from(size).unwrap(),
             state: ptr::null_mut(),
             drop: Some(destroy),
-            dispatch_event: Some(event),
+            dispatch_event: if NO_EVENT.with(Cell::get) {
+                None
+            } else {
+                Some(event)
+            },
             draw: Some(draw),
             input: Some(input),
         },
@@ -118,8 +125,22 @@ fn invoked(state: *mut c_void, token: u32) -> bool {
     true
 }
 
-unsafe extern "C" fn event(state: *mut c_void, token: u32, _: PpBytes, out: PpBuffer) -> i32 {
-    if !invoked(state, token) || out.cap != 0 || out.ptr.is_null() {
+unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, out: PpBuffer) -> i32 {
+    if !invoked(state, token) || out.ptr.is_null() {
+        return ERR_INVALID;
+    }
+    if REPLY.with(Cell::get) {
+        CAPACITY.with(|value| value.set(out.cap));
+        // SAFETY: the host lends the initialized request for this callback.
+        let bytes = unsafe { core::slice::from_raw_parts(input.ptr, input.len) };
+        if bytes != b"ask" {
+            return ERR_INVALID;
+        }
+        // SAFETY: the host lends exclusive output storage of this capacity.
+        unsafe {
+            ptr::copy_nonoverlapping(b"rpc".as_ptr(), out.ptr, out.cap.min(3));
+        }
+    } else if out.cap != 0 {
         return ERR_INVALID;
     }
     RESULT.with(Cell::get)
@@ -149,6 +170,8 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, bytes: PpBytes) -> i32
 }
 
 fn hosted(short: bool) -> Hosted<Heap, ()> {
+    REPLY.with(|value| value.set(false));
+    NO_EVENT.with(|value| value.set(false));
     DECLARES.with(|value| value.set(false));
     SHORT.with(|value| value.set(short));
     CALLS.with(|count| count.set(0));
@@ -436,4 +459,92 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
     assert_eq!(retained.input(TOKEN, &[], &env), Ok(0));
     drop(retained);
     assert_eq!(DESTROYS.with(Cell::get), 1);
+}
+
+#[test]
+fn stage_reply_preserves_count_or_negative_status_and_scopes_core_views() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    REPLY.with(|value| value.set(true));
+    let depth = DispatchDepth::new();
+    scoped(&kernel, |frame| {
+        for (result, expected) in [
+            (3, 3),
+            (8, 8),
+            (9, ERR_INVALID),
+            (i32::MAX, ERR_INVALID),
+            (-42, -42),
+            (0, 0),
+        ] {
+            RESULT.with(|value| value.set(result));
+            let mut output = [0xa5; 8];
+            assert_eq!(
+                super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output),
+                Ok(expected)
+            );
+            assert_eq!(&output[..3], b"rpc");
+            assert_eq!(&output[3..], &[0xa5; 5]);
+            assert_eq!(CAPACITY.with(Cell::get), 8);
+            assert_eq!(
+                hosted.owner().context().environment.with_frame(|_| ()),
+                Err(host_glue::ERR_STATE)
+            );
+        }
+    });
+    assert_eq!(CALLS.with(Cell::get), 6);
+}
+
+#[test]
+fn stage_reply_obeys_owner_admission_and_missing_callback_without_running_plugin() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    REPLY.with(|value| value.set(true));
+    let depth = DispatchDepth::new();
+    scoped(&kernel, |frame| {
+        let mut output = [0xa5; 8];
+        let nested = batch
+            .dispatch_owner(&depth, |_| {
+                super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output)
+            })
+            .unwrap();
+        assert!(matches!(
+            nested,
+            Err(Error::Lifecycle(super::super::Error::Busy))
+        ));
+        assert_eq!(CALLS.with(Cell::get), 0);
+        assert_eq!(output, [0xa5; 8]);
+        hosted.stop();
+        let refused = super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output);
+        assert!(matches!(
+            refused,
+            Err(Error::Lifecycle(super::super::Error::State))
+        ));
+        assert_eq!(output, [0xa5; 8]);
+    });
+    drop(batch);
+    drop(hosted);
+    let hosted = self::hosted(false);
+    NO_EVENT.with(|value| value.set(true));
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    scoped(&kernel, |frame| {
+        let mut output = [0xa5; 8];
+        assert_eq!(
+            super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output),
+            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        );
+        assert_eq!(output, [0xa5; 8]);
+        assert_eq!(CALLS.with(Cell::get), 0);
+    });
 }
