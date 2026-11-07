@@ -78,8 +78,9 @@ file's size, 2.1).
 - [D] **`url`** is at most 1,024 bytes, `http://` or `https://` (any case), an IPv4, a
   bracketed IPv6 (the RFC 4291 text form, as `core::net::Ipv6Addr` parses it, no zone; checked at
   submit, not left to the transport) or a name of letters, digits, `-`, `.`, `_` and `~`, a port
-  1-65535, no control bytes; `user:password@` and `#fragment` are dropped (credentials go in a header). Bytes the
-  path may not carry are percent-encoded by the host. Anything else is `ERR_INVALID`.
+  1-65535, no control bytes; `user:password@` and `#fragment` are dropped (credentials go in a
+  header). Bytes the path may not carry are percent-encoded by the host. Anything else is
+  `ERR_INVALID`.
 - [D] **Headers:** `name` an HTTP token of 1-64 bytes, `value` at most 1,024 bytes, no control
   bytes (`ERR_INVALID`). The host always sends `Host`, `Connection: close` and `Content-Length`
   (with a body) itself and refuses a plugin's own of those (`ERR_INVALID`); it adds
