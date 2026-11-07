@@ -116,17 +116,6 @@ def forms(english_keys):
     return allowed
 
 
-TAG_KEY = "widgets.quote.language"
-
-
-def messages_of(files):
-    """The messages of all `files`, later ones over earlier."""
-    found = {}
-    for file in files:
-        found.update(parse(file)[1])
-    return found
-
-
 def check(lang, files):
     english_messages = english()
     allowed = forms(english_messages)
@@ -153,12 +142,6 @@ def check(lang, files):
             # A plural form may leave the count out ("one": "a plugin"), nothing else.
             if got != want and not (plural and set(got) <= set(want)):
                 problems.append(f"{file}: {key}: placeholders {got} for {want}")
-    # The quote widget picks its file and quotation marks by this message, the
-    # one the UI language tag is not otherwise available for (until the
-    # snapshot has it): every catalog carries its own language.
-    tag = messages_of(files).get(TAG_KEY)
-    if tag != lang:
-        problems.append(f"{TAG_KEY}: must be {lang!r} (this catalog's language), not {tag!r}")
     missing = [k for k in english_messages if k not in seen]
     print(f"{len(seen)} messages, {len(missing)} of English's {len(english_messages)} not translated")
     return problems

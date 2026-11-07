@@ -13,6 +13,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         fonts::{Font, TextOrigin},
+        settings::{self, SettingValue},
         storage::{self, Root},
     },
 };
@@ -248,6 +249,13 @@ enum List<'a> {
     File(Root, &'a str),
 }
 
+/// Reads a file at an offset into a buffer: the bytes read, 0 at the end.
+type Read<'a> = dyn FnMut(u64, &mut [u8]) -> Result<usize, Error> + 'a;
+/// Takes a line; says whether to go on.
+type Visit<'a> = dyn FnMut(&str) -> ControlFlow<()> + 'a;
+/// Hands each line of a list on until the visitor breaks.
+type Lines<'a> = dyn Fn(List<'_>, &mut Visit<'_>) -> Result<(), Error> + 'a;
+
 /// The bytes read from a file at once.
 const CHUNK: usize = 4096;
 /// The longest line read: a longer one is cut here.
@@ -258,10 +266,7 @@ const MAX_LINE: usize = 4096;
 /// time, never the file; without its line break and a byte order mark at the
 /// start of the file; one past [`MAX_LINE`] is cut and one that is no text is
 /// read up to the first byte that is none. A missing file has no lines.
-fn each_line(
-    read: &mut dyn FnMut(u64, &mut [u8]) -> Result<usize, Error>,
-    visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
-) -> Result<(), Error> {
+fn each_line(read: &mut Read<'_>, visit: &mut Visit<'_>) -> Result<(), Error> {
     let mut chunk = mem::buffer(CHUNK)?;
     let mut line: Vec<u8> = Vec::new();
     let (mut at, mut first) = (0u64, true);
@@ -313,11 +318,7 @@ fn each_line(
 }
 
 /// Hands each line of `list` on until `visit` breaks.
-fn lines_of(
-    host: &Host<'_>,
-    list: List<'_>,
-    visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
-) -> Result<(), Error> {
+fn lines_of(host: &Host<'_>, list: List<'_>, visit: &mut Visit<'_>) -> Result<(), Error> {
     match list {
         List::Carried(text) => {
             for line in text.lines() {
@@ -358,7 +359,7 @@ fn carried(_tongue: &str) -> Option<&'static str> {
 /// (which of `total` is for `position` to say); `None` without any. `lines`
 /// reads a list.
 fn quote_at(
-    lines: &dyn Fn(List<'_>, &mut dyn FnMut(&str) -> ControlFlow<()>) -> Result<(), Error>,
+    lines: &Lines<'_>,
     (shipped, own): (Option<List<'_>>, Option<List<'_>>),
     position: impl Fn(usize) -> usize,
 ) -> Result<Option<Quote>, Error> {
@@ -404,6 +405,15 @@ fn quote_at(
     failed.map_or(Ok(found), Err)
 }
 
+/// The UI language tag (`de`, `pt-BR`); empty where it is not set.
+fn language(host: &Host<'_>) -> Result<String, Error> {
+    let mut scratch = [0u8; 64];
+    match settings::read_setting(host, "core.language", &mut scratch)? {
+        SettingValue::Text(tag) => copy(tag),
+        _ => Ok(String::new()),
+    }
+}
+
 /// Today's quote, turned on as often as tapped (and, where another shows each
 /// time, as often as shown).
 fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
@@ -415,7 +425,7 @@ fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
         SHOWINGS.load(Ordering::Relaxed)
     };
     let turns = Turns::load(cx.host)?.on(day, daily).wrapping_add(showing);
-    let tag = cx.tr("widgets.quote.language")?;
+    let tag = language(cx.host)?;
     let tongue = if tag.starts_with("de") { "de" } else { "en" };
     let name = concat(&["data/quotes.", tongue, ".txt"])?;
     let host = cx.host;
@@ -700,7 +710,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     }
     let face = cx.settings.string("face", FACE_LIMIT)?;
     let font = face_font(cx.host, &face)?;
-    let tag = cx.tr("widgets.quote.language")?;
+    let tag = language(cx.host)?;
     let shown = if cx.settings.shows("marks")? {
         quoted(&quote.text, &tag)?
     } else {
@@ -773,10 +783,9 @@ mod tests {
 
     /// Reads lists from memory, three bytes at a time (so that lines span
     /// reads): the files by name, `Carried` lists from their text.
-    #[allow(clippy::type_complexity, reason = "the shape of `quote_at`'s reader")]
     fn memory<'a>(
         files: &'a [(&'a str, &'a [u8])],
-    ) -> impl Fn(List<'_>, &mut dyn FnMut(&str) -> ControlFlow<()>) -> Result<(), Error> + 'a {
+    ) -> impl Fn(List<'_>, &mut Visit<'_>) -> Result<(), Error> + 'a {
         move |list, visit| match list {
             List::Carried(text) => {
                 for line in text.lines() {

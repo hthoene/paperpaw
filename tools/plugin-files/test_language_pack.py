@@ -68,32 +68,3 @@ class LanguagePacks(unittest.TestCase):
         with patch.object(data, "plugins", return_value={}):
             with self.assertRaisesRegex(SystemExit, "language-xx: add its entry"):
                 language_pack.build("xx", self.root / "out")
-
-    def test_every_catalog_carries_its_own_language_for_the_quote_widget(self):
-        # The quote widget picks its quotes and quotation marks by this message,
-        # as a plugin does not see the UI language tag (yet).
-        key = language_pack.TAG_KEY
-        catalogs = sorted((data.ROOT / "tools/plugin-files/languages").glob("*.ini"))
-        catalogs += sorted(data.ROOT.glob("plugins/*/i18n/*.ini"))
-        carried = 0
-        for catalog in catalogs:
-            meta, messages = language_pack.parse(catalog)
-            if catalog.parent.name == "i18n" and key not in messages:
-                continue
-            carried += 1
-            self.assertEqual(messages.get(key), meta.get("language"), catalog)
-        # English, German and every language catalog.
-        self.assertGreaterEqual(carried, 3)
-
-    def test_check_requires_the_quote_language_message(self):
-        catalog = self.root / "xx.ini"
-        base = catalog.read_text(encoding="utf-8")
-        english = {language_pack.TAG_KEY: ("en", "de")}
-        with patch.object(language_pack, "english", return_value=english):
-            problems = language_pack.check("xx", [catalog])
-            self.assertTrue(any(language_pack.TAG_KEY in p for p in problems), problems)
-            catalog.write_text(base + f"{language_pack.TAG_KEY} = yy\n", encoding="utf-8")
-            problems = language_pack.check("xx", [catalog])
-            self.assertTrue(any("must be 'xx'" in p for p in problems), problems)
-            catalog.write_text(base + f"{language_pack.TAG_KEY} = xx\n", encoding="utf-8")
-            self.assertEqual(language_pack.check("xx", [catalog]), [])
