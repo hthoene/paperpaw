@@ -2,8 +2,11 @@
 //!
 //! Pages are appended to `<path>.part` as trees are built: leaves first,
 //! then the levels above them. [`Writer::finish`] writes page 1 (header
-//! and schema) to `<path>` and copies the rest after it, so a reader never
-//! sees a half-written database.
+//! and schema) to `<path>.new`, copies the rest after it, syncs and moves
+//! it over `<path>`, so a reader never sees a half-written database and a
+//! failed write leaves the file there as it was. A storage that cannot
+//! move files is refused ([`StorageError::Unsupported`]): copying over the
+//! file instead could lose both copies.
 //!
 //! Cells are written only when their page is: payloads too long for a
 //! cell go to overflow pages then, so no page is ever left unused.
@@ -483,26 +486,16 @@ impl<'s> Writer<'s> {
         header[60..64].copy_from_slice(&be(user_version));
         header[92..96].copy_from_slice(&be(1)); // version valid for
         header[96..100].copy_from_slice(&be(SQLITE_VERSION));
-        // Put together beside the file, then moved over it: a write that
-        // fails part way leaves the file there as it was.
+        // Put together beside the file, synced, then moved over it: a
+        // write that fails part way (or a storage that cannot move files)
+        // leaves the file there as it was. One page at a time: reads are
+        // split at 4 KiB anyway.
         let new = text(&[&self.path, ".new"])?;
-        let mut chunk = zeroed(PAGE * 8)?;
-        let written = self.assemble(&new, &first, &mut chunk).and_then(|()| {
-            match self.storage.rename(&new, &self.path) {
-                // Storages that cannot move files: copied over it, and
-                // removed again where that fails, so no part of a
-                // database is left there.
-                Err(StorageError::Unsupported) => {
-                    let copied = self.assemble(&self.path, &first, &mut chunk);
-                    if copied.is_err() {
-                        #[expect(clippy::let_underscore_must_use, reason = "cleaning up after a failed write, whose own error is the one told")]
-                        let _ = self.storage.remove(&self.path);
-                    }
-                    copied
-                }
-                moved => moved,
-            }
-        });
+        let mut chunk = zeroed(PAGE)?;
+        let written = self
+            .assemble(&new, &first, &mut chunk)
+            .and_then(|()| self.storage.sync())
+            .and_then(|()| self.storage.rename(&new, &self.path));
         #[expect(
             clippy::let_underscore_must_use,
             reason = "a temporary file, gone either way; the write's result is the one told"
