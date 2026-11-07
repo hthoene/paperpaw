@@ -681,6 +681,10 @@ mod instance_tests {
     /// stubs of `host_glue`, which return at once): the one list below names
     /// every field of the table, so a new entry fails the count until it is
     /// added here, called, and announces.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one flat list: a call per entry of the host table"
+    )]
     #[test]
     fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_slot() {
         use paperpaw_native::host_glue::{self, PpBuffer, PpBytes};
