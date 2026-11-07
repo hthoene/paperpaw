@@ -12,17 +12,21 @@ macro_rules! round_trip {
         let mut out = vec![0xa5; 3840];
         let len = value.encode(&mut out).unwrap();
         assert_eq!($module::$variant::decode(&out[..len]), Ok(value));
-        let decoded = $module::records_decode(&out[..len])
-            .unwrap()
-            .collect::<Result<Vec<_>, i32>>()
-            .unwrap();
+        let decoded = if $module::INPUT_TAGS.contains(&record.tag()) {
+            $module::input_decode(&out[..len])
+        } else {
+            $module::reply_decode(&out[..len])
+        }
+        .unwrap()
+        .collect::<Result<Vec<_>, i32>>()
+        .unwrap();
         assert_eq!(decoded, [record]);
         let mut short = vec![0xa5; len - 1];
         assert_eq!(value.encode(&mut short), Err(ERR_NO_SPACE));
         assert!(short.iter().all(|byte| *byte == 0xa5));
         assert_eq!($module::$variant::decode(&out[..len - 1]), Err(ERR_INVALID));
         out[len] = 0;
-        assert!($module::records_decode(&out[..=len]).is_err());
+        assert!($module::$variant::decode(&out[..=len]).is_err());
     }};
 }
 
@@ -209,9 +213,9 @@ fn every_schema_rejects_foreign_tags_missing_fields_and_trailing_bytes() {
         vec![1, 0x81, 0, 0],
         vec![],
     ] {
-        assert_eq!(filter::records_decode(&bytes).err(), Some(ERR_INVALID));
-        assert_eq!(status::records_decode(&bytes).err(), Some(ERR_INVALID));
-        assert_eq!(widget::records_decode(&bytes).err(), Some(ERR_INVALID));
+        assert_eq!(filter::input_decode(&bytes).err(), Some(ERR_INVALID));
+        assert_eq!(status::input_decode(&bytes).err(), Some(ERR_INVALID));
+        assert_eq!(widget::reply_decode(&bytes).err(), Some(ERR_INVALID));
     }
     let mut body = vec![0];
     body.extend_from_slice(&1_u32.to_le_bytes());
@@ -266,13 +270,11 @@ fn stage_catalog_exposes_the_three_schema_caps_and_local_tags() {
 #[test]
 fn a_later_foreign_tag_is_rejected_before_the_stream_is_exposed() {
     let mut bytes = [0; 128];
-    let len = (widget::WidgetMeasure::new(1, 2))
-        .encode(&mut bytes)
-        .unwrap();
+    let len = (widget::WidgetSize::new(1, 2)).encode(&mut bytes).unwrap();
     let mut batch = bytes[..len].to_vec();
     batch[0] = 2;
     batch.extend_from_slice(&frame(511, &[0])[1..]);
-    assert_eq!(widget::records_decode(&batch).err(), Some(ERR_INVALID));
+    assert_eq!(widget::reply_decode(&batch).err(), Some(ERR_INVALID));
 }
 
 #[test]
@@ -280,8 +282,8 @@ fn widget_target_stream_holds_the_maximum_reply_rows() {
     let target = widget::WidgetTarget::new(1, -1, 2, 3, 4);
     let records = vec![widget::Record::WidgetTarget(target); 32];
     let mut bytes = [0; 3840];
-    let len = widget::records_encode(&records, &mut bytes).unwrap();
-    let decoded = widget::records_decode(&bytes[..len])
+    let len = widget::reply_encode(&records, &mut bytes).unwrap();
+    let decoded = widget::reply_decode(&bytes[..len])
         .unwrap()
         .collect::<Result<Vec<_>, i32>>()
         .unwrap();
@@ -299,8 +301,11 @@ fn directional_decoders_check_tags_count_and_empty_input() {
     let len = widget::reply_encode(&[reply], &mut bytes).unwrap();
     assert_eq!(widget::reply_decode(&bytes[..len]).unwrap().len(), 1);
     assert_eq!(widget::input_decode(&bytes[..len]).err(), Some(ERR_INVALID));
-    let len = widget::records_encode(&[input, input], &mut bytes).unwrap();
-    assert_eq!(widget::input_decode(&bytes[..len]).err(), Some(ERR_INVALID));
+    let len = widget::input_encode(&[input], &mut bytes).unwrap();
+    let mut repeated = bytes[..len].to_vec();
+    repeated[0] = 2;
+    repeated.extend_from_slice(&bytes[1..len]);
+    assert_eq!(widget::input_decode(&repeated).err(), Some(ERR_INVALID));
     assert!(widget::reply_decode(&[0]).unwrap().is_empty());
     assert_eq!(widget::input_decode(&[0]).err(), Some(ERR_INVALID));
     let mut untouched = [0xa5; 128];
