@@ -209,3 +209,40 @@ fn secret_bytes_stay_out_of_debug() {
     let text = std::format!("{:?}", Record::ServiceSecBytes(record));
     assert!(!text.contains("171") && !text.contains('3'), "{text}");
 }
+
+/// A checked frame and a stream's carry may hold a secret field: their Debug shows the
+/// tag and lengths only, never the bytes (Senior M1 on #364).
+#[test]
+fn raw_records_and_stream_carry_keep_secrets_out_of_debug() {
+    let secret = "hunter2-secret";
+    let record = wire::ServiceSecValue {
+        flags: 0,
+        label: "wifi",
+        value: secret,
+    };
+    let mut out = [0_u8; 64];
+    let n = wire::record_encode_of(&record, &mut out).unwrap();
+    let (raw, used) = wire::RawRecord::prefix(&out[..n]).unwrap();
+    assert_eq!(used, n);
+    let text = std::format!("{raw:?}");
+    assert!(text.starts_with("RawRecord { tag: "), "{text}");
+    assert!(text.contains("body_len"), "{text}");
+    assert!(!text.contains("104") && !text.contains("hunter"), "{text}");
+    // Half the frame stays in the carry until the rest arrives.
+    let mut stream = RecordStream::new();
+    stream.feed_raw(&out[..n - 4], &mut |_| Ok(())).unwrap();
+    let text = std::format!("{stream:?}");
+    assert_eq!(
+        text,
+        std::format!("RecordStream {{ carry_len: {} }}", n - 4)
+    );
+    let mut seen = 0;
+    stream
+        .feed_raw(&out[n - 4..n], &mut |raw| {
+            assert_eq!(raw.decode::<wire::ServiceSecValue>(), Ok(record));
+            seen += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(seen, 1);
+}
