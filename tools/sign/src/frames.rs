@@ -843,7 +843,8 @@ impl Walk<'_> {
     /// includes). Read from its code, straight to its `jr t0`. `None` for the
     /// move of `sp`, and all the registers (but zero), if it is not
     /// straight-line code in this section, ends otherwise, moves `sp` by more
-    /// than the scan can follow, or is longer than [`OUTLINED_MAX`] instructions.
+    /// than the scan can follow, dips below its end value (lowers `sp` and
+    /// gives it back), or is longer than [`OUTLINED_MAX`] instructions.
     fn outlined_effect(&self, target: u32) -> (u32, Option<i64>) {
         const ALL: (u32, Option<i64>) = (!1, None);
         let Some(mut at) = target
@@ -853,7 +854,16 @@ impl Walk<'_> {
             return ALL;
         };
         let mut st = State::entry();
-        let done = |st: &State| (st.written.0 & !(1 | 1 << 2), Some(st.sp));
+        // The lowest `sp` the sequence reaches: a dip that is given back before
+        // the end would be missing from the end value, so it is refused.
+        let mut lowest = 0_i64;
+        let done = |st: &State, lowest: i64| {
+            if lowest < st.sp.min(0) {
+                ALL
+            } else {
+                (st.written.0 & !(1 | 1 << 2), Some(st.sp))
+            }
+        };
         for _ in 0..OUTLINED_MAX {
             let Some(h) = self.code.get(at..at + 2) else {
                 return ALL;
@@ -866,20 +876,21 @@ impl Walk<'_> {
                 let w = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
                 // `jalr x0, 0(t0)`: the sequence's end.
                 if w == 0x0002_8067 {
-                    return done(&st);
+                    return done(&st, lowest);
                 }
                 (wide(w, &mut st, pc, &self.env), 4)
             } else {
                 let w = u16::from_le_bytes([h[0], h[1]]);
                 // `c.jr t0`.
                 if w == 0x8282 {
-                    return done(&st);
+                    return done(&st, lowest);
                 }
                 (narrow(w, &mut st, pc, &self.env), 2)
             };
             if !matches!(effect.ctl, Ctl::Fall) || effect.unbounded || effect.outlined.is_some() {
                 return ALL;
             }
+            lowest = lowest.min(st.sp);
             at += len;
         }
         ALL

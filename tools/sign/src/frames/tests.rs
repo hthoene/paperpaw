@@ -1257,6 +1257,38 @@ fn an_outlined_sequence_that_lowers_sp_is_part_of_the_callers_frame() {
 }
 
 #[test]
+fn an_outlined_sequence_that_lowers_sp_and_gives_it_back_is_refused() {
+    // The helper's end value of sp is the caller's, but it went 64 B lower on
+    // the way: that dip is not in the end value, so the frame is not sized.
+    let helper = |dip: bool| {
+        let mut items = vec![
+            W(addi(SP, SP, -16)), // 0
+            W(jal(T0, 16)),       // 4: to the helper at 20
+            W(addi(SP, SP, 16)),  // 8
+            W(RET),               // 12
+            W(0),                 // 16
+        ];
+        if dip {
+            items.push(W(addi(SP, SP, -64))); // 20
+            items.push(W(sw(S0, SP)));
+            items.push(W(addi(SP, SP, 64)));
+        } else {
+            items.push(W(sw(S0, SP)));
+        }
+        items.push(W(JR_T0));
+        code(&items)
+    };
+    assert_eq!(
+        frame_sizes_in(&helper(false), &[(0, 16)], Env::none()),
+        vec![Some(16)]
+    );
+    assert!(matches!(
+        scan_ranges(&helper(true), &[(0, 16)], Env::none()),
+        Some(Finding::Unknown { .. })
+    ));
+}
+
+#[test]
 fn an_outlined_sequence_whose_effect_on_sp_cannot_be_followed_is_refused() {
     // The helper ends in a `ret`, not a `jr t0`: its code is not read to its
     // end, so how it leaves sp is not known.
