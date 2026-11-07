@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
+  rows gain − and + buttons and show a title that is already translated as it is (#228).
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
