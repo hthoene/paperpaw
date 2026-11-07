@@ -152,3 +152,78 @@ fn empty_reset_and_invalid_menu_lists_allocate_nothing() {
     assert!(!count.refused);
     assert_eq!(calls.get(), 2);
 }
+
+unsafe extern "C" fn service_open(
+    _: *mut c_void,
+    _: PpBytes,
+    _: u16,
+    _: u16,
+    handle: *mut u32,
+) -> i32 {
+    // SAFETY: the SDK supplies aligned exclusive handle output.
+    unsafe { handle.write(7) };
+    abi::OK
+}
+unsafe extern "C" fn service_call(
+    ctx: *mut c_void,
+    _: u32,
+    _: u32,
+    _: PpBytes,
+    out: abi::PpBuffer,
+) -> i32 {
+    assert_eq!(
+        COUNTS.with(|cell| cell.get().live),
+        0,
+        "handover temporary must be freed before host call"
+    );
+    // SAFETY: the fixture keeps the counter and exclusive output buffer live.
+    let calls = unsafe { &*ctx.cast::<Cell<usize>>() };
+    calls.set(calls.get() + 1);
+    let output = unsafe { core::slice::from_raw_parts_mut(out.ptr, out.cap) };
+    use crate::native::declare::records_wire as records;
+    i32::try_from(
+        records::record_encode_one(
+            &records::Record::ServiceUiHandle(records::ServiceUiHandle { handle: 1 }),
+            output,
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn menu_and_handover_temporaries_do_not_overlap_in_one_callback() {
+    use crate::native::{
+        declare::records_wire as records,
+        ui::{Param, Ui},
+    };
+    let mut table = abi::host_table();
+    table.commands_submit = submit;
+    table.service_open = service_open;
+    table.service_call = service_call;
+    let mut calls = Cell::new(0);
+    let host = host(&table, &mut calls);
+    let ui = Ui::open(&host).unwrap();
+    let keys: alloc::vec::Vec<_> = (0..32).map(|i| alloc::format!("p{i}")).collect();
+    let params: alloc::vec::Vec<_> = keys
+        .iter()
+        .map(|key| Param::new(key, "").unwrap())
+        .collect();
+    let item = "a".repeat(31);
+    let longer = "a".repeat(32);
+    let mut items = [item.as_str(); 64];
+    items[0] = &longer;
+    let mut commands = [0; wire::COMMAND_MAX_BYTES];
+    let mut input = [0; 4096];
+    let mut out = [0; 4096];
+    let (result, count) = track(false, || {
+        CommandSender::new(&host, &mut commands).set_menu("core.main", Some(&items))?;
+        ui.handover(&host, &params, &mut input, &mut out)?;
+        Ok::<_, Error>(())
+    });
+    assert_eq!(result, Ok(()));
+    let handover_bytes = 32 * core::mem::size_of::<records::Record<'_>>();
+    assert_eq!(count.peak, handover_bytes.max(2048));
+    assert_eq!(count.live, 0);
+    assert_eq!(calls.get(), 3);
+}
