@@ -1,7 +1,7 @@
 //! Declaration records for native plugins (interface 7): a builder that writes
 //! the records `setting.group`, `setting.spec`, `setting.extra`,
 //! `resource.hyphenation`, `resource.font_face`, `resource.font_extension`,
-//! `screen.spec` and `action.spec` (tags 5-12), and event/draw callback
+//! `screen.spec`, `action.spec`, menu and icon records (tags 5-18), and event/draw callback
 //! registrations (tags 1-2) with the generated encoder, as the batches a plugin submits
 //! through `registrations.submit` while it is made.
 //!
@@ -61,8 +61,15 @@ use settings_value::{SettingValueRef, settings_encode};
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 
+mod registry;
+pub use registry::{
+    KeyBindingDecl, PresetDecl, PresetValueDecl, SetupPage, SetupStepDecl, SlotDecl, SlotOfferDecl,
+};
+
 mod callbacks;
 pub use callbacks::EventKind;
+mod menus;
+pub use menus::{EntryPlacement, MenuEntryDecl, MenuSectionDecl};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -408,6 +415,13 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registry(Record<'a>),
+    MenuEntry(records_wire::MenuEntry<'a>),
+    Icon(records_wire::IconSpec<'a>),
+    MenuNeed(records_wire::MenuNeed<'a>),
+    MenuSection(records_wire::MenuSection<'a>),
+    MenuHide(records_wire::MenuHide<'a>),
+    MenuDescribe(records_wire::MenuDescribe<'a>),
     Registration(records_wire::Registration),
     Group(GroupDecl<'a>),
     Spec(SpecDecl<'a>, SpecParts),
@@ -1025,6 +1039,13 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registry(record) => *record,
+            Item::MenuEntry(entry) => Record::MenuEntry(*entry),
+            Item::Icon(icon) => Record::IconSpec(*icon),
+            Item::MenuNeed(need) => Record::MenuNeed(*need),
+            Item::MenuSection(section) => Record::MenuSection(*section),
+            Item::MenuHide(hide) => Record::MenuHide(*hide),
+            Item::MenuDescribe(describe) => Record::MenuDescribe(*describe),
             Item::Registration(registration) => Record::Registration(*registration),
             Item::Group(g) => Record::SettingGroup(SettingGroup {
                 name: g.name,

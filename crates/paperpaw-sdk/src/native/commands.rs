@@ -8,6 +8,11 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+mod registry;
+pub use registry::{
+    KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
+};
+
 /// Refresh requested after redrawing the submitting plugin's top screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -133,7 +138,11 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     }
 
     fn submit(&mut self, command: wire::Command<'_>) -> Result<(), Error> {
-        let length = wire::commands_encode(&[command], self.scratch).map_err(Error::from_status)?;
+        self.submit_batch(&[command])
+    }
+
+    fn submit_batch(&mut self, commands: &[wire::Command<'_>]) -> Result<(), Error> {
+        let length = wire::commands_encode(commands, self.scratch).map_err(Error::from_status)?;
         // SAFETY: the host binding and initialized scratch prefix live for this
         // synchronous call; the host copies any command data it retains.
         status(unsafe {

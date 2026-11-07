@@ -19,10 +19,37 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 typed registry declarations, staged registry commands and borrowed
+  paged queries cover settings, menus, bindings, slots, presets and plugin requests.
+  Registry events preserve borrowed host identities and unknown hint bits (#228).
+- Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
+  20 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
+  steps, presets and widgets; rows 1025-1040), the registry commands 1536-1546 (reset, preview,
+  book scope, menus, key and slot bindings, plugin switching, plugin requests and answers,
+  presets), events 75-78 (registry and preview changes, plugin requests and answers) and the
+  declarations 21-28 (`setup.step`, `slot.spec`, `slot.offer`, `key.bind`, `setting.default`,
+  `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
+  growth block are generated from their `abi.def` fields into the command codec. Hosts answer
+  `ERR_UNSUPPORTED` until wired (#228).
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks (#228).
+
+- Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
+  `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
+  position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
+  `event.plugins_changed`, 71 `event.wifi_changed`, 72 `event.power_changed` (power mode), 73
+  `event.status_changed` and 74 `event.charge_changed` in the generated records codec. Only the
+  host raises them (book moves and deletions from its own operations, reading events from its
+  reading session); paths are never cut. Hosts admit their registrations once a producer is
+  wired; until then `ERR_UNSUPPORTED` (#228).
 - Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
   cursors expose host-stamped style grants; schema-checked service handles survive
   callbacks and release explicitly (#228).
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
   `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
   `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
@@ -45,6 +72,10 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
@@ -64,11 +95,15 @@ change the plugin SDK.
   is not shown), so plugins for a later host still load. Hosts check them and answer
   `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
   `i18n/<language>.ini` files of its folder (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
   `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
   settings, colour and command codecs (#228).
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
 
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode

@@ -345,7 +345,7 @@ fn framing_count_tag_and_byte_limits_are_enforced() {
     assert_eq!(records_decode(&nine).map(|_| ()), Err(ERR_NO_SPACE));
     assert!(records_decode(&batch(&vec![draw.clone(); REGISTRATION_MAX_RECORDS])).is_ok());
     assert_eq!(
-        records_decode(&batch(&[record(64, &[])])).map(|_| ()),
+        records_decode(&batch(&[record(79, &[])])).map(|_| ()),
         Err(ERR_UNSUPPORTED)
     );
     assert_eq!(
@@ -1197,7 +1197,14 @@ fn run(
             }
         })
         .unwrap();
-    let committed = construction.commit(|_| ()).map(|_| ());
+    let committed = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| (),
+        })
+        .map(|_| ());
     (if status == OK { Ok(()) } else { Err(status) }, committed)
 }
 
@@ -1241,7 +1248,7 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
             )]),
             ERR_UNSUPPORTED,
         ),
-        (batch(&[record(64, &[])]), ERR_UNSUPPORTED),
+        (batch(&[record(79, &[])]), ERR_UNSUPPORTED),
         (vec![], ERR_INVALID),
         (vec![1], ERR_INVALID),
         (vec![0; REGISTRATION_MAX_BYTES + 1], ERR_NO_SPACE),

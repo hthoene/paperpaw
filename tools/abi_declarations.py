@@ -27,6 +27,8 @@ TAG_RANGES = {
     'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
     'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
     'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
+    # Registry declarations (REG, docs/abi/registry.md section 6).
+    'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -76,11 +78,29 @@ def check_tags(records):
         seen[tag] = name
 
 
+# Commands of the growth block (REG, #228) are generated from their fields into the
+# slot-15 command codec only (abi_commands.py): commands never travel in a record batch.
+GROWTH_COMMANDS = (1536, 2047)
+
+
+def is_growth_command(item):
+    """A `command.*` record in the slot-15 growth block."""
+    return (type(item) is dict and str(item.get('name', '')).startswith('command.')
+            and type(item.get('id')) is int
+            and GROWTH_COMMANDS[0] <= item['id'] <= GROWTH_COMMANDS[1])
+
+
+def growth_fields(record):
+    """The checked fields of a growth-block command, as for a generated record."""
+    return _fields(record)
+
+
 def wire_records(schema):
     """The generated records, in schema order, with checked fields."""
     out = []
     for item in schema.get('records', []):
-        if type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS:
+        if (type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS
+                and not is_growth_command(item)):
             out.append(dict(name=item['name'], id=item['id'], since=item['since'],
                             fields=_fields(item)))
     return out
