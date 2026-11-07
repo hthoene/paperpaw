@@ -29,6 +29,13 @@ pub(crate) struct RowsEnd {
     pub(crate) next: u32,
 }
 
+/// Host-only callback identity, never decoded from plugin bytes.
+#[derive(Clone, Copy)]
+pub(crate) struct CallbackStamp {
+    pub(crate) owner: u64,
+    pub(crate) epoch: u64,
+}
+
 #[allow(dead_code, reason = "usage service methods await slots 17-19 adapters")]
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
@@ -52,6 +59,10 @@ pub(crate) trait Frame {
     /// The calling plugin: a never-reused host owner id. Service backends
     /// that keep per-caller state (leases) name it.
     fn caller(&self) -> Result<u64, i32> {
+        Err(ERR_STATE)
+    }
+    /// No callback running is a state error, never epoch zero.
+    fn callback_epoch(&self) -> Result<u64, i32> {
         Err(ERR_STATE)
     }
     /// The host view a service family keeps behind its key (`core.document`,

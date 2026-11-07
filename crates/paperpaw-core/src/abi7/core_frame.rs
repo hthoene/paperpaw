@@ -9,6 +9,7 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
+    pub(crate) callback: Option<super::context::CallbackStamp>,
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
@@ -18,6 +19,19 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
+    fn caller(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.owner)
+            .ok_or(ERR_STATE)
+    }
+    fn callback_epoch(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.epoch)
+            .ok_or(ERR_STATE)
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
     }

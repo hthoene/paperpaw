@@ -1,6 +1,7 @@
 //! One retained instance registry and a deduplicated outer-callback start queue.
 //! Registrations retain leases from this registry, never a second plugin owner.
 use super::{
+    native_callbacks::{CallbackClock, CallbackRuntime, NativeCallbackEpoch},
     native_screen::Dispatch,
     shared::{self, Shared},
 };
@@ -69,7 +70,7 @@ impl Dispatch for NativeLease {
 }
 
 struct Entry {
-    id: Id,
+    id: Option<Id>,
     instance: Option<NativeLease>,
     enabled: bool,
     start: Cell<bool>,
@@ -78,8 +79,7 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
-    depth: Cell<u8>,
-    epoch: Cell<u64>,
+    callbacks: CallbackClock,
 }
 
 pub(crate) enum InstanceState {
@@ -99,7 +99,7 @@ impl CallbackEpoch<'_> {
 }
 impl Drop for CallbackEpoch<'_> {
     fn drop(&mut self) {
-        self.registry.depth.set(self.registry.depth.get() - 1);
+        self.registry.callbacks.leave();
     }
 }
 
@@ -111,13 +111,17 @@ impl NativeInstances {
         instance: Option<NativeLease>,
         enabled: bool,
     ) -> Result<usize, i32> {
-        if self.entries.iter().any(|entry| entry.id == id) {
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.id.as_ref() == Some(&id))
+        {
             return Err(ERR_INVALID);
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let key = self.entries.len();
         self.entries.push(Entry {
-            id,
+            id: Some(id),
             instance,
             enabled,
             start: Cell::new(false),
@@ -126,13 +130,13 @@ impl NativeInstances {
     }
 
     pub(crate) fn id(&self, key: usize) -> Option<&Id> {
-        self.entries.get(key).map(|entry| &entry.id)
+        self.entries.get(key).and_then(|entry| entry.id.as_ref())
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<usize> {
         self.entries
             .iter()
-            .position(|entry| entry.id.as_str() == id)
+            .position(|entry| entry.id.as_ref().is_some_and(|value| value.as_str() == id))
     }
 
     pub(crate) fn state(&self, key: usize) -> Result<InstanceState, i32> {
@@ -171,7 +175,7 @@ impl NativeInstances {
 
     /// Zero allocation, deduplicated by entry; never flush inside a callback.
     pub(crate) fn take_start(&self) -> Option<usize> {
-        if self.depth.get() != 0 {
+        if self.callbacks.depth() != 0 {
             return None;
         }
         self.entries
@@ -180,7 +184,7 @@ impl NativeInstances {
     }
 
     pub(crate) fn install(&mut self, key: usize, instance: NativeLease) -> Result<(), i32> {
-        if self.depth.get() != 0 {
+        if self.callbacks.depth() != 0 {
             return Err(ERR_STATE);
         }
         let entry = self.entries.get_mut(key).ok_or(ERR_STATE)?;
@@ -192,21 +196,65 @@ impl NativeInstances {
     }
 
     pub(crate) fn callback(&self) -> Result<CallbackEpoch<'_>, i32> {
-        let depth = self.depth.get().checked_add(1).ok_or(ERR_STATE)?;
-        if depth == 1 {
-            self.epoch
-                .set(self.epoch.get().checked_add(1).ok_or(ERR_STATE)?);
-        }
-        self.depth.set(depth);
+        let epoch = self.callbacks.enter_outer()?;
         Ok(CallbackEpoch {
             registry: self,
-            epoch: self.epoch.get(),
+            epoch,
         })
     }
 
-    pub(crate) fn depth(&self) -> u8 {
-        self.depth.get()
+    /// Bind only an existing, enabled registry slot to an actual callback owner.
+    pub(crate) fn identity(&mut self, key: usize) -> Result<NativeIdentity, i32> {
+        if !self
+            .entries
+            .get(key)
+            .is_some_and(|entry| entry.enabled && entry.id.is_some())
+        {
+            return Err(ERR_STATE);
+        }
+        let owner = u64::try_from(key).map_err(|_| paperpaw_native::host_glue::ERR_FULL)?;
+        Ok(NativeIdentity {
+            owner,
+            callbacks: self.callbacks.runtime()?,
+        })
     }
+
+    /// Failed admission leaves a tombstone: neither the slot nor its identity is reused.
+    pub(crate) fn abandon(&mut self, key: usize) -> Result<(), i32> {
+        self.stop(key)?;
+        self.entries.get_mut(key).ok_or(ERR_STATE)?.id = None;
+        Ok(())
+    }
+
+    pub(crate) fn depth(&self) -> u8 {
+        self.callbacks.depth()
+    }
+}
+
+pub(crate) struct NativeIdentity {
+    owner: u64,
+    callbacks: CallbackRuntime,
+}
+impl NativeIdentity {
+    pub(crate) fn owner(&self) -> u64 {
+        self.owner
+    }
+    pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
+        self.callbacks.enter()
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "fixture identity comes from a real temporary registry"
+)]
+pub(crate) fn test_identity(owner: &str) -> NativeIdentity {
+    let mut registry = NativeInstances::default();
+    let key = registry
+        .insert(Id::try_parse(owner).unwrap(), None, true)
+        .unwrap();
+    registry.identity(key).unwrap()
 }
 
 #[cfg(test)]
@@ -303,5 +351,24 @@ mod tests {
         assert_eq!(registry.take_start(), None);
         let next = registry.callback().unwrap();
         assert!(next.epoch() > epoch);
+    }
+    #[test]
+    fn abandoned_admission_retries_with_a_new_owner_key() {
+        let mut registry = NativeInstances::default();
+        let first = registry
+            .insert(Id::new_static("retry"), None, true)
+            .unwrap();
+        let identity = registry.identity(first).unwrap();
+        let epoch = identity.callback().unwrap().epoch();
+        registry.abandon(first).unwrap();
+        assert!(registry.id(first).is_none());
+        assert_eq!(registry.find("retry"), None);
+        let second = registry
+            .insert(Id::new_static("retry"), None, true)
+            .unwrap();
+        assert!(second > first);
+        let next = registry.identity(second).unwrap();
+        assert_ne!(identity.owner(), next.owner());
+        assert!(next.callback().unwrap().epoch() > epoch);
     }
 }

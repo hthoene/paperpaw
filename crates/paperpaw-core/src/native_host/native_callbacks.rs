@@ -1,0 +1,161 @@
+//! Checked callback clocks, shared without retaining the instance registry.
+use super::shared::Shared;
+use core::cell::Cell;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
+
+#[derive(Default)]
+struct State {
+    depth: Cell<u8>,
+    epoch: Cell<u64>,
+}
+impl State {
+    fn enter(&self, fresh: bool) -> Result<u64, i32> {
+        let depth = self.depth.get().checked_add(1).ok_or(ERR_BUSY)?;
+        let epoch = if fresh || depth == 1 {
+            self.epoch.get().checked_add(1).ok_or(ERR_FULL)?
+        } else {
+            self.epoch.get()
+        };
+        self.epoch.set(epoch);
+        self.depth.set(depth);
+        Ok(epoch)
+    }
+    fn leave(&self) {
+        self.depth.set(self.depth.get() - 1);
+    }
+}
+
+enum Source {
+    Local(State),
+    Shared(Shared<State>),
+}
+impl Default for Source {
+    fn default() -> Self {
+        Self::Local(State::default())
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct CallbackClock(Source);
+impl CallbackClock {
+    fn state(&self) -> &State {
+        match &self.0 {
+            Source::Local(state) => state,
+            Source::Shared(state) => state,
+        }
+    }
+    pub(crate) fn depth(&self) -> u8 {
+        self.state().depth.get()
+    }
+    pub(crate) fn enter_outer(&self) -> Result<u64, i32> {
+        self.state().enter(false)
+    }
+    pub(crate) fn leave(&self) {
+        self.state().leave();
+    }
+    pub(crate) fn runtime(&mut self) -> Result<CallbackRuntime, i32> {
+        if self.depth() != 0 {
+            return Err(ERR_STATE);
+        }
+        if let Source::Local(state) = &self.0 {
+            let value = State {
+                depth: Cell::new(0),
+                epoch: Cell::new(state.epoch.get()),
+            };
+            let shared = Shared::try_new(value).map_err(|_| ERR_NO_MEMORY)?;
+            self.0 = Source::Shared(shared);
+        }
+        match &self.0 {
+            Source::Shared(state) => state.try_clone().map(CallbackRuntime).ok_or(ERR_NO_MEMORY),
+            Source::Local(_) => Err(ERR_STATE),
+        }
+    }
+}
+
+pub(crate) struct CallbackRuntime(Shared<State>);
+impl CallbackRuntime {
+    pub(crate) fn enter(&self) -> Result<NativeCallbackEpoch, i32> {
+        let state = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
+        let epoch = state.enter(true)?;
+        Ok(NativeCallbackEpoch { state, epoch })
+    }
+}
+
+/// Owns only a clock handle. No registry borrow crosses foreign code.
+pub(crate) struct NativeCallbackEpoch {
+    state: Shared<State>,
+    epoch: u64,
+}
+impl NativeCallbackEpoch {
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch
+    }
+}
+impl Drop for NativeCallbackEpoch {
+    fn drop(&mut self) {
+        self.state.leave();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixture failures fail the test")]
+    use super::*;
+    #[test]
+    fn nested_real_callbacks_have_distinct_epochs_and_restore_depth() {
+        let mut clock = CallbackClock::default();
+        let runtime = clock.runtime().unwrap();
+        let outer = runtime.enter().unwrap();
+        let first = outer.epoch();
+        assert_ne!(first, 0);
+        let inner = runtime.enter().unwrap();
+        assert!(inner.epoch() > first);
+        assert_eq!(outer.epoch(), first);
+        assert_eq!(clock.depth(), 2);
+        drop(inner);
+        assert_eq!(clock.depth(), 1);
+        drop(outer);
+        assert_eq!(clock.depth(), 0);
+        assert!(runtime.enter().unwrap().epoch() > first);
+    }
+    #[test]
+    fn exhaustion_never_wraps_and_does_not_enter_a_callback() {
+        let mut clock = CallbackClock::default();
+        clock.state().epoch.set(u64::MAX - 1);
+        let runtime = clock.runtime().unwrap();
+        let last = runtime.enter().unwrap();
+        assert_eq!(last.epoch(), u64::MAX);
+        drop(last);
+        assert!(matches!(runtime.enter(), Err(ERR_FULL)));
+        assert_eq!(clock.depth(), 0);
+        assert_eq!(clock.state().epoch.get(), u64::MAX);
+    }
+    #[test]
+    fn callback_guard_retains_clock_after_registry_and_runtime_are_dropped() {
+        let mut clock = CallbackClock::default();
+        let runtime = clock.runtime().unwrap();
+        let guard = runtime.enter().unwrap();
+        drop(clock);
+        drop(runtime);
+        assert_ne!(guard.epoch(), 0);
+        drop(guard);
+    }
+    #[cfg(panic = "unwind")]
+    #[test]
+    fn unwind_releases_only_the_nested_callback_depth() {
+        extern crate std;
+        let mut clock = CallbackClock::default();
+        let runtime = clock.runtime().unwrap();
+        let outer = runtime.enter().unwrap();
+        let first = outer.epoch();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _inner = runtime.enter().unwrap();
+            panic!("fixture callback unwound");
+        }));
+        assert!(result.is_err());
+        assert_eq!(clock.depth(), 1);
+        assert_eq!(outer.epoch(), first);
+        drop(outer);
+        assert_eq!(clock.depth(), 0);
+    }
+}

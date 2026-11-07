@@ -162,6 +162,9 @@ mod native_dispatch;
     dead_code,
     reason = "production native activation and stage broker follow this registry"
 )]
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
+
 #[path = "native_host/native_instances.rs"]
 pub(crate) mod native_instances;
 

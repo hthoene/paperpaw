@@ -13,6 +13,7 @@ std::thread_local! {
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
+    static STAMPS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
     static EVENTS: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -107,10 +108,30 @@ unsafe extern "C" fn screen_destroy(state: *mut c_void) {
     // SAFETY: the host returns exactly the allocation published by screen_make.
     unsafe { drop(Box::from_raw(state.cast::<ScreenState>())) };
 }
-unsafe extern "C" fn screen_event(_: *mut c_void, token: u32, bytes: PpBytes, _: PpBuffer) -> i32 {
+unsafe extern "C" fn screen_event(
+    state: *mut c_void,
+    token: u32,
+    bytes: PpBytes,
+    _: PpBuffer,
+) -> i32 {
     if token != 91 {
         return ERR_INVALID;
     }
+    // SAFETY: the owner retains the initialized fixture and its pinned context.
+    let context = unsafe {
+        &*(*state.cast::<ScreenState>())
+            .context
+            .cast::<Context<Heap>>()
+    };
+    let stamp = context
+        .environment
+        .with_frame(|frame| Ok::<_, i32>((frame.caller()?, frame.callback_epoch()?)));
+    let (owner, epoch) = match stamp {
+        Ok(Ok(stamp)) => stamp,
+        _ => return host_glue::ERR_STATE,
+    };
+    STAMPS.with(|stamps| stamps.borrow_mut().push((owner, epoch)));
+
     // SAFETY: the callback borrows the host's initialized event for this call.
     let bytes = unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) };
     let record = match wire::records_decode_single(bytes) {
@@ -430,12 +451,8 @@ fn retiring_open_registered_owner_refuses_callbacks_and_tears_down_under_kernel_
     let mut kernel = kernel(0);
     open(&mut kernel, Params::new());
     let before = EVENTS.with(|events| events.borrow().len());
-    let Some(crate::registry::Maker::Native(made)) =
-        kernel.shared.registry.screens.get("factory.screen")
-    else {
-        panic!("native maker missing");
-    };
-    made.retire_for_test();
+    let owner = kernel.shared.native_instances.find("factory").unwrap();
+    kernel.shared.native_instances.stop(owner).unwrap();
     kernel.with_screen(0, |screen, cx| {
         screen.on_show(cx);
         Handled::Yes
@@ -468,4 +485,22 @@ fn wait_ready_flag_is_refused_until_its_host_policy_is_wired() {
         install(&mut kernel, 1 << 3),
         Err(Error::Factory(host_glue::ERR_UNSUPPORTED))
     ));
+}
+
+#[test]
+fn real_callback_stamps_use_registered_owner_and_distinct_live_epochs() {
+    let mut kernel = kernel(0);
+    STAMPS.with(|stamps| stamps.borrow_mut().clear());
+    let owner = kernel.shared.native_instances.find("factory").unwrap();
+    open(&mut kernel, Params::new());
+    open(&mut kernel, Params::new());
+    let stamps = STAMPS.with(|stamps| stamps.borrow().clone());
+    assert!(stamps.len() >= 3);
+    assert!(
+        stamps
+            .iter()
+            .all(|stamp| stamp.0 == owner as u64 && stamp.1 != 0)
+    );
+    assert!(stamps.windows(2).all(|pair| pair[0].1 < pair[1].1));
+    assert_eq!(kernel.shared.native_instances.depth(), 0);
 }

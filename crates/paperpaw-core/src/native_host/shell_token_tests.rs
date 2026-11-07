@@ -195,6 +195,7 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
     let env = kernel.shared.env(Instant(12));
     call(&CoreFrame {
+        callback: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
@@ -457,6 +458,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let mut registry = NativeInstances::default();
@@ -508,6 +510,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let retained = dispatch.try_clone().unwrap();

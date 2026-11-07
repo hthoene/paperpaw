@@ -115,6 +115,7 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
             font_removals: Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("probe"),
     ))
     .unwrap()
 }

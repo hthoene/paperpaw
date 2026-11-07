@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Core native callbacks carry authoritative registry owner keys and checked,
+  nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
+
 - Core native screen admission uses a shared declaration entry, fallible factories,
   retained owners and declared instance policies. Native screen lifecycle events
   carry nonzero instance ids. Other declaration families remain refused until wired (#228).
