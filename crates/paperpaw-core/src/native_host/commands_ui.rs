@@ -105,9 +105,13 @@ impl crate::Kernel {
     ) {
         for command in commands {
             if let Command::Close(key) = &command
-                && !self.native_top(owner, *key)
+                && !self
+                    .shared
+                    .stack
+                    .iter()
+                    .any(|entry| entry.key == *key && entry.screen.namespace() == owner.as_str())
             {
-                self.warn_runtime("native close dropped: its screen is no longer on top");
+                self.warn_runtime("native close dropped: its screen no longer exists");
                 continue;
             }
             self.apply(command);
@@ -137,6 +141,91 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
     use super::*;
     use paperpaw_platform::Instant;
+
+    #[test]
+    fn open_then_close_uses_original_target_or_warns_when_already_closed() {
+        use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+        struct Empty;
+        impl Screen for Empty {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
+            fn on_action(
+                &mut self,
+                _: &Id,
+                _: &mut paperpaw_sdk::Cx<'_, '_>,
+            ) -> paperpaw_sdk::Handled {
+                paperpaw_sdk::Handled::No
+            }
+        }
+        struct Screens;
+        impl Plugin for Screens {
+            fn manifest(&self) -> Manifest {
+                Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+                    .uses(paperpaw_sdk::Uses::NOTHING)
+            }
+            fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+                for id in ["probe.base", "probe.old", "probe.new"] {
+                    r.add_screen(ScreenSpec::new(
+                        Id::new_static(id),
+                        "probe.title",
+                        alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
+                    ))?;
+                }
+                Ok(())
+            }
+        }
+        for already_closed in [false, true] {
+            let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+                .plugin(Screens)
+                .build()
+                .unwrap();
+            for id in ["probe.base", "probe.old"] {
+                kernel.apply(Command::OpenScreen(Id::new_static(id), Params::new()));
+            }
+            let original = kernel.shared.stack.last().unwrap().key;
+            let owner = Id::new_static("probe");
+            let (commands, redraw, _) =
+                {
+                    let env = kernel.shared.env(Instant(0));
+                    let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
+                        .with_ui(&env, Some(original), 0);
+                    let mut bytes = [0; 192];
+                    let len = commands_encode(
+                        &[
+                            WireCommand::OpenScreen {
+                                screen: "probe.new",
+                            },
+                            WireCommand::CloseScreen,
+                        ],
+                        &mut bytes,
+                    )
+                    .unwrap();
+                    assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+                    stage.into_ui_output()
+                };
+            if already_closed {
+                kernel.apply(Command::Close(original));
+            }
+            kernel.take_warnings();
+            kernel.drain_native_ui(&owner, commands, redraw);
+            let warnings = kernel.take_warnings();
+            assert_eq!(warnings.len(), usize::from(already_closed));
+            if already_closed {
+                assert!(warnings[0].message.contains("native close dropped"));
+            }
+            assert_eq!(kernel.shared.stack.len(), 2);
+            assert_eq!(
+                kernel.shared.stack.last().unwrap().screen.as_str(),
+                "probe.new"
+            );
+            assert!(
+                !kernel
+                    .shared
+                    .stack
+                    .iter()
+                    .any(|entry| entry.key == original)
+            );
+        }
+    }
 
     #[test]
     fn ui_batches_preserve_redraw_only_and_refuse_foreign_screens_and_hop_eight() {
