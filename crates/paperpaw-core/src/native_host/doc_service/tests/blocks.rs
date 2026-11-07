@@ -53,6 +53,7 @@ fn end(flags: u32, generation: u32, next: u32) -> Record<'static> {
         total: 0,
         generation,
         next,
+        cursor: None,
     })
 }
 fn image() -> Record<'static> {

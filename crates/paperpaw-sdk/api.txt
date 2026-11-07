@@ -1598,6 +1598,7 @@ pub use paperpaw_sdk::document::Block
 pub use paperpaw_sdk::document::BlockKind
 pub use paperpaw_sdk::document::Document
 pub use paperpaw_sdk::document::DocumentError
+pub use paperpaw_sdk::document::EditError
 pub use paperpaw_sdk::document::EmbeddedFont
 pub use paperpaw_sdk::document::ImageRef
 pub use paperpaw_sdk::document::LETTER_SPACING_STEPS
@@ -1616,6 +1617,7 @@ pub use paperpaw_sdk::document::PageProgression
 pub use paperpaw_sdk::document::Run
 pub use paperpaw_sdk::document::TableCell
 pub use paperpaw_sdk::document::TableRow
+pub use paperpaw_sdk::document::TextEdit
 pub use paperpaw_sdk::document::TextStyle
 pub use paperpaw_sdk::document::TocEntry
 pub use paperpaw_sdk::document::VerticalAlign
