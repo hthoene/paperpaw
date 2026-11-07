@@ -85,6 +85,8 @@ pub(crate) mod host_services;
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+#[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
+pub(crate) mod net_service;
 mod service_slots;
 #[allow(
     dead_code,
