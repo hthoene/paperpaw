@@ -373,7 +373,12 @@ fn a_tree_removal_that_goes_in_circles_is_given_up_on() {
     let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
     // Two places taking turns with nothing removed: a changing cursor is not
     // progress. Over the idle cap after exactly cap + 1 calls.
-    reply(&state, &[&[progress(0, 0, 1)], &[progress(0, 0, 2)]]);
+    // (The fixture repeats its last reply, so every call is spelled out.)
+    let alternating: Vec<Vec<Record<'_>>> = (0..=IDLE_CALLS)
+        .map(|n| vec![progress(0, 0, 1 + u64::from(n % 2))])
+        .collect();
+    let rows: Vec<&[Record<'_>]> = alternating.iter().map(Vec::as_slice).collect();
+    reply(&state, &rows);
     assert_eq!(
         files.remove_tree(&host, Root::Data, "old", &mut input, &mut out),
         Err(Error::Invalid)
