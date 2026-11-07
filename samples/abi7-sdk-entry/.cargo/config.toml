@@ -14,4 +14,9 @@ rustflags = [
     "-C", "link-arg=--no-relax",
     "-C", "code-model=medium",
     "-C", "relocation-model=static",
+    # No jump tables in the plugin's own code: the packer's stack frame scan
+    # reads a table from `.rodata` and follows every entry, and refuses one
+    # it cannot read; with none, there is nothing to read. Every interface-7
+    # plugin build sets this.
+    "-C", "jump-tables=no",
 ]

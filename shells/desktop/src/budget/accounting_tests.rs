@@ -276,3 +276,32 @@ fn stats_show_the_heap_in_kib_with_the_budget_where_there_is_one() {
     };
     assert_eq!(without.to_string(), "heap 1.5 KiB (peak 2.0 KiB)");
 }
+
+#[test]
+fn flat_shared_depth_refuses_actual_allocation_at_full_heap_but_can_be_retained() {
+    use paperpaw_core::native_host::flat::{FlatDepth, FlatError};
+    let _alone = alone();
+    let baseline = stats();
+    let depth = track(FlatDepth::try_new).unwrap();
+    let before = stats();
+    set_limit(Some(before.live));
+    let refused = track(FlatDepth::try_new);
+    let retained = track(|| depth.try_clone());
+    let after = stats();
+    set_limit(None);
+    assert!(matches!(refused, Err(FlatError::Allocation)));
+    assert!(retained.is_some());
+    assert!(core::ptr::eq(
+        depth.as_depth(),
+        retained.as_ref().unwrap().as_depth()
+    ));
+    assert_eq!(after.failed, before.failed + 1);
+    assert_eq!(after.live, before.live);
+    let charged = before.live - baseline.live;
+    drop(retained);
+    drop(depth);
+    assert_eq!(live(), baseline.live);
+    eprintln!(
+        "FlatDepth shared allocation: {charged} budget bytes including header; full-heap retain: 0 bytes"
+    );
+}

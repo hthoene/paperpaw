@@ -614,6 +614,9 @@ impl BuilderParts {
                 translator,
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                font_removals: alloc::rc::Rc::new(
+                    crate::native_host::font_removals::FontRemovals::new(),
+                ),
                 formats: Formats::new(),
                 hyphenation,
                 menus: Menus::new(),
