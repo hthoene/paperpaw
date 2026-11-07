@@ -213,6 +213,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_dealloc = heap_dealloc::<S>;
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
+    table.stage_run = stage_slot::run::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -1302,3 +1303,6 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
     // SAFETY: the slot contract supplies stable, readable batch bytes.
     unsafe { context.commands.submit(batch.ptr, batch.len) }
 }
+
+#[path = "shell_stage_slot.rs"]
+mod stage_slot;

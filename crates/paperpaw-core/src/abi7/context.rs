@@ -31,6 +31,17 @@ pub(crate) struct RowsEnd {
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    /// Broker access exists only for the duration of the outer callback.
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        _full_stage: &str,
+        _cursor: u32,
+        _input: &[u8],
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(ERR_STATE)
+    }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }
