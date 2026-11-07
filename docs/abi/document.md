@@ -376,13 +376,15 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   host ends the opener's least recently drawn document image first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
-  it has been drawn once: with all 8 handed out and none drawn yet, a ninth is `ERR_BUSY` for that
-  picture (in a block stream its `doc_image` comes with `image` 0, no id yet, and its `index`; the
-  reader asks with op 16 after drawing), so a page with more than 8 pictures is drawn picture by
-  picture (ask, draw, next) and never loops. Op 16 (`doc_image_ask`: `index`, `side` 0 for the
-  page's size, else the longest side for a zoom, at most 1,600) has the format decode that picture
-  now (op 18 with `index`, or op 17 for the cover; interface 6 `prepare_image`,
-  `prepare_image_larger`): a new image id, or the live one where nothing was to do.
+  it has been drawn once, and that protection ends at the opener's next drawn frame that does not
+  use it (an abandoned page or a prefetch never pins ids) or at `image_release`, which a reader may
+  also send for a document image it no longer wants: with all 8 handed out and none drawn yet, a
+  ninth is `ERR_BUSY` for that picture (in a block stream its `doc_image` comes with `image` 0, no
+  id yet, and its `index`; the reader asks with op 16 after drawing), so a page with more than 8
+  pictures is drawn picture by picture (ask, draw, next) and never loops. Op 16 (`doc_image_ask`:
+  `index`, `side` 0 for the page's size, else the longest side for a zoom, at most 1,600) has the
+  format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
+  `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
   frame) or BMP of the caller's root 0 or
   root 1 (`uses.storage`) into the host's image cache at most `side` pixels on the longest side (0:
