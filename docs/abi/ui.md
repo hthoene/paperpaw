@@ -400,12 +400,17 @@ asker learns its request id at once and long texts move in pages, never cut.
   callback fails while it holds a capture, the host releases the capture: the rest of that
   pointer or key goes nowhere (the up or release is swallowed), and the next input starts fresh
   with all filters.
-- [D] **The rest of a captured input** (Input on #353): the moves and up of a pointer, or the
-  release and repeats of a key, a filter took or cancelled go to that filter alone, with
-  `filter.input.flags` bit 0 `captured`, so it can follow the gesture; its verdict is ignored and
-  nothing else (no other filter, screen, gesture or key map) sees them. `filter.input.flags` bit 1
-  `secret`: the instance on top is secret (section 1.2), so the filter keeps and logs nothing of
-  it. Other bits 0.
+- [D] **The rest of a captured input** (Input and Code Reviewer on #353). A capture belongs to one
+  subscription (owner and token: a plugin may subscribe with several tokens) and is keyed by the
+  **physical** input (the key as the device gave it, or the pointer contact), not by what a
+  replace turned it into. Its rest (the moves and up of a pointer, the repeats and release of a
+  key) goes through the filters before the capturer as usual, so one that replaced the start can
+  replace the rest the same way (their verdicts other than pass and replace are ignored for it),
+  then to the capturer, with `filter.input.flags` bit 0 `captured`; nothing after it (no later
+  filter, screen, gesture or key map) sees it. The capturer's verdict on the rest: 2 run and 5
+  raise act (a recognizer raises its gesture at the up), 4 replace is ignored, the others just end
+  it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
+  filter keeps and logs nothing of it. Other bits 0.
 - [D] **A replaced input** (verdict 4) is checked as plugin input: one `input.key`,
   `input.pointer` or `input.gesture` record, whole, else the verdict counts as pass (logged). Key
   names are not checked against a table (`screens-input.md` 2.2: unknown names pass through):
