@@ -93,8 +93,13 @@ impl NativeWidgets {
             }
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
-                let tapped = behaviour(item.token).is_some_and(|b| b.tap != Tap::None);
-                if tapped {
+                let tap = behaviour(item.token).map(|b| b.tap);
+                if tap == Some(Tap::TickItems) {
+                    let cx = Cx::open(host, &item.widget)?;
+                    let area = frame_to_area(rect);
+                    let targets = crate::native_todo::targets(&cx, area)?;
+                    call.reply_targets(&targets, &mut out)?
+                } else if tap.is_some_and(|tap| tap != Tap::None) {
                     call.reply_targets(&[WidgetTarget::new(SETTINGS_TARGET, rect)], &mut out)?
                 } else {
                     call.reply_targets(&[], &mut out)?
@@ -251,7 +256,7 @@ impl Plugin for NativeWidgets {
     fn input(&mut self, host: &Host<'_>, _: u32, input: Input<'_>) -> Result<Handled, Error> {
         let Input::Widget {
             instance,
-            target: SETTINGS_TARGET,
+            target,
             kind: WidgetInputKind::Tap,
             ..
         } = input
@@ -260,7 +265,21 @@ impl Plugin for NativeWidgets {
         };
         let item = self.find(instance.get()).ok_or(Error::NotFound)?;
         let base = paperpaw_ui_kit::widget::settings::base(&item.widget);
-        match behaviour(item.token).map(|b| b.tap) {
+        let tap = behaviour(item.token).map(|b| b.tap);
+        if tap == Some(Tap::TickItems) {
+            // The heading, "more" and an empty list open the list's own
+            // screen, which is not ported yet: a tap there does nothing.
+            if target == crate::native_todo::OPEN_TARGET {
+                return Ok(Handled::No);
+            }
+            crate::native_todo::tick(host, target)?;
+            CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
+            return Ok(Handled::Yes);
+        }
+        if target != SETTINGS_TARGET {
+            return Ok(Handled::No);
+        }
+        match tap {
             Some(Tap::Settings) => open_settings(host, base)?,
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
@@ -277,6 +296,16 @@ impl Plugin for NativeWidgets {
         }
         Ok(Handled::Yes)
     }
+}
+
+/// The rectangle of a stage call as the plugin's drawing rectangle.
+fn frame_to_area(rect: paperpaw_sdk::native::callbacks::FrameRect) -> Rect {
+    Rect::new(
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.x)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.y)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.width)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.height)),
+    )
 }
 
 /// Asks for the text of the setting `<widget>.<key>` on the keyboard, the
