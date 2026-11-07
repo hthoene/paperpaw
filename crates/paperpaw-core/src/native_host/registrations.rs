@@ -174,12 +174,12 @@ pub use wire::{
     ServiceDocState, ServiceDocText, ServiceDocTextAt, ServiceDocTextPart, ServiceDocToc,
     ServiceDocXpointer, ServiceLibAnchor, ServiceLibAnnotation, ServiceLibBook,
     ServiceLibCommitted, ServiceLibCover, ServiceLibEdit, ServiceLibEditHead, ServiceLibEditText,
-    ServiceLibEntry, ServiceLibFacet, ServiceLibField, ServiceLibFieldSet, ServiceLibImport,
-    ServiceLibKey, ServiceLibMove, ServiceLibPage, ServiceLibPaths, ServiceLibPosition,
-    ServiceLibPositionSet, ServiceLibProvided, ServiceLibQuery, ServiceLibReceipt,
-    ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult, ServiceLibState, ServiceLibStatus,
-    ServiceLibText, ServiceLibTextAt, ServiceLibTransaction, ServiceLibTransactionRef,
-    ServiceLookupAsk, ServiceLookupEntry,
+    ServiceLibEntry, ServiceLibFacet, ServiceLibField, ServiceLibFieldPage, ServiceLibFieldSet,
+    ServiceLibImport, ServiceLibKey, ServiceLibMove, ServiceLibPage, ServiceLibPaths,
+    ServiceLibPosition, ServiceLibPositionSet, ServiceLibProvided, ServiceLibQuery,
+    ServiceLibReceipt, ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult, ServiceLibState,
+    ServiceLibStatus, ServiceLibText, ServiceLibTextAt, ServiceLibTransaction,
+    ServiceLibTransactionRef, ServiceLookupAsk, ServiceLookupEntry,
 };
 // The device (DEV, `docs/abi/device.md`): events 92-98 and the `core.device` rows
 // 1125-1141; the host answers them once wired (its commands 1564-1592 are in the
