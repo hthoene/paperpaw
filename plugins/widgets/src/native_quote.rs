@@ -6,17 +6,18 @@
 //! the next one; set to change each time it shows, the showings are counted in
 //! memory ([`made`]).
 use alloc::{string::String, vec::Vec};
+use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicU32, Ordering};
 use paperpaw_sdk::{
     Rect,
     native::{
         Error, Host,
         fonts::{Font, TextOrigin},
-        storage::Root,
+        storage::{self, Root},
     },
 };
 use paperpaw_ui_kit::{
-    Paint, files, paint,
+    Paint, files, mem, paint,
     text::{concat, copy, decimal_u64},
     widget::{
         Cx, Settings, TextSize,
@@ -30,9 +31,6 @@ use paperpaw_ui_kit::{
 const TURNS_FILE: &str = "quote.txt";
 /// The reader's own quotes, in the data folder.
 const OWN_FILE: &str = "quotes.txt";
-/// The most bytes of a list of quotes read: PaperPaw's are 7 KiB, a reader's
-/// own are cut off from this size on (the file is left out then).
-const LIST_LIMIT: usize = 24 * 1024;
 /// The setting of the face of the quote.
 const FACE_LIMIT: usize = 96;
 
@@ -243,52 +241,106 @@ fn unquoted(text: &str) -> &str {
     }
 }
 
-/// A list of quotes, read from a file or carried in the code.
-enum List {
-    Read(Vec<u8>),
+/// A list of quotes: carried in the code, or a file read a line at a time.
+#[derive(Clone, Copy)]
+enum List<'a> {
     Carried(&'static str),
+    File(Root, &'a str),
 }
 
-impl List {
-    fn as_str(&self) -> &str {
-        match self {
-            Self::Carried(text) => text,
-            Self::Read(bytes) => match core::str::from_utf8(bytes) {
-                Ok(text) => text,
-                // Up to the first byte that is no text.
-                Err(error) => core::str::from_utf8(&bytes[..error.valid_up_to()]).unwrap_or(""),
-            },
+/// The bytes read from a file at once.
+const CHUNK: usize = 4096;
+/// The longest line read: a longer one is cut here.
+const MAX_LINE: usize = 4096;
+
+/// Hands each line of a file on until `visit` breaks, reading it with `read`
+/// (an offset and a buffer; the bytes read, 0 at the end). A line is held at a
+/// time, never the file; without its line break and a byte order mark at the
+/// start of the file; one past [`MAX_LINE`] is cut and one that is no text is
+/// read up to the first byte that is none. A missing file has no lines.
+fn each_line(
+    read: &mut dyn FnMut(u64, &mut [u8]) -> Result<usize, Error>,
+    visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
+) -> Result<(), Error> {
+    let mut chunk = mem::buffer(CHUNK)?;
+    let mut line: Vec<u8> = Vec::new();
+    let (mut at, mut first) = (0u64, true);
+    let mut emit = |line: &mut Vec<u8>, first: bool| -> ControlFlow<()> {
+        if first && line.starts_with(b"\xef\xbb\xbf") {
+            line.drain(..3);
+        }
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        let flow = match core::str::from_utf8(line) {
+            Ok(text) => visit(text),
+            Err(error) => visit(
+                line.get(..error.valid_up_to())
+                    .and_then(|valid| core::str::from_utf8(valid).ok())
+                    .unwrap_or(""),
+            ),
+        };
+        line.clear();
+        flow
+    };
+    loop {
+        let n = match read(at, &mut chunk) {
+            Ok(n) => n,
+            Err(Error::NotFound) if at == 0 => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        if n == 0 {
+            break;
+        }
+        at = at.saturating_add(n as u64);
+        for &byte in chunk.get(..n).ok_or(Error::Invalid)? {
+            if byte == b'\n' {
+                let flow = emit(&mut line, first);
+                first = false;
+                if flow.is_break() {
+                    return Ok(());
+                }
+            } else if line.len() < MAX_LINE {
+                line.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                line.push(byte);
+            }
         }
     }
-
-    /// How many quotes there are.
-    fn count(&self) -> usize {
-        self.as_str().lines().filter_map(parse).count()
+    if !line.is_empty() {
+        let _ = emit(&mut line, first);
     }
+    Ok(())
+}
 
-    /// The quote after `skip` others.
-    fn nth(&self, skip: usize) -> Result<Option<Quote>, Error> {
-        match self.as_str().lines().filter_map(parse).nth(skip) {
-            Some((text, author)) => Ok(Some(Quote {
-                text: copy(text)?,
-                author: copy(author)?,
-            })),
-            None => Ok(None),
+/// Hands each line of `list` on until `visit` breaks.
+fn lines_of(
+    host: &Host<'_>,
+    list: List<'_>,
+    visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
+) -> Result<(), Error> {
+    match list {
+        List::Carried(text) => {
+            for line in text.lines() {
+                if visit(line).is_break() {
+                    break;
+                }
+            }
+            Ok(())
         }
+        List::File(root, name) => each_line(
+            &mut |at, out| storage::read_at(host, root, name, at, out),
+            visit,
+        ),
     }
 }
 
 /// PaperPaw's quotes in `tongue` (`de` or `en`): the install folder's file,
 /// else those the code carries; `None` for neither.
-fn shipped(host: &Host<'_>, tongue: &str) -> Result<Option<List>, Error> {
-    let name = concat(&["data/quotes.", tongue, ".txt"])?;
-    match files::read_all(host, Root::Install, &name, LIST_LIMIT) {
-        Ok(Some(bytes)) => return Ok(Some(List::Read(bytes))),
-        Err(Error::NoMemory) => return Err(Error::NoMemory),
-        // No folder (the plugin is part of the app) or no file.
-        Ok(None) | Err(_) => {}
+fn shipped<'a>(host: &Host<'_>, name: &'a str, tongue: &str) -> Option<List<'a>> {
+    if storage::size(host, Root::Install, name).is_ok() {
+        return Some(List::File(Root::Install, name));
     }
-    Ok(carried(tongue).map(List::Carried))
+    carried(tongue).map(List::Carried)
 }
 
 #[cfg(feature = "embedded-quotes")]
@@ -302,33 +354,54 @@ fn carried(_tongue: &str) -> Option<&'static str> {
     None
 }
 
-/// The reader's own quotes; `None` without a file (or one too large).
-fn own(host: &Host<'_>) -> Result<Option<List>, Error> {
-    match files::read_all(host, Root::Data, OWN_FILE, LIST_LIMIT) {
-        Ok(found) => Ok(found.map(List::Read)),
-        Err(Error::NoMemory) => Err(Error::NoMemory),
-        Err(_) => Ok(None),
-    }
-}
-
 /// The quote at `position` of the shipped ones and then the reader's own
-/// (which of `total` is for `position` to say); `None` without any.
+/// (which of `total` is for `position` to say); `None` without any. `lines`
+/// reads a list.
 fn quote_at(
-    shipped: Option<&List>,
-    own: Option<&List>,
+    lines: &dyn Fn(List<'_>, &mut dyn FnMut(&str) -> ControlFlow<()>) -> Result<(), Error>,
+    (shipped, own): (Option<List<'_>>, Option<List<'_>>),
     position: impl Fn(usize) -> usize,
 ) -> Result<Option<Quote>, Error> {
-    let from_shipped = shipped.map_or(0, List::count);
-    let from_own = own.map_or(0, List::count);
+    let count = |list: Option<List<'_>>| -> Result<usize, Error> {
+        let mut count = 0;
+        if let Some(list) = list {
+            lines(list, &mut |line| {
+                count += usize::from(parse(line).is_some());
+                ControlFlow::Continue(())
+            })?;
+        }
+        Ok(count)
+    };
+    let (from_shipped, from_own) = (count(shipped)?, count(own)?);
     let total = from_shipped + from_own;
     if total == 0 {
         return Ok(None);
     }
     let at = position(total) % total;
-    if at < from_shipped {
-        return shipped.map_or(Ok(None), |list| list.nth(at));
-    }
-    own.map_or(Ok(None), |list| list.nth(at - from_shipped))
+    let (list, skip) = if at < from_shipped {
+        (shipped, at)
+    } else {
+        (own, at - from_shipped)
+    };
+    let Some(list) = list else {
+        return Ok(None);
+    };
+    let (mut found, mut failed, mut index) = (None, None, 0);
+    lines(list, &mut |line| {
+        let Some((text, author)) = parse(line) else {
+            return ControlFlow::Continue(());
+        };
+        if index < skip {
+            index += 1;
+            return ControlFlow::Continue(());
+        }
+        match (copy(text), copy(author)) {
+            (Ok(text), Ok(author)) => found = Some(Quote { text, author }),
+            (Err(error), _) | (_, Err(error)) => failed = Some(error),
+        }
+        ControlFlow::Break(())
+    })?;
+    failed.map_or(Ok(found), Err)
 }
 
 /// Today's quote, turned on as often as tapped (and, where another shows each
@@ -344,20 +417,22 @@ fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
     let turns = Turns::load(cx.host)?.on(day, daily).wrapping_add(showing);
     let tag = cx.tr("widgets.quote.language")?;
     let tongue = if tag.starts_with("de") { "de" } else { "en" };
+    let name = concat(&["data/quotes.", tongue, ".txt"])?;
+    let host = cx.host;
     let shipped = if source == Source::Own {
         None
     } else {
-        shipped(cx.host, tongue)?
+        shipped(host, &name, tongue)
     };
-    let own = if source == Source::Shipped {
-        None
-    } else {
-        own(cx.host)?
-    };
-    quote_at(shipped.as_ref(), own.as_ref(), |total| {
-        let first = if daily { of_the_day(day, total) } else { 0 };
-        first.wrapping_add(turns as usize)
-    })
+    let own = (source != Source::Shipped).then_some(List::File(Root::Data, OWN_FILE));
+    quote_at(
+        &|list, visit| lines_of(host, list, visit),
+        (shipped, own),
+        |total| {
+            let first = if daily { of_the_day(day, total) } else { 0 };
+            first.wrapping_add(turns as usize)
+        },
+    )
 }
 
 /// What the settings make drawn change, as a number: the day (where it
@@ -696,12 +771,46 @@ mod tests {
         assert_eq!(Turns::parse(b""), Turns::default());
     }
 
+    /// Reads lists from memory, three bytes at a time (so that lines span
+    /// reads): the files by name, `Carried` lists from their text.
+    #[allow(clippy::type_complexity, reason = "the shape of `quote_at`'s reader")]
+    fn memory<'a>(
+        files: &'a [(&'a str, &'a [u8])],
+    ) -> impl Fn(List<'_>, &mut dyn FnMut(&str) -> ControlFlow<()>) -> Result<(), Error> + 'a {
+        move |list, visit| match list {
+            List::Carried(text) => {
+                for line in text.lines() {
+                    if visit(line).is_break() {
+                        break;
+                    }
+                }
+                Ok(())
+            }
+            List::File(_, name) => {
+                let Some((_, bytes)) = files.iter().find(|(n, _)| *n == name) else {
+                    return Ok(());
+                };
+                each_line(
+                    &mut |at, out| {
+                        let part = bytes.get(at as usize..).unwrap_or(&[]);
+                        let n = part.len().min(out.len()).min(3);
+                        out[..n].copy_from_slice(&part[..n]);
+                        Ok(n)
+                    },
+                    visit,
+                )
+            }
+        }
+    }
+
     #[test]
     fn the_shipped_quotes_come_first_then_the_readers_own() {
         let shipped = List::Carried("One | A\nTwo | B\n");
-        let own = List::Read(b"# mine\nThree | C\n".to_vec());
+        let own = List::File(Root::Data, "own");
+        let files: [(&str, &[u8]); 1] = [("own", b"# mine\r\nThree | C\r\n")];
+        let lines = memory(&files);
         let at = |n: usize| {
-            quote_at(Some(&shipped), Some(&own), |_| n)
+            quote_at(&lines, (Some(shipped), Some(own)), |_| n)
                 .unwrap()
                 .unwrap()
                 .text
@@ -711,15 +820,64 @@ mod tests {
         assert_eq!(at(2), "Three");
         // Past the end it starts again.
         assert_eq!(at(3), "One");
-        assert!(quote_at(None, None, |_| 0).unwrap().is_none());
-        let only = quote_at(None, Some(&own), |_| 7).unwrap().unwrap();
+        assert!(quote_at(&lines, (None, None), |_| 0).unwrap().is_none());
+        let only = quote_at(&lines, (None, Some(own)), |_| 7).unwrap().unwrap();
         assert_eq!((only.text.as_str(), only.author.as_str()), ("Three", "C"));
+        // A file that is not there has no quotes.
+        let missing = List::File(Root::Data, "nothing");
+        assert!(
+            quote_at(&lines, (None, Some(missing)), |_| 0)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
-    fn text_that_is_not_utf8_is_read_up_to_it() {
-        let list = List::Read(b"Fine | Me\n\xff broken\n".to_vec());
-        assert_eq!(list.count(), 1);
+    fn a_large_file_of_the_reader_is_read_to_its_end() {
+        let mut text = String::new();
+        for n in 0..4000 {
+            text.push_str(&alloc::format!("Quote number {n} | Me\n"));
+        }
+        assert!(text.len() > 40 * 1024);
+        let files: [(&str, &[u8]); 1] = [("own", text.as_bytes())];
+        let lines = memory(&files);
+        let own = List::File(Root::Data, "own");
+        let last = quote_at(&lines, (None, Some(own)), |total| total - 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(last.text, "Quote number 3999");
+    }
+
+    #[test]
+    fn lines_are_cut_cleaned_and_read_up_to_text() {
+        let long = alloc::vec![b'a'; MAX_LINE + 500];
+        let mut file = b"\xef\xbb\xbfFirst\r\nFine \xff broken\n".to_vec();
+        file.extend_from_slice(&long);
+        file.extend_from_slice(b"\nlast without a break");
+        let mut seen = Vec::new();
+        each_line(
+            &mut |at, out| {
+                let part = file.get(at as usize..).unwrap_or(&[]);
+                let n = part.len().min(out.len()).min(7);
+                out[..n].copy_from_slice(&part[..n]);
+                Ok(n)
+            },
+            &mut |line| {
+                seen.push(String::from(line));
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+        assert_eq!(seen.len(), 4);
+        assert_eq!(seen[0], "First");
+        assert_eq!(seen[1], "Fine ");
+        assert_eq!(seen[2].len(), MAX_LINE);
+        assert_eq!(seen[3], "last without a break");
+        // A reader that fails ends the read with its error.
+        let failed = each_line(&mut |_, _| Err(Error::Busy), &mut |_| {
+            ControlFlow::Continue(())
+        });
+        assert_eq!(failed, Err(Error::Busy));
     }
 
     #[test]

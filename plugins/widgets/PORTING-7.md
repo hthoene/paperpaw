@@ -118,7 +118,7 @@ reading and by the kit's own sweeps.
   open does nothing, the first answer counts.
 - Quote: PaperPaw's quotes come from `data/quotes.<language>.txt` in the install
   folder (else those the app carries), the reader's own from `quotes.txt` in the
-  data folder (up to 24 KiB; a larger file is left out). The turns are kept in
+  data folder; both are streamed a line at a time (a line over 4096 bytes is cut, a file of any size is read to its end). The turns are kept in
   `quote.txt` of the data folder. The UI language is not in the snapshot: the
   catalog key `widgets.quote.language` carries the language tag (`en`, `de`, ...)
   to pick the file and the quotation marks. Reported to Kernel; a language
