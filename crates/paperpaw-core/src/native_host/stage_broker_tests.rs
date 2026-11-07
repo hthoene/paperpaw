@@ -443,6 +443,50 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
 }
 
 #[test]
+fn retired_registry_keys_are_skipped_without_cancelling_live_subscribers() {
+    let mut h = Harness::new();
+    let retired = h.add("retired", Behavior::Good);
+    let live = h.add("live", Behavior::Good);
+    h.registry.retire(retired).unwrap();
+    let replacement = h.add("retired", Behavior::Good);
+    assert!(replacement > retired);
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(
+        &schema,
+        &h.depth,
+        &input,
+        &h.registry,
+        [
+            row(retired, 9, -1, 0),
+            row(live, 1, 0, 0),
+            row(replacement, 2, 0, 0),
+        ],
+    )
+    .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut target = Vec::new();
+    let outcome = run
+        .apply(
+            &mut target,
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            |target| copy_target(target),
+            apply,
+        )
+        .unwrap();
+    assert_eq!(target, [1, 2]);
+    assert_eq!(
+        outcome,
+        Outcome {
+            applied: 2,
+            refused: 1
+        }
+    );
+}
+
+#[test]
 fn prepared_call_is_exactly_one_complete_record_without_padding() {
     let h = Harness::new();
     let schema = schema();

@@ -542,3 +542,77 @@ fn repeated_failed_admissions_reclaim_rows_and_recover_in_the_same_kernel() {
         "a later retry must install and open successfully"
     );
 }
+
+#[test]
+fn native_unload_cleans_up_and_reinstall_uses_a_fresh_key() {
+    let mut kernel = kernel(0);
+    open(&mut kernel, Params::new());
+    let owner = Id::new_static("factory");
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    CHECK_TEARDOWN.with(|value| value.set(true));
+    kernel.unload_plugin(&owner);
+    CHECK_TEARDOWN.with(|value| value.set(false));
+    assert!(kernel.shared.native_instances.id(old).is_none());
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    assert!(
+        !kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
+    assert!(kernel.stack.is_empty());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    assert_eq!(TEARDOWN_STATUS.with(Cell::get), host_glue::ERR_STATE);
+    install(&mut kernel, 0).unwrap();
+    let new = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(new > old);
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+}
+
+#[test]
+fn failed_publication_reclaims_row_then_retry_publishes_under_a_fresh_key() {
+    let mut kernel = kernel(0);
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    // Keep the old factory to force a conflict at publication, after binding.
+    kernel.shared.native_instances.retire(old).unwrap();
+    assert!(matches!(
+        install(&mut kernel, 0),
+        Err(Error::Status(ERR_INVALID))
+    ));
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    kernel
+        .shared
+        .registry
+        .screens
+        .remove_native_owner("factory");
+    install(&mut kernel, 0).unwrap();
+    let new = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(
+        new > old + 1,
+        "the refused publication consumed its own identity"
+    );
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+}
+
+#[test]
+fn busy_native_unload_revokes_immediately_and_retries_cleanup_under_the_same_key() {
+    let mut kernel = kernel(0);
+    let owner = Id::new_static("factory");
+    let key = kernel.shared.native_instances.find("factory").unwrap();
+    crate::native_host::shell::teardown_fault::arm(
+        crate::native_host::TeardownStep::Release,
+        crate::native_host::Error::Busy,
+    );
+    kernel.unload_plugin(&owner);
+    assert!(kernel.shared.native_instances.id(key).is_none());
+    assert_eq!(kernel.shared.native_instances.find("factory"), Some(key));
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    kernel.unload_plugin(&owner);
+    assert_eq!(kernel.shared.native_instances.find("factory"), None);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    install(&mut kernel, 0).unwrap();
+    assert!(kernel.shared.native_instances.find("factory").unwrap() > key);
+}

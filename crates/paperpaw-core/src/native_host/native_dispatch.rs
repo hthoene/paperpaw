@@ -140,4 +140,15 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn stop(&self) {
         self.instance.host().stop();
     }
+    fn retire(&self, owner: u64) -> Result<(), i32> {
+        self.instance.host().stop();
+        if owner != self.identity.owner() {
+            return Err(host_glue::ERR_STATE);
+        }
+        self.instance
+            .host()
+            .owner()
+            .prepare_teardown()
+            .map_err(|error| status(shell::Error::Lifecycle(error)))
+    }
 }

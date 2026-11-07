@@ -875,7 +875,18 @@ impl Kernel {
     /// it in the list of plugins. What was chosen from it stays chosen
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
-    fn unload_plugin(&mut self, id: &Id) {
+    pub(crate) fn unload_plugin(&mut self, id: &Id) {
+        if let Some(key) = self.shared.native_instances.find(id.as_str()) {
+            if self.shared.native_instances.retire(key).is_err() {
+                self.warn_runtime("native owner cleanup is busy; unload must be retried");
+                return;
+            }
+            self.remove_retired_native_screens(id);
+            self.shared
+                .registry
+                .screens
+                .remove_native_owner(id.as_str());
+        }
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());
         self.close_ended_runs();

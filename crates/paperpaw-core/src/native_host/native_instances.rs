@@ -13,6 +13,11 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    /// Revoke before owner cleanup; the registry supplies the original key.
+    fn retire(&self, _owner: u64) -> Result<(), i32> {
+        self.stop();
+        Ok(())
+    }
 }
 
 pub(crate) struct NativeLease(Shared<Box<dyn NativeInstance>>);
@@ -131,7 +136,9 @@ impl NativeInstances {
     }
 
     pub(crate) fn id(&self, key: usize) -> Option<&Id> {
-        self.entry(key).map(|entry| &entry.id)
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .map(|entry| &entry.id)
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<usize> {
@@ -218,6 +225,26 @@ impl NativeInstances {
         })
     }
 
+    /// Retire a published owner. Cleanup is retryable under the same key;
+    /// callbacks and broker lookup are revoked even when cleanup is busy.
+    pub(crate) fn retire(&mut self, key: usize) -> Result<(), i32> {
+        let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
+        entry.enabled = false;
+        entry.start.set(false);
+        if let Some(instance) = &entry.instance {
+            instance
+                .0
+                .retire(u64::try_from(key).map_err(|_| ERR_FULL)?)?;
+        }
+        let at = self
+            .entries
+            .iter()
+            .position(|entry| entry.key == key)
+            .ok_or(ERR_STATE)?;
+        self.entries.swap_remove(at);
+        Ok(())
+    }
+
     /// Reclaim a failed admission without reusing its key or moving any identity.
     pub(crate) fn abandon(&mut self, key: usize) -> Result<(), i32> {
         self.stop(key)?;
@@ -283,6 +310,7 @@ mod tests {
     struct Fake {
         active: Cell<bool>,
         drops: Rc<Cell<u32>>,
+        retired: Rc<Cell<Option<u64>>>,
     }
     impl Drop for Fake {
         fn drop(&mut self) {
@@ -295,6 +323,11 @@ mod tests {
         }
         fn stop(&self) {
             self.active.set(false);
+        }
+        fn retire(&self, owner: u64) -> Result<(), i32> {
+            self.stop();
+            self.retired.set(Some(owner));
+            Ok(())
         }
     }
     impl Dispatch for Fake {
@@ -322,6 +355,7 @@ mod tests {
         let instance = NativeLease::try_new(Fake {
             active: Cell::new(true),
             drops: drops.clone(),
+            retired: Rc::new(Cell::new(None)),
         })
         .unwrap();
         let mut registry = NativeInstances::default();
@@ -408,5 +442,29 @@ mod tests {
             Err(ERR_FULL)
         );
         assert_eq!(registry.retained_rows().0, 1);
+    }
+    #[test]
+    fn retirement_passes_original_key_to_cleanup_and_reclaims_the_row() {
+        let mut registry = NativeInstances::default();
+        let retired = Rc::new(Cell::new(None));
+        let drops = Rc::new(Cell::new(0));
+        let lease = NativeLease::try_new(Fake {
+            active: Cell::new(true),
+            drops: drops.clone(),
+            retired: retired.clone(),
+        })
+        .unwrap();
+        let key = registry
+            .insert(Id::new_static("probe"), Some(lease), true)
+            .unwrap();
+        registry.retire(key).unwrap();
+        assert_eq!(retired.get(), Some(key as u64));
+        assert_eq!(drops.get(), 1);
+        assert!(registry.id(key).is_none());
+        assert_eq!(registry.retained_rows().0, 0);
+        let replacement = registry
+            .insert(Id::new_static("probe"), None, true)
+            .unwrap();
+        assert!(replacement > key);
     }
 }
