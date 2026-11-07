@@ -212,6 +212,8 @@ impl Fragment {
             Record::ServiceDocColumns(columns) => {
                 // Up to 16 little-endian u16 weights.
                 self.columns += 1;
+                // One per table row, whatever the fragments.
+                require(self.columns <= 1)?;
                 require(columns.weights.len() % 2 == 0 && columns.weights.len() <= 32)?;
             }
             Record::ServiceDocCell(_) => {

@@ -141,8 +141,11 @@ pub(crate) trait DocHost {
     /// gets op 4 `close` and every image id of the document ends. Best
     /// effort; nothing the format says can fail it.
     fn document_ended(&self, document: &Document);
-    /// The host closed a document on its own (three malformed answers):
-    /// the opener gets `event.document_closed`.
+    /// The host closed a document on its own (three malformed answers, the
+    /// format plugin stopped): the opener gets `event.document_closed` and
+    /// every image id of the document ends now. It never calls the format;
+    /// unless `format_gone`, the opener's later `close` still does
+    /// (`document_ended`).
     fn document_closed(&self, document: &Document, reason: u32);
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
@@ -191,8 +194,9 @@ pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
 }
 
 /// A format plugin stopped or was uninstalled: its documents are closed by the
-/// host (reason 1), each opener hears `event.document_closed`, and the format
-/// is not called again. The shell calls it when a format plugin stops.
+/// host (reason 1), their image ids end, each opener hears
+/// `event.document_closed`, and the format is not called again (not even by
+/// the opener's later `close`). The shell calls it when a format plugin stops.
 pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
     host.table()
         .cancel_format(format, 1, |document| host.document_closed(document, 1))
@@ -367,7 +371,11 @@ fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
         return Err(ERR_INVALID);
     };
     let document = host.table().close(host.owner(), reference.document)?;
-    host.document_ended(&document);
+    // A format that stopped is not called again; its documents' images ended
+    // when the host closed them (`format_stopped`).
+    if !document.format_gone {
+        host.document_ended(&document);
+    }
     Ok(0)
 }
 
