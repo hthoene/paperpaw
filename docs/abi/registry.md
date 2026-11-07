@@ -57,29 +57,33 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | Id | Op | Input | Reply | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | `settings` | `reg_query` (`scope`: group id, plugin id or empty for all) | `reg_setting`*, `end` | registry order |
-| 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`?, `reg_choice`* | one setting in full; `max_reply` 4,096; more than fits of the choices: section 3 |
-| 3 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
-| 4 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
-| 5 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`?, `reg_need`* | description, features, requirements |
-| 6 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
-| 7 | `screens` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
-| 8 | `slots` | `reg_query` (`scope` empty) | `reg_slot`*, `end` | with the bound and the default screen |
-| 9 | `menu` | `reg_query` (`scope`: menu id) | `reg_menu_row`*, `end` | evaluated rows, section 2.4 |
-| 10 | `bindings` | `reg_query` (`scope`: layer id, `global` or empty for all layers) | `reg_binding`*, `end` | |
-| 11 | `inputs` | `reg_query` (`scope` empty) | `reg_item`*, `end` | the inputs this device has (`button.menu`, `tap.center`, ...) |
-| 12 | `setup` | `reg_query` (`scope` empty) | `reg_setup_step`*, `end` | evaluated applicability, section 6 |
-| 13 | `presets` | `reg_query` (`scope`: preset kind, e.g. `core.power-mode`, or empty) | `reg_item`*, `end` | |
-| 14 | `preset` | `reg_key` | `reg_item`, `reg_text`?, `reg_value`* | description and values; fewer than fit: flag `long` |
-| 15 | `placement` | `reg_query` (`scope`: a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values that placement sets |
+| 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`? | one setting in full (help text) |
+| 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
+| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
+| 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
+| 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`?, `reg_need`* | description, features, requirements |
+| 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
+| 8 | `screens` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
+| 9 | `slots` | `reg_query` (`scope` empty) | `reg_slot`*, `end` | with the bound and the default screen |
+| 10 | `slot_offers` | `reg_query` (`scope`: slot id) | `reg_item`*, `end` | screens offered for the slot, highest priority first |
+| 11 | `menus` | `reg_query` (`scope` empty) | `reg_item`*, `end` | every menu id |
+| 12 | `menu` | `reg_query` (`scope`: menu id) | `reg_menu_row`*, `end` | evaluated rows, section 2.4 |
+| 13 | `bindings` | `reg_query` (`scope`: layer id, `global` or empty for all layers) | `reg_binding`*, `end` | |
+| 14 | `inputs` | `reg_query` (`scope` empty) | `reg_item`*, `end` | the inputs this device has (`button.menu`, `tap.center`, ...) |
+| 15 | `setup` | `reg_query` (`scope` empty) | `reg_setup_step`*, `end` | evaluated applicability, section 6 |
+| 16 | `presets` | `reg_query` (`scope`: preset kind, e.g. `core.power-mode`, or empty) | `reg_item`*, `end` | |
+| 17 | `preset` | `reg_key` | `reg_item`, `reg_text`? | name and description |
+| 18 | `values` | `reg_query` (`scope`: a preset id, or with `flags` bit 0 a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values a preset or a placement sets, whole |
+| 19 | `widgets` | `reg_query` (`scope`: widget kind or empty) | `reg_widget`*, `end` | widget discovery, section 6 |
 
 - [D] `scope` that names nothing known gives an empty page (`total` 0), not an error: a plugin may
   ask for a group or menu of a plugin that is not installed.
 - [D] `setting` and `plugin` with an unknown key: `ERR_NOT_FOUND`.
-- [Q] Op 13 `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
+- [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
 
 ### 2.3 Authority (what a reply shows)
 
-- [D] **Values:** `reg_setting.value` carries the value exactly when slot 16 would give it to the
+- [D] **Values:** `reg_setting.value` carries the value exactly when slot 5 would give it to the
   caller. Otherwise it is empty and flag `hidden` is set. A **secret** setting is never shown,
   only whether it has a value (`has_value`). This is the rule of `event.setting_changed.old`.
 - [D] **Guarded** settings are listed with flag `guarded`; writing them follows `commands.md`
@@ -97,7 +101,9 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
   carries the item's last pushed state (`command.set_item_state`: checked, enabled, shown, label,
   badge), resolved to text in the user's language.
 - [D] The editor's "all entries" view is `menu` with `flags` bit 0 (`all`): every row that could be
-  in the menu, hidden ones flagged `hidden`, and rows the user removed flagged `removed`.
+  in the menu, hidden ones flagged `hidden`, and rows the user removed flagged `removed`. `flags`
+  bit 1 (`declared`) answers the declared rows in declared order, ignoring the user's definition:
+  the default order the editor resets to. User order and reset stay distinct.
 
 ## 3. Records (service block, 1025-1047)
 
@@ -118,24 +124,24 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1032 | `service.reg_plugin` | `id: str 64`, `name: str 128`, `version: str 32`, `kind: u32`, `state: u32`, `flags: u32`, `problem: u32`, `problem_arg: u32`, `update: str 32` |
 | 1033 | `service.reg_need` | `kind: u32`, `key: str 128`, `version: str 32`, `flags: u32` |
 | 1034 | `service.reg_item` | `id: str 128`, `plugin: str 64`, `flags: u32`, `title: str 128` |
-| 1035 | `service.reg_slot` | `id: str 128`, `screen: str 128`, `default: str 128`, `title: str 128` |
+| 1035 | `service.reg_slot` | `id: str 128`, `screen: str 128`, `default: str 128`, `flags: u32`, `title: str 128` |
 | 1036 | `service.reg_menu_row` | `item: str 128`, `kind: u32`, `flags: u32`, `order: i32`, `by: str 64`, `title: str 128`, `icon: str 64`, `badge: str 64`, `describe: str 128` |
 | 1037 | `service.reg_binding` | `layer: str 128`, `input: str 64`, `action: str 128`, `origin: u32` |
 | 1038 | `service.reg_setup_step` | `id: str 128`, `page_kind: u32`, `page: str 128`, `order: i32`, `flags: u32`, `title: str 128` |
-| 1039 | `service.reg_value` | `key: str 128`, `value: bytes 128`, `flags: u32` |
+| 1039 | `service.reg_value` | `key: str 128`, `value: bytes 512`, `flags: u32` |
+| 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128` |
 
 Field meanings:
 
 - `reg_setting.kind`: the `setting.spec` kind numbers. `flags`: bit 0 guarded, 1 secret, 2 scoped,
   3 kept on reset, 4 advanced, 5 hidden (value withheld), 6 has value, 7 long (value over 64
-  bytes: read it with slot 16), 8 preview (the value shown is a preview, section 4.4), 9 shown (its `shown_if` holds now), 10
+  bytes: read it with slot 5), 8 preview (the value shown is a preview, section 4.4), 9 shown (its `shown_if` holds now), 10
   governs (another setting's `shown_if` names it: re-read the list when it changes). `source`:
   0 default, 1 preset, 2 profile, 3 user, 4 book scope.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
 - `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs;
-  `choices` is the number of choices. `setting` answers as many `reg_choice` rows as fit after the
-  other records, in order; [Q] whether a choice list longer than a page needs a paged `choices` op
-  (Plugin's inventory: the longest list today).
+  `choices` is the number of choices, read with op 3 (paged: foreign `setting.choice` extensions
+  make the count open; the longest fixed list today is 33).
 - `reg_text` in `setting` is the help text; in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
@@ -149,13 +155,17 @@ Field meanings:
   enabled, 2 hidden, 3 removed, 4 user-defined menu, 5 in the declared rows (the editor's
   "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
   `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
-- `reg_value`: a setting id (with the placement for op 15) and its value, `settings_value`
-  encoding; `flags` bit 0 "as if not set" (a preset that resets it), bit 1 long (value over 128
-  bytes: read it with slot 16).
+- `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
+  encoding, never cut; `flags` bit 0 "as if not set" (a preset that resets it).
+- `reg_slot.flags`: bit 0 the user bound it (`command.bind_slot`); otherwise `screen` is the
+  default, the highest offer.
+- `reg_widget`: a widget the `core.widget` stage can make; `kind` its kind (category), `icon` the
+  kind's icon, `flags` bit 0 shown somewhere now.
 - `reg_item` for presets: `id` the preset, `plugin` who added it, `title` its name.
 - `reg_binding.origin`: interface-6 `BindingOrigin` (0 plugin, 1 device, 2 preset, 3 user); an
   empty `action` is "bound to nothing".
-- `reg_setup_step.page_kind`: 0 setting, 1 screen; `flags` bit 0 applies now, bit 1 done.
+- `reg_setup_step.page_kind`: 0 setting, 1 screen; `flags` bit 0 applies now. Whether a step is
+  done is the setup plugin's own state (its Data file), not the host's.
 
 ## 4. Commands (slot 15)
 
@@ -176,7 +186,6 @@ key and text bytes within the stage budget.
 | 1544 | `command.request_plugins` | `plugins: str 1024` |
 | 1545 | `command.answer_plugin` | `request: u32`, `plugin: str 64`, `outcome: u32` |
 | 1546 | `command.apply_preset` | `preset: str 128`, `flags: u32` |
-| 1547 | `command.setup_done` | `step: str 128`, `flags: u32` |
 
 ### 4.1 Settings
 
@@ -211,15 +220,13 @@ These change the user's configuration of the whole device, so they need the D1 f
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
   it is the only one) is `ERR_DENIED`.
 
-### 4.3 Presets and setup
+### 4.3 Presets
 
 - [D] `apply_preset` applies preset `preset` on the host: its values are set, and every setting of
   its kind it leaves out returns to its default (interface 6 `Preset::changes`), as one change.
   `flags` bit 0 previews it instead (section 4.4 rules, replacing any preview). Authority per
   setting as `command.set_setting`; a preset may not change guarded settings unless the submitter
   may (the batch is refused with `ERR_INVALID`). No feature: it changes settings, as slot 15 does.
-- [D] `setup_done` marks a setup step done (`flags` bit 0 clears it again). Only the plugin that
-  holds the setup slot (`core.setup`) may submit it; others get `ERR_DENIED`.
 
 ### 4.4 Preview
 
@@ -227,7 +234,7 @@ These change the user's configuration of the whole device, so they need the D1 f
   wholly. `flags` bit 0 previews "as if not set" (`value` empty). Values are checked as
   `command.set_setting` checks them. `preview_end` ends the preview. A preview also ends when the
   submitting screen closes (identity stamped at submit, as `set_scope`).
-- [D] While a preview is active, slot 16 and `reg_setting` give the previewed value (flag
+- [D] While a preview is active, slot 5 and `reg_setting` give the previewed value (flag
   `preview`). Only one preview exists device-wide; a new set from another plugin replaces it.
   Kernel side effects of a setting (language, rotation) wait for the kept value, as in
   interface 6.
@@ -238,23 +245,24 @@ These change the user's configuration of the whole device, so they need the D1 f
 | --- | --- | --- | --- |
 | 75 | `event.registry_changed` | `now_ms: u64`, `what: u32` | subscribers (hint) |
 | 76 | `event.preview_changed` | `now_ms: u64` | subscribers (hint) |
-| 77 | `event.plugins_requested` | `now_ms: u64`, `request: u32`, `by: str 64`, `plugins: str 1024` | the installer only |
+| 77 | `event.plugins_requested` | `now_ms: u64`, `request: u32`, `by: str 64`, `plugins: str 1024` | subscribers |
 | 78 | `event.plugin_answered` | `now_ms: u64`, `request: u32`, `plugin: str 64`, `outcome: u32` | the requesting plugin only |
 
 - [D] `registry_changed.what` bits: 0 menus, 1 bindings, 2 slots, 3 actions/screens, 4 setup, 5
-  groups, 6 presets. A hint (`core-events.md` section 2): re-read what you show. The registry generation
+  groups, 6 presets, 7 widgets. A hint (`core-events.md` section 2): re-read what you show. The registry generation
   (section 2.1) changed with it. Plugin set changes stay `event.plugins_changed` (70); setting
   values stay `event.setting_changed` (64).
 - [D] **Plugin requests.** `command.request_plugins` (ids, one per line, at most 16, the interface-6
   `MAX_REQUESTED_PLUGINS`) is refused with `ERR_INVALID` for a bad id. The host drops ids already on
   the device (any version, on or off); if none is left, nothing is sent. Otherwise it numbers the
-  request and raises `plugins_requested` with the host-known submitter as `by` to **the installer**:
-  [Q] the plugin bound to slot `core.installer` (the store), as interface 6 routes it today.
-  The installer asks the user and answers each id with `command.answer_plugin` (`outcome` 0
-  installed, 1 declined, 2 failed, 3 not found); the host checks that the submitter is the installer
-  and the request is open, and raises `plugin_answered` to the requester only. A request stays open
-  until every id is answered, the installer stops, or the device restarts; then the open ids are
-  answered `failed` by the host.
+  request and raises `plugins_requested`, with the host-known submitter as `by`, to the plugins
+  subscribed to it, as interface 6 does (the store subscribes; there is no installer role). With no
+  subscriber, every id is answered `failed` at once. A subscriber asks the user and answers each id
+  with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not found); the host
+  checks that the request and the id are open (else `ERR_STATE`; the first answer for an id wins)
+  and that the submitter is subscribed (else `ERR_DENIED`), and raises `plugin_answered` to the
+  requester only. A request stays open until every id is answered, every subscriber stopped, or
+  the device restarts; then the open ids are answered `failed` by the host.
 - [D] All four follow the EVT pending limits and drop rules (`core-events.md` section 3.3).
   `plugins_requested` and `plugin_answered` are edges and never coalesced; the two hints are.
 
@@ -266,7 +274,7 @@ declaring plugin, as in `setting.spec`.
 
 | Tag | Record | Fields | Interface 6 |
 | --- | --- | --- | --- |
-| 21 | `setup.step` | `name: str 128`, `title: str 128`, `help: str 128`, `order: i32`, `page_kind: u32`, `page: str 128`, `applies_key: str 128`, `applies_value: bytes 64` | `add_setup_step` |
+| 21 | `setup.step` | `name: str 128`, `title: str 128`, `help: str 128`, `order: i32`, `page_kind: u32`, `page: str 128`, `applies_key: str 128`, `applies_value: bytes 64`, `need: u32`, `capability: u64`, `flags: u32` | `add_setup_step` |
 | 22 | `slot.spec` | `name: str 128`, `title: str 128` | `add_slot` |
 | 23 | `slot.offer` | `slot: str 128`, `screen: str 128`, `priority: i32` | `bind_slot` |
 | 24 | `key.bind` | `layer: str 128`, `input: str 64`, `action: str 128`, `when_key: str 128`, `when_value: bytes 64` | `add_keymap`, `add_keymap_when` |
@@ -275,10 +283,17 @@ declaring plugin, as in `setting.spec`.
 | 27 | `preset.spec` | `name: str 128`, `kind: str 128`, `title: str 128`, `help: str 128` | `add_preset(s)`, `presets.ini` |
 | 28 | `preset.value` | `preset: str 128`, `key: str 128`, `value: bytes 512`, `flags: u32` | the preset's lines |
 
-- [D] **Setup applicability** replaces the interface-6 `AppliesFn` callback with the `shown_if`
-  rule of `setting.extra`: the step applies while setting `applies_key` has the value
-  `applies_value` (empty key: always). The host evaluates it for op `setup`; no plugin code runs.
-  `key.bind`'s `when_*` is the same rule for `add_keymap_when`.
+- [D] **Setup applicability** replaces the interface-6 `AppliesFn` callback; no plugin code runs
+  while the host answers op `setup`. A step applies when all three hold:
+  1. the `shown_if` rule of `setting.extra`: setting `applies_key` has the value `applies_value`
+     (empty key: always);
+  2. the device meets `need`/`capability`, with the meaning of `menu.need` (Wi-Fi present,
+     firmware updates present, ...);
+  3. the declaring plugin's last pushed state for the step: `command.set_item_state` (60) naming
+     the step's id, flag `shown` = applies. Before any push, `flags` bit 0 of the declaration
+     decides (set: applies). This carries what only the plugin knows (the store: "offerings to
+     install exist").
+  `key.bind`'s `when_*` is rule 1 for `add_keymap_when`.
 - [D] **Foreign extensions** (`setting.default`, `setting.choice`) name another plugin's setting.
   Precedence is interface 6's: the owner's default, then extensions in plugin load order; the user's
   value always wins. An extension of a guarded or secret setting, or of a setting that does not
@@ -288,9 +303,9 @@ declaring plugin, as in `setting.spec`.
   `command.bind_slot` wins.
 - [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
   `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
-- [Q] Widgets and widget places (`add_widget`, `add_widget_place`, `env.widgets()`) are the
-  `core.widget` stage's contract (STG own work, UIX composition), not REG; REG lists them only if
-  that contract asks for a registry op.
+- [D] **Widgets:** their declaration and drawing (`add_widget`, `add_widget_place`, `make`,
+  `preview`) are the `core.widget` stage's contract (STG own work, UIX composition). Discovery
+  (`iter`, `kinds`, `category_icon`, `has`, `shown`) is REG op 19 over what that contract admits.
 
 ## 7. Memory (X4)
 
@@ -308,16 +323,17 @@ declaring plugin, as in `setting.spec`.
 
 | Interface 6 | Interface 7 |
 | --- | --- |
-| `env.settings()` specs, groups, values | ops 1-3; values also slot 16 |
-| `env.plugins()` | ops 4, 5; `event.plugins_changed` |
-| `env.actions()`, `env.screens()`, `env.screen_title()` | ops 6, 7 |
-| `env.slots()`, `slot_screen`, `slot_screens`, `slot_title`, `slot_choice`, `has_slot` | op 8 |
-| `env.menus()` (`MenuView`) | op 9 |
-| `env.keys()` (`KeyBindings`), `env.inputs()` | ops 10, 11 |
-| `env.setup()` | op 12, declaration `setup.step`, `command.setup_done` |
-| `env.settings().presets()`, `Preset::changes` | ops 13, 14, `command.apply_preset` |
-| `placement_values`, `with_placement` | op 15, `reset_setting` bit 3; [Q] slot 16 placement reads |
+| `env.settings()` specs, groups, values | ops 1-4; values also slot 5 (`settings.read`) |
+| `env.plugins()` (`get`, `iter`, `owner`, `restart_needed`, `kernel`) | ops 5, 6; `event.plugins_changed` |
+| `env.actions()`, `env.screens()`, `env.screen_title()` | ops 7, 8 |
+| `env.slots()`, `slot_screen`, `slot_screens`, `slot_title`, `slot_choice`, `has_slot` | ops 9, 10 |
+| `env.menus()` (`menu_ids`, `ids`, `items`, `shown_items`, `default_ids`, `is_customized`, `hidden_by`, `state`, `icon`, `description`, `order_of`, `available`) | ops 11, 12 |
+| `env.keys()` (`KeyBindings`), `env.inputs()` | ops 13, 14 |
+| `env.setup()`, `applying` | op 15, declaration `setup.step`, item state 60 |
+| `env.settings().presets()`, `Preset::changes` | ops 16-18, `command.apply_preset` |
+| `placement_values`, `with_placement` | op 18, `reset_setting` bit 3; [Q] slot 5 placement reads |
 | `governs`, `shows`, `is_scoped`, `previewing`, `group_of`, `parent_of`, `within` | `reg_setting` flags, `reg_group` |
+| `env.widgets()` (`iter`, `kinds`, `category_icon`, `has`, `shown`) | op 19; `make`, `preview`: `core.widget` |
 | `r.add_setup_step`, `add_slot`, `bind_slot`, `add_keymap(_when)`, `set_setting_default`, `add_choice`, `add_preset(s)` | declarations 21-28 |
 | `Command::SetSetting` | `command.set_setting` (4), unchanged |
 | `Command::ResetSetting` | `command.reset_setting` |
@@ -337,15 +353,12 @@ declaring plugin, as in `setting.spec`.
 - **Kernel:** records and schema in `abi.def` and `abi/services/core.registry@1.def`, generator,
   lock, tests of the pinned lists; this document final.
 - **Core:** the `core.registry` service over the host tables (paging, generation, translation,
-  authority), the command arms, the four events, `setup.step` admission.
+  authority), the command arms, the four events, `setup.step` and the other declarations' admission.
 - **Services:** the SDK facade (typed rows, paging iterator, command builders).
 - **Plugin:** the ports; confirm the [Q] items from the needs inventory.
 
 ## 10. Open questions
 
-1. [Q] The installer's identity (section 5): a slot (`core.installer`), a declared role, or a stage.
-2. [Q] Choice lists longer than one `setting` page (section 3); the inventory found no maximum.
-3. [Q] Slot 16 and placement ids: does `widgets.clock@2.face` read fall back to `widgets.clock.face`
-   on the host (as `with_placement`), or does the SDK ask twice?
-4. [Q] Plugin-defined inputs and gestures (`InputSpec`, `GestureSpec`): UIX or later.
-5. [Q] Widgets (section 6).
+1. [Q] Slot 5 and placement ids: does a read of `widgets.clock@2.face` fall back to
+   `widgets.clock.face` on the host (as `with_placement`), or does the SDK ask twice?
+2. [Q] Plugin-defined inputs and gestures (`InputSpec`, `GestureSpec`): UIX or later.
