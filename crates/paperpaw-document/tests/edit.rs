@@ -1,7 +1,7 @@
 //! Fallible edits of a block (`Block::try_transform`, `TextEdit`):
 //! refusals, a limit reached and a filter's own error leave the block
-//! unchanged, and every allocation an edit makes fails cleanly where the
-//! heap refuses it.
+//! unchanged, every allocation an edit makes fails cleanly where the
+//! heap refuses it, and the heap an edit takes stays under its limit.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,17 +15,50 @@ use std::cell::Cell;
 use paperpaw_document::{Align, Block, BlockKind, EditError, ImageRef, OffsetMap, Run, TextStyle};
 
 /// Fails the n-th allocation of this thread from now (0: none), so each
-/// allocation of an edit can be refused in turn.
+/// allocation of an edit can be refused in turn, and counts this thread's
+/// allocation attempts and the bytes it holds.
 struct Refusing;
 
 thread_local! {
     static FAIL_IN: Cell<usize> = const { Cell::new(0) };
+    static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+    static LIVE: Cell<isize> = const { Cell::new(0) };
+    static PEAK: Cell<isize> = const { Cell::new(0) };
+}
+
+/// Counts an attempt to allocate `bytes` more.
+fn attempt() {
+    let _ = ATTEMPTS.try_with(|n| n.set(n.get() + 1));
+}
+
+/// Adds `delta` to the bytes this thread holds.
+fn hold(delta: isize) {
+    let _ = LIVE.try_with(|live| {
+        live.set(live.get() + delta);
+        let _ = PEAK.try_with(|peak| peak.set(peak.get().max(live.get())));
+    });
+}
+
+/// The allocation attempts and the most bytes held above the start while
+/// `f` runs.
+fn observe<T>(f: impl FnOnce() -> T) -> (T, usize, usize) {
+    let attempts = ATTEMPTS.with(Cell::get);
+    let base = LIVE.with(Cell::get);
+    PEAK.with(|peak| peak.set(base));
+    let value = f();
+    let peak = PEAK.with(Cell::get) - base;
+    (
+        value,
+        ATTEMPTS.with(Cell::get) - attempts,
+        usize::try_from(peak).unwrap(),
+    )
 }
 
 // SAFETY: forwards to the system allocator, or returns null (a refusal),
 // which callers of `GlobalAlloc` must handle.
 unsafe impl GlobalAlloc for Refusing {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        attempt();
         let refuse = FAIL_IN
             .try_with(|n| match n.get() {
                 0 => false,
@@ -43,16 +76,22 @@ unsafe impl GlobalAlloc for Refusing {
             return core::ptr::null_mut();
         }
         // SAFETY: as the caller's contract for `alloc`.
-        unsafe { System.alloc(layout) }
+        let ptr = unsafe { System.alloc(layout) };
+        if !ptr.is_null() {
+            hold(layout.size() as isize);
+        }
+        ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        hold(-(layout.size() as isize));
         // SAFETY: `ptr` came from `System.alloc` with `layout`.
         unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         // A growth counts as an allocation.
+        attempt();
         let refuse = FAIL_IN
             .try_with(|n| match n.get() {
                 0 => false,
@@ -70,7 +109,14 @@ unsafe impl GlobalAlloc for Refusing {
             return core::ptr::null_mut();
         }
         // SAFETY: as the caller's contract for `realloc`.
-        unsafe { System.realloc(ptr, layout, new_size) }
+        let new = unsafe { System.realloc(ptr, layout, new_size) };
+        if !new.is_null() {
+            // Counted as a move: the old room is held until the new one
+            // is there.
+            hold(new_size as isize);
+            hold(-(layout.size() as isize));
+        }
+        new
     }
 }
 
@@ -245,4 +291,134 @@ fn refusals_leave_the_copy_unchanged() {
     });
     assert_eq!(result, Ok(()));
     assert_eq!(block, original);
+}
+
+/// A refusal at the limit attempts no allocation at all: the copy, a
+/// longer text, new runs and the runs' growth are checked first.
+#[test]
+fn a_limit_refusal_attempts_no_allocation() {
+    let mut target = picture();
+    let (result, attempts, _) = observe(|| target.try_transform(4, caption));
+    assert_eq!((result, attempts), (Err(EditError::Limit), 0));
+    let long = "a much longer text than before, and longer still";
+    // Sorted runs on the character boundaries of "ab cdé fgh".
+    let runs = [0, 1, 2, 3, 4, 7, 8, 9].map(|at| Run::new(at, at + 1, TextStyle::BOLD));
+    let mut target = picture();
+    let result = target.try_transform(64, |edit| {
+        let (refused, attempts, _) = observe(|| edit.try_replace(3..7, long));
+        assert_eq!((refused, attempts), (Err(EditError::Limit), 0));
+        let (refused, attempts, _) = observe(|| edit.try_set_runs(&runs));
+        assert_eq!((refused, attempts), (Err(EditError::Limit), 0));
+        // Fill the runs' room, then the growth is refused unattempted.
+        edit.try_set_runs(&[Run::new(0, 1, TextStyle::BOLD)])?;
+        let mut at = 1;
+        let refused = loop {
+            let run = Run::new(at, at + 1, TextStyle::ITALIC);
+            let (pushed, attempts, _) = observe(|| edit.try_push_run(run));
+            match pushed {
+                Ok(()) => at += 1,
+                Err(error) => {
+                    assert_eq!(attempts, 0);
+                    break error;
+                }
+            }
+        };
+        assert_eq!(refused, EditError::Limit);
+        Ok::<(), EditError>(())
+    });
+    assert_eq!(result, Ok(()));
+}
+
+/// The heap an edit takes at its peak, as the allocator sees it, stays
+/// under the smallest limit the edit succeeds with.
+#[test]
+fn the_heap_an_edit_takes_stays_under_its_limit() {
+    let original = picture();
+    let limit = (0..4096)
+        .find(|&limit| original.clone().try_transform(limit, caption).is_ok())
+        .unwrap();
+    let mut target = original.clone();
+    let (result, _, peak) = observe(|| target.try_transform(limit, caption));
+    assert_eq!(result, Ok(()));
+    assert!(peak <= limit, "peak {peak} over the limit {limit}");
+}
+
+/// Text that doubles and runs that grow until the limit refuses, without
+/// the test's own allocations: the allocator's peak never passes it.
+#[test]
+fn growth_until_the_limit_stays_under_it() {
+    static LONG: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklm\
+        nopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+    for limit in [64, 100, 256, 333, 1024] {
+        let mut target = Block::new(BlockKind::Paragraph, 0, 2, String::from("ab"));
+        let (result, _, peak) = observe(|| {
+            target.try_transform(limit, |edit| {
+                loop {
+                    let len = edit.text().len();
+                    edit.try_replace(len..len, &LONG[..len.min(LONG.len())])?;
+                }
+            })
+        });
+        assert_eq!(result, Err::<(), _>(EditError::Limit));
+        assert!(peak <= limit, "text: peak {peak} over the limit {limit}");
+        let mut target = Block::new(BlockKind::Paragraph, 0, 999, LONG.to_string());
+        let (result, _, peak) = observe(|| {
+            target.try_transform(limit, |edit| {
+                for at in 0.. {
+                    edit.try_push_run(Run::new(at, at + 1, TextStyle::BOLD))?;
+                }
+                Ok(())
+            })
+        });
+        assert_eq!(result, Err::<(), _>(EditError::Limit));
+        assert!(peak <= limit, "runs: peak {peak} over the limit {limit}");
+    }
+}
+
+/// Source offsets past `u32::MAX`, from a hostile block or from text that
+/// grows near the top, are refused as `Range` before anything changes;
+/// the copy and the block stay as they were.
+#[test]
+fn source_offsets_past_u32_are_refused() {
+    let at_top = Block::new(BlockKind::Paragraph, u32::MAX, u32::MAX, String::from("ab"));
+    let mut map = OffsetMap::default();
+    map.checkpoint(0, u32::MAX);
+    let mapped_top = Block::new(BlockKind::Paragraph, 0, u32::MAX, String::from("ab")).map(map);
+    // Indices 0 and 1 map to MAX - 2 and MAX - 1: valid until text grows.
+    let near_top = Block::new(
+        BlockKind::Paragraph,
+        u32::MAX - 2,
+        u32::MAX,
+        String::from("ab"),
+    );
+    for (original, with) in [(&at_top, "x"), (&mapped_top, "x"), (&near_top, "xyz")] {
+        let mut target = original.clone();
+        let result = target.try_transform(4096, |edit| {
+            let heap = edit.heap_bytes();
+            assert_eq!(edit.try_replace(1..1, with), Err(EditError::Range));
+            assert_eq!((edit.text(), edit.heap_bytes()), ("ab", heap));
+            Ok::<(), EditError>(())
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(&target, original);
+        assert_eq!(
+            target.try_transform(4096, |edit| edit.try_replace(1..1, with)),
+            Err(EditError::Range)
+        );
+        assert_eq!(&target, original);
+        // The infallible path refuses the same way, and reading the
+        // hostile map saturates.
+        target.replace(1..1, with);
+        assert_eq!(&target, original);
+        let _ = target.source_offset(1);
+    }
+    // Up to the top itself is fine.
+    let mut target = near_top.clone();
+    assert_eq!(
+        target.try_transform(4096, |edit| edit.try_replace(1..1, "xy")),
+        Ok(())
+    );
+    assert_eq!(target.text, "axyb");
+    assert_eq!(target.source_offset(2), u32::MAX);
+    assert_eq!(mapped_top.source_offset(1), u32::MAX);
 }

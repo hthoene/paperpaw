@@ -21,7 +21,7 @@ pub enum EditError {
     /// Memory for the edit could not be reserved.
     NoMemory,
     /// A range or run off character boundaries, outside the text, out of
-    /// order, or a text longer than offsets can name.
+    /// order, or a text or source offset past what `u32` names.
     Range,
     /// The edit would hold more than its byte limit.
     Limit,
@@ -94,8 +94,11 @@ impl Block {
     }
 
     fn try_edit(&self, limit: usize) -> Result<TextEdit, EditError> {
-        let need =
-            self.text.len() + self.map.checkpoints.len() * CHECKPOINT + self.runs.len() * RUN;
+        let need = self
+            .text
+            .len()
+            .saturating_add(self.map.checkpoints.len().saturating_mul(CHECKPOINT))
+            .saturating_add(self.runs.len().saturating_mul(RUN));
         if need > limit {
             return Err(EditError::Limit);
         }
@@ -123,7 +126,7 @@ impl Block {
     /// the source stay right around it (the new text maps to where the old
     /// one was). A range off character boundaries, and an edit memory
     /// cannot be found for, leave the block unchanged; filters that must
-    /// know use [`Block::try_edit`].
+    /// know use [`Block::try_transform`].
     pub fn replace(&mut self, range: Range<usize>, with: &str) {
         let range = range.start..range.end.min(self.text.len());
         let _ = replace_in(
@@ -212,7 +215,8 @@ impl TextEdit {
     ///
     /// # Errors
     /// [`EditError::Range`] for a range outside the text or off character
-    /// boundaries, or a result longer than `u32` offsets name;
+    /// boundaries, a result longer than `u32` offsets name, or one whose
+    /// source offsets would pass `u32::MAX`;
     /// [`EditError::Limit`] where the copy would pass its limit, checked
     /// before anything is reserved; [`EditError::NoMemory`] where the
     /// edit's memory cannot be reserved. Either way the copy is unchanged.
@@ -319,8 +323,35 @@ struct Parts<'a> {
     runs: &'a mut Vec<Run>,
 }
 
-/// The replacement: everything it needs is reserved first, then nothing
-/// it does can fail or allocate.
+/// The source offset of text index `index`, `end` from the text's end on;
+/// `None` past what `u32` names.
+fn checked_source(start: u32, end: u32, text: &str, map: &OffsetMap, index: usize) -> Option<u32> {
+    if index >= text.len() {
+        return Some(end);
+    }
+    map.checked_source_offset(start, index)
+}
+
+/// Whether every text index below `len` maps to a source offset `u32`
+/// names, for a map starting at `start` with checkpoints `points` (text
+/// index, source offset) in order.
+fn offsets_fit(start: u32, len: usize, points: impl Iterator<Item = (usize, u32)>) -> bool {
+    // Text indices `text..next` map to `source..source + (next - text)`.
+    let fits = |(text, source): (usize, u32), next: usize| {
+        next <= text || (next - text - 1) as u64 <= u64::from(u32::MAX - source)
+    };
+    let mut from = (0, start);
+    for point in points {
+        if !fits(from, point.0) {
+            return false;
+        }
+        from = point;
+    }
+    fits(from, len)
+}
+
+/// The replacement: everything it needs is checked and reserved first,
+/// then nothing it does can fail or allocate.
 fn replace_in(parts: Parts<'_>, range: Range<usize>, with: &str) -> Result<(), EditError> {
     let Parts {
         start,
@@ -341,10 +372,30 @@ fn replace_in(parts: Parts<'_>, range: Range<usize>, with: &str) -> Result<(), E
     if limit != usize::MAX && peak_of(text, map, runs, new_len) > limit {
         return Err(EditError::Limit);
     }
-    let (source_from, source_to) = (
-        source_offset(start, end, text, map, from),
-        source_offset(start, end, text, map, to),
-    );
+    // Every source offset of the new map must stay in `u32`, also where
+    // the new text is longer than the old one (#277).
+    let (Some(source_from), Some(source_to)) = (
+        checked_source(start, end, text, map, from),
+        checked_source(start, end, text, map, to),
+    ) else {
+        return Err(EditError::Range);
+    };
+    let shift = |i: u32| -> u32 { (i as usize + with.len() - (to - from)) as u32 };
+    let old = &map.checkpoints;
+    let points = || {
+        old.iter()
+            .filter(|&&(t, _)| (t as usize) < from)
+            .map(|&(t, s)| (t as usize, s))
+            .chain([(from, source_from), (from + with.len(), source_to)])
+            .chain(
+                old.iter()
+                    .filter(|&&(t, _)| t as usize > to)
+                    .map(|&(t, s)| (shift(t) as usize, s)),
+            )
+    };
+    if !offsets_fit(start, new_len, points()) {
+        return Err(EditError::Range);
+    }
     let mut checkpoints: Vec<(u32, u32)> = Vec::new();
     checkpoints
         .try_reserve_exact(map.checkpoints.len() + 2)
@@ -358,19 +409,9 @@ fn replace_in(parts: Parts<'_>, range: Range<usize>, with: &str) -> Result<(), E
     .map_err(|_| EditError::NoMemory)?;
     // Nothing below allocates: the checkpoints fit what was reserved, the
     // runs change in place, and the text has room for its new length.
-    let shift = |i: u32| -> u32 { (i as usize + with.len() - (to - from)) as u32 };
     let mut new = OffsetMap { checkpoints };
-    for &(t, s) in map
-        .checkpoints
-        .iter()
-        .filter(|&&(t, _)| (t as usize) < from)
-    {
-        new.checkpoint(t as usize, s);
-    }
-    new.checkpoint(from, source_from);
-    new.checkpoint(from + with.len(), source_to);
-    for &(t, s) in map.checkpoints.iter().filter(|&&(t, _)| t as usize > to) {
-        new.checkpoint(shift(t) as usize, s);
+    for (t, s) in points() {
+        new.checkpoint(t, s);
     }
     *map = new;
     // The new text takes the style of the first run reaching into the

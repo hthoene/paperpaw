@@ -860,12 +860,20 @@ impl OffsetMap {
         self.checkpoints.push((text, source));
     }
 
+    /// Saturating: a map pointing past `u32::MAX` (hostile input) gives
+    /// `u32::MAX` there.
     fn source_offset(&self, start: u32, index: usize) -> u32 {
-        let index = index as u32;
+        self.checked_source_offset(start, index).unwrap_or(u32::MAX)
+    }
+
+    /// The source offset of text index `index`; `None` where it lies past
+    /// what `u32` names.
+    pub(crate) fn checked_source_offset(&self, start: u32, index: usize) -> Option<u32> {
+        let index = u32::try_from(index).ok()?;
         let i = self.checkpoints.partition_point(|&(text, _)| text <= index);
-        match i.checked_sub(1).map(|i| self.checkpoints[i]) {
-            Some((text, source)) => source + (index - text),
-            None => start + index,
+        match i.checked_sub(1).and_then(|i| self.checkpoints.get(i)) {
+            Some(&(text, source)) => source.checked_add(index - text),
+            None => start.checked_add(index),
         }
     }
 
