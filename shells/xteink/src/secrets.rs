@@ -24,9 +24,9 @@ use esp_bootloader_esp_idf::partitions::{
 };
 use log::warn;
 use mbedtls_rs::sys::{
-    MBEDTLS_GCM_DECRYPT, MBEDTLS_GCM_ENCRYPT, mbedtls_cipher_id_t_MBEDTLS_CIPHER_ID_AES,
-    mbedtls_gcm_auth_decrypt, mbedtls_gcm_context, mbedtls_gcm_crypt_and_tag, mbedtls_gcm_free,
-    mbedtls_gcm_init, mbedtls_gcm_setkey, mbedtls_platform_zeroize,
+    MBEDTLS_GCM_ENCRYPT, mbedtls_cipher_id_t_MBEDTLS_CIPHER_ID_AES, mbedtls_gcm_auth_decrypt,
+    mbedtls_gcm_context, mbedtls_gcm_crypt_and_tag, mbedtls_gcm_free, mbedtls_gcm_init,
+    mbedtls_gcm_setkey, mbedtls_platform_zeroize,
 };
 use paperpaw_core::native_host::{ShellRandom, ShellSealer};
 use paperpaw_native::host_glue::{
@@ -124,7 +124,7 @@ impl DeviceSealer {
             .try_reserve_exact(PARTITION_TABLE_MAX_LEN)
             .map_err(|_| ERR_NO_MEMORY)?;
         table.resize(PARTITION_TABLE_MAX_LEN, 0u8);
-        let found = partitions::read_partition_table(&mut *flash, &mut table[..])
+        let found = partitions::read_partition_table(&mut flash, &mut table[..])
             .ok()
             .and_then(|pt| {
                 pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
