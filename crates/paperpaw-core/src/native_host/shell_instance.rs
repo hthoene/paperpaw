@@ -101,8 +101,7 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
     /// `declared_services` is what the plugin's metadata declares, or
     /// `DeclaredServices::none()`): `make` is the validated entry of the code
     /// `module` keeps loaded, and `image` is a read-only mapping that stays
-    /// mapped
-    /// while `module` lives, or `(0, 0)`.
+    /// mapped while `module` lives, or `(0, 0)`.
     #[allow(
         clippy::too_many_arguments,
         reason = "the shell's one entry: the parts of a hosted plugin, the device's table and the loader's hooks"
