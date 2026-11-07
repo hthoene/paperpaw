@@ -539,6 +539,9 @@ mod x4 {
             call_begin,
             call_end,
         };
+        // The image is flash memory-mapped at a fixed address: the one place
+        // an address becomes a pointer, with the provenance exposed for it.
+        let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
         // SAFETY: as above; the read-only data [0, code_at) of the image is
         // mapped at `placed.base` for the session (nothing erases the region
         // before a restart: it is only written by `put5` into free room).
@@ -548,7 +551,7 @@ mod x4 {
                 FlashModule,
                 make,
                 id,
-                (placed.base as usize, header.code_at as usize),
+                (image_ptr, header.code_at as usize),
                 report,
                 hooks,
                 share,

@@ -636,7 +636,7 @@ mod instance_tests {
                 Module::new(),
                 make,
                 "fake",
-                (0, 0),
+                (core::ptr::null(), 0),
                 report,
                 hooks(),
                 resources,
