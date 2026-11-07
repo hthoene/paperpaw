@@ -6,7 +6,6 @@ use super::{Error, Host, services::Service};
 
 pub(crate) mod navigation;
 pub use navigation::{Notify, Open, ScreenPolicy, SpeechRequest};
-pub mod stages;
 mod status;
 pub use status::{StatusLine, StatusValue};
 mod queries;

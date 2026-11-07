@@ -267,5 +267,4 @@ fn set_stream(state: &State, records: &[wire::Record<'_>]) {
 }
 mod paging;
 mod params;
-mod stages;
 mod widgets;
