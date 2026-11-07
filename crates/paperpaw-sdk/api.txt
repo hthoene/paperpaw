@@ -4865,6 +4865,36 @@ pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, pape
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::ui
+pub mod paperpaw_sdk::native::ui::stages
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::stages::WidgetCall
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::width: u32
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::rect: paperpaw_sdk::native::callbacks::FrameRect
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::rect: paperpaw_sdk::native::callbacks::FrameRect
+impl paperpaw_sdk::native::ui::stages::WidgetCall
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::decode(&[u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_place(self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_size(self, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_targets(self, &[paperpaw_sdk::native::ui::WidgetTarget], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::ContextParams<'a>
+impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub type paperpaw_sdk::native::ui::stages::ContextParams<'a>::Item = core::result::Result<paperpaw_sdk::native::ui::Param<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::ContextParams<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::drawn(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::text(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::StatusCall<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusCall<'a>
+pub const fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::context(self) -> paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::items(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::reply(self, &[paperpaw_sdk::native::ui::stages::StatusAnswer<'_>], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::Answer
 pub paperpaw_sdk::native::ui::Answer::Accept
 pub paperpaw_sdk::native::ui::Answer::Cancel
