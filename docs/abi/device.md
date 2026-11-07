@@ -245,7 +245,11 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   *early* when it is submitted within 30 s after a start or wake and outside the plugin's input
   window (above). The host keeps, per plugin, the number of starts and wakes in a row that ended in
   an early command of that plugin, in a small host file (`.paperpaw/power-guard`, written
-  atomically, so the count survives the restart it guards against). From the third in a row on,
+  atomically and only when a count changes, so the count survives the restart it guards against
+  and a quiet start writes nothing). The guard never fails open: a missing file is all counts 0,
+  but a file that cannot be read or a count that cannot be written (card error) refuses that
+  plugin's early power commands as from the third, until the count is stored. From the third in
+  a row on,
   that plugin's early power commands are refused at submit with `ERR_DENIED` and logged, and the
   plugin is named in the diagnostics (`dev_native.crashed` stays for crashes; the log names it).
   The count goes back to 0 at a start or wake that ends its 30 s without an early command of the
