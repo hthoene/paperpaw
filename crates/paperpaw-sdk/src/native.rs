@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 20;
+pub const DRAFT: u16 = 22;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -330,6 +330,7 @@ pub mod canvas;
 pub mod clock;
 pub mod commands;
 pub mod declare;
+pub mod device;
 pub mod events;
 pub mod fonts;
 pub mod formatting;

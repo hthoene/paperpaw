@@ -760,12 +760,17 @@ its caps (hand-off).
   chunk is allocated fallibly when the request or the secret text starts and freed when it ends,
   so nothing is held at rest. At most 3 request rows are kept at once on the X4 (16 elsewhere), a cancelled or answered
   one until its event is delivered (`ERR_FULL` at `ask` beyond).
-- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 9.55
-  (with a card; 8.75 of it only while an 8 KiB password is typed) + widgets 0.5 + status handles
-  0.3 + status cache 1 + clipboard 0 (card) + messages 0.5 = **about 13.6 KiB**; with no card the
-  texts are 11 (2 KiB pool + secret pool) and the questions 4 instead of 9.55, so **about 19
-  KiB** (op 7 keeps no target cache: it is not paged, section 5.2), every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`,
-  never a panic); typical use (a few instances with small params, one short question, a status line)
+- **X4 worst case: activation-gate item.** Until the card file is wired the code has no card
+  path, so the line is the one without a card: instances 0.25 + params 1.5 + texts 11 (2 KiB
+  ordinary pool + 8,960-byte secret pool, 8.75 of it only while an 8 KiB password is typed) +
+  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 0 +
+  messages 0.5 = **about 19 KiB**. A restarted text (offset 0) never adds a peak above its
+  pool: when old and new chunk do not both fit the pool, the old text is freed (wiped) first,
+  so the peak is the larger of the two and inside the pool (after that, a refused allocation
+  leaves the text started over and empty). With a card, the questions and texts move to the
+  card file and the line falls to about 13.6 KiB (not before that path exists). Op 7 keeps no
+  target cache: it is not paged, section 5.2. Every part is allocated fallibly (a refusal is
+  `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances with small params, one short question, a status line)
   about 2.4 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
   case is a line of the X4 heap budget and the typical case is measured on the device under 4 KiB
   (hand-off: Firmware, R3 heap measurement).

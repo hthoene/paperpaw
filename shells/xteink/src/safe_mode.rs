@@ -30,9 +30,10 @@ const ID_LEN: usize = 48;
 /// Says the record was written by this firmware, not left by chance.
 #[cfg(not(feature = "ppn5"))]
 const MAGIC: u32 = 0x5050_5346;
-/// The record has the plugin calls in it (another layout, another magic).
+/// The record has the plugin calls in it, with a count per depth (another
+/// layout, another magic).
 #[cfg(feature = "ppn5")]
-const MAGIC: u32 = 0x5050_5349;
+const MAGIC: u32 = 0x5050_534a;
 
 /// What safe mode keeps through a reset.
 #[derive(Clone, Copy)]
@@ -208,13 +209,16 @@ fn reset() {
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
 }
 
-/// What the escape's watch reads in the button interrupt: `(call, calls, outermost,
-/// host)` while a call is open (`host`: it waits for a host slot), `None`
-/// otherwise. One volatile word each, no copy of the record. The same
-/// numbers twice are the same call.
+/// What the escape's watch reads in the button interrupt: the record of calls
+/// while a call is open (see [`Running`]). One volatile word each, no copy of
+/// the record. The same numbers twice are the same call.
 #[cfg(feature = "ppn5")]
-pub fn running_call() -> Option<(u32, u32, u32, bool)> {
-    // SAFETY: as in `read`; the interrupt only loads three words of a record that
+pub fn running_call() -> Option<paperpaw_x4::escape::Running> {
+    // The watch counts as many depths as the record keeps.
+    const _: () = assert!(
+        paperpaw_x4::escape::DEPTHS == paperpaw_core::native_host::shell::inflight::NESTING
+    );
+    // SAFETY: as in `read`; the interrupt only loads the words of a record that
     // the main loop may be changing, through a raw pointer, and the main loop
     // stores them with matching volatile stores.
     unsafe {
@@ -222,7 +226,14 @@ pub fn running_call() -> Option<(u32, u32, u32, bool)> {
         if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
             return None;
         }
-        Inflight::watch_at(core::ptr::addr_of!((*record).inflight))
+        Inflight::watch_at(core::ptr::addr_of!((*record).inflight)).map(|w| {
+            paperpaw_x4::escape::Running {
+                call: w.call,
+                open: w.open,
+                host: w.host,
+                entries: w.entries,
+            }
+        })
     }
 }
 
@@ -241,15 +252,14 @@ pub fn host_end() {
 
 /// The escape resets the processor now (from the button interrupt): with a
 /// plugin to blame, its call stays recorded and the next start switches that
-/// plugin off (`check`): the innermost call as it is, or, for the outermost
-/// one, only that call is kept. Without it no plugin is blamed and the record
-/// of calls is cleared.
+/// plugin off (`check`): the calls down to the blamed depth are kept, the
+/// deeper ones (which came and went, or are the innermost) are not. Without a
+/// plugin to blame the record of calls is cleared.
 #[cfg(feature = "ppn5")]
 pub fn escape_reset(blame: paperpaw_x4::escape::Blame) {
     use paperpaw_x4::escape::Blame;
     match blame {
-        Blame::Innermost => {}
-        Blame::Outermost => with_inflight(Inflight::keep_outermost),
+        Blame::Depth(depth) => with_inflight(|inflight| inflight.keep_depth(depth)),
         Blame::Nobody => with_inflight(|inflight| *inflight = Inflight::EMPTY),
     }
 }

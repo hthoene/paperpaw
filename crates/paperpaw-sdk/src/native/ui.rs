@@ -11,6 +11,7 @@ pub use status::{StatusLine, StatusValue};
 mod queries;
 pub use queries::{HintInput, UiHint, UiScreen};
 mod handover;
+pub mod stages;
 mod widgets;
 pub use widgets::{
     Compose, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,

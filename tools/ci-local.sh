@@ -362,8 +362,8 @@ g_firmware() {
         skip "firmware: x4, x3 clippy" "toolchain $x4_toolchain not installed (rustup toolchain install $x4_toolchain --profile minimal --component clippy --target riscv32imc-unknown-none-elf)"
     else
         for device in x4 x3; do
-            run "firmware: clippy $device + remote" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
-            run "firmware: clippy $device" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
+            run "firmware: clippy $device + remote" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
+            run "firmware: clippy $device" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
         done
     fi
     skip "firmware: x4-pro, x4-classic" "needs the Xtensa (esp) toolchain; CI only"
@@ -379,11 +379,14 @@ g_android() {
 
 # Not in `full`: slow, ask for them with --only.
 g_firmware-build() {
+    # The ppn5 build adds `-C jump-tables=no` to the config's flags (shells/xteink/build.rs).
+    # Exported so the quoted TOML array reaches the `bash -c` commands below intact.
+    export PPN5_CONFIG='target.riscv32imc-unknown-none-elf.rustflags=["-C","jump-tables=no"]'
     if ! have_toolchain "$x4_toolchain"; then
         skip "firmware-build: x4" "toolchain $x4_toolchain not installed"
         return
     fi
-    run "firmware-build: x4 release build" "cd shells/xteink && cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
+    run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
     run "firmware-build: sample plugin fits the firmware" '
         fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)
@@ -391,8 +394,9 @@ g_firmware-build() {
         cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
+    run "firmware-build: clippy the interface-7 host code (ppn5)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --config \"\$PPN5_CONFIG\" -- -D warnings"
     run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
-        (cd shells/xteink && cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
+        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --config "$PPN5_CONFIG" --target-dir target/ppn5)
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
     run "firmware-build: the interface-7 sample packs to the committed file" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'

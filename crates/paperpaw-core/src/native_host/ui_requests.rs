@@ -262,12 +262,11 @@ impl UiStore {
     ) -> Result<(u32, Option<Cancelled>), i32> {
         question.check()?;
         let asked_bytes = question.title.len() + question.text.len() + question.choices.len();
-        let title = Wiped::copy(question.title.as_bytes())?;
-        let text = Wiped::copy(question.text.as_bytes())?;
-        let choices = Wiped::copy(question.choices.as_bytes())?;
         let mut inner = self.inner()?;
         // Rows kept at once are bounded, done and cancelled ones waiting for
         // their event included: a replaced request stays one until delivered.
+        // Both limits are checked before anything is copied: an over-cap ask
+        // is `ERR_FULL` and allocates nothing.
         if inner.requests.len() >= self.limits.requests_kept {
             return Err(ERR_FULL);
         }
@@ -276,6 +275,9 @@ impl UiStore {
         if inner.question_memory.saturating_add(asked_bytes) > self.limits.question_memory {
             return Err(ERR_FULL);
         }
+        let title = Wiped::copy(question.title.as_bytes())?;
+        let text = Wiped::copy(question.text.as_bytes())?;
+        let choices = Wiped::copy(question.choices.as_bytes())?;
         inner.requests.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         if let Some(parent) = parent
             && Self::request_at(&inner, parent).is_none_or(|at| inner.requests[at].child.is_some())
