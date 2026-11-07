@@ -3469,14 +3469,16 @@ pub paperpaw_sdk::native::stages::core_input_filter_v1::Record::FilterInput(pape
 pub paperpaw_sdk::native::stages::core_input_filter_v1::Record::FilterVerdict(paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>)
 impl<'a> paperpaw_sdk::native::stages::core_input_filter_v1::Record<'a>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::Record<'a>::tag(&self) -> u32
-pub struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>
 pub paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput::flags: u32
 pub paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput::input: &'a [u8]
 impl<'a> paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>
 pub const paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>
+impl<'a> paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>
+pub const fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>::new(&'a [u8], u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>
 pub paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict::action: &'a str
 pub paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict::input: &'a [u8]
 pub paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict::kind: u32
@@ -3485,6 +3487,8 @@ impl<'a> paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>
 pub const paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
+impl<'a> paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>
+pub const fn paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>::new(u32, &'a str, &'a [u8], &'a str) -> Self
 pub struct paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -3523,14 +3527,16 @@ pub fn paperpaw_sdk::native::stages::core_status_v1::RecordStream<'_>::len(&self
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stages::core_status_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stages::core_status_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stages::core_status_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stages::core_status_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
-pub struct paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>
 pub paperpaw_sdk::native::stages::core_status_v1::StatusAsk::context: &'a [u8]
 pub paperpaw_sdk::native::stages::core_status_v1::StatusAsk::items: &'a str
 impl<'a> paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>
 pub const paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>
+impl<'a> paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>
+pub const fn paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>::new(&'a str, &'a [u8]) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>
 pub paperpaw_sdk::native::stages::core_status_v1::StatusValue::flags: u32
 pub paperpaw_sdk::native::stages::core_status_v1::StatusValue::item: &'a str
 pub paperpaw_sdk::native::stages::core_status_v1::StatusValue::text: &'a str
@@ -3538,6 +3544,8 @@ impl<'a> paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>
 pub const paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
+impl<'a> paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>
+pub const fn paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>::new(&'a str, u32, &'a str) -> Self
 pub const paperpaw_sdk::native::stages::core_status_v1::INPUT_TAGS: &[u32]
 pub const paperpaw_sdk::native::stages::core_status_v1::KEY: &str
 pub const paperpaw_sdk::native::stages::core_status_v1::MAJOR: u16
@@ -3575,14 +3583,16 @@ pub fn paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'_>::len(&self
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stages::core_widget_v1::Record, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
-pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::instance: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::width: u32
 impl paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure
 pub const paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::decode(&[u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace
+impl paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure
+pub const fn paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::new(u32, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::height: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::instance: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::width: u32
@@ -3592,14 +3602,18 @@ impl paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace
 pub const paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::decode(&[u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetSize
+impl paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace
+pub const fn paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::new(u32, i32, i32, u32, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetSize
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::height: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::min_height: u32
 impl paperpaw_sdk::native::stages::core_widget_v1::WidgetSize
 pub const paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::decode(&[u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget
+impl paperpaw_sdk::native::stages::core_widget_v1::WidgetSize
+pub const fn paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::new(u32, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::height: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::target: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::width: u32
@@ -3609,7 +3623,9 @@ impl paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget
 pub const paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::decode(&[u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
-pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets
+impl paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget
+pub const fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::new(u32, i32, i32, u32, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::height: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::instance: u32
 pub paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::width: u32
@@ -3619,6 +3635,8 @@ impl paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets
 pub const paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::TAG: u32
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::decode(&[u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
+impl paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets
+pub const fn paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::new(u32, i32, i32, u32, u32) -> Self
 pub const paperpaw_sdk::native::stages::core_widget_v1::INPUT_TAGS: &[u32]
 pub const paperpaw_sdk::native::stages::core_widget_v1::KEY: &str
 pub const paperpaw_sdk::native::stages::core_widget_v1::MAJOR: u16
