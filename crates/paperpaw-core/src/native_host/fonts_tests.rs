@@ -41,6 +41,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
     let env = kernel.shared.env(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
