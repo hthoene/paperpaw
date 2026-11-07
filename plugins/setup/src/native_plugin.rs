@@ -78,13 +78,15 @@ impl Plugin for NativeSetup {
             }
             Event::Started { .. } if token == STARTED => started(host),
             Event::ScreenOpened {
-                screen, instance, ..
-            } if screen == "setup.guide" => self.opened(host, instance),
+                screen: "setup.guide",
+                instance,
+                ..
+            } => self.opened(host, instance),
             Event::ScreenShown {
-                screen,
+                screen: "setup.guide",
                 instance: Some(instance),
                 ..
-            } if screen == "setup.guide" => self.screens.shown(GUIDE, instance),
+            } => self.screens.shown(GUIDE, instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())

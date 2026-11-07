@@ -16,7 +16,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     Paint, Style, geometry, paint,
-    text::{self, fit, label, wrap_with},
+    text::{fit, label, wrap_with},
 };
 
 /// What can be chosen on a page.
@@ -164,7 +164,6 @@ impl Guide {
     }
 
     /// What can be chosen on the page, top to bottom.
-    #[must_use]
     pub fn targets(&self, layout: &Layout) -> impl Iterator<Item = Target> {
         layout
             .card
@@ -334,16 +333,6 @@ impl Guide {
 
     // ---- painting
 
-    /// The areas a focus on `target` draws over.
-    #[must_use]
-    pub fn area_of(&self, layout: &Layout, target: Target) -> Rect {
-        match target {
-            Target::Card => layout.card.unwrap_or(layout.next),
-            Target::Next => layout.next,
-            Target::Other => layout.other,
-        }
-    }
-
     /// The label of the card for a page that is not a setting.
     fn card_label(&self) -> &str {
         &self.texts.open
@@ -361,7 +350,6 @@ impl Guide {
         layout: &Layout,
     ) -> Result<(), Error> {
         let ink = style.ink;
-        let line = u32::from(style.line).max(1);
         paint::push(
             ops,
             Paint::Fill(Rect::new(0, 0, self.display.0, self.display.1), style.paper),
@@ -407,7 +395,6 @@ impl Guide {
                 false,
             )?;
         }
-        let _ = line;
         Ok(())
     }
 
@@ -434,6 +421,7 @@ impl Guide {
         Ok(())
     }
 
+    #[expect(clippy::too_many_lines, reason = "one arm a kind of answer")]
     fn card(
         &self,
         ops: &mut Vec<Paint>,
@@ -725,8 +713,234 @@ pub fn lay_out(guide: &Guide, style: &Style, m: &impl Measure) -> Layout {
     layout(&sizes(style, guide.display, small), m, &guide.content())
 }
 
-#[allow(dead_code, reason = "kept for text helpers used by the tests")]
-fn _unused(_: &str) -> Result<(), Error> {
-    let _ = text::copy("");
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native_steps::Choice;
+
+    fn step(id: &str, page: Page) -> Step {
+        Step {
+            id: id.into(),
+            title: String::new(),
+            order: 0,
+            page,
+        }
+    }
+
+    fn guide(touch: bool) -> Guide {
+        let steps = alloc::vec![
+            step("a", Page::Setting("core.language".into())),
+            step("b", Page::Screen("wifi.page".into())),
+        ];
+        Guide::new(steps, Texts::default(), (480, 800, 220), touch)
+    }
+
+    fn two() -> Setting {
+        Setting {
+            key: "core.language".into(),
+            title: "Language".into(),
+            help: String::new(),
+            unit: String::new(),
+            editor: None,
+            control: Control::Choice {
+                options: ["en", "de"]
+                    .iter()
+                    .map(|v| Choice {
+                        value: (*v).into(),
+                        title: (*v).into(),
+                    })
+                    .collect(),
+                at: Some(0),
+            },
+        }
+    }
+
+    fn laid(guide: &Guide) -> Layout {
+        let sizes = Sizes {
+            width: 480,
+            height: 800,
+            margin: 16,
+            gap: 8,
+            row: 56,
+            row_small: 40,
+            title: 24.0,
+            small: 16.0,
+        };
+        struct Fixed;
+        impl Measure for Fixed {
+            fn line(&self, size: f32) -> u16 {
+                (size * 1.3) as u16
+            }
+            fn lines(&self, _: f32, _: &str, _: u16, _: usize) -> usize {
+                1
+            }
+            fn sample(&self, size: f32, _: u16) -> u16 {
+                (size * 1.3) as u16
+            }
+        }
+        layout(&sizes, &Fixed, &guide.content())
+    }
+
+    fn action(name: &str) -> Input<'_> {
+        Input::Action {
+            now_ms: 0,
+            action: name,
+        }
+    }
+
+    fn tap(rect: Rect) -> Input<'static> {
+        Input::Gesture {
+            now_ms: 0,
+            position: Point::new(
+                i32::from(rect.x) + i32::from(rect.width) / 2,
+                i32::from(rect.y) + i32::from(rect.height) / 2,
+            ),
+            kind: InputGestureKind::Tap,
+        }
+    }
+
+    #[test]
+    fn next_is_always_right_and_back_asks_on_the_first_page() {
+        let g = guide(false);
+        let l = laid(&g);
+        assert_eq!(g.decide(&l, &action("core.confirm")), Act::Turn(1));
+        assert_eq!(g.decide(&l, &action("core.back")), Act::AskSkip);
+        assert_eq!(g.decide(&l, &tap(l.other)), Act::AskSkip);
+        assert_eq!(g.decide(&l, &tap(l.next)), Act::Turn(1));
+    }
+
+    #[test]
+    fn later_pages_go_back_and_the_end_finishes() {
+        let mut g = guide(false);
+        g.page = 1;
+        let l = laid(&g);
+        assert_eq!(g.decide(&l, &action("core.back")), Act::Turn(0));
+        assert_eq!(g.decide(&l, &tap(l.other)), Act::Turn(0));
+        g.page = 2;
+        assert!(g.at_end());
+        assert_eq!(g.decide(&laid(&g), &action("core.confirm")), Act::Turn(3));
+    }
+
+    #[test]
+    fn the_focus_walks_card_next_other_and_wraps() {
+        let mut g = guide(false);
+        g.setting = Some(two());
+        let l = laid(&g);
+        assert_eq!(g.decide(&l, &action("core.up")), Act::Focus(Target::Card));
+        g.focus = Target::Card;
+        assert_eq!(g.decide(&l, &action("core.down")), Act::Focus(Target::Next));
+        g.focus = Target::Other;
+        assert_eq!(g.decide(&l, &action("core.down")), Act::Focus(Target::Card));
+    }
+
+    #[test]
+    fn with_touch_the_first_button_only_shows_the_focus() {
+        let g = guide(true);
+        let l = laid(&g);
+        assert!(!g.shown);
+        assert_eq!(g.decide(&l, &action("core.down")), Act::Focus(Target::Next));
+        assert_eq!(
+            g.decide(&l, &action("core.confirm")),
+            Act::Focus(Target::Next)
+        );
+    }
+
+    #[test]
+    fn two_options_are_picked_by_side_or_by_tap() {
+        let mut g = guide(false);
+        g.setting = Some(two());
+        g.focus = Target::Card;
+        let l = laid(&g);
+        let (first, second) = l.segments.unwrap();
+        assert_eq!(
+            g.decide(&l, &action("core.right")),
+            Act::Set(NewValue::Text(1))
+        );
+        assert_eq!(
+            g.decide(&l, &action("core.left")),
+            Act::Keep,
+            "already chosen"
+        );
+        assert_eq!(g.decide(&l, &tap(second)), Act::Set(NewValue::Text(1)));
+        assert_eq!(g.decide(&l, &tap(first)), Act::Keep);
+        assert_eq!(
+            g.decide(&l, &action("core.confirm")),
+            Act::Set(NewValue::Text(1))
+        );
+    }
+
+    #[test]
+    fn a_screen_step_opens_its_screen_from_the_card() {
+        let mut g = guide(false);
+        g.page = 1;
+        g.focus = Target::Card;
+        let l = laid(&g);
+        assert_eq!(
+            g.decide(&l, &action("core.confirm")),
+            Act::OpenScreen("wifi.page".into())
+        );
+    }
+
+    #[test]
+    fn a_number_changes_with_side_buttons_and_taps_on_its_ends() {
+        let mut g = guide(false);
+        g.setting = Some(Setting {
+            control: Control::Number {
+                value: 12,
+                min: 8,
+                max: 24,
+                step: 2,
+            },
+            ..two()
+        });
+        g.focus = Target::Card;
+        let l = laid(&g);
+        let (less, more) = l.stepper.unwrap();
+        assert_eq!(
+            g.decide(&l, &action("core.right")),
+            Act::Set(NewValue::Int(14))
+        );
+        assert_eq!(
+            g.decide(&l, &action("core.left")),
+            Act::Set(NewValue::Int(10))
+        );
+        assert_eq!(g.decide(&l, &tap(more)), Act::Set(NewValue::Int(14)));
+        assert_eq!(g.decide(&l, &tap(less)), Act::Set(NewValue::Int(10)));
+    }
+
+    #[test]
+    fn other_inputs_are_not_the_guides() {
+        let g = guide(false);
+        let l = laid(&g);
+        assert_eq!(g.decide(&l, &action("core.menu")), Act::Ignore);
+        assert_eq!(
+            g.decide(
+                &l,
+                &Input::Key {
+                    now_ms: 0,
+                    key: "x",
+                    state: paperpaw_sdk::native::callbacks::KeyState::Press
+                }
+            ),
+            Act::Ignore
+        );
+    }
+
+    #[test]
+    fn the_sample_is_the_points_scaled_to_the_screen() {
+        let mut g = guide(false);
+        g.setting = Some(Setting {
+            key: "core.font-size".into(),
+            control: Control::Number {
+                value: 72,
+                min: 8,
+                max: 99,
+                step: 1,
+            },
+            ..two()
+        });
+        assert_eq!(g.sample_size(), Some(220.0));
+        g.setting.as_mut().unwrap().key = "other.size".into();
+        assert_eq!(g.sample_size(), None);
+    }
 }

@@ -108,6 +108,10 @@ fn card_height(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one pass down the page, then the card"
+)]
 fn layout_with(sizes: &Sizes, m: &impl Measure, content: &Content<'_>, tight: bool) -> Layout {
     let (w, h, gap) = (sizes.width, sizes.height, sizes.gap);
     let margin = if tight {
@@ -148,7 +152,7 @@ fn layout_with(sizes: &Sizes, m: &impl Measure, content: &Content<'_>, tight: bo
     // high as buttons are elsewhere and side by side where one above the other
     // does not fit.
     let fits = |button: u16, beside: bool| {
-        let rows = if beside { 1 } else { 2 };
+        let rows: u16 = if beside { 1 } else { 2 };
         let used = margin
             .saturating_add(rows.saturating_mul(button))
             .saturating_add((rows - 1).saturating_mul(gap).saturating_mul(2));

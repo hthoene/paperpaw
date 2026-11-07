@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Setup 1.0.4: the interface-7 native plugin (the first-run guide with dots, a card per answer, a
+  sample of the text size; steps from the registry; skip with a question); its marks (`done`,
+  `trial`) are kept as before. The interface-6 plugin, its app wiring and its three desktop
+  goldens are removed (#228).
+
 - Rules 1.0.8: the interface-7 native plugin (the engine on the host's events, the list with pause,
   conditions and removal, adding a rule step by step); `rules.txt` kept byte for byte, lines this
   version cannot read are kept. Time of day and "every so many minutes" follow the minute tick; the

@@ -109,6 +109,7 @@ impl<'h, 'cb> Reader<'h, 'cb> {
     pub fn steps(&mut self) -> Result<Vec<Step>, Error> {
         let mut found: Vec<Step> = Vec::new();
         rows!(cursor => self.registry.setup(self.host, cursor, &mut self.input, &mut self.output), |row| {
+            (|| {
             if row.flags() & APPLIES == 0 {
                 return Ok(());
             }
@@ -123,6 +124,7 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                 order: row.order(),
                 page,
             })
+            })()
         })?;
         stable_sort_by(&mut found, |a, b| a.order.cmp(&b.order));
         Ok(found)
@@ -287,4 +289,116 @@ pub enum NewValue {
     Bool(bool),
     Int(i64),
     Text(usize),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn choice(values: &[&str], at: Option<usize>) -> Setting {
+        Setting {
+            key: "core.language".into(),
+            title: "Language".into(),
+            help: String::new(),
+            unit: String::new(),
+            editor: None,
+            control: Control::Choice {
+                options: values
+                    .iter()
+                    .map(|v| Choice {
+                        value: (*v).into(),
+                        title: v.to_uppercase(),
+                    })
+                    .collect(),
+                at,
+            },
+        }
+    }
+
+    fn number(value: i64) -> Setting {
+        Setting {
+            key: "core.font-size".into(),
+            title: "Size".into(),
+            help: String::new(),
+            unit: "pt".into(),
+            editor: None,
+            control: Control::Number {
+                value,
+                min: 8,
+                max: 24,
+                step: 2,
+            },
+        }
+    }
+
+    #[test]
+    fn a_switch_toggles() {
+        let mut s = Setting {
+            control: Control::Switch(false),
+            ..number(0)
+        };
+        assert_eq!(s.next(1), Some(NewValue::Bool(true)));
+        s.apply(&NewValue::Bool(true));
+        assert_eq!(s.next(-1), Some(NewValue::Bool(false)));
+        assert_eq!(s.label("On", "Off").unwrap(), "On");
+    }
+
+    #[test]
+    fn a_number_moves_by_its_step_and_stops_at_its_bounds() {
+        assert_eq!(number(12).next(1), Some(NewValue::Int(14)));
+        assert_eq!(number(12).next(-1), Some(NewValue::Int(10)));
+        assert_eq!(number(24).next(1), None);
+        assert_eq!(number(8).next(-1), None);
+        assert_eq!(number(23).next(1), Some(NewValue::Int(24)));
+        // A value beyond the bound comes back to it, without overflowing.
+        assert_eq!(number(i64::MAX).next(1), Some(NewValue::Int(24)));
+        assert_eq!(number(12).label("On", "Off").unwrap(), "12 pt");
+        assert_eq!(number(-3).label("On", "Off").unwrap(), "-3 pt");
+    }
+
+    #[test]
+    fn a_choice_wraps_around_and_starts_at_the_ends_from_nothing() {
+        assert_eq!(
+            choice(&["en", "de"], Some(0)).next(1),
+            Some(NewValue::Text(1))
+        );
+        assert_eq!(
+            choice(&["en", "de"], Some(1)).next(1),
+            Some(NewValue::Text(0))
+        );
+        assert_eq!(
+            choice(&["en", "de"], Some(0)).next(-1),
+            Some(NewValue::Text(1))
+        );
+        assert_eq!(
+            choice(&["en", "de", "fr"], None).next(1),
+            Some(NewValue::Text(0))
+        );
+        assert_eq!(
+            choice(&["en", "de", "fr"], None).next(-1),
+            Some(NewValue::Text(2))
+        );
+        assert_eq!(choice(&[], None).next(1), None);
+        let mut s = choice(&["en", "de"], Some(0));
+        s.apply(&NewValue::Text(1));
+        assert_eq!(s.label("On", "Off").unwrap(), "DE");
+    }
+
+    #[test]
+    fn an_editor_value_has_nothing_to_step() {
+        let s = Setting {
+            control: Control::Value("Europe/Berlin".into()),
+            ..number(0)
+        };
+        assert_eq!(s.next(1), None);
+        assert_eq!(s.label("On", "Off").unwrap(), "Europe/Berlin");
+    }
+
+    #[test]
+    fn labels_and_steps_survive_refused_allocations() {
+        let s = number(12);
+        crate::fail_alloc::sweep(|| s.label("On", "Off").map(|l| l.len()));
+        let c = choice(&["en", "de"], Some(0));
+        crate::fail_alloc::sweep(|| c.label("On", "Off").map(|l| l.len()));
+    }
 }

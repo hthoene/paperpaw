@@ -21,7 +21,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_setup::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "setup",
-        &["core.registry", "core.library"],
+        &["core.registry", "core.library", "core.ui"],
     )
 }
 
