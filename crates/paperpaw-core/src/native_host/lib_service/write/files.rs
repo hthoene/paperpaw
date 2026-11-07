@@ -95,6 +95,7 @@ pub(super) fn paths(
         total: rows,
         generation: 0,
         next: 0,
+        cursor: None,
     };
     Ok(used + super::super::encode(&Record::ServiceEnd(end), &mut out[used..])?)
 }
