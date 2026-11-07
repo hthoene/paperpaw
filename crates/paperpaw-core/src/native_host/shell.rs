@@ -256,6 +256,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
     table.text_hyphenate = text_hyphenate::<S>;
+    table.icon_glyph = icon_glyph::<S>;
     table.image_info = image_info::<S>;
     table.canvas_draw_image = canvas_draw_image::<S>;
     // The X4 ink probe is enabled only after device timing qualifies it.
@@ -1308,6 +1309,17 @@ unsafe extern "C" fn canvas_draw_image<S>(
         height,
         flags,
     )
+}
+
+unsafe extern "C" fn icon_glyph<S>(ctx: *mut c_void, name: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe { super::fonts::icon_glyph(&context.environment, name, out) }
 }
 
 unsafe extern "C" fn text_hyphenate<S>(
