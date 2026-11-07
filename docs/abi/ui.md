@@ -201,6 +201,9 @@ asker learns its request id at once and long texts move in pages, never cut.
   `ui_request`: `request`) records a question for the caller and returns its **request** id
   (`u32`, never 0). The dialog opens after the caller's callback returns (as a queued `open`, with
   the params `core.request` and `core.kind`), so the caller can still write the initial text.
+  Both values are ASCII decimal without sign or leading zero: `core.request` the request id
+  (1..=4,294,967,295), `core.kind` the `kind` below (0..=3). A reader refuses any other form of
+  either value (`Error::Invalid`); it does not guess.
 - [D] `kind`: 0 text, 1 choice, 2 confirm (yes or no), 3 folder; others `ERR_INVALID`. `slot`:
   empty for the kind's slot; for kind 0 also `core.remote-keyboard` (the keyboard's "type on the
   phone" asks it this way, with its own text as the initial text); any other `ERR_INVALID`.
