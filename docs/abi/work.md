@@ -87,7 +87,8 @@ record.
 - [D] `cancel`: `work_key.key` removes that work; `""` removes all the plugin's work. A missing key
   is `OK`. A work whose `event.work_due` is already delivered is not called back.
 - [D] `state`: one `work_row` per declared work, in declaration order, then one `service.end`
-  (`last` set): `key`, `token`, `state` (0 waiting, 1 held, 2 running: its due callback ran and its
+  (the unpaged end, `stages-services.md` 2.3: `total` the rows, `flags`, `next` and `generation`
+  0): `key`, `token`, `state` (0 waiting, 1 held, 2 running: its due callback ran and its
   network requests or sockets are still open), `reason` (when held: the `event.http_done` reason
   numbers `network.md` 4.1 uses for power ends, 11 `offline`, 12 `saving`; else 0), `due_ms` (when
   it comes due by time, 0 when only a moment brings it). kosync checks it before declaring again
