@@ -72,8 +72,6 @@ fn image_parity_in_both_languages_and_image_only_books() {
                     // Deliberate bug fix: the whole caption covers the original
                     // image span, not the alternative text's stale checkpoints.
                     expected.map = paperpaw_sdk::document::OffsetMap::IDENTITY;
-                    expected.map.checkpoint(0, expected.start);
-                    expected.map.checkpoint(expected.text.len(), expected.end);
                     assert_eq!(actual.source_offset(0), 4);
                     assert_eq!(actual.source_offset(actual.text.len()), 90);
                 }
@@ -188,6 +186,29 @@ fn punctuation_matches_use_boundaries_before_the_rule() {
     let bytes = encoded(false, ".=x", crate::pictures::SHOW, "Picture");
     apply(&bytes, "book.epub", &mut actual).unwrap();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn caption_maps_to_picture_start_with_empty_alt() {
+    assert_caption_source_span("");
+}
+
+#[test]
+fn caption_maps_to_picture_start_with_nonidentity_alt() {
+    assert_caption_source_span("ship");
+}
+
+fn assert_caption_source_span(alt: &str) {
+    let mut block = Block::new(BlockKind::Image, 4, 90, alt.to_string());
+    if !alt.is_empty() {
+        block.map.checkpoint(0, 40);
+        block.map.checkpoint(2, 70);
+    }
+    let bytes = encoded(false, "", crate::pictures::CAPTION, "Picture");
+    apply(&bytes, "book.epub", &mut block).unwrap();
+    assert_eq!(block.source_offset(0), 4, "alt {alt:?}");
+    assert_eq!(block.source_offset(1), 5, "alt {alt:?}");
+    assert_eq!(block.source_offset(block.text.len()), 90, "alt {alt:?}");
 }
 
 #[test]

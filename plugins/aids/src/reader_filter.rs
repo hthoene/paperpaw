@@ -152,9 +152,9 @@ fn verify_signature(batch: &wire::RecordBatch<'_>, signature: u64) -> Result<(),
     Ok(())
 }
 
-impl From<paperpaw_document::EditError> for Error {
-    fn from(error: paperpaw_document::EditError) -> Self {
-        use paperpaw_document::EditError;
+impl From<paperpaw_sdk::document::EditError> for Error {
+    fn from(error: paperpaw_sdk::document::EditError) -> Self {
+        use paperpaw_sdk::document::EditError;
         match error {
             EditError::NoMemory => Self::NoMemory,
             EditError::Limit => Self::Limit,

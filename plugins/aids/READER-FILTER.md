@@ -14,12 +14,12 @@ the header). Settings validation must measure the exact encoded payload and
 refuse the whole configuration visibly when either limit is exceeded.
 The checked-in codec is provisional output from the earlier #224-based generator.
 That separate generator is not included here, so there is no supported regeneration
-command on this branch yet. Core follow-up 38 must provide the shared external-schema
+command on this branch yet. Kernel follow-up 38 must provide the shared external-schema
 entry point before migration. ABI global records and lock are unchanged.
 
 Caption word is localized once; the reader combines it with each image's own
 trimmed alternative text, preserving brackets and centre/italic styling. Caption
-source positions are currently incorrect in the cases described below. Image-only cbz/cbr/xtc/xtch books bypass image policy. Apply returns a
+source positions use a fresh identity map from the picture start; the text end maps to the picture end. Image-only cbz/cbr/xtc/xtch books bypass image policy. Apply returns a
 drop verdict; consumers must honor it. Bold precedes ordered replacements, as
 in the existing registrations. A complete block, including source mapping, is
 the application unit; never apply independently to arbitrary stream chunks.
@@ -38,7 +38,7 @@ this change supplies host behavior proofs, not X4 qualification.
 ## Atomic application follow-up (#1028, todo 37)
 
 The new application uses `Block::try_transform` from public
-`paperpaw-document`. It never calls the mutating legacy filters. The current
+`paperpaw_sdk::document`. It never calls the mutating legacy filters. The current
 64 KiB additional-working-memory budget is split between the document transaction
 and caller scratch. It excludes the original block and input payload; this is
 not a measured total X4 heap bound. Reservations are fallible and checked before
@@ -46,21 +46,15 @@ growth. Ordered replacement expansion returns `Limit` and leaves the original
 block unchanged. Matching positions are captured before each rule, preserving
 adjacent punctuation behavior.
 
-Job #3415 passed 23 unit tests, two refusing-allocator tests, formatting and
-all-target clippy with `reader-filter`. The allocator sweep fails successive
-allocations until the complete caption application succeeds; every refusal
-keeps the original block. Caption text/style/kind/alignment/image changes commit
-atomically. The intended source map starts at the picture's source start and ends
-at its source end, but the current `try_replace` implementation does not establish
-that mapping for every image. For an image spanning 4..90, empty alt text starts
-the caption at 90; a nonidentity map beginning at 40 starts it at 40. Two local
-regressions reproduce these failures. The committed en/de test covers nonempty,
-identity-mapped alt text only and is not proof of the general mapping correction.
-Activation requires Kernel's checked `TextEdit::try_set_text` helper, its adoption
-here and passing empty-alt/nonidentity regressions.
+The allocator sweeps fail successive allocations in both caption and Paragraph
+bold application; every refusal keeps the original block. Caption text, runs,
+kind, alignment and image changes commit atomically. `TextEdit::try_set_text`
+resets stale alt-text checkpoints: caption index i maps to picture start + i,
+and the caption end maps to the picture end. Empty-alt and nonidentity-map
+regressions cover this deliberate source-position correction. Text, styling and
+image-policy behavior still match the existing en/de fixtures.
 
-This is approved only as inactive preparation under the accepted gates. Caption
-mapping, generator migration and final native registration remain open. Existing registration remains unchanged in this intermediate
+This is approved only as inactive preparation under the accepted gates. Generator migration and final native registration remain open. Existing registration remains unchanged in this intermediate
 branch; the final native port must remove it, not retain a compatibility path.
 No emulator activation, device heap/stack or timing qualification is claimed.
 

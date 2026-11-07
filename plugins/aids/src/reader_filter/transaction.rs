@@ -1,7 +1,7 @@
 //! One bounded transaction; caller scratch and the edit each own half the budget.
 use super::{Error, wire};
 use alloc::{string::String, vec::Vec};
-use paperpaw_document::TextEdit;
+use paperpaw_sdk::document::TextEdit;
 use paperpaw_sdk::{
     document::{Align, Block, BlockKind, Run, TextStyle},
     filters::Verdict,
@@ -156,7 +156,7 @@ fn picture(
         line.push_str(alt);
     }
     line.push(']');
-    edit.try_replace(0..edit.text().len(), &line)?;
+    edit.try_set_text(&line)?;
     edit.try_set_runs(&[Run::new(0, line.len() as u32, TextStyle::ITALIC)])?;
     edit.set_kind(BlockKind::Paragraph);
     edit.set_align(Align::Center);

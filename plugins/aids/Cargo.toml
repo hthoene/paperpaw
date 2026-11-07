@@ -14,7 +14,6 @@ categories = ["no-std"]
 reader-filter = []
 
 [dependencies]
-paperpaw-document.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
