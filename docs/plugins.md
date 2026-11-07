@@ -2653,6 +2653,34 @@ operation version and buffer limits before calling the host. Explicitly consume
 the handle with `release(host)` when done; teardown also releases it. There is
 no automatic Drop release because the handle retains no callback host. Per-family
 typed wrappers define the input and output records.
+### Core event subscriptions
+
+`native::declare::EventKind` includes setting changes, book opened/closed/finished,
+book moves/removals, plugin changes, Wi-Fi, power mode, status and charge changes.
+Subscribe with `Declarations::subscribe_event(kind, token)`. A host returns
+`Error::Unsupported` until the relevant producer is implemented; these declarations
+never start a stopped plugin.
+
+The matching `native::events::Event` variants borrow callback bytes. Book session
+edges use `Event::Book { kind, reason, reading }`; page turns and book edges share
+`ReadingView`, whose accessors expose the complete path, reading position, titles
+and optional page counters. Reason 1 denotes a restored open or a sleep/shutdown
+close; reserved reasons become 0. Book-finished reason is always 0.
+
+`Event::SettingChanged` provides an optional typed previous value. A missing or
+unreadable previous value is `None`; malformed nonempty settings values are refused.
+An empty key is an overflow signal: reread settings retained by the plugin. Read
+new values with `native::settings::read_setting`.
+
+Wi-Fi state 4 becomes `WifiLinkState::AccessPoint`; reserved states become `On`
+without a connection. `PowerChange` describes the power mode and energy level,
+including automatic selection and work stretch. It borrows the mode id and
+normalizes reserved energy levels to Normal. `ChargeFlags` separately describes
+charging, external power and low battery; unknown flag bits are ignored.
+
+Unknown appended optional fields are accepted, while malformed framing, strings,
+reading counters and setting values are refused. `event_dropped` is a host-shell
+reporting path, logged by the host; it is not an event delivered to plugin code.
 
 ### Flat callbacks in interface 7 draft 5
 
@@ -2676,6 +2704,20 @@ storage and translated output separately; neither buffer is allocated by the SDK
 so retry when the result exceeds the output capacity.
 
 ### Native host wrappers for the Battery pilot
+
+Menu declarations use `native::declare::{MenuEntryDecl, EntryPlacement, MenuSectionDecl}`.
+Construct a `MenuEntryDecl::new("core.tools", "battery.open")`, set `order = 37`,
+then add it through `Declarations::menu_entry` and assign the icon through
+`icon("battery.open", "battery")`. Entry and section order are typed `i16` values.
+`EntryPlacement` carries an anchor only for after, before and section placement.
+Entry items, icon items and device-need items are full ids; foreign items are allowed.
+`menu_need(item, MenuNeed)` uses the existing SDK need enum. `menu_section` takes
+a `MenuSectionDecl`; `hide_menu_entry(menu, item)` uses full ids, while
+`describe_item(item, key)` names an owned item relatively. The builder checks
+syntax and generated field limits; the host resolves ids and checks duplicates.
+Hosts without menu wiring return `Unsupported` rather than dropping declarations.
+These methods also work in build scripts that emit static batches. Card catalogs
+remain at `plugins/<id>/i18n/<language>.ini`, with language fallback ending in English.
 
 `native::declare::Declarations::subscribe_event(EventKind::Started, token)`
 registers a typed event subscription; `register_draw(token)` registers a draw
@@ -2703,6 +2745,20 @@ the host's frame clipping and colour conversion. `Font::acquire_role` borrows th
 callback host, `measure_text` returns advance, and `render_text` takes that canvas
 and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
 font cannot be drawn through a different host binding.
+
+REG declarations use `SetupStepDecl`, `SlotDecl`, `SlotOfferDecl`, `KeyBindingDecl`,
+`PresetDecl` and `PresetValueDecl` through `native::declare::Declarations`.
+`setting_default` and `setting_choice` extend another plugin's settings; the host
+checks authority and resolves extensions in plugin load order. Setup conditions
+are declared values and device requirements, with no callback during a query.
+
+Registry commands preserve the difference between a default and an empty user
+configuration: `set_menu(menu, None)` restores declared rows, while
+`set_menu(menu, Some(&[]))` clears the custom menu. Menu and plugin request lists
+are checked against the generated limits and never truncated. A preview set is
+submitted as one batch with caller-owned value scratch; oversized previews fail
+before submission. Use a preset preview for larger sets. The host checks preview
+ownership and obtains any required user consent for mass resets.
 
 `native::commands::CommandSender::new(host, scratch)` stages typed setting changes
 with the generated encoder. Each accepted call is one atomic batch, applied by

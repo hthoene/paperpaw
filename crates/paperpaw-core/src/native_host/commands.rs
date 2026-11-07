@@ -12,8 +12,8 @@ use crate::abi7::settings_wire::SettingValueRef;
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
-    buffers,
+    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK,
+    PpBytes, buffers,
 };
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 
@@ -111,6 +111,15 @@ impl<'a> CommandStage<'a> {
     fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
         if self.staged.len().saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
+        }
+        // `answer_plugin` needs the install feature (`uses.install`, DEV), which
+        // no catalog defines yet: refused for every plugin, wherever it sits in
+        // the batch (`docs/abi/registry.md` section 5).
+        if batch
+            .iter()
+            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
+        {
+            return ERR_DENIED;
         }
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;

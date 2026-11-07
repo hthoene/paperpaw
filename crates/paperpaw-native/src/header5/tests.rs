@@ -21,6 +21,7 @@ fn good() -> Header5 {
         hot_at: 0,
         hot_len: 0,
         patches: 0,
+        heap_at: None,
         sha256: [7; 32],
         signed: false,
     }
@@ -125,15 +126,90 @@ fn a_refusal_by_the_first_sixteen_bytes_comes_before_anything_else_is_read() {
 }
 
 #[test]
-fn flags_and_reserved_bytes_must_be_zero() {
-    for at in 12..16 {
-        assert_eq!(edited(|b| b[at] = 1), Err(Refusal::Reserved), "flags {at}");
+fn only_the_heap_word_flag_is_known_and_the_reserved_word_is_its_offset() {
+    // Bit 0 of the flags is the heap word; every other bit is a later
+    // format's.
+    for (at, bit) in [(12, 1u8 << 1), (12, 0x80), (13, 1), (14, 1), (15, 0x80)] {
+        assert_eq!(
+            edited(|b| b[at] = bit),
+            Err(Refusal::Reserved),
+            "flags {at} {bit:#x}"
+        );
     }
+    // A nonzero word at 60..64 without the flag is reserved.
     for at in 60..64 {
         assert_eq!(
             edited(|b| b[at] = 1),
             Err(Refusal::Reserved),
             "reserved {at}"
+        );
+    }
+    // With the flag it is the offset, and 0 is an offset like any other.
+    let with = |at: u32| {
+        edited(|b| {
+            set32(b, 12, FLAG_HEAP_WORD);
+            set32(b, 60, at);
+        })
+    };
+    assert_eq!(with(256).map(|h| h.heap_at), Ok(Some(256)));
+    assert_eq!(with(0).map(|h| h.heap_at), Ok(Some(0)));
+}
+
+#[test]
+fn a_header_with_the_heap_word_round_trips_and_its_digest_covers_it() {
+    let header = Header5 {
+        heap_at: Some(256),
+        ..good()
+    };
+    assert_eq!(
+        read(&header.to_bytes(), file_len(&header, false)),
+        Ok(header)
+    );
+    // The flag and the offset are in the bytes the digest covers.
+    let (with, without) = (header.digest_prefix(), good().digest_prefix());
+    assert_eq!(&with[12..16], &1u32.to_le_bytes());
+    assert_eq!(&with[60..64], &256u32.to_le_bytes());
+    assert_ne!(with, without);
+    assert_eq!(&without[12..16], &[0; 4]);
+    assert_eq!(&without[60..64], &[0; 4]);
+}
+
+#[test]
+fn the_heap_word_lies_in_the_read_only_data_outside_the_entry_and_the_metadata() {
+    // good(): code_at 1024, entry 64..84, metadata 128..224.
+    let with = |at: u32| {
+        let header = Header5 {
+            heap_at: Some(at),
+            ..good()
+        };
+        read(&header.to_bytes(), file_len(&header, false))
+    };
+    let bad = |rule: &'static str| Err(Refusal::Malformed(rule));
+    // Where it may lie, the edges included.
+    for at in [0, 60, 84, 224, 256, 1020] {
+        assert_eq!(with(at).map(|h| h.heap_at), Ok(Some(at)), "at {at}");
+    }
+    // 4-aligned.
+    for at in [1, 2, 3, 258, 1021] {
+        assert_eq!(with(at), bad("the heap word is not 4-aligned"), "at {at}");
+    }
+    // In the read-only data: [at, at + 4) <= code_at.
+    for at in [1024, 1028, 4092, u32::MAX - 3, !3u32] {
+        assert_eq!(
+            with(at),
+            bad("the heap word is not in the read-only data"),
+            "at {at}"
+        );
+    }
+    // Outside the entry (20 bytes at 64) and the metadata record.
+    for at in [64, 68, 72, 80] {
+        assert_eq!(with(at), bad("the heap word lies in the entry"), "at {at}");
+    }
+    for at in [128, 132, 220] {
+        assert_eq!(
+            with(at),
+            bad("the heap word lies in the metadata record"),
+            "at {at}"
         );
     }
 }

@@ -17,6 +17,13 @@ impl Frame for Env<'_> {
         Env::i18n(self)
     }
 
+    fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
+        Some(self.fonts())
+    }
+    fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
+        Some(self.storage())
+    }
+
     fn snapshot(&self) -> Result<Snapshot, i32> {
         capture(self.device(), self.status(), self.now())
     }

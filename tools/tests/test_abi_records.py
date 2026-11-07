@@ -15,6 +15,7 @@ SPEC.loader.exec_module(ABI)
 from abi_records import rust_records, validate_records
 from abi_declarations import rust_streams
 from abi_i18n import rust_i18n
+from abi_host_decode import rust_host_decode
 
 
 RUST_TESTS = r'''
@@ -234,7 +235,32 @@ class RecordsTests(unittest.TestCase):
                           ('menu.section', 16), ('menu.hide', 17), ('menu.describe', 18),
                           ('command.set_item_state', 60), ('stage.spec', 19),
                           ('registration.stage', 20), ('stage.call', 512), ('stage.reply', 513),
-                          ('service.echo', 1024)])
+                          ('service.echo', 1024),
+                          ('event.setting_changed', 64), ('event.book_opened', 65),
+                          ('event.book_closed', 66), ('event.book_finished', 67),
+                          ('event.book_moved', 68), ('event.book_removed', 69),
+                          ('event.plugins_changed', 70), ('event.wifi_changed', 71),
+                          ('event.power_changed', 72), ('event.status_changed', 73),
+                          ('event.charge_changed', 74),
+                          ('setup.step', 21), ('slot.spec', 22), ('slot.offer', 23),
+                          ('key.bind', 24), ('setting.default', 25), ('setting.choice', 26),
+                          ('preset.spec', 27), ('preset.value', 28),
+                          ('event.registry_changed', 75), ('event.preview_changed', 76),
+                          ('event.plugins_requested', 77), ('event.plugin_answered', 78),
+                          ('service.reg_query', 1025), ('service.reg_key', 1026),
+                          ('service.reg_setting', 1027), ('service.reg_setting_extra', 1028),
+                          ('service.reg_choice', 1029), ('service.reg_text', 1030),
+                          ('service.reg_group', 1031), ('service.reg_plugin', 1032),
+                          ('service.reg_need', 1033), ('service.reg_item', 1034),
+                          ('service.reg_slot', 1035), ('service.reg_menu_row', 1036),
+                          ('service.reg_binding', 1037), ('service.reg_setup_step', 1038),
+                          ('service.reg_value', 1039), ('service.reg_widget', 1040),
+                          ('command.reset_setting', 1536), ('command.preview_setting', 1537),
+                          ('command.preview_end', 1538), ('command.set_scope', 1539),
+                          ('command.set_menu', 1540), ('command.bind_key', 1541),
+                          ('command.bind_slot', 1542), ('command.set_plugin_enabled', 1543),
+                          ('command.request_plugins', 1544), ('command.answer_plugin', 1545),
+                          ('command.apply_preset', 1546)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -349,8 +375,10 @@ class RecordsTests(unittest.TestCase):
 
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)
+        served = ABI.with_services(self.schema, ROOT / 'abi/services')
         for path in COPIES:
-            self.assertEqual((ROOT / path).read_text(), source)
+            self.assertEqual((ROOT / path).read_text(), source + rust_host_decode(served))
+        source += rust_host_decode(self.schema)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'abi').mkdir()

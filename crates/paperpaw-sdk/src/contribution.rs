@@ -156,6 +156,11 @@ impl Registrar {
                 return Err(RegisterError::Duplicate { id: id.clone() });
             }
         }
+        self.contributions
+            .try_reserve(1)
+            .map_err(|_| RegisterError::Invalid {
+                message: Cow::Borrowed("contribution allocation failed"),
+            })?;
         self.contributions.push(contribution);
         Ok(())
     }
