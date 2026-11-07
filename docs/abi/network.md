@@ -76,9 +76,11 @@ file's size, 2.1).
 - [D] **`method`** is an HTTP token of 1-16 bytes (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`,
   `PROPFIND`, ...), sent as given; anything that is not a token is `ERR_INVALID`.
 - [D] **`url`** is at most 1,024 bytes, `http://` or `https://` (any case), an IPv4, a
-  bracketed IPv6 or a name of letters, digits, `-`, `.`, `_` and `~`, a port 1-65535, no control
-  bytes; `user:password@` and `#fragment` are dropped (credentials go in a header). Bytes the
-  path may not carry are percent-encoded by the host. Anything else is `ERR_INVALID`.
+  bracketed IPv6 (the RFC 4291 text form, as `core::net::Ipv6Addr` parses it, no zone; checked at
+  submit, not left to the transport) or a name of letters, digits, `-`, `.`, `_` and `~`, a port
+  1-65535, no control bytes; `user:password@` and `#fragment` are dropped (credentials go in a
+  header). Bytes the path may not carry are percent-encoded by the host. Anything else is
+  `ERR_INVALID`.
 - [D] **Headers:** `name` an HTTP token of 1-64 bytes, `value` at most 1,024 bytes, no control
   bytes (`ERR_INVALID`). The host always sends `Host`, `Connection: close` and `Content-Length`
   (with a body) itself and refuses a plugin's own of those (`ERR_INVALID`); it adds
@@ -99,15 +101,23 @@ file's size, 2.1).
 - [D] **`timeout_ms`**: 0 for the default; else 1,000-600,000. The default is 30,000 for a request
   in memory, the whole request, connection and TLS counted, and for a request with a file
   60,000 **without a byte moving** (a long download never ends while it moves).
-- [D] **`max_body`**: 0 for the host's default (65,536 on devices of the small memory class, the X4,
-  or the profile's `NET_POOL` when smaller: 49,152 until measured, 3.4; 1,048,576 on others); else
-  at most that default (`ERR_NO_SPACE` above it). Ignored when saving. **`max_file`**: 0 for 64 MiB,
-  the most; else at most 64 MiB. A longer saved answer fails with reason `too_large` (4.1) and the
-  file is left as it was.
+- [D] **`max_body`**: 0 for the host's default, which is also the most: on devices of the small
+  memory class (the X4) `NET_POOL` less 4,096 (the largest held input, below), so one memory
+  request always fits the pool together with its input: **45,056 on the X4** (48 KiB pool, 3.4);
+  1,048,576 on others. A larger `max_body` is `ERR_NO_SPACE`. Ignored when saving. **`max_file`**: 0
+  for 64 MiB, the most; else at most 64 MiB (`ERR_NO_SPACE` above it). A longer saved answer
+  fails with reason `too_large` (4.1) and the file is left as it was.
 - [D] Root checks as `files.md` section 3 (root 1 without `uses.storage` is `ERR_DENIED`, the
   root-1 exclusions, the path rules).
 - [D] **Limits:** at most 4 requests per plugin not yet ended and 16 per device (`ERR_BUSY`, the
   plugin waits for a `net.http_done`). Interface 6 queued without limit.
+- [D] **A request's input is held in the pool.** The host keeps what it still has to send (method,
+  URL, headers, body: the request's input batch, at most 4,096 bytes) from the call until the
+  request has sent it or ended. On devices with a `NET_POOL` (3.4) that copy is reserved from the
+  pool at the call, at its exact size, never 4 KiB by default; with no room the call answers
+  `ERR_NO_MEMORY` and nothing is queued (the plugin retries after a `net.http_done`). So queued
+  requests never hold memory outside the pool: 16 waiting requests of 4 KiB each, 64 KiB, cannot
+  build up next to it on the X4. Other devices hold it from the heap, within the limits above.
 - [D] **Same save file:** a request that saves to a file (same root, path compared by identity, as
   root-1 exclusions) another of the plugin's unfinished requests saves to ends that older one at
   once with reason `replaced`; the new one goes on (interface 6). If **another plugin's** unfinished
@@ -133,9 +143,13 @@ file's size, 2.1).
   `body_len`, the memory body's length.
 - [D] `body` replies one `net_bytes` with the bytes from `offset`, at most 3,840 per call; at or
   past the end it replies zero bytes (`data` empty). A 64 KiB body is read in 18 calls.
-- [D] On a failure (`reason` other than 0) with a status (a non-2xx answer, or a request that
-  saves), the memory body holds the error body, at most 4,096 bytes, never written to the file.
-  A failure without a status has `body_len` 0.
+- [D] **Error bodies are at most 4,096 bytes.** A non-2xx answer (`reason` 0, its status for the
+  plugin to judge) and a failure with a status keep only the first 4,096 bytes of their body in
+  memory, whatever `max_body` says and whether the request saves or not; the rest is read and
+  dropped (`flags` bit 1 `truncated`), and an error body is never written to the file. So a large
+  error page never takes a memory body of its own on the X4: a saving request's 4 KiB buffer holds
+  it, and a memory request uses at most 4 KiB of the `max_body` it reserved. A failure without a
+  status has `body_len` 0.
 
 ## 3. Behaviour
 
@@ -196,19 +210,20 @@ file's size, 2.1).
   buffer while they run) and are not counted against `MEMORY_BODIES`.
 - [D] **One network pool on the X4.** Devices of the small memory class have one device-wide pool,
   `NET_POOL` in the profile (**48 KiB on the X4 until Firmware has measured**, so a memory body
-  there is at most 48 KiB, `max_body`'s X4 default 49,152; 80 KiB would hold one 64 KiB body and two
-  sockets), for every network buffer the host holds for plugins: memory bodies, held `respond`
-  bodies, the 4 KiB write buffer of a saving request and of each `serve` upload being received (5.2:
-  a request whose buffer does not fit is answered 503 by the host), and SOCK's send queues, reads
-  and broadcast answers (`sockets.md` section 6). Each is reserved from the pool before it is used,
-  never grown later: a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving)
-  before its transfer starts and waits in the queue while the pool has not that room (its
-  `timeout_ms` counting, as for `MEMORY_BODIES`). The queue is strictly first in, first out: no
-  request overtakes one that waits for room, so a large body is never starved by smaller ones, and a
-  request that waits holds back those after it until it starts or its `timeout_ms` ends it;
-  everything else (a held `respond` body, SOCK's buffers) that does not fit answers `ERR_NO_MEMORY`
-  at its call and holds nothing. `max_body` is at most the pool. So the X4 holds at most `NET_POOL`
-  of plugin network memory, plus the shell's receive and send buffers and one TLS session (about 40
+  there is at most 44 KiB, `max_body`'s X4 default and most 45,056, leaving 4 KiB for the request's
+  held input; 80 KiB would hold one 64 KiB body and two sockets), for every network buffer the host
+  holds for plugins: requests' held input (2.1), memory bodies, held `respond` bodies, the 4 KiB
+  write buffer of a saving request and of each `serve` upload being received (5.2: a request whose
+  buffer does not fit is answered 503 by the host), and SOCK's send queues, reads and broadcast
+  answers (`sockets.md` section 6). Each is reserved from the pool before it is used, never grown
+  later: a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving) before its
+  transfer starts and waits in the queue while the pool has not that room (its `timeout_ms`
+  counting, as for `MEMORY_BODIES`). The queue is strictly first in, first out: no request overtakes
+  one that waits for room, so a large body is never starved by smaller ones, and a request that
+  waits holds back those after it until it starts or its `timeout_ms` ends it; everything else (a
+  held `respond` body, SOCK's buffers) that does not fit answers `ERR_NO_MEMORY` at its call and
+  holds nothing. `max_body` is at most the pool less 4,096. So the X4 holds at most `NET_POOL` of
+  plugin network memory, plus the shell's receive and send buffers and one TLS session (about 40
   KiB); Firmware measures that worst case on the X4 heap (section 9) and the profile lowers
   `NET_POOL` (and with it the default `max_body`) if it does not fit. Other devices have no pool:
   the caps per item and `MEMORY_BODIES` bound them.
@@ -278,6 +293,9 @@ file's size, 2.1).
   most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
   (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
   with a token in use stops the old server first (interface 6).
+- [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
+  or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
+  idempotent, so a plugin may stop on every close without tracking whether the server still runs.
 - [D] The outcome is `event.server`: `state` 0 `started` with `address` (`192.168.1.20:8080`, or
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
@@ -392,11 +410,11 @@ file's size, 2.1).
   headers on a server, or streams a memory body; none is offered (section 0).
 - Settled with Plugin: **translate** sends up to 3,000 characters, percent-encoded up to about
   36,000 bytes, so a long request goes through a root-0 file (`net_file` send); a larger inline
-  cap would not help. No plugin needs more in memory than the 64 KiB (X4) and 1 MiB (others)
+  cap would not help. No plugin needs more in memory than the 44 KiB (X4) and 1 MiB (others)
   defaults; only wikipedia lowers `max_body` (16 KiB), larger answers are saved to files.
-- [Q2] (Plugin) Until Firmware has measured, the X4's pool and so its default `max_body` are
-  48 KiB. Does any port read an answer of 48-64 KiB in memory on the X4 (it would save to a file
-  instead)?
+- [Q2] (Plugin) Until Firmware has measured, the X4's pool is 48 KiB and so its default and
+  largest `max_body` 45,056 (44 KiB). Does any port read an answer of 44-64 KiB in memory on the
+  X4 (it would save to a file instead)?
 
 ## 9. Hand-offs (after approval)
 
