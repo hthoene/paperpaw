@@ -106,7 +106,18 @@ fn dialog_parameters_decode_only_canonical_host_values() {
             raw
         );
     }
-    for value in ["", "0", "01", "+1", "-1", " 1", "1 ", "4294967296", "١"] {
+    for value in [
+        "",
+        "0",
+        "00",
+        "01",
+        "+1",
+        "-1",
+        " 1",
+        "1 ",
+        "4294967296",
+        "١",
+    ] {
         assert_eq!(
             host_param("core.request", value).request(),
             Err(Error::Invalid)
@@ -120,7 +131,7 @@ fn dialog_parameters_decode_only_canonical_host_values() {
     ] {
         assert_eq!(host_param("core.kind", value).kind(), Ok(Some(kind)));
     }
-    for value in ["", "00", "01", "+1", "4", "1 "] {
+    for value in ["", "00", "01", "+1", "4", "1 ", "4294967296"] {
         assert_eq!(host_param("core.kind", value).kind(), Err(Error::Invalid));
     }
     let other = Param::new("other", "not a number").unwrap();
