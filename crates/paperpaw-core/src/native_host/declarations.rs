@@ -65,7 +65,9 @@ pub fn validate_batch(plugin_id: &str, batch: &RecordBatch<'_>) -> Check {
 ///
 /// # Errors
 /// `ERR_UNSUPPORTED` for unknown kinds, flag bits, styles or a nonzero `check`;
-/// `ERR_INVALID` for any other violated rule.
+/// `ERR_INVALID` for any other violated rule. The format, reader, lookup and
+/// book declarations are the exception: their unknown values are
+/// `ERR_INVALID` too (`declarations_docs.rs`).
 #[expect(
     clippy::too_many_lines,
     reason = "one explicit arm per record kind (no catch-all): a new record fails to compile here until it is classified"

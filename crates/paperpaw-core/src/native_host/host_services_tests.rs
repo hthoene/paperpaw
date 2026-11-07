@@ -3,7 +3,6 @@
 //! the device registry into the wired host views, and what happens to an
 //! owner's documents and transactions when it is retired.
 extern crate std;
-use super::*;
 use crate::native_host::resources;
 use crate::{
     abi7::services_wire::{self, ServiceOp},

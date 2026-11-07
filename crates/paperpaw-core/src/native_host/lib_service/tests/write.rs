@@ -235,20 +235,14 @@ pub(super) fn book() -> Record<'static> {
         key: None,
     })
 }
-/// Ops 9 and 10 answer several `lib_result` rows, which the schema as
-/// generated today rejects (`validate_reply`: no `reply_rows`, no `end`): the
-/// tests of their rows skip that check until the schema is fixed (Kernel).
+/// Ops 9 and 10 answer one `lib_result` per path and one `end`; the reply is
+/// checked against the generated schema like any other.
 pub(super) fn go_rows(
     fake: &Rc<Fake>,
     op: u32,
     records: &[Record<'_>],
 ) -> Result<std::vec::Vec<u8>, i32> {
-    let bytes = input(op, records)?;
-    let op = schema_op(op);
-    let mut out = std::vec![0; op.max_reply];
-    let length = with(host(fake), |frame| frame.run(op, &bytes, &mut out))?;
-    out.truncate(length);
-    Ok(out)
+    go(fake, op, records)
 }
 pub(super) fn go(
     fake: &Rc<Fake>,
@@ -272,10 +266,17 @@ fn results(bytes: &[u8]) -> std::vec::Vec<(String, i32, u32)> {
     while at < bytes.len() {
         let (record, used) = wire::record_decode_prefix(&bytes[at..]).unwrap();
         at += used;
-        let Record::ServiceLibResult(r) = record else {
-            panic!("not a result")
-        };
-        rows.push((r.path.into(), r.status, r.flags));
+        match record {
+            Record::ServiceLibResult(r) => rows.push((r.path.into(), r.status, r.flags)),
+            Record::ServiceEnd(end) => {
+                assert_eq!(at, bytes.len(), "the end is last");
+                assert_eq!(
+                    (end.total as usize, end.next, end.generation),
+                    (rows.len(), 0, 0)
+                );
+            }
+            _ => panic!("not a result"),
+        }
     }
     rows
 }
