@@ -972,11 +972,15 @@ fn a_bound_is_lost_where_the_register_changes_or_a_path_skips_the_compare() {
 }
 
 #[test]
-fn a_bounded_table_with_a_word_that_is_no_label_is_not_read() {
-    // The bound says two entries; the second word points out of the function.
+fn a_bounded_table_still_ends_at_the_first_word_that_is_no_label() {
+    // The bound says two entries; the second word points out of the function
+    // (a compare before the index was scaled can be looser than the table):
+    // the run ends there, and the case read is the first.
     let (f, _) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(with_table(&f, &[TEXT + 36, TEXT + 4096], &[0, 4]), None);
+    // The first word out of the function: no entry at all, as without a bound.
     assert!(matches!(
-        with_table(&f, &[TEXT + 36, TEXT + 4096], &[0, 4]),
+        with_table(&f, &[TEXT + 4096, TEXT + 36], &[0, 4]),
         Some(Finding::Table { .. })
     ));
 }

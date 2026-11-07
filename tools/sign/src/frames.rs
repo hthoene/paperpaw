@@ -31,9 +31,9 @@
 //!   index (`bltu`/`bgeu` against a constant, on every path to the jump) is
 //!   seen, the table is that many words and no more (tables lie one after the
 //!   other in `.rodata`; the run of labels would read the next one as this
-//!   one's cases, with registers that do not hold there); a word inside the
-//!   bound that is no label of the function makes the table unreadable. With
-//!   no bound seen, the table's length is the run. A table the scan cannot
+//!   one's cases, with registers that do not hold there); the run still ends
+//!   it earlier where it does. With no bound seen, the table's length is the
+//!   run. A table the scan cannot
 //!   read (no entry, a word not relocated, an entry into the middle of an
 //!   instruction) is a jump through a register as below;
 //! - with the frame given back (`sp` at the function's start): a tail call
@@ -661,10 +661,10 @@ impl Walk<'_> {
             return None;
         }
         let mut out = Vec::new();
-        // With the index bounded by a compare, the table is that long and no
-        // longer (the next table may follow it; a word that is no label of the
-        // function inside the bound is no table the scan can read). Else the
-        // run of labels is the table.
+        // With the index bounded by a compare, the table is no longer than
+        // that (the next table may follow it); it may be shorter, as a compare
+        // before the index was scaled may have been looser than the one after
+        // it. Else the run of labels is the table.
         let words = lim.map(|l| l as usize / 4 + 1);
         while words.is_none_or(|n| out.len() < n)
             && let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end))
@@ -690,9 +690,6 @@ impl Walk<'_> {
             }
             out.push(self.insns.binary_search_by_key(&offset, |&(a, _)| a).ok()?);
             at += 4;
-        }
-        if words.is_some_and(|n| out.len() < n) {
-            return None;
         }
         out.sort_unstable();
         out.dedup();
