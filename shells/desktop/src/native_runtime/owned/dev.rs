@@ -257,10 +257,12 @@ impl Loaded {
         let table = shared_shell::host_table::<DesktopServices>();
         // SAFETY: authorized private immutable copy, as above.
         let CheckedLibrary {
+            declared_services,
             library,
             make,
             image,
-        } = unsafe { checked_library(&copy, &digest, &table) }.map_err(Refusal::Runtime)?;
+        } = unsafe { checked_library(&copy, &digest, &table, shared_shell::DATA_SERVICES) }
+            .map_err(Refusal::Runtime)?;
         // SAFETY: the checked module owns the executable entry and read-only image.
         let plugin = checked_box(unsafe {
             SharedPlugin::new(
@@ -271,6 +273,7 @@ impl Loaded {
                 image,
                 report_shared,
                 resources,
+                declared_services,
             )
         }?)?;
         let mut transaction = plugin.begin::<Registration>()?;
