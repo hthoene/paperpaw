@@ -1276,3 +1276,27 @@ fn validate_batch_returns_the_first_failure() {
 fn event_only_wire_batch_remains_committable() {
     assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
 }
+
+/// UIX declarations (`docs/abi/ui.md`: inputs, help hints, widgets, status
+/// items, lines and places) decode but stay refused until the host admits
+/// them, so a batch carrying one is never accepted with it dropped.
+#[test]
+fn uix_declarations_stay_refused_until_admitted() {
+    for tag in [29, 30, 224, 225, 226, 227, 228] {
+        // Sixty-four zero bytes are a valid body of every generated record.
+        let bytes = batch(&[record(tag, &[vec![0; 64]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &first),
+            Err(ERR_UNSUPPORTED),
+            "tag {tag}"
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "tag {tag}: refusal must poison construction"
+        );
+    }
+}

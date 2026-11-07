@@ -37,7 +37,7 @@
       ],
       "max_input": 256,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "card"
     },
     {
       "id": 3,
@@ -131,7 +131,7 @@
       ],
       "max_input": 4096,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "card"
     },
     {
       "id": 9,
@@ -285,7 +285,7 @@
       "reply": [],
       "max_input": 4096,
       "max_reply": 64,
-      "bound": "none"
+      "bound": "card"
     },
     {
       "id": 19,
@@ -301,7 +301,7 @@
       ],
       "max_input": 256,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "card"
     }
   ]
 }
