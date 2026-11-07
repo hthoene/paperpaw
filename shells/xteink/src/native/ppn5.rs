@@ -189,7 +189,19 @@ mod x4 {
     /// What the plugin manager says for a record the admission refuses.
     fn admission_refused(path: &str, why: shell::admission::Admission<'_>) -> PluginProblem {
         use shell::admission::Admission;
-        warn!("native: {path}: format 5: metadata: {why:?}");
+        // A short code and the key, not the whole `Debug` (flash).
+        match why {
+            Admission::Refused(metadata::Refusal::Service { key }) => {
+                warn!("native: {path}: format 5: metadata: no such service {key}");
+            }
+            Admission::Refused(metadata::Refusal::RequiredFeature { key, .. }) => {
+                warn!("native: {path}: format 5: metadata: no such feature {key}");
+            }
+            Admission::Refused(_) => warn!("native: {path}: format 5: metadata: refused"),
+            Admission::Invalid | Admission::NoRoom => {
+                warn!("native: {path}: format 5: metadata: services not kept");
+            }
+        }
         match why {
             Admission::NoRoom => PluginProblem::NoRoom,
             Admission::Refused(metadata::Refusal::Incompatible) => PluginProblem::OtherBuild,
@@ -228,14 +240,11 @@ mod x4 {
             &mut record,
         )
         .map_err(|()| PluginProblem::Damaged)?;
-        let facts = RecordFacts::read(&record).ok_or_else(|| {
-            warn!("native: {path}: format 5: the metadata record is not one this firmware reads");
-            PluginProblem::Damaged
-        })?;
         // The record's body against what this firmware offers, before the
         // image is written: a plugin that asks for a service this firmware
         // lacks costs no flash. What it declares is kept for the host, which
-        // refuses a query of any other service.
+        // refuses a query of any other service; the prefix facts the header
+        // is compared with are the check's own, read once.
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
@@ -243,12 +252,14 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: &[],
         };
-        let (declared, needs_minor) = shell::admission::admit(&record, &offered)
+        let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
-        if needs_minor != facts.needs_minor {
-            warn!("native: {path}: format 5: the record's two readings disagree");
-            return Err(PluginProblem::Damaged);
-        }
+        let facts = RecordFacts {
+            abi_major: admitted.abi_major,
+            needs_minor: admitted.needs_minor,
+            entry_bytes: u32::from(admitted.entry_bytes),
+        };
+        let declared = admitted.declared;
         let placed = place.put5(storage, path, header)?;
         let make = match check_placed(path, header, &placed, &facts, &record) {
             Ok(make) => make,

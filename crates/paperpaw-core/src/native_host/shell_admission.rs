@@ -22,22 +22,34 @@ pub enum Admission<'a> {
     NoRoom,
 }
 
-/// Checks `record` against `host` and keeps its declared services, with the
-/// interface minor it needs.
+/// What an admitted record says: the services it declares and the prefix
+/// facts the loader compares with the file's header (read once, by the
+/// check).
+#[derive(Debug)]
+pub struct Admitted {
+    pub declared: DeclaredServices,
+    pub abi_major: u16,
+    pub needs_minor: u16,
+    pub entry_bytes: u16,
+}
+
+/// Checks `record` against `host` and keeps its declared services.
 ///
 /// # Errors
 /// [`Admission`]: the check's refusal, an invalid list, or no room.
-pub fn admit<'a>(
-    record: &'a [u8],
-    host: &Host<'_>,
-) -> Result<(DeclaredServices, u16), Admission<'a>> {
+pub fn admit<'a>(record: &'a [u8], host: &Host<'_>) -> Result<Admitted, Admission<'a>> {
     let checked = metadata::check(record, host).map_err(Admission::Refused)?;
     let declared =
         DeclaredServices::try_from_iter(checked.services()).map_err(|error| match error {
             DeclaredServicesError::Invalid => Admission::Invalid,
             DeclaredServicesError::NoMemory => Admission::NoRoom,
         })?;
-    Ok((declared, checked.needs_minor))
+    Ok(Admitted {
+        declared,
+        abi_major: checked.abi_major,
+        needs_minor: checked.needs_minor,
+        entry_bytes: checked.entry_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -118,8 +130,16 @@ mod tests {
     #[test]
     fn a_declared_service_can_be_queried_and_an_undeclared_one_is_refused() {
         let bytes = record(&[("core.plugin", 1, 0, 0)]);
-        let (declared, minor) = admit(&bytes, &host()).unwrap();
-        assert_eq!(minor, 1);
+        let admitted = admit(&bytes, &host()).unwrap();
+        let declared = admitted.declared;
+        assert_eq!(
+            (
+                admitted.abi_major,
+                admitted.needs_minor,
+                admitted.entry_bytes
+            ),
+            (7, 1, 20)
+        );
         assert_eq!(declared.count(), 1);
         assert_eq!(declared.declared("core.plugin"), Some((1, 0)));
         // Offered by the host but not declared by this plugin: not its to ask.
@@ -129,7 +149,7 @@ mod tests {
     #[test]
     fn a_plugin_that_declares_nothing_has_nothing_to_query() {
         let bytes = record(&[]);
-        let (declared, _) = admit(&bytes, &host()).unwrap();
+        let declared = admit(&bytes, &host()).unwrap().declared;
         assert_eq!(declared.count(), 0);
         assert_eq!(declared.declared("core.plugin"), None);
     }
