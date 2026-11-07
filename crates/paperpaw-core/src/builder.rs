@@ -762,6 +762,8 @@ impl BuilderParts {
             own_trusted: Vec::new(),
             held_notice: None,
             last_activity: Instant(0),
+            last_user_input: None,
+            radio_requests: alloc::rc::Rc::default(),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,

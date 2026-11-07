@@ -306,10 +306,14 @@ jobs:
         working-directory: shells/xteink
         # Linted with remote control over USB, as for testing, and
         # without, as released; built as released.
+        # Without the job's RUSTFLAGS (-D warnings): they would replace the
+        # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
+        # pointers), which the frame budgets are measured with. Clippy denies
+        # the warnings itself; build.rs fails the build if the flags are missing.
         run: |
-          cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
-          cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
-          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
       - name: The install image fits CrossPoint's slot
@@ -714,9 +718,14 @@ jobs:
             shells/xteink
             .
           key: x4-ppn5
+      - name: Lint the X4 with interface-7 plugins
+        working-directory: shells/xteink
+        # The `ppn5` code sites are not in the other jobs' lint.
+        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
       - name: Build the X4 with interface-7 plugins
         working-directory: shells/xteink
-        run: cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
+        # As above: the config's flags, not the job's RUSTFLAGS.
+        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
       - name: The plugins' host frames fit under the band
         run: |
           cargo run -q --release -p paperpaw-sign -- frames \
