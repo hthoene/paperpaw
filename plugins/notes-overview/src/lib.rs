@@ -17,6 +17,8 @@
 
 extern crate alloc;
 
+pub mod model;
+
 mod clippings;
 mod scan;
 mod screen;
