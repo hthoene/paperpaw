@@ -261,15 +261,22 @@ host passes them on after checking them.
   (read only, `path` "", during op 2 and 3 only). Any other root, and these outside such a call, are
   `ERR_UNSUPPORTED`. The format writes its cache atomically per file (D2.5); it may not write root
   3.
+- [D] **Paths in roots 2-4** follow the storage slots' rules: relative only; no `..`, `\`, NUL,
+  empty segments or a leading `/` (`ERR_INVALID`); resolved strictly below the root, a link or a
+  name that resolves outside it `ERR_DENIED`. In root 2 the name `.complete` (the host's stamp) and
+  everything under `.host/` are host-reserved: a format's write, rename or delete of them is
+  `ERR_DENIED`, a read of them `ERR_NOT_FOUND`. Root 3 refuses every write and delete
+  (`ERR_DENIED`).
 - [D] **Cache quota.** A document's cache is counted to the format plugin (S7) and capped at 64 MiB
   per book on the X4 (an EPUB with large images; `ERR_NO_SPACE` beyond and on a full card, the
   preparation fails with that status and the host removes the partial cache).
 - [D] **Depth and stack.** The opener's call is depth 1 and the format's callback depth 2: the
   format cannot call `stage.run` or `core.document` (`ERR_BUSY`). On the X4 the format callback
   joins the nested-callback frame budget and stack gate of slot 35 (`ui.md` 5.1) with its own
-  high-water case (EPUB `block` at a long chapter); until it passes, the X4 runs formats only at
-  depth 1 from the host's main loop (ops 2-3) and answers the depth-2 ops from the cache the format
-  made: [Q] Senior, or does the X4 need the gate before the reader port can start?
+  high-water case (EPUB `block` at a long chapter). Senior's answer: the X4 has no fallback mode
+  (answering depth-2 ops from the cache would need a host-known cache format, which does not
+  exist); **the stack gate (G7/G8 measurement) must pass before the reader port starts on the X4**,
+  and it is a prerequisite item on the device checklist.
 - [D] **Failures.** A format callback that fails, answers malformed rows or rows of another op is a
   failed call: the service op answers `ERR_IO` for a card error, `ERR_INVALID` for a malformed
   answer, else the format's status (logged with the format's id). Three malformed answers in a row
@@ -353,11 +360,15 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   opener. Op 16 (`doc_image_ask`: `image`, `side` 0 for the page's size, else the longest side for a
   zoom, at most 1,600) asks the format to decode it now (interface 6 `prepare_image`,
   `prepare_image_larger`): a new image id, or the same where nothing was to do.
-- [D] `image_prepare` decodes a JPEG, PNG, GIF (first frame), BMP or WebP of the caller's root 0 or
+- [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
+  frame) or BMP of the caller's root 0 or
   root 1 (`uses.storage`) into the host's image cache at most `side` pixels on the longest side (0:
   the screen's), in the background (bounded work per main-loop turn, as preparing);
-  `event.image_ready` (to the caller only) tells `status` 0 ready, 1 unsupported, 2 damaged, 3 too
-  large (over 8 Mpx source, `XTC` and decoder caps), 4 card failure (`ERR_IO`, no card or full). At
+  `event.image_ready` (to the caller only) tells `status` 0 ready, 1 unsupported (also interlaced
+  PNG and WebP: the image crate has no decoder for them; WebP joins the list once one exists, with
+  its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and decoder caps), 4 card
+  failure (`ERR_IO`, no card or full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later).
+  Unknown values read as 2. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour (where
   the screen has it).
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
@@ -366,6 +377,12 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   canvas, only inside a `draw` callback (`ERR_STATE`); an unknown or ended id `ERR_NOT_FOUND`; a
   card read failure `ERR_IO` (nothing drawn). The host reads the file in bands of at most 2 KiB (the
   X4 frame band), so drawing costs no heap.
+- [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
+  format wrote (`fmt.image`) before using it: header against its file size and the stated
+  `width`/`height`, a short read `ERR_IO`, a mismatch `ERR_INVALID`; nothing panics and nothing
+  reads past the file. Each decoder (JPEG baseline, progressive JPEG, PNG, GIF, BMP) and the
+  cache-image reader keep a fuzz target (`fuzz/fuzz_targets`, today one `image.rs` for all), a gate
+  for this family.
 
 ## 6. Fonts of a book
 
@@ -373,11 +390,15 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
   italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
   MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
-  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>`, which the host
+  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the
+  document's opener: for any other plugin `ERR_NOT_FOUND`), which the host
   resolves to that cache file and renders from the card like a card font. A damaged font is
   `ERR_INVALID` at `font.acquire` (the reader falls back to the user's font and counts it, interface
   6 `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
   text call) and are released as usual.
+- [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
+  gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
+  nothing (counted as a failed read), never a panic.
 
 ## 7. Lookup (dictionary, wikipedia, translate)
 
@@ -413,9 +434,13 @@ reply 4,096 bytes, stage payload 3,840.
 | `doc_link` page | row 1 + 3×4 + 1,026 + 5 = 1,044; 3 rows + `end` | 4,096 |
 | `doc_section` page | row 1 + 12 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
 | `fmt.call` (+ 12 `fmt.option` for op 2) | 1,590 (section 3); op 2: 1,590 − 1,536 + 12 × 202 = 2,478 | 3,840 |
+| `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,590 − 514 = 1,076 | 3,840 |
 | `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
 | `command.image_prepare` | 1 + 4 + 514 + 12 + 5 = 536 | 4,096 |
 
+- [D] Senior's must-fix 1 (round 1: `arg` 1,024 carried the options and the XPointer) is settled
+  by the round-2 layout: options travel as their own `fmt.option` records, XPointers and hrefs in
+  `text` (1,024 bytes), and `arg` holds only the sniff bytes (512).
 - [D] So `doc_open` takes at most **12** `doc_option` rows (key 64, value 128 bytes) per format;
   no first-party format reads options today (Plugin's audit), and more is `ERR_NO_SPACE`, never a
   silent drop. Values are the book's own (section 2.1), so a later global settings read is not a
@@ -430,13 +455,18 @@ reply 4,096 bytes, stage payload 3,840.
   when the call returns; nothing retained.
 - Preparing: one at a time; the host keeps only the queue (8 bytes per waiting document).
 - Images: about 24 bytes per image id, at most 8 per plugin and 64 device-wide (1.5 KiB); decoding
-  for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's state (the image
-  crate's, bounded per format; measured with the records), one decode at a time, fallible
-  (`status` 4 when the heap cannot).
+  for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's transient state,
+  one decode at a time, fallible (`status` 5 when the heap cannot). The state differs per format:
+  PNG the 32 KiB inflate window plus two source rows (a 1,600-pixel RGBA row is 6.4 KiB, so about
+  45 KiB); progressive JPEG a coefficient store the decoder sizes from the free heap (it keeps only
+  the frequencies the output size needs); interlaced GIF the rows of the part on the screen;
+  baseline JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**,
+  measured with the reader port at a 1,600-pixel PNG.
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
 - Lookup: one stage call on the scratch; nothing kept.
-- **X4 worst case for DOC's host side: about 6 KiB** (documents 0.13 + images 1.5 + decoder band 4
-  + queue), all fallible; an activation-gate item beside UIX's, measured with the reader port. The
+- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4
+  + queue), **plus the decoder's transient peak while an image decodes (PNG about 45 KiB)**, all
+  fallible; an activation-gate item beside UIX's, measured with the reader port. The
   format plugins' own heaps are gated by their ports.
 
 ## 9. Interface-6 calls and their interface-7 form
@@ -468,7 +498,8 @@ reply 4,096 bytes, stage payload 3,840.
 - **Core:** the document table and leases, the format broker and its checks, preparing in the main
   loop with the `.complete` stamp, roots 2-4, image ids and the band drawer, `image_prepare`
   decoding, document fonts in `font.acquire`, the lookup broker; tests for every refusal above,
-  power-cut tests of the cache stamp.
+  power-cut tests of the cache stamp; the path checks of roots 2-4; fuzz targets per decoder, for
+  the cache-image reader and the font parser.
 - **Services:** the SDK side: a `Document` facade for openers over op 1-21, the block writer (piece
   splitting by size), a `Format` trait for format plugins over `core.format`, image and font
   helpers.
