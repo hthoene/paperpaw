@@ -106,10 +106,7 @@ impl Kernel {
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
-        if !self.screen_stack_has_room() {
-            return;
-        }
-        if !self.require_screen_keys(1) {
+        if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
         }
         let Some(spec) = self.shared.registry.screens.get(&id) else {

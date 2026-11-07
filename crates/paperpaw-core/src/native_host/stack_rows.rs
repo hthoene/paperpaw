@@ -272,3 +272,6 @@ mod tests {
         assert!(!rows.valid(0));
     }
 }
+
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(core::mem::size_of::<StackRows>() <= 512);
