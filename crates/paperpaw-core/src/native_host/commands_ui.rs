@@ -1,6 +1,7 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
 
 pub(super) struct UiContext<'a> {
@@ -12,7 +13,8 @@ pub(super) struct UiContext<'a> {
 /// Deferred redraw retains the original screen instance, never a later top one.
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
-    pub(crate) mode: u32,
+    pub(crate) mode: Option<RefreshMode>,
+    pub(crate) before: usize,
 }
 
 impl<'a> CommandStage<'a> {
@@ -24,10 +26,16 @@ impl<'a> CommandStage<'a> {
     /// UI callers drain this form so redraw-only never becomes a refresh.
     pub(crate) fn into_ui_output(self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
-        let redraw = self
-            .redraw
-            .zip(screen)
-            .map(|(mode, screen)| Redraw { screen, mode });
+        let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
+            screen,
+            mode: match mode {
+                1 => Some(RefreshMode::Fast),
+                2 => Some(RefreshMode::Partial),
+                3 => Some(RefreshMode::Full),
+                _ => None,
+            },
+            before: self.redraw_before.unwrap_or(self.staged.len()),
+        });
         (self.staged, redraw, self.ui.map_or(0, |ui| ui.hop))
     }
 
@@ -150,7 +158,8 @@ mod tests {
         assert!(matches!(commands.as_slice(), [Command::Close(k)] if *k == key));
         let redraw = redraw.unwrap();
         assert_eq!(redraw.screen, key);
-        assert_eq!(redraw.mode, 2);
+        assert_eq!(redraw.mode, Some(RefreshMode::Partial));
+        assert_eq!(redraw.before, 0, "redraw precedes the queued close");
         assert_eq!(hop, 0);
 
         let foreign = Id::new_static("other");

@@ -59,6 +59,7 @@ pub struct CommandStage<'a> {
     bytes: usize,
     ui: Option<ui::UiContext<'a>>,
     redraw: Option<u32>,
+    redraw_before: Option<usize>,
     accepted: usize,
 }
 
@@ -87,6 +88,7 @@ impl<'a> CommandStage<'a> {
             bytes: 0,
             ui: None,
             redraw: None,
+            redraw_before: None,
             accepted: 0,
         }
     }
@@ -167,8 +169,10 @@ impl<'a> CommandStage<'a> {
             return ERR_NO_MEMORY;
         }
         let start = self.staged.len();
+        let mut redraw_before = self.redraw_before;
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
+                redraw_before.get_or_insert(self.staged.len());
                 continue;
             }
             match self.owned(command) {
@@ -185,6 +189,7 @@ impl<'a> CommandStage<'a> {
                 self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
             }
         }
+        self.redraw_before = redraw_before;
         self.accepted += batch.len();
         self.bytes = bytes;
         OK
