@@ -15,7 +15,7 @@ link them until the host activates native plugins; then they go together (no shi
 - Main page: groups with visible settings (by order, then name; widgets' own groups left out), the
   pages other plugins add to `core.settings-pages` under their section headings, *Search*, the
   advanced switch, *Reset all*, *Restart* (asks first; `CommandSender::restart`, so the
-  metadata declares `uses.power`). Group page: parts, actions plugins add to the group, the theme row in
+  metadata declares `uses.power` as not required: a shell without it refuses the command, and a notice says so). Group page: parts, actions plugins add to the group, the theme row in
   the appearance group, settings under their sections with value, unit and description, *More*
   (advanced settings one level down), *Reset to defaults* (asks first, leaves language, kept-on-reset
   settings and secrets, "only this book" last). Rows follow the registry's `shown`, `advanced`,

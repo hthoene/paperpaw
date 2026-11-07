@@ -983,7 +983,8 @@ impl NativeSettings {
         let heading = messages.copy(host, "settings.title")?;
         let yes = messages.copy(host, "settings.option.restart")?;
         let no = messages.copy(host, "settings.option.cancel")?;
-        let choices = concat(&[&yes, "\n", &no])?;
+        // Cancel first: it is what the dialog starts on.
+        let choices = concat(&[&no, "\n", &yes])?;
         self.ask(
             host,
             Question::choice(&heading, &question, &choices)?,
@@ -1007,9 +1008,14 @@ impl NativeSettings {
         match asked {
             Asked::Reset(group) if answer.choice() == 0 => self.reset(host, &group),
             Asked::Reset(_) => Ok(()),
-            Asked::Restart if answer.choice() == 0 => {
+            Asked::Restart if answer.choice() == 1 => {
                 let mut scratch = buffer(256)?;
-                CommandSender::new(host, &mut scratch).restart()
+                // Refused where the shell does not allow it (`uses.power` is
+                // not required): say so, and let that notice fail silently.
+                if CommandSender::new(host, &mut scratch).restart().is_err() {
+                    let _ = Self::notify(host, "settings.restart.refused");
+                }
+                Ok(())
             }
             Asked::Restart => Ok(()),
             Asked::Text(key) => {

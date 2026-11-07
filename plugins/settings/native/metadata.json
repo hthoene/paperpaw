@@ -142,7 +142,7 @@
   "features": [
     {
       "key": "uses.power",
-      "required": true
+      "required": false
     }
   ]
 }
