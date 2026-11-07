@@ -1,33 +1,34 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::super::{
-    declaration_store::{DeclarationStore, PendingDeclarations},
+    declaration_store::{ImageOwner, Kind, PendingDeclarations},
     registrations::{self as wire, SettingGroup},
 };
 use super::*;
-use alloc::vec;
+use alloc::{rc::Rc, vec};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::Id;
 
 struct Image {
     bytes: RefCell<Vec<u8>>,
     generation: Cell<u32>,
-    plugin: Cell<&'static str>,
+    last_error: Cell<i32>,
 }
 impl ImageOwner for Image {
     fn plugin_id(&self) -> &str {
-        self.plugin.get()
+        "fixture"
     }
     fn generation(&self) -> u32 {
         self.generation.get()
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
-        match self.bytes.try_borrow() {
-            Ok(bytes) => visit(Some(&bytes)),
-            Err(_) => visit(None),
-        }
+        let bytes = self.bytes.borrow();
+        visit(Some(&bytes));
     }
-    fn invalid_declaration(&self, _: i32) {}
+    fn invalid_declaration(&self, error: i32) {
+        self.last_error.set(error);
+    }
 }
-fn fixture() -> (Rc<Image>, Row) {
+fn image() -> Rc<Image> {
     let record = Record::SettingGroup(SettingGroup {
         name: "group",
         title: "Group",
@@ -35,192 +36,175 @@ fn fixture() -> (Rc<Image>, Row) {
         page: "",
         parent: "",
     });
-    fixture_record(record)
-}
-fn fixture_record(record: Record<'_>) -> (Rc<Image>, Row) {
     let mut bytes = vec![0; wire::REGISTRATION_MAX_BYTES];
     let len = wire::records_encode(&[record], &mut bytes).unwrap();
     bytes.truncate(len);
-    let frame = wire::record_framed_len(&record).unwrap();
-    let span = Span::new(len - frame, frame, tag(&record).unwrap()).unwrap();
-    (
-        Rc::new(Image {
-            bytes: RefCell::new(bytes),
-            generation: Cell::new(1),
-            plugin: Cell::new("fixture"),
-        }),
-        Row::new(0, span).unwrap(),
-    )
+    Rc::new(Image {
+        bytes: RefCell::new(bytes),
+        generation: Cell::new(1),
+        last_error: Cell::new(0),
+    })
 }
-fn query(catalog: &RegCatalog, generation: u32) -> Result<(), i32> {
-    catalog.with_record(generation, 0, &mut |record| {
+fn install(store: &RefCell<DeclarationStore>, image: &Rc<Image>, owned: bool) -> DeclKey {
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), image.clone());
+    let mut allocations = Allocations::default();
+    if owned {
+        pending
+            .stage_batch(&image.bytes.borrow().clone(), &mut allocations)
+            .unwrap();
+    } else {
+        pending
+            .stage_batch(&image.bytes.borrow(), &mut allocations)
+            .unwrap();
+    }
+    let mut store = store.borrow_mut();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    let mut key = None;
+    store.keys(Kind::Group, &mut |found| key = Some(found));
+    key.unwrap()
+}
+fn query(
+    catalog: &RegCatalog,
+    store: &RefCell<DeclarationStore>,
+    generation: u32,
+) -> Result<(), i32> {
+    catalog.with_record(store, generation, 0, &mut |record| {
         assert!(matches!(record, Record::SettingGroup(_)));
         Ok(())
     })
 }
-
 #[test]
-fn dropping_plugin_store_makes_query_stale_before_next_apply_prunes_it() {
-    let (image, row) = fixture();
-    let source: Rc<dyn ImageOwner> = image.clone();
-    let mut allocations = Allocations::default();
-    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
-    pending
-        .stage_batch(&image.bytes.borrow(), &mut allocations)
-        .unwrap();
-    let mut store = DeclarationStore::default();
-    store.prepare(pending, &mut allocations).unwrap().commit();
-    let catalog = RegCatalog::new();
-    let generation = catalog
-        .replace(core::slice::from_ref(&source), &[row], &mut allocations)
-        .unwrap();
-    drop(image);
-    drop(source);
-    assert_eq!(query(&catalog, generation), Ok(()));
-    drop(store);
-    assert_eq!(query(&catalog, generation), Err(ERR_STATE));
-    let next = catalog.replace(&[], &[], &mut allocations).unwrap();
-    assert_eq!(next, generation + 1);
-    assert_eq!(query(&catalog, generation), Err(ERR_STATE));
-    assert!(catalog.data.borrow().rows.is_empty());
-    assert!(catalog.data.borrow().owners.is_empty());
-}
-
-#[test]
-fn source_generation_ranges_and_decoding_are_checked_on_every_query() {
-    let (image, row) = fixture();
-    let source: Rc<dyn ImageOwner> = image.clone();
-    let catalog = RegCatalog::new();
-    let generation = catalog
-        .replace(&[source], &[row], &mut Allocations::default())
-        .unwrap();
-    image.generation.set(2);
-    assert_eq!(query(&catalog, generation), Err(ERR_STATE));
-    image.generation.set(1);
-    image.bytes.borrow_mut().truncate(1);
-    assert_eq!(query(&catalog, generation), Err(ERR_STATE));
-    assert_eq!(catalog.generation(), generation);
-}
-
-#[test]
-fn invalid_owner_index_and_decode_errors_never_publish_partial_updates() {
-    let (image, row) = fixture();
-    let source: Rc<dyn ImageOwner> = image.clone();
-    let catalog = RegCatalog::new();
-    let generation = catalog
-        .replace(
-            core::slice::from_ref(&source),
-            &[row],
-            &mut Allocations::default(),
-        )
-        .unwrap();
-    let bad_owner = Row { owner: 1, ..row };
-    assert_eq!(
-        catalog.replace(
-            core::slice::from_ref(&source),
-            &[bad_owner],
-            &mut Allocations::default()
-        ),
-        Err(ERR_STATE)
-    );
-    assert_eq!(catalog.generation(), generation);
-    assert_eq!(query(&catalog, generation), Ok(()));
-    // This is metadata corruption, not a hand-written encoder: erase the frame.
-    image.bytes.borrow_mut().fill(0xff);
-    assert_eq!(query(&catalog, generation), Err(ERR_STATE));
-    assert_eq!(
-        catalog.replace(&[source], &[row], &mut Allocations::default()),
-        Err(ERR_STATE)
-    );
-    assert_eq!(catalog.generation(), generation);
-}
-
-#[test]
-fn every_reservation_failure_and_live_borrow_preserve_catalog_generation() {
-    let (image, row) = fixture();
-    let source: Rc<dyn ImageOwner> = image;
-    let catalog = RegCatalog::new();
-    let generation = catalog
-        .replace(
-            core::slice::from_ref(&source),
-            &[row],
-            &mut Allocations::default(),
-        )
-        .unwrap();
-    for fail_after in 0..4 {
-        let mut allocations = Allocations {
-            fail_after: Some(fail_after),
-        };
+fn image_and_owned_rows_share_the_store_visit_and_survive_input_drop() {
+    for owned in [false, true] {
+        let store = RefCell::new(DeclarationStore::default());
+        let source = image();
+        let row = install(&store, &source, owned);
+        let catalog = RegCatalog::new();
+        let generation = catalog
+            .replace(&store, &[row], &mut Allocations::default())
+            .unwrap();
         assert_eq!(
-            catalog.replace(core::slice::from_ref(&source), &[row], &mut allocations),
-            Err(paperpaw_native::host_glue::ERR_NO_MEMORY)
+            Rc::strong_count(&source),
+            2,
+            "catalog must not retain the owner"
+        );
+        drop(source);
+        assert_eq!(query(&catalog, &store, generation), Ok(()));
+    }
+}
+#[test]
+fn removed_plugin_and_reused_owner_slot_make_catalog_rows_stale() {
+    for owned in [false, true] {
+        let store = RefCell::new(DeclarationStore::default());
+        let source = image();
+        let row = install(&store, &source, owned);
+        let catalog = RegCatalog::new();
+        let generation = catalog
+            .replace(&store, &[row], &mut Allocations::default())
+            .unwrap();
+        store
+            .borrow_mut()
+            .remove_owner(&Id::new_static("fixture"), 1);
+        assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+        let new = image();
+        let new_row = install(&store, &new, owned);
+        assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+        let next = catalog
+            .replace(&store, &[new_row], &mut Allocations::default())
+            .unwrap();
+        assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+        assert_eq!(query(&catalog, &store, next), Ok(()));
+    }
+}
+#[test]
+fn source_and_store_generation_changes_are_stale() {
+    let store = RefCell::new(DeclarationStore::default());
+    let source = image();
+    let row = install(&store, &source, false);
+    let catalog = RegCatalog::new();
+    let generation = catalog
+        .replace(&store, &[row], &mut Allocations::default())
+        .unwrap();
+    source.generation.set(2);
+    assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+    let replacement = image();
+    replacement.generation.set(2);
+    install(&store, &replacement, false);
+    source.generation.set(1);
+    assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+}
+#[test]
+fn malformed_image_ranges_log_invalid_and_map_to_state_without_publication() {
+    let store = RefCell::new(DeclarationStore::default());
+    let source = image();
+    let row = install(&store, &source, false);
+    let catalog = RegCatalog::new();
+    let generation = catalog
+        .replace(&store, &[row], &mut Allocations::default())
+        .unwrap();
+    source.bytes.borrow_mut().truncate(1);
+    assert_eq!(query(&catalog, &store, generation), Err(ERR_STATE));
+    assert_eq!(source.last_error.get(), ERR_INVALID);
+    assert_eq!(
+        catalog.replace(&store, &[row], &mut Allocations::default()),
+        Err(ERR_STATE)
+    );
+    assert_eq!(catalog.generation(), generation);
+}
+#[test]
+fn busy_store_catalog_and_failed_reservations_preserve_publication() {
+    let store = RefCell::new(DeclarationStore::default());
+    let source = image();
+    let row = install(&store, &source, true);
+    let catalog = RegCatalog::new();
+    let generation = catalog
+        .replace(&store, &[row], &mut Allocations::default())
+        .unwrap();
+    for fail_after in 0..3 {
+        assert_eq!(
+            catalog.replace(
+                &store,
+                &[row],
+                &mut Allocations {
+                    fail_after: Some(fail_after)
+                }
+            ),
+            Err(ERR_NO_MEMORY)
         );
         assert_eq!(catalog.generation(), generation);
-        assert_eq!(query(&catalog, generation), Ok(()));
+        assert_eq!(query(&catalog, &store, generation), Ok(()));
     }
-    catalog
-        .with_record(generation, 0, &mut |_| {
-            assert_eq!(
-                catalog.replace(&[], &[], &mut Allocations::default()),
-                Err(ERR_BUSY)
-            );
-            Ok(())
-        })
-        .unwrap();
+    {
+        let _exclusive = store.borrow_mut();
+        assert_eq!(query(&catalog, &store, generation), Err(ERR_BUSY));
+        assert_eq!(
+            catalog.replace(&store, &[row], &mut Allocations::default()),
+            Err(ERR_BUSY)
+        );
+    }
     let _exclusive = catalog.data.borrow_mut();
-    assert_eq!(query(&catalog, generation), Err(ERR_BUSY));
+    assert_eq!(query(&catalog, &store, generation), Err(ERR_BUSY));
+}
+#[test]
+fn row_size_and_count_caps_are_checked() {
+    assert_eq!(core::mem::size_of::<DeclKey>(), 16);
+    let store = RefCell::new(DeclarationStore::default());
+    let source = image();
+    let row = install(&store, &source, true);
+    let catalog = RegCatalog::new();
+    assert_eq!(
+        catalog.replace(&store, &vec![row; 65536], &mut Allocations::default()),
+        Err(ERR_NO_SPACE)
+    );
 }
 
 #[test]
-fn packed_rows_and_counts_refuse_narrowing_and_generation_wrap() {
-    assert_eq!(core::mem::size_of::<Span>(), 8);
-    assert_eq!(
-        core::mem::size_of::<Row>() + 2 * core::mem::size_of::<u16>(),
-        16
-    );
-    assert!(matches!(Span::new(0, 65536, 21), Err(ERR_NO_SPACE)));
-    assert!(matches!(Span::new(0, 1, 65536), Err(ERR_NO_SPACE)));
-    assert!(matches!(
-        Row::new(65536, Span::new(0, 1, 21).unwrap()),
-        Err(ERR_NO_SPACE)
-    ));
-    let (image, row) = fixture();
-    let source: Rc<dyn ImageOwner> = image;
+fn generation_wrap_skips_zero() {
+    let store = RefCell::new(DeclarationStore::default());
     let catalog = RegCatalog::new();
-    let rows = vec![row; 65536];
-    assert_eq!(
-        catalog.replace(
-            core::slice::from_ref(&source),
-            &rows,
-            &mut Allocations::default()
-        ),
-        Err(ERR_NO_SPACE)
-    );
     catalog.generation.set(u32::MAX);
     assert_eq!(
-        catalog.replace(&[source], &[row], &mut Allocations::default()),
-        Err(ERR_NO_SPACE)
-    );
-    assert_eq!(catalog.generation(), u32::MAX);
-}
-
-#[test]
-fn owner_identity_mismatch_is_stale_instead_of_rewriting_full_ids() {
-    let (image, row) = fixture_record(Record::SlotOffer(wire::SlotOffer {
-        slot: "core.home",
-        screen: "fixture.reader",
-        priority: 0,
-    }));
-    let source: Rc<dyn ImageOwner> = image.clone();
-    let catalog = RegCatalog::new();
-    let generation = catalog
-        .replace(&[source], &[row], &mut Allocations::default())
-        .unwrap();
-    image.plugin.set("other");
-    assert_eq!(
-        catalog.with_record(generation, 0, &mut |_| panic!(
-            "mismatched row reached reader"
-        )),
-        Err(ERR_STATE)
+        catalog.replace(&store, &[], &mut Allocations::default()),
+        Ok(1)
     );
 }
