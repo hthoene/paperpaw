@@ -707,15 +707,15 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_SET_SCOPE_TAG, len))
         }
         Command::SetMenu { menu, items, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(menu.len(), COMMAND_SET_MENU_MENU_MAX_BYTES)?;
+            len += blob_len(items.len(), COMMAND_SET_MENU_ITEMS_MAX_BYTES)?;
             list(
                 items,
                 COMMAND_SET_MENU_ITEMS_SEPARATOR,
                 COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
                 COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
             )?;
-            let mut len = 1 + 4;
-            len += blob_len(menu.len(), COMMAND_SET_MENU_MENU_MAX_BYTES)?;
-            len += blob_len(items.len(), COMMAND_SET_MENU_ITEMS_MAX_BYTES)?;
             Ok((COMMAND_SET_MENU_TAG, len))
         }
         Command::BindKey {
@@ -742,14 +742,14 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_SET_PLUGIN_ENABLED_TAG, len))
         }
         Command::RequestPlugins { plugins } => {
+            let mut len = 1;
+            len += blob_len(plugins.len(), COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?;
             list(
                 plugins,
                 COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR,
                 COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS,
                 COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES,
             )?;
-            let mut len = 1;
-            len += blob_len(plugins.len(), COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?;
             Ok((COMMAND_REQUEST_PLUGINS_TAG, len))
         }
         Command::AnswerPlugin { plugin, .. } => {

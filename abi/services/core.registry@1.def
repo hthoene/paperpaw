@@ -4,6 +4,7 @@
   "revision": 0,
   "since": 1,
   "test_only": false,
+  "page_rows": 32,
   "ops": [
     {
       "id": 1,

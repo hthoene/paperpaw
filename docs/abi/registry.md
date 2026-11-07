@@ -40,7 +40,14 @@ It builds on: the service rules (`stages-services.md` section 2, D4), the comman
 - [D] Every list op takes one `service.reg_query` record (`scope`, `cursor`, `generation`,
   `flags`) and answers with up to 32 rows followed by exactly one `service.end` (52:
   `flags`, `total`, `generation`, `next`), the paging record of `core.usage`.
-- [D] A page holds as many **whole** rows as fit in the op's `max_reply` (4,096 bytes), at most 32.
+- [D] A page holds as many **whole** rows as fit in the op's `max_reply` (4,096 bytes), at most 32
+  (`page_rows` of the schema, generated as `core_registry_v1::PAGE_MAX_ROWS`).
+- [D] **Framing.** Input is one counted record batch (the generated `records_decode`). A reply is
+  a **bare record stream**, no count, as `core.usage`'s pages: a list op writes its rows, then
+  exactly one `service.end`, last; a detail op (2, 6, 17) writes exactly the records of its row in
+  section 2.2, in that order, and no `end`. Readers decode it with the generated
+  `record_decode_prefix` or `RecordStream` (then `finish`); a missing or repeated record, a record
+  out of order or of another op, anything after `end` and trailing bytes are `ERR_INVALID`.
   A row is never cut; text fields inside a row are cut at a UTF-8 boundary where section 3 says so.
 - [D] `generation` is the host's **registry generation**: it changes when the set or order of a
   list changes (a plugin loaded, stopped, enabled, removed; a declaration admitted; a menu, binding
@@ -295,7 +302,10 @@ These change the user's configuration of the whole device, so they need the D1 f
 - [D] While a preview is active, slot 5 and `reg_setting` give the previewed value (flag
   `preview`). Only one preview exists device-wide. Kernel side effects of a setting (language,
   rotation) wait for the kept value, as in interface 6.
-- [D] **X4 cap:** at most 16 rows and 2 KiB of keys and values in one set; more is `ERR_NO_SPACE`.
+- [D] **Cap:** a set is one batch, so at most 8 rows (`COMMAND_MAX_RECORDS`), and at most 2,048
+  bytes of keys and encoded values; more is `ERR_NO_SPACE`. A set is never split across batches
+  (a second batch replaces the first). A larger preview, such as a profile's, is `apply_preset`
+  with `flags` bit 0. An empty set is not a command: `preview_end` ends a preview.
 
 ## 5. Events
 
@@ -323,7 +333,8 @@ These change the user's configuration of the whole device, so they need the D1 f
   subscribed to it, as interface 6 does (the store subscribes; there is no installer role). With no
   subscriber that may answer, every id is answered `failed` at once. A subscriber asks the user and
   answers each id with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not
-  found). Only a plugin that declares the install feature (`uses.install`, DEV) may answer; any
+  found; the host refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an
+  outcome it does not know as `failed`, never as installed). Only a plugin that declares the install feature (`uses.install`, DEV) may answer; any
   other gets `ERR_DENIED`, so a plugin that merely subscribes can neither fake an install nor block
   the store. **Until DEV defines `uses.install` in the catalog, a host refuses `answer_plugin` from
   every plugin with `ERR_DENIED`** (the whole batch, wherever the command sits in it); it never
@@ -359,10 +370,12 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   1. the `shown_if` rule of `setting.extra`: setting `applies_key` has the value `applies_value`
      (empty key: always);
   2. the device meets `need`/`capability`, with the meaning of `menu.need` (Wi-Fi present,
-     firmware updates present, ...);
+     firmware updates present, ...), where `flags` bit 1 (`has_need`) is set; with bit 1 clear the
+     step has no device requirement and `need` and `capability` must be 0 (`ERR_INVALID`). There
+     is no sentinel `need` value: an unknown need stays "not met";
   3. the declaring plugin's last pushed state for the step: `command.set_item_state` (60) naming
      the step's id, flag `shown` = applies. Before any push, `flags` bit 0 of the declaration
-     decides (set: applies). This carries what only the plugin knows (the store: "offerings to
+     decides (set: applies; other bits than 0 and 1 are `ERR_INVALID`). This carries what only the plugin knows (the store: "offerings to
      install exist"). Pushed state is kept per plugin version: an update clears it.
   A step name equal to an action, screen, setting or menu item name of the same plugin is refused
   at admission (`ERR_INVALID`), so one item-state push never sets two things.
@@ -392,7 +405,7 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
 - Commands keep `commands.md`'s stage byte budget. `set_menu` (2 KiB) and `request_plugins`
   (1 KiB) are the largest; a profile may set a lower budget, which then refuses them with
   `ERR_NO_SPACE`.
-- The preview set is host heap: at most 16 rows and 2 KiB, allocated fallibly (`ERR_NO_MEMORY` at
+- The preview set is host heap: at most 8 rows and 2 KiB, allocated fallibly (`ERR_NO_MEMORY` at
   submit, nothing staged).
 - Open plugin requests: at most 4 device-wide, each at most 16 ids.
 

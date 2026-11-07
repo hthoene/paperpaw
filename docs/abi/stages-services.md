@@ -171,7 +171,7 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   | `input` over the op's `max_input`, or `out` shorter than its `max_reply` | `ERR_NO_SPACE` |
   | `input` not one record batch of the op's input tags, exactly (generated decoder) | the decoder's status |
   | re-entry into the same service from its own callback | `ERR_BUSY` |
-  | otherwise: the service runs and writes its reply batch into `out` | count, or the service's status |
+  | otherwise: the service runs and writes its reply records into `out`, framed as its schema's family document says | count, or the service's status |
 
   Every check above runs before the service does anything, so a refused call has no effect and
   leaves `out` untouched. A service's own failure after that is its documented status, and `out`
