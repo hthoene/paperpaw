@@ -115,7 +115,7 @@ fn end(total: u32, next: u32, generation: u32, last: bool) -> Record<'static> {
 fn lossless_pages_preserve_order_and_generation_beyond_batch_limit() {
     let table = table();
     let mut fixture = Fixture::default();
-    let mut first = vec![item("fixture.first"); PAGE_MAX_ROWS];
+    let mut first = vec![item("fixture.first"); schema::PAGE_MAX_ROWS];
     first.push(end(35, 32, 9, false));
     *fixture.response.borrow_mut() = encode(&first);
     let host = host(&table, &mut fixture);
@@ -214,7 +214,7 @@ fn malformed_pages_never_produce_a_page() {
             Err(Error::Invalid)
         ));
     }
-    let mut too_many = vec![item("fixture.a"); PAGE_MAX_ROWS + 1];
+    let mut too_many = vec![item("fixture.a"); schema::PAGE_MAX_ROWS + 1];
     too_many.push(end(33, 33, 1, true));
     assert!(matches!(
         validate_page(
