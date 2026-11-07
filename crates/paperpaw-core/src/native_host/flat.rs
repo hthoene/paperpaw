@@ -199,6 +199,7 @@ impl FlatPlugin {
             depth,
             host: FlatHost {
                 meter: Rc::clone(&host.meter),
+                directory: host.try_directory().map_err(|_| FlatError::Allocation)?,
                 font_removals: Rc::clone(&host.font_removals),
             },
         })
@@ -247,8 +248,18 @@ impl Plugin for FlatPlugin {
                 });
                 return;
             };
+            let directory = match self.host.try_directory() {
+                Ok(directory) => directory,
+                Err(_) => {
+                    result = Err(RegisterError::Invalid {
+                        message: "flat directory reference limit".into(),
+                    });
+                    return;
+                }
+            };
             let host = FlatHost {
                 meter: Rc::clone(&self.host.meter),
+                directory,
                 font_removals: Rc::clone(&self.host.font_removals),
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
@@ -347,6 +358,7 @@ fn invoke(
         instance: None,
         env,
         meter: &host.meter,
+        directory: host.directory.as_deref(),
         font_removals: &host.font_removals,
         usage: env.usage(),
         plugins: env.plugins(),

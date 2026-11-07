@@ -276,8 +276,20 @@ use staged::Declarations;
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct FlatHost {
+    pub(crate) directory: Option<native_declarations::DirectoryHandle>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
+}
+
+impl FlatHost {
+    pub(crate) fn try_directory(
+        &self,
+    ) -> Result<Option<native_declarations::DirectoryHandle>, i32> {
+        self.directory
+            .as_ref()
+            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
+            .transpose()
+    }
 }
 
 /// Host admission or construction failure.

@@ -197,6 +197,13 @@ impl crate::Kernel {
         let (owned, raw) = mapped;
         let flat_host = FlatHost {
             meter: Rc::clone(&self.shared.meter),
+            directory: self
+                .shared
+                .registry
+                .native_declarations
+                .as_ref()
+                .map(|directory| directory.try_clone().ok_or(shell::Error::Allocation))
+                .transpose()?,
             font_removals: Rc::clone(&self.shared.font_removals),
         };
         let instance = NativeLease::try_new(NativeDispatch::new(

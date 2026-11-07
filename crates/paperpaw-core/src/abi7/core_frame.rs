@@ -25,6 +25,7 @@ impl CallbackStamp {
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
+    pub(crate) directory: Option<&'a crate::native_host::native_declarations::NativeDeclarations>,
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
@@ -61,6 +62,31 @@ impl Frame for CoreFrame<'_> {
             .any(|entry| entry.key.serial() == instance)
             .then_some(instance)
             .ok_or(ERR_STATE)
+    }
+
+    fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
+        self.callback_epoch()?;
+        self.directory
+            .map(|directory| directory as &dyn crate::native_host::ui_service::UiDirectory)
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    fn status_ask(
+        &self,
+        owner: u64,
+        token: u32,
+        items: &[&str],
+        context: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        use crate::native_host::ui_service::StatusAsk;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        crate::native_host::native_status::StatusCalls {
+            frame: self,
+            directory,
+        }
+        .ask(owner, token, items, context, out)
     }
 
     fn settings(&self) -> &Settings {

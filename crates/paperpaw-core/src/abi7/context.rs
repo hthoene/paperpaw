@@ -95,6 +95,20 @@ pub(crate) trait Frame {
     fn calling_instance(&self) -> Result<u32, i32> {
         Err(ERR_STATE)
     }
+    fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    fn status_ask(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _items: &[&str],
+        _context: &[u8],
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
     /// The host view a service family keeps behind its key (`core.document`,
     /// `core.library`, `core.lookup`), downcast by that family's backend; a
     /// frame without one answers the family `ERR_UNSUPPORTED`.

@@ -38,6 +38,7 @@ impl Kernel {
                 instance: None,
                 env: &env,
                 meter: &self.shared.meter,
+                directory: None,
                 font_removals: &self.shared.font_removals,
                 usage: &self.shared.usage,
                 plugins: &self.shared.plugins,

@@ -44,6 +44,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        directory: None,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,

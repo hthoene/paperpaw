@@ -235,6 +235,7 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        directory: None,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
