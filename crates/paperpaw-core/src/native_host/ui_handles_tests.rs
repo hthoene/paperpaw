@@ -7,9 +7,9 @@ use core::cell::{Cell, RefCell};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, PixelFormat, Rect};
 
-const ME: u16 = 1;
-const OWNER: u16 = 2;
-const OTHER: u16 = 3;
+const ME: u64 = 1;
+const OWNER: u64 = 2;
+const OTHER: u64 = 3;
 
 fn caller(callback: u64) -> Caller {
     Caller {
@@ -20,11 +20,11 @@ fn caller(callback: u64) -> Caller {
 }
 
 struct Guard {
-    plugin: Option<u16>,
+    plugin: Option<u64>,
     below: Vec<u32>,
 }
 impl GuardState for Guard {
-    fn guard_plugin(&self) -> Option<u16> {
+    fn guard_plugin(&self) -> Option<u64> {
         self.plugin
     }
     fn below_guard(&self, screen: u32) -> bool {
@@ -59,18 +59,11 @@ fn a_spent_counter_and_bad_indices_are_refused_without_a_change() {
     assert_eq!(table.make_widget(OWNER, ME, 7, 1, false), Err(ERR_FULL));
     assert_eq!(table.widgets(), 0);
     let mut table = UiHandles::new(false);
-    assert_eq!(
-        table.make_widget(MAX_PLUGIN, ME, 7, 1, false),
-        Err(ERR_INVALID)
-    );
-    assert_eq!(
-        table.make_widget(OWNER, MAX_PLUGIN, 7, 1, false),
-        Err(ERR_INVALID)
-    );
     assert_eq!(table.make_widget(OWNER, ME, 0, 1, false), Err(ERR_INVALID));
+    // Owner ids are full width: the largest ones need no index and no packing.
     assert!(
         table
-            .make_widget(MAX_PLUGIN - 1, MAX_PLUGIN - 1, 7, 1, true)
+            .make_widget(u64::MAX, u64::MAX - 1, 7, 1, true)
             .is_ok()
     );
     assert_eq!(table.widgets(), 1);
@@ -307,13 +300,11 @@ fn a_new_callback_replaces_the_callers_old_handles_and_the_cap_holds() {
     let mut table = UiHandles::new(false);
     table.next_status = u32::MAX;
     assert_eq!(table.grant_status(ME, 1, OWNER, 1, false), Err(ERR_FULL));
-    assert_eq!(
-        table.grant_status(MAX_PLUGIN, 1, OWNER, 1, false),
-        Err(ERR_INVALID)
-    );
-    assert_eq!(
-        table.grant_status(ME, 1, MAX_PLUGIN, 1, false),
-        Err(ERR_INVALID)
+    let mut table = UiHandles::new(false);
+    assert!(
+        table
+            .grant_status(u64::MAX, 1, u64::MAX - 1, 1, false)
+            .is_ok()
     );
 }
 
@@ -462,8 +453,8 @@ fn compose_resolves_first_then_draws_only_what_is_visible_and_logs_a_failing_chi
 fn each_table_is_one_allocation_of_its_cap_and_never_grows() {
     use crate::native_host::shell::tests::FAIL_NTH;
     // The sizes the memory line is built on.
-    assert_eq!(size_of::<Widget>(), 16);
-    assert_eq!(size_of::<Status>(), 24);
+    assert_eq!(size_of::<Widget>(), 32);
+    assert_eq!(size_of::<Status>(), 40);
     for (x4, widgets, status) in [(false, 32, 16), (true, 16, 8)] {
         let mut table = UiHandles::new(x4);
         assert_eq!((table.widgets.capacity(), table.status.capacity()), (0, 0));
@@ -489,7 +480,9 @@ fn each_table_is_one_allocation_of_its_cap_and_never_grows() {
             (wc, sc),
             "no growth to the cap"
         );
-        // The bytes held at most: 16 x 32 + 24 x 16, 16 x 16 + 24 x 8 on the X4.
-        assert!(wc * size_of::<Widget>() + sc * size_of::<Status>() <= if x4 { 448 } else { 896 });
+        // The bytes held at most: 32 x 32 + 40 x 16, 32 x 16 + 40 x 8 on the X4.
+        assert!(
+            wc * size_of::<Widget>() + sc * size_of::<Status>() <= if x4 { 832 } else { 1_664 }
+        );
     }
 }

@@ -11,6 +11,13 @@ pub(crate) enum Error {
     Depth,
 }
 
+/// How many plugin calls may be live at once in one dispatch budget: a
+/// callback inside a callback, no deeper. The X4 shell's record of calls
+/// (`native_host::shell::inflight`) keeps a slot for each of them and one for
+/// the call that opens the dispatch (`make`, outside this budget), and
+/// asserts it at compile time.
+pub(crate) const MAX_LIVE: u8 = 2;
+
 pub(crate) struct Instance {
     entered: Cell<bool>,
 }
@@ -41,7 +48,7 @@ impl Instance {
         if self.entered.get() {
             return Err(Error::Busy);
         }
-        if depth.live.get() >= 2 {
+        if depth.live.get() >= MAX_LIVE {
             return Err(Error::Depth);
         }
         self.entered.set(true);

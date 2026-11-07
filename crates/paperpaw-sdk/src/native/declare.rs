@@ -58,6 +58,9 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod library;
+pub use library::BookFieldDecl;
+
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 

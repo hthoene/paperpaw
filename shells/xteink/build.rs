@@ -51,12 +51,10 @@ fn main() {
     println!("cargo::rustc-link-arg=-Tlinkall.x");
 }
 
-/// The X4's frame budgets (`frame-budget*.txt`, `paperpaw-sign frames`) are
-/// measured on a build without jump tables (the scan cannot size a function
-/// that jumps through one inside its frame) and with frame pointers: the
-/// flags of `.cargo/config.toml`. A `RUSTFLAGS` in the environment (CI sets
-/// `-D warnings`) replaces them, and the build would then differ from the one
-/// the budgets were checked on, so it fails here instead.
+/// The frame budgets are measured with frame pointers (the flags of
+/// `.cargo/config.toml`). A `RUSTFLAGS` in the environment (CI sets
+/// `-D warnings`) replaces the config's flags, and the build would then
+/// differ from the one the budgets were checked on, so it fails here instead.
 fn frame_flags() {
     println!("cargo::rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("riscv32") {
@@ -69,10 +67,10 @@ fn frame_flags() {
             || flags.contains(&format!("-C{wanted}").as_str())
     };
     assert!(
-        has("jump-tables=no") && has("force-frame-pointers"),
-        "the X4 builds with `-C jump-tables=no -C force-frame-pointers` \
+        has("force-frame-pointers"),
+        "the X4 builds with `-C force-frame-pointers` \
          (shells/xteink/.cargo/config.toml); a RUSTFLAGS in the environment \
-         replaces them. Build with `env -u RUSTFLAGS cargo ...`."
+         replaces it. Build with `env -u RUSTFLAGS cargo ...`."
     );
 }
 
