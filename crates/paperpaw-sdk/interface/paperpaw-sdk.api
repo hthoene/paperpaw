@@ -3037,6 +3037,7 @@ pub paperpaw_sdk::native::callbacks::Input::Key::key: &'a str
 pub paperpaw_sdk::native::callbacks::Input::Key::now_ms: u64
 pub paperpaw_sdk::native::callbacks::Input::Key::state: paperpaw_sdk::native::callbacks::KeyState
 pub paperpaw_sdk::native::callbacks::Input::Pointer
+pub paperpaw_sdk::native::callbacks::Input::Pointer::contact: u32
 pub paperpaw_sdk::native::callbacks::Input::Pointer::now_ms: u64
 pub paperpaw_sdk::native::callbacks::Input::Pointer::phase: paperpaw_sdk::native::callbacks::PointerPhase
 pub paperpaw_sdk::native::callbacks::Input::Pointer::position: paperpaw_platform::geometry::Point

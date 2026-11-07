@@ -54,6 +54,26 @@ fn pointer_phases_and_gesture_kinds_keep_signed_positions() {
                 now_ms: 73,
                 position: Point::new(i32::MIN, i32::MAX),
                 phase: expected,
+                contact: 0,
+            })
+        );
+    }
+    // A sent contact id reaches the plugin as it is, the largest one too.
+    for contact in [1, u32::MAX] {
+        let bytes = encode(&[Record::InputPointer(wire::InputPointer {
+            now_ms: 74,
+            x: 3,
+            y: 4,
+            phase: PointerPhase::Move as u32,
+            contact: Some(contact),
+        })]);
+        assert_eq!(
+            Input::decode(&bytes),
+            Ok(Input::Pointer {
+                now_ms: 74,
+                position: Point::new(3, 4),
+                phase: PointerPhase::Move,
+                contact,
             })
         );
     }
