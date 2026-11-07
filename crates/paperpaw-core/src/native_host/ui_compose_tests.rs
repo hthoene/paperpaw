@@ -81,11 +81,18 @@ enum Act {
     Answer(Result<(), i32>),
     /// Fills the whole canvas it was given, then returns `Ok`.
     FillAll,
-    /// Fills it, sets its own clip, then fails.
-    FillThenFail,
+    /// Fills it, then refuses: a refusal of the hook itself is passed on
+    /// verbatim (a *child's* failure is the hook implementer's to log and
+    /// absorb, see `ui_handles::compose`).
+    FillThenRefuse,
+    /// Runs as a child would: lends the canvas to another plugin's context,
+    /// sets that plugin's slot-9 clip inside the lent view, fills, then
+    /// refuses. Proves the child's clip cannot leak into the caller.
+    ChildClip,
 }
 
 struct Hook<'a> {
+    child: Option<Pin<&'a Context<Heap>>>,
     env: &'a Env<'a>,
     act: Cell<Act>,
     seen: RefCell<Vec<(ComposeRequest, Rect, alloc::string::String)>>,
@@ -112,8 +119,20 @@ impl Frame for Hook<'_> {
                 canvas.fill_rect(0, 0, 4096, 4096, Color::BLACK);
                 Ok(())
             }
-            Act::FillThenFail => {
+            Act::FillThenRefuse => {
                 canvas.fill_rect(0, 0, 4096, 4096, Color::BLACK);
+                Err(ERR_NO_MEMORY)
+            }
+            Act::ChildClip => {
+                let child = self.child.unwrap();
+                // SAFETY: the owner structurally pins this field.
+                let scope = unsafe { child.map_unchecked(|c| &c.canvas) };
+                scope
+                    .scope(canvas, || {
+                        assert_eq!(child.canvas.clip(1, 1, 3, 3), OK);
+                        assert_eq!(child.canvas.fill_rect(0, 0, 4096, 4096, Color::BLACK), OK);
+                    })
+                    .unwrap();
                 Err(ERR_NO_MEMORY)
             }
         }
@@ -138,14 +157,25 @@ fn in_draw<R>(
     act: Act,
     clip: Rect,
     call: impl FnOnce(Pin<&Context<Heap>>, *mut c_void) -> R,
-) -> (
-    R,
-    Vec<(ComposeRequest, Rect, alloc::string::String)>,
-    Vec<u8>,
-) {
+) -> (R, Seen, Vec<u8>) {
+    in_draw_at(act, clip, (0, 0), call)
+}
+
+type Seen = Vec<(ComposeRequest, Rect, alloc::string::String)>;
+
+/// As [`in_draw`], with the canvas translated by `origin` (a screen drawn
+/// into part of the screen): coordinates are the canvas's own.
+fn in_draw_at<R>(
+    act: Act,
+    clip: Rect,
+    origin: (i32, i32),
+    call: impl FnOnce(Pin<&Context<Heap>>, *mut c_void) -> R,
+) -> (R, Seen, Vec<u8>) {
     let (kernel, now) = kernel_env();
     let env = kernel.shared.env(now);
+    let child_host = hosted();
     let hook = Hook {
+        child: Some(child_host.owner().context()),
         env: &env,
         act: Cell::new(act),
         seen: RefCell::default(),
@@ -156,7 +186,7 @@ fn in_draw<R>(
     let mut frame = Framebuffer::new(W, H, PixelFormat::Gray8).unwrap();
     let result = {
         let mut base = frame.canvas();
-        let mut canvas = base.clipped(clip);
+        let mut canvas = base.clipped(clip).offset(origin.0, origin.1);
         // SAFETY: the owner structurally pins these fields.
         let environment = unsafe { context.map_unchecked(|c| &c.environment) };
         let scope = unsafe { context.map_unchecked(|c| &c.canvas) };
@@ -169,6 +199,8 @@ fn in_draw<R>(
     let pixels = frame.view().data.to_vec();
     hosted.owner().revoke();
     hosted.owner().finish().unwrap();
+    child_host.owner().revoke();
+    child_host.owner().finish().unwrap();
     (result, hook.seen.into_inner(), pixels)
 }
 
@@ -202,6 +234,7 @@ fn outside_the_callers_draw_it_is_a_state_error_without_a_lookup() {
     let (kernel, now) = kernel_env();
     let env = kernel.shared.env(now);
     let hook = Hook {
+        child: None,
         env: &env,
         act: Cell::new(Act::Answer(Ok(()))),
         seen: RefCell::default(),
@@ -405,8 +438,8 @@ fn the_child_draws_only_inside_the_visible_part() {
 }
 
 #[test]
-fn a_failed_child_leaves_the_callers_frame_and_clip_as_they_were() {
-    let (status, _, pixels) = in_draw(Act::FillThenFail, whole(), |context, ctx| {
+fn a_refusing_hook_after_drawing_leaves_the_callers_frame_and_clip_as_they_were() {
+    let (status, _, pixels) = in_draw(Act::FillThenRefuse, whole(), |context, ctx| {
         assert_eq!(context.canvas.clip(2, 2, 30, 20), OK);
         let status = call(ctx, 1, 1, 10, 8, 12, 6);
         // The caller goes on in its own clip, not the child's.
@@ -414,7 +447,7 @@ fn a_failed_child_leaves_the_callers_frame_and_clip_as_they_were() {
         assert_eq!(context.canvas.fill_rect(0, 0, 1, 1, Color::BLACK), OK);
         status
     });
-    // The child's status, and nothing more, comes back.
+    // The hook's own status comes back verbatim, and nothing more.
     assert_eq!(status, ERR_NO_MEMORY);
     let mut expected = Framebuffer::new(W, H, PixelFormat::Gray8).unwrap();
     {
@@ -426,6 +459,63 @@ fn a_failed_child_leaves_the_callers_frame_and_clip_as_they_were() {
             .fill_rect(2, 2, 1, 1, Color::BLACK);
     }
     assert_eq!(pixels, expected.view().data);
+}
+
+#[test]
+fn a_childs_own_slot_9_clip_stays_inside_the_lent_view_and_ends_with_the_call() {
+    // The caller clips to (2, 2, 30, 20); the child's rectangle (0, 0, 12, 6)
+    // shows as (2, 2, 10, 4); the child then sets its own clip (1, 1, 3, 3),
+    // which can only narrow that view: what it paints is (2, 2, 2, 2).
+    let (status, _, pixels) = in_draw(Act::ChildClip, whole(), |context, ctx| {
+        assert_eq!(context.canvas.clip(2, 2, 30, 20), OK);
+        let status = call(ctx, 0, 1, 0, 0, 12, 6);
+        // Back in the caller: its own clip (2, 2, 30, 20) is intact, not the
+        // child's (1, 1, 3, 3) and not the child's view.
+        assert_eq!(context.canvas.fill_rect(31, 21, 1, 1, Color::BLACK), OK);
+        assert_eq!(context.canvas.fill_rect(0, 0, 1, 1, Color::BLACK), OK);
+        status
+    });
+    assert_eq!(status, ERR_NO_MEMORY);
+    let mut expected = Framebuffer::new(W, H, PixelFormat::Gray8).unwrap();
+    {
+        let mut base = expected.canvas();
+        base.clipped(Rect::new(2, 2, 2, 2))
+            .fill_rect(0, 0, 4096, 4096, Color::BLACK);
+        base.clipped(Rect::new(2, 2, 30, 20))
+            .fill_rect(31, 21, 1, 1, Color::BLACK);
+    }
+    assert_eq!(pixels, expected.view().data);
+}
+
+#[test]
+fn a_translated_canvas_gets_its_rectangle_and_clip_in_its_own_coordinates() {
+    // The screen part (5, 4, 20, 15) is drawn as a canvas whose (0, 0) is the
+    // screen's (5, 4): the rectangle and the visible part are in the canvas's
+    // coordinates, the pixels land translated.
+    let part = Rect::new(5, 4, 20, 15);
+    for (rect, visible) in [
+        ((3, 2, 10, 6), Rect::new(3, 2, 10, 6)),
+        // Partly above and left of the canvas: cut at its edge.
+        ((-3, -2, 10, 6), Rect::new(0, 0, 7, 4)),
+        // Partly beyond its right and bottom edge.
+        ((15, 10, 10, 10), Rect::new(15, 10, 5, 5)),
+    ] {
+        let (status, seen, pixels) = in_draw_at(Act::FillAll, part, (5, 4), |_, ctx| {
+            call(ctx, 0, 1, rect.0, rect.1, rect.2, rect.3)
+        });
+        assert_eq!(status, OK, "{rect:?}");
+        let (request, child_clip, _) = &seen[0];
+        assert_eq!(request.visible, Some(visible), "{rect:?}");
+        assert_eq!(*child_clip, visible, "{rect:?}");
+        let mut expected = Framebuffer::new(W, H, PixelFormat::Gray8).unwrap();
+        expected
+            .canvas()
+            .clipped(part)
+            .offset(5, 4)
+            .clipped(visible)
+            .fill_rect(0, 0, 4096, 4096, Color::BLACK);
+        assert_eq!(pixels, expected.view().data, "{rect:?}");
+    }
 }
 
 #[test]
