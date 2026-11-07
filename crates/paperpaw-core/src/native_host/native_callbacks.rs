@@ -158,4 +158,37 @@ mod tests {
         drop(outer);
         assert_eq!(clock.depth(), 0);
     }
+    #[test]
+    fn depth_exhaustion_leaves_epoch_and_depth_unchanged_and_recovers() {
+        let mut clock = CallbackClock::default();
+        let runtime = clock.runtime().unwrap();
+        let mut guards = alloc::vec::Vec::with_capacity(usize::from(u8::MAX));
+        for _ in 0..u8::MAX {
+            guards.push(runtime.enter().unwrap());
+        }
+        let epoch = clock.state().epoch.get();
+        assert!(matches!(runtime.enter(), Err(ERR_BUSY)));
+        assert_eq!(clock.depth(), u8::MAX);
+        assert_eq!(clock.state().epoch.get(), epoch);
+        drop(guards);
+        assert_eq!(clock.depth(), 0);
+        assert_eq!(runtime.enter().unwrap().epoch(), epoch + 1);
+    }
+
+    #[test]
+    fn failed_shared_clock_allocation_preserves_local_state_for_retry() {
+        let mut clock = CallbackClock::default();
+        assert_eq!(clock.enter_outer().unwrap(), 1);
+        clock.leave();
+        crate::native_host::shell::tests::arm_failure(1);
+        let failed = clock.runtime();
+        crate::native_host::shell::tests::arm_failure(0);
+        assert!(matches!(failed, Err(ERR_NO_MEMORY)));
+        assert!(matches!(clock.0, Source::Local(_)));
+        assert_eq!(clock.depth(), 0);
+        assert_eq!(clock.state().epoch.get(), 1);
+        let runtime = clock.runtime().unwrap();
+        assert_eq!(runtime.enter().unwrap().epoch(), 2);
+        assert_eq!(clock.depth(), 0);
+    }
 }
