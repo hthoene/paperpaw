@@ -707,7 +707,9 @@ its caps (hand-off).
   and op 2 reads it from there, so questions cost about 50 bytes of heap, nothing when none is
   open. Without a card, and until the card file is wired, every kept question (title, text and
   choices, up to 3.3 KiB) is charged to a question pool of 4 KiB on the X4 (64 KiB elsewhere):
-  `ERR_FULL` at `ask` beyond, nothing changed. At most 3 request rows are kept at once on the X4 (16 elsewhere), a cancelled or answered
+  `ERR_FULL` at `ask` beyond, nothing changed. The question and secret pools are limits, not reservations: each question, text chunk and secret
+  chunk is allocated fallibly when the request or the secret text starts and freed when it ends,
+  so nothing is held at rest. At most 3 request rows are kept at once on the X4 (16 elsewhere), a cancelled or answered
   one until its event is delivered (`ERR_FULL` at `ask` beyond).
 - **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 9.55
   (with a card; 8.75 of it only while an 8 KiB password is typed) + widgets 0.5 + status handles

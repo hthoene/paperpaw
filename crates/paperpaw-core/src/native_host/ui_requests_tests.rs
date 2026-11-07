@@ -302,7 +302,7 @@ fn live_typing_replaces_itself_and_a_final_answer_replaces_it() {
     s.answer(5, id, 2, 0).unwrap();
     let d = s.take_delivery(1).unwrap();
     assert_eq!((d.outcome, d.length), (2, 2));
-    s.delivered(id);
+    s.delivered(id).unwrap();
     assert_eq!(s.request_count(), 1, "typing keeps the request");
     s.answer(5, id, 0, 0).unwrap();
     assert_eq!(s.take_delivery(1).unwrap().outcome, 0);
@@ -330,7 +330,7 @@ fn on_the_x4_live_typing_stops_past_512_bytes_but_the_final_answer_is_whole() {
     assert_eq!(s.answer(5, id, 2, 0), Err(ERR_NO_SPACE));
     let d = s.take_delivery(1).unwrap();
     assert_eq!((d.outcome, d.flags), (2, TYPING_STOPPED));
-    s.delivered(id);
+    s.delivered(id).unwrap();
     s.answer(5, id, 0, 0).unwrap();
     assert_eq!(s.take_delivery(1).unwrap().length, 600);
 }
@@ -341,10 +341,10 @@ fn closing_cancels_and_the_dialog_is_named_to_close() {
     // A dialog that closes without an answer.
     let id = ask(&s, 1, 1, &q(2, 0, ""));
     open(&s, 1, 1, id, 5);
-    s.dialog_closed(5);
+    s.dialog_closed(5).unwrap();
     let d = s.take_delivery(1).unwrap();
     assert_eq!((d.outcome, d.flags), (1, DIALOG_CLOSED));
-    s.delivered(id);
+    s.delivered(id).unwrap();
     // A screen that asked and closes: the request is cancelled, its dialog told.
     let s = store();
     let id = s
@@ -353,7 +353,8 @@ fn closing_cancels_and_the_dialog_is_named_to_close() {
         .0;
     open(&s, 1, 1, id, 5);
     let mut closed = Vec::new();
-    s.asker_instance_closed(30, &mut |c| closed.push(c));
+    s.asker_instance_closed(30, &mut |c| closed.push(c))
+        .unwrap();
     assert_eq!(
         closed,
         [Cancelled {
@@ -438,8 +439,8 @@ fn texts_are_capped_24576_and_8192_for_a_secret_one_and_freed_with_the_asker() {
         Err(ERR_NO_SPACE)
     );
     s.question(1, secret, |_| ()).ok();
-    s.owner_stopped(1);
-    s.owner_stopped(2);
+    s.owner_stopped(1).unwrap();
+    s.owner_stopped(2).unwrap();
     assert_eq!(s.request_count(), 0);
     assert_eq!(s.held().1, 0);
 }
@@ -490,7 +491,7 @@ fn retained_request_rows_are_bounded_replacements_and_cancellations_included() {
         // The answer is delivered and the callback returns.
     }
     for id in 1..=kept as u32 {
-        s.delivered(id);
+        s.delivered(id).unwrap();
     }
     assert!(s.request_count() < kept);
     s.ask(who(1, 2), None, &q(0, 0, ""), false, None, true)
@@ -539,7 +540,7 @@ fn a_secret_text_has_its_own_pool_and_does_not_take_room_from_ordinary_text() {
         .unwrap();
     assert!(s.held().1 >= 1_800);
     // Freeing the secret returns its pool.
-    s.owner_stopped(1);
+    s.owner_stopped(1).unwrap();
     assert_eq!(s.inner.borrow().secret_memory, 0);
 }
 
@@ -583,7 +584,7 @@ fn the_asker_reads_the_text_while_a_typing_update_is_delivered_and_only_then() {
     assert_eq!(text(&s, 1, None, id).unwrap(), "hel");
     assert_eq!(text(&s, 3, None, id), Err(ERR_STATE), "another plugin");
     // After the callback returned: refused again.
-    s.delivered(id);
+    s.delivered(id).unwrap();
     assert_eq!(text(&s, 1, None, id), Err(ERR_STATE));
 }
 
@@ -594,16 +595,16 @@ fn a_final_answer_notes_when_its_dialog_closed_after_the_answer() {
     open(&s, 1, 1, id, 5);
     s.answer(5, id, 0, 1).unwrap();
     // The dialog closes before the answer is delivered.
-    s.dialog_closed(5);
+    s.dialog_closed(5).unwrap();
     let d = s.take_delivery(1).unwrap();
     assert_eq!((d.outcome, d.choice), (0, 1));
     assert_eq!(d.flags & DIALOG_CLOSED, DIALOG_CLOSED);
-    s.delivered(id);
+    s.delivered(id).unwrap();
     // A dialog that stays up until delivery does not set the bit.
     let again = ask(&s, 1, 2, &q(2, 0, ""));
     open(&s, 1, 2, again, 6);
     s.answer(6, again, 0, 0).unwrap();
-    s.dialog_closed(99);
+    s.dialog_closed(99).unwrap();
     assert_eq!(s.take_delivery(1).unwrap().flags & DIALOG_CLOSED, 0);
 }
 
@@ -618,7 +619,7 @@ fn a_nested_question_goes_when_the_plugin_that_asked_its_parent_stops() {
         .ask(who(9, 1), None, &q(0, 0, ""), false, Some(parent), false)
         .unwrap();
     assert!(s.is_request(nested));
-    s.owner_stopped(1);
+    s.owner_stopped(1).unwrap();
     assert!(!s.is_request(parent));
     assert!(!s.is_request(nested), "no nested row is left behind");
     assert_eq!(s.request_count(), 0);
@@ -638,11 +639,11 @@ fn stopping_an_unrelated_plugin_keeps_a_nested_cancellation_whose_event_is_owed(
         .unwrap();
     s.answer(5, parent, 0, 0).unwrap();
     assert!(s.take_delivery(1).is_some());
-    s.delivered(parent);
+    s.delivered(parent).unwrap();
     assert!(!s.is_request(parent));
     assert!(s.is_request(nested));
     // An unrelated plugin stops: the owed event stays.
-    s.owner_stopped(77);
+    s.owner_stopped(77).unwrap();
     assert!(s.is_request(nested), "its cancellation is still owed");
     assert_eq!(s.take_delivery(9).unwrap().outcome, 1);
 }
