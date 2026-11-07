@@ -13,8 +13,9 @@ use super::{
     lookup_service::{LookupHost, LookupServices},
 };
 use alloc::rc::Rc;
-use core::cell::OnceCell;
-use paperpaw_native::host_glue::ERR_STATE;
+use alloc::vec::Vec;
+use core::cell::{Cell, OnceCell, RefCell};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
 
 /// What the dispatcher tells a service backend about its caller.
 #[derive(Clone, Copy)]
@@ -34,6 +35,18 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
+    /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
+    /// Owner ids are never 0. The vector's room is reserved when an owner is
+    /// admitted ([`Self::admit_owner`]): its capacity is never below the owners
+    /// alive plus the owners queued, so a drop never allocates and never finds
+    /// the queue full.
+    retiring: RefCell<Vec<u64>>,
+    /// Owners alive (admitted, not yet dropped).
+    alive: Cell<usize>,
+    /// Retirements that could not be queued: a broken invariant, reported by
+    /// every retry (`ERR_FULL`) and never cleared.
+    lost: Cell<u32>,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -52,7 +65,103 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            retiring: RefCell::new(Vec::new()),
+            alive: Cell::new(0),
+            lost: Cell::new(0),
         }
+    }
+
+    /// A new owner is admitted: room for its retirement is reserved now, so
+    /// that its drop can queue it without allocating.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` (the owner is not admitted).
+    pub(crate) fn admit_owner(&self) -> Result<(), i32> {
+        let mut queue = self.retiring.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let len = queue.len();
+        let need = len + self.alive.get() + 1;
+        if queue.capacity() < need {
+            queue
+                .try_reserve_exact(need - len)
+                .map_err(|_| ERR_NO_MEMORY)?;
+        }
+        self.alive.set(self.alive.get() + 1);
+        Ok(())
+    }
+
+    /// An owner is gone; `retired` says its retirement ran to the end. If not,
+    /// it is queued for [`Self::retry_retirements`] (in the room reserved at
+    /// admission).
+    pub(crate) fn owner_gone(&self, owner: u64, retired: bool) {
+        self.alive.set(self.alive.get().saturating_sub(1));
+        if retired {
+            return;
+        }
+        let queued = self.retiring.try_borrow_mut().is_ok_and(|mut queue| {
+            if queue.contains(&owner) {
+                return true;
+            }
+            if queue.len() < queue.capacity() {
+                queue.push(owner);
+                true
+            } else {
+                false
+            }
+        });
+        if !queued {
+            self.lost.set(self.lost.get().saturating_add(1));
+        }
+    }
+
+    /// Whether an owner still waits for its retirement.
+    pub(crate) fn retirements_pending(&self) -> bool {
+        self.retiring
+            .try_borrow()
+            .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+    }
+
+    /// The main loop's retry: finish the retirement of every queued owner. An
+    /// owner leaves the queue when its retirement ran to the end; one that is
+    /// still busy stays. Call again after `Ok(true)` and after `Err(ERR_BUSY)`.
+    ///
+    /// # Errors
+    /// The first error of an owner that stays queued (`ERR_BUSY`);
+    /// `ERR_FULL` when a retirement was ever lost.
+    pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
+        let mut result = if self.lost.get() == 0 {
+            Ok(())
+        } else {
+            Err(ERR_FULL)
+        };
+        let mut index = 0;
+        loop {
+            // No borrow is held across the retirement: it calls into hosts.
+            let owner = {
+                let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
+                match queue.get(index) {
+                    Some(owner) => *owner,
+                    None => break,
+                }
+            };
+            index += 1;
+            if owner == 0 {
+                continue;
+            }
+            match self.owner_retired(owner) {
+                Ok(()) => {
+                    if let Ok(mut queue) = self.retiring.try_borrow_mut()
+                        && let Some(slot) = queue.get_mut(index - 1)
+                    {
+                        *slot = 0;
+                    }
+                }
+                Err(error) => result = result.and(Err(error)),
+            }
+        }
+        if let Ok(mut queue) = self.retiring.try_borrow_mut() {
+            queue.retain(|owner| *owner != 0);
+        }
+        result.map(|()| self.retirements_pending())
     }
 
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
