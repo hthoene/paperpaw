@@ -4,6 +4,7 @@ use super::{
     environment::EnvironmentScope,
     registrations,
     resources::{OwnerResources, ServiceKey},
+    secret_bytes::wipe,
 };
 use crate::abi7::services_wire::ServiceOp;
 use alloc::vec::Vec;
@@ -19,16 +20,6 @@ impl Drop for ReplyScratch<'_> {
     fn drop(&mut self) {
         wipe(self.0);
     }
-}
-
-/// Wipe private host scratch before its allocation can be reused.
-fn wipe(bytes: &mut [u8]) {
-    for byte in bytes {
-        // SAFETY: each byte is live and exclusively borrowed. Volatile stores
-        // retain the wipe even when the allocation is immediately freed.
-        unsafe { core::ptr::write_volatile(byte, 0) };
-    }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 fn input_pair(pair: PpBytes) -> Result<(), i32> {
