@@ -3122,6 +3122,10 @@ pub paperpaw_sdk::native::commands::PluginOutcome::Declined
 pub paperpaw_sdk::native::commands::PluginOutcome::Failed
 pub paperpaw_sdk::native::commands::PluginOutcome::Installed
 pub paperpaw_sdk::native::commands::PluginOutcome::NotFound
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PowerAction
+pub paperpaw_sdk::native::commands::PowerAction::PowerOff
+pub paperpaw_sdk::native::commands::PowerAction::Restart
+pub paperpaw_sdk::native::commands::PowerAction::Sleep
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::PresetMode
 pub paperpaw_sdk::native::commands::PresetMode::Apply
 pub paperpaw_sdk::native::commands::PresetMode::Preview
@@ -3163,6 +3167,20 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut se
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::stop_speaking(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::widget_changed(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_then(&mut self, paperpaw_sdk::native::ui::Open<'_>, paperpaw_sdk::native::commands::PowerAction) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::sleep(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wear(&mut self, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_host(&mut self, u32, &str, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_join(&mut self, u32, &str, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_leave(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_on(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
