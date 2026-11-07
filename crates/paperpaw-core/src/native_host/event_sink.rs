@@ -56,11 +56,12 @@ mod tests {
         assert!(kernel.native_event_sink().is_none());
         let budget = EventBudget::try_new().unwrap();
         let pending = Rc::new(RefCell::new(budget.pending().unwrap()));
+        let replacement = Rc::new(RefCell::new(budget.pending().unwrap()));
         kernel
             .install_native_event_sink(Sink(pending.clone()))
             .unwrap();
         assert_eq!(
-            kernel.install_native_event_sink(Sink(pending.clone())),
+            kernel.install_native_event_sink(Sink(replacement.clone())),
             Err(ERR_STATE)
         );
         let sink = kernel.native_event_sink().unwrap();
@@ -70,5 +71,6 @@ mod tests {
             Some(Ready::Hint(wire::EVENT_STATUS_CHANGED_TAG))
         ));
         assert!(pending.borrow_mut().take().is_none());
+        assert!(replacement.borrow_mut().take().is_none());
     }
 }
