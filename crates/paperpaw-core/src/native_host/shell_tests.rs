@@ -26,7 +26,7 @@ std::thread_local! {
     /// Destructor runs that were outside any announced call.
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
-    static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    pub(in crate::native_host) static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     /// An address to watch (0: none) and whether a block holding it was freed.
     static WATCH: Cell<usize> = const { Cell::new(0) };
     static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
