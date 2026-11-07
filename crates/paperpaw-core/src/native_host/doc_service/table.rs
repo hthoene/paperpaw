@@ -73,6 +73,9 @@ pub(crate) struct Document {
     /// 0 while open for use, else `event.document_closed.reason`: the host
     /// closed it and every call but `close` is `ERR_CANCELLED`.
     pub(crate) closed_by_host: u32,
+    /// The format plugin is gone (it stopped): it is never called for this
+    /// document again, not even by its opener's `close`.
+    pub(crate) format_gone: bool,
     /// The block whose fragments are being read: what the earlier ones said.
     pub(crate) block: Option<Pending>,
     strikes: u8,
@@ -157,6 +160,7 @@ impl DocumentTable {
             image_side: 0,
             cover_side: 0,
             closed_by_host: 0,
+            format_gone: false,
             block: None,
             strikes: 0,
         });
@@ -290,6 +294,7 @@ impl DocumentTable {
                     break;
                 };
                 document.closed_by_host = if (1..=3).contains(&reason) { reason } else { 1 };
+                document.format_gone = true;
                 *document
             };
             ended(&document);
