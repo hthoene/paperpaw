@@ -1468,3 +1468,6 @@ fn clipped(text: &str) -> String {
 fn paperpaw_text_outlines() -> bool {
     paperpaw_sdk::text::OUTLINES
 }
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+mod native_battery_pixel_tests;

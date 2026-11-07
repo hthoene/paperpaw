@@ -35,6 +35,18 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+- Native host text ink probes the shaped raster path with the target frame's
+  coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
+- Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
+  `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
+  position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
+  `event.plugins_changed`, 71 `event.wifi_changed`, 72 `event.power_changed` (power mode), 73
+  `event.status_changed` and 74 `event.charge_changed` in the generated records codec. Only the
+  host raises them (book moves and deletions from its own operations, reading events from its
+  reading session); paths are never cut. Hosts admit their registrations once a producer is
+  wired; until then `ERR_UNSUPPORTED` (#228).
 
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
@@ -68,6 +80,11 @@ change the plugin SDK.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+- `Id::try_parse` and `IdError`: a parse that tells an invalid id (`IdError::Invalid`) from a full
+  heap (`IdError::NoMemory`) instead of aborting, so the X4's plugin admission can make new ids
+  from declarations and answer `ERR_NO_MEMORY` (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: the heap word (`abi/heap-word.md`). A plugin's optional read-only word
   `PAPERPAW_HEAP`, which the loader fills before `make`, points at the host's context-free
   `PpHeap` table (alloc, dealloc, realloc, abort). `native_plugin!` emits the word, a global
@@ -84,16 +101,11 @@ change the plugin SDK.
   is not shown), so plugins for a later host still load. Hosts check them and answer
   `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
   `i18n/<language>.ini` files of its folder (#228).
-- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
-  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
   `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
   settings, colour and command codecs (#228).
-- Checked native admission metadata exposes declared service revisions through a
-  borrowing iterator, so host query admission uses the validated requirements (#228).
-
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
