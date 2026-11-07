@@ -3,8 +3,10 @@
 //! the kernel a sink once ([`CodeLoader::hyphenation_sink`]
 //! (crate::code_plugin::CodeLoader::hyphenation_sink)); from then on every
 //! plugin added or removed, and every change of the card, reaches it.
+use crate::code_plugin::CodeLoader;
 use crate::native_host::HyphenTables;
-use alloc::{collections::TryReserveError, string::String, vec::Vec};
+use alloc::{collections::TryReserveError, rc::Rc, string::String, vec::Vec};
+use paperpaw_platform::Storage;
 
 /// One declared table: the plugin, the language tag, the card path.
 struct Declared {
@@ -27,12 +29,17 @@ impl HyphenFeed {
         }
     }
 
-    /// The shell's sink: it gets everything declared so far, and what follows.
-    pub(crate) fn attach(&mut self, sink: Option<HyphenTables>) {
-        if sink.is_some() {
-            self.sink = sink;
-            self.push();
+    /// Asks the shell's loader for its sink: it gets everything declared so
+    /// far, and what follows.
+    pub(crate) fn ask(&mut self, loader: &mut dyn CodeLoader, storage: &Rc<dyn Storage>) {
+        if let Some(sink) = loader.hyphenation_sink(storage) {
+            self.attach(sink);
         }
+    }
+
+    pub(crate) fn attach(&mut self, sink: HyphenTables) {
+        self.sink = Some(sink);
+        self.push();
     }
 
     /// The tables of data plugin `plugin` (language tag, file relative to
