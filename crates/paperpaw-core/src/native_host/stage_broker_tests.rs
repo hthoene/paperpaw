@@ -32,6 +32,7 @@ pub(crate) fn input() -> Vec<u8> {
 #[derive(Clone, Copy)]
 pub(crate) enum Behavior {
     Good,
+    Unwritten,
     Refuse,
     Oversize,
     Foreign,
@@ -85,6 +86,9 @@ impl Dispatch for Fake {
                 out[0] = 33;
                 Ok(1)
             }
+            Behavior::Unwritten => widget::WidgetSize::new(token, 0)
+                .encode(&mut [0; 64])
+                .map(|len| i32::try_from(len).unwrap()),
             Behavior::Good => widget::WidgetSize::new(token, 0)
                 .encode(out)
                 .map(|len| i32::try_from(len).unwrap()),
@@ -359,4 +363,81 @@ fn broker_owned_scratch_has_a_fixed_heap_bound() {
         + CALL_BYTES
         + 3840;
     assert!(heap <= 24 * 1024, "broker allocation payload bound: {heap}");
+}
+
+#[test]
+fn unwritten_reply_cannot_reuse_an_earlier_subscribers_bytes() {
+    let mut h = Harness::new();
+    let good = h.add("good", Behavior::Good);
+    let unwritten = h.add("unwritten", Behavior::Unwritten);
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(
+        &schema,
+        &h.depth,
+        &input,
+        &h.registry,
+        [row(good, 1, 0, 0), row(unwritten, 2, 1, 0)],
+    )
+    .unwrap();
+    assert!(run.call.capacity() < CALL_BYTES);
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut target = Vec::new();
+    let outcome = run
+        .apply(
+            &mut target,
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            |target| copy_target(target),
+            |target, reply| {
+                target.push(widget::WidgetSize::decode(reply.bytes)?.height);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(target, [1]);
+    assert_eq!(
+        outcome,
+        Outcome {
+            applied: 1,
+            refused: 1
+        }
+    );
+}
+
+#[test]
+fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
+    let mut h = Harness::new();
+    let plugin = h.add("good", Behavior::Good);
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(
+        &schema,
+        &h.depth,
+        &input,
+        &h.registry,
+        [row(usize::MAX, 9, -1, 0), row(plugin, 1, 0, 0)],
+    )
+    .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut target = Vec::new();
+    let outcome = run
+        .apply(
+            &mut target,
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            |target| copy_target(target),
+            apply,
+        )
+        .unwrap();
+    assert_eq!(target, [1]);
+    assert_eq!(
+        outcome,
+        Outcome {
+            applied: 1,
+            refused: 1
+        }
+    );
 }

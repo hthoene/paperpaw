@@ -45,7 +45,7 @@ pub(crate) trait Frame {
         _input: &[u8],
         _out: &mut [MaybeUninit<u8>],
     ) -> Result<usize, i32> {
-        Err(ERR_STATE)
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None

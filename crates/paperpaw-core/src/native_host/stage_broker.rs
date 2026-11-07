@@ -55,6 +55,7 @@ pub(crate) struct Run<'a> {
     subscribers: Vec<Subscriber>,
     call: Vec<u8>,
     reply: Vec<u8>,
+    missing: usize,
 }
 
 /// Validated subscriber output. All bytes are borrowed only for the apply call.
@@ -111,7 +112,7 @@ impl<'a> Run<'a> {
         }
         (schema.input)(input)?;
         let epoch = registry.callback()?;
-        let selected = select(schema, registry, registrations)?;
+        let (selected, missing) = select(schema, registry, registrations)?;
         let mut subscribers = Vec::new();
         subscribers
             .try_reserve_exact(selected.len())
@@ -137,16 +138,18 @@ impl<'a> Run<'a> {
                 lazy,
             });
         }
-        let mut call = scratch(CALL_BYTES)?;
-        let len = wire::records_encode(
-            &[Record::StageCall(wire::StageCall {
-                stage: schema.key,
-                schema: schema.major,
-                payload: input,
-            })],
-            &mut call,
-        )?;
-        call.truncate(len);
+        let record = Record::StageCall(wire::StageCall {
+            stage: schema.key,
+            schema: schema.major,
+            payload: input,
+        });
+        // A one-record batch has a one-byte count followed by its framed record.
+        let capacity = wire::record_framed_len(&record)?
+            .checked_add(1)
+            .filter(|length| *length <= CALL_BYTES)
+            .ok_or(ERR_NO_SPACE)?;
+        let mut call = scratch(capacity)?;
+        wire::records_encode(&[record], &mut call)?;
         let reply = scratch(schema.max_reply)?;
         // Publish deduplicated lazy starts only after every allocation succeeded.
         // The retained callback epoch prevents flushing before the run drops.
@@ -162,6 +165,7 @@ impl<'a> Run<'a> {
             subscribers,
             call,
             reply,
+            missing,
         })
     }
 
@@ -181,8 +185,14 @@ impl<'a> Run<'a> {
         let host = crate::abi7::calls::Instance::new();
         let _host_call = host.enter(&self.depth.0).map_err(|_| ERR_STATE)?;
         let mut staged = prepare(target)?;
-        let mut outcome = Outcome::default();
+        let mut outcome = Outcome {
+            refused: self.missing,
+            ..Outcome::default()
+        };
         for (index, subscriber) in self.subscribers.iter().enumerate() {
+            // Foreign callbacks may report bytes they never wrote. Clear the
+            // full offered span so no previous subscriber can supply those bytes.
+            self.reply.fill(0);
             let result = subscriber
                 .instance
                 .as_ref()
@@ -237,16 +247,20 @@ fn select<'s>(
     schema: &Schema,
     registry: &NativeInstances,
     registrations: impl IntoIterator<Item = Subscription<'s>>,
-) -> Result<Vec<Subscription<'s>>, i32> {
+) -> Result<(Vec<Subscription<'s>>, usize), i32> {
     let mut selected: Vec<Subscription<'s>> = Vec::new();
     selected
         .try_reserve_exact(schema.max_subscribers)
         .map_err(|_| ERR_NO_MEMORY)?;
+    let mut missing = 0_usize;
     for registration in registrations {
         if registration.stage != schema.key || !registration.enabled {
             continue;
         }
-        let id = registry.id(registration.plugin).ok_or(ERR_STATE)?;
+        let Some(id) = registry.id(registration.plugin) else {
+            missing = missing.saturating_add(1);
+            continue;
+        };
         let position = selected
             .iter()
             .position(|before| {
@@ -262,7 +276,7 @@ fn select<'s>(
             selected.insert(position, registration);
         }
     }
-    Ok(selected)
+    Ok((selected, missing))
 }
 
 #[cfg(test)]
