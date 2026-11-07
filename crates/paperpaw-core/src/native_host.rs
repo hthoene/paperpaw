@@ -16,6 +16,13 @@ pub mod registration_scope;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
+#[path = "native_host/work_sched.rs"]
+#[allow(dead_code, reason = "the shell feeds the scheduler; tests do today")]
+pub(crate) mod work_sched;
+
+#[path = "native_host/work_service.rs"]
+mod work_service;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,

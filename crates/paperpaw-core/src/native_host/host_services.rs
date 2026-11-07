@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    work_service::WorkServices,
 };
 use alloc::rc::Rc;
 use core::cell::OnceCell;
@@ -34,6 +35,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    work: OnceCell<WorkServices>,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -42,6 +44,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("work", &self.work.get().is_some())
             .finish()
     }
 }
@@ -52,6 +55,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            work: OnceCell::new(),
         }
     }
 
@@ -69,6 +73,16 @@ impl HostServices {
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
+    /// Wire `core.work` once.
+    pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
+        self.work.set(work).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn work(&self) -> Option<&WorkServices> {
+        self.work.get()
     }
 
     pub(crate) fn documents(&self) -> Option<&DocServices> {
@@ -104,6 +118,10 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        // Last: whatever the owner declared as work is gone (idempotent).
+        if let Some(work) = self.work.get() {
+            work.sched.owner_stopped(owner);
         }
         result
     }
