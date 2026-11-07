@@ -45,3 +45,7 @@ fn lookup(store: &DeclarationStore, plugin: &str, name: &str, kind: Kind) -> Res
     });
     declaration
 }
+
+#[cfg(test)]
+#[path = "native_ui_directory_tests.rs"]
+mod tests;
