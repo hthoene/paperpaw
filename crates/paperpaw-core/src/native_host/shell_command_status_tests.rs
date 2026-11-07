@@ -4,6 +4,7 @@ use core::cell::Cell;
 use paperpaw_sdk::{Id, ScreenKey, StackEntry};
 
 std::thread_local! {
+    static CHAIN_TEST: Cell<bool> = const { Cell::new(false) };
     static RETURN_STATUS: Cell<i32> = const { Cell::new(OK) };
     static SUBMIT_STATUS: Cell<i32> = const { Cell::new(ERR_INVALID) };
 }
@@ -30,17 +31,18 @@ unsafe extern "C" fn make_commands(
 
 fn submit(state: *mut c_void) {
     let mut bytes = [0; 128];
-    let len = commands_encode(
-        &[
-            WireCommand::SetSetting {
-                key: "fake.toggle",
-                value: crate::abi7::settings_wire::SettingValueRef::Bool(true),
-            },
-            WireCommand::Redraw { mode: 0 },
-        ],
-        &mut bytes,
-    )
-    .unwrap();
+    let commands = [
+        WireCommand::SetSetting {
+            key: "fake.toggle",
+            value: crate::abi7::settings_wire::SettingValueRef::Bool(true),
+        },
+        WireCommand::Redraw { mode: 0 },
+        WireCommand::RunAction {
+            action: "fake.absent",
+        },
+    ];
+    let count = if CHAIN_TEST.with(Cell::get) { 3 } else { 2 };
+    let len = commands_encode(&commands[..count], &mut bytes).unwrap();
     // SAFETY: owner admission keeps the fixture and table alive. Encoded bytes
     // are readable until the synchronous submit returns and do not alias host state.
     let status = unsafe {
@@ -208,4 +210,37 @@ fn draw_has_no_command_authority_and_cannot_stage_effects() {
     assert!(!kernel.output.redraw);
     drop(batch);
     finish(&hosted);
+}
+
+#[test]
+fn input_forwards_incoming_chain_hop_and_refuses_hop_eight_atomically() {
+    for (hop, expected) in [(7, host_glue::ERR_NOT_FOUND), (8, host_glue::ERR_BUSY)] {
+        reset(NORMAL);
+        CHAIN_TEST.with(|value| value.set(true));
+        RETURN_STATUS.with(|value| value.set(OK));
+        let mut kernel = kernel();
+        let hosted = hosted_commands();
+        let batch = hosted
+            .make_registered(hosted.begin().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert_eq!(
+            kernel.input_native_for_test(
+                &batch,
+                TOKEN,
+                &DispatchDepth::new(),
+                &[],
+                paperpaw_platform::Instant(0),
+                hop,
+            ),
+            Ok(OK)
+        );
+        CHAIN_TEST.with(|value| value.set(false));
+        assert_eq!(SUBMIT_STATUS.with(Cell::get), expected);
+        assert!(!kernel.shared.settings.bool("fake.toggle"));
+        assert!(!kernel.output.redraw);
+        drop(batch);
+        finish(&hosted);
+    }
 }

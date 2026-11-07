@@ -90,12 +90,13 @@ impl Kernel {
         depth: &DispatchDepth,
         bytes: &[u8],
         now: Instant,
+        hop: u8,
     ) -> Result<i32, Error> {
         let screen = self.shared.stack.last().map(|entry| entry.key);
         self.with_native_commands(
             batch,
             depth,
-            super::command_dispatch::CommandTarget { screen, hop: 0 },
+            super::command_dispatch::CommandTarget { screen, hop },
             now,
             |context, frame| {
                 super::tokens::invoke_token(

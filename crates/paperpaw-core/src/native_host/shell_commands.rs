@@ -1,4 +1,4 @@
-//! One callback-local command stage, drained only after every host borrow ends.
+//! Inactive callback staging, exercised through kernel-backed dispatch fixtures.
 use super::{Batch, Context, DispatchDepth, Error, Registration};
 use crate::{Kernel, abi7::core_frame::CoreFrame, native_host::commands::CommandStage};
 use core::pin::Pin;
@@ -13,13 +13,9 @@ pub(crate) struct CommandTarget {
 }
 
 impl Kernel {
-    /// Admission, settings authority and command limits are shared by every
-    /// token callback. The invocation may install its environment and canvas
-    /// scopes, but must end them before returning. No second queue is retained.
-    #[allow(
-        dead_code,
-        reason = "native screen publication wires this callback path next"
-    )]
+    /// Admission, settings authority and command limits are shared by event and
+    /// input callbacks. The invocation ends its environment scope before returning.
+    /// Draw is render-only and must never use this helper. No second queue is kept.
     pub(crate) fn with_native_commands<S, M>(
         &mut self,
         batch: &Batch<'_, S, M, Registration>,
