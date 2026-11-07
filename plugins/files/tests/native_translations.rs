@@ -1,0 +1,74 @@
+//! Every text the native library asks for exists in both languages.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+
+const EN: &str = include_str!("../i18n/en.ini");
+const DE: &str = include_str!("../i18n/de.ini");
+
+#[test]
+fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
+    let sources = [
+        include_str!("../src/native_plugin.rs"),
+        include_str!("../src/native_model.rs"),
+        include_str!("../declarations.rs"),
+    ];
+    let mut asked = 0;
+    for source in sources {
+        for part in source.split('"').skip(1).step_by(2) {
+            if part.starts_with("files.")
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b == b'-' || b == b'.')
+                && !part.ends_with('.')
+                && !matches!(
+                    part,
+                    "files.browser"
+                        | "files.shelf"
+                        | "files.shelves"
+                        | "files.favourites"
+                        | "files.sort"
+                        | "files.archive"
+                        | "files.view"
+                        | "files.covers"
+                        | "files.sort.recent"
+                        | "files.sort.name"
+                        | "files.view.list"
+                        | "files.view.covers"
+                        | "files.covers.mono"
+                        | "files.covers.gray"
+                )
+            {
+                asked += 1;
+                for (name, catalog) in [("en", EN), ("de", DE)] {
+                    assert!(
+                        catalog
+                            .lines()
+                            .any(|l| l.starts_with(&format!("{part} = "))),
+                        "{part} missing in {name}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(asked >= 15, "{asked}");
+}
+
+#[test]
+fn the_values_of_the_settings_have_words() {
+    for key in [
+        "files.sort.recent",
+        "files.sort.name",
+        "files.view.list",
+        "files.view.covers",
+        "files.covers.mono",
+        "files.covers.gray",
+        "files.shelves",
+        "files.favourites",
+    ] {
+        for catalog in [EN, DE] {
+            assert!(
+                catalog.lines().any(|l| l.starts_with(&format!("{key} = "))),
+                "{key}"
+            );
+        }
+    }
+}
