@@ -34,6 +34,7 @@ pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
+pub use super::device_service::DEVICE_SERVICES;
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -340,6 +341,11 @@ impl<S: Services, M> Hosted<S, M> {
         self.owner.as_ref().context().declared_services.features()
     }
 
+    /// Retain only the pool identity and this load's authoritative owner key.
+    pub(crate) fn resource_identity(&self) -> Option<super::resources::OwnerResourceView> {
+        self.owner.as_ref().context().resources.try_view()
+    }
+
     /// The pinned owner; callers lease and finish through it. To stop the
     /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
     /// withdraws [`image`](Self::image).
@@ -350,7 +356,8 @@ impl<S: Services, M> Hosted<S, M> {
 
     /// Stops callback admission: from here a dispatch answers the owner's
     /// error and [`image`](Self::image) gives none. The module stays alive
-    /// until the drop.
+    /// until the drop. The kernel observes registered owners and completes
+    /// the same ordered unload through its main loop, retrying busy cleanup.
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
