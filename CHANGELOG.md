@@ -26,6 +26,9 @@ change the plugin SDK.
 
 ### Added
 
+- `paperpaw-sqlite` writes, column names and schema reads allocate fallibly (`Error::OutOfMemory`,
+  `try_encode_record`, `columns` returns a `Result`); `Md5::hex_into` and `md5::partial_into`
+  write hex digits without allocating (#228).
 - Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
   tests are removed, the events table and storage goldens run on the native recorder, and the app
   and the store-file build no longer register it until Core publishes native plugins (#228).
@@ -33,12 +36,12 @@ change the plugin SDK.
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
   other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
+- Settings 1.0.7: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, restart (asks first, declares `uses.power`), number editing with preview) over the registry service; `paperpaw-ui-kit` item
 - Native SDK library field reads use lossless pages with a separate book-field
   generation cursor. Typed book-field and badge declarations expose the existing
   library records to providers (#228).
 
-- Home 1.0.5: the host-free model of the pages for interface 7 (the grid of cells and the pages,
-  with fallible allocation and refusal sweeps); the screens follow (#228).
 - `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
   plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
 - Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
@@ -347,6 +350,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
+  (the old file kept); it copies through one 4 KiB page and syncs before the move (#228).
 - *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
   do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
   instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
