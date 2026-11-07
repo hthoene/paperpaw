@@ -343,6 +343,7 @@ fn invoke(
     bytes: &[u8],
 ) -> Result<(), DropReason> {
     let frame = crate::abi7::core_frame::CoreFrame {
+        callback: None,
         env,
         meter: &host.meter,
         font_removals: &host.font_removals,

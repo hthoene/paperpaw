@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
     work_service::WorkServices,
 };
@@ -37,6 +38,8 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    device: OnceCell<super::device_service::DeviceServices>,
+    net: OnceCell<NetServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
@@ -59,6 +62,8 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("device", &self.device.get().is_some())
+            .field("net", &self.net.get().is_some())
             .field("work", &self.work.get().is_some())
             .field("secrets", &self.secrets.get().is_some())
             .finish()
@@ -71,6 +76,8 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            device: OnceCell::new(),
+            net: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
@@ -123,9 +130,11 @@ impl HostServices {
 
     /// Whether an owner still waits for its retirement.
     pub(crate) fn retirements_pending(&self) -> bool {
-        self.retiring
-            .try_borrow()
-            .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+        self.lost.get() != 0
+            || self
+                .retiring
+                .try_borrow()
+                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An
@@ -188,6 +197,27 @@ impl HostServices {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
     }
 
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.device` once.
+    pub(crate) fn wire_device(
+        &self,
+        host: Rc<dyn super::device_service::DeviceHost>,
+    ) -> Result<(), i32> {
+        self.device
+            .set(super::device_service::DeviceServices(host))
+            .map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.net` once.
+    pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
+        self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn net(&self) -> Option<&NetServices> {
+        self.net.get()
+    }
+
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
@@ -217,6 +247,9 @@ impl HostServices {
     pub(crate) fn lookup(&self) -> Option<&LookupServices> {
         self.lookup.get()
     }
+    pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
+        self.device.get()
+    }
 
     /// The owner is retired (its callbacks are revoked and its handles
     /// released). In this order: if the owner was a format plugin, every
@@ -241,6 +274,9 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        if let Some(net) = self.net.get() {
+            result = result.and(net_service::owner_stopped(&*net.0, owner));
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {

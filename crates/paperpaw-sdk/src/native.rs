@@ -330,6 +330,7 @@ pub mod canvas;
 pub mod clock;
 pub mod commands;
 pub mod declare;
+pub mod device;
 pub mod events;
 pub mod fonts;
 pub mod formatting;

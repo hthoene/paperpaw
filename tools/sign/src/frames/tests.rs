@@ -1193,9 +1193,27 @@ fn an_outlined_sequence_that_writes_the_base_register_or_is_not_straight_forgets
     assert_eq!(outlined_frame(&[W(addi(S8, 0, 1)), W(jr(T0))]), None);
     // A sequence with a branch is not read: all registers are forgotten.
     assert_eq!(outlined_frame(&[W(beq_to(0, 0, 8)), W(jr(T0))]), None);
-    // One that never ends in `jr t0` within 64 instructions, likewise.
-    let long: Vec<I> = (0..70).map(|_| W(addi(25, 0, 1))).collect();
+    // One that never ends in `jr t0` within 256 instructions, likewise.
+    let long: Vec<I> = (0..300).map(|_| W(addi(25, 0, 1))).collect();
     assert_eq!(outlined_frame(&long), None);
+}
+
+#[test]
+fn a_long_straight_outlined_sequence_is_read_to_its_end() {
+    const T0: u32 = 5;
+    // About a hundred instructions, as the compiler outlines from a large
+    // `match` decode (the generated `record_decode` of draft 20): read to its
+    // `jr t0`, so the caller's frame is still sized and its table found.
+    let mut long: Vec<I> = (0..100).map(|_| W(addi(25, 0, 1))).collect();
+    long.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&long), Some(2048));
+    // Up to the bound it is read; one instruction more is not.
+    let mut at_bound: Vec<I> = (0..255).map(|_| W(addi(25, 0, 1))).collect();
+    at_bound.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&at_bound), Some(2048));
+    let mut past: Vec<I> = (0..256).map(|_| W(addi(25, 0, 1))).collect();
+    past.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&past), None);
 }
 
 /// `jal rd, +offset` (offset even, -1 MiB..1 MiB).
@@ -1235,6 +1253,38 @@ fn an_outlined_sequence_that_lowers_sp_is_part_of_the_callers_frame() {
     assert!(matches!(
         scan_ranges(&f, &[(0, 16)], env),
         Some(Finding::Large { .. })
+    ));
+}
+
+#[test]
+fn an_outlined_sequence_that_lowers_sp_and_gives_it_back_is_refused() {
+    // The helper's end value of sp is the caller's, but it went 64 B lower on
+    // the way: that dip is not in the end value, so the frame is not sized.
+    let helper = |dip: bool| {
+        let mut items = vec![
+            W(addi(SP, SP, -16)), // 0
+            W(jal(T0, 16)),       // 4: to the helper at 20
+            W(addi(SP, SP, 16)),  // 8
+            W(RET),               // 12
+            W(0),                 // 16
+        ];
+        if dip {
+            items.push(W(addi(SP, SP, -64))); // 20
+            items.push(W(sw(S0, SP)));
+            items.push(W(addi(SP, SP, 64)));
+        } else {
+            items.push(W(sw(S0, SP)));
+        }
+        items.push(W(JR_T0));
+        code(&items)
+    };
+    assert_eq!(
+        frame_sizes_in(&helper(false), &[(0, 16)], Env::none()),
+        vec![Some(16)]
+    );
+    assert!(matches!(
+        scan_ranges(&helper(true), &[(0, 16)], Env::none()),
+        Some(Finding::Unknown { .. })
     ));
 }
 
