@@ -113,7 +113,7 @@ fn lines_added_changed_and_removed_keep_what_was_learnt() {
     assert!(!b.state.is_new(), "b keeps what was learnt");
     assert!(cards[3].state.is_new());
     // The due counts follow (three new cards, one learnt).
-    assert_eq!(cards::sizes(&storage).get(&deck), Some(&4));
+    assert_eq!(cards::sizes(&storage).unwrap().get(&deck), Some(&4));
 }
 
 #[test]

@@ -300,7 +300,7 @@ fn note_text(field: &str) -> String {
         rest = &rest[end..];
     }
     text.push_str(rest);
-    table::plain(cut(&text, table::MAX_FIELD))
+    table::plain_or_empty(cut(&text, table::MAX_FIELD))
 }
 
 /// Where the next sound (`[sound:…]`) or `data:` address (`data:image/png;…`)
