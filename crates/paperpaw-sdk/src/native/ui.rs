@@ -62,13 +62,9 @@ impl Ui {
         out: &mut [u8],
     ) -> Result<RequestId, Error> {
         let record = question.record()?;
-        let count = self.call(host, schema::OP_ASK, &[record], input, out)?;
-        match one(&out[..count])? {
-            wire::Record::ServiceUiRequest(row) => {
-                RequestId::new(row.request).ok_or(Error::Invalid)
-            }
-            _ => Err(Error::State),
-        }
+        let count = self.call(host, schema::OP_ASK, &[&record], input, out)?;
+        let row: wire::ServiceUiRequest = expect(one(&out[..count])?)?;
+        RequestId::new(row.request).ok_or(Error::Invalid)
     }
 
     /// Read a question from the dialog instance opened for it.
@@ -86,15 +82,13 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_QUESTION,
-            &[wire::Record::ServiceUiRequest(wire::ServiceUiRequest {
+            &[&wire::ServiceUiRequest {
                 request: request.get(),
-            })],
+            }],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiQuestion(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiQuestion<'_> = expect(one(&out[..count])?)?;
         let kind = QuestionKind::decode(row.kind)?;
         types::validate_question(kind, row.flags, row.choices)?;
         Ok(QuestionInfo {
@@ -156,13 +150,13 @@ impl Ui {
         let length = self.call(
             host,
             op,
-            &[wire::Record::ServiceUiText(wire::ServiceUiText {
+            &[&wire::ServiceUiText {
                 text,
                 offset,
                 total: 0,
                 flags: finish.flags(),
                 data,
-            })],
+            }],
             input,
             out,
         )?;
@@ -200,16 +194,11 @@ impl Ui {
         let count = self.call(
             host,
             op,
-            &[wire::Record::ServiceUiTextAt(wire::ServiceUiTextAt {
-                text,
-                offset,
-            })],
+            &[&wire::ServiceUiTextAt { text, offset }],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiText(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiText<'_> = expect(one(&out[..count])?)?;
         let end = row
             .offset
             .checked_add(u32::try_from(row.data.len()).map_err(|_| Error::Invalid)?)
@@ -244,11 +233,11 @@ impl Ui {
         let length = self.call(
             host,
             schema::OP_ANSWER,
-            &[wire::Record::ServiceUiAnswer(wire::ServiceUiAnswer {
+            &[&wire::ServiceUiAnswer {
                 request: request.get(),
                 outcome,
                 choice,
-            })],
+            }],
             input,
             out,
         )?;
@@ -264,13 +253,13 @@ impl Ui {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[wire::Record<'_>],
+        records: &[&dyn wire::WireEncode],
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let operation = self.operation(op)?;
-        let count = wire::records_encode_counted(
-            records,
+        let count = wire::records_encode_counted_of(
+            records.iter().copied(),
             usize::from(operation.input_rows),
             operation.max_input,
             input,
@@ -280,12 +269,20 @@ impl Ui {
     }
 }
 
-fn one(bytes: &[u8]) -> Result<wire::Record<'_>, Error> {
-    let (record, length) = wire::record_decode_prefix(bytes).map_err(Error::from_status)?;
+fn one(bytes: &[u8]) -> Result<wire::RawRecord<'_>, Error> {
+    let (record, length) = wire::RawRecord::prefix(bytes).map_err(Error::from_status)?;
     if length != bytes.len() {
         return Err(Error::Invalid);
     }
     Ok(record)
+}
+
+/// The reply row `raw` as `R`: another record is State (a reply this op never gives).
+fn expect<'a, R: wire::WireRecord<'a>>(raw: wire::RawRecord<'a>) -> Result<R, Error> {
+    if raw.tag() != R::TAG {
+        return Err(Error::State);
+    }
+    raw.decode().map_err(Error::from_status)
 }
 
 #[cfg(test)]

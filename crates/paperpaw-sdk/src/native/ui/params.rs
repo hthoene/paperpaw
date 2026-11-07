@@ -1,5 +1,5 @@
 //! Lossless handover parameters. Transport uses Kernel's service batch encoder.
-use super::{Error, QuestionKind, RequestId, wire};
+use super::{Error, QuestionKind, RequestId, expect, wire};
 
 /// One borrowed handover parameter, checked without allocating or truncating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,16 +69,14 @@ impl<'a> Param<'a> {
             _ => Err(Error::Invalid),
         }
     }
-    pub(super) const fn record(self) -> wire::Record<'a> {
-        wire::Record::ServiceUiParam(wire::ServiceUiParam {
+    pub(super) const fn record(self) -> wire::ServiceUiParam<'a> {
+        wire::ServiceUiParam {
             key: self.key,
             value: self.value,
-        })
+        }
     }
-    pub(super) fn decode(row: wire::Record<'a>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiParam(row) = row else {
-            return Err(Error::State);
-        };
+    pub(super) fn decode(row: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceUiParam<'_> = expect(row)?;
         // Host-created core.request/core.kind are valid in a read reply.
         if row.key.is_empty()
             || !row.key.bytes().all(|byte| {

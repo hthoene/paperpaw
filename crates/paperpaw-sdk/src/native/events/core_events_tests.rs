@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "invalid fixtures must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use crate::native::{declare::settings_value as settings, settings::SettingValue};
 use crate::power::PowerLevel;
 use alloc::{vec, vec::Vec};

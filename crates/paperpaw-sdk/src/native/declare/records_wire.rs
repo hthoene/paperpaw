@@ -21995,7 +21995,12 @@ impl<'a> RawRecord<'a> {
 
     /// Decodes it as whichever record its tag names; this links every record's decoder.
     pub fn record(&self) -> Result<Record<'a>, i32> {
-        record_decode(self.tag, &mut Reader { remaining: self.body })
+        record_decode(
+            self.tag,
+            &mut Reader {
+                remaining: self.body,
+            },
+        )
     }
 
     /// The record of a batch that holds exactly one (count 1, the record, nothing after):
@@ -22010,7 +22015,10 @@ impl<'a> RawRecord<'a> {
         }
         let (tag, body) = reader.record()?;
         reader.finish()?;
-        Ok(Self { tag, body: body.remaining })
+        Ok(Self {
+            tag,
+            body: body.remaining,
+        })
     }
 
     /// Exactly one bare record, nothing after it: the framing of [`record_decode_one`].
@@ -22021,7 +22029,10 @@ impl<'a> RawRecord<'a> {
         let mut reader = Reader { remaining: bytes };
         let (tag, body) = reader.record()?;
         reader.finish()?;
-        Ok(Self { tag, body: body.remaining })
+        Ok(Self {
+            tag,
+            body: body.remaining,
+        })
     }
 
     /// The first bare record of `bytes` and the frame length it took: the framing of
@@ -22032,7 +22043,13 @@ impl<'a> RawRecord<'a> {
             remaining: bytes.get(..limit).unwrap_or(bytes),
         };
         let (tag, body) = reader.record()?;
-        Ok((Self { tag, body: body.remaining }, limit - reader.remaining.len()))
+        Ok((
+            Self {
+                tag,
+                body: body.remaining,
+            },
+            limit - reader.remaining.len(),
+        ))
     }
 }
 
@@ -22322,8 +22339,19 @@ impl RecordStream {
     /// of [`record_decode_prefix`]; an error from `visit` stops and is returned.
     pub fn feed(
         &mut self,
-        mut chunk: &[u8],
+        chunk: &[u8],
         visit: &mut dyn FnMut(Record<'_>) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        self.feed_raw(chunk, &mut |raw| visit(raw.record()?))
+    }
+
+    /// [`RecordStream::feed`] with each record's frame checked and its body not
+    /// decoded: the visitor decodes the record types it expects
+    /// ([`RawRecord::decode`]), so a plugin links no other record's decoder.
+    pub fn feed_raw(
+        &mut self,
+        mut chunk: &[u8],
+        visit: &mut dyn FnMut(RawRecord<'_>) -> Result<(), i32>,
     ) -> Result<(), i32> {
         if self.len > 0 {
             let old = self.len;
@@ -22331,7 +22359,7 @@ impl RecordStream {
             self.carry[old..old + moved].copy_from_slice(&chunk[..moved]);
             match frame_len(&self.carry[..old + moved])? {
                 Some(len) => {
-                    let (record, _) = record_decode_prefix(&self.carry[..len])?;
+                    let (record, _) = RawRecord::prefix(&self.carry[..len])?;
                     self.len = 0;
                     visit(record)?;
                     chunk = &chunk[len - old..];
@@ -22346,7 +22374,7 @@ impl RecordStream {
         while !chunk.is_empty() {
             match frame_len(chunk)? {
                 Some(len) => {
-                    let (record, _) = record_decode_prefix(&chunk[..len])?;
+                    let (record, _) = RawRecord::prefix(&chunk[..len])?;
                     visit(record)?;
                     chunk = &chunk[len..];
                 }

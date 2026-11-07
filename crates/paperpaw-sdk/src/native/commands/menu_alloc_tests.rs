@@ -224,8 +224,8 @@ fn menu_and_handover_temporaries_do_not_overlap_in_one_callback() {
         Ok::<_, Error>(())
     });
     assert_eq!(result, Ok(()));
-    let handover_bytes = 32 * core::mem::size_of::<records::Record<'_>>();
-    assert_eq!(count.peak, handover_bytes.max(2048));
+    // The handover encodes its params as it walks them: no temporary at all.
+    assert_eq!(count.peak, 2048);
     assert_eq!(count.live, 0);
     assert_eq!(calls.get(), 3);
 }

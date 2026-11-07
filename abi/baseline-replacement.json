@@ -3,6 +3,7 @@
   "reason": "interface 7 is unreleased: the records codec gains a typed form (WireEncode, WireRecord, RawRecord and the _of encoders) and RecordStream::feed_raw, so a plugin links only the codecs of the record types it uses instead of all of them through the Record enum (#1156: Battery's .ppn doubled); the wire format is unchanged",
   "ticket": "#228",
   "waives": [
-    "emitted_records"
+    "emitted_records",
+    "emitted_streams"
   ]
 }
