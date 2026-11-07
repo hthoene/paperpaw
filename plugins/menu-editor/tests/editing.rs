@@ -217,7 +217,7 @@ fn the_way_to_the_settings_cannot_be_removed() {
 #[test]
 fn once_another_way_is_there_the_settings_entry_may_go() {
     // Settings in the tools too: the main menu still leads to them.
-    let config = "[menus]\ncore.tools = core.settings, battery.open\n";
+    let config = "[menus]\ncore.tools = core.settings, news.open\n";
     let mut app = main_menu_editor(X4, Shared::memory(config, &[]));
     choose(&mut app, "Settings");
     choose(&mut app, "Remove");
@@ -234,16 +234,16 @@ fn an_entry_added_comes_last() {
         assert_eq!(app.screen(), "menu-editor.add");
         // Those in the menu already are not offered.
         assert!(!rows(&mut app).iter().any(|r| r == "Library"));
-        choose(&mut app, "Battery");
+        choose(&mut app, "News");
         assert_eq!(app.screen(), ENTRIES);
         let shown = shown_main_menu(&mut app);
         assert_eq!(
             shown.last().map(String::as_str),
-            Some("Battery"),
+            Some("News"),
             "{shown:?}"
         );
         assert!(
-            storage.config().contains(", core.settings, battery.open"),
+            storage.config().contains(", core.settings, news.open"),
             "{}",
             storage.config()
         );
@@ -273,7 +273,7 @@ fn a_menu_reset_is_as_its_plugins_define_it_again() {
 fn all_menus_reset_at_once() {
     for device in DEVICES {
         let config = "[menus]\ncore.main = core.home, core.settings\n\
-                      core.tools = core.settings, battery.open\n";
+                      core.tools = core.settings, news.open\n";
         let storage = Shared::memory(config, &[]);
         let mut app = App::new(device, storage.clone());
         app.run(Id::new_static("menu-editor.open"));
