@@ -10,15 +10,16 @@
 //! letters (`widgets.word-clock.grid`, its rows separated by spaces).
 //! Quarters may be told towards the next hour ("viertel elf"), as some
 //! regions say (`widgets.word-clock.next.<15|45>`).
-use crate::native_cx::Cx;
 use crate::native_draw::no_time;
-use crate::native_names::chosen_name;
 use alloc::{format, string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::native::fonts::TextOrigin;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{Error, formatting::Arg},
 };
+use paperpaw_ui_kit::widget::names::chosen_name;
+use paperpaw_ui_kit::widget::{Cx, Settings, cx::local_time_now};
 use paperpaw_ui_kit::{
     Paint, paint,
     text::{concat, copy},
@@ -215,12 +216,12 @@ fn time_alone(cx: &mut Cx<'_>, hour: u8, minute: u8) -> Result<String, Error> {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    let Some(t) = cx.local_time()? else {
-        return Ok(String::new());
+pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
+    let Some(t) = local_time_now(host)? else {
+        return Ok(0);
     };
-    let (hour, minute, rest) = told(t.hour, t.minute, cx.settings.shows("dots")?);
-    Ok(format!("{hour}:{minute}+{rest}"))
+    let (hour, minute, rest) = told(t.hour, t.minute, Settings::new(host, widget).shows("dots")?);
+    Ok(u64::from(hour) * 10_000 + u64::from(minute) * 100 + u64::from(rest) + 1)
 }
 
 /// The height: the grid as high as wide, or three lines of text.

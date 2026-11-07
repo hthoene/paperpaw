@@ -1,7 +1,10 @@
 //! Drawing shared by the widgets of the pack.
-use crate::native_cx::Cx;
 use alloc::vec::Vec;
-use paperpaw_sdk::native::Error;
+use paperpaw_sdk::{
+    native::{Error, Host},
+    time::LocalTime,
+};
+use paperpaw_ui_kit::widget::{Cx, cx::local_time_now};
 use paperpaw_ui_kit::{
     Paint,
     widget::{Align, Look, text::Wrapped},
@@ -56,24 +59,37 @@ pub const fn twelve(hour: u8) -> u8 {
     }
 }
 
-/// What a widget that shows the date shows: drawn again when the day changes.
+/// What a widget that shows the date shows, as a number that changes with the
+/// day (0 where the time is not known): it needs no drawing context.
 ///
 /// # Errors
 /// Host refusals.
-pub fn today(cx: &Cx<'_>) -> Result<alloc::string::String, Error> {
-    Ok(match cx.local_time()? {
-        Some(t) => alloc::format!("{}-{}-{}", t.year, t.month, t.day),
-        None => alloc::string::String::new(),
-    })
+pub fn today(host: &Host<'_>) -> Result<u64, Error> {
+    Ok(local_time_now(host)?.map_or(0, |t| day_mark(&t)))
 }
 
-/// What a widget that shows the time shows: drawn again each minute.
+/// What a widget that shows the time shows, as a number that changes with the
+/// minute (0 where the time is not known).
 ///
 /// # Errors
 /// Host refusals.
-pub fn minute(cx: &Cx<'_>) -> Result<alloc::string::String, Error> {
-    Ok(match cx.local_time()? {
-        Some(t) => alloc::format!("{}-{}-{} {}:{}", t.year, t.month, t.day, t.hour, t.minute),
-        None => alloc::string::String::new(),
+pub fn minute(host: &Host<'_>) -> Result<u64, Error> {
+    Ok(local_time_now(host)?.map_or(0, |t| {
+        day_mark(&t) * 10_000 + u64::from(t.hour) * 100 + u64::from(t.minute)
+    }))
+}
+
+/// A number for the date of `t`, never 0.
+#[must_use]
+pub fn day_mark(t: &LocalTime) -> u64 {
+    u64::from(t.year.unsigned_abs()) * 10_000 + u64::from(t.month) * 100 + u64::from(t.day) + 1
+}
+
+/// `hash` taken on over `bytes` (FNV-1a): a number that changes when what it
+/// was made of does, to tell a change without keeping the text.
+#[must_use]
+pub fn fnv(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash ^ 0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
     })
 }

@@ -1,15 +1,16 @@
 //! The day and the date large, a calm alternative to the home screen's date:
 //! the weekday large with the date below it, the day's number large beside
 //! the weekday and the month, or a sheet of a tear-off calendar.
-use crate::native_cx::Cx;
-use crate::native_names::{
-    chosen_name, date_text, month_name, month_short, weekday_name, weekday_short,
-};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Rect,
-    native::{Error, formatting::Arg},
+    native::{Error, Host, formatting::Arg},
     time::{LocalTime, iso_week},
+};
+use paperpaw_ui_kit::widget::{
+    Cx,
+    cx::local_time_now,
+    names::{chosen_name, date_text, month_name, month_short, weekday_name, weekday_short},
 };
 use paperpaw_ui_kit::{
     Paint, paint,
@@ -38,8 +39,16 @@ pub fn height(cx: &mut Cx<'_>, _width: u16) -> Result<u16, Error> {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    crate::native_draw::today(cx)
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    Ok(match local_time_now(host)? {
+        Some(t) => {
+            u64::from(t.year.unsigned_abs()) * 10_000
+                + u64::from(t.month) * 100
+                + u64::from(t.day)
+                + 1
+        }
+        None => 0,
+    })
 }
 
 /// The size of what is large: as set, or as fits `room` (height).

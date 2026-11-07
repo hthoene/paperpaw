@@ -2,15 +2,16 @@
 //! or each year (`12-24`, e.g. a birthday), with a title ("12 days until
 //! Holiday"). On the day it says so; a day once passed is counted since. A tap
 //! opens its settings.
-use crate::native_cx::Cx;
 use crate::native_dates::{days_from_civil, days_in_month};
-use crate::native_draw::{message_in, no_time, today};
-use crate::native_names::{chosen_name, date_text, month_name};
-use alloc::{format, string::String, vec::Vec};
+use crate::native_draw::{fnv, message_in, no_time, today};
+use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Rect,
     native::{Error, formatting::Arg},
 };
+use paperpaw_ui_kit::widget::names::{chosen_name, date_text, month_name};
+use paperpaw_ui_kit::widget::{Cx, Settings};
 use paperpaw_ui_kit::{
     Paint,
     text::{concat, copy},
@@ -99,13 +100,10 @@ pub fn days_until(today: (i32, u8, u8), target: Target) -> (i64, (i32, u8, u8)) 
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    Ok(format!(
-        "{}|{}|{}",
-        today(cx)?,
-        cx.settings.string("date", 64)?,
-        cx.settings.string("title", 128)?
-    ))
+pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
+    let settings = Settings::new(host, widget);
+    let mark = fnv(today(host)?, settings.string("date", 64)?.as_bytes());
+    Ok(fnv(mark, settings.string("title", 128)?.as_bytes()))
 }
 
 /// The height: the number, two small lines, the frame.

@@ -19,7 +19,7 @@ change the plugin SDK.
 
 ### Added
 
-- Widget pack 1.0.9 (first slice): the interface-7 native plugin with the day and date widget (weekday, number and sheet styles); `paperpaw-ui-kit` gains `widget`, the toolkit for interface-7 widget plugins (settings read at draw time, the shared frame/paper/ink/corners/line/shadow/padding look, fitted and wrapped text, stacks). The other widgets and the removal of the interface-6 pack follow (#228).
+- Widget pack 1.0.9 (first two slices): the interface-7 native plugin with the day and date widget (weekday, number and sheet styles) and the time family (analogue, word clock, tiles, world, calendar, year, countdown, moon); `paperpaw-ui-kit` gains `widget`, the toolkit for interface-7 widget plugins (settings read at draw time, the shared frame/paper/ink/corners/line/shadow/padding look, fitted and wrapped text, stacks). The words and books families and the removal of the interface-6 pack follow (#228).
 
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item

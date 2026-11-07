@@ -2,16 +2,17 @@
 //! PaperPaw knows), each with its name and whether it is already tomorrow or
 //! still yesterday there ("Tokyo, tomorrow 18:41"); as rows one below the
 //! other, or side by side in a wide row.
-use crate::native_cx::Cx;
 use crate::native_dates::days_from_civil;
 use crate::native_draw::{message_in, minute, no_time};
-use crate::native_names::chosen_name;
 use alloc::{format, string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Rect,
     native::{Error, formatting::Arg},
     time::{LocalTime, TIME_ZONES, TimeZone},
 };
+use paperpaw_ui_kit::widget::Cx;
+use paperpaw_ui_kit::widget::names::chosen_name;
 use paperpaw_ui_kit::{
     Paint, paint,
     text::{concat, copy},
@@ -29,8 +30,8 @@ const PLACES: [&str; 3] = ["place-1", "place-2", "place-3"];
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    minute(cx)
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    minute(host)
 }
 
 /// A place shown: its name, its time, how many days it is ahead of here, and

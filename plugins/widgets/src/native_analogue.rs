@@ -1,11 +1,12 @@
 //! The analogue clock: a round face with an hour and a minute hand, ticks or
 //! numerals as the reader likes, a ring or two round it, and the date below it
 //! or on the face.
-use crate::native_cx::Cx;
 use crate::native_draw::{minute, no_time};
-use crate::native_names::{chosen_name, date_text};
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{Point, Rect, native::Error, round::point_at, time::LocalTime};
+use paperpaw_ui_kit::widget::Cx;
+use paperpaw_ui_kit::widget::names::{chosen_name, date_text};
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -28,8 +29,8 @@ pub fn height(cx: &mut Cx<'_>, width: u16) -> Result<u16, Error> {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    minute(cx)
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    minute(host)
 }
 
 /// The angles of the hands, in degrees clockwise from twelve: the hour hand

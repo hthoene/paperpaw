@@ -1,6 +1,10 @@
 //! What a widget draws with in one callback: the host, its settings, the
 //! interface font, the look its settings make, the clock and the catalog.
 //! Nothing here outlives the callback.
+use crate::{
+    Messages, Style,
+    widget::{Settings, Shape, settings::text_of},
+};
 use alloc::string::String;
 use paperpaw_sdk::{
     native::{
@@ -10,10 +14,6 @@ use paperpaw_sdk::{
         snapshot::{self, Snapshot},
     },
     time::{LocalTime, TIME_ZONES, TimeZone, UnixTime},
-};
-use paperpaw_ui_kit::{
-    Messages, Style,
-    widget::{Settings, Shape, settings::text_of},
 };
 
 /// The setting that names a time zone by a POSIX rule, and the one that picks
@@ -64,19 +64,7 @@ impl<'a> Cx<'a> {
     /// # Errors
     /// The host's refusal.
     pub fn zone_offset(&self, unix: i64) -> Result<i32, Error> {
-        let rule = text_of(self.host, ZONE_RULE, |rule| {
-            TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
-        })?;
-        if let Some(offset) = rule {
-            return Ok(offset);
-        }
-        text_of(self.host, ZONE, |id| {
-            TIME_ZONES
-                .iter()
-                .find(|(name, _)| *name == id)
-                .and_then(|(_, rule)| TimeZone::parse(rule))
-                .map_or(0, |zone| zone.offset_at(unix))
-        })
+        zone_offset(self.host, unix)
     }
 
     /// The local date and time now, in the chosen zone, if the device
@@ -85,11 +73,7 @@ impl<'a> Cx<'a> {
     /// # Errors
     /// The host's refusal.
     pub fn local_time(&self) -> Result<Option<LocalTime>, Error> {
-        let Some(unix) = self.snapshot.unix_seconds() else {
-            return Ok(None);
-        };
-        let offset = self.zone_offset(unix)?;
-        Ok(Some(UnixTime::from_secs(unix).local(offset)))
+        local_time_in(self.host, &self.snapshot)
     }
 
     /// The catalog's text for `key`.
@@ -125,7 +109,7 @@ impl<'a> Cx<'a> {
     /// The host's refusal and [`Error::NoMemory`].
     #[allow(dead_code, reason = "the world clock and the word clock use it")]
     pub fn clock_of(&mut self, hour: u8, minute: u8) -> Result<String, Error> {
-        let mut text = paperpaw_ui_kit::widget::settings::Stack::<16>::new();
+        let mut text = super::settings::Stack::<16>::new();
         if !self.twelve_hours()? {
             core::fmt::Write::write_fmt(&mut text, format_args!("{hour:02}:{minute:02}"))
                 .map_err(|_| Error::NoSpace)?;
@@ -189,9 +173,52 @@ impl<'a> Cx<'a> {
     /// # Errors
     /// The host's refusal and [`Error::NoMemory`].
     pub fn number(&mut self, value: i64) -> Result<String, Error> {
-        let mut digits = paperpaw_ui_kit::widget::settings::Stack::<24>::new();
+        let mut digits = super::settings::Stack::<24>::new();
         core::fmt::Write::write_fmt(&mut digits, format_args!("{value}"))
             .map_err(|_| Error::NoSpace)?;
         self.messages.digits(self.host, digits.as_str())
     }
+}
+
+/// The seconds the chosen time zone is ahead of UTC at `unix`; 0 where none
+/// is chosen.
+///
+/// # Errors
+/// The host's refusal.
+pub fn zone_offset(host: &Host<'_>, unix: i64) -> Result<i32, Error> {
+    let rule = text_of(host, ZONE_RULE, |rule| {
+        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
+    })?;
+    if let Some(offset) = rule {
+        return Ok(offset);
+    }
+    text_of(host, ZONE, |id| {
+        TIME_ZONES
+            .iter()
+            .find(|(name, _)| *name == id)
+            .and_then(|(_, rule)| TimeZone::parse(rule))
+            .map_or(0, |zone| zone.offset_at(unix))
+    })
+}
+
+/// The local date and time of `snapshot`, in the chosen zone, if the device
+/// knows the time.
+///
+/// # Errors
+/// The host's refusal.
+pub fn local_time_in(host: &Host<'_>, snapshot: &Snapshot) -> Result<Option<LocalTime>, Error> {
+    let Some(unix) = snapshot.unix_seconds() else {
+        return Ok(None);
+    };
+    let offset = zone_offset(host, unix)?;
+    Ok(Some(UnixTime::from_secs(unix).local(offset)))
+}
+
+/// The local date and time now, without a drawing context (to tell whether a
+/// widget changed, which needs neither font nor look).
+///
+/// # Errors
+/// The host's refusal.
+pub fn local_time_now(host: &Host<'_>) -> Result<Option<LocalTime>, Error> {
+    local_time_in(host, &snapshot::capture_snapshot(host)?)
 }

@@ -1,9 +1,9 @@
 //! Names of weekdays and months, and dates written as a widget's date format
 //! says; all from the catalog, nothing kept.
-use crate::native_cx::Cx;
+use super::cx::Cx;
+use super::settings::Stack;
 use alloc::string::String;
 use paperpaw_sdk::native::{Error, formatting::Arg};
-use paperpaw_ui_kit::widget::settings::Stack;
 
 const WEEKDAYS: [&str; 7] = [
     "core.weekday.0",

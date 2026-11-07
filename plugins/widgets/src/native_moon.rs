@@ -6,17 +6,18 @@
 //! *Astronomical Algorithms*, chapter 49: the mean lunation and its largest
 //! periodic terms), in whole numbers: within minutes of the true times,
 //! enough for the day.
-use crate::native_cx::Cx;
 use crate::native_dates::days_from_civil;
 use crate::native_draw::{light_and_dark, no_time, today};
-use crate::native_names::{chosen_name, date_text};
 use alloc::{format, string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{Error, formatting::Arg},
     round::{UNIT, sin_cos},
     time::LocalTime,
 };
+use paperpaw_ui_kit::widget::Cx;
+use paperpaw_ui_kit::widget::names::{chosen_name, date_text};
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -164,8 +165,8 @@ fn lit_share(spans: &[(i32, i32)], left: i32) -> u8 {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    today(cx)
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    today(host)
 }
 
 /// The height: a moon as wide as half the place, no higher than three rows.

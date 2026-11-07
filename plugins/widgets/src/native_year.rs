@@ -1,16 +1,17 @@
 //! The year so far: how much of it has passed, as a bar, a ring or a dot for
 //! each month, with the percent, the day of the year, the week and the days
 //! left, as wished.
-use crate::native_cx::Cx;
 use crate::native_dates::{day_of_year, days_in_month, days_in_year, iso_week};
 use crate::native_draw::no_time;
-use crate::native_names::chosen_name;
 use alloc::{format, string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{Error, formatting::Arg},
     time::LocalTime,
 };
+use paperpaw_ui_kit::widget::names::chosen_name;
+use paperpaw_ui_kit::widget::{Cx, cx::local_time_now};
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -56,13 +57,13 @@ pub fn progress(t: &LocalTime) -> Progress {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    Ok(match cx.local_time()? {
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    Ok(match local_time_now(host)? {
         Some(t) => {
             let p = progress(&t);
-            format!("{}/{}", p.day, p.permille / 10)
+            u64::from(p.day) * 1_000 + u64::from(p.permille / 10) + 1
         }
-        None => String::new(),
+        None => 0,
     })
 }
 

@@ -1,12 +1,13 @@
 //! The calendar: this month as a grid of weeks, the month's name above it,
 //! the weekdays' initials, today marked; the weeks' numbers and the next
 //! month as well, if wished.
-use crate::native_cx::Cx;
 use crate::native_dates::{MonthGrid, civil_from_days, days_from_civil};
 use crate::native_draw::{no_time, today};
-use crate::native_names::{chosen_name, month_name, month_short, weekday_name};
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{Color, Point, Rect, native::Error};
+use paperpaw_ui_kit::widget::Cx;
+use paperpaw_ui_kit::widget::names::{chosen_name, month_name, month_short, weekday_name};
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -34,8 +35,8 @@ pub fn height(cx: &mut Cx<'_>, width: u16) -> Result<u16, Error> {
 ///
 /// # Errors
 /// Host refusals.
-pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    today(cx)
+pub fn shows(host: &Host<'_>, _widget: &str) -> Result<u64, Error> {
+    today(host)
 }
 
 /// The first day of the week, 0 (Sunday) or 1 (Monday), as the widget's

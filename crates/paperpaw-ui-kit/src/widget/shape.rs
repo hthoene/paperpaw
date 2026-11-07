@@ -148,8 +148,11 @@ pub fn capsule(
 ) -> Result<(), Error> {
     // In eighths of a pixel.
     let half = i64::from(width.max(1)) * 4;
-    let (ax, ay) = (i64::from(a.x) * 8 + 4, i64::from(a.y) * 8 + 4);
-    let (bx, by) = (i64::from(b.x) * 8 + 4, i64::from(b.y) * 8 + 4);
+    // The line runs through a pixel's middle for an odd width and along the
+    // edge between two pixels for an even one, so it is `width` pixels thick.
+    let mid = if width.max(1) % 2 == 0 { 0 } else { 4 };
+    let (ax, ay) = (i64::from(a.x) * 8 + mid, i64::from(a.y) * 8 + mid);
+    let (bx, by) = (i64::from(b.x) * 8 + mid, i64::from(b.y) * 8 + mid);
     let (dx, dy) = (bx - ax, by - ay);
     let length2 = dx * dx + dy * dy;
     // How far a point is from the segment, squared.
