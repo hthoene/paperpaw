@@ -178,7 +178,7 @@ fn about_inventory_reads_use_schema_operations_and_borrowed_values() {
     assert_eq!(
         (
             row.heap_free(),
-            row.largest(),
+            row.largest_block(),
             row.stack_free(),
             row.external_free()
         ),

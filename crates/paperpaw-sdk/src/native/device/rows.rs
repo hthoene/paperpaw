@@ -394,7 +394,7 @@ impl MemoryInfo {
     }
     /// Largest allocatable heap block, if known.
     #[must_use]
-    pub const fn largest(self) -> Option<u32> {
+    pub const fn largest_block(self) -> Option<u32> {
         if self.row.flags & 2 != 0 {
             Some(self.row.largest)
         } else {
