@@ -91,6 +91,37 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   compare the params, and reopening screens after a restart (#275) opens them with the same params
   (not the text). On the X4 the params of all instances share 1,536 bytes (section 8.1, op 16
   `ERR_FULL` beyond) and texts are in the host text pool (section 8.2).
+- [D] **The host's hand-over seam** (for the host implementers; no plugin sees it). One store
+  (Input, H2) owns every hand-over, request and host text, with the one checked id allocator
+  (nonzero, never reused); the screen stack (Core, H1) owns commands and their staging and only
+  calls the store, never keeps a copy. Every call takes the host-stamped caller and callback epoch;
+  no borrow of the store spans plugin code; a claim is a move-only token, not a reference.
+  1. `make(caller, epoch, staged params) -> Result<HandoverId, i32>` at op 16: published only after
+     the batch walk returned `OK` (section 6), allocated fallibly (`ERR_NO_MEMORY`, X4 cap
+     `ERR_FULL`); state **made**. Its text follows with op 9 on the same id.
+  2. `validate(caller, epoch, id) -> Result<(), i32>` while `command.open` is checked: the id
+     exists, is **made** by this caller in this epoch, is not claimed and its text is committed.
+     It changes nothing.
+  3. `claim(caller, epoch, id) -> Result<Claim, i32>` once the whole submit batch has been
+     checked and every fallible copy and reservation of the stage is done: **made** → **claimed**,
+     allocation-free and atomic; a second claim of the id, in the same batch or an earlier
+     accepted submit, is `ERR_STATE`. The `Claim` goes into the command stage with its `open`.
+  4. `release(claim)`: **claimed** → freed. The stage calls it for every claim of a refused
+     submit or of a callback whose result drops its staged commands (screens-input section 2.1),
+     and for an `open` that applies as a no-op (a guard refused, section 1.3), names a stale target
+     or fails: the old instance keeps its hand-over.
+  5. `attach(claim, instance)` when the `open` applies: **claimed** → **owned** by the new or
+     reused instance, allocation-free; the instance's previous hand-over, if any, is freed only
+     after that, so a failure before it leaves the old params and text in place.
+  6. `expire(caller, epoch)` when the callback returns: every hand-over still **made** in that
+     epoch is freed. Claimed ones stay alive in the stage until its deferred `open` drains (5 or 4).
+  7. `detach(instance)` when an instance closes; `teardown(caller)` when a plugin stops: frees
+     what they own without calling any plugin.
+  8. `params(instance)` (op 17) and the text (op 10) answer only the owning instance; a restart
+     reopen (#275) makes a new **owned** entry from the kept params, without the text.
+
+  Every call either completes or leaves the store unchanged, so the stack never holds a hand-over
+  the store does not and none outlives its owner. Secret texts are never in `Debug` or logs.
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 

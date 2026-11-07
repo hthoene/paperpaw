@@ -51,9 +51,12 @@ first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets),
 
 - [D] **`plugin`** names the owner in a call: `""` is the caller itself; another plugin's id needs
   `uses.secrets` (`ERR_DENIED`) and is only allowed for `list`, `keep` and `remove`.
-- [D] **`name`**: 1-64 bytes of UTF-8 without control characters (`ERR_INVALID`); compared
-  exactly. The Wi-Fi plugin names a network's password by its SSID (any bytes an SSID can be in
-  UTF-8; the host escapes tab, newline and backslash in its file, as interface 6).
+- [D] **`name`**: 1-64 bytes of UTF-8, compared exactly. Tab, newline (LF) and carriage return
+  (CR) are allowed, since an SSID may hold them, and the host escapes them and the backslash in its
+  file as interface 6 does (`\t`, `\n`, `\r`, `\\`), so a name round-trips byte for byte; every
+  other control character (U+0000-U+001F but those three, U+007F, U+0080-U+009F) is
+  `ERR_INVALID`. The Wi-Fi plugin names a network's password by its SSID. `label` follows the same
+  rule.
 - [D] **`label`**: at most 64 bytes, what the settings editor shows (a translation key of the
   owner's catalog, or plain text when there is none, as interface 6). `""` when keeping an
   existing secret keeps its label.
@@ -91,9 +94,12 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 - [D] `sec_list.flags` bit 0 `all`: every plugin's secrets (needs `uses.secrets`); without it, the
   caller's own. Rows are `sec_entry`: `plugin` (the owner's id), `name`, `label`, `flags` (bit 0
   `changeable`). Never a value. A page holds as many whole rows as fit in 4,096 bytes, at most
-  32. Order: by owner, then by name, so the cursor is a row number into that order
+  32. Order: the order of the lines in the host file, so the host streams a page without sorting
+  or holding the file: a file from interface 6 keeps its order, a new secret is appended, a
+  changed one keeps its line. The cursor is a row number into the rows the caller may see
   (`service.end.next`; `flags` bit 0 `last` on the last page, as `core.registry`); a secret kept
-  or removed between pages may be listed twice or not at all.
+  or removed between pages may be listed twice or not at all. A view that wants another order
+  sorts the rows itself.
 
 ### 2.3 `keep`
 
