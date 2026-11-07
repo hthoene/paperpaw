@@ -89,20 +89,26 @@ impl HostServices {
     /// op 4 `close` for each one whose format still runs (never one of the
     /// retiring plugin's own); then its annotation transactions end. Safe to
     /// call again: the tables are empty then.
-    pub(crate) fn owner_retired(&self, owner: u64) {
+    ///
+    /// Every step runs; the first failure is returned. `ERR_BUSY` (a table is
+    /// borrowed) means a retry finishes what is left.
+    pub(crate) fn owner_retired(&self, owner: u64) -> Result<(), i32> {
+        let mut result = Ok(());
         if let Some(documents) = self.documents.get() {
             let host = &*documents.0;
             host.formats_of_owner(owner, &mut |format| {
-                doc_service::format_retired(host, format, Some(owner));
+                result =
+                    result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
             });
-            doc_service::opener_stopped(host, owner);
+            result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
         }
         if let Some(library) = self.library.get() {
-            lib_service::owner_stopped(&*library.0, owner);
+            result = result.and(lib_service::owner_stopped(&*library.0, owner));
         }
+        result
     }
 }
 
 #[cfg(test)]
 #[path = "host_services_tests.rs"]
-mod tests;
+pub(crate) mod tests;

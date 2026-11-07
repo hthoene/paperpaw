@@ -234,14 +234,14 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
     assert!(fake.table().lease(key, id).is_err(), "the id is gone");
 }
 
-struct Lib {
-    transactions: Transactions,
-    aborted: core::cell::RefCell<Vec<u32>>,
+pub(crate) struct Lib {
+    pub(crate) transactions: Transactions,
+    pub(crate) aborted: core::cell::RefCell<Vec<u32>>,
     /// Calls that reached the host's `state`.
     hits: core::cell::Cell<u32>,
 }
 impl Lib {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             transactions: Transactions::try_new().unwrap(),
             aborted: core::cell::RefCell::new(Vec::new()),

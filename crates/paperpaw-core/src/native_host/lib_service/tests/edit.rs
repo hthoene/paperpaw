@@ -638,7 +638,9 @@ fn a_stopped_plugin_ends_its_transaction() {
     let fake = Fake::new();
     let t = begin(&fake).unwrap();
     let mut ended = std::vec::Vec::new();
-    fake.transactions.close_owner(OWNER, |id| ended.push(id));
+    fake.transactions
+        .close_owner(OWNER, |id| ended.push(id))
+        .unwrap();
     assert_eq!(ended, [t]);
     assert_eq!(fake.transactions.open_count(), 0);
 }

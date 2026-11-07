@@ -142,7 +142,9 @@ pub(crate) trait DocHost {
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
     /// Tell the format plugin to close a document (op 4 `close`). Best
     /// effort; nothing the format says can fail it. The service never calls
-    /// it for a document whose format stopped (`format_gone`).
+    /// it for a document whose format stopped (`format_gone`). The host
+    /// refuses it itself for a plugin that is retired (its instance is
+    /// revoked), whatever it is asked.
     fn close_format(&self, document: &Document);
     /// Every image id of the document ends now. It may be called twice for the
     /// same document (ids are generation-checked); the second call does
@@ -198,7 +200,10 @@ pub(crate) trait DocHost {
 /// The opener stopped: its documents end, and each format gets op 4 `close`
 /// and the document's image ids end (`document.md` 2.1). The shell calls it
 /// when a plugin stops.
-pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry ends the rest.
+pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> Result<usize, i32> {
     host.table()
         .close_owner(owner, |document| end(host, document))
 }
@@ -224,14 +229,24 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// host (reason 1), their image ids end, each opener hears
 /// `event.document_closed`, and the format is not called again (not even by
 /// the opener's later `close`). The shell calls it when a format plugin stops.
-pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry finishes the rest.
+pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> Result<usize, i32> {
     format_retired(host, format, None)
 }
 
 /// As [`format_stopped`], for a format plugin that is retiring: `owner`, if it
 /// is also an opener, hears nothing and its documents are marked gone, so its
 /// own opener cleanup (`opener_stopped`, right after) never calls the format.
-pub(crate) fn format_retired(host: &dyn DocHost, format: FormatRef, owner: Option<u64>) -> usize {
+///
+/// # Errors
+/// As [`format_stopped`].
+pub(crate) fn format_retired(
+    host: &dyn DocHost,
+    format: FormatRef,
+    owner: Option<u64>,
+) -> Result<usize, i32> {
     host.table()
         .cancel_format(format, 1, owner, |document| host_closed(host, document, 1))
 }

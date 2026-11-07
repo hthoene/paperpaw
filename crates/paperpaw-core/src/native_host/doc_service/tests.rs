@@ -143,7 +143,7 @@ impl DocHost for Fake {
         ]);
         self.texts.borrow_mut().push(call.text.into());
         if self.stops_during_call.get() {
-            format_stopped(self, FORMAT);
+            format_stopped(self, FORMAT).unwrap_or(0);
         }
         if let Some(error) = self.fails.get() {
             return Err(error);
@@ -653,14 +653,14 @@ fn a_document_the_host_closed_is_cancelled_until_its_opener_closes_it() {
     assert_eq!(call(&fake, 3, &[doc_ref(id)]), Err(ERR_CANCELLED));
     assert_eq!(fake.table.lease(OWNER, id), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(id)]).unwrap();
-    assert_eq!(fake.table.close_owner(OWNER, |_| ()), 0);
+    assert_eq!(fake.table.close_owner(OWNER, |_| ()), Ok(0));
 }
 
 #[test]
 fn a_stopped_opener_loses_all_its_documents() {
     let fake = Fake::new(Limits::LARGE);
     let ids = [opened(&fake), opened(&fake)];
-    assert_eq!(opener_stopped(&*fake, OWNER), ids.len());
+    assert_eq!(opener_stopped(&*fake, OWNER), Ok(ids.len()));
     assert_eq!(fake.table.len(), 0);
     // Each document's format was told to close it, once, after the table was
     // released (the host's callback could use the table).
@@ -675,11 +675,11 @@ fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
     let b = opened(&fake);
     fake.owner.set(OWNER);
     // The other format's documents stay.
-    assert_eq!(format_stopped(&*fake, FormatRef(FORMAT.0 + 1)), 0);
-    assert_eq!(format_stopped(&*fake, FORMAT), 2);
+    assert_eq!(format_stopped(&*fake, FormatRef(FORMAT.0 + 1)), Ok(0));
+    assert_eq!(format_stopped(&*fake, FORMAT), Ok(2));
     assert_eq!(*fake.closed.borrow(), [(a, 1), (b, 1)]);
     // Told once; the format is not called again; the opener closes the id.
-    assert_eq!(format_stopped(&*fake, FORMAT), 0);
+    assert_eq!(format_stopped(&*fake, FORMAT), Ok(0));
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(call(&fake, 2, &[doc_ref(a)]), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(a)]).unwrap();

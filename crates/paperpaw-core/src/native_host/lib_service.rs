@@ -59,10 +59,12 @@ pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);
 
 /// The plugin stopped: its annotation transactions end and what they staged
 /// is dropped. The table is released before the host is called.
-pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) {
-    if let Some(transactions) = host.transactions() {
-        transactions.close_owner(owner, |id| host.abort_staged(id));
-    }
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry ends them.
+pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
+    host.transactions()
+        .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)))
 }
 
 /// The `core.library` backend.

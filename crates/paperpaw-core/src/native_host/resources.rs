@@ -202,12 +202,13 @@ impl OwnerResources {
     }
 
     pub(crate) fn release_all(&self) -> Result<(), i32> {
-        crate::abi7::handles::release_owner(&self.table.handles, self.owner)
-            .map_err(crate::abi7::handles::Error::status)?;
-        // The owner is retired: what the document and library services held
-        // for it ends now (revocation came first; no handle is left).
-        self.table.hosts.owner_retired(self.owner);
-        Ok(())
+        let released = crate::abi7::handles::release_owner(&self.table.handles, self.owner)
+            .map_err(crate::abi7::handles::Error::status);
+        // The owner is retired whether or not every handle could be released
+        // (a busy table is retried): what the document and library services
+        // held for it ends now, so no slot or transaction stays behind.
+        let retired = self.table.hosts.owner_retired(self.owner);
+        released.and(retired)
     }
 
     /// The caller of a service call: this owner and the plugin `plugin`.
@@ -225,8 +226,9 @@ impl OwnerResources {
     }
 }
 
-impl Drop for OwnerResources {
-    fn drop(&mut self) {
+impl OwnerResources {
+    /// Best effort: release every handle of the owner.
+    fn release_leftovers(&self) {
         loop {
             // A conflicting borrow means teardown could not finish. Entries
             // are host-owned and cannot call the dead plugin; leave them put.
@@ -240,6 +242,15 @@ impl Drop for OwnerResources {
             };
             resource.release();
         }
+    }
+}
+
+impl Drop for OwnerResources {
+    fn drop(&mut self) {
+        self.release_leftovers();
+        // Whatever a busy table left, the owner is retired: its documents,
+        // image ids and transactions end (idempotent after `release_all`).
+        self.table.hosts.owner_retired(self.owner).unwrap_or(());
     }
 }
 
@@ -381,5 +392,50 @@ mod tests {
         resources.0.next_owner.set(u64::MAX);
         assert_eq!(resources.try_owner().unwrap_err(), ERR_NO_SPACE);
         assert_eq!(resources.0.next_owner.get(), u64::MAX);
+    }
+
+    /// Review of #308 (SF1): a busy handle table must not keep the owner's
+    /// documents (an X4 slot) or transactions alive, nor leave close calls
+    /// into a retired plugin.
+    #[test]
+    fn a_busy_handle_table_still_retires_the_owner() {
+        use crate::native_host::{
+            admitted_features::AdmittedFeatures,
+            doc_service::{
+                DocHost, Limits, PREPARING,
+                tests::{FORMAT, Fake},
+            },
+            host_services::tests::Lib,
+        };
+        for by_drop in [false, true] {
+            let resources = HostResources::try_new().unwrap();
+            let fake = Fake::new(Limits::LARGE);
+            let host: alloc::rc::Rc<dyn DocHost> = fake.clone();
+            resources.hosts().wire_documents(host).unwrap();
+            let lib = alloc::rc::Rc::new(Lib::new());
+            resources.hosts().wire_library(lib.clone()).unwrap();
+            let owner = resources.try_owner().unwrap();
+            let id = owner.caller("opener", AdmittedFeatures::NONE).owner;
+            let document = fake.table().open(id, FORMAT, PREPARING, 0).unwrap();
+            let transaction = lib.transactions.begin_for_test(id, 0);
+            owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+            let borrowed = resources.0.handles.borrow();
+            if by_drop {
+                drop(owner);
+            } else {
+                assert_eq!(owner.release_all(), Err(ERR_BUSY));
+            }
+            drop(borrowed);
+            assert!(
+                fake.table().lease(id, document).is_err(),
+                "the slot is free"
+            );
+            assert_eq!(
+                *fake.ended.borrow(),
+                [document],
+                "the format closed it once"
+            );
+            assert_eq!(*lib.aborted.borrow(), [transaction]);
+        }
     }
 }
