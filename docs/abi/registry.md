@@ -192,6 +192,12 @@ Command records in the growth block 1536-2047 (`screens-input.md` section 8). Th
 `commands.md` apply to each: whole batch validated before staging, nothing staged on any failure,
 key and text bytes within the stage budget.
 
+- [D] **List fields** (`set_menu.items`, `request_plugins.plugins`) are checked by the generated
+  codec on both sides, so the SDK refuses before submit what the host would refuse: empty text is
+  no items; otherwise every item between two `\n` is non-empty and within its cap (128 and 64
+  bytes), and there are at most 64 and 16 items. A violation, including a trailing `\n`, is
+  `ERR_INVALID`; the total over the field cap stays `ERR_NO_SPACE`.
+
 - [D] **Grants are out of reach.** No REG write touches a `core.grant.*` setting: `reset_setting`
   (every flag), `apply_preset` and `preview_setting` skip them in group, plugin and all resets and
   refuse a single grant key with `ERR_INVALID`; declarations 25 and 28 naming one are dropped at
@@ -319,7 +325,10 @@ These change the user's configuration of the whole device, so they need the D1 f
   answers each id with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not
   found). Only a plugin that declares the install feature (`uses.install`, DEV) may answer; any
   other gets `ERR_DENIED`, so a plugin that merely subscribes can neither fake an install nor block
-  the store. The host checks that the request and the id are open (else `ERR_STATE`; the first
+  the store. **Until DEV defines `uses.install` in the catalog, a host refuses `answer_plugin` from
+  every plugin with `ERR_DENIED`** (the whole batch, wherever the command sits in it); it never
+  falls back to "any subscriber". With no plugin able to answer, every request is answered
+  `failed` at once (the no-subscriber rule above). The host checks that the request and the id are open (else `ERR_STATE`; the first
   answer for an id wins), and checks `installed` itself: the id must be on the device now, else
   the answer is stored as `failed`. It raises `plugin_answered` to the requester only. A request stays open until every id is answered, every subscriber stopped, or
   the device restarts; then the open ids are answered `failed` by the host.
@@ -424,6 +433,9 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   lock, tests of the pinned lists; this document final.
 - **Core:** the `core.registry` service over the host tables (paging, generation, translation,
   authority), the command arms, the four events, `setup.step` and the other declarations' admission.
+  `answer_plugin` stays refused with `ERR_DENIED` for every plugin (already in
+  `native_host::commands`, pinned by `abi7_scoped_commands` and `abi7_registry_wire`) until DEV adds
+  `uses.install`; then only its declarers pass, and the requests answer `failed` until then.
 - **Services:** the SDK facade (typed rows, paging iterator, command builders).
 - **Plugin:** the ports.
 - **UIX:** the declaration of plugin inputs and gestures (section 10).

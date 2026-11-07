@@ -132,6 +132,85 @@ fn caps_text_and_framing_keep_the_codec_statuses() {
     );
 }
 
+fn leb128(mut value: usize, out: &mut Vec<u8>) {
+    while value >= 0x80 {
+        out.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    out.push(value as u8);
+}
+
+/// One command on the wire, built by hand so the decoder sees what the
+/// encoder refuses: count 1, tag, body length, empty bitmap, text fields.
+fn raw(tag: usize, texts: &[&str], scalars: usize) -> Vec<u8> {
+    let mut body = vec![0];
+    for text in texts {
+        leb128(text.len(), &mut body);
+        body.extend(text.as_bytes());
+    }
+    body.extend(vec![0; scalars]);
+    let mut wire = vec![1];
+    leb128(tag, &mut wire);
+    leb128(body.len(), &mut wire);
+    wire.extend(body);
+    wire
+}
+
+fn items(count: usize, width: usize) -> String {
+    (0..count)
+        .map(|index| format!("{index:0width$}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Encoder and decoder refuse the same lists: too many items, an item over its
+/// cap, an empty item or a trailing separator are ERR_INVALID; no items is fine.
+#[test]
+fn list_fields_enforce_item_count_length_and_empty_items() {
+    fn menu(items: &str) -> WireCommand<'_> {
+        WireCommand::SetMenu {
+            menu: "core.main",
+            items,
+            flags: 0,
+        }
+    }
+    fn plugins(plugins: &str) -> WireCommand<'_> {
+        WireCommand::RequestPlugins { plugins }
+    }
+    let cases = [
+        (items(64, 2), items(16, 2), Ok(())),
+        (items(65, 2), items(17, 2), Err(ERR_INVALID)),
+        (items(1, 128), items(1, 64), Ok(())),
+        (items(1, 129), items(1, 65), Err(ERR_INVALID)),
+        ("a\n\nb".into(), "a\n\nb".into(), Err(ERR_INVALID)),
+        ("a\n".into(), "a\n".into(), Err(ERR_INVALID)),
+        ("\n".into(), "\n".into(), Err(ERR_INVALID)),
+        (String::new(), String::new(), Ok(())),
+    ];
+    let mut out = vec![0; 4096];
+    for (menu_items, plugin_ids, expected) in cases {
+        for (command, wire) in [
+            (menu(&menu_items), raw(1540, &["core.main", &menu_items], 4)),
+            (plugins(&plugin_ids), raw(1544, &[&plugin_ids], 0)),
+        ] {
+            let encoded = commands_encode(&[command], &mut out);
+            assert_eq!(encoded.map(|_| ()), expected, "{command:?}");
+            let decoded = commands_decode(&wire).map(|batch| batch.iter().next());
+            assert_eq!(decoded, expected.map(|()| Some(command)), "{command:?}");
+        }
+    }
+}
+
+/// `answer_plugin` waits for DEV's `uses.install` (`registry.md` section 5);
+/// until then the host refuses it from every plugin (`abi7_scoped_commands`).
+/// When DEV adds the feature, this fails: wire the check to it there.
+#[test]
+fn answer_plugin_has_no_install_feature_yet() {
+    let schema = include_str!("../../../abi/abi.def");
+    assert!(schema.contains("\"key\": \"uses.registry\""));
+    assert!(!schema.contains("\"key\": \"uses.install\""));
+}
+
 const STEP: Record<'static> = Record::SetupStep(SetupStep {
     name: "wifi",
     title: "setup.wifi",

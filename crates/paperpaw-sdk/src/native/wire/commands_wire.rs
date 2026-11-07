@@ -449,6 +449,20 @@ fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
     *offset += bytes.len();
 }
 
+fn list(text: &str, separator: char, max_items: usize, item_max: usize) -> Result<&str, i32> {
+    if text.is_empty() {
+        return Ok(text);
+    }
+    let mut count = 0;
+    for item in text.split(separator) {
+        count += 1;
+        if count > max_items || item.is_empty() || item.len() > item_max {
+            return Err(-2);
+        }
+    }
+    Ok(text)
+}
+
 /// Decode an entire batch before exposing any command.
 ///
 /// Framing must be canonical u32 LEB128. Unknown command tags and unknown
@@ -527,7 +541,12 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                 body.bitmap()?;
                 Command::SetMenu {
                     menu: text(body.bytes()?, COMMAND_SET_MENU_MENU_MAX_BYTES)?,
-                    items: text(body.bytes()?, COMMAND_SET_MENU_ITEMS_MAX_BYTES)?,
+                    items: list(
+                        text(body.bytes()?, COMMAND_SET_MENU_ITEMS_MAX_BYTES)?,
+                        COMMAND_SET_MENU_ITEMS_SEPARATOR,
+                        COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
+                        COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
+                    )?,
                     flags: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
@@ -557,7 +576,12 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
             COMMAND_REQUEST_PLUGINS_TAG => {
                 body.bitmap()?;
                 Command::RequestPlugins {
-                    plugins: text(body.bytes()?, COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?,
+                    plugins: list(
+                        text(body.bytes()?, COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES,
+                    )?,
                 }
             }
             COMMAND_ANSWER_PLUGIN_TAG => {
@@ -683,6 +707,12 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_SET_SCOPE_TAG, len))
         }
         Command::SetMenu { menu, items, .. } => {
+            list(
+                items,
+                COMMAND_SET_MENU_ITEMS_SEPARATOR,
+                COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
+                COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
+            )?;
             let mut len = 1 + 4;
             len += blob_len(menu.len(), COMMAND_SET_MENU_MENU_MAX_BYTES)?;
             len += blob_len(items.len(), COMMAND_SET_MENU_ITEMS_MAX_BYTES)?;
@@ -712,6 +742,12 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_SET_PLUGIN_ENABLED_TAG, len))
         }
         Command::RequestPlugins { plugins } => {
+            list(
+                plugins,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES,
+            )?;
             let mut len = 1;
             len += blob_len(plugins.len(), COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?;
             Ok((COMMAND_REQUEST_PLUGINS_TAG, len))

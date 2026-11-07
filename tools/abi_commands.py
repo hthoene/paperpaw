@@ -543,6 +543,8 @@ fn mode(mode: u32) -> Result<u32, i32> {{
     if growth:
         helpers += _GROWTH_HELPERS.replace('@NO_SPACE@', str(no_space)).replace(
             '@UTF8@', str(utf8))
+    if any(field['items'] for item in growth for field in growth_fields(item)):
+        helpers += _LIST_HELPER.replace('@INVALID@', str(invalid))
     source = _swap(source, "\n/// Decode an entire batch before exposing any command.",
                    helpers + "\n/// Decode an entire batch before exposing any command.")
     source = _swap(source, f"""        if tag != COMMAND_SET_SETTING_TAG {{
@@ -706,6 +708,27 @@ def _item_state(item, tag, consts, variants, arms, lens, writes):
         "            }\n")
 
 
+# The item rules of a list field: empty text is no items; otherwise every item
+# (between separators) is non-empty and within its cap, and there are at most
+# `max_items`. A trailing separator is an empty item and refused. The SDK's encoder
+# and the host's decoder both run it, so both refuse the same lists.
+_LIST_HELPER = """
+fn list(text: &str, separator: char, max_items: usize, item_max: usize) -> Result<&str, i32> {
+    if text.is_empty() {
+        return Ok(text);
+    }
+    let mut count = 0;
+    for item in text.split(separator) {
+        count += 1;
+        if count > max_items || item.is_empty() || item.len() > item_max {
+            return Err(@INVALID@);
+        }
+    }
+    Ok(text)
+}
+"""
+
+
 # Field helpers of the growth-block commands: the generated record codec's rules
 # (text and bytes within their caps, empty allowed; little-endian scalars).
 _GROWTH_HELPERS = """
@@ -765,7 +788,7 @@ def _growth_command(item, consts, variants, arms, lens, writes):
     tag = base + '_TAG'
     fields = growth_fields(item)
     consts.append(f"/// Wire tag of the `{name}` command.\npub const {tag}: u32 = {item['id']};\n")
-    docs, decode, sized, written = [], [], [], []
+    docs, decode, sized, written, lists = [], [], [], [], []
     for field in fields:
         label, kind = field['name'], field['kind']
         if kind in _SCALAR_WIDTH:
@@ -792,7 +815,18 @@ def _growth_command(item, consts, variants, arms, lens, writes):
                     f"{items['item_max_bytes']} bytes, at most {field['cap']} bytes in all"
                     if items else f"UTF-8 text of at most {field['cap']} bytes")
             docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
-            decode.append(f"                    {label}: text(body.bytes()?, {cap})?,\n")
+            if items:
+                shape = [f"{stem}_SEPARATOR", f"{stem}_MAX_ITEMS", f"{stem}_ITEM_MAX_BYTES"]
+                pad = ' ' * 24
+                decode.append(f"                    {label}: list(\n{pad}text(body.bytes()?, {cap})?,\n"
+                              + "".join(f"{pad}{name},\n" for name in shape)
+                              + "                    )?,\n")
+                pad = ' ' * 16
+                lists.append(f"            list(\n{pad}{label},\n"
+                             + "".join(f"{pad}{name},\n" for name in shape)
+                             + "            )?;\n")
+            else:
+                decode.append(f"                    {label}: text(body.bytes()?, {cap})?,\n")
             written.append(f"                write_blob({label}.as_bytes(), out, &mut offset);\n")
         else:
             docs.append(f"        /// At most {field['cap']} bytes.\n        {label}: &'a [u8],\n")
@@ -809,7 +843,8 @@ def _growth_command(item, consts, variants, arms, lens, writes):
     if sized:
         names = [label for label, _ in sized] + (['..'] if len(sized) < len(fields) else [])
         lens.append(_pattern('        ', variant, names) + " => {\n"
-                    f"            let mut len = {fixed};\n"
+                    + "".join(lists)
+                    + f"            let mut len = {fixed};\n"
                     + "".join(f"            len += blob_len({label}.len(), {cap})?;\n"
                               for label, cap in sized)
                     + f"            Ok(({tag}, len))\n        }}\n")
