@@ -456,12 +456,21 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
   nothing drawn when found before the first band, else the bands drawn so far kept and the error
   returned (never a silent partial draw). The host reads the file in bands of at most 2 KiB (the
-  X4 frame band). **Draw memory:** besides that band the drawer takes one bounded, transient heap
-  block per call (its source row chunk of 8 KiB plus a few bytes per source row and per drawn
-  column: at most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before
-  the first band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing
-  drawn. Nothing is kept between calls. Dithering and night-mode inversion are the
-  host's own, by the screen and the user's settings, not flags.
+  X4 frame band; a stack band, not a read size). **Draw memory:** besides that band the drawer
+  takes one bounded, transient heap block per call (its source row chunk of 8 KiB, filled by
+  `read_at` requests of up to that size, plus a few bytes per source row and per drawn column: at
+  most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before the first
+  band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing drawn. The
+  one thing kept between calls is the **dithering carry**: the error rows of the picture whose
+  bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed when the
+  frame ends or the image id ends. Where it cannot be had (refused, or another picture holds it)
+  the drawer dithers that call without carry (Atkinson within the call), never an error.
+  Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
+  not flags.
+- [D] **Cache sweeps** (prepared images and document caches left by a stopped plugin or a cut
+  power, at start or when idle) are stepwise: at most 64 entries read per main-loop turn through
+  the storage's resumable listing, in turns with no input waiting; never a whole-folder scan in
+  one turn, so a large cache cannot lengthen the start.
 - [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
   format wrote (`fmt.image`) before using it: header against its file size and the stated
   `width`/`height`, a short read `ERR_IO`, a mismatch `ERR_INVALID`; nothing panics and nothing
