@@ -1983,6 +1983,9 @@ enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
+enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
+enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
+enum paperpaw_sdk::native::library::rows::CatalogPhase { Empty, Walking, Ready, Unknown(0: u32) }
 enum paperpaw_sdk::native::registry::MenuQuery { Current, All, Declared }
 enum paperpaw_sdk::native::registry::ValuesQuery<'a> { Preset(0: &'a str), Placement(0: &'a str) }
 enum paperpaw_sdk::native::registry::rows::RegistryBindingOrigin { Plugin, Device, Preset, User, Unknown(0: u32) }
@@ -2597,6 +2600,15 @@ struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
+struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
+struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::library::query::CatalogCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceLibQuery<'a>, cursor: paperpaw_sdk::native::library::query::CatalogCursor }
+struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)
+struct paperpaw_sdk::native::library::rows::CatalogState(0: paperpaw_sdk::native::declare::records_wire::ServiceLibState)
+struct paperpaw_sdk::native::library::rows::Entry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibEntry<'a>)
+struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::library::rows::LibraryPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::query::CatalogCursor> }
 struct paperpaw_sdk::native::registry::PageCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::registry::Registry { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::registry::RegistryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::registry::RegistryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }

@@ -19,6 +19,8 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK library queries, borrowed book metadata and badges, finished-status
+  updates and plugin-owned field writes (#228).
 - Native SDK widget and status provider adapters decode generated stage requests
   and encode complete replies without heap allocation. Widget targets and status
   values use bounded scratch and refuse oversized replies (#228).

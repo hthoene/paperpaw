@@ -458,7 +458,9 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
                 guard = f'!r.{f["name"]}.is_empty() && ' if f['optional'] else ''
                 source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
             source += '}\n'
-    source += '_ => {}\n}\nOk(())\n}\n}\n'
+    # A codec whose every record has a list field matches them all: no catch-all arm.
+    rest = '_ => {}\n' if any(not any(f['items'] for f in r['fields']) for r in declared) else ''
+    source += rest + '}\nOk(())\n}\n}\n'
     source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n'
     source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
     source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if any(f['optional'] for r in declared for f in r['fields']) else 'write_varint(0, out, &mut offset);')
