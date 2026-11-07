@@ -248,9 +248,14 @@ fn only_unapplied_reservations_are_given_back() {
     table.reserve(&a, 2, false, "net").unwrap();
     table.release_reserved("a", 1);
     assert!(table.holds("a", 1), "a waiting request stays");
-    table.discard_reserved("a");
+    let token = table.new_token();
+    table.reserve_in(token, &a, 3, false, "net").unwrap();
+    table.discard_reserved(0);
+    assert!(table.holds("a", 2), "token 0 gives nothing back");
+    table.discard_reserved(token);
     assert!(table.holds("a", 1));
-    assert!(!table.holds("a", 2));
+    assert!(table.holds("a", 2), "an untokened entry stays");
+    assert!(!table.holds("a", 3));
 }
 
 #[test]
@@ -394,5 +399,33 @@ fn a_stopped_sender_leaves_its_attempts_report_stale() {
     assert_eq!(
         table.next_outcome("b").unwrap().outcome.reason,
         reason::PASSWORD
+    );
+}
+
+#[test]
+fn a_full_stale_table_starts_a_new_ssid_at_one_not_at_the_displaced_count() {
+    let a = id("a");
+    let mut table = RadioRequests::new();
+    // Four ssids stale, the first twice: every slot taken, one count of 2.
+    for (request, ssid) in [(1, "s0"), (2, "s0"), (3, "s1"), (4, "s2"), (5, "s3")] {
+        waiting(&mut table, &a, request, ssid);
+        table.radio_stopped();
+        assert!(table.delivered("a", request));
+    }
+    // A fifth ssid takes the first slot: its count is one, not three.
+    waiting(&mut table, &a, 6, "s4");
+    table.radio_stopped();
+    assert!(table.delivered("a", 6));
+    waiting(&mut table, &a, 7, "s4");
+    table.on_wifi_event(&failed("s4", JoinFailure::Password));
+    assert!(
+        table.next_outcome("a").is_none(),
+        "the abandoned attempt's report is used up"
+    );
+    table.on_wifi_event(&failed("s4", JoinFailure::Password));
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome.reason,
+        reason::PASSWORD,
+        "the replacement's own failure is not swallowed"
     );
 }

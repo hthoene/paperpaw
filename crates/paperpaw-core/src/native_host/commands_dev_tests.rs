@@ -101,7 +101,7 @@ fn run(kernel: &mut Kernel, owner: &Id, commands: &[WireCommand<'_>], clock: &Cl
         let env = kernel.shared.env(Instant(0));
         let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
         let status = submit(&mut stage, commands);
-        (status, stage.into_dev_output().unwrap())
+        (status, stage.into_dev_output())
     };
     let (staged, redraw, _, batch) = output;
     let host = DevHost {
@@ -554,7 +554,7 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
         let second = submit(&mut stage, &[set(false)]);
         assert_eq!((first, second), (OK, OK));
         assert_eq!(stage.staged().len(), 2);
-        (OK, stage.into_dev_output().unwrap())
+        (OK, stage.into_dev_output())
     };
     let (staged, redraw, _, batch) = output;
     let at: Vec<usize> = batch.items.iter().map(|item| item.at).collect();
@@ -696,7 +696,7 @@ fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
         let mut stage = stage_of(&owner, &kernel, &env, WIFI);
         assert_eq!(submit(&mut stage, &[join(round, "net")]), OK);
         assert_eq!(kernel.radio_requests.borrow().len(), 1, "reserved");
-        drop(stage.into_dev_output().unwrap());
+        drop(stage.into_dev_output());
         assert!(
             kernel.radio_requests.borrow().is_empty(),
             "round {round}: the unapplied reservation is given back"
@@ -708,6 +708,62 @@ fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
     for request in 1..=4 {
         assert_eq!(submit(&mut stage, &[join(request, "net")]), OK);
     }
+}
+
+#[test]
+fn outputs_of_one_owner_give_back_only_their_own_reservations_in_any_order() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("wifi");
+    let held = |request| kernel.radio_requests.borrow().holds("wifi", request);
+    for drop_a_first in [true, false] {
+        let mut a = stage_of(&owner, &kernel, &env, WIFI);
+        assert_eq!(submit(&mut a, &[join(1, "net")]), OK);
+        let out_a = a.into_dev_output();
+        let mut b = stage_of(&owner, &kernel, &env, WIFI);
+        assert_eq!(submit(&mut b, &[join(2, "net")]), OK);
+        assert!(held(1) && held(2), "a second stage keeps the first's");
+        let out_b = b.into_dev_output();
+        let (first, second, kept, gone) = if drop_a_first {
+            (out_a, out_b, 2, 1)
+        } else {
+            (out_b, out_a, 1, 2)
+        };
+        drop(first);
+        assert!(held(kept) && !held(gone), "only the dropped one goes");
+        drop(second);
+        assert!(kernel.radio_requests.borrow().is_empty());
+    }
+    // A live stage keeps its reservation while another output is dropped.
+    let mut live = stage_of(&owner, &kernel, &env, WIFI);
+    assert_eq!(submit(&mut live, &[join(3, "net")]), OK);
+    let mut other = stage_of(&owner, &kernel, &env, WIFI);
+    assert_eq!(submit(&mut other, &[join(4, "net")]), OK);
+    drop(other.into_dev_output());
+    assert!(held(3) && !held(4));
+    drop(live);
+    assert!(kernel.radio_requests.borrow().is_empty());
+}
+
+#[test]
+fn a_dropped_output_does_not_take_a_later_request_with_the_same_number() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("wifi");
+    let mut old = stage_of(&owner, &kernel, &env, WIFI);
+    assert_eq!(submit(&mut old, &[join(1, "net")]), OK);
+    let old = old.into_dev_output();
+    // The sender's entries go (it stopped); the same number is used again.
+    kernel.radio_requests.borrow_mut().sender_stopped("wifi");
+    let mut new = stage_of(&owner, &kernel, &env, WIFI);
+    assert_eq!(submit(&mut new, &[join(1, "other")]), OK);
+    drop(old);
+    assert!(
+        kernel.radio_requests.borrow().holds("wifi", 1),
+        "the new request's reservation stays"
+    );
+    drop(new);
+    assert!(kernel.radio_requests.borrow().is_empty());
 }
 
 #[test]
@@ -746,7 +802,7 @@ fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() 
         let status = stage.stage(&batch);
         let output = stage.into_dev_output();
         arm_failure(0);
-        if status != OK || output.is_err() {
+        if status != OK {
             refused += 1;
         }
         // Whatever failed, dropping what is left gives everything back.

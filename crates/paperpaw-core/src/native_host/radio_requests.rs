@@ -155,6 +155,8 @@ impl Ssid {
 }
 
 struct Entry {
+    /// The staged batch that reserved it (0: none); see [`Self::new_token`].
+    token: u32,
     owner: Id,
     request: u32,
     host: bool,
@@ -164,11 +166,14 @@ struct Entry {
 
 /// Attempts the host stopped waiting for (superseded, left, the sender
 /// stopped) whose terminal report the radio has not made yet, per ssid. The
-/// X4's radio runs its queued commands strictly one after the other and ends
-/// every join or host with exactly one report (`Failed`, `Online` or
-/// `Hosting`), so each such attempt will produce one more report for its
-/// ssid that belongs to no waiting request. Counting them lets a late
-/// `Failed` of a superseded attempt be told from the replacement's own.
+/// X4's radio runs its queued commands strictly one after the other and
+/// normally ends every join or host with one report (`Failed`, `Online` or
+/// `Hosting`; a join that links without an address, and a radio restart, end
+/// with none), so such an attempt will usually produce one more report for
+/// its ssid that belongs to no waiting request. Counting them lets a late
+/// `Failed` of a superseded attempt be told from the replacement's own, as
+/// long as the radio keeps that order; the expiry bounds the harm when it
+/// does not. This is not per-request correlation.
 #[derive(Clone, Copy)]
 struct Stale {
     ssid: Ssid,
@@ -183,6 +188,7 @@ struct Stale {
 pub struct RadioRequests {
     entries: Vec<Entry>,
     stale: [Option<Stale>; MAX_REQUESTS],
+    last_token: u32,
 }
 
 impl fmt::Debug for RadioRequests {
@@ -218,7 +224,15 @@ impl RadioRequests {
         Self {
             entries: Vec::new(),
             stale: [None; MAX_REQUESTS],
+            last_token: 0,
         }
+    }
+
+    /// A token for one staged batch: the entries it reserves carry it, so
+    /// giving the batch back touches only them (never 0).
+    pub fn new_token(&mut self) -> u32 {
+        self.last_token = self.last_token.wrapping_add(1).max(1);
+        self.last_token
     }
 
     /// An attempt for `ssid` is no longer waited for but still runs.
@@ -228,10 +242,14 @@ impl RadioRequests {
             .stale
             .iter()
             .position(|slot| slot.is_some_and(|stale| stale.ssid.as_str() == ssid.as_str()));
-        // Every slot taken by other ssids: the oldest (first) gives way.
+        // Every slot taken by other ssids: the first gives way (not
+        // necessarily the oldest), and the new ssid starts at one.
         let at = same.or(free).unwrap_or(0);
         if let Some(slot) = self.stale.get_mut(at) {
-            let count = slot.map_or(0, |stale| stale.count);
+            let count = match (same, *slot) {
+                (Some(_), Some(stale)) => stale.count,
+                _ => 0,
+            };
             *slot = Some(Stale {
                 ssid,
                 count: count.saturating_add(1),
@@ -290,6 +308,21 @@ impl RadioRequests {
     /// when [`MAX_REQUESTS`] entries are held, `ERR_NO_MEMORY` when the
     /// entry cannot be allocated. The table is unchanged on error.
     pub fn reserve(&mut self, owner: &Id, request: u32, host: bool, ssid: &str) -> Result<(), i32> {
+        self.reserve_in(0, owner, request, host, ssid)
+    }
+
+    /// Like [`Self::reserve`], for the staged batch with `token`.
+    ///
+    /// # Errors
+    /// As [`Self::reserve`].
+    pub fn reserve_in(
+        &mut self,
+        token: u32,
+        owner: &Id,
+        request: u32,
+        host: bool,
+        ssid: &str,
+    ) -> Result<(), i32> {
         if request == 0 || self.holds(owner.as_str(), request) {
             return Err(ERR_INVALID);
         }
@@ -300,6 +333,7 @@ impl RadioRequests {
         let owner = owner.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         self.entries.push(Entry {
+            token,
             owner,
             request,
             host,
@@ -319,10 +353,13 @@ impl RadioRequests {
         }
     }
 
-    /// Give back every reservation of `owner` that was never applied.
-    pub fn discard_reserved(&mut self, owner: &str) {
-        self.entries
-            .retain(|entry| entry.owner.as_str() != owner || entry.phase != Phase::Reserved);
+    /// Give back every reservation of the batch with `token` that was never
+    /// applied. Token 0 (no batch) gives back nothing.
+    pub fn discard_reserved(&mut self, token: u32) {
+        if token != 0 {
+            self.entries
+                .retain(|entry| entry.token != token || entry.phase != Phase::Reserved);
+        }
     }
 
     /// The request is applied: it waits for the radio from `now_ms`.

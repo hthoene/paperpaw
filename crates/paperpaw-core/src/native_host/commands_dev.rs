@@ -193,10 +193,12 @@ pub(crate) struct DevBatch {
     release: Option<Release>,
 }
 
-/// Gives back an owner's reserved (never applied) table entries when dropped.
+/// Gives back the reserved (never applied) table entries of one staged batch
+/// when dropped. The entries carry the batch's token, so another live batch
+/// of the same owner, or a later request that reuses a number, is untouched.
 struct Release {
     table: Rc<RefCell<RadioRequests>>,
-    owner: Id,
+    token: u32,
 }
 
 impl fmt::Debug for Release {
@@ -208,7 +210,7 @@ impl fmt::Debug for Release {
 impl Drop for Release {
     fn drop(&mut self) {
         if let Ok(mut table) = self.table.try_borrow_mut() {
-            table.discard_reserved(self.owner.as_str());
+            table.discard_reserved(self.token);
         }
     }
 }
@@ -250,17 +252,14 @@ pub(super) struct DevStage<'a> {
     owner: &'a Id,
     ctx: DevContext<'a>,
     items: Vec<DevItem>,
+    /// The token its table entries carry; 0 until it reserves the first.
+    token: u32,
 }
 
 impl DevStage<'_> {
     fn release_reserved(&self) {
-        let Ok(mut table) = self.ctx.requests.try_borrow_mut() else {
-            return;
-        };
-        for item in &self.items {
-            if let DevOp::Join(join) = &item.op {
-                table.release_reserved(self.owner.as_str(), join.request);
-            }
+        if let Ok(mut table) = self.ctx.requests.try_borrow_mut() {
+            table.discard_reserved(self.token);
         }
     }
 }
@@ -304,42 +303,37 @@ fn area(command: &WireCommand<'_>) -> Option<&'static str> {
 
 impl<'a> CommandStage<'a> {
     /// Let this stage judge and keep DEV commands (the shell passes the
-    /// submitting instance's features and the kernel's table). Reservations an
-    /// earlier, never drained stage of this owner left are given back.
+    /// submitting instance's features and the kernel's table). The stage
+    /// gives back its own reservations when dropped; it never touches those
+    /// of another stage.
     pub(crate) fn with_dev(mut self, ctx: DevContext<'a>) -> Self {
-        if let Ok(mut table) = ctx.requests.try_borrow_mut() {
-            table.discard_reserved(self.owner.as_str());
-        }
         self.dev = Some(DevStage {
             owner: self.owner,
             ctx,
             items: Vec::new(),
+            token: 0,
         });
         self
     }
 
-    /// Like `into_ui_output`, with the DEV commands to apply in order.
-    ///
-    /// # Errors
-    /// `ERR_NO_MEMORY` when the batch cannot name its owner for the cleanup;
-    /// the reservations are then given back and nothing is applied.
-    pub(crate) fn into_dev_output(
-        mut self,
-    ) -> Result<(Vec<Command>, Option<ui::Redraw>, u8, DevBatch), i32> {
-        let release = match &self.dev {
-            Some(dev) => Some(Release {
-                table: Rc::clone(&dev.ctx.requests),
-                owner: dev.owner.try_clone().ok_or(ERR_NO_MEMORY)?,
-            }),
-            None => None,
+    /// Like `into_ui_output`, with the DEV commands to apply in order. The
+    /// reservations pass to the returned batch, which gives back the ones it
+    /// never applied when dropped.
+    pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
+        let (items, release) = match self.dev.as_mut() {
+            Some(dev) => (
+                core::mem::take(&mut dev.items),
+                // The token moves to the batch; the stage must not give back
+                // what the batch now owns.
+                Some(Release {
+                    table: Rc::clone(&dev.ctx.requests),
+                    token: core::mem::take(&mut dev.token),
+                }),
+            ),
+            None => (Vec::new(), None),
         };
-        let items = self
-            .dev
-            .as_mut()
-            .map(|dev| core::mem::take(&mut dev.items))
-            .unwrap_or_default();
         let (commands, redraw, hop) = self.into_ui_output();
-        Ok((commands, redraw, hop, DevBatch { items, release }))
+        (commands, redraw, hop, DevBatch { items, release })
     }
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
@@ -482,16 +476,22 @@ impl<'a> CommandStage<'a> {
 
     /// Reserve the table entries of the items from `start`, all or none.
     pub(super) fn dev_commit(&mut self, start: usize) -> Result<(), i32> {
-        let Some(dev) = &self.dev else {
+        let Some(dev) = &mut self.dev else {
             return Ok(());
         };
-        let mut table = dev.ctx.requests.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let requests = Rc::clone(&dev.ctx.requests);
+        let mut table = requests.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if dev.token == 0 {
+            dev.token = table.new_token();
+        }
         let new = dev.items.get(start..).unwrap_or_default();
         for (index, item) in new.iter().enumerate() {
             let DevOp::Join(join) = &item.op else {
                 continue;
             };
-            if let Err(error) = table.reserve(self.owner, join.request, join.host, &join.ssid) {
+            let reserved =
+                table.reserve_in(dev.token, self.owner, join.request, join.host, &join.ssid);
+            if let Err(error) = reserved {
                 for earlier in new.iter().take(index) {
                     if let DevOp::Join(done) = &earlier.op {
                         table.release_reserved(self.owner.as_str(), done.request);
