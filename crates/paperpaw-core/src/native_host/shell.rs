@@ -148,6 +148,13 @@ pub struct Context<S> {
     pub canvas: CanvasScope,
 }
 
+impl<S> Context<S> {
+    /// The host-known id of the plugin this context belongs to.
+    pub(crate) fn plugin_id(&self) -> &str {
+        &self.id
+    }
+}
+
 /// The pinned owner of one plugin.
 pub type Owner<S, M> = HostOwner<Context<S>, M>;
 /// Staging of one `make`.
@@ -218,6 +225,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.stage_run = stage_slot::run::<S>;
+    table.ui_compose = super::ui_compose::compose::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -979,7 +987,7 @@ pub mod instance;
 
 #[cfg(test)]
 #[path = "shell_tests.rs"]
-mod tests;
+pub(in crate::native_host) mod tests;
 
 /// The services a plugin declares, checked against the host's catalog before
 /// its image is placed.
