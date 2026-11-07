@@ -83,7 +83,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 8 | `screens` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
 | 9 | `slots` | `reg_query` (`scope` empty) | `reg_slot`*, `end` | with the bound and the default screen |
 | 10 | `slot_offers` | `reg_query` (`scope`: slot id) | `reg_item`*, `end` | screens offered for the slot, highest priority first |
-| 11 | `menus` | `reg_query` (`scope` empty) | `reg_item`*, `end` | every menu id |
+| 11 | `menus` | `reg_query` (`scope` empty) | `reg_item`*, `end` | every menu id; `flags` bit 5 user-defined |
 | 12 | `menu` | `reg_query` (`scope`: menu id) | `reg_menu_row`*, `end` | evaluated rows, section 2.4 |
 | 13 | `bindings` | `reg_query` (`scope`: layer id, `global` or empty for all layers) | `reg_binding`*, `end` | |
 | 14 | `inputs` | `reg_query` (`scope` empty) | `reg_item`*, `end` | the inputs this device has (`button.menu`, `tap.center`, ...) |
@@ -178,7 +178,10 @@ Field meanings:
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
 - `reg_item.flags` (actions, screens, inputs): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
-  3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it).
+  3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),
+  5 user-defined (menus, op 11: the user has a `command.set_menu` definition for this menu, even
+  an empty one or one equal to the declared rows; interface 6 `is_customized`; cleared by
+  `set_menu` `reset`).
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
   enabled, 2 hidden, 3 removed, 4 user-defined menu, 5 in the declared rows (the editor's
   "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose

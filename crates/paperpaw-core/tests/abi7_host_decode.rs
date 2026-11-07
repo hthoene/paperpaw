@@ -95,7 +95,7 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 67] = [
+const HOST_ONLY: [u32; 125] = [
     3,    // event.tick
     32,   // event.started
     33,   // event.resume
@@ -163,6 +163,64 @@ const HOST_ONLY: [u32; 67] = [
     1054, // service.ui_size
     1056, // service.ui_status_value
     1059, // service.reg_status
+    1062, // service.doc_state
+    1064, // service.doc_meta
+    1065, // service.doc_text
+    1068, // service.doc_section
+    1070, // service.doc_toc
+    1072, // service.doc_label
+    1075, // service.doc_link
+    1077, // service.doc_font
+    1078, // service.doc_format
+    1080, // service.doc_reader
+    1081, // service.doc_progress
+    1082, // service.doc_block
+    1090, // service.doc_text_part
+    1091, // service.doc_columns
+    1083, // service.doc_run
+    1084, // service.doc_map
+    1085, // service.doc_cell
+    1086, // service.doc_ruby
+    1087, // service.doc_inline_lang
+    1088, // service.doc_image
+    90,   // event.image_ready
+    1093, // service.lookup_entry
+    91,   // event.library_changed
+    1094, // service.lib_state
+    1096, // service.lib_entry
+    1098, // service.lib_book
+    1100, // service.lib_text
+    1101, // service.lib_facet
+    1105, // service.lib_result
+    1111, // service.lib_annotation
+    1112, // service.lib_anchor
+    1114, // service.lib_transaction
+    1118, // service.lib_committed
+    1119, // service.lib_field
+    1122, // service.lib_key
+    1124, // service.lib_receipt
+    1125, // service.dev_device
+    1126, // service.dev_value
+    1127, // service.dev_firmware
+    1128, // service.dev_builtin
+    1129, // service.dev_native
+    1130, // service.dev_check
+    1131, // service.dev_memory
+    1132, // service.dev_wifi
+    1133, // service.dev_network
+    1134, // service.dev_bluetooth
+    1135, // service.dev_bonded
+    1137, // service.dev_power
+    1139, // service.dev_install
+    1140, // service.dev_not_installed
+    1141, // service.dev_key
+    92,   // event.wifi_scanned
+    93,   // event.wifi_done
+    94,   // event.network_wanted
+    95,   // event.network_idle
+    96,   // event.firmware_changed
+    97,   // event.install_done
+    98,   // event.bluetooth
 ];
 
 fn host_only(tag: u32) -> bool {
@@ -171,9 +229,9 @@ fn host_only(tag: u32) -> bool {
 
 #[test]
 fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before() {
-    // Sixty-four zero bytes are a valid body of every generated record: an
+    // 128 zero bytes are a valid body of every generated record: an
     // empty bitmap, zero scalars, empty text, trailing bytes skipped.
-    let zeros = [0; 64];
+    let zeros = [0; 128];
     let (mut refused, mut decoded) = (Vec::new(), Vec::new());
     for tag in 0..2048 {
         let bytes = framed(tag, &zeros);
@@ -199,7 +257,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 51, "{decoded:?}");
+    assert_eq!(decoded.len(), 90, "{decoded:?}");
 }
 
 #[test]

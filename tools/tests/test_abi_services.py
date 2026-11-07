@@ -47,7 +47,9 @@ class ServiceTests(unittest.TestCase):
 
     def test_the_repository_schemas_load_and_emit(self):
         self.assertEqual([s['key'] for s in self.schema['services']],
-                         ['core.registry', 'core.test-echo', 'core.ui'])
+                         ['core.device', 'core.document', 'core.library', 'core.lookup',
+                          'core.registry',
+                          'core.test-echo', 'core.ui'])
         source = rust_services(self.schema)
         for line in ['pub mod core_test_echo_v1 {', 'pub const KEY: &str = "core.test-echo";',
                      'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,',
@@ -116,7 +118,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(rows[('core.registry', 1)], (1, True, 32))
         self.assertEqual(rows[('core.registry', 2)], (1, False, 0))
         self.assertEqual(rows[('core.test-echo', 1)], (1, False, 0))
-        self.assertEqual(sum(1 for (key, _), row in rows.items() if row[0] != 1), 1)
+        # DOC open takes 13 records; LIB ops with lib_ref and a record 2,
+        # set_position 3, edit_add 4 (library.md section 1).
+        self.assertEqual(rows[('core.document', 1)][0], 13)
+        self.assertEqual(rows[('core.library', 14)][0], 3)
+        self.assertEqual(rows[('core.library', 18)][0], 4)
+        self.assertEqual(sorted(id for (key, id), row in rows.items()
+                                if key == 'core.library' and row[0] == 2),
+                         [4, 7, 8, 15, 16, 17, 23, 24])
+        self.assertEqual(sum(1 for row in rows.values() if row[0] != 1), 12)
         source = rust_services(self.schema)
         for line in ['pub input_rows: u16,', 'pub paged: bool,', 'pub reply_rows: u16,',
                      'input_rows: 32,', 'reply_rows: 32,']:
