@@ -1,0 +1,29 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changelog-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fragments:
+    name: Changelog fragments
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check format and collection
+        run: python3 -m unittest discover -s tools -p test_changelog.py
+      - name: A visible change has an entry or an explicit opt-out
+        env:
+          CHANGELOG_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/changelog.py check --base "$CHANGELOG_BASE"

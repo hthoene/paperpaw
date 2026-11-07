@@ -4,7 +4,7 @@
 #
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
-#   quick   fmt, lint, test: what every change needs (the default)
+#   quick   changelog, fmt, lint, test: what every change needs (the default)
 #   full    every group below except `fuzz`, `firmware-build` and `release-versions`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
@@ -56,8 +56,8 @@ export CARGO_TERM_COLOR=never
 export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
 
-all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
-quick_groups=(fmt lint test)
+all_groups=(changelog fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
+quick_groups=(changelog fmt lint test)
 opt_groups=(firmware-build fuzz release-versions)
 
 if [[ $list -eq 1 ]]; then
@@ -119,6 +119,11 @@ skip() {
 }
 
 # ---- the groups, in the order of ci.yml's jobs ---------------------------
+
+g_changelog() {
+    run "changelog: fragments" "python3 tools/changelog.py check"
+    run "changelog: collection and PR checks" "python3 -m unittest discover -s tools -p test_changelog.py"
+}
 
 g_fmt() {
     run "fmt: workspace" "cargo fmt --all --check"

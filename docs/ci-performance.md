@@ -65,9 +65,10 @@ result is wanted:
 
 - A newer push to the same branch or pull request cancels the run before it
   (`concurrency` in `ci.yml`, `codeql.yml`); `main` always finishes.
-- Changes only to `docs/`, `CHANGELOG.md`, `README.md`, `CONTRIBUTING.md`,
-  `AGENTS.md` or `.claude/` start no CI run.
-- A draft pull request starts no CI job. Mark it ready for review to run
+- Changes only to `docs/`, `CHANGELOG.md`, `changelog.d/`, `README.md`,
+  `CONTRIBUTING.md`, `RELEASING.md`, `AGENTS.md` or `.claude/` skip full CI.
+  A separate lightweight changelog check still runs for every pull request.
+- A draft pull request skips full CI. Mark it ready for review to run
   them (`ready_for_review` starts a run).
 - A pull request runs the emulator on Linux only; Windows and macOS run on
   `main` and `integration`. The fuzz job runs on pushes to `main` and
