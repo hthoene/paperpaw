@@ -110,7 +110,7 @@ proptest! {
     /// Column names are read from any text without panicking.
     #[test]
     fn columns_of_any_text_do_not_panic(sql in any::<String>()) {
-        let _ = columns(&sql);
+        let _ = columns(&sql).unwrap_or_default();
     }
 }
 
@@ -333,15 +333,15 @@ fn writing_again_replaces_the_old_database() {
 #[test]
 fn columns_come_from_odd_create_statements() {
     // No parentheses, or the wrong way round: no columns, no panic.
-    assert!(columns("CREATE TABLE t").is_empty());
-    assert!(columns(") broken (").is_empty());
-    assert!(columns("").is_empty());
+    assert!(columns("CREATE TABLE t").unwrap().is_empty());
+    assert!(columns(") broken (").unwrap().is_empty());
+    assert!(columns("").unwrap().is_empty());
     // Quoted and bracketed names, constraints, nested parentheses and
     // comments, names in other scripts.
     let sql = "CREATE TABLE \"données\" (\n  \"prénom\" TEXT CHECK (length(\"prénom\") > (1)), -- the name\n  [日付] INTEGER,\n  `x` DEFAULT (1, 2),\n  CONSTRAINT pk PRIMARY KEY (x),\n  CHECK (x > 0)\n)";
-    assert_eq!(columns(sql), ["prénom", "日付", "x"]);
+    assert_eq!(columns(sql).unwrap(), ["prénom", "日付", "x"]);
     // Empty parts are skipped.
-    assert_eq!(columns("CREATE TABLE t(a, , b,)"), ["a", "b"]);
+    assert_eq!(columns("CREATE TABLE t(a, , b,)").unwrap(), ["a", "b"]);
 }
 
 /// SQLite keeps a table's statement as it was written, comments and
@@ -350,5 +350,5 @@ fn columns_come_from_odd_create_statements() {
 fn commas_in_comments_and_texts_make_no_columns() {
     let sql =
         "CREATE TABLE t (\n  a TEXT, -- the title, as shown\n  b TEXT DEFAULT 'x, y',\n  c\n)";
-    assert_eq!(columns(sql), ["a", "b", "c"]);
+    assert_eq!(columns(sql).unwrap(), ["a", "b", "c"]);
 }
