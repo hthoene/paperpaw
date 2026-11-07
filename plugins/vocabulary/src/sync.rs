@@ -1348,12 +1348,12 @@ fn deck_for_answer(
     })
 }
 
-/// Room for `count` of a kind in one allocation, or `Crowded`: a failed
-/// allocation is a failure to tell, not the end of the program.
+/// Room for `count` of a kind in one allocation, or a storage failure: a
+/// refused allocation is not the file's fault (`Crowded` is, and is never
+/// tried again), so the file is `Unreadable` and tried again next time.
 fn room<T>(count: usize) -> Result<Vec<T>, Failure> {
     let mut vec = Vec::new();
-    vec.try_reserve_exact(count)
-        .map_err(|_| Failure::Outcome(Outcome::Crowded))?;
+    vec.try_reserve_exact(count).map_err(|_| Failure::Storage)?;
     Ok(vec)
 }
 

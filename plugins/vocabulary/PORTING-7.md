@@ -98,6 +98,8 @@ native screens replace these callers.
   (the ledger is not written), so the next update tries again.
 - The ledger larger than 128 KiB or of another version is `Io` (unreadable, every file fails
   and none is written over it); a refused allocation is `TooLarge` (the job is not made).
+  The shell tells the user that a manual sync tries the files that failed again (Auto does not
+  retry a file that is itself to blame: too large, no cards, `Crowded`).
 - Changes of behaviour: a ledger file that begins with a blank line is unreadable as before; a
   byte order mark before the header is now accepted; the sort of the files is by folded name
   then name (the old stable sort over `to_lowercase` had no tie-break).

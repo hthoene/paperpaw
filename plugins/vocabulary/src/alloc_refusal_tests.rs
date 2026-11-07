@@ -819,6 +819,12 @@ mod folder {
                         Step::Done => break,
                     }
                 }
+                // Nothing here is the file's fault: a refusal is never a verdict
+                // on the file (`Crowded` would mark it failed for good).
+                assert!(
+                    job.reports.iter().all(|r| r.outcome != Outcome::Crowded),
+                    "a refused allocation was reported as Crowded"
+                );
                 // A refusal is told, as a report or as the job's flag.
                 let unreadable = job.reports.iter().any(|r| r.outcome == Outcome::Unreadable);
                 if job.refused() || unreadable {
