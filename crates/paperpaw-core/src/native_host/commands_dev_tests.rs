@@ -809,7 +809,7 @@ fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reser
     // wear.flags: bit 0 is the only one.
     for flags in [2_u32, 0x10] {
         let wear = WireCommand::Wear {
-            mode: "no-such-mode",
+            mode: "core.nothing",
             flags,
         };
         // An undefined bit is reported before the unknown mode.
