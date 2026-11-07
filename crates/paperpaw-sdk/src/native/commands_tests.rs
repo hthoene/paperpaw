@@ -413,12 +413,12 @@ fn registry_list_limits_preserve_every_id_and_refuse_excess_before_submit() {
             "core.main",
             Some(&["keys.open"; wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS + 1])
         ),
-        Err(Error::NoSpace)
+        Err(Error::Invalid)
     );
     assert_eq!(
         sender
             .request_plugins(&["dictionary"; wire::COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS + 1]),
-        Err(Error::NoSpace)
+        Err(Error::Invalid)
     );
     for invalid in ["", "keys.open\nother.open"] {
         assert_eq!(
@@ -682,4 +682,28 @@ fn plugin_request_id(raw: u32) -> crate::native::events::PluginRequestId {
         panic!("expected plugin request");
     };
     request
+}
+
+#[test]
+fn menu_list_item_and_total_limits_keep_distinct_errors() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let oversized = "a".repeat(wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES + 1);
+    assert_eq!(
+        sender.set_menu("core.main", Some(&[&oversized])),
+        Err(Error::Invalid)
+    );
+    let item = "a".repeat(wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES);
+    let items = [&item[..]; wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS];
+    assert_eq!(
+        sender.set_menu("core.main", Some(&items)),
+        Err(Error::NoSpace)
+    );
+    assert!(ctx.batches.borrow().is_empty());
 }

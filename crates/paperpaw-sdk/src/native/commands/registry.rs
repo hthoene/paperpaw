@@ -212,7 +212,8 @@ impl CommandSender<'_, '_> {
     /// No row is truncated. Limits come from the generated command codec.
     ///
     /// # Errors
-    /// Returns Invalid for empty IDs or embedded separators, NoSpace for limits,
+    /// Returns Invalid for empty IDs, embedded separators or list item limits,
+    /// NoSpace for total field overflow,
     /// or the host's refusal, including Denied without uses.registry.
     pub fn set_menu(&mut self, menu: impl AsRef<str>, items: Option<&[&str]>) -> Result<(), Error> {
         let menu = menu.as_ref();
@@ -300,7 +301,8 @@ impl CommandSender<'_, '_> {
     /// Ask subscribers to offer installation of these plugins. This installs nothing itself.
     ///
     /// # Errors
-    /// Returns Invalid for empty IDs or separators, NoSpace for generated limits,
+    /// Returns Invalid for empty IDs, separators or list item limits,
+    /// NoSpace for total field overflow,
     /// or the host's refusal, including Full for too many open requests.
     pub fn request_plugins(&mut self, plugins: &[&str]) -> Result<(), Error> {
         if plugins
@@ -364,7 +366,7 @@ fn join_ids<'a>(
     separator: char,
 ) -> Result<&'a str, Error> {
     if ids.len() > max_items {
-        return Err(Error::NoSpace);
+        return Err(Error::Invalid);
     }
     let mut used = 0;
     for (index, id) in ids.iter().enumerate() {
@@ -372,7 +374,7 @@ fn join_ids<'a>(
             return Err(Error::Invalid);
         }
         if id.len() > item_max {
-            return Err(Error::NoSpace);
+            return Err(Error::Invalid);
         }
         if index != 0 {
             *scratch.get_mut(used).ok_or(Error::NoSpace)? = separator as u8;
