@@ -191,7 +191,8 @@ Field meanings:
   "default" set), 6 `switch` (the row shows a switch: an action whose last
   `command.set_item_state` set `switch`, or a Boolean setting; bit 0 is then whether it is on, so
   an off switch differs from a plain action). `by` is the plugin that declared the row, or for a
-  hidden row the plugin whose `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
+  hidden row the plugin whose `menu.hide` hides it. `describe` is the `menu.describe` text,
+  translated.
 - `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
   encoding, never cut; `flags` bit 0 "as if not set" (a preset that resets it), bit 1 hidden
   (section 2.3; `value` empty).

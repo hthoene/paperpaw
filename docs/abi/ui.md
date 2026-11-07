@@ -231,6 +231,32 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   Power key and the escape chord are `ERR_DENIED`; while an instance guards, only the guard's
   plugin may raise (`ERR_DENIED`, section 4.3). Raised inputs are a chain step (hop + 1) and pass
   no input filter.
+- [D] **Core slots** (draft 25; interface 6 `builtin::slots`). A plugin offers a screen for one
+  with the record `slot.offer` (`registry.md` section 6, SDK `SlotOfferDecl`); the user's binding
+  picks among the offers.
+  Anyone opens a slot with `open` mode 1 and a hand-over whose `ui_param` keys are below (all
+  optional unless named; the host passes params through and does not check them, so a screen
+  ignores keys it does not know). The dialog slots are asked, not opened (section 3.1).
+
+  | Slot | Shows | Hand-over params |
+  | --- | --- | --- |
+  | `core.home` | the start screen | none |
+  | `core.reader` | a book | `path` (required), `root` |
+  | `core.library` | the library | none |
+  | `core.menu` | a menu, an overlay | `menu` (required: the menu id, rows by `core.registry` op 12), `depth`, `mode` (the menu screen's own) |
+  | `core.panel` | a menu as a panel of controls, an overlay | `menu` (required), as `core.menu` |
+  | `core.settings` | settings | `id` (a group), `focus` (a setting) |
+  | `core.setup` | the first-run setup | none |
+  | `core.lookup`, `core.lookup-online` | a word looked up, an overlay | `word` (required), `language` |
+  | `core.browser` | a web page | `url` (required), `id` |
+  | `core.bluetooth` | the Bluetooth page | none |
+  | `core.cable` | the cable (USB) transfer | none (opened by the host) |
+  | `core.edit-widgets` | a widget stack's editor | `id` (required: the stack's setting) |
+  | `core.book-info`, `core.toc`, `core.search`, `core.annotations` | about the open book | `path` |
+  | `core.keyboard`, `core.remote-keyboard`, `core.choice`, `core.confirm`, `core.choose-folder`, `core.choose-value` | dialogs | asked (section 3.1), not opened |
+
+  A slot nobody offers a screen for opens nothing (`ERR_NOT_FOUND`), so a plugin may test for it
+  first (`core.registry` op 9 `slots`, op 10 `slot_offers`).
 
 ## 2. Plugin inputs and gestures (declarations)
 
@@ -357,6 +383,10 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
+- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+  through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
+  (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
+  addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
   has (`core-events.md` 3.3), so the held-event store being full never drops it. The one

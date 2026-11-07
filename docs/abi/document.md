@@ -169,7 +169,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `ERR_NOT_FOUND`. The format reads it as root 3, as any book; it is not a library book (no
   catalog row, position or "recently opened"; its root-6 cache is keyed by the maker's id, root
   and path and goes when the maker is uninstalled). Root 5 exists only in `doc_open`
-  (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers `ERR_UNSUPPORTED` until it is wired.
+  (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers
+  `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
   (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
   `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,

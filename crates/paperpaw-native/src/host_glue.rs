@@ -381,6 +381,12 @@ unsafe extern "C" fn unsupported_text_hyphenate(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_text_covers(_: *mut c_void, _: u32, _: PpBytes) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_icon_glyph(_: *mut c_void, _: PpBytes, _: PpBuffer) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -495,6 +501,8 @@ pub const fn host_table() -> PpHost {
         image_info: unsupported_image_info,
         canvas_draw_image: unsupported_canvas_draw_image,
         text_hyphenate: unsupported_text_hyphenate,
+        text_covers: unsupported_text_covers,
+        icon_glyph: unsupported_icon_glyph,
     }
 }
 

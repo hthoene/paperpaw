@@ -13015,6 +13015,46 @@ impl ServiceLibFieldPage {
         write_bytes(&self.generation.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `event.text_typed` record.
+pub const EVENT_TEXT_TYPED_TAG: u32 = 109;
+/// Maximum bytes of `event.text_typed.text`.
+pub const EVENT_TEXT_TYPED_TEXT_MAX_BYTES: usize = 1024;
+
+/// The `event.text_typed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventTextTyped<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 1024 bytes.
+    pub text: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> EventTextTyped<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventTextTyped(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            text: body.string(EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.text.len(), EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13548,6 +13588,8 @@ pub enum Record<'a> {
     EventDocumentClosed(EventDocumentClosed),
     /// A `ServiceLibFieldPage` record.
     ServiceLibFieldPage(ServiceLibFieldPage),
+    /// A `EventTextTyped` record.
+    EventTextTyped(EventTextTyped<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -13869,6 +13911,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
         EVENT_DOCUMENT_CLOSED_TAG => EventDocumentClosed::decode(body)?,
         SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
+        EVENT_TEXT_TYPED_TAG => EventTextTyped::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -14223,6 +14266,7 @@ impl Record<'_> {
             Record::ServiceSockPort(_) => SERVICE_SOCK_PORT_TAG,
             Record::EventDocumentClosed(_) => EVENT_DOCUMENT_CLOSED_TAG,
             Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
+            Record::EventTextTyped(_) => EVENT_TEXT_TYPED_TAG,
         }
     }
 
@@ -14493,6 +14537,7 @@ impl Record<'_> {
             Record::ServiceSockPort(record) => record.body_len(),
             Record::EventDocumentClosed(record) => record.body_len(),
             Record::ServiceLibFieldPage(record) => record.body_len(),
+            Record::EventTextTyped(record) => record.body_len(),
         }
     }
 
@@ -14768,6 +14813,7 @@ impl Record<'_> {
             Record::ServiceSockPort(record) => record.write(out, offset),
             Record::EventDocumentClosed(record) => record.write(out, offset),
             Record::ServiceLibFieldPage(record) => record.write(out, offset),
+            Record::EventTextTyped(record) => record.write(out, offset),
         }
     }
 
@@ -15373,7 +15419,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_SOCK_STARTED_TAG
         | SERVICE_SOCK_BYTES_TAG
         | SERVICE_SOCK_PEER_TAG
-        | EVENT_DOCUMENT_CLOSED_TAG => return Err(-2),
+        | EVENT_DOCUMENT_CLOSED_TAG
+        | EVENT_TEXT_TYPED_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }
