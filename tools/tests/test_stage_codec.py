@@ -1,5 +1,7 @@
 """Plugin-defined stage schemas share the host's stage validators and emitters (#228)."""
+import contextlib
 import copy
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -174,6 +176,28 @@ class Cli(unittest.TestCase):
                                 '--out-dir', str(self.dir), str(crate)],
                                capture_output=True, text=True)
         self.assertEqual(built.returncode, 0, built.stderr)
+
+    @unittest.skipUnless(shutil.which('rustfmt'), 'rustfmt')
+    def test_plugin_owns_every_key(self):
+        self.assertEqual(CLI.main([str(self.schemas), str(self.out), '--plugin', 'reader']), 0)
+        for plugin in ('other', 'read', 'Reader', 'x' * 41, ''):
+            with self.subTest(plugin=plugin):
+                self.out.unlink(missing_ok=True)
+                self.assertEqual(CLI.main([str(self.schemas), str(self.out), '--plugin', plugin]), 1)
+                self.assertFalse(self.out.exists())
+
+    def test_unreadable_schemas_are_one_line_and_exit_1(self):
+        (self.schemas / 'reader.tap@1.def').mkdir()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(CLI.main([str(self.schemas), str(self.out)]), 1)
+        self.assertEqual(err.getvalue().count('\n'), 1, err.getvalue())
+        self.assertNotIn('Traceback', err.getvalue())
+        (self.schemas / 'reader.tap@1.def').rmdir()
+        (self.schemas / 'reader.tap@1.def').write_bytes(b'\xff\xfe')
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(CLI.main([str(self.schemas), str(self.out)]), 1)
+        self.assertEqual(err.getvalue().count('\n'), 1, err.getvalue())
+        self.assertFalse(self.out.exists())
 
     def test_load_stages_names_its_file(self):
         (self.schemas / 'reader.status@1.def').rename(self.schemas / 'reader.other@1.def')
