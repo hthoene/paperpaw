@@ -9,7 +9,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The first start opens the guide once; a start after it is done does not.
     Case {
         name: "setup-first-start",
@@ -39,6 +39,12 @@ const CASES: [Case; 5] = [
         name: "setup-screen-step",
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
+    },
+    // A screen step shows its own help text (registry op 22, draft 24).
+    Case {
+        name: "setup-screen-step-help",
+        golden: None,
+        blocked_by: &["H1", "REG op 22 `setup_step` (draft 24)"],
     },
 ];
 
@@ -79,4 +85,10 @@ fn setup_skip() {
 #[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and input are not qualified"]
 fn setup_screen_step() {
     CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/REG op 22: the step's help text is not in the registry's reply row until draft 24"]
+fn setup_screen_step_help() {
+    CASES[5].refuse().unwrap();
 }

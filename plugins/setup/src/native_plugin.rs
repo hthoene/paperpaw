@@ -2,18 +2,18 @@
 //! plugins ask for, with the answer in a card and *Next* always right. It is
 //! the screen of the slot `core.setup` and opens once, on the first start;
 //! *Set up PaperPaw* in the settings opens it again.
-use crate::native_guide::{Act, Fonts, Guide, HostMeasure, Target, Texts, lay_out};
+use crate::native_guide::{Act, Fonts, Guide, HostMeasure, Texts, lay_out};
 use crate::native_layout::Layout;
 use crate::native_state;
-use crate::native_steps::{Control, NewValue, Page, Reader};
-use alloc::{string::String, vec::Vec};
+use crate::native_steps::{Control, NewValue, Page, Reader, Setting};
+use alloc::vec::Vec;
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, RedrawMode},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, BookKind, Event},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -26,7 +26,6 @@ use paperpaw_ui_kit::{
     Messages, Screens, Style,
     mem::{SERVICE_BUFFER, buffer},
     paint,
-    text::copy,
 };
 
 mod image {
@@ -36,6 +35,7 @@ mod image {
 /// Callback tokens, as `declarations.rs` gives them.
 const OPEN: u32 = 1;
 const STARTED: u32 = 2;
+const BOOK_OPENED: u32 = 3;
 const GUIDE: u32 = 20;
 /// The slot the guide fills.
 const SLOT: &str = "core.setup";
@@ -77,6 +77,12 @@ impl Plugin for NativeSetup {
                 CommandSender::new(host, &mut scratch).open(Open::slot(SLOT)?)
             }
             Event::Started { .. } if token == STARTED => started(host),
+            // The first book opened, by the user (reason 0), is noted once.
+            Event::Book {
+                kind: BookKind::Opened,
+                reason: 0,
+                ..
+            } if token == BOOK_OPENED => native_state::note_book_opened(host),
             Event::ScreenOpened {
                 screen: "setup.guide",
                 instance,
@@ -141,7 +147,7 @@ impl Plugin for NativeSetup {
         } else {
             Handled::Yes
         };
-        self.carry_out(host, instance, &layout, act)?;
+        self.carry_out(host, instance, act)?;
         Ok(handled)
     }
 }
@@ -232,7 +238,8 @@ impl NativeSetup {
             snap.display_dpi(),
         );
         let mut guide = Guide::new(steps, texts(host)?, display, snap.has_touch());
-        load(host, &mut guide)?;
+        let loaded = read_page(host, &guide, 0)?;
+        guide.commit(0, loaded.gone, loaded.setting);
         self.screens.open(instance, guide)
     }
 
@@ -241,70 +248,70 @@ impl NativeSetup {
         CommandSender::new(host, &mut scratch).queue_redraw(mode)
     }
 
-    fn carry_out(
-        &mut self,
-        host: &Host<'_>,
-        instance: Instance,
-        layout: &Layout,
-        act: Act,
-    ) -> Result<(), Error> {
+    /// Carries out what an input meant. The host's command comes first and
+    /// the guide's state follows it, so a refused command leaves the state as
+    /// the screen shows it.
+    fn carry_out(&mut self, host: &Host<'_>, instance: Instance, act: Act) -> Result<(), Error> {
         let Some(guide) = self.screens.get(instance) else {
             return Ok(());
         };
         match act {
             Act::Ignore | Act::Keep => Ok(()),
             Act::Focus(target) => {
-                let _ = layout;
+                Self::redraw(host, RedrawMode::Partial)?;
                 guide.focus = target;
                 guide.shown = true;
-                Self::redraw(host, RedrawMode::Partial)
+                Ok(())
             }
             Act::Turn(page) if page > guide.steps.len() => finish(host),
             Act::Turn(page) => {
-                guide.page = page;
-                guide.focus = Target::Next;
-                load(host, guide)?;
-                Self::redraw(host, RedrawMode::Partial)
+                let loaded = read_page(host, guide, page)?;
+                Self::redraw(host, RedrawMode::Partial)?;
+                guide.commit(page, loaded.gone, loaded.setting);
+                Ok(())
             }
             Act::AskSkip => self.ask_skip(host),
             Act::Set(value) => {
                 let Some(setting) = guide.setting.as_mut() else {
                     return Ok(());
                 };
-                let key = copy(&setting.key)?;
-                let text = match (&setting.control, value) {
-                    (Control::Choice { options, .. }, NewValue::Text(at)) => {
-                        options.get(at).map(|o| copy(&o.value)).transpose()?
-                    }
-                    _ => None,
-                };
-                setting.apply(&value);
                 let mut scratch = [0; 512];
                 let mut commands = CommandSender::new(host, &mut scratch);
-                match (value, &text) {
-                    (NewValue::Bool(on), _) => {
-                        commands.set_setting(&key, SettingValue::Bool(on))?
+                match (&setting.control, value) {
+                    (_, NewValue::Bool(on)) => {
+                        commands.set_setting(&setting.key, SettingValue::Bool(on))?;
                     }
-                    (NewValue::Int(number), _) => {
-                        commands.set_setting(&key, SettingValue::Int(number))?;
+                    (_, NewValue::Int(number)) => {
+                        commands.set_setting(&setting.key, SettingValue::Int(number))?;
                     }
-                    (NewValue::Text(_), Some(text)) => {
-                        commands.set_setting(&key, SettingValue::Text(text))?;
+                    (Control::Choice { options, .. }, NewValue::Text(at)) => {
+                        let Some(option) = options.get(at) else {
+                            return Ok(());
+                        };
+                        commands.set_setting(&setting.key, SettingValue::Text(&option.value))?;
                     }
-                    (NewValue::Text(_), None) => {}
+                    _ => return Ok(()),
                 }
-                Self::redraw(host, RedrawMode::Fast)
+                Self::redraw(host, RedrawMode::Fast)?;
+                setting.apply(&value);
+                Ok(())
             }
-            Act::OpenScreen(screen) => {
+            Act::OpenScreen => {
+                let Some(screen) = guide.screen_step() else {
+                    return Ok(());
+                };
                 let mut scratch = [0; 256];
-                CommandSender::new(host, &mut scratch).open(Open::screen(&screen)?)
+                CommandSender::new(host, &mut scratch).open(Open::screen(screen)?)
             }
-            Act::OpenEditor(slot, id) => {
+            Act::OpenEditor => {
+                let Some((slot, id)) = guide.editor() else {
+                    return Ok(());
+                };
                 let mut scratch = [0; 256];
                 let open = if slot {
-                    Open::slot(&id)?
+                    Open::slot(id)?
                 } else {
-                    Open::screen(&id)?
+                    Open::screen(id)?
                 };
                 CommandSender::new(host, &mut scratch).open(open)
             }
@@ -368,28 +375,40 @@ fn finish(host: &Host<'_>) -> Result<(), Error> {
     }
 }
 
-/// Reads the setting of the page shown; a step whose setting is gone is left
-/// out.
-fn load(host: &Host<'_>, guide: &mut Guide) -> Result<(), Error> {
-    guide.setting = None;
+/// A page read before it is shown: the setting it asks for, and how many
+/// steps from the page on have no setting any more and are left out.
+struct Loaded {
+    gone: usize,
+    setting: Option<Setting>,
+}
+
+/// Reads the setting of page `page`; a step whose setting is gone is left
+/// out (counted, not removed: nothing changes before the whole read is done).
+fn read_page(host: &Host<'_>, guide: &Guide, page: usize) -> Result<Loaded, Error> {
+    let mut gone = 0;
     loop {
-        let Some(step) = guide.steps.get(guide.page) else {
-            return Ok(());
+        let Some(step) = guide.steps.get(page + gone) else {
+            return Ok(Loaded {
+                gone,
+                setting: None,
+            });
         };
         let Page::Setting(key) = &step.page else {
-            return Ok(());
+            return Ok(Loaded {
+                gone,
+                setting: None,
+            });
         };
-        let key: String = copy(key)?;
         let mut reader = Reader::open(host)?;
-        let found = reader.setting(&key);
+        let found = reader.setting(key);
         match reader.finish(found) {
             Ok(setting) => {
-                guide.setting = Some(setting);
-                return Ok(());
+                return Ok(Loaded {
+                    gone,
+                    setting: Some(setting),
+                });
             }
-            Err(Error::NotFound) => {
-                guide.steps.remove(guide.page);
-            }
+            Err(Error::NotFound) => gone += 1,
             Err(error) => return Err(error),
         }
     }

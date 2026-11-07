@@ -60,10 +60,10 @@ pub enum Act {
     AskSkip,
     /// Set the shown setting to this.
     Set(NewValue),
-    /// Open the screen of a screen step.
-    OpenScreen(String),
-    /// Open the editor of the shown setting: `(is_slot, id)`.
-    OpenEditor(bool, String),
+    /// Open the screen of a screen step ([`Guide::screen_step`]).
+    OpenScreen,
+    /// Open the editor of the shown setting ([`Guide::editor`]).
+    OpenEditor,
 }
 
 /// The guide's state.
@@ -93,6 +93,15 @@ impl Guide {
             texts,
             display,
         }
+    }
+
+    /// Shows page `page`, the `gone` steps from it left out, with its setting.
+    pub fn commit(&mut self, page: usize, gone: usize, setting: Option<Setting>) {
+        let end = page.saturating_add(gone).min(self.steps.len());
+        self.steps.drain(page.min(end)..end);
+        self.page = page;
+        self.focus = Target::Next;
+        self.setting = setting;
     }
 
     /// Whether `page` is the last one, past all the steps.
@@ -163,13 +172,15 @@ impl Guide {
         }
     }
 
-    /// What can be chosen on the page, top to bottom.
-    pub fn targets(&self, layout: &Layout) -> impl Iterator<Item = Target> {
-        layout
-            .card
-            .map(|_| Target::Card)
-            .into_iter()
-            .chain([Target::Next, Target::Other])
+    /// What can be chosen on the page, top to bottom: up to three, and how
+    /// many.
+    #[must_use]
+    pub fn targets(&self, layout: &Layout) -> ([Target; 3], usize) {
+        if layout.card.is_some() {
+            ([Target::Card, Target::Next, Target::Other], 3)
+        } else {
+            ([Target::Next, Target::Other, Target::Other], 2)
+        }
     }
 
     fn next_label(&self) -> &str {
@@ -190,24 +201,37 @@ impl Guide {
 
     /// What choosing the card does.
     fn card_act(&self) -> Act {
-        if let Some(Step {
-            page: Page::Screen(screen),
-            ..
-        }) = self.step()
-        {
-            return Act::OpenScreen(screen.clone());
+        if self.screen_step().is_some() {
+            return Act::OpenScreen;
         }
         let Some(setting) = &self.setting else {
             return Act::Keep;
         };
         match &setting.control {
             Control::Number { .. } => Act::Keep,
-            Control::Value(_) => match &setting.editor {
-                Some((slot, id)) => Act::OpenEditor(*slot, id.clone()),
-                None => Act::Keep,
-            },
+            Control::Value(_) if setting.editor.is_some() => Act::OpenEditor,
+            Control::Value(_) => Act::Keep,
             _ => setting.next(1).map_or(Act::Keep, Act::Set),
         }
+    }
+
+    /// The screen of the page, if it is a screen step.
+    #[must_use]
+    pub fn screen_step(&self) -> Option<&str> {
+        match self.step()? {
+            Step {
+                page: Page::Screen(screen),
+                ..
+            } => Some(screen),
+            _ => None,
+        }
+    }
+
+    /// The editor of the setting shown: `(is_slot, id)`.
+    #[must_use]
+    pub fn editor(&self) -> Option<(bool, &str)> {
+        let (slot, id) = self.setting.as_ref()?.editor.as_ref()?;
+        Some((*slot, id))
     }
 
     fn choose(&self, target: Target) -> Act {
@@ -224,9 +248,10 @@ impl Guide {
         if !self.shown {
             return Act::Focus(self.focus);
         }
-        let targets: Vec<Target> = self.targets(layout).collect();
+        let (targets, count) = self.targets(layout);
+        let targets = &targets[..count];
         let at = targets.iter().position(|t| *t == self.focus).unwrap_or(0) as isize;
-        let to = (at + delta).rem_euclid(targets.len() as isize) as usize;
+        let to = (at + delta).rem_euclid(count as isize) as usize;
         Act::Focus(targets[to])
     }
 
@@ -875,10 +900,7 @@ mod tests {
         g.page = 1;
         g.focus = Target::Card;
         let l = laid(&g);
-        assert_eq!(
-            g.decide(&l, &action("core.confirm")),
-            Act::OpenScreen("wifi.page".into())
-        );
+        assert_eq!(g.decide(&l, &action("core.confirm")), Act::OpenScreen);
     }
 
     #[test]

@@ -1,10 +1,9 @@
-//! What the setup remembers and what it asks of the library: two marks in the
-//! plugin's data (the guide is done or skipped; the guide was opened and its
-//! mark may not be writable) and whether a book was ever opened.
-use alloc::vec;
+//! What the setup remembers: marks in the plugin's data. The guide is done or
+//! skipped (`done`); the guide was opened and its mark may not be writable
+//! (`trial`); a book was opened on this device (`opened`), so a device used
+//! before the guide came is not given it.
 use paperpaw_sdk::native::{
     Error, Host,
-    library::{Library, Query, Show},
     storage::{self, Root},
 };
 
@@ -13,6 +12,8 @@ const DONE: &str = "done";
 /// The file written before the guide opens: where it cannot be, the done mark
 /// could not be either.
 const TRIAL: &str = "trial";
+/// The file whose being there says a book was opened.
+const OPENED: &str = "opened";
 
 /// Whether the file `name` is there.
 fn exists(host: &Host<'_>, name: &str) -> Result<bool, Error> {
@@ -44,32 +45,15 @@ pub fn mark_done(host: &Host<'_>) -> bool {
     true
 }
 
-/// Whether a book was opened before: the setup does not come to a device that
-/// was used already.
+/// Whether a book was opened on this device since the setup began to note it.
 pub fn has_opened_book(host: &Host<'_>) -> Result<bool, Error> {
-    let library = Library::open(host)?;
-    let found = opened(host, &library);
-    let released = library.release(host);
-    let found = found?;
-    released?;
-    Ok(found)
+    exists(host, OPENED)
 }
 
-fn opened(host: &Host<'_>, library: &Library) -> Result<bool, Error> {
-    let mut input = buffer(512)?;
-    let mut output = buffer(4096)?;
-    for show in [Show::Reading, Show::Finished] {
-        let page = library.query(host, &Query::new().show(show), &mut input, &mut output)?;
-        if page.end().total() > 0 {
-            return Ok(true);
-        }
+/// Notes the first book opened, once.
+pub fn note_book_opened(host: &Host<'_>) -> Result<(), Error> {
+    if exists(host, OPENED)? {
+        return Ok(());
     }
-    Ok(false)
-}
-
-fn buffer(len: usize) -> Result<alloc::vec::Vec<u8>, Error> {
-    let mut bytes = vec::Vec::new();
-    bytes.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
-    bytes.resize(len, 0);
-    Ok(bytes)
+    storage::write(host, Root::Data, OPENED, b"")
 }

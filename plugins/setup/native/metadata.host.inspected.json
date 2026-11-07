@@ -28,12 +28,6 @@
   },
   "services": [
     {
-      "key": "core.library",
-      "major": 1,
-      "min_table_bytes": 0,
-      "semantic_revision": 0
-    },
-    {
       "key": "core.registry",
       "major": 1,
       "min_table_bytes": 0,
@@ -47,5 +41,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 146
+  "total_bytes": 122
 }

@@ -137,7 +137,6 @@
   ],
   "services": [
     "core.registry",
-    "core.library",
     "core.ui"
   ],
   "features": []

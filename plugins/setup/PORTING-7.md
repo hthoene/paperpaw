@@ -4,7 +4,7 @@ Version 1.0.4. Native plugin: `src/native_plugin.rs` (`NativeSetup`: the start, 
 the skip question, the commands), the guide's state and what an input means in `src/native_guide.rs`
 (`Guide`, `Act`, painting), the geometry in `src/native_layout.rs`, the registry reads in
 `src/native_steps.rs` (the steps that apply, the setting of a page with its help and options), the
-marks and the library question in `src/native_state.rs`. `NATIVE_ENTRY` (feature `linked`),
+marks in `src/native_state.rs`. `NATIVE_ENTRY` (feature `linked`),
 declarations in `declarations.rs` built into the image by `build.rs` (screen, slot offer for
 `core.setup`, action and menu entry, start event), metadata in `native/` (regenerate with
 `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
@@ -24,8 +24,10 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   the setting's title (or the step's), its help, its value; a screen step opens the screen.
 - Marks as before: `done` (finished or skipped) and `trial` (written before the guide opens: where
   it cannot be, the guide does not open at all) in the plugin's data; a notice when `done` cannot
-  be written. A device where a book was opened already is marked done and gets no guide (the
-  library's reading and finished lists, in place of `opened_books`).
+  be written. A device where a book was opened already is marked done and gets no guide: the plugin notes
+  the first book opened (`event.book_opened`, reason 0) in its own data (`opened`), without the
+  library feature (least privilege, Kernel). A book read while setup was disabled re-offers the guide
+  once, skippable (accepted difference from interface 6).
 - The guide is the screen of the slot `core.setup` (another plugin can replace it); *Set up
   PaperPaw* in the settings (menu `core.settings-pages`, order 97, icon `wand`) opens the slot.
 - Texts, ids, icon and en/de catalogs unchanged (two words added: on and off).
@@ -54,7 +56,8 @@ golden exists yet.
   choice of many steps through its options (interface 6 could open the settings plugin's list).
 - A screen step's badge ("Connected" on the card) is not read; the card says *Open*.
 - A step's own help text (`setup.step` `help`) is not in the registry's reply row; the page shows
-  the setting's help, and none for a screen step. Needs an SDK/ABI field (reported).
+  the setting's help, and none for a screen step. Kernel adds `core.registry` op 22 `setup_step`
+  (draft 24); until then an ignored acceptance case (`setup-screen-step-help`) names it.
 - Right-to-left layout (the side buttons and the two options keep their order; the snapshot has no
   direction).
 - The sample appears for the reader's text size only (interface 6 took any number whose unit was
