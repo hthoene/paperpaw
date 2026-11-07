@@ -702,4 +702,43 @@ mod tests {
         assert!(kernel.shared.native_instances.id(key).is_none());
         assert!(kernel.native_unload_due().is_none());
     }
+    #[test]
+    fn lost_orphan_retirement_reports_queue_full_once_and_backs_off() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        kernel.take_warnings();
+        let pool = super::super::HostResources::try_new().unwrap();
+        let owner = pool.try_owner().unwrap();
+        kernel
+            .shared
+            .native_instances
+            .adopt_pool(owner.try_view().unwrap())
+            .unwrap();
+        // Break the admission invariant deliberately: the old fixed queue
+        // could lose an owner. The driver must report even an empty queue.
+        pool.hosts().owner_gone(123, false);
+        pool.hosts().owner_gone(456, false);
+        let effects = kernel.tick(paperpaw_platform::Instant(0));
+        assert_eq!(effects.wake_at(), Some(paperpaw_platform::Instant(5_000)));
+        let warnings = kernel.take_warnings();
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|warning| warning.message.contains("retirement queue full"))
+                .count(),
+            1
+        );
+        assert!(pool.hosts().retirements_pending());
+        kernel.tick(paperpaw_platform::Instant(50));
+        kernel.tick(paperpaw_platform::Instant(5_000));
+        assert!(
+            kernel.take_warnings().is_empty(),
+            "the invariant failure is reported once"
+        );
+        assert_eq!(
+            kernel.native_unload_due(),
+            Some(paperpaw_platform::Instant(10_000))
+        );
+    }
 }

@@ -133,7 +133,11 @@ impl crate::Kernel {
             .retry_orphaned_retirements(self.now.millis())
             && status != paperpaw_native::host_glue::ERR_BUSY
         {
-            self.warn_runtime("orphaned native owner cleanup failed; retry scheduled");
+            self.warn_runtime(if status == paperpaw_native::host_glue::ERR_FULL {
+                "native retirement queue full; cleanup could not be queued"
+            } else {
+                "orphaned native owner cleanup failed; retry delayed"
+            });
         }
         let mut after = None;
         while let Some((key, owner)) = self.shared.native_instances.pending_unload(after) {
