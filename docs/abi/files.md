@@ -103,7 +103,7 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   (the trait's promise). `service.end.total` is 0 (unknown) and `generation` 0: folders have no
   generation.
 - [D] A page holds as many whole rows as fit in the op's `max_reply` (4,096 bytes), at most 32 (a
-  row is at most 790 bytes, so at least 5 fit). A
+  row is at most 793 bytes framed, so at least 5 fit). A
   folder of thousands of entries is so read once in all, not once per page (notes-vault indexes up
   to 50,000 notes this way).
 - [D] `flags`: none yet; other bits `ERR_UNSUPPORTED`.
