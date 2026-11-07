@@ -157,6 +157,8 @@ def is_native(path, crate=None):
     """Whether `path` lies in a crate's `src/native/`."""
     parts = path.relative_to(crate).parts if crate else path.parts
     return any(a == "src" and b == NATIVE for a, b in zip(parts, parts[1:]))
+
+
 CALL = re.compile(r"(?<![\w.:])(?:\.\s*)?([a-z_][a-z0-9_]*)\s*(?:::<[^()]*?>)?\s*\(")
 METHOD = re.compile(r"\.\s*([a-z_][a-z0-9_]*)\s*(?:::<[^()]*?>)?\s*\(")
 PATHCALL = re.compile(r"::\s*([a-z_][a-z0-9_]*)\s*(?:::<[^()]*?>)?\s*\(")
@@ -310,17 +312,21 @@ def reach(functions, file, body, generated=None, native_users=frozenset()):
             sys.exit(f"{at}: shared body reaches the native facade by a native:: path; "
                      "src/native/ is never hashed")
         for callee in sorted(called(code, include_standard=True)):
+            defs = functions.get(callee, [])
+            # Checked before standard names are skipped: a generated function
+            # named `len` is still refused. Only a standard name the native
+            # facade alone defines (`retain`) is the standard method.
+            if not defs and generated and callee in generated and not (
+                    callee in STANDARD and all(is_native(path) for path in generated[callee])):
+                files = ", ".join(str(path) for path in generated[callee])
+                sys.exit(f"{at}: shared body calls {callee}, defined only in "
+                         f"generated or native source: {files}; its body cannot be skipped")
             if callee in STANDARD:
                 continue
             if at in native_users and generated and any(
                     is_native(path) for path in generated.get(callee, [])):
                 sys.exit(f"{at}: shared body calls {callee}, which src/native/ also "
                          "defines, from a file that imports from native; rename it")
-            defs = functions.get(callee, [])
-            if not defs and generated and callee in generated:
-                files = ", ".join(str(path) for path in generated[callee])
-                sys.exit(f"{at}: shared body calls {callee}, defined only in "
-                         f"generated or native source: {files}; its body cannot be skipped")
             local = [d for d in defs if d[0] == at]
             if local:
                 defs = local
