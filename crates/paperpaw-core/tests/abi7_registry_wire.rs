@@ -125,9 +125,9 @@ fn caps_text_and_framing_keep_the_codec_statuses() {
         commands_decode(&encode(&[empty])).unwrap().iter().next(),
         Some(empty)
     );
-    // The next tag in the growth block has no command yet.
+    // The last tag of the command range (2047) has no command.
     assert_eq!(
-        commands_decode(&[1, 0x8b, 0x0c, 1, 0]).map(|_| ()),
+        commands_decode(&[1, 0xff, 0x0f, 1, 0]).map(|_| ()),
         Err(ERR_UNSUPPORTED)
     );
 }
@@ -204,14 +204,16 @@ fn list_fields_enforce_item_count_length_and_empty_items() {
     }
 }
 
-/// `answer_plugin` waits for DEV's `uses.install` (`registry.md` section 5);
-/// until then the host refuses it from every plugin (`abi7_scoped_commands`).
-/// When DEV adds the feature, this fails: wire the check to it there.
+/// `answer_plugin` is allowed to plugins that declare DEV's `uses.install`
+/// (`device.md` section 1). This host has no feature checks for commands yet,
+/// so it still refuses it from every plugin (`abi7_scoped_commands`): stricter
+/// than the contract, never looser. Core wires the check with the DEV host side
+/// and replaces both tests by one per side of the feature.
 #[test]
-fn answer_plugin_has_no_install_feature_yet() {
+fn answer_plugin_feature_is_defined_and_the_host_still_refuses_it() {
     let schema = include_str!("../../../abi/abi.def");
     assert!(schema.contains("\"key\": \"uses.registry\""));
-    assert!(!schema.contains("\"key\": \"uses.install\""));
+    assert!(schema.contains("\"key\": \"uses.install\""));
 }
 
 const STEP: Record<'static> = Record::SetupStep(SetupStep {

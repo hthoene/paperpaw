@@ -261,7 +261,66 @@ class RecordsTests(unittest.TestCase):
                           ('command.set_menu', 1540), ('command.bind_key', 1541),
                           ('command.bind_slot', 1542), ('command.set_plugin_enabled', 1543),
                           ('command.request_plugins', 1544), ('command.answer_plugin', 1545),
-                          ('command.apply_preset', 1546)])
+                          ('command.apply_preset', 1546),
+                          ('input.spec', 29), ('help.hint', 30), ('widget.spec', 224),
+                          ('widget.place', 225), ('status.item', 226), ('status.line', 227),
+                          ('status.place', 228), ('event.screen_opened', 79),
+                          ('event.screen_closed', 80), ('event.stack_changed', 81),
+                          ('event.answered', 82), ('event.widget_made', 84),
+                          ('event.widget_dropped', 85), ('event.widget_changed', 86),
+                          ('event.screen_ready', 87), ('event.spoken', 89), ('input.widget', 193),
+                          ('service.ui_screen', 1041), ('service.ui_request', 1042),
+                          ('service.ui_question', 1043), ('service.ui_hint', 1044),
+                          ('service.ui_widget_ref', 1045), ('service.ui_instance', 1046),
+                          ('service.ui_widget_input', 1047), ('service.ui_target', 1048),
+                          ('service.ui_ask', 1049), ('service.ui_text', 1050),
+                          ('service.ui_text_at', 1051), ('service.ui_answer', 1052),
+                          ('service.ui_widget_area', 1053), ('service.ui_size', 1054),
+                          ('service.ui_status_ask', 1055), ('service.ui_status_value', 1056),
+                          ('service.ui_param', 1057), ('service.ui_handle', 1058),
+                          ('command.open', 1547), ('command.close', 1548),
+                          ('command.back_to', 1549), ('command.set_key_layer', 1550),
+                          ('command.show_hints', 1551), ('command.raise_input', 1552),
+                          ('command.widget_changed', 1556), ('command.screen_ready', 1557),
+                          ('command.notify', 1558), ('command.speak', 1561),
+                          ('command.stop_speaking', 1562), ('command.screen_policy', 1563),
+                          ('format.spec', 31), ('reader.spec', 229), ('service.doc_open', 1060),
+                          ('service.doc_option', 1061), ('service.doc_state', 1062),
+                          ('service.doc_ref', 1063), ('service.doc_meta', 1064),
+                          ('service.doc_text', 1065), ('service.doc_text_at', 1066),
+                          ('service.doc_page', 1067), ('service.doc_section', 1068),
+                          ('service.doc_at', 1069), ('service.doc_toc', 1070), ('service.doc_index',
+                          1071), ('service.doc_label', 1072), ('service.doc_xpointer', 1073),
+                          ('service.doc_span', 1074), ('service.doc_link', 1075),
+                          ('service.doc_href', 1076), ('service.doc_font', 1077),
+                          ('service.doc_format', 1078), ('service.doc_path', 1079),
+                          ('service.doc_reader', 1080), ('service.doc_progress', 1081),
+                          ('service.doc_block', 1082), ('service.doc_text_part', 1090),
+                          ('service.doc_columns', 1091), ('service.doc_run', 1083),
+                          ('service.doc_map', 1084), ('service.doc_cell', 1085),
+                          ('service.doc_ruby', 1086), ('service.doc_inline_lang', 1087),
+                          ('service.doc_image', 1088), ('service.doc_image_ask', 1089),
+                          ('command.image_prepare', 1559), ('command.image_release', 1560),
+                          ('event.image_ready', 90), ('lookup.spec', 230), ('service.lookup_ask',
+                          1092), ('service.lookup_entry', 1093), ('book_field.spec', 231),
+                          ('book_badge.spec', 232), ('book_data.spec', 233),
+                          ('event.library_changed', 91), ('service.lib_state', 1094),
+                          ('service.lib_query', 1095), ('service.lib_entry', 1096),
+                          ('service.lib_ref', 1097), ('service.lib_book', 1098),
+                          ('service.lib_text_at', 1099), ('service.lib_text', 1100),
+                          ('service.lib_facet', 1101), ('service.lib_cover', 1102),
+                          ('service.lib_status', 1103), ('service.lib_paths', 1104),
+                          ('service.lib_result', 1105), ('service.lib_move', 1106),
+                          ('service.lib_import', 1107), ('service.lib_position', 1108),
+                          ('service.lib_position_set', 1109), ('service.lib_page', 1110),
+                          ('service.lib_annotation', 1111), ('service.lib_anchor', 1112),
+                          ('service.lib_edit_head', 1113), ('service.lib_transaction', 1114),
+                          ('service.lib_transaction_ref', 1115), ('service.lib_edit', 1116),
+                          ('service.lib_edit_text', 1117), ('service.lib_committed', 1118),
+                          ('service.lib_field', 1119), ('service.lib_field_set', 1120),
+                          ('service.lib_provided', 1121), ('service.lib_key', 1122),
+                          ('service.lib_receipt_ask', 1123), ('service.lib_receipt', 1124),
+                          ('service.dev_device', 1125), ('service.dev_value', 1126), ('service.dev_firmware', 1127), ('service.dev_builtin', 1128), ('service.dev_native', 1129), ('service.dev_check', 1130), ('service.dev_memory', 1131), ('service.dev_wifi', 1132), ('service.dev_network', 1133), ('service.dev_bluetooth', 1134), ('service.dev_bonded', 1135), ('service.dev_interval', 1136), ('service.dev_power', 1137), ('service.dev_request', 1138), ('service.dev_install', 1139), ('service.dev_not_installed', 1140), ('service.dev_key', 1141), ('command.wifi_on', 1564), ('command.wifi_off', 1565), ('command.wifi_scan', 1566), ('command.wifi_join', 1567), ('command.wifi_leave', 1568), ('command.wifi_host', 1569), ('command.network_none', 1570), ('command.go_online', 1571), ('command.sleep', 1572), ('command.power_off', 1573), ('command.restart', 1574), ('command.wear', 1575), ('command.install_plugin', 1576), ('command.remove_plugin', 1577), ('command.install_firmware', 1578), ('command.firmware_restart', 1579), ('command.install_author', 1580), ('command.install_rotation', 1581), ('command.trust_revoked', 1582), ('command.check_file', 1592), ('command.bt_scan', 1583), ('command.bt_stop_scan', 1584), ('command.bt_pair', 1585), ('command.bt_connect', 1586), ('command.bt_disconnect', 1587), ('command.bt_forget', 1588), ('command.bt_give', 1589), ('command.bt_take_back', 1590), ('command.bt_keys', 1591), ('event.wifi_scanned', 92), ('event.wifi_done', 93), ('event.network_wanted', 94), ('event.network_idle', 95), ('event.firmware_changed', 96), ('event.install_done', 97), ('event.bluetooth', 98)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -373,6 +432,18 @@ class RecordsTests(unittest.TestCase):
         field['list'] = items
         with self.assertRaises(ValueError):
             rust_records(candidate)
+
+    def test_counted_encoders_share_one_body(self):
+        # Todo 46 (#228): the slice encoder delegates to the iterator one, so
+        # both check caps and capacity in one place, before any write.
+        source = rust_records(self.schema)
+        for line in ['pub fn records_encode_counted_iter<\'r, I>(',
+                     '    I: Iterator<Item = Record<\'r>> + Clone,',
+                     '    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)',
+                     '    let count = records.clone().take(max_records.saturating_add(1)).count();',
+                     '    if written != count || offset != required {']:
+            self.assertIn(line, source)
+        self.assertEqual(source.count('write_varint(count as u32, out, &mut offset);'), 1)
 
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)

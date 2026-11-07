@@ -30,6 +30,7 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::Rect;
 
+pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
@@ -323,6 +324,12 @@ impl<S: Services, M> Hosted<S, M> {
             image,
             stopped: Cell::new(false),
         })
+    }
+
+    /// Per-instance available features retained before make, without metadata.
+    #[must_use]
+    pub fn features(&self) -> AdmittedFeatures {
+        self.owner.as_ref().context().declared_services.features()
     }
 
     /// The pinned owner; callers lease and finish through it. To stop the
@@ -1462,3 +1469,11 @@ unsafe extern "C" fn service_call<S>(
         )
     }
 }
+
+#[path = "shell_stage.rs"]
+mod stage;
+#[allow(
+    unused_imports,
+    reason = "stage broker consumes this checked reply hook next"
+)]
+pub(crate) use stage::dispatch_stage;

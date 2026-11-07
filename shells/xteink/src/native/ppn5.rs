@@ -250,7 +250,10 @@ mod x4 {
             minor: HOST.minor,
             profile: paperpaw_native::header5::X4_PROFILE,
             services: shell::DATA_SERVICES,
-            features: &[],
+            // Nothing is advertised until a family is wired here and its
+            // commands check `features().feature(key)`: a plugin that needs a
+            // feature is refused, and one that merely asks for it keeps no bit.
+            features: X4_FEATURES,
         };
         let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
@@ -323,6 +326,12 @@ mod x4 {
             .map_err(|why| entry_refused(path, why))?;
         Ok(raw.make)
     }
+
+    /// The features this firmware advertises to plugins (`uses.*`): none yet.
+    /// A feature is listed here in the change that wires its family, with the
+    /// check of `Hosted::features().feature(key)` in front of what it gates;
+    /// admission keeps the bits of the ones a plugin asked for either way.
+    const X4_FEATURES: &[metadata::Feature<'static>] = &[];
 
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.

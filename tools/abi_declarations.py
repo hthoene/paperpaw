@@ -29,6 +29,13 @@ TAG_RANGES = {
     'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
     # Registry declarations (REG, docs/abi/registry.md section 6).
     'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
+    # UIX declarations (docs/abi/ui.md sections 2, 5, 7); `input.spec` by its full name,
+    # beside the `input` family of host-sent inputs.
+    'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
+    'status': DECLARATIVE,
+    # DOC and LIB declarations (docs/abi/document.md section 1 and 7, library.md section 1).
+    'reader': DECLARATIVE, 'lookup': DECLARATIVE, 'book_field': DECLARATIVE,
+    'book_badge': DECLARATIVE, 'book_data': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -91,7 +98,10 @@ def is_growth_command(item):
 
 
 def growth_fields(record):
-    """The checked fields of a growth-block command, as for a generated record."""
+    """The checked fields of a growth-block command, as for a generated record; a
+    command that asks for one thing only (`command.show_hints`) has none."""
+    if record.get('fields') == []:
+        return []
     return _fields(record)
 
 
@@ -165,7 +175,12 @@ def _fields(record):
                      and type(items['item_max_bytes']) is int
                      and 1 <= items['item_max_bytes'] <= cap,
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        secret = 'secret' in field
+        _require(not secret or (field['secret'] is True and kind == 'str' and items is None
+                                and is_growth_command(record)),
+                 f'{name}.{label}: secret must be true, on a str field of a command, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        secret=secret,
                         since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
@@ -176,12 +191,18 @@ def validate_wire_records(schema, descriptor):
     """Generated records have checked tags, names and fields."""
     declared = wire_records(schema)
     check_tags(schema['records'])
+    validate_record_shapes(declared, descriptor['since'], schema.get('minor', 0))
+    return declared
+
+
+def validate_record_shapes(declared, minimum_since, maximum_since):
+    """Shared generated-name and revision checks for kernel and local tags."""
     titles, consts = set(), set()
     for record in declared:
         _require(RECORD_NAME.fullmatch(record['name']) is not None,
                  f'record name {record["name"]!r} is not dotted lowercase')
         _require(type(record['since']) is int and
-                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 minimum_since <= record['since'] <= maximum_since,
                  'record since outside codec/schema minor')
         title, const = _camel(record['name']), _const(record['name'])
         _require(title not in titles and const not in consts and title != 'Registration',
@@ -189,7 +210,7 @@ def validate_wire_records(schema, descriptor):
         titles.add(title)
         consts.add(const)
         for field in record['fields']:
-            _require(field['since'] <= schema.get('minor', 0),
+            _require(field['since'] <= maximum_since,
                      f'{record["name"]}.{field["name"]}: since outside schema minor')
     return declared
 
@@ -233,7 +254,7 @@ def _lifetime(record):
     return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
-def _record_source(record):
+def _record_source(record, decode_name="decode", record_type="Record<'a>", extensible=False):
     """One borrowed record struct with decode, length and write steps."""
     name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
@@ -256,6 +277,8 @@ def _record_source(record):
                     f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
             '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
+    if extensible:
+        out.insert(len(out) - 1, '#[non_exhaustive]')
     for field in fields:
         kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
@@ -270,8 +293,8 @@ def _record_source(record):
         out += [f'    /// {text}', f'    pub {field["name"]}: {rust},']
     borrows = _lifetime(record)
     out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
-            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {" if borrows
-            else "    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
+            f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{" if borrows
+            else f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",
             '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
             f'        Ok(Record::{title}(Self {{']
     for field in fields:
@@ -324,6 +347,14 @@ def _record_source(record):
         else:
             out.append(_write_line(field, '        '))
     out += ['    }', '}', '']
+    if extensible:
+        params = ', '.join(f"{f['name']}: " + (f"Option<{RUST_TYPES[f['kind']]}>"
+                           if f['maybe'] else RUST_TYPES[f['kind']]) for f in fields)
+        values = ', '.join(f['name'] for f in fields)
+        out += [f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+                '    /// Build a record; encoding validates its bounds.',
+                f'    pub const fn new({params}) -> Self {{',
+                f'        Self {{ {values} }}', '    }', '}', '']
     return '\n'.join(out)
 
 
@@ -688,6 +719,66 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = record_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)
+}
+
+/// [`records_encode_counted`] over records made on the fly: no slice of
+/// them is ever collected. The iterator is cloned and walked three times
+/// (count, size, write), so it must yield the same records each time, as a
+/// clone of an iterator over borrowed data does. Every cap and the output
+/// capacity are checked before any write, in the order and with the statuses
+/// of [`records_encode_counted`]. An iterator that yields other records on
+/// the writing walk is refused with ERR_INVALID; the output is then
+/// unspecified, and it is never written past `out`.
+pub fn records_encode_counted_iter<'r, I>(
+    records: I,
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32>
+where
+    I: Iterator<Item = Record<'r>> + Clone,
+{
+    let count = records.clone().take(max_records.saturating_add(1)).count();
+    if count > max_records || count > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(count as u32);
+    for record in records.clone() {
+        required += record_framed_len(&record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(count as u32, out, &mut offset);
+    let mut written = 0;
+    for record in records {
+        written += 1;
+        let rest = out.get_mut(offset..required).ok_or(@INVALID@)?;
+        offset += record_encode_one(&record, rest).map_err(|_| @INVALID@)?;
+    }
+    if written != count || offset != required {
+        return Err(@INVALID@);
+    }
+    Ok(offset)
 }
 '''
 

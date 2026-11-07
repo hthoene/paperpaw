@@ -113,13 +113,13 @@ class BodyHashes(unittest.TestCase):
             functions = shared.crate_functions(crate, generated)
             for body in ["{ wire::decode_wire() }", "{ helper() }"]:
                 with self.subTest(body=body):
-                    with self.assertRaisesRegex(SystemExit, "decode_wire.*generated source"):
+                    with self.assertRaisesRegex(SystemExit, "decode_wire.*generated or native source"):
                         shared.reach(functions, caller, body, generated)
             self.assertEqual(generated, {"decode_wire": [wire]})
             with mock.patch.object(shared, "bodies", return_value={
                 ("test", "CODEC"): (crate, caller, "{ helper() }")
             }):
-                with self.assertRaisesRegex(SystemExit, "decode_wire.*generated source"):
+                with self.assertRaisesRegex(SystemExit, "decode_wire.*generated or native source"):
                     shared.body_hashes([("test", 1, "CODEC", "unused")])
 
     def test_an_unused_generated_function_is_not_parsed_or_hashed(self):
@@ -146,8 +146,16 @@ class BodyHashes(unittest.TestCase):
 
     def test_generated_only_calls_are_checked_before_standard_name_filtering(self):
         caller, wire = pathlib.Path("caller.rs"), pathlib.Path("wire.rs")
-        with self.assertRaisesRegex(SystemExit, "len.*generated source"):
+        with self.assertRaisesRegex(SystemExit, "len.*generated or native source"):
             shared.reach({}, caller, "{ wire::len() }", {"len": [wire]})
+
+    def test_a_standard_name_only_the_native_facade_defines_is_the_standard_method(self):
+        caller = pathlib.Path("crate/src/ui.rs")
+        native = pathlib.Path("crate/src/native/stages.rs")
+        self.assertEqual(shared.reach({}, caller, "{ v.retain(|x| x) }", {"retain": [native]}),
+                         set())
+        with self.assertRaisesRegex(SystemExit, "stage_run.*generated or native source"):
+            shared.reach({}, caller, "{ stage_run() }", {"stage_run": [native]})
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 //! Admission-owned service requirements. No metadata borrow survives admission.
+use super::admitted_features::AdmittedFeatures;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use paperpaw_native::metadata::Declared;
+use paperpaw_native::metadata::{Checked, Declared};
 
 /// Why copying admission requirements failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ struct Entry {
 pub struct DeclaredServices {
     keys: Box<str>,
     entries: Box<[Entry]>,
+    features: AdmittedFeatures,
 }
 
 impl DeclaredServices {
@@ -33,7 +35,36 @@ impl DeclaredServices {
         Self {
             keys: Box::default(),
             entries: Box::default(),
+            features: AdmittedFeatures::NONE,
         }
+    }
+
+    /// Retain service requirements and available features from checked metadata.
+    /// `host` must be the exact feature catalog used by `metadata::check`;
+    /// Checked retains no revision information to validate another catalog.
+    ///
+    /// # Errors
+    /// Returns Invalid for an unsupported catalog or invalid service list,
+    /// NoMemory if the service requirements cannot be copied.
+    pub fn try_from_metadata(
+        checked: &Checked<'_>,
+        host: &'static [paperpaw_native::metadata::Feature<'static>],
+    ) -> Result<Self, Error> {
+        let features = AdmittedFeatures::from_checked(checked, host)?;
+        let mut declared = Self::try_from_iter(checked.services())?;
+        declared.features = features;
+        Ok(declared)
+    }
+
+    pub(crate) fn with_features(mut self, features: AdmittedFeatures) -> Self {
+        self.features = features;
+        self
+    }
+
+    /// Per-instance features preserved at admission, without metadata borrows.
+    #[must_use]
+    pub const fn features(&self) -> AdmittedFeatures {
+        self.features
     }
 
     /// Copy the canonical service list produced by metadata admission.
@@ -75,6 +106,7 @@ impl DeclaredServices {
         Ok(Self {
             keys: keys.into_boxed_str(),
             entries: entries.into_boxed_slice(),
+            features: AdmittedFeatures::NONE,
         })
     }
 

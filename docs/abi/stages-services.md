@@ -127,7 +127,7 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
 ### 1.3 Host-defined stages
 
 - [D] `core.input-filter` and `core.widget` are `core.*` stages that come with their families (UIX,
-  widgets), not with N4 itself. Their payload schemas are generated like a service's (section 2.3).
+  widgets), not with N4 itself. Their payload schemas are generated from stage-local records (section 2.4).
 - [D] Escape chord: holding Power for 8 s is never filterable; the host checks it before any
   `core.input-filter` subscriber.
 
@@ -183,7 +183,12 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
 
   "Exactly" is about tags: every record's tag is one of the op's `input` tags, by exact tag. Order
   and multiplicity are the op's own rules (for example "one record"), checked by the service after
-  the generic checks.
+  the generic checks. The count is generic: at most the op's `input_rows` records
+  (`ServiceOp::input_rows`, 1 unless the schema says more), else `ERR_NO_SPACE`; where it is above
+  8, the host decodes with the generated `host_records_visit` (the whole batch is checked before the
+  first visit, but a visitor's own error leaves the earlier visits done: a handler stages and
+  publishes only after the walk returned `OK`) and the SDK encodes with
+  `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
   leaves `out` untouched. A service's own failure after that is its documented status, and `out`
@@ -231,9 +236,15 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Ops, in id order: `id` 1..=65535, unique, never renumbered; `name` unique
   (`[a-z][a-z0-9_]*`); `since` the service revision that introduced the op (at most `revision`); `effect` `query` or `mutate`;
   `feature` a D1 feature key that gates it, or null; `input` and `reply` lists of `service.*`
-  record names (tags taken from `abi.def`), at most 8 each; `max_input` and `max_reply` in
+  record names (tags taken from `abi.def`), at most 16 each; `max_input` and `max_reply` in
   1..=4096; `bound` what the call may wait for: `none`, `card` (one bounded card access) or
   `radio` (never: that is an operation handle).
+- [D] Row counts, each written only where it differs from its default (so other ops keep their
+  exact form and lock): `input_rows` 2..=64, the most records one input batch holds (default 1);
+  `paged: false` on a list op (its reply ends with `service.end`) that answers all its rows in one
+  call, with `reply_rows` 1..=64 its most rows before `end`; a paged list op (the default) holds
+  the schema's `page_rows`. The generated `ServiceOp` carries all three (`input_rows`, `paged`,
+  `reply_rows`, 0 for an op that is no list), so readers check from the table, never by op number.
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
   per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK
@@ -247,11 +258,85 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
   `core.storage` metadata (FS), `core.library` (LIB), `core.secrets` (SEC), `core.net` (NET).
   `core.test-echo` exists for host tests and is never offered on a device.
 
+### 2.4 Stage schemas (`abi/stages/<key>@<major>.def`)
+
+Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major>.def`:
+
+```json
+{
+  "key": "core.status", "major": 1, "revision": 0, "since": 1, "test_only": false,
+  "max_subscribers": 32, "max_input": 3840, "max_reply": 3840,
+  "input": ["status.ask"], "reply": ["status.value"], "reply_rows": 8,
+  "records": [
+    {"id": 1, "name": "status.ask", "since": 0, "fields": [
+      {"name": "items", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 1032,
+       "list": {"separator": "\n", "max_items": 8, "item_max_bytes": 128}},
+      {"name": "context", "type": "bytes", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 1024}
+    ]},
+    {"id": 2, "name": "status.value", "since": 0, "fields": [
+      {"name": "item", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 128},
+      {"name": "flags", "type": "u32", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 0},
+      {"name": "text", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 128}
+    ]}
+  ]
+}
+```
+
+- [D] `key` follows the service key grammar, at most 128 bytes, and must start with `core.`.
+  The file name names the same key and major. `major` is 1..=65535, `revision` is 0..=65535,
+  and `since` names an interface minor in 1..=the current minor. A new schema takes an unreleased
+  minor. `test_only` marks a schema that device hosts never run.
+- [D] Record tags are local to this stage schema, in 1..=511, unique and ascending. Record names
+  have the same grammar as `abi.def` record names and are unique within the schema. A record's
+  `since` and each field's `since` name a schema revision, at most `revision`. Fields use the
+  same types, bounds, optional bitmap and list rules as `abi.def` records. Stage tags do not
+  reserve or reuse kernel record tags. Plugin-defined stages publish their own payload schemas;
+  the host checks their framing only.
+- [D] `input` and `reply` each name 1..=8 distinct records from this schema; no record belongs to
+  both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
+  `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at
+  its field caps exceeds `max_input`, or one framed reply record exceeds `max_reply`.
+  Row and byte caps bind independently; the host sizes reply room by `max_reply`.
+- [D] `tools/abi-gen.py` emits `stages_wire.rs` to `abi/generated/`,
+  `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`. All copies are
+  identical. Each `<key>_v<major>` module carries the key, version, bounds, input/reply tags and
+  borrowed record codecs, exported to plugins as `native::stage_schemas`; `STAGES` lists the schemas for the host. `input_decode` checks
+  exactly one input record and `max_input`; `reply_decode` checks reply tags, `reply_rows`
+  and `max_reply`. Both validate the full batch before exposing a borrowed cursor. Unknown
+  appended fields stay within the record length and are skipped; bytes after the batch
+  are refused. The codecs share the kernel
+  records emitter, framing and validation rules, without allocation.
+- [D] The ABI lock pins the schema and generated codec. A published schema keeps every key,
+  major, record and existing field. New records and appended fields take a newer schema
+  revision; the bounds never shrink. A breaking change needs a new major alongside the old one.
+- [D] Stages have no `metadata.services` catalog entry: plugins do not open them as services.
+  Stage declarations select the stage by key and major. The initial schemas are
+  `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
+  target rows) and `core.status` (32 subscribers, up to 8 value rows).
+
+The stage codec is pinned as `emitted_stages`, the SHA-256 of the unformatted emitter
+output, in ABI lock format 11. Formatting is checked separately, so a rustfmt update
+does not change a frozen digest. Older lock
+formats still validate their original emitted sections. This adds no wire draft.
+
 ## 3. Memory (X4)
 
 - `service.open`: one `Service` handle (registry slot, about 40 bytes) per declared key in use.
 - `service.call`: `input` and `out` are the caller's; the host decodes in place and allocates only
   what the op documents. The schema table is `static` (flash).
+
+The inactive host-run broker bounds its own allocation payloads to 24 KiB:
+selection and frozen subscriber lists, at most 32 copied plugin ids of 128 bytes,
+the exactly sized encoded call (at most 4096 bytes), and the reply scratch (at most
+3840 bytes). This excludes allocator overhead, retained instances and plugin work.
+Before X4 activation, measure peak heap with the caller's staged target copy,
+reader caches, plugin scratch and retained instances all live. The payload bound
+is not a device heap or stack measurement.
 
 ## 4. Hand-offs
 

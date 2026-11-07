@@ -1834,6 +1834,18 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
+The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
+for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
+`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
+call; parameter text and transport buffers remain borrowed. This type-layout
+measurement does not replace the runtime X4 heap gate.
+
+Menu replacement temporarily allocates only its joined item bytes, at most
+2,048 bytes, and frees them after encoding into the caller's command buffer,
+before host submission. Empty and reset lists allocate nothing. The menu and
+handover temporaries are released before their host calls, so they do not
+overlap, including when both operations run in one callback.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run
@@ -2696,6 +2708,14 @@ clip rows and borrowed payload. `input` receives a typed `Input` and returns
 callback. Decoders reject unknown exact tags and invalid input enum values.
 
 Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
+Choose repeated-open behavior with `ScreenDecl::instances(native::declare::Instances::Single)`;
+`PerParams` is the default and `Many` creates an instance for each open.
+Use `Question::confirm(...)?` with `.confirm_labels("Keep\nDiscard")?` for custom
+button words. Empty labels retain the dialog defaults. `.only_yes()?` requires an
+empty no label; `.focus_yes()?` selects initial yes focus. Dialog plugins read
+`QuestionInfo::{yes_label, no_label, only_yes, focus_yes}`.
+For menu discovery, `RegistryItem::user_defined()` reads the host's explicit user
+definition flag, including empty definitions and definitions equal to defaults.
 Decode their shown/run events with `native::events::Event::decode`. Format catalog strings
 with `native::formatting::format_message(host, key, args, &mut buffers)`.
 Create `FormatBuffers::new(scratch, out)` to name the temporary argument encoding
@@ -2745,6 +2765,20 @@ the host's frame clipping and colour conversion. `Font::acquire_role` borrows th
 callback host, `measure_text` returns advance, and `render_text` takes that canvas
 and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
 font cannot be drawn through a different host binding.
+
+REG declarations use `SetupStepDecl`, `SlotDecl`, `SlotOfferDecl`, `KeyBindingDecl`,
+`PresetDecl` and `PresetValueDecl` through `native::declare::Declarations`.
+`setting_default` and `setting_choice` extend another plugin's settings; the host
+checks authority and resolves extensions in plugin load order. Setup conditions
+are declared values and device requirements, with no callback during a query.
+
+Registry commands preserve the difference between a default and an empty user
+configuration: `set_menu(menu, None)` restores declared rows, while
+`set_menu(menu, Some(&[]))` clears the custom menu. Menu and plugin request lists
+are checked against the generated limits and never truncated. A preview set is
+submitted as one batch with caller-owned value scratch; oversized previews fail
+before submission. Use a preset preview for larger sets. The host checks preview
+ownership and obtains any required user consent for mass resets.
 
 `native::commands::CommandSender::new(host, scratch)` stages typed setting changes
 with the generated encoder. Each accepted call is one atomic batch, applied by

@@ -15,8 +15,8 @@ use paperpaw_native::{
 use paperpaw_platform::Instant;
 
 fn echo(_: &dyn Frame, _: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    out[..input.len()].copy_from_slice(input);
-    Ok(input.len())
+    let record = registrations::records_decode_single(input)?;
+    registrations::record_encode_one(&record, out)
 }
 fn pair(bytes: &[u8]) -> PpBytes {
     PpBytes {
@@ -116,9 +116,9 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
                     },
                 )
             };
-            assert_eq!(count, length as i32);
-            assert_eq!(&out[..length], &input[..length]);
-            assert!(out[length..].iter().all(|byte| *byte == 0xa5));
+            assert_eq!(count, (length - 1) as i32);
+            assert_eq!(&out[..length - 1], &input[1..length]);
+            assert!(out[length - 1..].iter().all(|byte| *byte == 0xa5));
             owner.release(handle).unwrap();
         })
         .unwrap();

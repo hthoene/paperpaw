@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK screen instance policies, borrowed confirmation button labels and flags,
+  dialog label accessors, and an explicit user-defined menu getter (#228).
+
+- Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
+  `core.status` share bounded payload codecs between the host and SDK (#228).
 - Native slot 32 rejects overlapping buffers and delegates bounded inputs and
   uninitialized output directly through the callback frame; production broker wiring follows (#228).
 
@@ -50,6 +55,45 @@ change the plugin SDK.
   growth block are generated from their `abi.def` fields into the command codec. Hosts answer
   `ERR_UNSUPPORTED` until wired. Interface draft 16 (`native::DRAFT`) refuses plugins built for
   draft 15 (#228).
+- Interface 7, family 2 UIX (`docs/abi/ui.md`): screen instances with lossless hand-overs
+  (`core.ui` ops 16-17), navigation commands 1547-1552 and `screen_policy` 1563, plugin
+  inputs (`input.spec` 29), questions and answers with paged host texts (ops 8-11, event 82),
+  widgets and status items, lines and places (declarations 224-228, events 84-86, input 193),
+  help hints, `screen_ready`, `notify`, speech (1557-1558, 1561-1562, events 87, 89), the
+  clipboard (ops 18-19), and host slot 35 `ui.compose`, which answers `ERR_UNSUPPORTED` until
+  the host wires it. `event.screen_shown` (38) gains the instance it shows. Service ops name
+  their row counts (`ServiceOp::input_rows`, `paged`, `reply_rows`); an input batch above 8
+  records is encoded with `records_encode_counted` and decoded by the host with
+  `host_records_visit` (op 16: 32 params). Typed SDK facades: `native::ui` (navigation,
+  hand-overs, questions and answers with host texts, widgets and status composition, help, speech,
+  clipboard) and `native::registry` (registry declarations, commands, paged queries and events),
+  without public wire records. Interface draft 17 (`native::DRAFT`) refuses plugins built for draft
+  16 (#228).
+- Interface 7, family 4 DOC and LIB (`docs/abi/document.md`, `docs/abi/library.md`): the
+  `core.document` service (21 ops: open with book options, metadata, sections, lossless block
+  fragments, table of contents, XPointers, links, fonts, cover and images by a stable picture
+  index, formats and readers), format, reader and lookup declarations with the `core.lookup`
+  service, and the `core.library` service behind the new feature `uses.library` (26 ops:
+  catalog pages, books, texts, facets, covers, status, journalled delete, move and import,
+  positions, annotations with staged transactions and paged receipts, fields, provided
+  metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
+  the image commands 1559-1560; `input.pointer` gains the optional `contact` (simultaneous
+  touches told apart, interface 6 `PointerEvent::id`), which the SDK's `Input::Pointer` carries
+  as `contact` (0 when absent); `screen.spec.flags` bits 6-7 give a screen's `instances` policy
+  (one per params, single, many; interface 6 `Instances`), and a confirm dialog's `choices` may
+  name its two button words, with flags for a single button and the focus on yes;
+  `native::SafeModeReason::PowerEscape` names a start in safe mode after the 8 s Power escape.
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 18 (`native::DRAFT`) refuses
+  plugins built for draft 17 (#228).
+- Interface 7, family 3 DEV (`docs/abi/device.md`): the `core.device` service (major 1, 15 read
+  ops: device, hardware values, firmware, built-in plugins, native build, file checks, memory,
+  Wi-Fi, networks, Bluetooth, bonded devices, power, install requests, plugins not installed,
+  keys; rows 1125-1141), one command per action 1564-1592 (Wi-Fi, power, installing and removing
+  plugins with trust evidence, firmware, file checks, Bluetooth), events 92-98 (scan, join and
+  install outcomes, network wanted or idle, firmware progress, Bluetooth) and the features
+  `uses.wifi`, `uses.power`, `uses.install`, `uses.firmware` and `uses.bluetooth`. Hosts answer
+  `ERR_UNSUPPORTED` until wired. Interface draft 19 (`native::DRAFT`) refuses plugins built for
+  draft 18 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
@@ -58,6 +102,8 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply

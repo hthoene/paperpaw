@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 16;
+pub const DRAFT: u16 = 19;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -335,12 +335,15 @@ pub mod fonts;
 pub mod formatting;
 pub mod keys;
 pub mod registrations;
+/// Borrowed registry rows and lossless generation-bound paging.
+pub mod registry;
 pub mod reply;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
 pub mod stages;
 pub mod storage;
+pub mod ui;
 mod wire;
 
 #[cfg(test)]
@@ -837,6 +840,10 @@ pub enum SafeModeReason {
     FailedStarts,
     /// The reader held the key for it at power-on.
     KeyHeld,
+    /// The reader held Power for the 8 s escape while a call into a code
+    /// plugin ran past the grace, and the device was reset:
+    /// [`SafeMode::crashed`] names that plugin, which is switched off.
+    PowerEscape,
 }
 
 /// A plugin the shell had to install at this start (one the web flasher
@@ -1074,3 +1081,8 @@ pub mod support {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Generated host-stage payload records and their local tag tables.
+#[path = "native/wire/stages_wire.rs"]
+#[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
+pub mod stage_schemas;

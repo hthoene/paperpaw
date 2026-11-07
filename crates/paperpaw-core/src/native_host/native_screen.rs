@@ -19,6 +19,15 @@ pub(crate) trait Dispatch {
         env: &Env<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32>;
+    fn stage(
+        &self,
+        _token: u32,
+        _bytes: &[u8],
+        _out: &mut [u8],
+        _env: &Env<'_>,
+    ) -> Result<i32, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
     fn dropped(&self, token: u32, status: i32);
 }
 
@@ -38,6 +47,9 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
+    }
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        (**self).stage(token, bytes, out, env)
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
@@ -59,6 +71,9 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
+    }
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        (**self).stage(token, bytes, out, env)
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
@@ -89,6 +104,8 @@ impl<D: Dispatch> NativeScreen<D> {
             screen: self.id.as_str(),
             width: u32::from(pane.width),
             height: u32::from(pane.height),
+            // Screen instances (`docs/abi/ui.md` section 1.1) are not wired yet.
+            instance: None,
         });
         let mut bytes = [0; 192];
         let result = wire::records_encode(&[record], &mut bytes)
@@ -223,6 +240,8 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
                 x: event.point.x,
                 y: event.point.y,
                 phase,
+                // Tells simultaneous contacts apart (interface 6 `PointerEvent::id`).
+                contact: Some(u32::from(event.id)),
             }),
             cx.env(),
         )

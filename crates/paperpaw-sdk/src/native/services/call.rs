@@ -16,6 +16,15 @@ pub struct Service {
 }
 
 impl Service {
+    pub(crate) fn operation(
+        &self,
+        op: u32,
+    ) -> Option<&crate::native::wire::services_wire::ServiceOp> {
+        self.schema
+            .op(op)
+            .filter(|operation| operation.since <= self.minor)
+    }
+
     /// Open a call service declared in this plugin's signed metadata.
     ///
     /// # Errors

@@ -42,13 +42,14 @@ It builds on: the service rules (`stages-services.md` section 2, D4), the comman
   `flags`, `total`, `generation`, `next`), the paging record of `core.usage`.
 - [D] A page holds as many **whole** rows as fit in the op's `max_reply` (4,096 bytes), at most 32
   (`page_rows` of the schema, generated as `core_registry_v1::PAGE_MAX_ROWS`).
-- [D] **Framing.** Input is one counted record batch (the generated `records_decode`). A reply is
-  a **bare record stream**, no count, as `core.usage`'s pages: a list op writes its rows, then
-  exactly one `service.end`, last; a detail op (2, 6, 17) writes exactly the records of its row in
-  section 2.2, in that order, and no `end`. Readers decode it with the generated
-  `record_decode_prefix` or `RecordStream` (then `finish`); a missing or repeated record, a record
-  out of order or of another op, anything after `end` and trailing bytes are `ERR_INVALID`.
-  A row is never cut; text fields inside a row are cut at a UTF-8 boundary where section 3 says so.
+- [D] **Framing.** Input is one counted record batch (the generated `records_decode`); REG ops take
+  one record (`input_rows` 1). A reply is a **bare record stream**, no count, as `core.usage`'s
+  pages: a list op writes its rows, then exactly one `service.end`, last; a detail op (2, 6, 17)
+  writes exactly the records of its row in section 2.2, in that order, and no `end`. Readers decode
+  it with the generated `record_decode_prefix` or `RecordStream` (then `finish`); a missing or
+  repeated record, a record out of order or of another op, anything after `end` and trailing bytes
+  are `ERR_INVALID`. A row is never cut; text fields inside a row are cut at a UTF-8 boundary where
+  section 3 says so.
 - [D] `generation` is the host's **registry generation**: it changes when the set or order of a
   list changes (a plugin loaded, stopped, enabled, removed; a declaration admitted; a menu, binding
   or slot changed). It is never 0: the host skips 0 when it wraps. The first call passes `cursor`
@@ -82,7 +83,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 8 | `screens` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
 | 9 | `slots` | `reg_query` (`scope` empty) | `reg_slot`*, `end` | with the bound and the default screen |
 | 10 | `slot_offers` | `reg_query` (`scope`: slot id) | `reg_item`*, `end` | screens offered for the slot, highest priority first |
-| 11 | `menus` | `reg_query` (`scope` empty) | `reg_item`*, `end` | every menu id |
+| 11 | `menus` | `reg_query` (`scope` empty) | `reg_item`*, `end` | every menu id; `flags` bit 5 user-defined |
 | 12 | `menu` | `reg_query` (`scope`: menu id) | `reg_menu_row`*, `end` | evaluated rows, section 2.4 |
 | 13 | `bindings` | `reg_query` (`scope`: layer id, `global` or empty for all layers) | `reg_binding`*, `end` | |
 | 14 | `inputs` | `reg_query` (`scope` empty) | `reg_item`*, `end` | the inputs this device has (`button.menu`, `tap.center`, ...) |
@@ -175,11 +176,16 @@ Field meanings:
   is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
-- `reg_item.flags` (actions, screens, inputs): bit 0 hidden from lists, 1 sealed (interface 6
+- `reg_item.flags` (actions, screens, inputs, menus): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
-  3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it).
+  3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),
+  5 user-defined (menus, op 11: the user has a `command.set_menu` definition for this menu, even
+  an empty one or one equal to the declared rows; interface 6 `is_customized`; cleared by
+  `set_menu` `reset`). It is the menu-level form of `reg_menu_row.flags` bit 4, which only rows
+  carry, so an empty user-defined menu shows only here.
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
-  enabled, 2 hidden, 3 removed, 4 user-defined menu, 5 in the declared rows (the editor's
+  enabled, 2 hidden, 3 removed, 4 user-defined menu (per row; the menu-level flag is op 11's
+  `reg_item.flags` bit 5), 5 in the declared rows (the editor's
   "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
   `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
 - `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
@@ -188,7 +194,9 @@ Field meanings:
 - `reg_slot.flags`: bit 0 the user bound it (`command.bind_slot`); otherwise `screen` is the
   default, the highest offer.
 - `reg_widget`: a widget the `core.widget` stage can make; `kind` its kind (category), `icon` the
-  kind's icon, `flags` bit 0 shown somewhere now.
+  kind's icon, `flags` bit 0 shown somewhere now: a `widget.place` whose `shown_if` holds lists it
+  (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
+  "has instances"; `ui.md` section 5.2), bit 1 private.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
@@ -408,7 +416,9 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   `check_duplicates` at admission), not per batch: a duplicate refuses the plugin's whole
   declaration set with `ERR_INVALID`, never only the second record.
 - [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
-  `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
+  `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form)
+  and then needs an empty `value`: a value with bit 0 set is `ERR_INVALID`, never ignored. Other
+  `flags` bits are `ERR_UNSUPPORTED` (`records.md`, unknown flag bits).
 - [D] **Widgets:** their declaration and drawing (`add_widget`, `add_widget_place`, `make`,
   `preview`) are the `core.widget` stage's contract (STG own work, UIX composition). Discovery
   (`iter`, `kinds`, `category_icon`, `has`, `shown`) is REG op 19 over what that contract admits.

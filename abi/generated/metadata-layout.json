@@ -19,6 +19,36 @@
         "key": "uses.registry",
         "revision": 1,
         "since": 1
+      },
+      {
+        "key": "uses.library",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.wifi",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.power",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.install",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.firmware",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.bluetooth",
+        "revision": 1,
+        "since": 1
       }
     ],
     "format": 2,
@@ -204,6 +234,41 @@
       },
       {
         "key": "core.registry",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.ui",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.document",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.library",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.lookup",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.device",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,

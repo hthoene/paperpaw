@@ -71,6 +71,10 @@ pub enum Input<'a> {
         now_ms: u64,
         position: Point,
         phase: PointerPhase,
+        /// The host's id of this contact: the same from down to up or
+        /// cancel, distinct among contacts down at once. 0 when the host
+        /// did not send one (a single-contact device).
+        contact: u32,
     },
     /// A recognised gesture.
     Gesture {
@@ -80,6 +84,15 @@ pub enum Input<'a> {
     },
     /// An action resolved by the host's input mapping.
     Action { now_ms: u64, action: &'a str },
+    /// A target selected in an owned widget instance.
+    Widget {
+        now_ms: u64,
+        instance: super::ui::Instance,
+        /// Owner-defined target identifier; zero means no target.
+        target: u32,
+        position: Point,
+        kind: super::ui::WidgetInputKind,
+    },
 }
 
 impl<'a> Input<'a> {
@@ -111,6 +124,7 @@ impl<'a> Input<'a> {
                         3 => PointerPhase::Cancel,
                         _ => return Err(Error::Invalid),
                     },
+                    contact: r.contact.unwrap_or(0),
                 },
                 Record::InputGesture(r) => Self::Gesture {
                     now_ms: r.now_ms,
@@ -122,6 +136,17 @@ impl<'a> Input<'a> {
                         3 => InputGestureKind::SwipeRight,
                         4 => InputGestureKind::SwipeUp,
                         5 => InputGestureKind::SwipeDown,
+                        _ => return Err(Error::Invalid),
+                    },
+                },
+                Record::InputWidget(r) => Self::Widget {
+                    now_ms: r.now_ms,
+                    instance: super::ui::Instance::new(r.instance).ok_or(Error::Invalid)?,
+                    target: r.target,
+                    position: Point::new(r.x, r.y),
+                    kind: match r.kind {
+                        0 => super::ui::WidgetInputKind::Tap,
+                        1 => super::ui::WidgetInputKind::LongPress,
                         _ => return Err(Error::Invalid),
                     },
                 },
@@ -149,6 +174,8 @@ pub enum DrawPurpose {
     StatusItem,
     /// A widget.
     Widget,
+    /// A composed status line.
+    StatusLine,
     /// A purpose added by a newer host. Draw nothing and return success.
     Other(u32),
 }
@@ -313,6 +340,7 @@ impl<'a> DrawFrame<'a> {
                 2 => DrawPurpose::InsertedBlock,
                 3 => DrawPurpose::StatusItem,
                 4 => DrawPurpose::Widget,
+                5 => DrawPurpose::StatusLine,
                 other => DrawPurpose::Other(other),
             },
             rect: FrameRect::new(r.x, r.y, r.width, r.height),
