@@ -154,8 +154,10 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   name: names no path can hold (reserved, a trailing dot, over 255 bytes; section 2.1
   `unaddressable`) are removed like any other, and a non-empty folder with such a name is entered
   and emptied. When the folder being emptied is empty, it is removed from its parent and the call
-  goes on from `path` again. **Bounds per call:** at most 256 folder entries read and 64 removals,
-  plus one entry read per level going down (not counted in the 256, so every call advances); a call
+  goes on from `path` again. Files met on the way down are removed as they are read, so a level is
+  passed again with at most 3 entry reads (its `.`, `..` and the subfolder's entry). **Bounds per
+  call:** at most 256 folder entries read and 64 removals, plus at most 3 entry reads per level going
+  down (at most 768, not counted in the 256, so every call advances); a call
   that reached the read cap before removing anything still answers, with `removed` 0 and a new
   `next`, so no call reads the whole of a big folder. **Depth:** at most 256 levels below `path`
   (the deepest a plugin can make: a path is at most 512 bytes); a folder nested deeper (only a
@@ -307,8 +309,8 @@ above. A refused call changes nothing.
   slots 20-26. `list` writes rows into `out` as the storage visits entries, at most 4,096 bytes; a
   row that does not fit ends the page there (its place is `next`), so no row is cut and nothing is
   held between calls. `remove_tree` keeps no state between calls beyond the `next` it hands back,
-  and reads at most 256 folder entries and removes at most 64 per call, plus one entry read per
-  level going down (at most 256 levels). On FAT the walk keeps only the folder being emptied and
+  and reads at most 256 folder entries and removes at most 64 per call, plus at most 3 entry reads
+  per level going down (at most 256 levels, 768 reads). On FAT the walk keeps only the folder being emptied and
   its entry in the parent, never a stack of folders.
 - Plugin: a page is at most 4 KiB; the SDK decodes it with the generated stream decoder.
 
