@@ -163,8 +163,8 @@ one counted batch of at most `input_rows` records.
 
 | Tag | Event | Fields |
 | --- | --- | --- |
-| 106 | `event.socket` | `socket: u32`, `token: u32`, `kind: u32`, `reason: u32`, `len: u32` |
-| 107 | `event.broadcast` | `socket: u32`, `token: u32`, `kind: u32`, `reason: u32`, `len: u32`, `from: str 64` |
+| 106 | `event.socket` | `now_ms: u64`, `socket: u32`, `token: u32`, `kind: u32`, `reason: u32`, `len: u32` |
+| 107 | `event.broadcast` | `now_ms: u64`, `socket: u32`, `token: u32`, `kind: u32`, `reason: u32`, `len: u32`, `from: str 64` |
 
 - `event.socket.kind`: 0 `connected`, 1 `secured`, 2 `untrusted`, 3 `received`, 4 `saved`, 5 `sent`,
   6 `closed` (by `close`, the screen, the run or the peer after `received` 0), 7 `failed`.
