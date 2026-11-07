@@ -58,6 +58,8 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod lookup;
+pub use lookup::LookupProviderDecl;
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 
