@@ -526,6 +526,10 @@ then one `end` with `total` the rows written and `next`, `generation` and `flags
 else is `ERR_INVALID`). The schema says this per op (`paged: false`, `reply_rows`), and op 16's
 input holds up to 32 `ui_param` records (`input_rows: 32`): one counted batch, encoded with the
 generated `records_encode_counted` and decoded by the host with `host_records_visit`, never cut.
+For the host implementer: `host_records_visit` checks the whole batch before its first visit,
+but an error the visitor itself returns stops the walk with the earlier visits done. So the op 16
+handler stages the params in its own scratch and publishes the hand-over only after the walk
+returned `OK`; a refusal leaves no hand-over and no partial params.
 Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper).
 
 | Op | Name | Input | Reply | Who |
@@ -597,14 +601,15 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
 | 89 | `event.spoken` | `now_ms: u64`, `cookie: u32`, `status: u32` |
 
 - [D] **Help.** `help.hint` declares a hint for any screen (own or another's, full id): `input` 0
-  any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the
-  box; `x + width` and `y + height` at most 1,000, else `ERR_INVALID` at admission, and a reader
-  treats a `ui_hint` row that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says whose catalog). The help
-  plugin reads them with op 3, subscribes to `event.screen_ready` (an edge, registrable) and to 81.
-  A screen declared `waits_ready` sends `command.screen_ready` once its first page is drawn (own
-  top instance, else `ERR_STATE`); for other screens the host raises 87 itself after the first
-  `draw` of each instance. The help plugin closes its own overlay by instance (section 1.3) and
-  resets "seen" in its own data.
+  any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the box;
+  `x + width` and `y + height` at most 1,000, added with overflow checks (a sum that overflows is
+  over 1,000), else `ERR_INVALID` at admission, and a reader treats a `ui_hint` row that breaks it
+  as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says
+  whose catalog). The help plugin reads them with op 3, subscribes to `event.screen_ready` (an edge,
+  registrable) and to 81. A screen declared `waits_ready` sends `command.screen_ready` once its
+  first page is drawn (own top instance, else `ERR_STATE`); for other screens the host raises 87
+  itself after the first `draw` of each instance. The help plugin closes its own overlay by instance
+  (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
   guard closes, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
@@ -674,8 +679,8 @@ its caps (hand-off).
   open.
 - **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 10 (no
   card; 9.55 with one; 8 of it only while an 8 KiB password is typed) + widgets 0.25 + status cache
-  1 + op 7 target cache 0.8 (only while a callback pages) + clipboard 0 (card) + messages 0.5 =
-  **about 14.3 KiB**, every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`,
+  1 + clipboard 0 (card) + messages 0.5 = **about 13.5 KiB** (op 7 keeps no target cache: it is not
+  paged, section 5.2), every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`,
   never a panic); typical use (a few instances with small params, one short question, a status line)
   about 2 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
   case is a line of the X4 heap budget and the typical case is measured on the device under 4 KiB

@@ -180,7 +180,9 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   and multiplicity are the op's own rules (for example "one record"), checked by the service after
   the generic checks. The count is generic: at most the op's `input_rows` records
   (`ServiceOp::input_rows`, 1 unless the schema says more), else `ERR_NO_SPACE`; where it is above
-  8, the host decodes with the generated `host_records_visit` and the SDK encodes with
+  8, the host decodes with the generated `host_records_visit` (the whole batch is checked before the
+  first visit, but a visitor's own error leaves the earlier visits done: a handler stages and
+  publishes only after the walk returned `OK`) and the SDK encodes with
   `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
