@@ -75,7 +75,8 @@ pub struct Font<'cb> {
 
 impl<'cb> Font<'cb> {
     /// Acquire a registered font id or a role key without allocating.
-    /// The host allows at most four live font handles per plugin.
+    /// The host enforces the font family's handle limit, shared by role and id
+    /// handles. See `docs/abi/screens-input.md` sections 4 and 7.
     ///
     /// # Errors
     /// Returns Invalid for a key over 128 UTF-8 bytes, or the host refusal.

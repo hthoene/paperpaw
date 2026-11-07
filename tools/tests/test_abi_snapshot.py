@@ -273,15 +273,15 @@ class SnapshotTests(unittest.TestCase):
 
     def test_lock_coverage_and_legacy_formats(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 8)
+        self.assertEqual(trusted['lock_format'], 9)
         self.assertEqual(trusted['emitted_snapshot'], rust_snapshot(self.schema))
-        for version in range(1, 9):
+        for version in range(1, 10):
             legacy = copy.deepcopy(trusted)
             legacy['lock_format'] = version
             for floor, field in [(2, 'emitted_rust'), (3, 'emitted_metadata'),
                                  (4, 'emitted_records'), (5, 'emitted_snapshot'),
                                  (6, 'emitted_color'), (7, 'emitted_commands'),
-                                 (8, 'emitted_streams')]:
+                                 (8, 'emitted_streams'), (9, 'emitted_services')]:
                 if version < floor:
                     del legacy[field]
             ABI.check_lock(legacy, self.schema)

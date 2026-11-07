@@ -229,7 +229,7 @@ fn render(kernel: &mut Kernel, actions: &[&str]) -> (i32, Vec<u8>) {
             (),
             SCREEN_ENTRY.entry().make.unwrap(),
             "battery",
-            (0, 0),
+            (core::ptr::null(), 0),
             report,
             HostResources::try_new().unwrap(),
             declared_services(),

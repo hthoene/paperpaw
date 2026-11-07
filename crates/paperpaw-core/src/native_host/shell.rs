@@ -198,8 +198,8 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 pub struct Hosted<S, M> {
     owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
-    /// The plugin's read-only data as mapped: address and length.
-    image: (usize, usize),
+    /// The plugin's read-only data as mapped: pointer with provenance and length.
+    image: (*const u8, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
     stopped: Cell<bool>,
 }
@@ -251,8 +251,8 @@ pub fn host_table<S: Services>() -> PpHost {
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
     /// `report` is the shell's real diagnostic sink, including the X4 sink.
-    /// `image` is the address and length of the plugin's read-only data
-    /// (`(0, 0)` for none).
+    /// `image` is the pointer and length of the plugin's read-only data
+    /// (null and zero for none).
     ///
     /// # Errors
     /// `Allocation` when the id or the owner cannot be placed; `services` and
@@ -263,7 +263,7 @@ impl<S: Services, M> Hosted<S, M> {
     /// - `make` is the validated entry of the code that `module` keeps loaded,
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
-    ///   while `module` lives, or `(0, 0)`.
+    ///   while `module` lives, or a null pointer with zero length.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the owner resources and checked requirements"
@@ -273,7 +273,7 @@ impl<S: Services, M> Hosted<S, M> {
         module: M,
         make: Make,
         id: &str,
-        image: (usize, usize),
+        image: (*const u8, usize),
         report: Report<S>,
         resources: super::HostResources,
         declared_services: DeclaredServices,
@@ -349,7 +349,7 @@ impl<S: Services, M> Hosted<S, M> {
         }
         // SAFETY: `new`'s contract: a read-only mapping of `len` bytes at
         // `start`, held by the owner's module for as long as `self` lives.
-        Some(unsafe { core::slice::from_raw_parts(start as *const u8, len) })
+        Some(unsafe { core::slice::from_raw_parts(start, len) })
     }
 
     /// Starts the transaction `make` registers in.

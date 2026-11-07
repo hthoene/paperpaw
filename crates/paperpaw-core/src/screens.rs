@@ -59,7 +59,10 @@ impl Kernel {
         };
         let on_open = spec.refresh_on_open();
         let serial = self.next_serial;
-        self.next_serial = serial.wrapping_add(1);
+        let Some(next_serial) = serial.checked_add(1) else {
+            return self.warn_runtime("screen key space exhausted");
+        };
+        self.next_serial = next_serial;
         let key = paperpaw_sdk::ScreenKey::new(serial);
         let entry = paperpaw_sdk::StackEntry::new(id.clone(), slot.clone(), false, key);
         // Made once, at the size it asked for: above the row of hints, or

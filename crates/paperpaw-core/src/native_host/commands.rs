@@ -125,6 +125,9 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
+        if let Err(status) = self.validate_open_budget(batch) {
+            return status;
+        }
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
         for command in batch.iter() {

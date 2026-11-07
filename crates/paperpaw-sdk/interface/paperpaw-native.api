@@ -90,9 +90,12 @@ pub paperpaw_native::host_glue::PpHost::i18n_format: fn(*mut core::ffi::c_void, 
 pub paperpaw_native::host_glue::PpHost::major: u16
 pub paperpaw_native::host_glue::PpHost::minor: u16
 pub paperpaw_native::host_glue::PpHost::registrations_submit: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes) -> i32
+pub paperpaw_native::host_glue::PpHost::service_call: fn(*mut core::ffi::c_void, u32, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32
+pub paperpaw_native::host_glue::PpHost::service_open: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, u16, u16, *mut u32) -> i32
 pub paperpaw_native::host_glue::PpHost::services_query: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, u16, u16, *mut u32) -> i32
 pub paperpaw_native::host_glue::PpHost::settings_read: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::size: u32
+pub paperpaw_native::host_glue::PpHost::stage_run: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::storage_append: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::storage_read_at: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::storage_remove: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32
@@ -155,6 +158,7 @@ pub unsafe fn paperpaw_native::host_glue::read_heap_realloc(*const paperpaw_nati
 pub unsafe fn paperpaw_native::host_glue::read_plugin_dispatch_event(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_draw(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_drop(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void), i32>
+pub unsafe fn paperpaw_native::host_glue::read_plugin_input(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_size(*const u8, usize) -> core::result::Result<usize, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_state(*const u8, usize) -> core::result::Result<*mut core::ffi::c_void, i32>
 pub mod paperpaw_native::index

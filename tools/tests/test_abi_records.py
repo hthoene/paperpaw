@@ -232,7 +232,9 @@ class RecordsTests(unittest.TestCase):
                           ('command.redraw', 58), ('command.close_screen', 59),
                           ('menu.entry', 13), ('icon.spec', 14), ('menu.need', 15),
                           ('menu.section', 16), ('menu.hide', 17), ('menu.describe', 18),
-                          ('command.set_item_state', 60)])
+                          ('command.set_item_state', 60), ('stage.spec', 19),
+                          ('registration.stage', 20), ('stage.call', 512), ('stage.reply', 513),
+                          ('service.echo', 1024)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

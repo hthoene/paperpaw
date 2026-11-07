@@ -270,7 +270,9 @@ impl Loaded {
                 library,
                 make,
                 id,
-                image,
+                // SAFETY: this address belongs to the loaded read-only ELF
+                // mapping, retained by HeldLibrary for the owner's lifetime.
+                (core::ptr::with_exposed_provenance(image.0), image.1),
                 report_shared,
                 resources,
                 declared_services,
