@@ -632,6 +632,7 @@ mod instance_tests {
                 report,
                 hooks(),
                 resources,
+                DeclaredServices::none(),
             )
         }
     }

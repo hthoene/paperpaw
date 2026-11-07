@@ -15,7 +15,10 @@ use core::pin::Pin;
 
 use paperpaw_native::host_glue::{self, Services};
 
-use super::{Batch, Error, Hosted, Invocation, Make, Report, dispatch_registration, try_box};
+use super::{
+    Batch, DeclaredServices, Error, Hosted, Invocation, Make, Report, dispatch_registration,
+    try_box,
+};
 use crate::native_host::Declarations;
 use crate::native_host::FlatHost;
 use crate::native_host::environment::EnvironmentScope;
@@ -94,8 +97,11 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
     /// # Safety
     ///
     /// As [`Hosted::new`] (`report` is the shell's real, non-allocating sink;
-    /// `resources` is the device-wide table, a share of it): `make` is the validated entry of the code `module`
-    /// keeps loaded, and `image` is a read-only mapping that stays mapped
+    /// `resources` is the device-wide table, a share of it;
+    /// `declared_services` is what the plugin's metadata declares, or
+    /// `DeclaredServices::none()`): `make` is the validated entry of the code
+    /// `module` keeps loaded, and `image` is a read-only mapping that stays
+    /// mapped
     /// while `module` lives, or `(0, 0)`.
     #[allow(
         clippy::too_many_arguments,
@@ -110,6 +116,7 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         report: Report<S>,
         hooks: Hooks,
         resources: native_host::HostResources,
+        declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
         // One announced call over the whole load, declared first so that it
         // ends last: whatever this function drops on a refusal, the plugin's
@@ -118,8 +125,18 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         // fails.
         let _call = Call::new(&hooks, id);
         // SAFETY: the caller's contract.
-        let hosted =
-            try_box(unsafe { Hosted::new(services, module, make, id, image, report, resources) }?)?;
+        let hosted = try_box(unsafe {
+            Hosted::new(
+                services,
+                module,
+                make,
+                id,
+                image,
+                report,
+                resources,
+                declared_services,
+            )
+        }?)?;
         let mut transaction = hosted.begin::<Registration>()?;
         let image = hosted.image().unwrap_or(&[]);
         transaction.set_image(image)?;

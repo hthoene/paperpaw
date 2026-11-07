@@ -504,6 +504,9 @@ mod x4 {
                 report,
                 hooks,
                 share,
+                // Format 5 carries no declared services yet: every service
+                // query of the plugin is refused (fail closed).
+                shell::DeclaredServices::none(),
             )
         };
         let instance = loaded.map_err(|why| {
