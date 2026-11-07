@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    ui_service::UiServices,
 };
 use alloc::rc::Rc;
 use core::cell::OnceCell;
@@ -34,6 +35,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    ui: OnceCell<UiServices>,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -42,6 +44,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("ui", &self.ui.get().is_some())
             .finish()
     }
 }
@@ -52,6 +55,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            ui: OnceCell::new(),
         }
     }
 
@@ -69,6 +73,16 @@ impl HostServices {
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
+    /// Wire `core.ui` once.
+    pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
+        self.ui.set(ui).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn ui(&self) -> Option<&UiServices> {
+        self.ui.get()
     }
 
     pub(crate) fn documents(&self) -> Option<&DocServices> {
@@ -104,6 +118,10 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        // What the owner made for the screen stack is freed; no plugin is called.
+        if let Some(ui) = self.ui.get() {
+            ui.store.owner_stopped(owner);
         }
         result
     }
