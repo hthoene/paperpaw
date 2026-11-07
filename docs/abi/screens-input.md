@@ -22,6 +22,12 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 | --- | --- | --- | --- |
 | 11 | `screen.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
 | 12 | `action.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
+| 13 | `menu.entry` | `menu: str` (full id), `item: str` (full id), `order: i32`, `place: u32`, `anchor: str` (full id or empty) | 128, 128, 128 |
+| 14 | `icon.spec` | `item: str` (full id), `icon: str` (icon name) | 128, 64 |
+| 15 | `menu.need` | `item: str` (full id), `need: u32`, `capability: u64` | 128 |
+| 16 | `menu.section` | `name: str` (relative), `title: str` (i18n key), `menu: str` (full id), `order: i32` | 96, 128, 128 |
+| 17 | `menu.hide` | `menu: str` (full id), `item: str` (full id) | 128, 128 |
+| 18 | `menu.describe` | `item: str` (relative), `key: str` (i18n key) | 96, 128 |
 
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
@@ -34,6 +40,61 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
   and an action may share a name); checked at commit, order-independent.
 - [D] Running an action delivers `event.action_run` (tag 39) to its token through
   `dispatch_event`; the plugin answers with commands.
+- [D] **Menu items are full ids** (`<plugin>.<name>`) in `menu.entry`, `icon.spec`, `menu.need` and
+  `menu.hide`, as interface 6's `MenuEntry.item` is any `Id`: a plugin may put a core setting or
+  another plugin's action into a menu (the reader puts `NIGHT_MODE` into its own menu). The first
+  segment names the owner. An item of the calling plugin must resolve at commit to one of its
+  actions, settings, setting groups or screens (`ERR_INVALID` otherwise); another plugin's item, or a
+  menu or anchor that does not exist yet, is accepted and takes effect once it exists (plugins load
+  in any order). `menu.section` and `menu.describe` only name the plugin's own (relative) items.
+- [D] `menu.entry` puts `item` into `menu` (any plugin's menu, such as `core.tools` or `core.main`).
+  The label is the item's title. `order` must fit an `i16` (lower comes first). `place`: 0 by
+  `order`, 1 after the entry `anchor`, 2 before it, 3 last in the section `anchor` (a
+  `menu.section`), 4 first, 5 last; `anchor` is a full id for 1-3 and empty for 0, 4 and 5
+  (`ERR_INVALID`). **A place this host does not know is accepted and the entry is not shown** (a
+  plugin built for a later host still loads; interface 6 did the same); its `anchor` is empty or a
+  full id. An anchor that is not, or no longer, there places the entry by `order`. The same `menu`
+  and `item` twice in one batch is `ERR_INVALID`. Where two plugins put the same item into the same
+  menu, a placed entry (1-5) wins over one by order (it moves it), and between two of the same kind
+  the plugin loaded later wins.
+- [D] `icon.spec` gives an item an icon: one `[a-z0-9-]` segment naming an icon of the host's icon
+  set (the SDK's icon names). **Any item may get one** (an icon theme); at most one per item in a
+  batch (`ERR_INVALID`), and across plugins the one loaded later wins. A name the host's set lacks
+  is accepted and shows no icon, so hosts may carry smaller sets.
+- [D] `menu.need` offers an item only on devices that have what it needs; elsewhere it is left out
+  of menus and settings pages, also where the user listed it (except `no-touch`, which only leaves
+  it out of the menus plugins define). `need`: 0 `speech`, 1 `sleep` (the device shows the sleep
+  screen), 2 `rotation`, 3 `no-touch`, 4 `touch`, 5 `button-row` (buttons below the screen with a
+  row of hints), 6 `colors` (shows colours other than black and white), 7 `wifi`, 8 `firmware` (the
+  device can update its firmware), 9 `black-and-white`, 10 `frontlight`, 11 `bluetooth`, 12 `has`.
+  **A need this host does not know is accepted and not met** (the item is left out), so a later
+  need needs no new record. For a known need `capability` is 0 except for `has`, where it is a
+  nonzero set of capability bits the device must all have (`ERR_INVALID` otherwise): bit 0
+  `audio`, 1 `warmth`, 2 `charge-limit`, 3 `keyboard`, 4 `hot-code`, 5 `page-keys`, 6 `buttons`,
+  7 `usb-link`, 8 `render-hook`, 9 `render-regions`, 10 `look-extras`, 11 `usb-drive`, 12
+  `chords`, 13 `page-turner`, 14 `hotspot`, 15 `pen-tilt`, 16 `pen-hover`, as the SDK's
+  `Capability` (a test keeps this list, the SDK and the host's equal); a bit the host does not know
+  is not met. At most one need per item in a batch (`ERR_INVALID`).
+- [D] `menu.section` adds a heading `name` (the plugin's own; also usable in the user's menu
+  definitions as `<plugin>.<name>`) with the translated `title` to `menu` at `order` (an `i16`);
+  the entries ordered after it, up to the next heading, belong to it, and place 3 puts an entry last
+  in it. Names are unique among the plugin's sections (`ERR_INVALID`).
+- [D] `menu.hide` takes `item` out of `menu` as plugins contribute it, another plugin's entry
+  included (an entry a plugin replaces with its own); a user who lists the item in their own menu
+  keeps it, and the menu editor tells which plugin took it out. The same pair twice in a batch is
+  `ERR_INVALID`.
+- [D] `menu.describe` puts a line under one of the plugin's own items (`item`, relative) in menus,
+  by its translation key `key`. At most one per item in a batch (`ERR_INVALID`).
+- [D] An item whose label, switch, badge or availability changes while it is shown is not a
+  declaration: a later command family (`item.state`) sets it.
+- [D] Until a host's menus and icon set take them, a host refuses these six records with
+  `ERR_UNSUPPORTED` (after the syntax checks above, so a malformed record still says
+  `ERR_INVALID`); it never accepts and drops one.
+- [D] Translations need no record. A card plugin's catalogs are the files
+  `plugins/<id>/i18n/<language>.ini` beside its `code.ppn` (the same folder layout as interface 6);
+  a plugin built into the firmware brings them built in. `title` keys, `i18n.copy` (6),
+  `i18n.format` (27) and plurals resolve in the calling plugin's catalogs through the host's language
+  fallback chain, which ends in English; a key in none gives `ERR_NOT_FOUND`.
 
 ## 2. Input and screen events
 
@@ -106,12 +167,38 @@ input(state: pointer, token: u32, input: bytes) -> i32
 
 ## 4. Fonts and text
 
-- [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**:
-  `role:ui`, `role:ui-bold`, `role:reading`, `role:mono`. A role follows the reader's choice at
-  the time of each text call (re-resolved per call); an unknown role is `ERR_NOT_FOUND`.
-- [D] Handles: at most 4 per plugin (`ERR_FULL` beyond); `handle.release` frees; teardown frees
-  all. A handle whose font id is gone (pack removed or replaced) answers `ERR_STATE` on
-  `text.*`; the plugin acquires again (on `event.screen_shown`).
+- [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**,
+  one per role of `builtin::fonts` that interface 6 lets plugins draw in. No other role exists:
+  an unknown role is `ERR_NOT_FOUND`.
+
+  | Key | Resolves to (interface 6 call) |
+  | --- | --- |
+  | `role:ui` | `Fonts::role(fonts::UI)`, with the UI ink |
+  | `role:reading` | `Fonts::role(fonts::READING)` |
+  | `role:reading-bold` | `Fonts::bound(fonts::READING_BOLD)`, else `role:reading` |
+  | `role:reading-italic` | `Fonts::bound(fonts::READING_ITALIC)`, else `role:reading` |
+  | `role:reading-bold-italic` | `Fonts::bound(fonts::READING_BOLD_ITALIC)`, else `role:reading-bold` |
+  | `role:status` | `Fonts::role(fonts::STATUS)` |
+  | `role:icons` | `Fonts::bound(fonts::ICONS)`, no fallback |
+
+  `role:icons` acquires even while no icon font is bound; a text call through it answers
+  `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
+  again at each call.
+
+  A role is resolved again at each text call, so it follows the user's choice and never goes
+  stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.
+- [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
+  beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
+  operations count against their families' caps, not against it (section 7). X4 cost: a role
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, so up to about
+  1 KiB per plugin for 8; `handle.release` frees; teardown frees
+  all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
+  pack that provides it was removed or replaced (updated) after the acquire, even if the same
+  id is registered again, or the id no longer resolves. The plugin acquires again (on
+  `event.screen_shown`). How the host tells a replaced pack from the one acquired is its own
+  (today: a removal counter per providing plugin, recorded in the handle; the counter never wraps
+  to a value a handle holds: it saturates, and from then on every handle by id is stale); it
+  never compares addresses or list positions.
 - [D] Metrics, ink and nested clipping (Battery parity, #914):
 
   | Id | Entry | Arguments (after `ctx`) | Result |
@@ -241,7 +328,12 @@ subscriptions. Families added later refer to it instead of defining their own.
   result. The result stays readable through the handle until `handle.release`. Stop or unload
   cancels every open operation, and nothing is called back afterwards; a late completion is
   refused (`ERR_STATE`). Releasing the handle of a running operation cancels it first. Live
-  handles and operations per plugin are capped; one past the cap is `ERR_FULL`. SDK glue builds on
+  handles and operations per plugin are capped **per family** (fonts: section 4; each later family
+  states its own); there is no cap shared across families. Today: font handles 8 (section 4); blobs
+  2 live per plugin within the device's blob budget (events proposal D3.4, S6 on the X4); service
+  handles one per declared service key (at most `metadata.max_services`). One past a cap is `ERR_FULL`. This
+  replaces ADR 0034's X4 profile line "four persistent handles per plugin" (and its use in the
+  proposals as a cap shared with fonts). SDK glue builds on
   exactly this.
 - [D] **Dropped events (D6).** `event_dropped` applies only to families whose contract says they
   may drop (today: the lifecycle events of section 1.5 in the events proposal). Other families

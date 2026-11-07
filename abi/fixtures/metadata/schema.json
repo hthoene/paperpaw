@@ -26,6 +26,13 @@
   },
   "entry_contract": {
     "entry_symbol": "PAPERPAW_ENTRY",
+    "heap_word": {
+      "alias": "paperpaw_heap_local",
+      "section": ".rodata.paperpaw_heap",
+      "since": 1,
+      "symbol": "PAPERPAW_HEAP",
+      "table": "PpHeap"
+    },
     "locator": {
       "binding": "global",
       "kind": "readonly_bytes",
@@ -181,6 +188,115 @@
           }
         ],
         "name": "PpEntry",
+        "since": 1
+      },
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "major",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "minor",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "pointer"
+            },
+            "name": "alloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "void"
+            },
+            "name": "dealloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "old_size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                },
+                {
+                  "name": "new_size",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "pointer"
+            },
+            "name": "realloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "code",
+                  "type": "i32"
+                },
+                {
+                  "name": "msg",
+                  "type": "text_ptr"
+                },
+                {
+                  "name": "msg_len",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "never"
+            },
+            "name": "abort",
+            "since": 1
+          }
+        ],
+        "name": "PpHeap",
         "since": 1
       }
     ]
@@ -2751,6 +2867,210 @@
       "fields": [],
       "id": 59,
       "name": "command.close_screen",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "menu",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "order",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "place",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "anchor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 13,
+      "name": "menu.entry",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "icon",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 14,
+      "name": "icon.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "need",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "capability",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 15,
+      "name": "menu.need",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "menu",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "order",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        }
+      ],
+      "id": 16,
+      "name": "menu.section",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "menu",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 17,
+      "name": "menu.hide",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 18,
+      "name": "menu.describe",
       "since": 1
     }
   ],

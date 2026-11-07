@@ -32,6 +32,7 @@ fn as_five(h: &Header) -> Header5 {
         hot_at: h.hot_at,
         hot_len: h.hot_len,
         patches: h.patches,
+        heap_at: None,
         sha256: [0; 32],
         signed: false,
     }
@@ -736,6 +737,7 @@ fn entry_image(hot: bool) -> (Header5, Vec<u8>, Vec<u32>) {
         hot_at: if hot { 256 } else { 0 },
         hot_len: if hot { 64 } else { 0 },
         patches: 0,
+        heap_at: None,
         sha256: [0; 32],
         signed: false,
     };
@@ -842,7 +844,7 @@ fn the_packer_made_file_is_taken_at_any_place_and_with_hot_code_in_or_out_of_pla
     let h = packed_header();
     assert_eq!(
         (h.image_len, h.hot_len, h.patches, h.relocs),
-        (220, 12, 2, 3)
+        (236, 12, 2, 3)
     );
     for base in [LINK_BASE, 0x3C81_0000, 0x3C80_0040] {
         for hot in [0, 0x4038_1000, 0x4038_1004] {
@@ -892,7 +894,9 @@ fn the_packer_made_file_relocates_its_words_to_the_place_and_its_calls_to_the_ho
     assert!(h.make_offset(make, base, hot) < h.image_len);
     assert!((base + CODE_OFFSET..base + CODE_OFFSET + h.image_len).contains(&make));
     // The plugin table's `drop`, the third word of the table, is in the image too.
-    assert!(h.word_in_image(word(h.code_at as usize - 20 + 8) - base + h.base));
+    // It follows the 88-byte metadata record (`meta_at` 20), and is 24 bytes
+    // with the `input` slot.
+    assert!(h.word_in_image(word((h.meta_at + 88) as usize + 8) - base + h.base));
     // The call of the hot function reaches the arena: auipc + jalr from the
     // call site in `make` give `hot + (table_ok - hot_at)`.
     let mut reached = Vec::new();
@@ -938,4 +942,99 @@ fn no_byte_of_the_packer_made_file_changes_without_being_refused() {
             );
         }
     }
+}
+
+/// The entry image sealed as a file with the heap word at `heap_at`.
+fn with_heap_word(heap_at: Option<u32>, words: &[u32]) -> (Header5, Vec<u8>, Vec<u8>) {
+    let (h, image, _) = entry_image(false);
+    let h = Header5 {
+        relocs: words.len() as u32,
+        heap_at,
+        ..h
+    };
+    let file = file(&image, words);
+    let h = sealed(h, &file);
+    (h, image, file)
+}
+
+fn written_with(
+    h: &Header5,
+    file: &[u8],
+    base: u32,
+    buf: usize,
+    table: Option<u32>,
+) -> Result<Vec<u8>, Written<()>> {
+    let mut relocator = Relocator5::new(h, file, base).map_err(Written::File)?;
+    if let Some(table) = table {
+        relocator = relocator.heap_word(table);
+    }
+    let mut out = Vec::new();
+    relocator.write_image(&mut alloc::vec![0u8; buf], |_, words| {
+        out.extend_from_slice(words);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+#[test]
+fn the_heap_word_gets_the_table_address_in_the_piece_that_holds_it_and_nothing_else_changes() {
+    const AT: usize = 240;
+    const TABLE: u32 = 0x3FC8_1234;
+    let (h, _, file) = with_heap_word(Some(AT as u32), &[72, 80]);
+    let (plain, _, plain_file) = with_heap_word(None, &[72, 80]);
+    for base in [LINK_BASE, 0x3C81_0000] {
+        for buf in [4, 8, 12, 64, 100, 240, 244, 4096] {
+            let got = written_with(&h, &file, base, buf, Some(TABLE)).unwrap();
+            let without = written_with(&plain, &plain_file, base, buf, None).unwrap();
+            assert_eq!(
+                &got[AT..AT + 4],
+                &TABLE.to_le_bytes(),
+                "base {base:#x}, buf {buf}"
+            );
+            // Every other byte is what the relocation gives without it.
+            let mut expected = without.clone();
+            expected[AT..AT + 4].copy_from_slice(&TABLE.to_le_bytes());
+            assert_eq!(got, expected, "base {base:#x}, buf {buf}");
+            // Left out, the word stays 0 ("no heap").
+            let none = written_with(&h, &file, base, buf, None).unwrap();
+            assert_eq!(&none[AT..AT + 4], &[0; 4]);
+        }
+    }
+    // A plugin without the word is unchanged by a table address.
+    let given = written_with(&plain, &plain_file, LINK_BASE, 64, Some(TABLE)).unwrap();
+    let not = written_with(&plain, &plain_file, LINK_BASE, 64, None).unwrap();
+    assert_eq!(given, not);
+}
+
+#[test]
+fn a_heap_word_that_holds_a_value_in_the_file_or_is_a_relocation_word_is_refused() {
+    const AT: usize = 240;
+    // A value in the file: refused when its piece is relocated.
+    let (h, image, _) = entry_image(false);
+    let mut image = image;
+    image[AT..AT + 4].copy_from_slice(&1u32.to_le_bytes());
+    let h = Header5 {
+        relocs: 2,
+        heap_at: Some(AT as u32),
+        ..h
+    };
+    let file = file(&image, &[72, 80]);
+    let h = sealed(h, &file);
+    for buf in [4, 64, 4096] {
+        assert_eq!(
+            written_with(&h, &file, LINK_BASE, buf, Some(7)).err(),
+            Some(Written::File(Problem::Malformed)),
+            "buf {buf}"
+        );
+    }
+    // A relocation word on it: refused when the list is checked, before a
+    // byte is written.
+    let (h, _, file) = with_heap_word(Some(AT as u32), &[72, 80, AT as u32]);
+    assert!(matches!(
+        Relocator5::new(&h, file.as_slice(), LINK_BASE),
+        Err(Problem::Relocation)
+    ));
+    // Next to it is no overlap.
+    let (h, _, file) = with_heap_word(Some(AT as u32), &[72, 80, AT as u32 + 4]);
+    assert!(Relocator5::new(&h, file.as_slice(), LINK_BASE).is_ok());
 }

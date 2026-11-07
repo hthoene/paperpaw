@@ -12,7 +12,13 @@ impl Plugin for Example {
         Ok(Self)
     }
 }
-paperpaw_sdk::native_plugin!(Example, metadata = include_bytes!("../metadata.bin"));
+// `heap = none`: no heap word, allocator or panic handler from the SDK; the
+// sample brings its own below.
+paperpaw_sdk::native_plugin!(
+    Example,
+    metadata = include_bytes!("../metadata.bin"),
+    heap = none
+);
 
 // The sample allocates no plugin-owned data. Entry state uses the host allocator
 // directly; a null allocator catches accidental use of the plugin's own heap.
