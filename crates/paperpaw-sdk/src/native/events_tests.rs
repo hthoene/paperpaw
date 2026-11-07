@@ -274,3 +274,32 @@ fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let len = records_encode(&[record], &mut bytes).unwrap();
     assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
 }
+
+#[test]
+fn stage_call_decodes_exact_tag_and_borrows_opaque_payload() {
+    let record = Record::StageCall(wire::StageCall {
+        stage: "reader.insert",
+        schema: 7,
+        payload: &[255, 0, 128],
+    });
+    let mut bytes = [0; 100];
+    let n = records_encode(&[record], &mut bytes).unwrap();
+    let Event::StageCall {
+        stage,
+        schema,
+        payload,
+    } = decode(&bytes[..n]).unwrap()
+    else {
+        panic!("expected stage call");
+    };
+    assert_eq!(
+        (stage, schema, payload),
+        ("reader.insert", 7, &[255, 0, 128][..])
+    );
+    assert!(bytes.as_ptr_range().contains(&payload.as_ptr()));
+    for end in 0..n {
+        assert!(decode(&bytes[..end]).is_err());
+    }
+    bytes[1] = 129; // tag 513 must never decode as a stage call.
+    assert!(decode(&bytes[..n]).is_err());
+}
