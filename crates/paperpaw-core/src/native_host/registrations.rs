@@ -71,10 +71,60 @@ pub use wire::{
     STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
     StageCall, StageReply, StageSpec,
 };
+// Core events of family 1b (64-74, `docs/abi/core-events.md`); hosts admit
+// their registrations once a producer is wired.
+pub use wire::{
+    EVENT_BOOK_CLOSED_TAG, EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_MOVED_TAG, EVENT_BOOK_OPENED_TAG,
+    EVENT_BOOK_REMOVED_TAG, EVENT_CHARGE_CHANGED_TAG, EVENT_PLUGINS_CHANGED_TAG,
+    EVENT_POWER_CHANGED_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_STATUS_CHANGED_TAG,
+    EVENT_WIFI_CHANGED_TAG, EventBookClosed, EventBookFinished, EventBookMoved, EventBookOpened,
+    EventBookRemoved, EventChargeChanged, EventPluginsChanged, EventPowerChanged,
+    EventSettingChanged, EventStatusChanged, EventWifiChanged,
+};
+// Registry (REG, `docs/abi/registry.md`): declarations 21-28, events 75-78 and
+// the `core.registry` rows 1025-1040; the host admits and answers them once
+// wired (Core hand-off).
+pub use wire::{
+    EVENT_PLUGIN_ANSWERED_TAG, EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES,
+    EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS, EVENT_PLUGINS_REQUESTED_PLUGINS_SEPARATOR,
+    EVENT_PLUGINS_REQUESTED_TAG, EVENT_PREVIEW_CHANGED_TAG, EVENT_REGISTRY_CHANGED_TAG,
+    EventPluginAnswered, EventPluginsRequested, EventPreviewChanged, EventRegistryChanged,
+    KEY_BIND_TAG, KeyBind, PRESET_SPEC_TAG, PRESET_VALUE_TAG, PresetSpec, PresetValue,
+    SERVICE_REG_BINDING_TAG, SERVICE_REG_CHOICE_TAG, SERVICE_REG_GROUP_TAG, SERVICE_REG_ITEM_TAG,
+    SERVICE_REG_KEY_TAG, SERVICE_REG_MENU_ROW_TAG, SERVICE_REG_NEED_TAG, SERVICE_REG_PLUGIN_TAG,
+    SERVICE_REG_QUERY_TAG, SERVICE_REG_SETTING_EXTRA_TAG, SERVICE_REG_SETTING_TAG,
+    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_TEXT_TAG, SERVICE_REG_VALUE_TAG,
+    SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG, SETUP_STEP_TAG,
+    SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice, ServiceRegGroup,
+    ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed, ServiceRegPlugin,
+    ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra, ServiceRegSetupStep,
+    ServiceRegSlot, ServiceRegText, ServiceRegValue, ServiceRegWidget, SettingChoice,
+    SettingDefault, SetupStep, SlotOffer, SlotSpec,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
+// The host's decoders (lock format 10, #985): only records a plugin sends. The
+// host decodes through these alone, so a device links no decoder for events,
+// input, frames or service replies.
+pub use wire::{
+    host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
+};
+
+/// A plugin's batch as the host decodes it ([`host_records_decode_into`]),
+/// returned by value. A plugin-reachable slot holds its batch on the heap
+/// instead ([`submit`]).
+///
+/// # Errors
+/// The statuses of [`records_decode`]; a record only the host sends is
+/// `ERR_INVALID`.
+pub fn host_records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
+    let mut batch = RecordBatch::EMPTY;
+    host_records_decode_into(bytes, &mut batch)?;
+    Ok(batch)
+}
 
 use super::{Error, registration_scope::RegistrationScope};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
     buffers,
@@ -110,10 +160,21 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
         Ok(wire) => wire,
         Err(error) => return refuse(scope, error),
     };
-    let batch = match wire::records_decode(wire) {
-        Ok(batch) => batch,
-        Err(error) => return refuse(scope, error),
+    // The decoded batch (8 records, 840 bytes on riscv32) lives on the heap:
+    // this slot runs on a plugin's stack band, whose frames stay under 2 KiB
+    // (#953, #985).
+    let mut held = Vec::new();
+    if held.try_reserve_exact(1).is_err() {
+        return refuse_memory(scope);
+    }
+    held.push(RecordBatch::EMPTY);
+    let Some(batch) = held.first_mut() else {
+        return refuse_memory(scope);
     };
+    if let Err(error) = wire::host_records_decode_into(wire, batch) {
+        return refuse(scope, error);
+    }
+    let batch = &*batch;
     // Only events with a host encoder can be named; refuse before staging anything.
     let supported = batch.iter().all(|record| match record {
         Record::Registration(Registration::Event { event_tag, .. }) => {
@@ -124,7 +185,7 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
     if !supported {
         return refuse(scope, ERR_UNSUPPORTED);
     }
-    match scope.submit_wire(&batch, |registration| registration, wire) {
+    match scope.submit_wire(batch, |registration| registration, wire) {
         Ok(()) => OK,
         // The construction latched itself; this also covers an overlapping call.
         Err(error) => refuse(scope, error),
@@ -136,6 +197,14 @@ fn refuse(scope: &RegistrationScope<Registration>, error: i32) -> i32 {
     // of the bytes supplied. Active scopes latch before the status is returned.
     match scope.reject() {
         Ok(()) => error,
+        Err(error) => status(error),
+    }
+}
+
+/// Refuse for lack of memory and latch Memory, not Invalid, as the cause.
+fn refuse_memory(scope: &RegistrationScope<Registration>) -> i32 {
+    match scope.reject_with(Error::Memory) {
+        Ok(()) => ERR_NO_MEMORY,
         Err(error) => status(error),
     }
 }

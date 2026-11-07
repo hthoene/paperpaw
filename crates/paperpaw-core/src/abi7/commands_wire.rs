@@ -42,6 +42,70 @@ pub const COMMAND_ITEM_ON: u32 = 8;
 pub const COMMAND_ITEM_KEEP: u32 = 16;
 /// Every SetItemState flag; other bits are refused.
 pub const COMMAND_ITEM_FLAGS: u32 = 31;
+/// Wire tag of the `command.reset_setting` command.
+pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;
+/// Maximum bytes of `command.reset_setting.key`.
+pub const COMMAND_RESET_SETTING_KEY_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.preview_setting` command.
+pub const COMMAND_PREVIEW_SETTING_TAG: u32 = 1537;
+/// Maximum bytes of `command.preview_setting.key`.
+pub const COMMAND_PREVIEW_SETTING_KEY_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.preview_setting.value`.
+pub const COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES: usize = 512;
+/// Wire tag of the `command.preview_end` command.
+pub const COMMAND_PREVIEW_END_TAG: u32 = 1538;
+/// Wire tag of the `command.set_scope` command.
+pub const COMMAND_SET_SCOPE_TAG: u32 = 1539;
+/// Maximum bytes of `command.set_scope.path`.
+pub const COMMAND_SET_SCOPE_PATH_MAX_BYTES: usize = 512;
+/// Wire tag of the `command.set_menu` command.
+pub const COMMAND_SET_MENU_TAG: u32 = 1540;
+/// Maximum bytes of `command.set_menu.menu`.
+pub const COMMAND_SET_MENU_MENU_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.set_menu.items`.
+pub const COMMAND_SET_MENU_ITEMS_MAX_BYTES: usize = 2048;
+/// Item separator of `command.set_menu.items`.
+pub const COMMAND_SET_MENU_ITEMS_SEPARATOR: char = '\n';
+/// Maximum items of `command.set_menu.items`.
+pub const COMMAND_SET_MENU_ITEMS_MAX_ITEMS: usize = 64;
+/// Maximum bytes of one item of `command.set_menu.items`.
+pub const COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.bind_key` command.
+pub const COMMAND_BIND_KEY_TAG: u32 = 1541;
+/// Maximum bytes of `command.bind_key.layer`.
+pub const COMMAND_BIND_KEY_LAYER_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.bind_key.input`.
+pub const COMMAND_BIND_KEY_INPUT_MAX_BYTES: usize = 64;
+/// Maximum bytes of `command.bind_key.action`.
+pub const COMMAND_BIND_KEY_ACTION_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.bind_slot` command.
+pub const COMMAND_BIND_SLOT_TAG: u32 = 1542;
+/// Maximum bytes of `command.bind_slot.slot`.
+pub const COMMAND_BIND_SLOT_SLOT_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.bind_slot.screen`.
+pub const COMMAND_BIND_SLOT_SCREEN_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.set_plugin_enabled` command.
+pub const COMMAND_SET_PLUGIN_ENABLED_TAG: u32 = 1543;
+/// Maximum bytes of `command.set_plugin_enabled.plugin`.
+pub const COMMAND_SET_PLUGIN_ENABLED_PLUGIN_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.request_plugins` command.
+pub const COMMAND_REQUEST_PLUGINS_TAG: u32 = 1544;
+/// Maximum bytes of `command.request_plugins.plugins`.
+pub const COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES: usize = 1024;
+/// Item separator of `command.request_plugins.plugins`.
+pub const COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR: char = '\n';
+/// Maximum items of `command.request_plugins.plugins`.
+pub const COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS: usize = 16;
+/// Maximum bytes of one item of `command.request_plugins.plugins`.
+pub const COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.answer_plugin` command.
+pub const COMMAND_ANSWER_PLUGIN_TAG: u32 = 1545;
+/// Maximum bytes of `command.answer_plugin.plugin`.
+pub const COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.apply_preset` command.
+pub const COMMAND_APPLY_PRESET_TAG: u32 = 1546;
+/// Maximum bytes of `command.apply_preset.preset`.
+pub const COMMAND_APPLY_PRESET_PRESET_MAX_BYTES: usize = 128;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -87,6 +151,87 @@ pub enum Command<'a> {
         badge: &'a str,
         /// Encoded i18n argument batch for `badge`, or empty.
         badge_args: &'a [u8],
+    },
+    /// The `command.reset_setting` command (`docs/abi/registry.md`).
+    ResetSetting {
+        /// UTF-8 text of at most 128 bytes.
+        key: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.preview_setting` command (`docs/abi/registry.md`).
+    PreviewSetting {
+        /// UTF-8 text of at most 128 bytes.
+        key: &'a str,
+        /// At most 512 bytes.
+        value: &'a [u8],
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.preview_end` command (`docs/abi/registry.md`).
+    PreviewEnd {
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.set_scope` command (`docs/abi/registry.md`).
+    SetScope {
+        /// UTF-8 text of at most 512 bytes.
+        path: &'a str,
+    },
+    /// The `command.set_menu` command (`docs/abi/registry.md`).
+    SetMenu {
+        /// UTF-8 text of at most 128 bytes.
+        menu: &'a str,
+        /// UTF-8 list of at most 64 items of at most 128 bytes, at most 2048 bytes in all.
+        items: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.bind_key` command (`docs/abi/registry.md`).
+    BindKey {
+        /// UTF-8 text of at most 128 bytes.
+        layer: &'a str,
+        /// UTF-8 text of at most 64 bytes.
+        input: &'a str,
+        /// UTF-8 text of at most 128 bytes.
+        action: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.bind_slot` command (`docs/abi/registry.md`).
+    BindSlot {
+        /// UTF-8 text of at most 128 bytes.
+        slot: &'a str,
+        /// UTF-8 text of at most 128 bytes.
+        screen: &'a str,
+    },
+    /// The `command.set_plugin_enabled` command (`docs/abi/registry.md`).
+    SetPluginEnabled {
+        /// UTF-8 text of at most 64 bytes.
+        plugin: &'a str,
+        /// Little-endian u32.
+        enabled: u32,
+    },
+    /// The `command.request_plugins` command (`docs/abi/registry.md`).
+    RequestPlugins {
+        /// UTF-8 list of at most 16 items of at most 64 bytes, at most 1024 bytes in all.
+        plugins: &'a str,
+    },
+    /// The `command.answer_plugin` command (`docs/abi/registry.md`).
+    AnswerPlugin {
+        /// Little-endian u32.
+        request: u32,
+        /// UTF-8 text of at most 64 bytes.
+        plugin: &'a str,
+        /// Little-endian u32.
+        outcome: u32,
+    },
+    /// The `command.apply_preset` command (`docs/abi/registry.md`).
+    ApplyPreset {
+        /// UTF-8 text of at most 128 bytes.
+        preset: &'a str,
+        /// Little-endian u32.
+        flags: u32,
     },
 }
 
@@ -268,6 +413,56 @@ fn write_field(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
     *offset += bytes.len();
 }
 
+fn text(bytes: &[u8], cap: usize) -> Result<&str, i32> {
+    if bytes.len() > cap {
+        Err(-3)
+    } else {
+        core::str::from_utf8(bytes).map_err(|_| -5)
+    }
+}
+
+fn blob(bytes: &[u8], cap: usize) -> Result<&[u8], i32> {
+    if bytes.len() > cap {
+        Err(-3)
+    } else {
+        Ok(bytes)
+    }
+}
+
+fn scalar<const N: usize>(bytes: &[u8]) -> [u8; N] {
+    let mut value = [0; N];
+    value.copy_from_slice(bytes);
+    value
+}
+
+fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+    if len > cap {
+        Err(-3)
+    } else {
+        Ok(varint_len(len as u32) + len)
+    }
+}
+
+fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+
+fn list(text: &str, separator: char, max_items: usize, item_max: usize) -> Result<&str, i32> {
+    if text.is_empty() {
+        return Ok(text);
+    }
+    let mut count = 0;
+    for item in text.split(separator) {
+        count += 1;
+        if count > max_items || item.is_empty() || item.len() > item_max {
+            return Err(-2);
+        }
+    }
+    Ok(text)
+}
+
 /// Decode an entire batch before exposing any command.
 ///
 /// Framing must be canonical u32 LEB128. Unknown command tags and unknown
@@ -315,6 +510,95 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                 Command::CloseScreen
             }
             COMMAND_SET_ITEM_STATE_TAG => item_state(&mut body)?,
+            COMMAND_RESET_SETTING_TAG => {
+                body.bitmap()?;
+                Command::ResetSetting {
+                    key: text(body.bytes()?, COMMAND_RESET_SETTING_KEY_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_PREVIEW_SETTING_TAG => {
+                body.bitmap()?;
+                Command::PreviewSetting {
+                    key: text(body.bytes()?, COMMAND_PREVIEW_SETTING_KEY_MAX_BYTES)?,
+                    value: blob(body.bytes()?, COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_PREVIEW_END_TAG => {
+                body.bitmap()?;
+                Command::PreviewEnd {
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_SET_SCOPE_TAG => {
+                body.bitmap()?;
+                Command::SetScope {
+                    path: text(body.bytes()?, COMMAND_SET_SCOPE_PATH_MAX_BYTES)?,
+                }
+            }
+            COMMAND_SET_MENU_TAG => {
+                body.bitmap()?;
+                Command::SetMenu {
+                    menu: text(body.bytes()?, COMMAND_SET_MENU_MENU_MAX_BYTES)?,
+                    items: list(
+                        text(body.bytes()?, COMMAND_SET_MENU_ITEMS_MAX_BYTES)?,
+                        COMMAND_SET_MENU_ITEMS_SEPARATOR,
+                        COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
+                        COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
+                    )?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BIND_KEY_TAG => {
+                body.bitmap()?;
+                Command::BindKey {
+                    layer: text(body.bytes()?, COMMAND_BIND_KEY_LAYER_MAX_BYTES)?,
+                    input: text(body.bytes()?, COMMAND_BIND_KEY_INPUT_MAX_BYTES)?,
+                    action: text(body.bytes()?, COMMAND_BIND_KEY_ACTION_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BIND_SLOT_TAG => {
+                body.bitmap()?;
+                Command::BindSlot {
+                    slot: text(body.bytes()?, COMMAND_BIND_SLOT_SLOT_MAX_BYTES)?,
+                    screen: text(body.bytes()?, COMMAND_BIND_SLOT_SCREEN_MAX_BYTES)?,
+                }
+            }
+            COMMAND_SET_PLUGIN_ENABLED_TAG => {
+                body.bitmap()?;
+                Command::SetPluginEnabled {
+                    plugin: text(body.bytes()?, COMMAND_SET_PLUGIN_ENABLED_PLUGIN_MAX_BYTES)?,
+                    enabled: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_REQUEST_PLUGINS_TAG => {
+                body.bitmap()?;
+                Command::RequestPlugins {
+                    plugins: list(
+                        text(body.bytes()?, COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS,
+                        COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES,
+                    )?,
+                }
+            }
+            COMMAND_ANSWER_PLUGIN_TAG => {
+                body.bitmap()?;
+                Command::AnswerPlugin {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    plugin: text(body.bytes()?, COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES)?,
+                    outcome: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_APPLY_PRESET_TAG => {
+                body.bitmap()?;
+                Command::ApplyPreset {
+                    preset: text(body.bytes()?, COMMAND_APPLY_PRESET_PRESET_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -405,6 +689,79 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             let body = fields.iter().map(|field| field_len(field.len()));
             Ok((COMMAND_SET_ITEM_STATE_TAG, 1 + 4 + body.sum::<usize>()))
         }
+        Command::ResetSetting { key, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(key.len(), COMMAND_RESET_SETTING_KEY_MAX_BYTES)?;
+            Ok((COMMAND_RESET_SETTING_TAG, len))
+        }
+        Command::PreviewSetting { key, value, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(key.len(), COMMAND_PREVIEW_SETTING_KEY_MAX_BYTES)?;
+            len += blob_len(value.len(), COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES)?;
+            Ok((COMMAND_PREVIEW_SETTING_TAG, len))
+        }
+        Command::PreviewEnd { .. } => Ok((COMMAND_PREVIEW_END_TAG, 1 + 4)),
+        Command::SetScope { path } => {
+            let mut len = 1;
+            len += blob_len(path.len(), COMMAND_SET_SCOPE_PATH_MAX_BYTES)?;
+            Ok((COMMAND_SET_SCOPE_TAG, len))
+        }
+        Command::SetMenu { menu, items, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(menu.len(), COMMAND_SET_MENU_MENU_MAX_BYTES)?;
+            len += blob_len(items.len(), COMMAND_SET_MENU_ITEMS_MAX_BYTES)?;
+            list(
+                items,
+                COMMAND_SET_MENU_ITEMS_SEPARATOR,
+                COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
+                COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
+            )?;
+            Ok((COMMAND_SET_MENU_TAG, len))
+        }
+        Command::BindKey {
+            layer,
+            input,
+            action,
+            ..
+        } => {
+            let mut len = 1 + 4;
+            len += blob_len(layer.len(), COMMAND_BIND_KEY_LAYER_MAX_BYTES)?;
+            len += blob_len(input.len(), COMMAND_BIND_KEY_INPUT_MAX_BYTES)?;
+            len += blob_len(action.len(), COMMAND_BIND_KEY_ACTION_MAX_BYTES)?;
+            Ok((COMMAND_BIND_KEY_TAG, len))
+        }
+        Command::BindSlot { slot, screen } => {
+            let mut len = 1;
+            len += blob_len(slot.len(), COMMAND_BIND_SLOT_SLOT_MAX_BYTES)?;
+            len += blob_len(screen.len(), COMMAND_BIND_SLOT_SCREEN_MAX_BYTES)?;
+            Ok((COMMAND_BIND_SLOT_TAG, len))
+        }
+        Command::SetPluginEnabled { plugin, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(plugin.len(), COMMAND_SET_PLUGIN_ENABLED_PLUGIN_MAX_BYTES)?;
+            Ok((COMMAND_SET_PLUGIN_ENABLED_TAG, len))
+        }
+        Command::RequestPlugins { plugins } => {
+            let mut len = 1;
+            len += blob_len(plugins.len(), COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES)?;
+            list(
+                plugins,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS,
+                COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES,
+            )?;
+            Ok((COMMAND_REQUEST_PLUGINS_TAG, len))
+        }
+        Command::AnswerPlugin { plugin, .. } => {
+            let mut len = 1 + 8;
+            len += blob_len(plugin.len(), COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES)?;
+            Ok((COMMAND_ANSWER_PLUGIN_TAG, len))
+        }
+        Command::ApplyPreset { preset, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(preset.len(), COMMAND_APPLY_PRESET_PRESET_MAX_BYTES)?;
+            Ok((COMMAND_APPLY_PRESET_TAG, len))
+        }
     }
 }
 
@@ -466,6 +823,70 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     for field in [label.as_bytes(), label_args, badge.as_bytes(), badge_args] {
                         write_field(field, out, &mut offset);
                     }
+                }
+                Command::ResetSetting { key, flags } => {
+                    write_blob(key.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::PreviewSetting { key, value, flags } => {
+                    write_blob(key.as_bytes(), out, &mut offset);
+                    write_blob(value, out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::PreviewEnd { flags } => {
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::SetScope { path } => {
+                    write_blob(path.as_bytes(), out, &mut offset);
+                }
+                Command::SetMenu { menu, items, flags } => {
+                    write_blob(menu.as_bytes(), out, &mut offset);
+                    write_blob(items.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BindKey {
+                    layer,
+                    input,
+                    action,
+                    flags,
+                } => {
+                    write_blob(layer.as_bytes(), out, &mut offset);
+                    write_blob(input.as_bytes(), out, &mut offset);
+                    write_blob(action.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BindSlot { slot, screen } => {
+                    write_blob(slot.as_bytes(), out, &mut offset);
+                    write_blob(screen.as_bytes(), out, &mut offset);
+                }
+                Command::SetPluginEnabled { plugin, enabled } => {
+                    write_blob(plugin.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&enabled.to_le_bytes());
+                    offset += 4;
+                }
+                Command::RequestPlugins { plugins } => {
+                    write_blob(plugins.as_bytes(), out, &mut offset);
+                }
+                Command::AnswerPlugin {
+                    request,
+                    plugin,
+                    outcome,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(plugin.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&outcome.to_le_bytes());
+                    offset += 4;
+                }
+                Command::ApplyPreset { preset, flags } => {
+                    write_blob(preset.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
                 }
                 Command::SetSetting { .. } => {}
             }
