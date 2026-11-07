@@ -3226,6 +3226,10 @@ pub paperpaw_sdk::native::declare::EventKind::WifiChanged
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::InputKind
 pub paperpaw_sdk::native::declare::InputKind::Gesture
 pub paperpaw_sdk::native::declare::InputKind::Input
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::Instances
+pub paperpaw_sdk::native::declare::Instances::Many
+pub paperpaw_sdk::native::declare::Instances::PerParams
+pub paperpaw_sdk::native::declare::Instances::Single
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::Kind<'a>
 pub paperpaw_sdk::native::declare::Kind::Bool(bool)
 pub paperpaw_sdk::native::declare::Kind::Choice
@@ -3387,6 +3391,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::secret(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::waits_ready(self) -> Self
@@ -3847,6 +3852,7 @@ pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::flags(&self) -> u32
 pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::id(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::plugin(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::title(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::user_defined(&self) -> bool
 pub struct paperpaw_sdk::native::registry::RegistryMenuRow<'a>
 impl<'a> paperpaw_sdk::native::registry::RegistryMenuRow<'a>
 pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::badge(&self) -> &'a str
@@ -4363,24 +4369,31 @@ pub struct paperpaw_sdk::native::ui::Question<'a>
 impl<'a> paperpaw_sdk::native::ui::Question<'a>
 pub fn paperpaw_sdk::native::ui::Question<'a>::choice(&'a str, &'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::confirm(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::confirm_labels(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::focus_yes(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::folder(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::live(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::mode(self, paperpaw_sdk::native::ui::TextMode) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::multiline(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::only_yes(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::remote(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::secret(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Question<'a>::text(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::ui::QuestionInfo<'a>
 impl<'a> paperpaw_sdk::native::ui::QuestionInfo<'a>
 pub fn paperpaw_sdk::native::ui::QuestionInfo<'a>::choices(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::focus_yes(self) -> bool
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_live(self) -> bool
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_multiline(self) -> bool
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_secret(self) -> bool
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::kind(self) -> paperpaw_sdk::native::ui::QuestionKind
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::max_bytes(self) -> u32
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::mode(self) -> paperpaw_sdk::native::ui::TextMode
+pub fn paperpaw_sdk::native::ui::QuestionInfo<'a>::no_label(self) -> core::option::Option<&'a str>
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::only_yes(self) -> bool
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::text(self) -> &'a str
 pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::title(self) -> &'a str
+pub fn paperpaw_sdk::native::ui::QuestionInfo<'a>::yes_label(self) -> core::option::Option<&'a str>
 pub struct paperpaw_sdk::native::ui::RequestId(_)
 impl paperpaw_sdk::native::ui::RequestId
 pub const fn paperpaw_sdk::native::ui::RequestId::get(self) -> u32

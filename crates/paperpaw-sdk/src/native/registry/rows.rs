@@ -511,6 +511,13 @@ pub struct RegistryItem<'a> {
     row: wire::ServiceRegItem<'a>,
 }
 impl<'a> RegistryItem<'a> {
+    /// For a menu row from `Registry::menus`, a user definition exists.
+    /// Empty definitions and definitions equal to defaults also return true.
+    #[must_use]
+    pub fn user_defined(&self) -> bool {
+        self.row.flags & (1 << 5) != 0
+    }
+
     pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
         let Record::ServiceRegItem(row) = record else {
             return Err(Error::Invalid);
