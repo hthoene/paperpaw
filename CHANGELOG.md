@@ -26,6 +26,9 @@ change the plugin SDK.
 
 ### Added
 
+- `paperpaw-sqlite` writes, column names and schema reads allocate fallibly (`Error::OutOfMemory`,
+  `try_encode_record`, `columns` returns a `Result`); `Md5::hex_into` and `md5::partial_into`
+  write hex digits without allocating (#228).
 - Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
   tests are removed, the events table and storage goldens run on the native recorder, and the app
   and the store-file build no longer register it until Core publishes native plugins (#228).
