@@ -132,7 +132,7 @@ impl<'a, T> UiPage<'a, T> {
             }
             decode(record)?;
             rows += 1;
-            if rows as usize > op.reply_rows {
+            if rows > u32::from(op.reply_rows) {
                 return Err(Error::Invalid);
             }
         }

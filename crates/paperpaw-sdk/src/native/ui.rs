@@ -279,8 +279,14 @@ impl Ui {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        let count = super::wire::service_input_encode(self.operation(op)?, records, input)
-            .map_err(Error::from_status)?;
+        let operation = self.operation(op)?;
+        let count = wire::records_encode_counted(
+            records,
+            usize::from(operation.input_rows),
+            operation.max_input,
+            input,
+        )
+        .map_err(Error::from_status)?;
         self.service.call(host, op, &input[..count], out)
     }
 }

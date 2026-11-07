@@ -18,14 +18,14 @@ impl Ui {
         out: &mut [u8],
     ) -> Result<HandoverId, Error> {
         let op = self.operation(schema::OP_HANDOVER)?;
-        params::validate(values, op.input_rows)?;
+        params::validate(values, usize::from(op.input_rows))?;
         let count = {
             let mut records = Vec::new();
             records
                 .try_reserve_exact(values.len())
                 .map_err(|_| Error::NoMemory)?;
             records.extend(values.iter().map(|value| value.record()));
-            super::super::wire::service_input_encode(op, &records, input)
+            wire::records_encode_counted(&records, usize::from(op.input_rows), op.max_input, input)
                 .map_err(Error::from_status)?
         };
         let count = self
