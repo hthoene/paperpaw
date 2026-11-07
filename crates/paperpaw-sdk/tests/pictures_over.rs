@@ -245,3 +245,71 @@ fn an_axis_made_smaller_is_averaged_while_the_other_grows() {
         }
     }
 }
+
+/// A wide colour source stretched taller took more than the 32 KiB the native
+/// draw may take, and plugins' `draw_image_over` must still draw it (only the
+/// host's `try_draw_picture` is limited).
+#[test]
+fn a_wide_colour_picture_stretched_taller_is_still_drawn_for_plugins() {
+    let storage = MemoryStorage::new();
+    let (width, height) = (4096u32, 2u32);
+    let mut writer = ColorWriter::new(&storage, "wide.rgb");
+    writer.start(width, height).unwrap();
+    for _ in 0..height {
+        writer.row_rgb(&vec![0u8; width as usize * 3]).unwrap();
+    }
+    writer.finish().unwrap();
+    let image = ImageRef {
+        path: "wide.rgb".into(),
+        width,
+        height,
+    };
+    let mut frame = frame(40, 40);
+    // See-through, so the blended (gray and opacity) drawer takes it.
+    ui::draw_image_over(
+        &mut frame.canvas(),
+        &storage,
+        &image,
+        Rect::new(0, 0, 40, 40),
+        200,
+    );
+    assert!(
+        pixel(&frame, 20, 20).luma() < PAPER.luma(),
+        "drawn, not dropped"
+    );
+    // The native draw refuses the same picture before drawing anything.
+    let mut native = self::frame(40, 40);
+    let picture = ui::Picture {
+        path: "wide.rgb",
+        kind: ui::PictureKind::Color,
+        width,
+        height,
+        scratch_max: 32 * 1024,
+    };
+    assert_eq!(
+        ui::try_draw_picture(
+            &mut native.canvas(),
+            &storage,
+            &picture,
+            Rect::new(0, 0, 40, 40),
+            200
+        ),
+        Err(image::ImageError::OutOfMemory)
+    );
+    assert_eq!(pixel(&native, 20, 20), PAPER);
+    // Where the device has the memory (a larger cap) the native draw draws it.
+    let roomy = ui::Picture {
+        scratch_max: 1 << 20,
+        ..picture
+    };
+    let mut native = self::frame(40, 40);
+    ui::try_draw_picture(
+        &mut native.canvas(),
+        &storage,
+        &roomy,
+        Rect::new(0, 0, 40, 40),
+        200,
+    )
+    .unwrap();
+    assert!(pixel(&native, 20, 20).luma() < PAPER.luma());
+}

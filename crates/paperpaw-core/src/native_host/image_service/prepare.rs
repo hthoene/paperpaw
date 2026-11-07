@@ -60,6 +60,31 @@ pub(crate) struct Env {
     pub(crate) png_row_max: usize,
 }
 
+/// Entries of the cache folder a sweep call looks at.
+pub(crate) const SWEEP_SCAN: usize = 32;
+
+/// Where a sweep of the cache folder is ([`ImageTable::sweep_cache`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SweepCursor {
+    /// The place the next piece of the listing starts at.
+    place: u64,
+    /// Whether this pass removed a file.
+    removed: bool,
+}
+
+impl Env {
+    /// The X4's: the longest side a prepared picture may have is 1,600
+    /// pixels and a PNG's source row at most 8 KiB.
+    pub(crate) const fn x4(screen: u32, colour: bool) -> Self {
+        Self {
+            screen,
+            colour,
+            max_side: 1_600,
+            png_row_max: 8 * 1024,
+        }
+    }
+}
+
 /// Whether the file at `path` is a PNG whose source row (its width in bits
 /// a pixel, rounded up to bytes) is over `max`, from its first 33 bytes.
 fn png_row_over(storage: &dyn Storage, path: &str, max: usize) -> bool {
@@ -335,42 +360,48 @@ impl ImageTable {
 
     /// Boot cleanup of the folder of prepared images: the files this host
     /// made there (`<owner>-<n>.img`) that no live image uses go, at most
-    /// `max` in a call. Nothing outside the folder is touched, no subfolder is
-    /// entered and any other name is left alone.
+    /// `max` in a call and `SWEEP_SCAN` entries looked at. Nothing outside
+    /// the folder is touched, no subfolder is entered and any other name is
+    /// left alone.
     ///
-    /// `cursor` (start at 0, keep it between calls) counts the matching files
-    /// the sweep had to leave (a live image's, or one the card will not
-    /// delete); the next call skips that many, so the files behind them are
-    /// reached and the sweep ends. `Ok(true)`: more candidates are behind
-    /// the ones handled, call again. `Ok(false)`: every candidate was handled
-    /// (what the cursor counts is still there). The card lists the whole
-    /// folder in each call (`Storage::list` cannot stop early or resume), so
-    /// run it from idle time.
+    /// `cursor` (start at the default, keep it between calls) is where the
+    /// listing goes on ([`Storage::list_from`]: the folder is read a piece at
+    /// a time, not once a call). Files removed between pieces may move the
+    /// places of the entries behind them, so a pass that removed anything is
+    /// followed by another, and the sweep ends with a pass that removed
+    /// nothing: no file it can delete is left behind a false end.
+    /// `Ok(true)`: call again. `Ok(false)`: done. A `max` of 0 is `ERR_INVALID`:
+    /// with no budget the cursor would never move.
+    /// INTERIM: each call hands out at most `SWEEP_SCAN` entries, but
+    /// `Storage::list_from` is not a bounded read on this head (the FAT card
+    /// reads the folder at place 0 and a stale place; the default
+    /// `list_counted` rereads it every call). The read bound comes with
+    /// `Storage::list_bounded` (#339), which this call switches to; until
+    /// then the sweep is not activated for large folders.
     ///
     /// # Errors
-    /// `ERR_IO` (the card cannot list the folder; a missing folder is
-    /// fine), `ERR_NO_MEMORY`, `ERR_BUSY`.
+    /// `ERR_INVALID` (`max` is 0), `ERR_IO` (the card cannot list the folder; a
+    /// missing folder is fine), `ERR_NO_MEMORY`, `ERR_BUSY`; the cursor is as
+    /// it was.
     pub(crate) fn sweep_cache(
         &self,
         storage: &dyn Storage,
         max: usize,
-        cursor: &mut usize,
+        cursor: &mut SweepCursor,
     ) -> Result<bool, i32> {
+        if max == 0 {
+            return Err(ERR_INVALID);
+        }
         let mut names: Vec<String> = Vec::new();
         let mut failure = None;
-        let (mut seen, mut more) = (0_usize, false);
-        let skip = *cursor;
-        let listed = storage.list(DIR, &mut |entry| {
-            if failure.is_some() || entry.is_dir || !ours(entry.name) {
-                return;
+        let mut looked = 0_usize;
+        let listed = storage.list_from(DIR, cursor.place, &mut |entry| {
+            if failure.is_some() || looked >= SWEEP_SCAN || names.len() >= max {
+                return false;
             }
-            seen += 1;
-            if seen <= skip {
-                return;
-            }
-            if names.len() >= max {
-                more = true;
-                return;
+            looked += 1;
+            if entry.is_dir || !ours(entry.name) {
+                return true;
             }
             let mut name = String::new();
             if name
@@ -379,18 +410,22 @@ impl ImageTable {
                 || names.try_reserve(1).is_err()
             {
                 failure = Some(ERR_NO_MEMORY);
-                return;
+                return false;
             }
             name.push_str(DIR);
             name.push('/');
             name.push_str(entry.name);
             names.push(name);
+            true
         });
-        match listed {
-            Ok(()) => {}
-            Err(paperpaw_platform::StorageError::NotFound) => return Ok(false),
+        let next = match listed {
+            Ok(next) => next,
+            Err(paperpaw_platform::StorageError::NotFound) => {
+                *cursor = SweepCursor::default();
+                return Ok(false);
+            }
             Err(_) => return Err(paperpaw_native::host_glue::ERR_IO),
-        }
+        };
         if let Some(error) = failure {
             return Err(error);
         }
@@ -398,6 +433,7 @@ impl ImageTable {
             .inner
             .try_borrow()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        let mut removed = false;
         for name in &names {
             let live = name
                 .rsplit('/')
@@ -409,12 +445,26 @@ impl ImageTable {
                         .iter()
                         .any(|e| e.origin == Origin::Prepared && e.owner == o && e.seq == n)
                 });
-            if live || storage.remove(name).is_err() {
-                // Left in place: the next call goes past it.
-                *cursor += 1;
+            // One the card will not delete stays: it ends no pass later.
+            if !live && storage.remove(name).is_ok() {
+                removed = true;
             }
         }
-        Ok(more)
+        cursor.removed |= removed;
+        match next {
+            Some(place) => {
+                cursor.place = place;
+                Ok(true)
+            }
+            None if cursor.removed => {
+                *cursor = SweepCursor::default();
+                Ok(true)
+            }
+            None => {
+                *cursor = SweepCursor::default();
+                Ok(false)
+            }
+        }
     }
 
     fn decode(&self, storage: &dyn Storage, job: Waiting, number: u32, env: Env) -> Ready {
@@ -444,7 +494,7 @@ impl ImageTable {
             }
         }
         // What the decoder wrote must be whole: its size is its header's.
-        let Some((_, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
+        let Ok((_, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
             let _ = storage.remove(&path);
             return fail(CARD);
         };
