@@ -19,11 +19,6 @@ change the plugin SDK.
 
 ### Added
 
-- Interface-7 typed UIX SDK helpers cover navigation, host-text questions and
-  answers, widgets and status composition, help, speech and clipboard operations.
-  Typed registry declarations, commands, queries and events expose `core.registry`
-  without public wire records (#228).
-
 - Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
   book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
   turns and book edges share `ReadingView` accessors; malformed values are
@@ -61,8 +56,11 @@ change the plugin SDK.
   the host wires it. `event.screen_shown` (38) gains the instance it shows. Service ops name
   their row counts (`ServiceOp::input_rows`, `paged`, `reply_rows`); an input batch above 8
   records is encoded with `records_encode_counted` and decoded by the host with
-  `host_records_visit` (op 16: 32 params). Interface draft 17 (`native::DRAFT`) refuses plugins
-  built for draft 16 (#228).
+  `host_records_visit` (op 16: 32 params). Typed SDK facades: `native::ui` (navigation,
+  hand-overs, questions and answers with host texts, widgets and status composition, help, speech,
+  clipboard) and `native::registry` (registry declarations, commands, paged queries and events),
+  without public wire records. Interface draft 17 (`native::DRAFT`) refuses plugins built for draft
+  16 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
