@@ -804,6 +804,28 @@ impl Block {
         }
     }
 
+    /// Replaces bytes `range` of `text` (on character boundaries) with
+    /// `with`, e.g. in a text filter: styles move along, and positions in
+    /// the source stay right around it (the new text maps to where the old
+    /// one was). A range off character boundaries, and an edit memory
+    /// cannot be found for, leave the block unchanged; filters that must
+    /// know use [`Block::try_transform`].
+    pub fn replace(&mut self, range: core::ops::Range<usize>, with: &str) {
+        let range = range.start..range.end.min(self.text.len());
+        let _ = edit::replace_in(
+            edit::Parts {
+                start: self.start,
+                end: self.end,
+                limit: usize::MAX,
+                text: &mut self.text,
+                map: &mut self.map,
+                runs: &mut self.runs,
+            },
+            range,
+            with,
+        );
+    }
+
     /// The source offset of byte `index` of `text`.
     pub fn source_offset(&self, index: usize) -> u32 {
         if index >= self.text.len() {

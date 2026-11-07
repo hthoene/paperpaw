@@ -120,11 +120,11 @@ pub fn paperpaw_document::Block::writing_mode(self, paperpaw_lang::WritingMode) 
 impl paperpaw_document::Block
 pub fn paperpaw_document::Block::lang_at(&self, usize) -> paperpaw_lang::Lang
 pub fn paperpaw_document::Block::lang_of(&self, paperpaw_document::TextStyle) -> paperpaw_lang::Lang
+pub fn paperpaw_document::Block::replace(&mut self, core::ops::range::Range<usize>, &str)
 pub fn paperpaw_document::Block::source_offset(&self, usize) -> u32
 pub fn paperpaw_document::Block::style_at(&self, usize) -> paperpaw_document::TextStyle
 pub fn paperpaw_document::Block::text_index(&self, u32) -> usize
 impl paperpaw_document::Block
-pub fn paperpaw_document::Block::replace(&mut self, core::ops::range::Range<usize>, &str)
 pub fn paperpaw_document::Block::try_transform<T, E: core::convert::From<paperpaw_document::EditError>>(&mut self, usize, impl core::ops::function::FnOnce(&mut paperpaw_document::TextEdit) -> core::result::Result<T, E>) -> core::result::Result<T, E>
 pub struct paperpaw_document::EmbeddedFont
 pub paperpaw_document::EmbeddedFont::bold: bool

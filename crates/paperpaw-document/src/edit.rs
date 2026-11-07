@@ -120,28 +120,6 @@ impl Block {
             drop_image: false,
         })
     }
-
-    /// Replaces bytes `range` of `text` (on character boundaries) with
-    /// `with`, e.g. in a text filter: styles move along, and positions in
-    /// the source stay right around it (the new text maps to where the old
-    /// one was). A range off character boundaries, and an edit memory
-    /// cannot be found for, leave the block unchanged; filters that must
-    /// know use [`Block::try_transform`].
-    pub fn replace(&mut self, range: Range<usize>, with: &str) {
-        let range = range.start..range.end.min(self.text.len());
-        let _ = replace_in(
-            Parts {
-                start: self.start,
-                end: self.end,
-                limit: usize::MAX,
-                text: &mut self.text,
-                map: &mut self.map,
-                runs: &mut self.runs,
-            },
-            range,
-            with,
-        );
-    }
 }
 
 impl TextEdit {
@@ -314,13 +292,13 @@ pub(crate) fn source_offset(
 }
 
 /// What a replacement changes, borrowed from a block or a copy.
-struct Parts<'a> {
-    start: u32,
-    end: u32,
-    limit: usize,
-    text: &'a mut String,
-    map: &'a mut OffsetMap,
-    runs: &'a mut Vec<Run>,
+pub(crate) struct Parts<'a> {
+    pub(crate) start: u32,
+    pub(crate) end: u32,
+    pub(crate) limit: usize,
+    pub(crate) text: &'a mut String,
+    pub(crate) map: &'a mut OffsetMap,
+    pub(crate) runs: &'a mut Vec<Run>,
 }
 
 /// The source offset of text index `index`, `end` from the text's end on;
@@ -352,7 +330,11 @@ fn offsets_fit(start: u32, len: usize, points: impl Iterator<Item = (usize, u32)
 
 /// The replacement: everything it needs is checked and reserved first,
 /// then nothing it does can fail or allocate.
-fn replace_in(parts: Parts<'_>, range: Range<usize>, with: &str) -> Result<(), EditError> {
+pub(crate) fn replace_in(
+    parts: Parts<'_>,
+    range: Range<usize>,
+    with: &str,
+) -> Result<(), EditError> {
     let Parts {
         start,
         end,
