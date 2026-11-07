@@ -59,6 +59,8 @@ impl Kernel {
                     self.output.commands.push(events::WIFI_CHANGED.emit(()));
                     // Status lines show it (`wifi.status`).
                     self.output.commands.push(events::STATUS_CHANGED.emit(()));
+                    self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
+                    self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
             }
             WifiEvent::Scanned(mut networks) => {
