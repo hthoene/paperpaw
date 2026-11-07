@@ -19,6 +19,9 @@ impl AdmittedFeatures {
     pub const NONE: Self = Self { bits: 0, host: &[] };
 
     /// Retain only availability from checked metadata, indexed by wired features.
+    /// `host` must be the same catalog passed to `metadata::check`. Checked
+    /// availability contains keys only, so a same-key revision mismatch cannot
+    /// be detected here.
     ///
     /// # Errors
     /// Returns Invalid for more than 32 host features or an inconsistent catalog.
@@ -193,5 +196,37 @@ mod tests {
             AdmittedFeatures::from_checked(&checked, &[]),
             Err(Error::Invalid)
         ));
+    }
+    #[test]
+    fn last_u32_bit_is_preserved_without_truncation() {
+        const LAST: &[Feature<'static>] = &{
+            let mut entries = [Feature {
+                key: "test.other",
+                revision: 1,
+            }; 32];
+            entries[31] = Feature {
+                key: REGISTRY,
+                revision: 1,
+            };
+            entries
+        };
+        let bytes = requested(1, false);
+        let checked = metadata::check(&bytes, &host(LAST)).unwrap();
+        let admitted = AdmittedFeatures::from_checked(&checked, LAST).unwrap();
+        assert_eq!(admitted.bits, 1_u32 << 31);
+        assert_eq!(admitted.feature(REGISTRY), Ok(()));
+        assert_eq!(admitted.feature("test.other"), Err(ERR_DENIED));
+    }
+
+    #[test]
+    fn required_revision_above_host_support_is_refused() {
+        let bytes = requested(2, true);
+        assert_eq!(
+            metadata::check(&bytes, &host(AVAILABLE)).unwrap_err(),
+            Refusal::RequiredFeature {
+                key: REGISTRY,
+                revision: 2
+            }
+        );
     }
 }
