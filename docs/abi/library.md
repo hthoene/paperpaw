@@ -282,8 +282,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 ### 2.3 Files: delete, move, import
 
 - [D] **Reply of `can_delete` and `delete`:** one `lib_result` per input path, in the input's
-  order, then exactly one `service.end` (`flags` bit 0 `last`, the others 0); `reply_rows` 7,
-  not paged (`stages-services.md`), so the generic reply check accepts up to 7 rows.
+  order, then exactly one `service.end` with `total` the number of rows and `flags`, `next` and
+  `generation` 0 (the unpaged end, `stages-services.md`; anything else is `ERR_INVALID`);
+  `reply_rows` 7, so the generic reply check accepts up to 7 rows.
 - [D] **Single-result ops** (`move`, `import`, `set_position`): an error is the call's status and
   nothing is written; on success the reply is one `lib_result` with `status` `OK`. Per-path
   statuses inside `lib_result` belong to ops 9 and 10 only.

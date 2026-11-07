@@ -242,9 +242,12 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Row counts, each written only where it differs from its default (so other ops keep their
   exact form and lock): `input_rows` 2..=64, the most records one input batch holds (default 1);
   `paged: false` on a list op (its reply ends with `service.end`) that answers all its rows in one
-  call, with `reply_rows` 1..=64 its most rows before `end`; a paged list op (the default) holds
-  the schema's `page_rows`. The generated `ServiceOp` carries all three (`input_rows`, `paged`,
-  `reply_rows`, 0 for an op that is no list), so readers check from the table, never by op number.
+  call, with `reply_rows` 1..=64 its most rows before `end`. Its `end` is the unpaged end:
+  `total` the rows written, `flags`, `next` and `generation` 0 (no `last` bit: there is no other
+  page), else the host and the SDK refuse the reply with `ERR_INVALID`. A paged list op (the
+  default) holds the schema's `page_rows`. The generated `ServiceOp` carries all three
+  (`input_rows`, `paged`, `reply_rows`, 0 for an op that is no list), so readers check from the
+  table, never by op number.
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
   per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK
