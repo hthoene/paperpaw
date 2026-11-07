@@ -592,6 +592,8 @@ reply 4,096 bytes, stage payload 3,840.
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
   with the reader port at a 1,600-pixel PNG.
+- Drawing a picture (slot 37): at most 32 KiB transient per call (section 5), fallible, freed
+  before the call returns; never at the same time as a decode (both run on the main loop).
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
 - Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
