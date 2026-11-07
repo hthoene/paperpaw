@@ -160,7 +160,7 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
             (),
             make,
             "tokens",
-            (0, 0),
+            (core::ptr::null(), 0),
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
             DeclaredServices::none(),

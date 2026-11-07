@@ -55,7 +55,7 @@ impl Admitted {
                 (),
                 self.make,
                 id,
-                (0, 0),
+                (core::ptr::null(), 0),
                 report,
                 resources,
                 declared,
