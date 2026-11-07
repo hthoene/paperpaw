@@ -316,11 +316,11 @@ pub trait Source<C> {
     fn read(&mut self, from: C) -> Result<Replied<C>, Error>;
 }
 
-/// Replies a window is read from at most (`MOST_BOOKS` of 32 each).
-const MOST_PAGES: usize = MOST_BOOKS.div_ceil(32);
-
 /// Reads replies into a window from `start` until it holds `want` books
-/// (never more than [`MOST_BOOKS`]) or the last one was read. A stale cursor
+/// (at most [`MOST_BOOKS`], the last reply read may go over) or the last one
+/// was read. A reply holds as many rows as fit its buffer (32, but a few
+/// with long titles), so the count of replies is not bounded by a constant
+/// but by the books wanted; a reply without rows ends the reading. A stale cursor
 /// starts the window over from `first` once; the flag is then true: the
 /// windows before it were read in another generation.
 ///
@@ -335,7 +335,7 @@ pub fn read_window<C: Copy>(
     let mut window = Window::new(start);
     let mut restarted = false;
     let mut cursor = start;
-    for _ in 0..=MOST_PAGES {
+    for _ in 0..=MOST_BOOKS {
         let reply = match source.read(cursor) {
             Ok(reply) => reply,
             Err(Error::State) if !restarted => {
@@ -346,6 +346,7 @@ pub fn read_window<C: Copy>(
             }
             Err(error) => return Err(error),
         };
+        let empty = reply.books.is_empty();
         for book in reply.books {
             push(&mut window.books, book)?;
         }
@@ -353,7 +354,7 @@ pub fn read_window<C: Copy>(
         window.total = reply.total;
         window.next = reply.next;
         match window.next {
-            Some(next) if window.books.len() < want.min(MOST_BOOKS) => cursor = next,
+            Some(next) if !empty && window.books.len() < want.min(MOST_BOOKS) => cursor = next,
             _ => break,
         }
     }
@@ -552,6 +553,7 @@ mod tests {
     /// A list of `len` books read 32 at a time; cursors are the offsets.
     struct Fake {
         len: u32,
+        rows: u32,
         stale_once: bool,
         calls: Vec<u32>,
     }
@@ -563,7 +565,7 @@ mod tests {
                 self.stale_once = false;
                 return Err(Error::State);
             }
-            let end = (from + 32).min(self.len);
+            let end = (from + self.rows).min(self.len);
             let books = (from..end)
                 .map(|n| {
                     let mut b = book();
@@ -583,6 +585,7 @@ mod tests {
     fn fake(len: u32) -> Fake {
         Fake {
             len,
+            rows: 32,
             stale_once: false,
             calls: Vec::new(),
         }
@@ -621,6 +624,52 @@ mod tests {
         let (back, _) = read_window(&mut source, second.start, 0, MOST_BOOKS).unwrap();
         assert_eq!(back.books.len(), 96);
         assert_eq!(back.books.first().map(|b| b.key), Some(96));
+    }
+
+    #[test]
+    fn short_replies_still_fill_a_window_and_the_list_slides_on() {
+        // Long titles: a reply holds ten rows, so ten replies make the window.
+        let mut source = fake(250);
+        source.rows = 10;
+        let (window, _) = read_window(&mut source, 0, 0, MOST_BOOKS).unwrap();
+        assert!(window.books.len() >= MOST_BOOKS && !window.can_grow());
+        assert!(window.has_more());
+        // One reply is a start; growing by 32 reads on until the window is full.
+        let (small, _) = read_window(&mut source, 0, 0, 1).unwrap();
+        assert_eq!(small.books.len(), 10);
+        let (grown, _) = read_window(&mut source, 0, 0, small.books.len() + 32).unwrap();
+        assert!(grown.books.len() >= 42);
+        // The next window starts after the last book read, the 97th included.
+        let (next, _) = read_window(&mut source, window.next.unwrap(), 0, MOST_BOOKS).unwrap();
+        assert_eq!(
+            next.books.first().map(|b| usize::try_from(b.key).unwrap()),
+            Some(window.books.len())
+        );
+        // The list ends: every book is reached once.
+        let mut seen = window.books.len();
+        let mut at = next;
+        while let Some(more) = at.next {
+            seen += at.books.len();
+            at = read_window(&mut source, more, 0, MOST_BOOKS).unwrap().0;
+        }
+        assert_eq!(seen + at.books.len(), 250);
+    }
+
+    #[test]
+    fn a_reply_without_rows_ends_the_reading() {
+        struct Hollow;
+        impl Source<u32> for Hollow {
+            fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
+                Ok(Replied {
+                    books: Vec::new(),
+                    generation: 1,
+                    total: 9,
+                    next: Some(from + 1),
+                })
+            }
+        }
+        let (window, _) = read_window(&mut Hollow, 0, 0, MOST_BOOKS).unwrap();
+        assert!(window.books.is_empty());
     }
 
     #[test]
