@@ -29,10 +29,10 @@ fn migration_seals_a_bounded_batch_per_call_and_ends() {
         let (mut from, mut steps, mut total) = (0, 0, 0);
         loop {
             let before = v.host.seal.seals_left.get();
-            v.host.seal.seals_left.set(MIGRATE_BATCH);
+            v.host.seal.seals_left.set(MIGRATE_BATCH + 1);
             let step = v.services().migrate(from).unwrap();
-            let used = MIGRATE_BATCH - v.host.seal.seals_left.get();
-            assert_eq!(used, step.sealed, "one seal per sealed value");
+            let used = MIGRATE_BATCH + 1 - v.host.seal.seals_left.get();
+            assert_eq!(used, step.sealed + 1, "one seal per value and one trial");
             assert!(step.sealed <= MIGRATE_BATCH);
             v.host.seal.seals_left.set(before);
             steps += 1;
@@ -121,8 +121,9 @@ fn a_refused_seal_leaves_the_old_file_readable_and_the_migration_resumes() {
     with_view(|v| {
         let old = old_file(12);
         v.host.card.put(file::FILE, &old);
-        // The third seal has no strong nonce: the whole step is refused.
-        v.host.seal.seals_left.set(2);
+        // The third real seal has no strong nonce (one trial came first): the
+        // whole step is refused.
+        v.host.seal.seals_left.set(3);
         assert_eq!(v.services().migrate(0).err(), Some(ERR_STATE));
         assert_eq!(v.host.card.file(), old);
         assert!(v.host.card.get(file::TEMP).is_none());
@@ -206,23 +207,87 @@ fn a_save_without_a_strong_nonce_is_refused_unchanged_and_told() {
         assert_eq!(v.host.radio_notices.get(), 1);
         assert_eq!(v.host.card.file(), before);
         assert!(v.host.card.get(file::TEMP).is_none());
-        // A removal that must seal a veiled value is refused the same way.
-        v.host.card.put(file::FILE, &old_file(2));
-        assert_eq!(v.remove("mail", "", "k00").err(), Some(ERR_STATE));
-        assert_eq!(v.host.radio_notices.get(), 2);
-        assert_eq!(v.services().forget_plugin("mail").err(), Some(ERR_STATE));
-        assert_eq!(v.host.radio_notices.get(), 3);
-        assert_eq!(v.host.card.file(), old_file(2));
         assert_eq!(v.host.notices.get(), 0, "not the unreadable-file notice");
         // Reads and the random op are not saves: no notice.
+        v.host.card.put(file::FILE, &old_file(2));
         assert_eq!(v.get("mail", "k00").unwrap().0, "value-00");
         v.host.source.refuse.set(ERR_STATE);
         let random = Record::ServiceSecRandom(wire::ServiceSecRandom { len: 8 });
         assert_eq!(v.call("mail", NONE, 5, random).err(), Some(ERR_STATE));
-        assert_eq!(v.host.radio_notices.get(), 3);
+        assert_eq!(v.host.radio_notices.get(), 1);
         // With the radio on the same save works.
         v.host.seal.seals_left.set(u32::MAX);
         v.keep("mail", "b", "", "y").unwrap();
-        assert_eq!(v.host.radio_notices.get(), 3);
+        assert_eq!(v.host.radio_notices.get(), 1);
+    });
+}
+
+#[test]
+fn removals_need_no_nonce_so_the_radio_off_never_keeps_a_deleted_secret() {
+    with_view(|v| {
+        // Veiled values of two owners (interface 6), and no strong nonce.
+        let old = old_file(8);
+        v.host.card.put(file::FILE, &old);
+        v.host.seal.seals_left.set(0);
+        // `remove` of one name: only that line goes, the other veiled lines stay.
+        v.remove("mail", "", "k00").unwrap();
+        assert_eq!(v.get("mail", "k00").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.get("mail", "k02").unwrap().0, "value-02");
+        // Uninstall with the data: every row of the plugin goes, also one that
+        // does not open here; the other owner's veiled lines stay as they were.
+        let mut file = v.host.card.file();
+        file.extend_from_slice(b"mail.foreign\t\t\ts1:00\n");
+        v.host.card.put(file::FILE, &file);
+        v.services().forget_plugin("mail").unwrap();
+        let after = text(&v.host.card.file());
+        assert!(!after.contains("mail."), "{after}");
+        assert_eq!(after.matches("wifi.").count(), 4);
+        assert!(!after.contains("s1:"), "nothing was sealed");
+        for n in [1, 3, 5, 7] {
+            assert_eq!(
+                v.get("wifi", &std::format!("k{n:02}")).unwrap().0,
+                std::format!("value-{n:02}")
+            );
+        }
+        assert_eq!((v.host.radio_notices.get(), v.host.notices.get()), (0, 0));
+        assert!(v.host.card.get(file::TEMP).is_none());
+        // A keep still needs the nonce and is told.
+        assert_eq!(v.keep("wifi", "n", "", "x").err(), Some(ERR_STATE));
+        assert_eq!(v.host.radio_notices.get(), 1);
+    });
+}
+
+#[test]
+fn a_migration_step_without_a_strong_nonce_is_refused_before_anything_is_written() {
+    with_view(|v| {
+        let old = old_file(5);
+        v.host.card.put(file::FILE, &old);
+        v.host.seal.seals_left.set(0);
+        let writes = v.host.card.writes.get();
+        assert_eq!(v.services().migrate(0).err(), Some(ERR_STATE));
+        assert_eq!(v.host.card.writes.get(), writes, "no temp file written");
+        assert!(v.host.card.get(file::TEMP).is_none());
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!((v.host.radio_notices.get(), v.host.notices.get()), (0, 0));
+    });
+}
+
+#[test]
+fn forgetting_a_plugin_without_rows_writes_nothing() {
+    with_view(|v| {
+        v.host.card.put(file::FILE, &old_file(4));
+        let writes = v.host.card.writes.get();
+        v.services().forget_plugin("stats").unwrap();
+        // A foreign line and a corrupt one are not rows of the plugin either.
+        let mut file = v.host.card.file();
+        file.extend_from_slice(b"junk\nstats\n");
+        v.host.card.put(file::FILE, &file);
+        v.services().forget_plugin("stats").unwrap();
+        assert_eq!(v.host.card.writes.get(), writes);
+        assert_eq!(v.host.card.renames.get(), 0);
+        // No file at all.
+        v.host.card.files.borrow_mut().clear();
+        v.services().forget_plugin("mail").unwrap();
+        assert!(v.host.card.get(file::TEMP).is_none() && v.host.card.get(file::FILE).is_none());
     });
 }

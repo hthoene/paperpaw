@@ -81,8 +81,8 @@ pub(crate) trait SecretsHost {
     fn unreadable(&self) {}
     /// A save was refused with `ERR_STATE`: the sealer cannot draw a strong
     /// nonce now (the X4 with its radio off). Show the user a notice; called
-    /// at every such refusal of a `keep`, `remove` or uninstall, never for the
-    /// startup migration.
+    /// at every such refusal of a `keep`, never for a removal, an uninstall or
+    /// the startup migration.
     fn needs_radio(&self) {}
 }
 
@@ -123,8 +123,9 @@ impl SecretsServices {
         status
     }
 
-    /// [`Self::quiet`], and a refused save for want of a strong nonce
-    /// (`ERR_STATE`) is told to the user.
+    /// [`Self::quiet`], and a `keep` refused for want of a strong nonce
+    /// (`ERR_STATE`) is told to the user. Only a `keep` seals (a removal copies
+    /// the veiled lines it passes), so no other call can answer it.
     fn failed(&self, status: i32) -> i32 {
         if status == ERR_STATE {
             self.host.needs_radio();
@@ -137,6 +138,10 @@ impl SecretsServices {
     /// `from` of the file (0 at first), and replaces the file by rename. The
     /// shell calls it again with `next` until it is `None`, one step per turn.
     ///
+    /// `ERR_STATE` ends the attempt: do not retry it every turn. Resume at the
+    /// next radio-on or the next start; each refused step has written (and then
+    /// removed) the new file on the card. A refused step changes nothing else.
+    ///
     /// Progress is the file itself: a sealed line is never found veiled again,
     /// and a veiled line that does not open is passed by `next`, so the loop
     /// ends. A `from` that no longer fits the file (a save moved lines) can
@@ -146,7 +151,7 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_STATE` (no strong nonce now; nothing
-    /// changed, try later), `ERR_NO_MEMORY`.
+    /// changed; resume at the next radio-on or start), `ERR_NO_MEMORY`.
     pub(crate) fn migrate(&self, from: u32) -> Result<Step, i32> {
         let done = Step {
             sealed: 0,
@@ -174,11 +179,15 @@ impl SecretsServices {
     /// user, decision 124), also those that do not open here.
     ///
     /// # Errors
-    /// `ERR_IO` (nothing changed), `ERR_STATE` (no strong nonce now; nothing
-    /// changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+    /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`. Needs no
+    /// nonce: it works with the radio off.
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
         check_owner(plugin)?;
         let mut file = File::new(&*self.host)?;
+        // Nothing of this plugin in the file: nothing to write.
+        if !file.owns_any(plugin).map_err(|e| self.quiet(e))? {
+            return Ok(());
+        }
         file.rewrite(&Change::DropOwner(plugin))
             .map(|_| ())
             .map_err(|e| self.failed(e))
@@ -600,8 +609,30 @@ impl<'a> File<'a> {
         Ok(probe)
     }
 
-    /// Whether a veiled value that opens sits at line `from` or later. Reads
-    /// only; nothing is sealed or written.
+    /// Whether some line of the file belongs to `owner`, opening or not.
+    fn owns_any(&mut self, owner: &str) -> Result<bool, i32> {
+        let mut found = false;
+        let Self {
+            host,
+            read,
+            scratch,
+            ..
+        } = self;
+        scan(host.storage(), file::FILE, read, &mut |piece| {
+            if let Piece::Line(line) = piece
+                && file::parse(line, scratch).is_some_and(|row| row.owner == owner)
+            {
+                found = true;
+            }
+            Ok(if found { Flow::Stop } else { Flow::Go })
+        })?;
+        Ok(found)
+    }
+
+    /// Whether a veiled value that opens sits at line `from` or later. The
+    /// first one is sealed once as a trial (the result is dropped), so a
+    /// sealer without a strong nonce refuses here with `ERR_STATE`, before any
+    /// file is written. Nothing is written.
     fn veiled_from(&mut self, from: u32) -> Result<bool, i32> {
         let mut found = false;
         let mut line_no = 0_u32;
@@ -610,8 +641,9 @@ impl<'a> File<'a> {
             read,
             scratch,
             opener,
-            ..
+            line: trial,
         } = self;
+        let sealer = host.sealer();
         scan(host.storage(), file::FILE, read, &mut |piece| {
             let line = match piece {
                 Piece::Opaque { end, .. } => {
@@ -630,6 +662,12 @@ impl<'a> File<'a> {
             };
             if matches!(row.field, file::Field::Veiled(_)) && opener.open(&row) {
                 found = true;
+                let parts = (row.owner, row.name, row.label, row.changeable);
+                let Opener { plain, blob, .. } = &mut *opener;
+                let trial_result = file::build(trial, blob, sealer, parts, plain.as_bytes());
+                trial.clear();
+                opener.plain.clear();
+                trial_result?;
             }
             opener.plain.clear();
             Ok(if found { Flow::Stop } else { Flow::Go })
@@ -715,7 +753,11 @@ impl<'a> File<'a> {
             }
             let due = match change {
                 Change::Upgrade { from, limit } => at >= *from && progress.sealed < *limit,
-                _ => true,
+                // Only a save of a value seals the veiled values it passes. A
+                // removal needs no nonce, so it works with the radio off and
+                // leaves the veiled lines as they are.
+                Change::Put { .. } => true,
+                Change::Remove { .. } | Change::DropOwner(_) => false,
             };
             let reseal = due
                 && sealer.seals()

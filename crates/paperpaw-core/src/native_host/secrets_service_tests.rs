@@ -37,6 +37,8 @@ struct Card {
     appends_left: Cell<u32>,
     largest_read: Cell<usize>,
     renames: Cell<u32>,
+    /// Every `write` and `append`.
+    writes: Cell<u32>,
 }
 
 impl Card {
@@ -97,11 +99,13 @@ impl Storage for Card {
     }
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         let _shield = Shield::new();
+        self.writes.set(self.writes.get() + 1);
         self.put(path, data);
         Ok(())
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         let _shield = Shield::new();
+        self.writes.set(self.writes.get() + 1);
         let left = self.appends_left.get();
         if left == 0 {
             return Err(StorageError::Io);

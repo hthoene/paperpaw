@@ -21,6 +21,11 @@ pub trait ShellSealer {
     /// A repeated nonce under AES-GCM leaks the key stream and authentication
     /// key. Refuse when a strong nonce is unavailable, without a weak fallback.
     ///
+    /// Only a `keep` and the startup migration seal; a removal or an uninstall
+    /// never calls this, so they work with the radio off. `ERR_STATE` (no strong
+    /// nonce now) refuses a `keep` and tells the user (`needs_radio`); it ends a
+    /// migration attempt, which resumes at the next radio-on or start.
+    ///
     /// # Errors
     /// Return the failure status for missing entropy, storage/key failure or
     /// insufficient output; the host refuses the save without replacing the file.
@@ -131,8 +136,8 @@ impl SecretsInputs {
     /// answered `ERR_STATE`; the X4 with its radio off). The call fails with
     /// `ERR_STATE` and the file is unchanged. The shell shows the host text
     /// `core.host-secrets.needs-wifi` ("Turn on Wi-Fi to save this."). Called at
-    /// every refused `keep`, `remove` or uninstall, never for
-    /// [`SecretsMaintenance::migrate`]; the shell rate-limits its toast.
+    /// every refused `keep`; a removal, an uninstall and
+    /// [`SecretsMaintenance::migrate`] raise none. The shell rate-limits its toast.
     #[must_use]
     pub fn needs_radio(mut self, notice: Rc<dyn Fn()>) -> Self {
         self.needs_radio = Some(notice);
@@ -219,8 +224,10 @@ impl SecretsMaintenance {
     /// # Errors
     /// `ERR_IO` (card away; nothing changed, the unreadable notice follows once),
     /// `ERR_STATE` (the sealer has no strong nonce now, the X4 with its radio
-    /// off; nothing changed, try again later; no notice is raised),
-    /// `ERR_NO_MEMORY`.
+    /// off; nothing changed and no notice is raised). That ends the attempt:
+    /// do not call again every turn; resume at the next radio-on or the next
+    /// start (a refused step has written, then removed, the new file on the
+    /// card), `ERR_NO_MEMORY`.
     pub fn migrate(&self, cursor: MigrationCursor) -> Result<Migration, i32> {
         let step = self.0.migrate(cursor.0)?;
         Ok(step.next.map_or(Migration::Done, |next| {
@@ -231,15 +238,16 @@ impl SecretsMaintenance {
     /// A plugin was removed by the user's choice (decision 124). With
     /// [`DataChoice::Delete`] every secret of `plugin` is removed from the file,
     /// also those that do not open here, in one pass and replaced by rename;
-    /// call it after the data folder was moved away. With [`DataChoice::Keep`]
+    /// call it after the data folder was moved away. It needs no nonce, so it
+    /// works with the radio off and leaves veiled lines of other owners as
+    /// they are. With [`DataChoice::Keep`]
     /// the secrets stay and nothing is read or written. `plugin` is the validated
     /// installed id, never a name a plugin gave.
     ///
     /// # Errors
     /// `ERR_INVALID` (not a usable id), `ERR_IO` (nothing changed; the secrets
-    /// remain: retry), `ERR_STATE` (a veiled value was due for sealing and no
-    /// strong nonce is available; nothing changed; the `needs_radio` notice
-    /// follows), `ERR_NO_MEMORY`.
+    /// remain: the shell keeps the pending forget and retries it, e.g. at the
+    /// next start, or the data is not deleted), `ERR_NO_MEMORY`.
     pub fn plugin_removed(&self, plugin: &str, data: DataChoice) -> Result<(), i32> {
         match data {
             DataChoice::Keep => check_owner(plugin),
