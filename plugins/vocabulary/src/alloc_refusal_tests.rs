@@ -511,6 +511,143 @@ fn a_later_add_heals_duplicates_left_by_a_refused_read() {
     );
 }
 
+// ---- Cards from CSV, TSV and TXT files ---------------------------------
+
+use crate::table;
+
+/// A spreadsheet export: a header, quotes, a record over two lines, HTML.
+fn csv() -> Quiet {
+    let mut file = String::from("#paperpaw:deck 1\nId;Front;Back;Example\n");
+    for i in 0..40 {
+        file.push_str(&alloc::format!(
+            "{i};\"word {i}\";<b>the</b> meaning&amp;more;\"two\nlines, \"\"quoted\"\"\"\n"
+        ));
+    }
+    Quiet::default().with("f", file)
+}
+
+#[test]
+fn reading_a_table_refuses_cleanly() {
+    sweep("detect", csv, |s| table::detect(s, "f"), |_| {});
+    sweep(
+        "each",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut seen = 0;
+            table::each(s, "f", &layout, None, |_| {
+                seen += 1;
+                core::ops::ControlFlow::Continue(())
+            })?;
+            assert_eq!(seen, 40);
+            Ok(())
+        },
+        |_| {},
+    );
+    sweep(
+        "scan in steps",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut from = table::Resume {
+                at: layout.start,
+                line: layout.line,
+            };
+            while let Some(next) = table::scan(s, "f", &layout, from, Some(300), |_| {
+                core::ops::ControlFlow::Continue(())
+            })? {
+                from = next;
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+    let latin1 =
+        || Quiet::default().with("f", b"front;back\nstra\xdfe;b\xe4r\nh\x80llo;x\n".to_vec());
+    sweep("latin1 detect", latin1, |s| table::detect(s, "f"), |_| {});
+    // The same file read: Windows-1252 fields decoded into reserved strings.
+    sweep(
+        "latin1 each",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            assert!(layout.latin1);
+            let mut records = 0;
+            table::each(s, "f", &layout, None, |_| {
+                records += 1;
+                core::ops::ControlFlow::Continue(())
+            })?;
+            assert_eq!(records, 2);
+            Ok(())
+        },
+        |_| {},
+    );
+    sweep(
+        "latin1 scan in steps",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut from = table::Resume {
+                at: layout.start,
+                line: layout.line,
+            };
+            while let Some(next) = table::scan(s, "f", &layout, from, Some(10), |_| {
+                core::ops::ControlFlow::Continue(())
+            })? {
+                from = next;
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+    // A record read again by its offset (`record_at` says `None` where the
+    // heap refuses: no card, never a half one).
+    sweep(
+        "record_at",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let offset = fixture(|| {
+                let (mut second, mut n) = (0, 0);
+                table::each(s, "f", &layout, None, |item| {
+                    if let table::Item::Record(record) = item {
+                        n += 1;
+                        second = record.offset;
+                    }
+                    if n == 2 {
+                        core::ops::ControlFlow::Break(())
+                    } else {
+                        core::ops::ControlFlow::Continue(())
+                    }
+                })
+                .unwrap();
+                second
+            });
+            // Whole or not there; a record is never half made.
+            if let Some(record) = table::record_at(s, "f", &layout, offset) {
+                assert_eq!(record.front, "word 1");
+                assert!(record.back.contains("meaning"));
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+}
+
+#[test]
+fn turning_html_into_text_refuses_cleanly() {
+    let html = alloc::format!(
+        "{}<br>a &lt;b&gt; &amp; c&nbsp;d <p>x</p>",
+        "<b>word</b> ".repeat(20)
+    );
+    let make = || Quiet::default();
+    sweep("plain", make, |_| table::plain(&html), |_| {});
+    assert_eq!(
+        table::plain("<div>a</div>b <p>&lt;c&gt;</p>&amp;lt; &quot;d&quot;").unwrap(),
+        "a b <c> &lt; \"d\""
+    );
+}
+
 /// Decks and cards, but no index: it was taken away after a refusal, and
 /// is made anew from two decks, one at a time. A refusal on the second
 /// must not leave the index of the first as the index.
