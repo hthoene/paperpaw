@@ -208,8 +208,10 @@ fn get(
     let Record::ServiceSecName(name) = wire::records_decode_single(input)? else {
         return Err(ERR_INVALID);
     };
-    // Values never leave their owner, also not for the settings editor.
-    if !name.plugin.is_empty() && name.plugin != who.plugin {
+    // Values never leave their owner, also not for the settings editor, and
+    // `plugin` must be "" (secrets.md 2.1): an explicit id, also the caller's
+    // own, is `ERR_DENIED`.
+    if !name.plugin.is_empty() {
         return Err(ERR_DENIED);
     }
     check_name(name.name)?;

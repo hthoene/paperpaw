@@ -1210,3 +1210,31 @@ fn an_unknown_list_flag_bit_is_unsupported() {
         }
     });
 }
+
+#[test]
+fn get_takes_an_empty_plugin_only_and_an_explicit_id_is_denied_even_the_callers_own() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        let named = |plugin: &'static str| {
+            Record::ServiceSecName(wire::ServiceSecName {
+                plugin,
+                name: "password",
+            })
+        };
+        // "" succeeds.
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        // The caller's own id, a foreign id, with and without the feature.
+        for (caller, features, plugin) in [
+            ("mail", NONE, "mail"),
+            ("mail", editor(), "mail"),
+            ("settings", editor(), "mail"),
+            ("other", NONE, "mail"),
+        ] {
+            assert_eq!(
+                v.call(caller, features, 1, named(plugin)).err(),
+                Some(ERR_DENIED),
+                "{caller} asks for {plugin}"
+            );
+        }
+    });
+}

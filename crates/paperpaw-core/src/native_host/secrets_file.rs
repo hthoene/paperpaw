@@ -36,11 +36,7 @@ pub(super) const SEALED_MARK: &[u8] = b"s1:";
 /// Interface 6's veil, kept so its files read back (it is not encryption).
 const VEIL: &[u8] = b"QuireInk keeps this out of sight, not safe";
 
-/// Overwrites `bytes` with zeros in a way the compiler keeps.
-pub(super) fn wipe(bytes: &mut [u8]) {
-    bytes.fill(0);
-    core::hint::black_box(bytes);
-}
+pub(super) use super::secret_bytes::wipe;
 
 /// A fixed buffer, one allocation, never grown, wiped when dropped. It may
 /// hold a secret, so it never prints its content.
