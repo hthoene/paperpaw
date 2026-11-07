@@ -115,10 +115,11 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
     whatever its params; 2 **many**: every open opens a new instance; 3 `ERR_UNSUPPORTED`. Params
     compare as in section 1.1 (keys and values, not the text). Going back closes the screens above
     the instance as `back_to` does, including its guard rule: where that is refused the open is
-    `OK` with no effect (logged), as interface 6. The instance then gets the open's hand-over (none:
-    its params become empty) and `event.screen_opened` again (`flags` bit 0 `again`) before it is
-    shown, so a single screen shows the new params as if opened with them (interface 6
-    `on_reopen`); *back* then leaves it in one press. `screen_policy` cannot change these bits.
+    `OK` with no effect (logged) and its hand-over is released, as interface 6. The instance then
+    gets the open's hand-over (none: its params become empty) and `event.screen_opened` again
+    (`flags` bit 0 `again`) before it is shown, so a single screen shows the new params as if
+    opened with them (interface 6 `on_reopen`); *back* then leaves it in one press.
+    `screen_policy` cannot change these bits.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
@@ -224,8 +225,9 @@ asker learns its request id at once and long texts move in pages, never cut.
   non-empty, no trailing `\n` (`ERR_INVALID`, over the cap `ERR_NO_SPACE`). For kind 2
   `choices` holds the button words (interface 6 `ConfirmQuestion::yes`/`no`, display text the
   caller formatted): empty for the dialog's own *Yes* and *No*, else exactly two lines `yes\nno`
-  of at most 128 bytes each, where an empty line keeps the dialog's word for that button (more
-  lines `ERR_INVALID`); kinds 0 and 3 take no `choices` (`ERR_INVALID`).
+  of at most 128 bytes each, where an empty line keeps the dialog's word for that button (a single
+  line or more than two `ERR_INVALID`, a line over 128 bytes `ERR_NO_SPACE`); kinds 0 and 3 take
+  no `choices` (`ERR_INVALID`).
 - [D] `flags` (other bits `ERR_INVALID`; bits 0-7 for kind 0 only, bits 8-9 for kind 2 only): bit 8
   `only_yes` (one button, by default *OK*: a text to be read whole; its `no` line must be empty,
   else `ERR_INVALID`), bit 9 `focus_yes` (the focus starts on yes); the dialog plugin reads them
