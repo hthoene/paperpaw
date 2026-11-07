@@ -124,6 +124,22 @@ impl EnvironmentScope {
             })?
     }
 
+    /// Test frames lent for one synchronous call, as `scope_core` lends core's.
+    #[cfg(test)]
+    pub(crate) fn scope_frame<R>(
+        self: Pin<&Self>,
+        frame: &dyn crate::abi7::context::Frame,
+        call: impl FnOnce() -> R,
+    ) -> Result<R, Error> {
+        // SAFETY: the slot is structurally pinned and never moved by this scope.
+        let slot = unsafe { self.map_unchecked(|this| &this.slot) };
+        slot.scope(frame, || self.run_callback(call))
+            .map_err(|error| match error {
+                FrameError::Busy => Error::Busy,
+                FrameError::NoFrame => Error::State,
+            })?
+    }
+
     /// Internal host operations borrow a frame only for this synchronous call.
     pub(crate) fn with_frame<R>(
         &self,
