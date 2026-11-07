@@ -380,7 +380,7 @@ agree (a host test).
   hashes it, then **always asks the user** (decision 134, whatever grant there is). On yes it writes
   the other slot from its main loop in bounded steps of one 64 KiB erase block each (erase, then
   write; the card layer feeds the watchdog on each block it reads), hashing and checking the
-  signature over the bytes as they are written, without reading the flash back. An image whose
+  signature over the bytes as they are written, and reads the slot back once (below). An image whose
   digest differs from the one asked about ends with reason 18 and the slot stays unbootable. The
   image's first word is written last, after the check passed, so a half-written slot never looks
   bootable; then the slot to start is chosen in one entry. `firmware_changed` reports progress,
@@ -411,6 +411,22 @@ agree (a host test).
   panic, a watchdog or brown-out reset, the 8 s Power escape) is undone at the next start, which
   boots the old image again (`dev_firmware.undone`). A failing code plugin cannot fail the trial:
   safe mode (op 5) handles it.
+- [D] **The trial runs first** (Senior's #1033 remark): its check is the first thing the new image
+  does at boot, before the allocator, the display and the card, and it keeps a boot counter
+  (in RTC memory, with a flash copy that survives a power cut): a trial image that has started
+  three times without reaching a good start gives way to the old image at the next boot. An image
+  that dies before even that check (a fault in the boot loader's hand-off or the first
+  instructions) cannot undo itself and starts again and again until the web flasher restores
+  PaperPaw; the confirmation for a new firmware says, in plain words, that the web flasher is the
+  way back if the device stops starting. [Q] Firmware: the trial's place at boot and the counter's
+  RTC/flash storage today, else Firmware fixes them with DEV.
+- [D] **Downgrades:** an older image that predates the trial (any image from before interface 7)
+  has no rollback once it runs; the confirmation for an older version says so in addition to
+  "older", and that the web flasher is the way back.
+- [D] **Read-back:** before the first word is written, the host reads the written slot back and
+  hashes it against the confirmed digest (one pass over the flash in the same bounded steps,
+  cheap next to writing), so a flash write fault is reason 18 and the slot stays unbootable,
+  instead of being left for the trial to catch.
 - [D] **Foreign images** never run PaperPaw's trial, so they are final at the switch: the slot is
   chosen as valid, no rollback follows, and PaperPaw's slot stays untouched in flash (Firmware,
   from the code). An older signed PaperPaw image (`flags` bit 0) runs the trial as any other and is
