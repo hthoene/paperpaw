@@ -276,11 +276,13 @@ fn move_statuses() {
         Err(ERR_STATE),
         "a folder at `to`"
     );
-    assert_eq!(
-        do_move(&host, (1, "A/Dir"), (1, "A/g"), 1),
-        Err(ERR_STATE),
-        "a folder never replaces a file"
-    );
+    for flags in [0, 1] {
+        assert_eq!(
+            do_move(&host, (1, "A/Dir"), (1, "A/g"), flags),
+            Err(ERR_STATE),
+            "a folder never replaces a file, flag {flags}"
+        );
+    }
     assert_eq!(
         do_move(&host, (1, "A/Dir"), (1, "B"), 1),
         Err(ERR_STATE),
