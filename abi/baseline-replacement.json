@@ -1,5 +1,5 @@
 {
-  "replaces_sha256": "d8a45ae7795e254f30b49573b52f896d5b94ebed314e179571867fde1cab5594",
+  "replaces_sha256": "09d550a1ab5a876c95e3a0775ae14bd5e93dbc74c6356d8c0d8c167227806226",
   "reason": "interface 7 is unreleased: the records codec gains records_encode_counted_iter, a counted batch encoder over a cloneable iterator so the SDK encodes records it makes on the fly without a heap slice, and records_encode_counted delegates to it; the generated UIX and DOC command docs cite ui.md and document.md instead of registry.md; so the emitted records and commands sections change for the prior schema too",
   "ticket": "#228",
   "waives": [
