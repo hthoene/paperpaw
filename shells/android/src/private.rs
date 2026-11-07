@@ -46,6 +46,17 @@ impl<B: Storage, P: Storage> Private<B, P> {
         }
     }
 
+    /// Whether the secrets file is in the private folder: only `NotFound`
+    /// says it is not, any other error is the caller's (a file that cannot be
+    /// looked at is not gone).
+    fn has_secrets(&self) -> Result<bool, StorageError> {
+        match self.private.size(NAME) {
+            Ok(_) => Ok(true),
+            Err(StorageError::NotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     /// The storage and the path in it for `path`.
     fn route<'p>(&self, path: &'p str) -> (&dyn Storage, &'p str) {
         if path == FILE {
@@ -144,7 +155,7 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         if root == FILE {
             // The secrets file itself is in the private folder, not in the
             // base: it is removed there, and done is told only then.
-            let existed = self.private.exists(NAME);
+            let existed = self.has_secrets()?;
             self.private.remove(NAME)?;
             return Ok(paperpaw_platform::tree::TreeStep {
                 removed: u32::from(existed),
@@ -161,7 +172,7 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
             || FILE
                 .strip_prefix(root)
                 .is_some_and(|rest| rest.starts_with('/'));
-        if step.done && inside && self.private.exists(NAME) {
+        if step.done && inside && self.has_secrets()? {
             if step.removed >= paperpaw_platform::tree::MAX_REMOVALS {
                 step.done = false;
                 step.next = 1;
@@ -367,6 +378,30 @@ mod tests {
         }
     }
 
+    /// A private folder whose file cannot be looked at.
+    struct Blind;
+
+    impl Storage for Blind {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::Io)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
     /// A private folder whose file cannot be removed.
     struct Stuck;
 
@@ -480,5 +515,38 @@ mod tests {
             );
             assert_eq!(outcomes.last(), Some(&Err(StorageError::Io)), "{removed}");
         }
+    }
+
+    /// A secrets file that cannot be looked at is not taken for gone: the
+    /// error is told, never `done`, also right after the base finished.
+    #[test]
+    fn an_unreadable_secret_is_an_error_not_a_done() {
+        for removed in [
+            3,
+            paperpaw_platform::tree::MAX_REMOVALS - 1,
+            paperpaw_platform::tree::MAX_REMOVALS,
+        ] {
+            let storage = Private::new(Scripted::new(removed), Blind);
+            for _ in 0..2 {
+                assert!(
+                    !storage
+                        .remove_tree_step(".paperpaw", false, 0)
+                        .unwrap()
+                        .done
+                );
+            }
+            assert_eq!(
+                storage
+                    .remove_tree_step(".paperpaw", false, 0)
+                    .map(|s| s.done),
+                Err(StorageError::Io),
+                "{removed}"
+            );
+        }
+        let storage = Private::new(Scripted::new(1), Blind);
+        assert_eq!(
+            storage.remove_tree_step(FILE, false, 0).map(|s| s.done),
+            Err(StorageError::Io)
+        );
     }
 }
