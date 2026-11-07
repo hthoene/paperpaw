@@ -4,7 +4,7 @@ use super::{
     registrations::Record,
 };
 use alloc::vec::Vec;
-use core::cell::{Cell, RefCell};
+use core::cell::{Cell, RefCell, RefMut};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_SPACE, ERR_STATE};
 
 #[derive(Default)]
@@ -20,6 +20,26 @@ pub(crate) struct RegCatalog {
     generation: Cell<u32>,
     data: RefCell<Data>,
 }
+pub(crate) struct PreparedCatalog<'a> {
+    current: RefMut<'a, Data>,
+    generation: &'a Cell<u32>,
+    next: Data,
+    next_generation: u32,
+}
+impl PreparedCatalog<'_> {
+    pub(crate) fn commit(mut self) -> u32 {
+        *self.current = self.next;
+        self.generation.set(self.next_generation);
+        self.next_generation
+    }
+}
+
+impl Default for RegCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RegCatalog {
     pub(crate) fn new() -> Self {
         Self {
@@ -39,8 +59,26 @@ impl RegCatalog {
         rows: &[DeclKey],
         allocations: &mut Allocations,
     ) -> Result<u32, i32> {
-        let mut current = self.data.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        Ok(self.prepare(store, rows, allocations)?.commit())
+    }
+
+    pub(crate) fn prepare<'a>(
+        &'a self,
+        store: &RefCell<DeclarationStore>,
+        rows: &[DeclKey],
+        allocations: &mut Allocations,
+    ) -> Result<PreparedCatalog<'a>, i32> {
         let store = store.try_borrow().map_err(|_| ERR_BUSY)?;
+        self.prepare_store(&store, rows, allocations)
+    }
+
+    pub(crate) fn prepare_store<'a>(
+        &'a self,
+        store: &DeclarationStore,
+        rows: &[DeclKey],
+        allocations: &mut Allocations,
+    ) -> Result<PreparedCatalog<'a>, i32> {
+        let current = self.data.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         u16::try_from(rows.len()).map_err(|_| ERR_NO_SPACE)?;
         let generation = self.generation.get().wrapping_add(1).max(1);
         let mut next = Data::default();
@@ -48,16 +86,19 @@ impl RegCatalog {
         allocations.reserve(&mut next.registry_order, rows.len())?;
         allocations.reserve(&mut next.scope_order, rows.len())?;
         for (index, row) in rows.iter().enumerate() {
-            visit_row(&store, *row, &mut |_| Ok(()))?;
+            visit_row(store, *row, &mut |_| Ok(()))?;
             let index = u16::try_from(index).map_err(|_| ERR_NO_SPACE)?;
             next.rows.push(*row);
             // Scope sorting uses these integer indexes at the same apply point.
             next.registry_order.push(index);
             next.scope_order.push(index);
         }
-        *current = next;
-        self.generation.set(generation);
-        Ok(generation)
+        Ok(PreparedCatalog {
+            current,
+            generation: &self.generation,
+            next,
+            next_generation: generation,
+        })
     }
 
     /// The callback may encode into reply scratch but must not invoke plugins,
@@ -75,7 +116,7 @@ impl RegCatalog {
         }
         let row = data.rows.get(index).ok_or(ERR_STATE)?;
         let store = store.try_borrow().map_err(|_| ERR_BUSY)?;
-        visit_row(&store, *row, visit)
+        visit_row(store, *row, visit)
     }
 }
 

@@ -2,6 +2,8 @@
 use super::*;
 use crate::native_host::{declaration_checks, raw_declarations::RawDeclarations};
 
+type StoredNative<'a, S, M, T, R> = (Batch<'a, S, M, T>, R, RawDeclarations);
+
 impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
     pub(crate) fn commit_native<R>(
         self,
@@ -15,7 +17,7 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
     pub(crate) fn commit_native_stored<R>(
         mut self,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
-    ) -> Result<(Batch<'a, S, M, T>, R, RawDeclarations), Error> {
+    ) -> Result<StoredNative<'a, S, M, T, R>, Error> {
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
         let result = transaction
             .staging

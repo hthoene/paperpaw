@@ -161,16 +161,12 @@ pub mod registrations;
 #[path = "native_host/retained.rs"]
 mod retained;
 
-#[allow(
-    dead_code,
-    reason = "native built-in registry adapter follows this screen router"
-)]
 #[path = "native_host/native_declarations.rs"]
 #[allow(
     dead_code,
     reason = "shared declaration producer is attached by the UI admission slice"
 )]
-mod native_declarations;
+pub(crate) mod native_declarations;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
@@ -489,6 +485,12 @@ pub struct Construction<'a, C, M, T> {
     submitted: bool,
 }
 
+type StoredConstruction<'a, C, M, T, R> = (
+    RegistrationBatch<'a, C, M, T>,
+    R,
+    raw_declarations::RawDeclarations,
+);
+
 impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Supply the module's immutable read-only image before make submits data.
     /// The borrow remains live through the committed registration batch.
@@ -608,14 +610,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         mut self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
-    ) -> Result<
-        (
-            RegistrationBatch<'a, C, M, T>,
-            R,
-            raw_declarations::RawDeclarations,
-        ),
-        i32,
-    > {
+    ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }

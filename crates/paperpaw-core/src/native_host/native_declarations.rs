@@ -57,3 +57,68 @@ pub(crate) fn pending(
     }
     Ok(pending)
 }
+
+/// The registry and callback frames share this one store and its keyed catalog.
+#[derive(Default)]
+pub(crate) struct NativeDeclarations {
+    pub(crate) store: core::cell::RefCell<super::declaration_store::DeclarationStore>,
+    pub(crate) catalog: super::reg_catalog::RegCatalog,
+}
+impl core::fmt::Debug for NativeDeclarations {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeDeclarations")
+            .field("generation", &self.catalog.generation())
+            .finish_non_exhaustive()
+    }
+}
+
+pub(crate) struct Publication<'a> {
+    store: core::cell::RefMut<'a, super::declaration_store::DeclarationStore>,
+    catalog: Option<super::reg_catalog::PreparedCatalog<'a>>,
+    owner: u64,
+    committed: bool,
+}
+impl Publication<'_> {
+    pub(crate) fn commit(mut self) {
+        if let Some(catalog) = self.catalog.take() {
+            catalog.commit();
+        }
+        self.committed = true;
+    }
+}
+impl Drop for Publication<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.store.remove_host_owner(self.owner);
+        }
+    }
+}
+impl NativeDeclarations {
+    pub(crate) fn stage(
+        &self,
+        pending: PendingDeclarations,
+        owner: u64,
+        allocations: &mut Allocations,
+    ) -> Result<Publication<'_>, i32> {
+        let mut store = self
+            .store
+            .try_borrow_mut()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        store.prepare(pending, allocations)?.commit();
+        let prepared = store
+            .all_keys(allocations)
+            .and_then(|keys| self.catalog.prepare_store(&store, &keys, allocations));
+        match prepared {
+            Ok(catalog) => Ok(Publication {
+                store,
+                catalog: Some(catalog),
+                owner,
+                committed: false,
+            }),
+            Err(error) => {
+                store.remove_host_owner(owner);
+                Err(error)
+            }
+        }
+    }
+}

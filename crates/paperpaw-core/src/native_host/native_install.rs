@@ -51,8 +51,16 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
+        if self.shared.registry.native_declarations.is_none() {
+            self.shared.registry.native_declarations = Some(
+                super::shared::Shared::try_new(
+                    super::native_declarations::NativeDeclarations::default(),
+                )
+                .map_err(|_| shell::Error::Allocation)?,
+            );
+        }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
-        let (retained, (owner, owned)) = Retained::make_native(host, map_declarations)?;
+        let (retained, (owner, owned), raw) = Retained::make_native_stored(host, map_declarations)?;
         // Callback registrations need their own mapping arm. Never accept an
         // owner while silently leaving any committed contribution unrouted.
         if !retained.batch().map_err(shell::Error::from)?.is_empty() {
@@ -73,7 +81,7 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, owned, &owner, report);
+        let result = self.bind_native(key, retained, depth, (owned, raw), &owner, report);
         if result.is_err() {
             self.shared
                 .native_instances
@@ -92,6 +100,12 @@ impl crate::Kernel {
     ) -> Option<alloc::string::String> {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
+        }
+        if let Some(declarations) = &self.shared.registry.native_declarations {
+            let Ok(mut store) = declarations.store.try_borrow_mut() else {
+                return None;
+            };
+            store.remove_host_owner(key);
         }
         self.native_owner_stopped(key);
         self.remove_retired_native_screens(owner);
@@ -168,10 +182,11 @@ impl crate::Kernel {
         key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
-        owned: Vec<Owned>,
+        mapped: (Vec<Owned>, super::raw_declarations::RawDeclarations),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        let (owned, raw) = mapped;
         let flat_host = FlatHost {
             meter: Rc::clone(&self.shared.meter),
             font_removals: Rc::clone(&self.shared.font_removals),
@@ -205,11 +220,30 @@ impl crate::Kernel {
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
             .map_err(shell::Error::Status)?;
-        // Only screen factories are supported here. Publish through the reserved
-        // staging transaction without the legacy merge's allocating action sweep.
+        let declarations = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(shell::Error::Allocation)?;
+        let mut allocations = super::declaration_store::Allocations::default();
+        let pending = super::native_declarations::pending(
+            owner,
+            key,
+            instance.try_clone().map_err(shell::Error::Status)?,
+            raw,
+            &mut allocations,
+        )
+        .map_err(shell::Error::Status)?;
+        let publication = declarations
+            .stage(pending, key, &mut allocations)
+            .map_err(shell::Error::Status)?;
         staging
             .merge_into(&mut self.shared.registry, &mut self.shared.actions)
-            .map_err(|error| shell::Error::Status(merge_status(&error)))
+            .map_err(|error| shell::Error::Status(merge_status(&error)))?;
+        publication.commit();
+        Ok(())
     }
 }
 

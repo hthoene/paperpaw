@@ -527,6 +527,29 @@ impl DeclarationStore {
         owner.source.owner_id()
     }
 
+    pub(crate) fn all_keys(&self, allocations: &mut Allocations) -> Result<Vec<DeclKey>, i32> {
+        let mut keys = Vec::new();
+        for (index, owner) in self.owners.iter().enumerate() {
+            let Some(owner) = owner else { continue };
+            if owner.source.generation() != owner.generation {
+                continue;
+            }
+            for slots in &owner.kinds {
+                allocations.reserve(&mut keys, slots.len())?;
+                for slot in slots {
+                    keys.push(DeclKey {
+                        owner: u16::try_from(index).map_err(|_| ERR_NO_SPACE)?,
+                        batch: slot.batch,
+                        record: slot.record,
+                        generation: owner.generation,
+                        incarnation: owner.incarnation,
+                    });
+                }
+            }
+        }
+        Ok(keys)
+    }
+
     pub(crate) fn keys(&self, kind: Kind, visit: &mut dyn FnMut(DeclKey)) {
         for (index, owner) in self.owners.iter().enumerate() {
             let Some(owner) = owner else {
