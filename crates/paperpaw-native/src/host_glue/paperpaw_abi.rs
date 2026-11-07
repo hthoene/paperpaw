@@ -97,6 +97,8 @@ pub struct PpHost {
     pub service_open: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, major: u16, minor: u16, out: *mut u32) -> i32,
     /// service.call: mutate, count, since 1.
     pub service_call: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, service: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32,
+    /// ui.compose: mutate, status, since 1.
+    pub ui_compose: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
@@ -217,8 +219,11 @@ pub enum SettingValueRef<'a> {
 
 /// Encode a canonical value, returning its full required length.
 ///
-/// Only the prefix fitting in `out` is written. An oversized value returns
-/// ERR_NO_SPACE before writing any bytes. This function never allocates.
+/// Only the prefix fitting in `out` is written. On success, exactly the first
+/// `min(required, out.len())` slots of `out` are initialized, each with an
+/// initialized byte; no other slot is touched, so a caller may treat that
+/// prefix as initialized. An oversized value returns ERR_NO_SPACE before
+/// writing any bytes. This function never allocates.
 pub fn settings_encode(
     value: SettingValueRef<'_>,
     out: &mut [core::mem::MaybeUninit<u8>],

@@ -89,6 +89,8 @@ impl<D: Dispatch> NativeScreen<D> {
             screen: self.id.as_str(),
             width: u32::from(pane.width),
             height: u32::from(pane.height),
+            // Screen instances (`docs/abi/ui.md` section 1.1) are not wired yet.
+            instance: None,
         });
         let mut bytes = [0; 192];
         let result = wire::records_encode(&[record], &mut bytes)

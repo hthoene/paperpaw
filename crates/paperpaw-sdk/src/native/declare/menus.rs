@@ -143,24 +143,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     ) -> Result<&mut Self, DeclareError> {
         let record = (|| {
             menu_full_id(item, wire::MENU_NEED_ITEM_MAX_BYTES, "need item")?;
-            let (need, capability) = match need {
-                crate::MenuNeed::Speech => (0, 0),
-                crate::MenuNeed::Sleep => (1, 0),
-                crate::MenuNeed::Rotation => (2, 0),
-                crate::MenuNeed::NoTouch => (3, 0),
-                crate::MenuNeed::Touch => (4, 0),
-                crate::MenuNeed::ButtonRow => (5, 0),
-                crate::MenuNeed::Colors => (6, 0),
-                crate::MenuNeed::Wifi => (7, 0),
-                crate::MenuNeed::Firmware => (8, 0),
-                crate::MenuNeed::BlackAndWhite => (9, 0),
-                crate::MenuNeed::Frontlight => (10, 0),
-                crate::MenuNeed::Bluetooth => (11, 0),
-                crate::MenuNeed::Has(capability) => (12, capability.menu_declaration_bits()),
-            };
-            if need == 12 && capability == 0 {
-                return Err(DeclareError::Encode(ERR_INVALID));
-            }
+            let (need, capability) = need_bits(need)?;
             Ok(Item::MenuNeed(wire::MenuNeed {
                 item,
                 need,
@@ -253,11 +236,37 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     }
 }
 
+pub(super) fn need_bits(need: crate::MenuNeed) -> Result<(u32, u64), DeclareError> {
+    let (need, capability) = match need {
+        crate::MenuNeed::Speech => (0, 0),
+        crate::MenuNeed::Sleep => (1, 0),
+        crate::MenuNeed::Rotation => (2, 0),
+        crate::MenuNeed::NoTouch => (3, 0),
+        crate::MenuNeed::Touch => (4, 0),
+        crate::MenuNeed::ButtonRow => (5, 0),
+        crate::MenuNeed::Colors => (6, 0),
+        crate::MenuNeed::Wifi => (7, 0),
+        crate::MenuNeed::Firmware => (8, 0),
+        crate::MenuNeed::BlackAndWhite => (9, 0),
+        crate::MenuNeed::Frontlight => (10, 0),
+        crate::MenuNeed::Bluetooth => (11, 0),
+        crate::MenuNeed::Has(capability) => (12, capability.menu_declaration_bits()),
+    };
+    if need == 12 && capability == 0 {
+        return Err(DeclareError::Encode(ERR_INVALID));
+    }
+    Ok((need, capability))
+}
+
 fn menu_name_byte(byte: u8) -> bool {
     byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
 }
 
-fn menu_identifier(value: &str, maximum: usize, field: &'static str) -> Result<(), DeclareError> {
+pub(super) fn menu_identifier(
+    value: &str,
+    maximum: usize,
+    field: &'static str,
+) -> Result<(), DeclareError> {
     filled(value, field)?;
     within(value, maximum, field)?;
     if value
@@ -269,7 +278,11 @@ fn menu_identifier(value: &str, maximum: usize, field: &'static str) -> Result<(
     Ok(())
 }
 
-fn menu_full_id(value: &str, maximum: usize, field: &'static str) -> Result<(), DeclareError> {
+pub(super) fn menu_full_id(
+    value: &str,
+    maximum: usize,
+    field: &'static str,
+) -> Result<(), DeclareError> {
     menu_identifier(value, maximum, field)?;
     if !value.contains('.') {
         return Err(DeclareError::Encode(ERR_INVALID));
