@@ -440,6 +440,8 @@ fn open_refuses_bad_values_before_any_host_work() {
     assert_eq!(with_open(&|o| o.css_path = "a/./b.css"), Err(ERR_INVALID));
     assert_eq!(with_open(&|o| o.format = "Bad Id"), Err(ERR_INVALID));
     assert_eq!(with_open(&|o| o.format = "nodot"), Err(ERR_INVALID));
+    // The longest side of a page picture is at most 1,600 (0 is 1,600).
+    assert_eq!(with_open(&|o| o.image_side = 1601), Err(ERR_INVALID));
     assert_eq!(with_open(&|o| o.cover_side = 801), Err(ERR_INVALID));
     assert!(
         with_open(&|o| o.cover_side = 800).is_err(),
