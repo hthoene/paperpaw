@@ -237,16 +237,30 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
 struct Lib {
     transactions: Transactions,
     aborted: core::cell::RefCell<Vec<u32>>,
+    /// Calls that reached the host's `state`.
+    hits: core::cell::Cell<u32>,
 }
 impl Lib {
     fn new() -> Self {
         Self {
             transactions: Transactions::try_new().unwrap(),
             aborted: core::cell::RefCell::new(Vec::new()),
+            hits: core::cell::Cell::new(0),
         }
     }
 }
-impl LibQuery for Lib {}
+impl LibQuery for Lib {
+    fn state(&self, visit: crate::native_host::lib_service::One<'_>) -> Result<(), i32> {
+        self.hits.set(self.hits.get() + 1);
+        visit(Record::ServiceLibState(registrations::ServiceLibState {
+            state: 2,
+            books: 12,
+            generation: 3,
+            walk_ppm: 1_000_000,
+        }));
+        Ok(())
+    }
+}
 impl LibExcluded for Lib {
     fn excluded(&self, _: &str) -> bool {
         false
@@ -284,9 +298,16 @@ fn the_library_needs_the_feature_per_instance_and_its_transactions_end_with_the_
         let handle = open(&scope, &owner, &not_granted, "core.library").unwrap();
         assert_eq!(call(&scope, &owner, handle, state, &input), Err(ERR_DENIED));
         owner.release(handle).unwrap();
-        // Granted: the call reaches the host (this fake backs no reads).
+        assert_eq!(lib.hits.get(), 0, "refused calls never reached the host");
+        // Granted: the call reaches the host and its reply comes back whole.
         let handle = open(&scope, &owner, &granted, "core.library").unwrap();
-        assert_ne!(call(&scope, &owner, handle, state, &input), Err(ERR_DENIED));
+        let reply = call(&scope, &owner, handle, state, &input).unwrap();
+        assert_eq!(lib.hits.get(), 1);
+        let Record::ServiceLibState(reply) = registrations::record_decode_one(&reply).unwrap()
+        else {
+            panic!("not a lib_state")
+        };
+        assert_eq!((reply.books, reply.generation), (12, 3));
     });
     // A transaction of the owner ends with it, after the table was released.
     let t = lib.transactions.begin_for_test(who, 0);
@@ -339,4 +360,57 @@ fn a_lookup_reaches_the_wired_providers() {
             "no provider is left: the asker's loop ends"
         );
     });
+}
+
+/// Review of #308: one plugin that is both a format and an opener.
+#[test]
+fn a_plugin_that_is_opener_and_format_never_closes_into_itself_and_others_hear_once() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let (both, other) = (pool.try_owner().unwrap(), pool.try_owner().unwrap());
+    let both_id = both.caller("both", AdmittedFeatures::NONE).owner;
+    fake.format_owner.set(both_id);
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    // One service handle per owner; each opens as many documents as asked.
+    let open_n = |owner: &resources::OwnerResources, count: usize| {
+        in_frame!(owner, |scope| {
+            let handle = open(&scope, owner, &declared, "core.document").unwrap();
+            let mut ids = Vec::new();
+            for _ in 0..count {
+                *fake.answer.borrow_mut() = state_answer(0, 0);
+                let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+                let reply = call(&scope, owner, handle, op("core.document", 1), &input).unwrap();
+                ids.push(state_of(&reply).document);
+            }
+            ids
+        })
+    };
+    let [live, host_closed] = open_n(&both, 2)[..] else {
+        panic!("two documents")
+    };
+    let elsewhere = open_n(&other, 1)[0];
+    // One of its own documents was closed by the host earlier (the card went).
+    fake.table().cancel(host_closed, 2).unwrap();
+    both.release_all().unwrap();
+    // The format never gets a close for the plugin that is retiring, and the
+    // retiring plugin hears no event; the other opener hears exactly one.
+    assert!(fake.ended.borrow().is_empty());
+    assert_eq!(*fake.closed.borrow(), [(elsewhere, 1)]);
+    for id in [live, host_closed, elsewhere] {
+        assert!(fake.images_ended.borrow().contains(&id), "{id}");
+    }
+    let other_id = other.caller("other", AdmittedFeatures::NONE).owner;
+    assert!(fake.table().lease(both_id, live).is_err());
+    assert!(fake.table().lease(both_id, host_closed).is_err());
+    // The other opener still holds its (cancelled) id; stopping it calls no
+    // format and sends no second event.
+    assert!(
+        fake.table().lease(other_id, elsewhere).is_err(),
+        "cancelled"
+    );
+    other.release_all().unwrap();
+    assert!(fake.ended.borrow().is_empty());
+    assert_eq!(*fake.closed.borrow(), [(elsewhere, 1)]);
 }

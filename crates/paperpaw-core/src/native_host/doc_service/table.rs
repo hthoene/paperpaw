@@ -282,10 +282,16 @@ impl DocumentTable {
     /// that is not ended yet is ended by the host with `reason`
     /// (`event.document_closed`) and stays until its opener closes it; `ended`
     /// gets each, with the table released. Returns how many.
+    ///
+    /// `retiring` is the owner that is going away with the format (a plugin
+    /// that is both opener and format): its documents are marked gone and
+    /// closed like the others, but `ended` does not get them (it hears no
+    /// event) and they are not counted; its opener cleanup follows.
     pub(crate) fn cancel_format(
         &self,
         format: FormatRef,
         reason: u32,
+        retiring: Option<u64>,
         mut ended: impl FnMut(&Document),
     ) -> usize {
         let mut count = 0;
@@ -313,6 +319,9 @@ impl DocumentTable {
                 document.format_gone = true;
                 *document
             };
+            if retiring == Some(document.owner) {
+                continue;
+            }
             ended(&document);
             count += 1;
         }

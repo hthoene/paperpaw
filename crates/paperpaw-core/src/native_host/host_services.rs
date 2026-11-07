@@ -82,18 +82,20 @@ impl HostServices {
     }
 
     /// The owner is retired (its callbacks are revoked and its handles
-    /// released). In this order: the documents it opened end, and the format
-    /// gets op 4 `close` for each one whose format still runs; then, if the
-    /// owner was a format plugin, its documents are closed by the host and
-    /// each opener hears `event.document_closed`; then its annotation
-    /// transactions end. Safe to call again: the tables are empty then.
+    /// released). In this order: if the owner was a format plugin, every
+    /// document of its formats is marked gone and closed by the host, and each
+    /// other opener hears `event.document_closed` once (the retiring owner
+    /// hears nothing); then the documents it opened end, and the format gets
+    /// op 4 `close` for each one whose format still runs (never one of the
+    /// retiring plugin's own); then its annotation transactions end. Safe to
+    /// call again: the tables are empty then.
     pub(crate) fn owner_retired(&self, owner: u64) {
         if let Some(documents) = self.documents.get() {
-            doc_service::opener_stopped(&*documents.0, owner);
             let host = &*documents.0;
             host.formats_of_owner(owner, &mut |format| {
-                doc_service::format_stopped(host, format);
+                doc_service::format_retired(host, format, Some(owner));
             });
+            doc_service::opener_stopped(host, owner);
         }
         if let Some(library) = self.library.get() {
             lib_service::owner_stopped(&*library.0, owner);

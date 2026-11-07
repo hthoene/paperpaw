@@ -24,7 +24,7 @@ mod write;
 pub(crate) use args::BookRef;
 #[cfg(test)]
 pub(crate) use {
-    query::LibQuery,
+    query::{LibQuery, One},
     write::{LibWrite, Transactions},
 };
 

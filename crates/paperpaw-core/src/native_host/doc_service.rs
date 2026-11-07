@@ -225,8 +225,15 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// `event.document_closed`, and the format is not called again (not even by
 /// the opener's later `close`). The shell calls it when a format plugin stops.
 pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
+    format_retired(host, format, None)
+}
+
+/// As [`format_stopped`], for a format plugin that is retiring: `owner`, if it
+/// is also an opener, hears nothing and its documents are marked gone, so its
+/// own opener cleanup (`opener_stopped`, right after) never calls the format.
+pub(crate) fn format_retired(host: &dyn DocHost, format: FormatRef, owner: Option<u64>) -> usize {
     host.table()
-        .cancel_format(format, 1, |document| host_closed(host, document, 1))
+        .cancel_format(format, 1, owner, |document| host_closed(host, document, 1))
 }
 
 /// What the shell hands the frame under the key `core.document`.
