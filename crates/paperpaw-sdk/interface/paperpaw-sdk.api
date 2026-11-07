@@ -3512,8 +3512,12 @@ pub const paperpaw_sdk::native::stages::core_input_filter_v1::REPLY_ROWS: usize
 pub const paperpaw_sdk::native::stages::core_input_filter_v1::REPLY_TAGS: &[u32]
 pub const paperpaw_sdk::native::stages::core_input_filter_v1::REVISION: u16
 pub const paperpaw_sdk::native::stages::core_input_filter_v1::TEST_ONLY: bool
+pub fn paperpaw_sdk::native::stages::core_input_filter_v1::input_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_input_filter_v1::input_encode(&[paperpaw_sdk::native::stages::core_input_filter_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::records_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'_>, i32>
 pub fn paperpaw_sdk::native::stages::core_input_filter_v1::records_encode(&[paperpaw_sdk::native::stages::core_input_filter_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stages::core_input_filter_v1::reply_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_input_filter_v1::reply_encode(&[paperpaw_sdk::native::stages::core_input_filter_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
 pub mod paperpaw_sdk::native::stages::core_status_v1
 #[non_exhaustive] pub enum paperpaw_sdk::native::stages::core_status_v1::Record<'a>
 pub paperpaw_sdk::native::stages::core_status_v1::Record::StatusAsk(paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>)
@@ -3565,8 +3569,12 @@ pub const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_ITEM_MAX_BY
 pub const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_TAG: u32
 pub const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_TEXT_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stages::core_status_v1::TEST_ONLY: bool
+pub fn paperpaw_sdk::native::stages::core_status_v1::input_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_status_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_status_v1::input_encode(&[paperpaw_sdk::native::stages::core_status_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
 pub fn paperpaw_sdk::native::stages::core_status_v1::records_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_status_v1::RecordStream<'_>, i32>
 pub fn paperpaw_sdk::native::stages::core_status_v1::records_encode(&[paperpaw_sdk::native::stages::core_status_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stages::core_status_v1::reply_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_status_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_status_v1::reply_encode(&[paperpaw_sdk::native::stages::core_status_v1::Record<'_>], &mut [u8]) -> core::result::Result<usize, i32>
 pub mod paperpaw_sdk::native::stages::core_widget_v1
 #[non_exhaustive] pub enum paperpaw_sdk::native::stages::core_widget_v1::Record
 pub paperpaw_sdk::native::stages::core_widget_v1::Record::WidgetMeasure(paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure)
@@ -3652,8 +3660,12 @@ pub const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_PLACE_TAG: u32
 pub const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_SIZE_TAG: u32
 pub const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_TARGETS_TAG: u32
 pub const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_TARGET_TAG: u32
+pub fn paperpaw_sdk::native::stages::core_widget_v1::input_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_widget_v1::input_encode(&[paperpaw_sdk::native::stages::core_widget_v1::Record], &mut [u8]) -> core::result::Result<usize, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::records_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'_>, i32>
 pub fn paperpaw_sdk::native::stages::core_widget_v1::records_encode(&[paperpaw_sdk::native::stages::core_widget_v1::Record], &mut [u8]) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stages::core_widget_v1::reply_decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'_>, i32>
+pub fn paperpaw_sdk::native::stages::core_widget_v1::reply_encode(&[paperpaw_sdk::native::stages::core_widget_v1::Record], &mut [u8]) -> core::result::Result<usize, i32>
 #[non_exhaustive] pub struct paperpaw_sdk::native::stages::StageSchema
 pub paperpaw_sdk::native::stages::StageSchema::input_tags: &'static [u32]
 pub paperpaw_sdk::native::stages::StageSchema::key: &'static str
