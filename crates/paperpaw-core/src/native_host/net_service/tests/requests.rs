@@ -1268,12 +1268,19 @@ fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     assert_eq!(pool.used(), external, "answer delivered and freed");
 
     let (fake, pool) = new_fake();
-    let running = request(&fake, OWNER, &big(1, 20_000)).unwrap();
-    let _queued = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+    // `held` runs, its answer is told to the plugin (state Held: the body
+    // stays until the callback returns); `running` runs; `_queued` waits for
+    // room behind them.
     let held = request(&fake, OWNER, &big(3, 1_000)).unwrap();
-    let _ = (running, held);
+    let _running = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    let _queued = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+    assert_eq!(fake.started.borrow().len(), 2, "the third waits");
     finish(&fake, held, 200, b"x");
-    assert!(pool.used() > external);
+    assert!(next_event(&fake, OWNER, &mut [0; 128]).unwrap().is_some());
+    assert!(
+        pool.used() > external + 20_000,
+        "all three states hold room"
+    );
     owner_stopped(&fake, OWNER).unwrap();
     assert_eq!(pool.used(), external, "owner stopped with all states alive");
     owner_stopped(&fake, OWNER).unwrap();
