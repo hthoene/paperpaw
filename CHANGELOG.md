@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK screen instance policies, borrowed confirmation button labels and flags,
+  dialog label accessors, and an explicit user-defined menu getter (#228).
+
 - Native slot 32 rejects overlapping buffers and delegates bounded inputs and
   uninitialized output directly through the callback frame; production broker wiring follows (#228).
 

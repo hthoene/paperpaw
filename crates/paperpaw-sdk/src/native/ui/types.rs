@@ -167,6 +167,34 @@ impl<'a> Question<'a> {
     pub fn confirm(title: &'a str, question: &'a str) -> Result<Self, Error> {
         Self::new(QuestionKind::Confirm, title, question).checked()
     }
+    /// Set confirmation button labels as exactly two lines, `yes\nno`.
+    /// An empty label retains the dialog's default word; empty text resets both.
+    ///
+    /// # Errors
+    /// Invalid for another kind or malformed lines; NoSpace above 128 bytes per label.
+    pub fn confirm_labels(mut self, labels: &'a str) -> Result<Self, Error> {
+        if self.kind != QuestionKind::Confirm {
+            return Err(Error::Invalid);
+        }
+        self.choices = labels;
+        self.checked()
+    }
+    /// Show only the confirmation's yes button, whose default word is OK.
+    ///
+    /// # Errors
+    /// Invalid for another question kind or a nonempty no label.
+    pub fn only_yes(mut self) -> Result<Self, Error> {
+        self.flags |= 1 << 8;
+        self.checked()
+    }
+    /// Start confirmation focus on the yes button.
+    ///
+    /// # Errors
+    /// Invalid for another question kind.
+    pub fn focus_yes(mut self) -> Result<Self, Error> {
+        self.flags |= 1 << 9;
+        self.checked()
+    }
     /// Ask for a root-1 folder. Write the initial folder to the request text.
     ///
     /// # Errors
@@ -219,26 +247,10 @@ impl<'a> Question<'a> {
         Ok(self)
     }
     pub(super) fn record(self) -> Result<wire::Record<'a>, Error> {
-        if self.kind != QuestionKind::Text && (self.flags != 0 || !self.slot.is_empty()) {
+        if self.kind != QuestionKind::Text && !self.slot.is_empty() {
             return Err(Error::Invalid);
         }
-        if self.kind == QuestionKind::Choice {
-            if self.choices.is_empty() || self.choices.ends_with('\n') {
-                return Err(Error::Invalid);
-            }
-            if self.choices.split('\n').any(str::is_empty) {
-                return Err(Error::Invalid);
-            }
-            if self.choices.len() > wire::SERVICE_UI_ASK_CHOICES_MAX_BYTES
-                || self.choices.split('\n').count() > wire::SERVICE_UI_ASK_CHOICES_MAX_ITEMS
-                || self
-                    .choices
-                    .split('\n')
-                    .any(|choice| choice.len() > wire::SERVICE_UI_ASK_CHOICES_ITEM_MAX_BYTES)
-            {
-                return Err(Error::NoSpace);
-            }
-        }
+        validate_question(self.kind, self.flags, self.choices)?;
         let record = wire::Record::ServiceUiAsk(wire::ServiceUiAsk {
             kind: self.kind.encode(),
             flags: self.flags,
@@ -250,6 +262,50 @@ impl<'a> Question<'a> {
         wire::record_framed_len(&record).map_err(Error::from_status)?;
         Ok(record)
     }
+}
+
+pub(super) fn validate_question(
+    kind: QuestionKind,
+    flags: u32,
+    choices: &str,
+) -> Result<(), Error> {
+    let allowed = match kind {
+        QuestionKind::Text => 0xf7,
+        QuestionKind::Confirm => 0x300,
+        _ => 0,
+    };
+    if flags & !allowed != 0 || kind == QuestionKind::Text && flags >> 4 & 15 > 4 {
+        return Err(Error::Invalid);
+    }
+    match kind {
+        QuestionKind::Confirm => {
+            if !choices.is_empty() {
+                let (yes, no) = choices.split_once('\n').ok_or(Error::Invalid)?;
+                if no.contains('\n') || flags & 0x100 != 0 && !no.is_empty() {
+                    return Err(Error::Invalid);
+                }
+                if yes.len() > 128 || no.len() > 128 {
+                    return Err(Error::NoSpace);
+                }
+            }
+        }
+        QuestionKind::Choice => {
+            if choices.is_empty() || choices.split('\n').any(str::is_empty) {
+                return Err(Error::Invalid);
+            }
+            if choices.len() > wire::SERVICE_UI_ASK_CHOICES_MAX_BYTES
+                || choices.split('\n').count() > wire::SERVICE_UI_ASK_CHOICES_MAX_ITEMS
+                || choices
+                    .split('\n')
+                    .any(|label| label.len() > wire::SERVICE_UI_ASK_CHOICES_ITEM_MAX_BYTES)
+            {
+                return Err(Error::NoSpace);
+            }
+        }
+        _ if !choices.is_empty() => return Err(Error::Invalid),
+        _ => {}
+    }
+    Ok(())
 }
 
 /// A dialog's answer. The host verifies the request kind and ownership.
@@ -349,6 +405,33 @@ pub struct QuestionInfo<'a> {
     pub(super) choices: &'a str,
 }
 impl<'a> QuestionInfo<'a> {
+    /// Custom yes label, or None to retain the dialog's default word.
+    #[must_use]
+    pub fn yes_label(self) -> Option<&'a str> {
+        (self.kind == QuestionKind::Confirm)
+            .then(|| self.choices.split_once('\n').map(|(yes, _)| yes))
+            .flatten()
+            .filter(|label| !label.is_empty())
+    }
+    /// Custom no label, or None to retain the dialog's default word.
+    #[must_use]
+    pub fn no_label(self) -> Option<&'a str> {
+        (self.kind == QuestionKind::Confirm)
+            .then(|| self.choices.split_once('\n').map(|(_, no)| no))
+            .flatten()
+            .filter(|label| !label.is_empty())
+    }
+    /// The confirmation shows only its yes button.
+    #[must_use]
+    pub const fn only_yes(self) -> bool {
+        self.flags & 0x100 != 0
+    }
+    /// The confirmation starts with focus on yes.
+    #[must_use]
+    pub const fn focus_yes(self) -> bool {
+        self.flags & 0x200 != 0
+    }
+
     /// Which dialog was requested.
     #[must_use]
     pub const fn kind(self) -> QuestionKind {

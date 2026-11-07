@@ -268,3 +268,6 @@ fn set_stream(state: &State, records: &[wire::Record<'_>]) {
 mod paging;
 mod params;
 mod widgets;
+
+#[path = "tests/confirm.rs"]
+mod confirm;
