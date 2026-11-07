@@ -95,6 +95,10 @@ pub(crate) trait Frame {
     fn calling_instance(&self) -> Result<u32, i32> {
         Err(ERR_STATE)
     }
+    fn callback_depth(&self) -> Result<u8, i32> {
+        Err(ERR_STATE)
+    }
+
     fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }

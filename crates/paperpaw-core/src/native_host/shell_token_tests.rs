@@ -199,6 +199,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
         directory: None,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,

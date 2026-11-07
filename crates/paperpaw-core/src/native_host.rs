@@ -210,7 +210,7 @@ pub(crate) mod native_declarations;
     dead_code,
     reason = "Frame hook attachment follows the owner-directed status path"
 )]
-mod native_status;
+pub(crate) mod native_status;
 
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;

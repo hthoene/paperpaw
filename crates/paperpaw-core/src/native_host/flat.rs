@@ -358,6 +358,7 @@ fn invoke(
         instance: None,
         env,
         meter: &host.meter,
+        depth: None,
         directory: host.directory.as_deref(),
         font_removals: &host.font_removals,
         usage: env.usage(),

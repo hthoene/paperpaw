@@ -29,6 +29,9 @@ impl StatusAsk for StatusCalls<'_> {
             return Err(ERR_UNSUPPORTED);
         }
         self.frame.callback_epoch()?;
+        if self.frame.callback_depth()? != 1 {
+            return Err(ERR_BUSY);
+        }
         if self.frame.caller()? == owner {
             return Err(ERR_BUSY);
         }
@@ -139,3 +142,7 @@ mod tests {
         assert!(input(&["remote.item"; 9], &[]).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "native_status_tests.rs"]
+mod owner_tests;

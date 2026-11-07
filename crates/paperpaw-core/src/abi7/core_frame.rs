@@ -25,6 +25,7 @@ impl CallbackStamp {
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
+    pub(crate) depth: Option<&'a crate::native_host::DispatchDepth>,
     pub(crate) directory: Option<&'a crate::native_host::native_declarations::NativeDeclarations>,
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
@@ -62,6 +63,11 @@ impl Frame for CoreFrame<'_> {
             .any(|entry| entry.key.serial() == instance)
             .then_some(instance)
             .ok_or(ERR_STATE)
+    }
+
+    fn callback_depth(&self) -> Result<u8, i32> {
+        self.callback_epoch()?;
+        self.depth.map(|depth| depth.0.current()).ok_or(ERR_STATE)
     }
 
     fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {

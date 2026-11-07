@@ -45,6 +45,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             env,
             meter: &self.host.meter,
+            depth: Some(self.depth.as_depth()),
             directory: self.host.directory.as_deref(),
             font_removals: &self.host.font_removals,
             usage: env.usage(),
