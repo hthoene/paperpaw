@@ -630,6 +630,104 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
     ServiceSchema {
+        key: "core.files",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "list",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1143],
+                reply: &[1145, 52],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 2,
+                name: "stat",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1142],
+                reply: &[1145],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "space",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1142],
+                reply: &[1146],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "make_dir",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1142],
+                reply: &[],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "remove_tree",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1143],
+                reply: &[1147],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "move",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1144],
+                reply: &[],
+                max_input: 2048,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.library",
         major: 1,
         revision: 0,
@@ -1051,6 +1149,119 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
     ServiceSchema {
+        key: "core.net",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "request",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1148, 1149, 1150, 1151],
+                reply: &[1152],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 20,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 2,
+                name: "cancel",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1153],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "answer",
+                since: 0,
+                mutates: false,
+                feature: Some("uses.network"),
+                input: &[1154],
+                reply: &[1155],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "body",
+                since: 0,
+                mutates: false,
+                feature: Some("uses.network"),
+                input: &[1156],
+                reply: &[1157],
+                max_input: 4096,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "serve",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1158],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "stop_serving",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1153],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 7,
+                name: "respond",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1159, 1149, 1150, 1151],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 1536,
+                bound: ServiceBound::None,
+                input_rows: 11,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.registry",
         major: 1,
         revision: 0,
@@ -1374,6 +1585,217 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
     ServiceSchema {
+        key: "core.secrets",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "get",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1160],
+                reply: &[1161],
+                max_input: 256,
+                max_reply: 1280,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 2,
+                name: "list",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1162],
+                reply: &[1163, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 3,
+                name: "keep",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1164],
+                reply: &[],
+                max_input: 1280,
+                max_reply: 1280,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "remove",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1160],
+                reply: &[],
+                max_input: 256,
+                max_reply: 1280,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "random",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1165],
+                reply: &[1166],
+                max_input: 256,
+                max_reply: 1280,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
+        key: "core.sockets",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "connect",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1170, 1171],
+                reply: &[1172],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 5,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 2,
+                name: "send",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1173],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "read",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1174],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "data",
+                since: 0,
+                mutates: false,
+                feature: Some("uses.network"),
+                input: &[1175],
+                reply: &[1176],
+                max_input: 4096,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "start_tls",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1177, 1171],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 5,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "peer",
+                since: 0,
+                mutates: false,
+                feature: Some("uses.network"),
+                input: &[1178],
+                reply: &[1179],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 7,
+                name: "close",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1178],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 8,
+                name: "broadcast",
+                since: 0,
+                mutates: true,
+                feature: Some("uses.network"),
+                input: &[1180, 1181],
+                reply: &[1172],
+                max_input: 4096,
+                max_reply: 256,
+                bound: ServiceBound::None,
+                input_rows: 9,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.test-echo",
         major: 1,
         revision: 0,
@@ -1689,6 +2111,59 @@ pub static SERVICES: &[ServiceSchema] = &[
             },
         ],
     },
+    ServiceSchema {
+        key: "core.work",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "declare",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1167],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 2,
+                name: "cancel",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1168],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "state",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1169, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
+            },
+        ],
+    },
 ];
 
 /// Constants of `core.device` major 1.
@@ -1787,6 +2262,30 @@ pub mod core_document_v1 {
     pub const OP_READERS: u32 = 21;
 }
 
+/// Constants of `core.files` major 1.
+pub mod core_files_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.files";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
+    /// Operation `list`.
+    pub const OP_LIST: u32 = 1;
+    /// Operation `stat`.
+    pub const OP_STAT: u32 = 2;
+    /// Operation `space`.
+    pub const OP_SPACE: u32 = 3;
+    /// Operation `make_dir`.
+    pub const OP_MAKE_DIR: u32 = 4;
+    /// Operation `remove_tree`.
+    pub const OP_REMOVE_TREE: u32 = 5;
+    /// Operation `move`.
+    pub const OP_MOVE: u32 = 6;
+}
+
 /// Constants of `core.library` major 1.
 pub mod core_library_v1 {
     /// Service key.
@@ -1865,6 +2364,30 @@ pub mod core_lookup_v1 {
     pub const OP_LOOKUP: u32 = 1;
 }
 
+/// Constants of `core.net` major 1.
+pub mod core_net_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.net";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Operation `request`.
+    pub const OP_REQUEST: u32 = 1;
+    /// Operation `cancel`.
+    pub const OP_CANCEL: u32 = 2;
+    /// Operation `answer`.
+    pub const OP_ANSWER: u32 = 3;
+    /// Operation `body`.
+    pub const OP_BODY: u32 = 4;
+    /// Operation `serve`.
+    pub const OP_SERVE: u32 = 5;
+    /// Operation `stop_serving`.
+    pub const OP_STOP_SERVING: u32 = 6;
+    /// Operation `respond`.
+    pub const OP_RESPOND: u32 = 7;
+}
+
 /// Constants of `core.registry` major 1.
 pub mod core_registry_v1 {
     /// Service key.
@@ -1917,6 +2440,54 @@ pub mod core_registry_v1 {
     pub const OP_NEEDS: u32 = 20;
     /// Operation `status`.
     pub const OP_STATUS: u32 = 21;
+}
+
+/// Constants of `core.secrets` major 1.
+pub mod core_secrets_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.secrets";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
+    /// Operation `get`.
+    pub const OP_GET: u32 = 1;
+    /// Operation `list`.
+    pub const OP_LIST: u32 = 2;
+    /// Operation `keep`.
+    pub const OP_KEEP: u32 = 3;
+    /// Operation `remove`.
+    pub const OP_REMOVE: u32 = 4;
+    /// Operation `random`.
+    pub const OP_RANDOM: u32 = 5;
+}
+
+/// Constants of `core.sockets` major 1.
+pub mod core_sockets_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.sockets";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Operation `connect`.
+    pub const OP_CONNECT: u32 = 1;
+    /// Operation `send`.
+    pub const OP_SEND: u32 = 2;
+    /// Operation `read`.
+    pub const OP_READ: u32 = 3;
+    /// Operation `data`.
+    pub const OP_DATA: u32 = 4;
+    /// Operation `start_tls`.
+    pub const OP_START_TLS: u32 = 5;
+    /// Operation `peer`.
+    pub const OP_PEER: u32 = 6;
+    /// Operation `close`.
+    pub const OP_CLOSE: u32 = 7;
+    /// Operation `broadcast`.
+    pub const OP_BROADCAST: u32 = 8;
 }
 
 /// Constants of `core.test-echo` major 1.
@@ -1979,4 +2550,20 @@ pub mod core_ui_v1 {
     pub const OP_CLIPBOARD_WRITE: u32 = 18;
     /// Operation `clipboard_read`.
     pub const OP_CLIPBOARD_READ: u32 = 19;
+}
+
+/// Constants of `core.work` major 1.
+pub mod core_work_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.work";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Operation `declare`.
+    pub const OP_DECLARE: u32 = 1;
+    /// Operation `cancel`.
+    pub const OP_CANCEL: u32 = 2;
+    /// Operation `state`.
+    pub const OP_STATE: u32 = 3;
 }

@@ -163,6 +163,7 @@ fn encode_rows(frame: &dyn Frame, from: u32, out: &mut [u8]) -> Result<usize, i3
         total: 0,
         generation: 0,
         next: 0,
+        cursor: None,
     };
     let reserved = wire::record_framed_len(&wire::Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;

@@ -108,7 +108,11 @@ input(state: pointer, token: u32, input: bytes) -> i32
   handled). Any other positive value is an error. `nullable`: a plugin without screens leaves it
   null; input then goes to the next layer as not handled.
 - [D] Called only for the token of the screen on top; never re-entered (same admission as
-  `dispatch_event`); commands submitted inside run after it returns.
+  `dispatch_event`); commands submitted inside run after it returns, **only when it returns 0 or
+  1**. A callback that returns an error (a negative status, or a positive value that is not
+  allowed) has its staged commands dropped whole, as one batch, whatever `submit` answered: an
+  error never leaves half of a callback's commands behind. The same holds for every callback the
+  host lends a command stage (every callback but `draw`).
 - [D] `input` is one batch of exactly one record (decode with `records_decode_single`).
 
 ### 2.2 Records
@@ -508,9 +512,10 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   out of time. Both stay distinct from `ERR_UNSUPPORTED` (the host lacks the function) and
   `ERR_CANCELLED` (dismissed, stopped). SDK status types name both from 1.0 on.
 - [D] **Feature records (D1).** A plugin states the families it uses as metadata feature records,
-  `uses.<family>` (`uses.net`, `uses.secrets`, `uses.sockets`, `uses.library`, `uses.registry`,
-  `uses.device`). Bit 0 of the record's `flags` means required. Feature revisions only add: a host
-  at revision N serves every request for revision N or lower. A feature the host lacks, or has
+  `uses.<family>` (for example `uses.network`, `uses.secrets`, `uses.storage`, `uses.library`,
+  `uses.registry`, `uses.wifi`; the family documents name them). Bit 0 of the record's `flags`
+  means required. Feature revisions only add: a host at revision N serves every request for
+  revision N or lower. A feature the host lacks, or has
   only at a lower revision than the record asks for, is unavailable: an optional one is left out
   and the plugin learns it is missing at run time, a required one refuses the load and names the
   key. So a feature can move to a new revision without breaking plugins built for an older one.

@@ -437,3 +437,86 @@ fn source_offsets_past_u32_are_refused() {
     assert_eq!(target.source_offset(2), u32::MAX);
     assert_eq!(mapped_top.source_offset(1), u32::MAX);
 }
+
+/// A whole text set anew maps from the block's own start, the end to the
+/// block's end, whatever the old map said; a replacement of the whole
+/// text keeps the old map's first offset instead.
+#[test]
+fn a_text_set_anew_maps_from_the_block_start() {
+    let mut map = OffsetMap::default();
+    map.checkpoint(0, 40);
+    let mut alt = Block::new(BlockKind::Image, 4, 90, String::from("an alt text"))
+        .map(map)
+        .runs(vec![Run::new(0, 2, TextStyle::BOLD)]);
+    let empty = Block::new(BlockKind::Image, 4, 90, String::new());
+    for mut block in [alt.clone(), empty] {
+        block
+            .try_transform(4096, |edit| {
+                edit.try_set_text("Caption")?;
+                assert!(edit.runs().is_empty());
+                assert_eq!(edit.source_offset(0), 4);
+                assert_eq!(edit.source_offset(3), 7);
+                assert_eq!(edit.source_offset(7), 90);
+                edit.try_set_runs(&[Run::new(0, 7, TextStyle::ITALIC)])
+            })
+            .unwrap();
+        assert_eq!(block.text, "Caption");
+        assert_eq!(block.map, OffsetMap::IDENTITY);
+        assert_eq!((block.source_offset(0), block.source_offset(6)), (4, 10));
+        assert_eq!(block.source_offset(7), 90);
+    }
+    // The replacement of the whole text keeps the old map's start.
+    alt.try_transform(4096, |edit| {
+        let len = edit.text().len();
+        edit.try_replace(0..len, "Caption")?;
+        assert_eq!(edit.source_offset(0), 40);
+        Ok::<(), EditError>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_text_set_anew_is_all_or_nothing() {
+    let original = picture();
+    // Every allocation it makes can fail, the block unchanged.
+    for n in 1..16 {
+        let mut target = original.clone();
+        FAIL_IN.with(|f| f.set(n));
+        let result = target.try_transform(4096, |edit| {
+            edit.try_set_text("a caption longer than the text before")
+        });
+        let unused = FAIL_IN.with(|f| f.replace(0));
+        match result {
+            Err(error) => {
+                assert_eq!(error, EditError::NoMemory, "allocation {n}");
+                assert_eq!(target, original, "allocation {n}");
+            }
+            Ok(()) => {
+                assert_ne!(unused, 0, "allocation {n}");
+                assert_eq!(target.text, "a caption longer than the text before");
+                break;
+            }
+        }
+    }
+    // A limit refuses before anything is reserved, the copy unchanged.
+    let mut target = original.clone();
+    let result = target.try_transform(64, |edit| {
+        let (before, text) = (edit.heap_bytes(), edit.text().to_string());
+        let refused = edit.try_set_text(&"x".repeat(200));
+        assert_eq!((edit.heap_bytes(), edit.text()), (before, text.as_str()));
+        refused
+    });
+    assert_eq!(result, Err(EditError::Limit));
+    assert_eq!(target, original);
+    // Source offsets past `u32::MAX` are refused.
+    let mut near = Block::new(
+        BlockKind::Paragraph,
+        u32::MAX - 2,
+        u32::MAX,
+        String::from("ab"),
+    );
+    let kept = near.clone();
+    let result = near.try_transform(4096, |edit| edit.try_set_text("abcd"));
+    assert_eq!(result, Err(EditError::Range));
+    assert_eq!(near, kept);
+}
