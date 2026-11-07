@@ -129,7 +129,7 @@ pub(crate) fn row(plugin: usize, token: u32, order: i16, index: u32) -> Subscrip
         style_granted: true,
     }
 }
-fn copy_target(target: &Vec<u32>) -> Result<Vec<u32>, i32> {
+fn copy_target(target: &[u32]) -> Result<Vec<u32>, i32> {
     let mut staged = Vec::new();
     staged
         .try_reserve_exact(target.len() + 32)
@@ -169,7 +169,7 @@ fn ordering_uses_order_plugin_id_then_registration_index() {
         .apply(
             &mut target,
             &kernel.shared.env(paperpaw_platform::Instant(0)),
-            copy_target,
+            |target| copy_target(target),
             apply,
         )
         .unwrap();
@@ -208,7 +208,7 @@ fn disabled_rows_are_removed_before_the_active_subscriber_cut() {
     run.apply(
         &mut target,
         &kernel.shared.env(paperpaw_platform::Instant(0)),
-        copy_target,
+        |target| copy_target(target),
         apply,
     )
     .unwrap();
@@ -248,7 +248,7 @@ fn bad_replies_and_refusal_isolate_the_subscriber() {
         .apply(
             &mut target,
             &kernel.shared.env(paperpaw_platform::Instant(0)),
-            copy_target,
+            |target| copy_target(target),
             apply,
         )
         .unwrap();
@@ -283,7 +283,7 @@ fn failed_transaction_after_an_earlier_reply_never_changes_the_target() {
     let result = run.apply(
         &mut target,
         &kernel.shared.env(paperpaw_platform::Instant(0)),
-        copy_target,
+        |target| copy_target(target),
         |target, reply| {
             apply(target, reply)?;
             if target.len() > 2 {
@@ -334,7 +334,7 @@ fn revoked_frozen_owner_is_not_called_and_lazy_start_waits_for_run_drop() {
         .apply(
             &mut target,
             &kernel.shared.env(paperpaw_platform::Instant(0)),
-            copy_target,
+            |target| copy_target(target),
             apply,
         )
         .unwrap();
