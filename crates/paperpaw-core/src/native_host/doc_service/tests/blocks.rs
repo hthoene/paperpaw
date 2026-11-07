@@ -148,6 +148,15 @@ fn the_largest_text_part_and_a_long_ruby_fit_one_fragment() {
     assert_eq!(block_call(&fake, id, 0, 0, &over), Err(ERR_INVALID));
 }
 
+/// Fragment 0 of an 8-byte block ("hel", 2 records, identity 77), then `second`
+/// asked from record 2 under that identity on the same document.
+fn continued(second: &[Record<'_>]) -> Result<Vec<u8>, i32> {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    block_call(&fake, id, 0, 0, &[header(0, 8), part("hel"), end(2, 77, 2)]).unwrap();
+    block_call(&fake, id, 2, 77, second)
+}
+
 #[test]
 fn a_long_block_comes_in_fragments_cut_between_records() {
     let fake = Fake::new(Limits::X4);
@@ -167,11 +176,15 @@ fn a_long_block_comes_in_fragments_cut_between_records() {
         *fake.calls.borrow().last().unwrap(),
         [fmt::BLOCK, id, 2, 77, 0, 0, 0, 0]
     );
-    // A changed generation is the format's ERR_STATE and the host's too.
-    assert_eq!(fresh(2, 77, &[part("x"), end(1, 78, 99)]), Err(ERR_STATE));
+    // The finished block is forgotten: asking on from it is a stale cursor.
+    assert_eq!(block_call(&fake, id, 99, 77, &last), Err(ERR_STATE));
+    // A changed generation is the format's ERR_STATE and the host's too; so is
+    // a last fragment that dropped it.
+    assert_eq!(continued(&[part("x"), end(1, 78, 99)]), Err(ERR_STATE));
+    assert_eq!(continued(&[part("lo!!!"), end(1, 0, 99)]), Err(ERR_STATE));
     // A later fragment never carries a header; the first always does.
     assert_eq!(
-        fresh(2, 77, &[header(0, 1), part("x"), end(1, 77, 9)]),
+        continued(&[header(0, 1), part("x"), end(1, 77, 9)]),
         Err(ERR_INVALID)
     );
     assert_eq!(fresh(0, 0, &[part("x"), end(1, 0, 9)]), Err(ERR_INVALID));
@@ -190,7 +203,109 @@ fn a_long_block_comes_in_fragments_cut_between_records() {
     );
     // An empty fragment would loop its reader.
     assert_eq!(fresh(0, 0, &[end(2, 77, 0)]), Err(ERR_INVALID));
-    assert_eq!(fresh(2, 77, &[end(1, 77, 9)]), Err(ERR_INVALID));
+    assert_eq!(continued(&[end(1, 77, 9)]), Err(ERR_INVALID));
+}
+
+#[test]
+fn fragments_are_checked_as_one_block_not_one_by_one() {
+    // The parts add up across fragments: short or long is invalid.
+    assert!(continued(&[part("lo!!!"), end(1, 77, 9)]).is_ok());
+    assert_eq!(
+        continued(&[part("x"), end(1, 77, 9)]),
+        Err(ERR_INVALID),
+        "short"
+    );
+    assert_eq!(
+        continued(&[part("lo!!!!"), end(1, 77, 9)]),
+        Err(ERR_INVALID),
+        "long"
+    );
+    // A run past the whole text, and the order of the list, hold across them.
+    assert_eq!(
+        continued(&[part("lo!!!"), run(0, 9), end(1, 77, 9)]),
+        Err(ERR_INVALID)
+    );
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    let first = [header(0, 8), part("hel"), run(0, 2), end(2, 77, 3)];
+    block_call(&fake, id, 0, 0, &first).unwrap();
+    assert_eq!(
+        block_call(&fake, id, 3, 77, &[part("lo!!!"), end(1, 77, 9)]),
+        Err(ERR_INVALID),
+        "text after runs"
+    );
+    assert_eq!(
+        block_call(&fake, id, 3, 77, &[run(1, 3), part_end(), end(1, 77, 9)]),
+        Err(ERR_INVALID),
+        "runs overlap across fragments"
+    );
+    // A cursor the host did not hand out, on a block nobody began, is stale.
+    let other = Fake::new(Limits::X4);
+    let id = opened(&other);
+    assert_eq!(
+        block_call(&other, id, 2, 77, &[part("lo!!!"), end(1, 77, 9)]),
+        Err(ERR_STATE)
+    );
+    // A failed fragment leaves the block as it was: the same ask can be retried.
+    let retry = Fake::new(Limits::X4);
+    let id = opened(&retry);
+    block_call(
+        &retry,
+        id,
+        0,
+        0,
+        &[header(0, 8), part("hel"), end(2, 77, 2)],
+    )
+    .unwrap();
+    assert_eq!(
+        block_call(&retry, id, 2, 77, &[part("x"), end(1, 77, 9)]),
+        Err(ERR_INVALID)
+    );
+    assert!(block_call(&retry, id, 2, 77, &[part("lo!!!"), end(1, 77, 9)]).is_ok());
+    // Another position than the one begun is not its continuation.
+    let moved = Fake::new(Limits::X4);
+    let id = opened(&moved);
+    block_call(
+        &moved,
+        id,
+        0,
+        0,
+        &[header(0, 8), part("hel"), end(2, 77, 2)],
+    )
+    .unwrap();
+    assert_eq!(
+        block_call(&moved, id, 3, 77, &[part("lo!!!"), end(1, 77, 9)]),
+        Err(ERR_STATE)
+    );
+}
+
+fn part_end() -> Record<'static> {
+    run(3, 4)
+}
+
+#[test]
+fn table_row_flags_carry_header_first_and_last_bits() {
+    let flagged = |flags: u32| {
+        let fake = Fake::new(Limits::X4);
+        let id = opened(&fake);
+        let Record::ServiceDocBlock(mut block) = header(4, 0) else {
+            unreachable!()
+        };
+        block.flags = flags;
+        let answer = [
+            Record::ServiceDocBlock(block),
+            Record::ServiceDocColumns(Columns { weights: &[1, 0] }),
+            cell(),
+            end(1, 0, 9),
+        ];
+        block_call(&fake, id, 0, 0, &answer)
+    };
+    for flags in [0, 1 << 8, 1 << 9, 1 << 10, 0b111 << 8, 0b11 | (0b111 << 8)] {
+        assert!(flagged(flags).is_ok(), "{flags:#x}");
+    }
+    for flags in [1 << 2, 1 << 7, 1 << 11, 1 << 31] {
+        assert_eq!(flagged(flags), Err(ERR_INVALID), "{flags:#x}");
+    }
 }
 
 #[test]
