@@ -14,6 +14,7 @@ use paperpaw_graphics::Canvas;
 pub(crate) enum TokenInvocation<'a> {
     Event(&'a [u8]),
     Input(&'a [u8]),
+    Stage(&'a [u8], &'a mut [u8]),
 }
 
 /// Dispatch a token resolved by the host from one committed declaration.
@@ -53,6 +54,30 @@ pub(super) fn invoke_token<S>(
             Ok(status_only(unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
             }))
+        }
+        TokenInvocation::Stage(bytes, out) => {
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: admission retains state/code; all buffers live for this call.
+            let status = unsafe {
+                callback(
+                    instance.state,
+                    token,
+                    borrowed(bytes),
+                    host_glue::PpBuffer {
+                        ptr: out.as_mut_ptr().cast(),
+                        cap: out.len(),
+                    },
+                )
+            };
+            Ok(
+                if status >= 0 && usize::try_from(status).map_or(true, |len| len > out.len()) {
+                    host_glue::ERR_INVALID
+                } else {
+                    status
+                },
+            )
         }
         TokenInvocation::Input(bytes) => {
             let Some(callback) = instance.input else {

@@ -54,6 +54,9 @@ impl Instance {
 }
 
 impl Depth {
+    pub(crate) fn current(&self) -> u8 {
+        self.live.get()
+    }
     pub(crate) const fn new() -> Self {
         Self { live: Cell::new(0) }
     }

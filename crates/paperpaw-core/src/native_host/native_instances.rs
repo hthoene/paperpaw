@@ -54,6 +54,15 @@ impl Dispatch for NativeLease {
     ) -> Result<i32, i32> {
         self.live()?.draw(token, frame, env, canvas)
     }
+    fn stage(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        out: &mut [u8],
+        env: &paperpaw_sdk::Env<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.stage(token, bytes, out, env)
+    }
     fn dropped(&self, token: u32, status: i32) {
         self.0.dropped(token, status);
     }

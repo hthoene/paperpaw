@@ -87,6 +87,9 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         .map_err(status)
     }
 
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        self.invoke(token, env, shell::TokenInvocation::Stage(bytes, out))
+    }
     fn dropped(&self, token: u32, status: i32) {
         (self.report)(
             &self.instance.host().owner().context().services,

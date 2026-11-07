@@ -1,0 +1,244 @@
+//! Bounded host-run stages over the existing retained instance registry.
+//! Replies stage changes in a private transaction; only a completed run commits.
+use super::{
+    native_instances::{InstanceState, NativeInstances, NativeLease},
+    native_screen::Dispatch,
+    registrations::{self as wire, Record},
+};
+use alloc::vec::Vec;
+use paperpaw_native::host_glue::{
+    ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
+};
+use paperpaw_sdk::{Env, Id};
+
+const SUBSCRIBERS: usize = 32;
+const CALL_BYTES: usize = 4096;
+
+/// Host-selected payload codec. A plugin never supplies these function pointers.
+pub(crate) struct Schema {
+    pub(crate) key: &'static str,
+    pub(crate) major: u32,
+    pub(crate) max_subscribers: usize,
+    pub(crate) max_input: usize,
+    pub(crate) max_reply: usize,
+    pub(crate) reply_rows: u32,
+    pub(crate) input: fn(&[u8]) -> Result<(), i32>,
+    pub(crate) reply: fn(&[u8]) -> Result<(), i32>,
+}
+
+/// One committed registration, with identity resolved through NativeInstances.
+#[derive(Clone, Copy)]
+pub(crate) struct Subscription<'a> {
+    pub(crate) stage: &'a str,
+    pub(crate) plugin: usize,
+    pub(crate) token: u32,
+    pub(crate) order: i16,
+    pub(crate) index: u32,
+    pub(crate) signature: u64,
+    pub(crate) enabled: bool,
+    pub(crate) style_granted: bool,
+}
+
+struct Subscriber {
+    id: Id,
+    registration: Subscription<'static>,
+    instance: Option<NativeLease>,
+}
+
+/// Callback-local membership and two scratch buffers; never a second registry.
+pub(crate) struct Run<'a> {
+    schema: &'a Schema,
+    depth: &'a super::DispatchDepth,
+    subscribers: Vec<Subscriber>,
+    call: Vec<u8>,
+    reply: Vec<u8>,
+}
+
+/// Validated subscriber output. All bytes are borrowed only for the apply call.
+pub(crate) struct Reply<'a> {
+    pub(crate) plugin: &'a Id,
+    pub(crate) index: usize,
+    pub(crate) signature: u64,
+    pub(crate) style_granted: bool,
+    pub(crate) bytes: &'a [u8],
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct Outcome {
+    pub(crate) applied: usize,
+    pub(crate) refused: usize,
+}
+
+fn scratch(cap: usize) -> Result<Vec<u8>, i32> {
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(cap).map_err(|_| ERR_NO_MEMORY)?;
+    bytes.resize(cap, 0);
+    Ok(bytes)
+}
+
+impl<'a> Run<'a> {
+    /// Freeze membership before foreign code. Disabled rows do not consume slots.
+    pub(crate) fn prepare<'s>(
+        schema: &'a Schema,
+        depth: &'a super::DispatchDepth,
+        input: &[u8],
+        registry: &NativeInstances,
+        registrations: impl IntoIterator<Item = Subscription<'s>>,
+    ) -> Result<Self, i32> {
+        if schema.major == 0
+            || !(1..=SUBSCRIBERS).contains(&schema.max_subscribers)
+            || !(1..=3840).contains(&schema.max_input)
+            || !(1..=3840).contains(&schema.max_reply)
+            || !(1..=64).contains(&schema.reply_rows)
+            || schema.key.len() > 128
+        {
+            return Err(ERR_INVALID);
+        }
+        if input.len() > schema.max_input {
+            return Err(ERR_NO_SPACE);
+        }
+        (schema.input)(input)?;
+        let selected = select(schema, registry, registrations)?;
+        let mut subscribers = Vec::new();
+        subscribers
+            .try_reserve_exact(selected.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        for registration in selected {
+            let id = registry.id(registration.plugin).ok_or(ERR_STATE)?;
+            let instance = match registry.state(registration.plugin)? {
+                InstanceState::Running(lease) => Some(lease),
+                InstanceState::Lazy => {
+                    registry.request_start(registration.plugin)?;
+                    None
+                }
+                InstanceState::Stopped => None,
+            };
+            subscribers.push(Subscriber {
+                id: id.try_clone().ok_or(ERR_NO_MEMORY)?,
+                // The stage key is already selected; keep only the static host key.
+                registration: Subscription {
+                    stage: schema.key,
+                    ..registration
+                },
+                instance,
+            });
+        }
+        let mut call = scratch(CALL_BYTES)?;
+        let len = wire::records_encode(
+            &[Record::StageCall(wire::StageCall {
+                stage: schema.key,
+                schema: schema.major,
+                payload: input,
+            })],
+            &mut call,
+        )?;
+        call.truncate(len);
+        let reply = scratch(schema.max_reply)?;
+        Ok(Self {
+            schema,
+            depth,
+            subscribers,
+            call,
+            reply,
+        })
+    }
+
+    /// Prepare target state fallibly, apply valid replies privately, then commit.
+    /// Refusal or a revoked owner skips only that subscriber. A transaction error
+    /// aborts the whole run and leaves the caller's target unchanged.
+    pub(crate) fn apply<T>(
+        mut self,
+        target: &mut T,
+        env: &Env<'_>,
+        prepare: impl FnOnce(&T) -> Result<T, i32>,
+        mut apply: impl FnMut(&mut T, Reply<'_>) -> Result<(), i32>,
+    ) -> Result<Outcome, i32> {
+        if self.depth.0.current() != 0 {
+            return Err(ERR_STATE);
+        }
+        let host = crate::abi7::calls::Instance::new();
+        let _host_call = host.enter(&self.depth.0).map_err(|_| ERR_STATE)?;
+        let mut staged = prepare(target)?;
+        let mut outcome = Outcome::default();
+        for (index, subscriber) in self.subscribers.iter().enumerate() {
+            let result = subscriber
+                .instance
+                .as_ref()
+                .ok_or(ERR_CANCELLED)
+                .and_then(|instance| {
+                    instance.stage(
+                        subscriber.registration.token,
+                        &self.call,
+                        &mut self.reply,
+                        env,
+                    )
+                });
+            let result = result.and_then(|length| {
+                let length = usize::try_from(length).map_err(|_| length)?;
+                let bytes = self.reply.get(..length).ok_or(ERR_INVALID)?;
+                super::stage_wire::validate_reply(
+                    bytes,
+                    self.schema.max_reply,
+                    self.schema.reply_rows,
+                )?;
+                (self.schema.reply)(bytes)?;
+                Ok(bytes)
+            });
+            match result {
+                Ok(bytes) => {
+                    apply(
+                        &mut staged,
+                        Reply {
+                            plugin: &subscriber.id,
+                            index,
+                            signature: subscriber.registration.signature,
+                            style_granted: subscriber.registration.style_granted,
+                            bytes,
+                        },
+                    )?;
+                    outcome.applied += 1;
+                }
+                Err(status) => {
+                    if let Some(instance) = &subscriber.instance {
+                        instance.dropped(subscriber.registration.token, status);
+                    }
+                    outcome.refused += 1;
+                }
+            }
+        }
+        *target = staged;
+        Ok(outcome)
+    }
+}
+
+fn select<'s>(
+    schema: &Schema,
+    registry: &NativeInstances,
+    registrations: impl IntoIterator<Item = Subscription<'s>>,
+) -> Result<Vec<Subscription<'s>>, i32> {
+    let mut selected: Vec<Subscription<'s>> = Vec::new();
+    selected
+        .try_reserve_exact(schema.max_subscribers)
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for registration in registrations {
+        if registration.stage != schema.key || !registration.enabled {
+            continue;
+        }
+        let id = registry.id(registration.plugin).ok_or(ERR_STATE)?;
+        let position = selected
+            .iter()
+            .position(|before| {
+                let before_id = registry.id(before.plugin).map(Id::as_str).unwrap_or("");
+                (registration.order, id.as_str(), registration.index)
+                    < (before.order, before_id, before.index)
+            })
+            .unwrap_or(selected.len());
+        if position < schema.max_subscribers {
+            if selected.len() == schema.max_subscribers {
+                selected.pop();
+            }
+            selected.insert(position, registration);
+        }
+    }
+    Ok(selected)
+}
