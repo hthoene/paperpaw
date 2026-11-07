@@ -51,9 +51,12 @@ follow once approved. Tags are proposed and numbered without gaps at the records
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's
   `data/phone.txt`, reading-goal's `pictures/`, widgets' `data/quotes.*.txt`), which interface 6
-  read through the whole-card storage. Another plugin's install folder is not reachable (see
-  [Q1] for about's licence texts). Where the plugin has no install folder (linked into the
+  read through the whole-card storage. Another plugin's install folder is not reachable (about
+  embeds its licence texts, section 6). Where the plugin has no install folder (linked into the
   firmware), root 2 is an empty folder: `ERR_NOT_FOUND` for every path but `""`.
+- [D] **`.received/` in root 0 is the host's** (NET, `network.md` 5.2): it writes served request
+  bodies there. A plugin reads them and moves them out; its own `make_dir`, writes and moves into
+  `.received/` are `ERR_DENIED`.
 - [D] **Listings follow the root's rules.** On root 1, `list` of the card root leaves out
   `plugins` and `.paperpaw`, and `stat` of them is `ERR_INVALID`, as every other root-1 call.
 
@@ -79,7 +82,7 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 | 2 | `stat` | query | `fs_path` | `fs_entry` | one file or folder |
 | 3 | `space` | query | `fs_path` | `fs_space` | free and total bytes of the root's medium |
 | 4 | `make_dir` | mutate | `fs_path` | (none) | creates the folder and missing parents |
-| 5 | `remove_tree` | mutate | `fs_path` | `fs_progress` | removes a folder and all in it, a piece per call |
+| 5 | `remove_tree` | mutate | `fs_list` | `fs_progress` | removes a folder and all in it, a piece per call, with a resume place |
 | 6 | `move` | mutate | `fs_move` | (none) | moves or renames a file or folder, also between roots 0 and 1 |
 
 ### 2.1 `list`
@@ -87,17 +90,24 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 - [D] `fs_list.path` names a folder (`""` is the root). Rows are the folder's entries in the
   storage's order (no sorting: a plugin sorts what it shows), `.` and `..` never, hidden names
   (`.x`) included (plugins filter them). Each row is an `fs_entry` (2.6).
-- [D] **Paging.** `cursor` 0 starts; `service.end.next` is where the next page starts, 0 when the
-  folder is done (`flags` bit 0 `more` set when not). The cursor is the storage's place
-  (`Storage::list_from`), opaque to the plugin and valid only for the same folder. An entry added
+- [D] **Paging.** `cursor` 0 starts. The page's `service.end` carries the next place in its
+  optional `cursor: u64` (ordinal 0, added to record 52 for 64-bit places; `next` is 0), and
+  `flags` bit 0 `last` when the folder is done, the same meaning as in `core.registry`
+  (`registry.md` 2.1). The place is the storage's (`Storage::list_from`; on FAT a 64-bit position
+  in the folder), opaque to the plugin and valid only for the same folder. An entry added
   or removed between pages may be listed twice or not at all; a place that no longer holds starts
   over at a place the host can find, never fails and never shows an entry that is not there
   (the trait's promise). `service.end.total` is 0 (unknown) and `generation` 0: folders have no
   generation.
-- [D] A page holds as many whole rows as fit in the op's `max_reply` (4,096 bytes), at most 32. A
+- [D] A page holds as many whole rows as fit in the op's `max_reply` (4,096 bytes), at most 32 (a
+  row is at most 790 bytes, so at least 5 fit). A
   folder of thousands of entries is so read once in all, not once per page (notes-vault indexes up
   to 50,000 notes this way).
 - [D] `flags`: none yet; other bits `ERR_UNSUPPORTED`.
+- [D] **No entry is skipped.** An entry whose name cannot be used in a path (over 255 bytes in
+  UTF-8, or a character the path rules refuse) is listed with `fs_entry.flags` bit 1
+  `unaddressable` and its full name (up to 765 bytes, the FAT long-name limit in UTF-8); other ops
+  cannot reach it, and the plugin shows it without offering to open, move or remove it.
 - `ERR_NOT_FOUND`: the folder is missing; `ERR_INVALID`: the path names a file.
 
 ### 2.2 `stat`
@@ -128,20 +138,28 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 
 ### 2.5 `remove_tree`
 
-- [D] Removes the folder at `path` and everything in it, at most **64 entries per call**, deepest
-  first, and replies `fs_progress`: `removed` this call, `flags` bit 0 `done`. The plugin calls
-  again with the same path until `done`; a missing folder is `done` at once with `removed` 0. A file
-  at the path is removed as a one-entry tree. Interface 6's `remove_dir_all` becomes a loop in the
-  SDK helper, so every call stays bounded.
+- [D] Input is an `fs_list` (`root`, `path`, `cursor`, `flags` 0). Removes the folder at `path`
+  and everything in it, deepest first, **at most 64 removals and 256 folder entries read per
+  call**, and replies `fs_progress`: `removed` this call, `flags` bit 0 `done`, and `next`, the
+  place to go on from. The plugin calls again with the same path and `cursor = next` until
+  `done`; `cursor` 0 starts (or starts over: a stale place is never an error, only slower). A call
+  that reached the read cap before removing anything still answers, with `removed` 0 and a new
+  `next`, so every loop advances and no call reads the whole of a big folder. A missing folder is
+  `done` at once with `removed` 0; a file at the path is removed as a one-entry tree. Interface 6's
+  `remove_dir_all` becomes a loop in the SDK helper.
 - [D] Root 0 `""` empties the whole data folder (the folder itself stays). Root 1 `""` is
   `ERR_INVALID` (never the whole card); root 2 is `ERR_DENIED`.
 - [D] Power cut or a call that fails part of the way: what was removed is gone, the rest is whole
-  (each entry is removed by the storage's own `remove`); calling again goes on. Nothing outside
+  (each entry is removed by the storage's own `remove`); calling again, from `next` or from 0,
+  goes on. The host keeps no state between calls: `next` is all it needs, and it never collects a
+  folder's names on the heap (handoff, section 7). Nothing outside
   `path` is touched. The host never follows a link out of the folder (FAT has none; hosts with
   links remove the link, not its target).
 
 ### 2.6 `move`
 
+- [D] `from` and `to` must not be `""` (`ERR_INVALID`): a root is never moved, so a plugin cannot
+  move its whole data folder onto the card.
 - [D] Moves or renames the file or folder `from` to `to`, also into another folder, and between
   roots 0 and 1 (both on the device's one storage: a news article written in the data folder moves
   into the user's books; an upload moves from the data folder to the card). Root 1 on either side
@@ -169,17 +187,19 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 1142 | `service.fs_path` | `root: u32`, `path: str 512` |
-| 1143 | `service.fs_list` | `root: u32`, `path: str 512`, `cursor: u32`, `flags: u32` |
+| 1143 | `service.fs_list` | `root: u32`, `path: str 512`, `cursor: u64`, `flags: u32` |
 | 1144 | `service.fs_move` | `from_root: u32`, `from: str 512`, `to_root: u32`, `to: str 512`, `flags: u32` |
-| 1145 | `service.fs_entry` | `name: str 255`, `flags: u32`, `size: u64`; optional `modified: u64` (ordinal 0) |
+| 1145 | `service.fs_entry` | `name: str 765`, `flags: u32`, `size: u64`; optional `modified: u64` (ordinal 0) |
 | 1146 | `service.fs_space` | `flags: u32`, `free: u64`, `total: u64` |
-| 1147 | `service.fs_progress` | `removed: u32`, `flags: u32` |
+| 1147 | `service.fs_progress` | `removed: u32`, `flags: u32`, `next: u64` |
+| 52 | `service.end` (existing) | gains optional `cursor: u64` (ordinal 0): the next place where a service's place is 64-bit (FS); absent elsewhere |
 
-- `fs_entry.flags`: bit 0 folder; others 0. `size` is 0 for a folder. `modified` is seconds since
-  1970-01-01 as the storage keeps it (FAT: the device's local time read as UTC, the platform's
-  `DirEntry::modified`); absent where the storage keeps none. A FAT time is never before 1980, so
-  no time is negative and `u64` holds every one.
-- `name` is one segment of at most 255 bytes (the FAT limit), never containing `/`.
+- `fs_entry.flags`: bit 0 folder, bit 1 `unaddressable` (2.1); others 0. `size` is 0 for a
+  folder. `modified` is seconds since 1970-01-01 as the storage keeps it (FAT: the device's local
+  time read as UTC, the platform's `DirEntry::modified`); absent where the storage keeps none. A
+  FAT time is never before 1980, so no time is negative and `u64` holds every one.
+- `name` is one segment of at most 765 bytes (255 UTF-16 units of a FAT long name in UTF-8), never
+  containing `/`; one over 255 bytes is `unaddressable` (paths keep the 255-byte segment rule).
 - Paths follow the storage contract (D2.3): relative, UTF-8, at most 512 bytes and 255 per
   segment, no `.`, `..`, `\`, `:`, control characters, empty segments, trailing dots or spaces.
 
@@ -195,10 +215,16 @@ above. A refused call changes nothing.
 | --- | --- |
 | Missing file or folder where one is needed | `ERR_NOT_FOUND` |
 | The target exists (`move` without `replace`, a folder at `to`) | `ERR_STATE` |
+| The host uses the path or something in it (an open book, an install or update copy, a download's file, a served request body): `move`, `remove_tree`, `make_dir` over it | `ERR_BUSY` |
 | Card full or the reserve reached (`make_dir`, `move` that needs a new folder entry) | `ERR_FULL` |
 | Card removed, unreadable, or lent to a computer as a USB drive | `ERR_IO` |
 | Called outside a callback | `ERR_STATE` (slot rules) |
 | Re-entry into `core.files` from its own call | `ERR_BUSY` |
+
+- [D] **Paths in use.** The host keeps a small table of paths it holds open or writes (the reader's
+  book, DEV's staged copies, NET's save files and `.part` files, NET's request bodies). A change to
+  such a path, to a folder holding one, or a move onto one answers `ERR_BUSY` and changes nothing;
+  the plugin tries again later. Reading is never busy.
 
 - [D] **No card.** Every root-0, root-1 and root-2 call answers `ERR_IO` while the card is away
   (both live on it on the X4). A plugin that shows the card's state asks `stat` of root 1 `""` (the
@@ -222,8 +248,8 @@ above. A refused call changes nothing.
 - Host: no heap per call. A path is checked and joined in a stack buffer of at most 640 bytes, as
   slots 20-26. `list` writes rows into `out` as the storage visits entries, at most 4,096 bytes; a
   row that does not fit ends the page there (its place is `next`), so no row is cut and nothing is
-  held between calls. `remove_tree` keeps no state between calls: each call finds the deepest
-  entries again (at most 64 removals and the folder reads needed to find them).
+  held between calls. `remove_tree` keeps no state between calls beyond the `next` it hands back,
+  and reads at most 256 folder entries and removes at most 64 per call.
 - Plugin: a page is at most 4 KiB; the SDK decodes it with the generated stream decoder.
 
 ## 6. Who uses what (first-party, interface 6 audit)
@@ -250,21 +276,30 @@ Uses the audit found that are **not FS**, and where they go:
 | Downloads written to a file | store, update, wallabag, news | NET (download to a root-0 file) |
 | Copying a file | koreader, vocabulary, file-manager | the SDK's `files::copy` over `read_at`/`append` |
 
-- [Q1] **about** shows the licence texts in `plugins/fonts-default/fonts/*.txt`, another plugin's
-  install folder, which root 2 does not reach. Proposal: about ships the three texts in its own
-  `data/` (root 2), or reads them through REG's plugin description. Plugin decides.
-- [Q2] **file-manager** lists and moves books on the card through root 1 and tells the library
-  afterwards (interface 6 `tell_moved`). With FS plus LIB, it either moves books through LIB's
-  `move` (journalled, keeps positions) or leaves the library to notice. Proposal: LIB `move` for
-  files the library knows, root 1 `move` for others. Plugin confirms.
+- Settled with Plugin: **about** embeds its licence texts in its own code; reading
+  `plugins/fonts-default/` happens only at build and in tests, so root 2 needs no reach into
+  another plugin's folder. **file-manager** moves books the library knows through LIB's `move`
+  (journalled, keeps positions) and other files through root 1 `move`. Plugin's condition: the
+  host's LIB move also covers folders mixing books and other files, books not yet catalogued,
+  folder settings and reader assignments, and says what a move that stopped part of the way
+  left; that is a LIB follow-up (`library.md`, section 7).
 
 ## 7. Handoffs (host side, after approval)
 
 - **Core:** `core.files` backend over the platform `Storage` (ops 1-6), root 2 resolution (stamped
   install folder, read only), `ERR_DENIED` for root 1 without `uses.storage` on slots 20-26 too,
   the root-1 identity exclusions in `list` and every op, the folder-move `..` update and a cut test
-  for it, `remove_tree` pieces of 64; the uninstall data removal of section 4 (its own PR, Senior
-  reviews).
+  for it, the paths-in-use table and `ERR_BUSY` (section 3); the uninstall data removal of section 4
+  (its own PR, Senior reviews).
+- **Core or Kernel, FAT (`crates/paperpaw-fat`):** a bounded tree removal. Today's code collects all
+  names of a folder on the heap before removing them, which is unbounded on the X4. It becomes a
+  walk from a 64-bit place that reads at most 256 entries and removes at most 64 per step, with no
+  heap per entry, and hands back the place (`remove_tree`'s `next`). The uninstall removal
+  (section 4) uses the same walk, so removing a plugin with a 50,000-file data folder never needs
+  the names in memory. Tests: a folder over the read cap is removed in several calls, a stale
+  place starts over, a cut after every removal leaves a whole rest.
+- **Kernel (records step):** the optional `cursor: u64` on `service.end` (52), `fs_entry.name` 765,
+  the u64 cursors.
 - **Services:** SDK facade `native::files` (typed `list` pages with the cursor, `stat`, `space`,
   `make_dir`, `remove_tree` looped to done, `move`), the root enum, and `files::copy` over
   `read_at`/`append`.
