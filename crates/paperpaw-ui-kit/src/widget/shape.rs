@@ -132,6 +132,52 @@ pub fn spans(
     Ok(())
 }
 
+/// A line from `a` to `b`, `width` pixels thick, with round ends: the pixels
+/// whose middle lies within half the width of the segment, as spans. (The
+/// canvas pen is square; the interface-6 capsule had smooth edges, the spans
+/// have none.)
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn capsule(
+    out: &mut Vec<Paint>,
+    a: Point,
+    b: Point,
+    width: u32,
+    color: Color,
+) -> Result<(), Error> {
+    // In eighths of a pixel.
+    let half = i64::from(width.max(1)) * 4;
+    let (ax, ay) = (i64::from(a.x) * 8 + 4, i64::from(a.y) * 8 + 4);
+    let (bx, by) = (i64::from(b.x) * 8 + 4, i64::from(b.y) * 8 + 4);
+    let (dx, dy) = (bx - ax, by - ay);
+    let length2 = dx * dx + dy * dy;
+    // How far a point is from the segment, squared.
+    let distance2 = |px: i64, py: i64| -> i64 {
+        let (qx, qy) = (px - ax, py - ay);
+        let along = qx * dx + qy * dy;
+        if length2 == 0 || along <= 0 {
+            qx * qx + qy * qy
+        } else if along >= length2 {
+            let (rx, ry) = (px - bx, py - by);
+            rx * rx + ry * ry
+        } else {
+            let across = qx * dy - qy * dx;
+            across * across / length2
+        }
+    };
+    let pad = i32::try_from(width / 2 + 2).unwrap_or(i32::MAX / 4);
+    let left = a.x.min(b.x).saturating_sub(pad);
+    let top = a.y.min(b.y).saturating_sub(pad);
+    let w = (a.x.abs_diff(b.x)).saturating_add(2 * pad.unsigned_abs()) + 1;
+    let h = (a.y.abs_diff(b.y)).saturating_add(2 * pad.unsigned_abs()) + 1;
+    spans(out, (left, top), (w, h), color, |x, y| {
+        let px = (i64::from(left) + i64::from(x)) * 8 + 4;
+        let py = (i64::from(top) + i64::from(y)) * 8 + 4;
+        distance2(px, py) <= half * half
+    })
+}
+
 /// Whether direction `b` lies less than half a turn clockwise after
 /// direction `a` (both east and north parts).
 const fn clockwise_after(a: (i64, i64), b: (i64, i64)) -> bool {
@@ -284,6 +330,34 @@ mod tests {
                 assert!(first != second, "{a} {x},{y}");
             }
         }
+    }
+
+    #[test]
+    fn a_capsule_covers_its_line_and_round_ends_only() {
+        let mut out = Vec::new();
+        capsule(
+            &mut out,
+            Point::new(20, 20),
+            Point::new(40, 20),
+            4,
+            Color::BLACK,
+        )
+        .unwrap();
+        let rects: Vec<_> = out
+            .iter()
+            .map(|op| match op {
+                Paint::Fill(r, _) => *r,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert!(!rects.is_empty());
+        // Four thick: rows 18 to 21, from the left end's round cap to the right.
+        assert!(rects.iter().all(|r| (18..22).contains(&r.y)), "{rects:?}");
+        let (left, right) = (
+            rects.iter().map(|r| r.x).min().unwrap(),
+            rects.iter().map(|r| r.x + r.width).max().unwrap(),
+        );
+        assert!(left <= 18 && right >= 42, "{left} {right}");
     }
 
     #[test]

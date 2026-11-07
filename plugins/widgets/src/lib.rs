@@ -14,6 +14,7 @@
 extern crate alloc;
 
 mod books;
+mod native_analogue;
 mod native_calendar;
 mod native_countdown;
 mod native_cx;

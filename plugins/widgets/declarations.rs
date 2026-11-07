@@ -282,6 +282,61 @@ const YEAR_OPTIONS: &[Opt] = &[
     Opt::Part("left", "widgets.setting.days-left", false),
 ];
 
+const ANALOGUE_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.center"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "face",
+        "widgets.setting.face",
+        &[
+            "widgets.face.minimal",
+            "widgets.face.hours",
+            "widgets.face.minutes",
+            "widgets.face.quarters",
+            "widgets.face.numerals",
+        ],
+        "widgets.face.hours",
+        "widgets.analogue-clock.face.help",
+    ),
+    Opt::Choice(
+        "ring",
+        "widgets.setting.ring",
+        &["widgets.ring.none", "widgets.ring.one", "widgets.ring.two"],
+        "widgets.ring.one",
+        "widgets.analogue-clock.ring.help",
+    ),
+    Opt::Choice(
+        "hands",
+        "widgets.setting.hands",
+        &[
+            "widgets.hands.thin",
+            "widgets.hands.regular",
+            "widgets.hands.bold",
+        ],
+        "widgets.hands.regular",
+        "widgets.analogue-clock.hands.help",
+    ),
+    Opt::Choice(
+        "date",
+        "widgets.setting.clock-date",
+        &[
+            "widgets.clock-date.none",
+            "widgets.clock-date.below",
+            "widgets.clock-date.inside",
+        ],
+        "widgets.clock-date.none",
+        "widgets.analogue-clock.date.help",
+    ),
+    Opt::DateFormat("widgets.date-format.weekday"),
+    Opt::Part("centre", "widgets.setting.centre-dot", true),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -318,6 +373,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: YEAR_OPTIONS,
+    },
+    Def {
+        name: "analogue-clock",
+        token: 105,
+        category: category::TIME,
+        live: true,
+        options: ANALOGUE_OPTIONS,
     },
 ];
 

@@ -51,7 +51,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_year::shows,
         settable: false,
     };
+    static ANALOGUE: Behaviour = Behaviour {
+        height: crate::native_analogue::height,
+        draw: crate::native_analogue::draw,
+        shows: crate::native_analogue::shows,
+        settable: false,
+    };
     match token {
+        105 => Some(&ANALOGUE),
         104 => Some(&YEAR),
         103 => Some(&COUNTDOWN),
         102 => Some(&CALENDAR),
