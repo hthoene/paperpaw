@@ -103,3 +103,38 @@ fn an_overlong_name_is_refused() {
     });
     assert!(record_framed_len(&row).is_err());
 }
+
+#[test]
+fn secret_values_never_show_in_debug() {
+    use paperpaw_core::native_host::registrations::{
+        ServiceNetHeader, ServiceSecKeep, ServiceSecValue,
+    };
+    let secret = "hunter2-very-secret";
+    let value = ServiceSecValue {
+        flags: 1,
+        label: "mail.password",
+        value: secret,
+    };
+    let keep = ServiceSecKeep {
+        plugin: "",
+        name: "password",
+        label: "",
+        flags: 0,
+        value: secret,
+    };
+    let header = ServiceNetHeader {
+        name: "Authorization",
+        value: secret,
+    };
+    for text in [
+        format!("{value:?}"),
+        format!("{:?}", Record::ServiceSecValue(value)),
+        format!("{keep:?}"),
+        format!("{header:?}"),
+    ] {
+        assert!(!text.contains(secret), "{text}");
+        assert!(!text.contains("19"), "{text}");
+    }
+    assert!(format!("{value:?}").contains("mail.password"));
+    assert!(format!("{header:?}").contains("Authorization"));
+}

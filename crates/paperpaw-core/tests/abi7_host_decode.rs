@@ -96,7 +96,7 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 128] = [
+const HOST_ONLY: [u32; 148] = [
     3,    // event.tick
     32,   // event.started
     33,   // event.resume
@@ -225,6 +225,26 @@ const HOST_ONLY: [u32; 128] = [
     1145, // service.fs_entry
     1146, // service.fs_space
     1147, // service.fs_progress
+    99,   // event.http_done
+    100,  // event.http_progress
+    101,  // event.server
+    102,  // event.served_request
+    103,  // event.work_due
+    104,  // event.work_refused
+    105,  // event.work_allowed
+    106,  // event.socket
+    107,  // event.broadcast
+    108,  // event.document_closed
+    1152, // service.net_started
+    1155, // service.net_answer
+    1157, // service.net_bytes
+    1161, // service.sec_value
+    1163, // service.sec_entry
+    1166, // service.sec_bytes
+    1169, // service.work_row
+    1172, // service.sock_started
+    1176, // service.sock_bytes
+    1179, // service.sock_peer
 ];
 
 fn host_only(tag: u32) -> bool {
@@ -261,7 +281,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 93, "{decoded:?}");
+    assert_eq!(decoded.len(), 117, "{decoded:?}");
 }
 
 #[test]

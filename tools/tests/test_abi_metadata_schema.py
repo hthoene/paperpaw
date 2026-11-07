@@ -101,9 +101,9 @@ class MetadataSchemaTests(unittest.TestCase):
         services = self.schema['metadata']['services']
         self.assertEqual(sorted(item['key'] for item in services),
                          ['core.device', 'core.document', 'core.files', 'core.library', 'core.lookup',
-                          'core.plugin',
-                          'core.plugin-usage', 'core.registry', 'core.test-echo', 'core.ui',
-                          'core.usage', 'core.work-note'])
+                          'core.net', 'core.plugin', 'core.plugin-usage', 'core.registry',
+                          'core.secrets', 'core.sockets', 'core.test-echo', 'core.ui',
+                          'core.usage', 'core.work', 'core.work-note'])
         for item in services:
             self.assertEqual((item['major'], item['semantic_revision'],
                               item['min_table_bytes'], item['since']), (1, 0, 0, 1))
