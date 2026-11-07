@@ -289,7 +289,7 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] `tools/abi-gen.py` emits `stages_wire.rs` to `abi/generated/`,
   `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`. All copies are
   identical. Each `<key>_v<major>` module carries the key, version, bounds, input/reply tags and
-  borrowed record codecs; `STAGES` lists the schemas for the host. `input_decode` checks
+  borrowed record codecs, exported to plugins as `native::stage_schemas`; `STAGES` lists the schemas for the host. `input_decode` checks
   exactly one input record and `max_input`; `reply_decode` checks reply tags, `reply_rows`
   and `max_reply`. Both validate the full batch before exposing a borrowed cursor. Unknown
   appended fields stay within the record length and are skipped; bytes after the batch
