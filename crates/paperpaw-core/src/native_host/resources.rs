@@ -7,6 +7,23 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
 use paperpaw_sdk::Id;
 
+#[path = "resources/blobs.rs"]
+mod blobs;
+pub(crate) use blobs::Blob;
+
+enum Resource {
+    Font(FontKey),
+    Blob(Blob),
+}
+
+impl Release for Resource {
+    fn release(self) {
+        if let Self::Font(font) = self {
+            font.release();
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum FontRole {
     Ui,
@@ -29,11 +46,15 @@ impl Release for FontKey {
 
 struct Table {
     next_owner: Cell<u64>,
-    handles: RefCell<Handles<FontKey>>,
+    handles: RefCell<Handles<Resource>>,
+    blob_limits: blobs::Limits,
 }
 
 /// Device-wide handle pool, shared by every hosted plugin on that device.
 /// Construction is fallible; retaining the pool allocates nothing.
+/// The X4 admits one live blob device-wide. A nested plugin's service query
+/// returns ERR_BUSY while an outer callback holds a blob. Release it before
+/// calling another plugin, or retry after the outer callback ends.
 #[derive(Debug)]
 pub struct HostResources(Shared<Table>);
 
@@ -43,9 +64,14 @@ impl HostResources {
     /// # Errors
     /// Returns Allocation when the table cannot be allocated.
     pub fn try_new() -> Result<Self, FlatError> {
+        Self::with_blob_limits(blobs::Limits::X4)
+    }
+
+    fn with_blob_limits(blob_limits: blobs::Limits) -> Result<Self, FlatError> {
         Shared::try_new(Table {
             next_owner: Cell::new(1),
             handles: RefCell::new(Handles::new()),
+            blob_limits,
         })
         .map(Self)
         .map_err(|_| FlatError::Allocation)
@@ -78,13 +104,28 @@ pub struct OwnerResources {
     owner: u64,
 }
 
+/// Retained callback view. Dropping this releases only the table reference.
+/// It never owns teardown of any handle family or changes owner identity.
+#[derive(Debug)]
+pub(crate) struct OwnerResourceView {
+    table: Shared<Table>,
+    owner: u64,
+}
+
 impl OwnerResources {
+    pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {
+        self.table.try_clone().map(|table| OwnerResourceView {
+            table,
+            owner: self.owner,
+        })
+    }
+
     pub(crate) fn insert_font(&self, key: FontKey) -> Result<u32, i32> {
         self.table
             .handles
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?
-            .insert(self.owner, Kind::Font, key)
+            .insert(self.owner, Kind::Font, Resource::Font(key))
             .map_err(|(error, _)| error.status())
     }
 
@@ -99,11 +140,13 @@ impl OwnerResources {
             .handles
             .try_borrow()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
-        visit(
-            handles
-                .get(self.owner, Kind::Font, handle)
-                .map_err(crate::abi7::handles::Error::status)?,
-        )
+        match handles
+            .get(self.owner, Kind::Font, handle)
+            .map_err(crate::abi7::handles::Error::status)?
+        {
+            Resource::Font(font) => visit(font),
+            Resource::Blob(_) => Err(paperpaw_native::host_glue::ERR_STATE),
+        }
     }
 
     pub(crate) fn release(&self, handle: u32) -> Result<(), i32> {
@@ -142,6 +185,7 @@ impl Drop for OwnerResources {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
     extern crate std;
     use super::*;
     use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_STATE};
@@ -207,7 +251,11 @@ mod tests {
         // The pool remains usable at maximum capacity after all owners drop.
         for _ in 0..8 {
             handles
-                .insert(successor.owner, Kind::Font, FontKey::Role(FontRole::Ui))
+                .insert(
+                    successor.owner,
+                    Kind::Font,
+                    Resource::Font(FontKey::Role(FontRole::Ui)),
+                )
                 .map_err(|(error, _)| error)
                 .unwrap();
         }
