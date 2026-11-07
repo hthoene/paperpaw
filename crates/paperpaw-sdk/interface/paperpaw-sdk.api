@@ -3134,13 +3134,24 @@ pub paperpaw_sdk::native::declare::EditorDecl::Slot(&'a str)
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
 pub paperpaw_sdk::native::declare::EventKind::ActionRun
 pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
+pub paperpaw_sdk::native::declare::EventKind::BookClosed
+pub paperpaw_sdk::native::declare::EventKind::BookFinished
+pub paperpaw_sdk::native::declare::EventKind::BookMoved
+pub paperpaw_sdk::native::declare::EventKind::BookOpened
+pub paperpaw_sdk::native::declare::EventKind::BookRemoved
+pub paperpaw_sdk::native::declare::EventKind::ChargeChanged
 pub paperpaw_sdk::native::declare::EventKind::PageTurned
+pub paperpaw_sdk::native::declare::EventKind::PluginsChanged
+pub paperpaw_sdk::native::declare::EventKind::PowerChanged
 pub paperpaw_sdk::native::declare::EventKind::Resume
 pub paperpaw_sdk::native::declare::EventKind::ScreenShown
+pub paperpaw_sdk::native::declare::EventKind::SettingChanged
 pub paperpaw_sdk::native::declare::EventKind::Started
+pub paperpaw_sdk::native::declare::EventKind::StatusChanged
 pub paperpaw_sdk::native::declare::EventKind::Stopping
 pub paperpaw_sdk::native::declare::EventKind::Suspend
 pub paperpaw_sdk::native::declare::EventKind::Tick
+pub paperpaw_sdk::native::declare::EventKind::WifiChanged
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::Kind<'a>
 pub paperpaw_sdk::native::declare::Kind::Bool(bool)
 pub paperpaw_sdk::native::declare::Kind::Choice
@@ -3243,13 +3254,34 @@ pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
 pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
 pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
 pub mod paperpaw_sdk::native::events
+#[non_exhaustive] pub enum paperpaw_sdk::native::events::BookKind
+pub paperpaw_sdk::native::events::BookKind::Closed
+pub paperpaw_sdk::native::events::BookKind::Finished
+pub paperpaw_sdk::native::events::BookKind::Opened
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
 pub paperpaw_sdk::native::events::Event::ActionRun
 pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
 pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BatteryMeasured
 pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
-pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::PageTurn<'a>)
+pub paperpaw_sdk::native::events::Event::Book
+pub paperpaw_sdk::native::events::Event::Book::kind: paperpaw_sdk::native::events::BookKind
+pub paperpaw_sdk::native::events::Event::Book::reading: paperpaw_sdk::native::events::ReadingView<'a>
+pub paperpaw_sdk::native::events::Event::Book::reason: u32
+pub paperpaw_sdk::native::events::Event::BookMoved
+pub paperpaw_sdk::native::events::Event::BookMoved::from: &'a str
+pub paperpaw_sdk::native::events::Event::BookMoved::now_ms: u64
+pub paperpaw_sdk::native::events::Event::BookMoved::path: &'a str
+pub paperpaw_sdk::native::events::Event::BookRemoved
+pub paperpaw_sdk::native::events::Event::BookRemoved::now_ms: u64
+pub paperpaw_sdk::native::events::Event::BookRemoved::path: &'a str
+pub paperpaw_sdk::native::events::Event::ChargeChanged
+pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
+pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::ReadingView<'a>)
+pub paperpaw_sdk::native::events::Event::PluginsChanged
+pub paperpaw_sdk::native::events::Event::PluginsChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PowerChanged(paperpaw_sdk::native::events::PowerChange<'a>)
 pub paperpaw_sdk::native::events::Event::Resume
 pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown
@@ -3257,27 +3289,56 @@ pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
+pub paperpaw_sdk::native::events::Event::SettingChanged
+pub paperpaw_sdk::native::events::Event::SettingChanged::key: &'a str
+pub paperpaw_sdk::native::events::Event::SettingChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::SettingChanged::old: core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
 pub paperpaw_sdk::native::events::Event::Started
 pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
+pub paperpaw_sdk::native::events::Event::StatusChanged
+pub paperpaw_sdk::native::events::Event::StatusChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Stopping
 pub paperpaw_sdk::native::events::Event::Stopping::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Suspend
 pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Tick
 pub paperpaw_sdk::native::events::Event::Tick::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WifiChanged
+pub paperpaw_sdk::native::events::Event::WifiChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WifiChanged::state: paperpaw_sdk::native::events::WifiLinkState
 impl<'a> paperpaw_sdk::native::events::Event<'a>
 pub fn paperpaw_sdk::native::events::Event<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
-#[non_exhaustive] pub struct paperpaw_sdk::native::events::PageTurn<'a>
-pub paperpaw_sdk::native::events::PageTurn::chapter: &'a str
-pub paperpaw_sdk::native::events::PageTurn::insert: u32
-pub paperpaw_sdk::native::events::PageTurn::now_ms: u64
-pub paperpaw_sdk::native::events::PageTurn::offset: u32
-pub paperpaw_sdk::native::events::PageTurn::page: core::option::Option<u32>
-pub paperpaw_sdk::native::events::PageTurn::pages: core::option::Option<u32>
-pub paperpaw_sdk::native::events::PageTurn::path: &'a str
-pub paperpaw_sdk::native::events::PageTurn::progress_ppm: u32
-pub paperpaw_sdk::native::events::PageTurn::section: u32
-pub paperpaw_sdk::native::events::PageTurn::title: &'a str
+#[non_exhaustive] pub enum paperpaw_sdk::native::events::WifiLinkState
+pub paperpaw_sdk::native::events::WifiLinkState::AccessPoint
+pub paperpaw_sdk::native::events::WifiLinkState::Connected
+pub paperpaw_sdk::native::events::WifiLinkState::Connecting
+pub paperpaw_sdk::native::events::WifiLinkState::Off
+pub paperpaw_sdk::native::events::WifiLinkState::On
+pub struct paperpaw_sdk::native::events::ChargeFlags(_)
+impl paperpaw_sdk::native::events::ChargeFlags
+pub fn paperpaw_sdk::native::events::ChargeFlags::battery_low(&self) -> bool
+pub fn paperpaw_sdk::native::events::ChargeFlags::charging(&self) -> bool
+pub fn paperpaw_sdk::native::events::ChargeFlags::external_power(&self) -> bool
+pub fn paperpaw_sdk::native::events::ChargeFlags::from_bits(u32) -> Self
+pub struct paperpaw_sdk::native::events::PowerChange<'a>
+impl<'a> paperpaw_sdk::native::events::PowerChange<'a>
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::automatic(&self) -> bool
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::level(&self) -> paperpaw_sdk::power::PowerLevel
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::mode(&self) -> &'a str
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::now_ms(&self) -> u64
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::stretch(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::events::ReadingView<'a>
+impl<'a> paperpaw_sdk::native::events::ReadingView<'a>
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::chapter(&self) -> &'a str
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::insert(&self) -> u32
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::now_ms(&self) -> u64
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::offset(&self) -> u32
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::page(&self) -> core::option::Option<u32>
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::pages(&self) -> core::option::Option<u32>
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::path(&self) -> &'a str
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::progress_ppm(&self) -> u32
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::section(&self) -> u32
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::title(&self) -> &'a str
 pub mod paperpaw_sdk::native::fonts
 #[non_exhaustive] pub enum paperpaw_sdk::native::fonts::FontRole
 pub paperpaw_sdk::native::fonts::FontRole::Mono
