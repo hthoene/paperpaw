@@ -325,3 +325,90 @@ fn wrong_scalar_tags_trailing_bytes_and_host_refusals_are_not_hidden() {
     ));
     assert!(DeviceRequest::new(0).is_none());
 }
+
+fn bounded_rows(op: u32, count: usize) -> Vec<Record<'static>> {
+    let row = match op {
+        schema::OP_BONDED => Record::ServiceDevBonded(wire::ServiceDevBonded {
+            device: 1,
+            name: "Reader",
+            kind: 0,
+            flags: 0,
+            given: "",
+        }),
+        schema::OP_NETWORKS => Record::ServiceDevNetwork(wire::ServiceDevNetwork {
+            ssid: "Network",
+            signal: -42,
+            flags: 0,
+        }),
+        _ => Record::ServiceDevNotInstalled(wire::ServiceDevNotInstalled {
+            plugin: "demo",
+            reason: 1,
+        }),
+    };
+    vec![row; count]
+}
+fn bounded_list(
+    device: &Device,
+    host: &Host<'_>,
+    op: u32,
+    input: &mut [u8],
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    match op {
+        schema::OP_BONDED => device
+            .bonded(host, DeviceCursor::start(), input, out)
+            .map(|p| p.len()),
+        schema::OP_NETWORKS => device
+            .networks(host, DeviceCursor::start(), input, out)
+            .map(|p| p.len()),
+        _ => device
+            .not_installed(host, DeviceCursor::start(), input, out)
+            .map(|p| p.len()),
+    }
+}
+#[test]
+fn bounded_device_tables_reject_oversized_rows_and_totals() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for (op, limit) in [
+        (schema::OP_BONDED, 16_u16),
+        (schema::OP_NETWORKS, 32),
+        (schema::OP_NOT_INSTALLED, 32),
+    ] {
+        let mut rows = bounded_rows(op, usize::from(limit));
+        rows.push(end(1, u32::from(limit), 7, u32::from(limit)));
+        reply(&state, &rows);
+        assert_eq!(
+            bounded_list(&device, &host, op, &mut input, &mut out),
+            Ok(usize::from(limit))
+        );
+        let mut rows = bounded_rows(op, 1);
+        rows.push(end(0, u32::from(limit), 7, 1));
+        reply(&state, &rows);
+        assert_eq!(
+            bounded_list(&device, &host, op, &mut input, &mut out),
+            Ok(1)
+        );
+        rows.pop();
+        rows.push(end(0, u32::from(limit) + 1, 7, 1));
+        reply(&state, &rows);
+        assert!(matches!(
+            bounded_list(&device, &host, op, &mut input, &mut out),
+            Err(Error::Invalid)
+        ));
+        let mut rows = bounded_rows(op, usize::from(limit) + 1);
+        rows.push(end(1, u32::from(limit) + 1, 7, u32::from(limit) + 1));
+        reply(&state, &rows);
+        assert!(matches!(
+            bounded_list(&device, &host, op, &mut input, &mut out),
+            Err(Error::Invalid)
+        ));
+    }
+}

@@ -237,6 +237,11 @@ fn validate_page<'a, T>(
     cursor: DeviceCursor,
     decode: Decode<'a, T>,
 ) -> Result<DevicePage<'a, T>, Error> {
+    let table_cap: Option<u16> = match op.id {
+        schema::OP_BONDED => Some(16),
+        schema::OP_NETWORKS | schema::OP_NOT_INSTALLED => Some(32),
+        _ => None,
+    };
     let mut rest = bytes;
     let mut count = 0usize;
     let cap = if op.paged {
@@ -244,11 +249,12 @@ fn validate_page<'a, T>(
     } else {
         usize::from(op.reply_rows)
     };
+    let cap = table_cap.map_or(cap, |limit| cap.min(usize::from(limit)));
     loop {
         let (record, len) = wire::record_decode_prefix(rest).map_err(|_| Error::Invalid)?;
         rest = rest.get(len..).ok_or(Error::Invalid)?;
         if let Record::ServiceEnd(end) = record {
-            if !rest.is_empty() {
+            if !rest.is_empty() || table_cap.is_some_and(|limit| end.total > u32::from(limit)) {
                 return Err(Error::Invalid);
             }
             let rows = u32::try_from(count).map_err(|_| Error::Invalid)?;
