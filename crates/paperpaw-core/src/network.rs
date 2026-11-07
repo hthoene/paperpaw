@@ -46,6 +46,10 @@ impl Kernel {
         self.now = now;
         // While the reader waits for the network, what Wi-Fi says is theirs.
         self.shared.reader = self.io.http.reader_waits();
+        // Native plugins' join and host requests end by what the radio says.
+        if let Ok(mut table) = self.radio_requests.try_borrow_mut() {
+            table.on_wifi_event(&event);
+        }
         let Some(wifi) = &mut self.shared.wifi else {
             return self.finish();
         };
