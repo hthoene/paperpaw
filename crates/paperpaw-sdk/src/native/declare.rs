@@ -61,6 +61,16 @@ use settings_value::{SettingValueRef, settings_encode};
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 
+mod uix;
+pub use uix::{
+    HelpHintDecl, InputDecl, InputKind, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
+    WidgetDecl, WidgetLayout, WidgetPlaceDecl,
+};
+mod registry;
+pub use registry::{
+    KeyBindingDecl, PresetDecl, PresetValueDecl, SetupPage, SetupStepDecl, SlotDecl, SlotOfferDecl,
+};
+
 mod callbacks;
 pub use callbacks::EventKind;
 mod menus;
@@ -368,6 +378,7 @@ pub struct ScreenDecl<'a> {
     pub token: u32,
     /// Request a full refresh when the screen opens.
     pub full_refresh_on_open: bool,
+    policy_flags: u32,
 }
 
 impl<'a> ScreenDecl<'a> {
@@ -378,7 +389,41 @@ impl<'a> ScreenDecl<'a> {
             title,
             token,
             full_refresh_on_open: false,
+            policy_flags: 0,
         }
+    }
+}
+
+impl ScreenDecl<'_> {
+    /// Guard the device from this screen's opening.
+    #[must_use]
+    pub const fn guards(mut self) -> Self {
+        self.policy_flags |= 2;
+        self
+    }
+    /// Draw over the screen below, subject to host privacy checks.
+    #[must_use]
+    pub const fn overlay(mut self) -> Self {
+        self.policy_flags |= 4;
+        self
+    }
+    /// Wait for screen_ready before offering help.
+    #[must_use]
+    pub const fn waits_ready(mut self) -> Self {
+        self.policy_flags |= 8;
+        self
+    }
+    /// Keep this screen's contents out from under another plugin's overlay.
+    #[must_use]
+    pub const fn secret(mut self) -> Self {
+        self.policy_flags |= 16;
+        self
+    }
+    /// Hold edge gestures until the screen releases them.
+    #[must_use]
+    pub const fn holds_edges(mut self) -> Self {
+        self.policy_flags |= 32;
+        self
     }
 }
 
@@ -410,6 +455,7 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registry(Record<'a>),
     MenuEntry(records_wire::MenuEntry<'a>),
     Icon(records_wire::IconSpec<'a>),
     MenuNeed(records_wire::MenuNeed<'a>),
@@ -1033,6 +1079,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registry(record) => *record,
             Item::MenuEntry(entry) => Record::MenuEntry(*entry),
             Item::Icon(icon) => Record::IconSpec(*icon),
             Item::MenuNeed(need) => Record::MenuNeed(*need),
@@ -1070,7 +1117,7 @@ impl<'a> Item<'a> {
                 name: s.name,
                 title: s.title,
                 token: s.token,
-                flags: u32::from(s.full_refresh_on_open),
+                flags: u32::from(s.full_refresh_on_open) | s.policy_flags,
             }),
             Item::Stage(stage) => Record::StageSpec(stage.record()),
             Item::Subscribe(to) => Record::RegistrationStage(to.record()),
@@ -1148,3 +1195,6 @@ fn extra_record<'a>(e: &ExtraDecl<'a>) -> SettingExtra<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod uix_tests;

@@ -833,6 +833,14 @@ def _growth_command(item, consts, variants, arms, lens, writes):
             decode.append(f"                    {label}: blob(body.bytes()?, {cap})?,\n")
             written.append(f"                write_blob({label}, out, &mut offset);\n")
         sized.append((label, cap))
+    if not fields:
+        # No fields: one-line forms, as rustfmt writes them.
+        variants.append(f"    /// The `{name}` command.\n    {variant} {{}},\n")
+        arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"
+                    f"                Command::{variant} {{}}\n            }}\n")
+        lens.append(f"        Command::{variant} {{}} => Ok(({tag}, 1)),\n")
+        writes.append(f"            Command::{variant} {{}} => {{}}\n")
+        return
     variants.append(f"    /// The `{name}` command (`docs/abi/registry.md`).\n"
                     f"    {variant} {{\n{''.join(docs)}    }},\n")
     arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"

@@ -64,6 +64,10 @@ pub fn validate_batch(plugin_id: &str, batch: &RecordBatch<'_>) -> Check {
 /// # Errors
 /// `ERR_UNSUPPORTED` for unknown kinds, flag bits, styles or a nonzero `check`;
 /// `ERR_INVALID` for any other violated rule.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one explicit arm per record kind (no catch-all): a new record fails to compile here until it is classified"
+)]
 pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
     match record {
         Record::SettingGroup(group) => group_check(plugin_id, group),
@@ -100,6 +104,15 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SettingChoice(_)
         | Record::PresetSpec(_)
         | Record::PresetValue(_) => Err(ERR_UNSUPPORTED),
+        // Screen, widget and status declarations (`docs/abi/ui.md`): refused
+        // until the host admits them (UIX hand-off).
+        Record::InputSpec(_)
+        | Record::HelpHint(_)
+        | Record::WidgetSpec(_)
+        | Record::WidgetPlace(_)
+        | Record::StatusItem(_)
+        | Record::StatusLine(_)
+        | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -124,7 +137,16 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventRegistryChanged(_)
         | Record::EventPreviewChanged(_)
         | Record::EventPluginsRequested(_)
-        | Record::EventPluginAnswered(_) => Err(ERR_INVALID),
+        | Record::EventPluginAnswered(_)
+        | Record::EventScreenOpened(_)
+        | Record::EventScreenClosed(_)
+        | Record::EventStackChanged(_)
+        | Record::EventAnswered(_)
+        | Record::EventWidgetMade(_)
+        | Record::EventWidgetDropped(_)
+        | Record::EventWidgetChanged(_)
+        | Record::EventScreenReady(_)
+        | Record::EventSpoken(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
@@ -132,6 +154,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::InputPointer(_)
         | Record::InputGesture(_)
         | Record::InputAction(_)
+        | Record::InputWidget(_)
         | Record::I18nArgStr(_)
         | Record::I18nArgInt(_)
         | Record::I18nCount(_) => Err(ERR_INVALID),
@@ -158,6 +181,24 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceRegSetupStep(_)
         | Record::ServiceRegValue(_)
         | Record::ServiceRegWidget(_)
+        | Record::ServiceUiScreen(_)
+        | Record::ServiceUiRequest(_)
+        | Record::ServiceUiQuestion(_)
+        | Record::ServiceUiHint(_)
+        | Record::ServiceUiWidgetRef(_)
+        | Record::ServiceUiInstance(_)
+        | Record::ServiceUiWidgetInput(_)
+        | Record::ServiceUiTarget(_)
+        | Record::ServiceUiAsk(_)
+        | Record::ServiceUiText(_)
+        | Record::ServiceUiTextAt(_)
+        | Record::ServiceUiAnswer(_)
+        | Record::ServiceUiWidgetArea(_)
+        | Record::ServiceUiSize(_)
+        | Record::ServiceUiStatusAsk(_)
+        | Record::ServiceUiStatusValue(_)
+        | Record::ServiceUiParam(_)
+        | Record::ServiceUiHandle(_)
         | Record::ServiceRegStatus(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.

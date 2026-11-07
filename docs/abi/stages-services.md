@@ -183,7 +183,10 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
 
   "Exactly" is about tags: every record's tag is one of the op's `input` tags, by exact tag. Order
   and multiplicity are the op's own rules (for example "one record"), checked by the service after
-  the generic checks.
+  the generic checks. The count is generic: at most the op's `input_rows` records
+  (`ServiceOp::input_rows`, 1 unless the schema says more), else `ERR_NO_SPACE`; where it is above
+  8, the host decodes with the generated `host_records_visit` and the SDK encodes with
+  `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
   leaves `out` untouched. A service's own failure after that is its documented status, and `out`
@@ -234,6 +237,12 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
   record names (tags taken from `abi.def`), at most 8 each; `max_input` and `max_reply` in
   1..=4096; `bound` what the call may wait for: `none`, `card` (one bounded card access) or
   `radio` (never: that is an operation handle).
+- [D] Row counts, each written only where it differs from its default (so other ops keep their
+  exact form and lock): `input_rows` 2..=64, the most records one input batch holds (default 1);
+  `paged: false` on a list op (its reply ends with `service.end`) that answers all its rows in one
+  call, with `reply_rows` 1..=64 its most rows before `end`; a paged list op (the default) holds
+  the schema's `page_rows`. The generated `ServiceOp` carries all three (`input_rows`, `paged`,
+  `reply_rows`, 0 for an op that is no list), so readers check from the table, never by op number.
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
   per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK

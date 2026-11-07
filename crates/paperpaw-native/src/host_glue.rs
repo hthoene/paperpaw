@@ -346,6 +346,17 @@ unsafe extern "C" fn unsupported_service_call(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_ui_compose(
+    _: *mut c_void,
+    _: u32,
+    _: u32,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -456,6 +467,7 @@ pub const fn host_table() -> PpHost {
         stage_run: unsupported_stage_run,
         service_open: unsupported_services_query,
         service_call: unsupported_service_call,
+        ui_compose: unsupported_ui_compose,
     }
 }
 

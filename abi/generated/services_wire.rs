@@ -32,6 +32,13 @@ pub struct ServiceOp {
     pub max_reply: usize,
     /// What the call may wait for.
     pub bound: ServiceBound,
+    /// Most records one input batch holds (a counted batch, never cut).
+    pub input_rows: u16,
+    /// Whether it is a list op that pages by a cursor in its input record.
+    pub paged: bool,
+    /// Most rows before the reply's `service.end`: the schema's page rows for
+    /// a paged op, its own for an unpaged list op, 0 for an op that is no list.
+    pub reply_rows: u16,
 }
 
 /// One call service: its key, version and ops in id order.
@@ -83,6 +90,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 2,
@@ -95,6 +105,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 3,
@@ -107,6 +120,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 4,
@@ -119,6 +135,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 5,
@@ -131,6 +150,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 6,
@@ -143,6 +165,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 7,
@@ -155,6 +180,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 8,
@@ -167,6 +195,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 9,
@@ -179,6 +210,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 10,
@@ -191,6 +225,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 11,
@@ -203,6 +240,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 12,
@@ -215,6 +255,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 13,
@@ -227,6 +270,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 14,
@@ -239,6 +285,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 15,
@@ -251,6 +300,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 16,
@@ -263,6 +315,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 17,
@@ -275,6 +330,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 18,
@@ -287,6 +345,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 19,
@@ -299,6 +360,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 20,
@@ -311,6 +375,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 21,
@@ -323,6 +390,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
         ],
     },
@@ -343,6 +413,302 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 512,
                 max_reply: 512,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
+        key: "core.ui",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "stack",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1041, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 8,
+            },
+            ServiceOp {
+                id: 2,
+                name: "question",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1042],
+                reply: &[1043],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "hints",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1044, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 8,
+            },
+            ServiceOp {
+                id: 4,
+                name: "widget_make",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1045],
+                reply: &[1046],
+                max_input: 512,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "widget_drop",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1046],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "widget_input",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1047],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 7,
+                name: "widget_targets",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1053],
+                reply: &[1048, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 8,
+                name: "ask",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1049],
+                reply: &[1042],
+                max_input: 4096,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 9,
+                name: "text_write",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1050],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 64,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 10,
+                name: "text_read",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1051],
+                reply: &[1050],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 11,
+                name: "answer",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1052],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 12,
+                name: "widget_measure",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1053],
+                reply: &[1054],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 13,
+                name: "widget_place",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1053],
+                reply: &[],
+                max_input: 256,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 14,
+                name: "status_values",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1055],
+                reply: &[1056, 52],
+                max_input: 4096,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 8,
+            },
+            ServiceOp {
+                id: 15,
+                name: "status_line",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1055],
+                reply: &[1046],
+                max_input: 4096,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 16,
+                name: "handover",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1057],
+                reply: &[1058],
+                max_input: 2048,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 32,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 17,
+                name: "params",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1058],
+                reply: &[1057, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 18,
+                name: "clipboard_write",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1050],
+                reply: &[],
+                max_input: 4096,
+                max_reply: 64,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 19,
+                name: "clipboard_read",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1051],
+                reply: &[1050],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
         ],
     },
@@ -412,4 +778,54 @@ pub mod core_test_echo_v1 {
     pub const REVISION: u16 = 0;
     /// Operation `echo`.
     pub const OP_ECHO: u32 = 1;
+}
+
+/// Constants of `core.ui` major 1.
+pub mod core_ui_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.ui";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 8;
+    /// Operation `stack`.
+    pub const OP_STACK: u32 = 1;
+    /// Operation `question`.
+    pub const OP_QUESTION: u32 = 2;
+    /// Operation `hints`.
+    pub const OP_HINTS: u32 = 3;
+    /// Operation `widget_make`.
+    pub const OP_WIDGET_MAKE: u32 = 4;
+    /// Operation `widget_drop`.
+    pub const OP_WIDGET_DROP: u32 = 5;
+    /// Operation `widget_input`.
+    pub const OP_WIDGET_INPUT: u32 = 6;
+    /// Operation `widget_targets`.
+    pub const OP_WIDGET_TARGETS: u32 = 7;
+    /// Operation `ask`.
+    pub const OP_ASK: u32 = 8;
+    /// Operation `text_write`.
+    pub const OP_TEXT_WRITE: u32 = 9;
+    /// Operation `text_read`.
+    pub const OP_TEXT_READ: u32 = 10;
+    /// Operation `answer`.
+    pub const OP_ANSWER: u32 = 11;
+    /// Operation `widget_measure`.
+    pub const OP_WIDGET_MEASURE: u32 = 12;
+    /// Operation `widget_place`.
+    pub const OP_WIDGET_PLACE: u32 = 13;
+    /// Operation `status_values`.
+    pub const OP_STATUS_VALUES: u32 = 14;
+    /// Operation `status_line`.
+    pub const OP_STATUS_LINE: u32 = 15;
+    /// Operation `handover`.
+    pub const OP_HANDOVER: u32 = 16;
+    /// Operation `params`.
+    pub const OP_PARAMS: u32 = 17;
+    /// Operation `clipboard_write`.
+    pub const OP_CLIPBOARD_WRITE: u32 = 18;
+    /// Operation `clipboard_read`.
+    pub const OP_CLIPBOARD_READ: u32 = 19;
 }

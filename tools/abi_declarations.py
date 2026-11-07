@@ -29,6 +29,10 @@ TAG_RANGES = {
     'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
     # Registry declarations (REG, docs/abi/registry.md section 6).
     'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
+    # UIX declarations (docs/abi/ui.md sections 2, 5, 7); `input.spec` by its full name,
+    # beside the `input` family of host-sent inputs.
+    'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
+    'status': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -91,7 +95,10 @@ def is_growth_command(item):
 
 
 def growth_fields(record):
-    """The checked fields of a growth-block command, as for a generated record."""
+    """The checked fields of a growth-block command, as for a generated record; a
+    command that asks for one thing only (`command.show_hints`) has none."""
+    if record.get('fields') == []:
+        return []
     return _fields(record)
 
 
@@ -688,6 +695,40 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = record_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if records.len() > max_records || records.len() > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        required += record_framed_len(record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let rest = out.get_mut(offset..).ok_or(@NO_SPACE@)?;
+        offset += record_encode_one(record, rest)?;
+    }
+    Ok(offset)
 }
 '''
 
