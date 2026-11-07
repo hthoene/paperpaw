@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 
 /// Most params of one hand-over.
@@ -59,6 +59,9 @@ pub(crate) struct Limits {
     /// Bytes of secret text kept in memory, all secret texts together (their
     /// own pool: a secret text never uses the ordinary one).
     pub(crate) secret_memory: usize,
+    /// Bytes of the questions kept (title, text, choices of every request row
+    /// kept, a question being up to 3.3 KiB): `ERR_FULL` at `ask` beyond.
+    pub(crate) question_memory: usize,
 }
 
 impl Limits {
@@ -71,7 +74,9 @@ impl Limits {
         requests: 1,
         handovers: 12,
         requests_kept: 3,
-        secret_memory: 10_240,
+        // 8,192 bytes of password in 32 chunks of 256 and their descriptors.
+        secret_memory: 8_192 + 32 * 24,
+        question_memory: 4_096,
     };
     /// Elsewhere: 16 texts, each in memory.
     pub(crate) const ELSEWHERE: Self = Self {
@@ -83,6 +88,7 @@ impl Limits {
         handovers: 64,
         requests_kept: 16,
         secret_memory: 40_960,
+        question_memory: 65_536,
     };
 }
 
@@ -190,6 +196,8 @@ pub(super) struct Inner {
     /// Ordinary texts' charge; secret texts have their own pool.
     pub(super) text_memory: usize,
     pub(super) secret_memory: usize,
+    /// The questions kept.
+    pub(super) question_memory: usize,
 }
 
 /// The store.
@@ -334,6 +342,7 @@ impl UiStore {
                 params_bytes: 0,
                 text_memory: 0,
                 secret_memory: 0,
+                question_memory: 0,
             }),
         }
     }
@@ -347,6 +356,12 @@ impl UiStore {
         }
         self.next.set(id + 1);
         Ok(id)
+    }
+
+    /// The store for a cleanup that must not be skipped: `ERR_BUSY` when it is
+    /// borrowed, so the caller retries.
+    pub(super) fn inner_busy(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
+        self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
 
     pub(super) fn inner(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
@@ -527,9 +542,13 @@ impl UiStore {
     /// A refused submit or a callback whose result drops its staged commands:
     /// everything of exactly this batch still claimed is freed. Other batches
     /// stay.
-    pub(crate) fn rollback(&self, claims: Claims) {
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the store is borrowed: the claims are handed back
+    /// unchanged to roll back again, never dropped.
+    pub(crate) fn rollback(&self, claims: Claims) -> Result<(), (i32, Claims)> {
         let Ok(mut inner) = self.inner() else {
-            return;
+            return Err((ERR_BUSY, claims));
         };
         let mut at = 0;
         while at < inner.entries.len() {
@@ -543,20 +562,20 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     /// An `open` that applies as a no-op (a guard refused), names a stale
     /// target or fails: that one **claimed** hand-over is freed. The instance's
     /// old hand-over stays.
-    pub(crate) fn release(&self, id: u32) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn release(&self, id: u32) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         if let Some(at) = Self::position(&inner, id)
             && matches!(inner.entries[at].state, State::Claimed { .. })
         {
             Self::free(&mut inner, at);
         }
+        Ok(())
     }
 
     /// The `open` applies: **claimed** to **owned** by `instance`, allocation
@@ -593,10 +612,8 @@ impl UiStore {
 
     /// The callback of `who` returned: what it made and no submit claimed is
     /// freed. Claimed ones stay until their `open` drains.
-    pub(crate) fn end_callback(&self, who: Stamp) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn end_callback(&self, who: Stamp) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         let mut at = 0;
         while at < inner.entries.len() {
             let ours = matches!(
@@ -609,13 +626,12 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     /// An instance closed: what it owns is freed.
-    pub(crate) fn instance_closed(&self, instance: u32) {
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
         let owned = inner
             .entries
             .iter()
@@ -623,15 +639,18 @@ impl UiStore {
         if let Some(at) = owned {
             Self::free(&mut inner, at);
         }
+        Ok(())
     }
 
     /// A plugin stopped: what it made or has claimed is freed; what it handed
     /// to another live instance stays with that instance. No plugin is called.
-    pub(crate) fn owner_stopped(&self, owner: u64) {
-        self.requests_owner_stopped(owner);
-        let Ok(mut inner) = self.inner() else {
-            return;
-        };
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the store is borrowed: nothing was freed and the caller
+    /// retries (the plugin's retirement waits).
+    pub(crate) fn owner_stopped(&self, owner: u64) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        Self::requests_owner_stopped(&mut inner, owner);
         let mut at = 0;
         while at < inner.entries.len() {
             let theirs = match inner.entries[at].state {
@@ -644,6 +663,7 @@ impl UiStore {
                 at += 1;
             }
         }
+        Ok(())
     }
 
     fn free(inner: &mut Inner, at: usize) {

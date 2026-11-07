@@ -443,3 +443,44 @@ fn empty_hand_overs_are_bounded_too() {
     assert_eq!(s.len(), 0);
     s.handover_make(who(1, 2), &[]).unwrap();
 }
+
+/// Cleanup that meets a busy store says `ERR_BUSY`, changes nothing and works
+/// when called again: nothing is dropped silently.
+#[test]
+fn cleanup_on_a_busy_store_is_busy_and_retried_never_dropped() {
+    use paperpaw_native::host_glue::ERR_BUSY;
+    let s = store();
+    let made = s.handover_make(who(1, 1), &[p("a", "1")]).unwrap();
+    let claimed = s.handover_make(who(1, 1), &[p("b", "2")]).unwrap();
+    let owned = s.handover_make(who(2, 1), &[p("c", "3")]).unwrap();
+    own(&s, who(2, 1), owned, 8);
+    let claims = s.claim(who(1, 1), &[claimed]).unwrap();
+    assert_eq!(s.len(), 3);
+    let held = s.held();
+    let busy = s.inner.borrow_mut();
+    // Plugin stop, callback end, screen close, one release: all busy.
+    assert_eq!(s.owner_stopped(1), Err(ERR_BUSY));
+    assert_eq!(s.end_callback(who(1, 1)), Err(ERR_BUSY));
+    assert_eq!(s.instance_closed(8), Err(ERR_BUSY));
+    assert_eq!(s.release(claimed), Err(ERR_BUSY));
+    // A submit rollback gives the claims back to try again.
+    let Err((status, claims)) = s.rollback(claims) else {
+        panic!("a busy store must not drop the claims")
+    };
+    assert_eq!(status, ERR_BUSY);
+    drop(busy);
+    assert_eq!((s.len(), s.held()), (3, held), "nothing changed");
+    // The retries work.
+    s.rollback(claims).unwrap();
+    assert_eq!(s.len(), 2);
+    s.end_callback(who(1, 1)).unwrap();
+    assert_eq!(s.len(), 1);
+    assert_eq!(s.instance_closed(8), Ok(()));
+    assert_eq!(s.len(), 0);
+    let again = s.handover_make(who(3, 1), &[]).unwrap();
+    let claim = s.claim(who(3, 1), &[again]).unwrap();
+    s.release(again).unwrap();
+    drop(claim);
+    assert_eq!(s.owner_stopped(3), Ok(()));
+    let _ = made;
+}
