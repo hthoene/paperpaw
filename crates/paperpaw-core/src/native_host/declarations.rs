@@ -115,12 +115,19 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
         // `library.md`): refused until the host admits them (DOC/LIB hand-off).
-        Record::FormatSpec(_)
-        | Record::ReaderSpec(_)
-        | Record::LookupSpec(_)
-        | Record::BookFieldSpec(_)
-        | Record::BookBadgeSpec(_)
-        | Record::BookDataSpec(_) => Err(ERR_UNSUPPORTED),
+        // Checked, then refused until the host admits them (the format index).
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::BookFieldSpec(spec) => {
+            docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookBadgeSpec(spec) => {
+            docs::book_badge_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookDataSpec(spec) => {
+            docs::book_data_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -754,6 +761,9 @@ pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> 
     full_id(stage)?;
     ensure(i16::try_from(*order).is_ok())
 }
+
+#[path = "declarations_docs.rs"]
+mod docs;
 
 #[cfg(test)]
 #[path = "declarations_menu_tests.rs"]
