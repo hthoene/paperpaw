@@ -22049,10 +22049,20 @@ mod seal {
 
 /// A record whose frame is checked and whose body is still undecoded: [`RawRecord::decode`]
 /// decodes it as one record type, [`RawRecord::record`] as whichever its tag names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RawRecord<'a> {
     tag: u32,
     body: &'a [u8],
+}
+
+/// Its tag and body length only: the body may hold a secret field.
+impl core::fmt::Debug for RawRecord<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RawRecord")
+            .field("tag", &self.tag)
+            .field("body_len", &self.body.len())
+            .finish()
+    }
 }
 
 impl<'a> RawRecord<'a> {
@@ -22379,10 +22389,19 @@ fn frame_len(bytes: &[u8]) -> Result<Option<usize>, i32> {
 /// Reads bare records from a byte stream that arrives in chunks of any size,
 /// carrying at most [`RECORD_CARRY_MAX_BYTES`] of an incomplete record between
 /// chunks. Records are visited in order, borrowed for the visit only.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RecordStream {
     carry: [u8; RECORD_CARRY_MAX_BYTES],
     len: usize,
+}
+
+/// The carried length only: the carried bytes may be part of a secret field.
+impl core::fmt::Debug for RecordStream {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RecordStream")
+            .field("carry_len", &self.len)
+            .finish()
+    }
 }
 
 impl Default for RecordStream {
