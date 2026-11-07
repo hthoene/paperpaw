@@ -2486,13 +2486,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 

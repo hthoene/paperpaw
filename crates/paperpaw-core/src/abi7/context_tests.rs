@@ -13,6 +13,7 @@ use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
 fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
     CoreFrame {
         callback: None,
+        instance: None,
         env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
@@ -237,4 +238,51 @@ fn caller_and_epoch_require_an_actual_nonzero_callback_stamp() {
     frame.callback = Some(CallbackStamp { owner: 0, epoch: 9 });
     assert_eq!(frame.caller(), Ok(0));
     assert_eq!(frame.callback_epoch(), Ok(9));
+}
+
+#[test]
+fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
+    use paperpaw_native::host_glue::ERR_STATE;
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("probe.screen"),
+        None,
+        false,
+        paperpaw_sdk::ScreenKey::new(7),
+    ));
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("probe.overlay"),
+        None,
+        false,
+        paperpaw_sdk::ScreenKey::new(8),
+    ));
+    let env = kernel.shared.env(Instant(0));
+    let mut frame = frame(&kernel, &env);
+    assert_eq!(frame.calling_instance(), Err(ERR_STATE));
+    for (epoch, instance, expected) in [
+        (0, Some(7), Err(ERR_STATE)),
+        (1, None, Err(ERR_STATE)),
+        (1, Some(0), Err(ERR_STATE)),
+        (1, Some(6), Err(ERR_STATE)),
+        (1, Some(7), Ok(7)),
+        (1, Some(8), Ok(8)),
+    ] {
+        frame.callback = Some(CallbackStamp { owner: 0, epoch });
+        frame.instance = instance;
+        assert_eq!(frame.calling_instance(), expected);
+    }
+}
+
+#[test]
+fn shared_callback_stamp_constructor_refuses_epoch_zero() {
+    assert_eq!(
+        CallbackStamp::new(7, 0),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+    assert_eq!(
+        CallbackStamp::new(7, 9),
+        Ok(CallbackStamp { owner: 7, epoch: 9 })
+    );
 }

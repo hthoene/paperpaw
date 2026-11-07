@@ -125,14 +125,14 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(rows[('core.library', 18)][0], 4)
         self.assertEqual(sorted(id for (key, id), row in rows.items()
                                 if key == 'core.library' and row[0] == 2),
-                         [4, 7, 8, 15, 16, 17, 23, 24])
+                         [4, 7, 8, 15, 16, 17, 22, 23, 24])
         # NET request 20 and respond 11 (network.md section 2), SOCK connect and
         # start_tls 5 (four pins), broadcast 9 (eight ports, sockets.md section 2).
         self.assertEqual([rows[('core.net', 1)][0], rows[('core.net', 7)][0]], [20, 11])
         self.assertEqual([rows[('core.sockets', id)][0] for id in (1, 5, 8)], [5, 5, 9])
         self.assertEqual(rows[('core.work', 3)], (1, False, 32))
         self.assertEqual(rows[('core.secrets', 2)], (1, True, 32))
-        self.assertEqual(sum(1 for row in rows.values() if row[0] != 1), 17)
+        self.assertEqual(sum(1 for row in rows.values() if row[0] != 1), 18)
         source = rust_services(self.schema)
         for line in ['pub input_rows: u16,', 'pub paged: bool,', 'pub reply_rows: u16,',
                      'input_rows: 32,', 'reply_rows: 32,']:
