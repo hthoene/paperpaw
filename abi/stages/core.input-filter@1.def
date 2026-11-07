@@ -1,0 +1,87 @@
+{
+  "key": "core.input-filter",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 4,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "filter.input"
+  ],
+  "reply": [
+    "filter.verdict"
+  ],
+  "reply_rows": 1,
+  "records": [
+    {
+      "id": 1,
+      "name": "filter.input",
+      "since": 0,
+      "fields": [
+        {
+          "name": "input",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "filter.verdict",
+      "since": 0,
+      "fields": [
+        {
+          "name": "kind",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "action",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "input",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "raise",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
+    }
+  ]
+}

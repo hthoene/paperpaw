@@ -122,7 +122,7 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
 ### 1.3 Host-defined stages
 
 - [D] `core.input-filter` and `core.widget` are `core.*` stages that come with their families (UIX,
-  widgets), not with N4 itself. Their payload schemas are generated like a service's (section 2.3).
+  widgets), not with N4 itself. Their payload schemas are generated from stage-local records (section 2.4).
 - [D] Escape chord: holding Power for 8 s is never filterable; the host checks it before any
   `core.input-filter` subscriber.
 
@@ -241,6 +241,63 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] **First services**, each with its family's PR: `core.device` (DEV), `core.registry` (REG),
   `core.storage` metadata (FS), `core.library` (LIB), `core.secrets` (SEC), `core.net` (NET).
   `core.test-echo` exists for host tests and is never offered on a device.
+
+### 2.4 Stage schemas (`abi/stages/<key>@<major>.def`)
+
+Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major>.def`:
+
+```json
+{
+  "key": "core.status", "major": 1, "revision": 0, "since": 1, "test_only": false,
+  "max_subscribers": 32, "max_input": 3840, "max_reply": 3840,
+  "input": ["status.ask"], "reply": ["status.value"], "reply_rows": 8,
+  "records": [
+    {"id": 1, "name": "status.ask", "since": 0, "fields": [
+      {"name": "items", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 1032,
+       "list": {"separator": "\n", "max_items": 8, "item_max_bytes": 128}},
+      {"name": "context", "type": "bytes", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 1024}
+    ]},
+    {"id": 2, "name": "status.value", "since": 0, "fields": [
+      {"name": "item", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 128},
+      {"name": "flags", "type": "u32", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 0},
+      {"name": "text", "type": "str", "since": 0, "optional": false,
+       "ordinal": null, "default": null, "max_bytes": 128}
+    ]}
+  ]
+}
+```
+
+- [D] `key` follows the service key grammar, at most 128 bytes, and must start with `core.`.
+  The file name names the same key and major. `major` is 1..=65535, `revision` is 0..=65535,
+  and `since` names an interface minor in 1..=the current minor. A new schema takes an unreleased
+  minor. `test_only` marks a schema that device hosts never run.
+- [D] Record tags are local to this stage schema, in 1..=511, unique and ascending. Record names
+  have the same grammar as `abi.def` record names and are unique within the schema. A record's
+  `since` and each field's `since` name a schema revision, at most `revision`. Fields use the
+  same types, bounds, optional bitmap and list rules as `abi.def` records. Stage tags do not
+  reserve or reuse kernel record tags. Plugin-defined stages publish their own payload schemas;
+  the host checks their framing only.
+- [D] `input` and `reply` each name 1..=8 distinct records from this schema; no record belongs to
+  both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
+  `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at
+  its field caps exceeds `max_input`, or `reply_rows` times the largest framed reply record
+  exceeds `max_reply`.
+- [D] `tools/abi-gen.py` emits `stages_wire.rs` to `abi/generated/`,
+  `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`. All copies are
+  identical. Each `<key>_v<major>` module carries the key, version, bounds, input/reply tags and
+  borrowed record codecs; `STAGES` lists the schemas for the host. The codecs share the kernel
+  records emitter, framing and validation rules, without allocation.
+- [D] The ABI lock pins the schema and generated codec. A published schema keeps every key,
+  major, record and existing field. New records and appended fields take a newer schema
+  revision; the bounds never shrink. A breaking change needs a new major alongside the old one.
+- [D] Stages have no `metadata.services` catalog entry: plugins do not open them as services.
+  Stage declarations select the stage by key and major. The initial schemas are
+  `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
+  target rows) and `core.status` (32 subscribers, up to 8 value rows).
 
 ## 3. Memory (X4)
 

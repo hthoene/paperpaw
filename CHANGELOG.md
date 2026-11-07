@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
+  `core.status` share bounded payload codecs between the host and SDK (#228).
+
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
 
