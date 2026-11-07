@@ -206,8 +206,8 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
     exists, it finishes the job; only `from` exists, it drops the entry (nothing moved); **both
     exist** (a cut between FAT's two directory writes), the repair settles them first and the host
     then decides as above, never dropping the entry blind.
-  - **While the job runs:** a `move`, `storage.rename`, `remove_tree` or `storage.remove` at or below
-    `from` or `to` answers `ERR_BUSY` until the entry is cleared, and the library answers for books
+  - **While the job runs:** a `move`, `storage.rename`, `remove_tree` or `storage.remove` at or
+    below `from` or `to` answers `ERR_BUSY` until the entry is cleared, and the library answers for books
     below `to` through the pending entry (or carries that book first), so a reader that opens a
     moved book during the job finds its position and annotations, never a fresh position the carry
     would then overwrite. Plugins that move books as books may still use LIB's
