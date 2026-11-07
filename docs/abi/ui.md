@@ -6,7 +6,8 @@ questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-uix-calls-1003.md`), `screens-input.md` (screens, actions, input, draw, commands 56-60),
 `stages-services.md` (stages, services), `registry.md` (REG; plugin inputs listed by op 14, the
 hold-Power escape) and `core-events.md`. Doc-only: records, schema and generator follow once this
-is approved, as for EVT and REG. Tags below are proposed and checked again with the records.
+is approved, as for EVT and REG. Tags below are proposed; the records step numbers them without
+gaps (commands 1553-1555 and events 83 and 90 are free after the first review round).
 
 ## 0. Scope and principles
 
@@ -15,9 +16,10 @@ is approved, as for EVT and REG. Tags below are proposed and checked again with 
   the screen stack and its instances, routing of questions and answers, input filters and guards,
   composition of one plugin's drawing inside another's, and the few outputs a plugin cannot make
   itself (a message shown over any screen, the clipboard, speech).
-- [D] **Answers go to the asker only.** Every question, clipboard read and speech request carries
-  the asker's own `cookie` (a `u32`, like a declaration `token`); the host records who asked and
-  delivers the answer to that plugin alone, with that cookie. No plugin can read or consume another
+- [D] **Answers go to the asker only.** A question gets a host request id that the asker learns
+  at once (section 3); a clipboard read or a speech request carries the asker's own `cookie` (a
+  `u32`, like a declaration `token`). The host records who asked and delivers the answer to that
+  plugin alone. No plugin can read or consume another
   plugin's answer, and an answer never arrives after the asker stopped (it is dropped as an edge,
   `core-events.md` section 3.3).
 - [D] **Guards win.** A screen that guards the device (the lock) hides everything below it from
@@ -45,30 +47,47 @@ is approved, as for EVT and REG. Tags below are proposed and checked again with 
 | Tag | Record | Fields | To |
 | --- | --- | --- | --- |
 | 38 | `event.screen_shown` (grown) | existing fields, then `instance: u32` | the screen's token |
-| 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `params: str 1024` | the screen's token |
+| 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `params: bytes 3072` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
-- [D] `screen_opened` comes once per instance, before its first `screen_shown`; `screen_closed`
-  once, after its last `draw`. A plugin frees the instance's state there. Like 38 and 39, 79 and
-  80 are not registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the
-  screen they name.
-- [D] `params` are text lines `key=value` (UTF-8, `\n`-separated, at most 32 lines, keys
-  `[a-z0-9_.-]{1,32}`, no `\n` in a value), at most 1,024 bytes: interface 6 `Params` as text. The
-  host checks the form at submit (`ERR_INVALID`) and passes them unchanged; their meaning belongs
-  to the screen that reads them. Host-added keys start with `core.` (section 3: `core.request`).
+- [D] `screen_opened` comes once per instance, before its first `screen_shown`, and **again**
+  whenever an open instance gets new params (`open` mode 1 or 3 shows it again; `flags` bit 0
+  `again`), so a screen never misses a parameter update. `screen_closed` comes once, after its
+  last `draw`; a plugin frees the instance's state there. Like 38 and 39, 79 and 80 are not
+  registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the screen
+  they name.
+- [D] **Params are lossless** (interface 6 `Params`): `params` is a bare record stream of
+  `ui.param` records (`key: str 32`, `value: str 3072`), decoded with the generated decoders; at
+  most 32 records and 3,072 bytes in all; keys `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8,
+  newlines and long selected text included. The host checks the form at submit (`ERR_INVALID`,
+  over the cap `ERR_NO_SPACE`) and passes them unchanged; their meaning belongs to the screen that
+  reads them. Host-added keys start with `core.` (section 3: `core.request`). A value that does
+  not fit is the opener's to shorten or to pass another way (a file in its Data); the host never
+  cuts one.
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 
 ### 1.2 Declaration flags
 
 - [D] `screen.spec.flags` (11) gains, beside bit 0 `full_refresh_on_open`:
-  - bit 1 `guards`: the screen guards the device (section 4.3);
+  - bit 1 `guards`: the screen guards the device (section 4.3) from its opening on;
   - bit 2 `overlay`: shown over part of the screen below (a menu, a dialog); the host keeps
     drawing the screen below where the overlay does not cover it;
   - bit 3 `waits_ready`: help for this screen waits until the screen says it is ready
-    (`command.screen_ready`, section 7).
+    (`command.screen_ready`, section 7);
+  - bit 4 `secret`: what the screen shows is secret from its opening on (a PIN, a password);
+  - bit 5 `holds_edges`: edge swipes wait while the screen holds them.
   Other bits stay `ERR_UNSUPPORTED`.
+- [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
+  (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
+  one of the submitter's own instances; other bits `ERR_INVALID`, another plugin's instance
+  `ERR_DENIED`. The declared flags are the state at opening. A change takes effect when the batch
+  is applied, before the next input is routed.
+- [D] **Secret** (interface 6 `Screen::secret`): an instance is secret when it says so, when it
+  guards, and when it lies above a guarding instance. While the top instance is secret, input
+  goes to the input filters of its own plugin and of the topmost guarding plugin only (others are
+  skipped as if they passed), and no event tells where its focus is.
 
 ### 1.3 Navigation commands
 
@@ -77,12 +96,13 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1547 | `command.open` | `target: str 128`, `mode: u32`, `slot: str 128`, `params: str 1024` |
+| 1547 | `command.open` | `target: str 128`, `mode: u32`, `slot: str 128`, `params: bytes 3072` |
 | 1548 | `command.close` | `instance: u32` |
 | 1549 | `command.back_to` | `target: str 128` |
 | 1550 | `command.set_key_layer` | `layer: str 128` |
 | 1551 | `command.show_hints` | (none) |
 | 1552 | `command.raise_input` | `input: str 64` |
+| 1563 | `command.screen_policy` | `instance: u32`, `flags: u32` |
 
 - [D] `open.mode`: 0 `screen` (open screen `target` on top), 1 `slot` (show the screen bound to
   slot `target`; if that slot is open already, close the screens above it and pass `params`
@@ -131,77 +151,63 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 ## 3. Questions and answers (dialogs)
 
 Interface 6 `ask::text`, `ask::choice`, `ask::confirm`, `ask::folder` and their reply events.
-The dialogs are plugin screens on the slots `core.keyboard`, `core.choice`, `core.confirm` and
-`core.choose-folder` (the keyboard plugin and the ones that replace it), as in interface 6.
+The dialogs are plugin screens on the slots `core.keyboard`, `core.remote-keyboard`,
+`core.choice`, `core.confirm` and `core.choose-folder` (the keyboard plugin and the ones that
+replace it), as in interface 6. Questions and answers go through `core.ui` ops (section 6), so the
+asker learns its request id at once and long texts move in pages, never cut.
 
 ### 3.1 Asking
 
-| Tag | Record | Fields |
-| --- | --- | --- |
-| 1553 | `command.ask` | `cookie: u32`, `kind: u32`, `flags: u32`, `title: str 256`, `text: str 1024`, `initial: str 3072`, `choices: str 2048` |
-
-- [D] `kind`: 0 text, 1 choice, 2 confirm (yes or no), 3 folder. Other values `ERR_INVALID`.
-  `title`, `text` (the question or explanation), `initial` (text: the text to start from; folder:
-  the folder to start in) are display text the asker formatted itself (slot 27); `choices` (kind 1
-  only, else empty) is a list of at most 32 lines of at most 128 bytes, non-empty, no trailing
-  `\n` (the REG list rule, enforced by the generated codec).
-- [D] `flags` (other bits `ERR_INVALID`): bit 0 `live` (text: the asker gets the text so far
-  while typing, section 3.2), bit 1 `multiline`, bit 2 `secret` (text: shown masked, never put on
-  the clipboard), bit 3 `edit` (text: input-method mode, section 3.3), bits 4-7 the text mode (0
-  plain, 1 number, 2 e-mail, 3 URL, 4 file name, others `ERR_INVALID`). Bits 0-7 only for kind 0.
-- [D] The host records `(asker, cookie)` under a new **request** id (`u32`, never 0) and opens the
-  slot's screen for `kind` with the params `core.request=<id>`, `core.kind=<kind>`. At most 4
-  requests are open device-wide and 1 per asker (a new question from the same asker cancels its
-  open one with outcome 1); over that `ERR_FULL`. A request ends when it is answered, when the
-  dialog instance closes without an answer (outcome 1), or when the asker stops (no event).
-- [D] Asking from a screen ties the request to that instance: when the asker's instance closes,
-  the request is cancelled and the dialog closed. Asking from an action or event (no screen) is
-  allowed; the request then lives until answered or cancelled.
+- [D] Op 8 `ask` (input `ui_ask`: `kind`, `flags`, `slot`, `title`, `text`, `choices`; reply
+  `ui_request`: `request`) records a question for the caller and returns its **request** id
+  (`u32`, never 0). The dialog opens after the caller's callback returns (as a queued `open`, with
+  the params `core.request` and `core.kind`), so the caller can still write the initial text.
+- [D] `kind`: 0 text, 1 choice, 2 confirm (yes or no), 3 folder; others `ERR_INVALID`. `slot`:
+  empty for the kind's slot; for kind 0 also `core.remote-keyboard` (the keyboard's "type on the
+  phone" asks it this way, with its own text as the initial text); any other `ERR_INVALID`.
+  `title` and `text` (the question) are display text the caller formatted itself (slot 27);
+  `choices` (kind 1 only) at most 32 lines of at most 128 bytes, non-empty, no trailing `\n`.
+- [D] `flags` (other bits `ERR_INVALID`; bits 0-7 for kind 0 only): bit 0 `live` (the asker hears
+  the text while it is typed), bit 1 `multiline`, bit 2 `secret` (shown masked; never put on the
+  clipboard; the dialog instance is `secret`, section 1.2), bits 4-7 the text mode (0 plain, 1
+  number, 2 e-mail, 3 URL, 4 file name).
+- [D] **Request text.** Each request has one host-held text, empty at first: for kind 0 the text
+  to start from and then the answer, for kind 3 the folder to start in and then the chosen path.
+  Op 9 `text_write` (`request`, `offset`, `text` at most 3,072 bytes, `flags` bit 0 `last`: the
+  text ends after this part) writes it in parts; op 10 `text_read` (`request`, `offset`) reads it
+  in parts (`ui_text`: `total`, `offset`, `text`, cut only at UTF-8 boundaries). Its cap is the
+  host's (`ui_question.max_bytes`): 24,576 bytes, 8,192 on the X4. Over it `ERR_NO_SPACE`; the
+  text is never cut.
+- [D] Who may write: the asker inside the callback that asked (the initial text), then only the
+  dialog instance the host opened for the request. Who may read: that dialog while it is open, and
+  the asker in the callback that delivers its answer. Anyone else `ERR_STATE`.
+- [D] Limits: at most 4 open requests device-wide and 1 per asker (asking again cancels the open
+  one: outcome 1); over that `ERR_FULL`. A request ends when answered (not `typing`), when its
+  dialog closes without an answer (cancelled), or when the asker stops (no event). Asking from a
+  screen ties the request to that instance: when it closes, the request is cancelled and its
+  dialog closed. Asking from an action or an event is allowed.
 
 ### 3.2 Answering
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1554 | `command.answer` | `request: u32`, `outcome: u32`, `choice: u32`, `text: str 3072` |
-| 82 | `event.answered` | `now_ms: u64`, `cookie: u32`, `kind: u32`, `outcome: u32`, `choice: u32`, `text: str 3072`, `flags: u32` |
+| 82 | `event.answered` | `now_ms: u64`, `request: u32`, `kind: u32`, `outcome: u32`, `choice: u32`, `length: u32`, `flags: u32` |
 
-- [D] The dialog screen reads the question with `core.ui` op 2 (`question`, by its `request`).
-  Only the instance the host opened for that request may answer it (another: `ERR_STATE`); the
-  first answer wins (later: `ERR_STATE`). `outcome`: 0 answered, 1 cancelled (no edit applies),
-  2 typing (only for a `live` text question: the text so far; the request stays open). Other
-  values `ERR_INVALID`.
-- [D] What each kind answers: text, `text` (at most 3,072 bytes); choice, `choice` (the line's
-  index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, `text` the path
-  on root 1 (at most 512 bytes, `ERR_INVALID` longer). Unused fields are 0 and empty
-  (`ERR_INVALID` otherwise).
-- [D] The host delivers `event.answered` to the asker only, with its `cookie`, as an edge
-  (`core-events.md` 3.3: kept in the held-event store, dropped and logged when it does not fit;
-  for a dropped answer the asker gets nothing and sees its dialog closed). Typing updates
-  (outcome 2) are coalesced per request: only the newest is kept. `flags` bit 0: the dialog
-  closed itself after this answer.
-- [D] A consumer treats an `outcome` it does not know as cancelled.
-- [Q] Plugin: is 3,072 bytes of answered text enough for every port? The interface-6 keyboard
-  allows 2,000 characters on one line and 6,000 multiline (up to 24 KB of UTF-8). Proposal: longer
-  texts are not answers but edits (section 3.3).
-
-### 3.3 Text editing (input method)
-
-For an editor that owns its text (mail, notes) and wants the keyboard to type into it, without
-handing the whole text back and forth:
-
-| Tag | Record | Fields |
-| --- | --- | --- |
-| 1555 | `command.text_edit` | `request: u32`, `insert: str 256`, `delete_before: u32`, `delete_after: u32`, `flags: u32` |
-| 83 | `event.text_edit` | `now_ms: u64`, `cookie: u32`, `insert: str 256`, `delete_before: u32`, `delete_after: u32`, `flags: u32` |
-
-- [D] An `ask` text question with `flags` bit 3 `edit` opens the keyboard in edit mode: the
-  keyboard sends what is typed as edits (delete so many bytes before and after the caret, then
-  insert), the host forwards each one to the asker in order, and the editor applies it to its own
-  text. `flags` bit 0 `done` ends the request (outcome as answered), bit 1 `cancel` ends it
-  cancelled. Deletes count whole UTF-8 scalars in bytes; an edit that would cut a scalar is the
-  editor's to refuse. `initial` gives the keyboard the text around the caret for display (at most
-  3,072 bytes). Edits are edges and never coalesced; at most 16 wait per asker (`core-events.md`
-  3.3).
+- [D] The dialog reads the question with op 2 (`question`) and the text with op 10, writes its
+  answer text with op 9 and commits with op 11 `answer` (`request`, `outcome`, `choice`). Only the
+  instance the host opened for the request may answer (`ERR_STATE`); the first final answer wins.
+- [D] `outcome`: 0 answered, 1 cancelled (no edit applies), 2 typing (a `live` text question: the
+  text so far; the request stays open). Others `ERR_INVALID`. A consumer treats an outcome it does
+  not know as cancelled.
+- [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
+  line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
+  text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
+- [D] The host delivers `event.answered` to the asker only, as an edge (`core-events.md` 3.3). The
+  asker reads the text with op 10 inside that callback; the host frees the text when the callback
+  returns (a final answer) or keeps it for the next `typing` update. Typing updates are coalesced
+  per request (the newest wins). A final answer is never coalesced; if it cannot be held it is
+  dropped, logged, and the asker sees its dialog closed with no answer, as when the user goes back.
+  `flags` bit 0: the dialog closed itself after this answer.
 
 ## 4. Input filters and guards
 
@@ -231,39 +237,49 @@ handing the whole text back and forth:
 
 ### 4.3 Guards
 
-- [D] While an instance of a `guards` screen (section 1.2) is open, everything below it is hidden:
+- [D] An instance guards while its declared or current policy says so (section 1.2). While any
+  instance guards, everything below the topmost guarding instance is hidden:
   - `core.ui` op 1 lists the stack only from the topmost guarding instance up; rows below it are
     left out and `service.end.flags` bit 2 says so;
-  - composition (section 5) of anything below it is `ERR_DENIED`, and composing a guarding
-    instance itself is `ERR_DENIED` for every other plugin;
-  - `command.close`/`back_to` cannot cross it (section 1.3), and no `notify` is drawn over it
-    (it waits, section 7);
-  - help shows nothing for screens below it.
+  - **no screen instance is composed** (section 5) by any plugin but the guarding one, wherever
+    it lies in the stack: the sleep screen never shows the page while the device is locked;
+  - screens other plugins open meanwhile wait below it (they open when it stops guarding), and
+    the guarding plugin's own screens and the ones they open show above it (its keyboard);
+  - `command.close`/`back_to` cannot cross it (section 1.3); no `notify` is drawn over it (it
+    waits, section 7); help shows nothing for screens below it; input filters run as for a secret
+    top instance (section 1.2).
+- [Q] Plugin: widgets and status values stay composable under a guard (a clock on the sleep
+  screen of a locked device). Is any widget private enough (the current book, its cover) that it
+  must not show while locked? Proposal: `widget.spec.flags` bit 1 `private`, not composed while
+  any instance guards.
 - [D] **Sealed actions** keep `reg_item.flags` bit 1 (`registry.md`): no other plugin's handler
   overrides the action (the lock's unlock).
 
 ## 5. Composition: one plugin's drawing inside another's
 
-The home screen shows widgets, the sleep screen shows the screen below and widgets, settings pages
-show previews: one plugin draws a rectangle that another plugin fills.
+The home screen shows widgets and status lines, the sleep screen shows the screen below and
+widgets, settings pages show previews: one plugin draws a rectangle that another plugin fills. The
+showing plugin never runs another plugin's code itself: it asks the host (`core.ui` ops, slot 35),
+and the host runs the owner's callbacks and the host-defined stages (`stages-services.md` 1.3:
+`core.*` stages are run by the host only).
 
 ### 5.1 The compose slot
 
 ```
-ui.compose(ctx, kind: u32, instance: u32, x: i32, y: i32, width: u32, height: u32) -> i32
+ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32) -> i32
 ```
 
 - [D] New host slot 35, appended to `PpHost`. Only inside the caller's own `draw` callback
-  (else `ERR_STATE`). `kind` 0 a widget instance (section 5.2), 1 a screen instance (the
-  stack's). The host calls the target owner's `draw` with a `draw.frame` of purpose 4 (widget) or
-  0 (screen), `id` the instance, the rectangle given and the caller's clip intersected with it
-  (an empty intersection: no call, `OK`). Drawing outside is clipped by the canvas slots.
-- [D] Refusals: an unknown or closed instance `ERR_NOT_FOUND`; a guarding instance or any
-  instance below the topmost guarding one `ERR_DENIED`; the caller's own instance or a cycle
-  `ERR_INVALID`; nesting beyond depth 2 `ERR_BUSY`. The child's failure is its status, logged;
-  the caller's frame stays.
-- [D] The child never sees the caller's pixels or state, and the caller never sees the child's:
-  the canvas is the screen's, shared only through the clip rectangle.
+  (else `ERR_STATE`). `kind`: 0 a widget instance (purpose 4), 1 a screen instance of the stack
+  (purpose 0), 2 a drawn status item (purpose 3), 3 a status line (purpose 5, new); `handle` the
+  instance or the handle op 14 gave. The host calls the owner's `draw` with that purpose, `id` the
+  handle, the rectangle given and the caller's clip intersected with it (empty: no call, `OK`).
+  Drawing outside is clipped by the canvas slots.
+- [D] Refusals: an unknown or closed handle `ERR_NOT_FOUND`; a screen instance while any instance
+  guards (section 4.3) `ERR_DENIED`; the caller's own instance or a cycle `ERR_INVALID`; nesting
+  beyond depth 2 `ERR_BUSY`. The child's failure is its status, logged; the caller's frame stays.
+- [D] The child never sees the caller's state, and the caller never sees the child's; they share
+  only the canvas inside the clip rectangle.
 
 ### 5.2 Widgets
 
@@ -280,23 +296,27 @@ ui.compose(ctx, kind: u32, instance: u32, x: i32, y: i32, width: u32, height: u3
 - [D] `widget.spec` declares a widget (interface 6 `WidgetSpec`): `category` one of the host's
   widget kinds or a catalog key of the plugin's own, `previews` the settings group it previews
   (empty for none), `cells` columns in bits 0-7 and rows in bits 8-15 (0: the grid's width and the
-  rows it needs), `token` its callback state. `flags`: none yet (0). REG op 19 lists them.
+  rows it needs), `token` its callback state; `flags` bit 0 `live` (read each minute; without it
+  only after events). REG op 19 lists them.
 - [D] `widget.place` declares where widgets show (interface 6 `WidgetPlace`): `list_key` the
-  setting that lists them, `layout` 0 grid, 1 stack. Shown places are what `Widgets::shown` asked.
-- [D] A screen that shows a widget makes an instance with `core.ui` op 4 (`widget_make`) and drops
-  it with op 5; the host drops a screen instance's widgets when it closes. The widget's owner gets
-  `widget_made`/`widget_dropped` at its token. It draws through `ui.compose` (purpose 4, `id` the
-  instance).
-- [D] The owner says its widget shows something new with `command.widget_changed` (own instances
-  only); the host sends `event.widget_changed` (a hint, coalesced per instance) to the plugin
-  whose screen made it, which redraws. The minute tick stays `event.tick`.
-- [D] Taps on a widget: the showing screen forwards them with `core.ui` op 6 (`widget_input`); the
-  owner gets `input.widget` at its token through `input` (`kind` 0 tap, 1 long press; `target`
-  the widget target the showing screen resolved, 0 for none). Button navigation between targets
-  stays the showing screen's (it reads targets with op 7).
-- [Q] Senior: widget targets (interface 6 `WidgetTarget`, tap areas reached by buttons) as a
-  stage reply of the owner (op 7 runs the `core.widget` stage `targets` call) or as declarations?
-  Proposal: the stage, since targets follow live content.
+  setting that lists them, `layout` 0 grid, 1 stack.
+- [D] **Lifetime.** A screen that shows a widget makes an instance with op 4 and drops it with
+  op 5; the host drops a screen instance's widgets when it closes. The owner gets `widget_made` /
+  `widget_dropped` at its token and keeps the instance's data; while it has instances, its widget
+  is shown (interface 6 `Widgets::shown`).
+- [D] **Layout** (interface 6 `height`, `min_height`, `place`, `targets`): the showing screen asks
+  through op 12 `widget_measure` (`instance`, `width` → `height`, `min_height`; 0 height: nothing
+  to show), tells the place with op 13 `widget_place` (the rectangle, before the first draw there
+  and when it changes), and reads targets with op 7 (`instance`, the rectangle → `ui_target` rows,
+  reading order). The host answers each by one call of the `core.widget` stage to the owner only
+  (stage-local records `widget.measure`, `widget.place`, `widget.targets` and their replies; the
+  owner is subscribed by its `widget.spec`, no `registration.stage`).
+- [D] **Updates.** The owner says its widget shows something new with `command.widget_changed`
+  (own instances); the host sends `event.widget_changed` (a hint, coalesced per instance) to the
+  plugin whose screen made it, which measures and draws again. The minute tick stays `event.tick`.
+- [D] **Input.** The showing screen forwards a tap or long press with op 6 (`widget_input`); the
+  owner gets `input.widget` through `input` (`kind` 0 tap, 1 long press; `target` from op 7, 0 for
+  none). Moving between targets with buttons stays the showing screen's.
 
 ### 5.3 Status items, lines and places
 
@@ -306,48 +326,72 @@ ui.compose(ctx, kind: u32, instance: u32, x: i32, y: i32, width: u32, height: u3
 | 227 | `status.line` | `name: str 96`, `title: str 96`, `height: u32`, `token: u32`, `flags: u32` |
 | 228 | `status.place` | `name: str 96`, `title: str 96`, `left: str 128`, `center: str 128`, `right: str 128` |
 
-- [D] A **host-defined stage `core.status`** gives an item's value: the screen that shows a line
-  runs it with one `status.ask` record (stage-local: `item`, `context: str 1024` as `params`, the
-  reader's `title`, `chapter`, `page`, `progress`); each item's owner replies one `status.value`
-  (`text: str 128`, or `flags` bit 0 drawn: the value is drawn through `ui.compose` purpose 3 with
-  `id` the item's declaration index). Values are cached per (item, context) until event 73
-  (`status_changed`) or the minute tick.
+- [D] A screen that shows a status line asks for its items' values with op 14 `status_values`
+  (`items`: full ids, one per line, at most 16; `context`: a `ui.param` stream, the reader's
+  `title`, `chapter`, `page`, `progress`) and gets one `ui_status_value` row per item (`item`,
+  `flags`, `text`, `handle`), then `end`. The host runs the **host-defined stage `core.status`**
+  once per owning plugin for its items (stage-local `status.ask` / `status.value`) and caches the
+  values per (item, context) until event 73 (`status_changed`) or the minute tick. A value is text
+  (at most 128 bytes) or, with `flags` bit 0, drawn: the showing screen composes it with
+  `ui.compose` kind 2 and the row's `handle` (valid until its callback returns).
+- [D] A status line (whole line drawn by its owner) gets its handle from op 15 `status_line`
+  (`line`, `context` → `handle`) and is composed with kind 3.
 - [D] `status.item.tap` is one of the owner's actions, run as the owner with the line's context;
   `priority` 0-255 (higher stays longer); `min_width` in thousandths of the text size (0: its own
-  width). `status.line` is a whole line its owner draws (purpose 5, new), `height` in thousandths
-  of the text size. `status.place` names the three settings that list a line's items (interface 6
-  `Place`). REG op 19 lists items and lines with the widgets ([Q] Senior: or a separate op 21).
+  width). `status.line.height` in thousandths of the text size. `status.place` names the three
+  settings that list a line's items (interface 6 `Place`). REG op 19 lists items and lines with
+  the widgets ([Q] Senior: or a separate op 21).
 - [D] `draw.frame.purpose` gains 5 `status line`.
 
 ## 6. The service `core.ui` (major 1)
 
-Bare reply streams and paging as `core.registry` (`registry.md` section 2.1, `page_rows` 32).
+Bare reply streams and paging as `core.registry` (`registry.md` section 2.1, `page_rows` 32). Ops
+that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper).
 
-| Op | Name | Input | Reply | Notes |
+| Op | Name | Input | Reply | Who |
 | --- | --- | --- | --- | --- |
-| 1 | `stack` | `reg_query` | `ui_screen`*, `end` | top first; guarded rows left out (section 4.3) |
-| 2 | `question` | `ui_request` | `ui_question` | only the dialog instance the host opened for it |
-| 3 | `hints` | `reg_query` (`scope`: screen id) | `ui_hint`*, `end` | for the help plugin |
+| 1 | `stack` | `reg_query` | `ui_screen`*, `end` | anyone; top first, guarded rows left out |
+| 2 | `question` | `ui_request` | `ui_question` | the request's dialog instance |
+| 3 | `hints` | `reg_query` (`scope`: screen id) | `ui_hint`*, `end` | anyone (the help plugin) |
 | 4 | `widget_make` | `ui_widget_ref` | `ui_instance` | for the caller's top instance |
-| 5 | `widget_drop` | `ui_instance` | (none) | own instances |
-| 6 | `widget_input` | `ui_widget_input` | (none) | forwards a tap to the owner |
-| 7 | `widget_targets` | `ui_instance` | `ui_target`*, `end` | the owner's current targets |
+| 5 | `widget_drop` | `ui_instance` | (none) | the instance's maker |
+| 6 | `widget_input` | `ui_widget_input` | (none) | the instance's maker |
+| 7 | `widget_targets` | `ui_widget_area` | `ui_target`*, `end` | the instance's maker |
+| 8 | `ask` | `ui_ask` | `ui_request` | anyone (section 3.1) |
+| 9 | `text_write` | `ui_text` | (none) | section 3.1 |
+| 10 | `text_read` | `ui_text_at` | `ui_text` | section 3.1 |
+| 11 | `answer` | `ui_answer` | (none) | the request's dialog instance |
+| 12 | `widget_measure` | `ui_widget_area` | `ui_size` | the instance's maker |
+| 13 | `widget_place` | `ui_widget_area` | (none) | the instance's maker |
+| 14 | `status_values` | `ui_status_ask` | `ui_status_value`*, `end` | anyone, inside its draw or event callback |
+| 15 | `status_line` | `ui_status_ask` | `ui_instance` | anyone, inside its draw callback |
 
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 1041 | `service.ui_screen` | `screen: str 128`, `instance: u32`, `slot: str 128`, `owner: str 64`, `flags: u32` |
 | 1042 | `service.ui_request` | `request: u32` |
-| 1043 | `service.ui_question` | `kind: u32`, `flags: u32`, `title: str 256`, `text: str 1024`, `initial: str 3072`, `choices: str 2048` |
+| 1043 | `service.ui_question` | `kind: u32`, `flags: u32`, `max_bytes: u32`, `title: str 256`, `text: str 1024`, `choices: str 2048` |
 | 1044 | `service.ui_hint` | `input: u32`, `x: u32`, `y: u32`, `width: u32`, `height: u32`, `text: str 128`, `owner: str 64` |
 | 1045 | `service.ui_widget_ref` | `widget: str 128`, `place: str 128` |
 | 1046 | `service.ui_instance` | `instance: u32` |
 | 1047 | `service.ui_widget_input` | `instance: u32`, `target: u32`, `x: i32`, `y: i32`, `kind: u32` |
 | 1048 | `service.ui_target` | `target: u32`, `x: i32`, `y: i32`, `width: u32`, `height: u32`, `action: str 128` |
+| 1049 | `service.ui_ask` | `kind: u32`, `flags: u32`, `slot: str 128`, `title: str 256`, `text: str 1024`, `choices: str 2048` |
+| 1050 | `service.ui_text` | `request: u32`, `offset: u32`, `total: u32`, `flags: u32`, `text: str 3072` |
+| 1051 | `service.ui_text_at` | `request: u32`, `offset: u32` |
+| 1052 | `service.ui_answer` | `request: u32`, `outcome: u32`, `choice: u32` |
+| 1053 | `service.ui_widget_area` | `instance: u32`, `x: i32`, `y: i32`, `width: u32`, `height: u32` |
+| 1054 | `service.ui_size` | `height: u32`, `min_height: u32` |
+| 1055 | `service.ui_status_ask` | `items: str 2048`, `context: bytes 1024` |
+| 1056 | `service.ui_status_value` | `item: str 128`, `flags: u32`, `handle: u32`, `text: str 128` |
+| 91 | `ui.param` | `key: str 32`, `value: str 3072` |
 
 - [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance is above it), 3
-  waits ready and not yet ready. `owner` is host-stamped.
-- [D] No feature is needed for ops 1, 3 and 7 (what is on screen is not private; guarded parts are
-  left out). Ops 2 and 4-6 are tied to the caller's own instances, checked by the host.
+  waits ready and not yet ready, 4 secret. `owner` is host-stamped.
+- [D] No feature is needed: what is on screen is not private (guarded parts are left out), and
+  every op that touches a request, an instance or a handle checks that it is the caller's.
+- [Q] Senior: `ui.param` is a value record inside `params`, not a service record; its tag (91
+  here, in the event block) and family need a home in the tag table (`screens-input.md` 8).
 
 ## 7. Messages, help, clipboard, speech
 
@@ -394,13 +438,15 @@ Bare reply streams and paging as `core.registry` (`registry.md` section 2.1, `pa
 
 - Instances: one entry per open instance (about 16 bytes; the stack is at most 16 deep, deeper
   opens are `ERR_FULL`); params are not kept by the host after `screen_opened` is delivered.
-- Questions: at most 4 open requests device-wide, about 24 bytes each; the question text lives in
-  the asker's batch until the dialog reads it, then in a host buffer of at most 6.5 KiB per open
-  request, allocated fallibly (`ERR_NO_MEMORY` at submit). [Q] Senior: or keep only one open
-  question device-wide on the X4 (6.5 KiB) to bound it.
-- Answers and edits use the held-event store (`core-events.md` 3.3), no extra memory.
+- Questions: at most 4 open requests device-wide, about 24 bytes each plus the question (title,
+  text, choices: at most 3.3 KiB) and the request text, allocated fallibly as written
+  (`ERR_NO_MEMORY`). On the X4 the request texts share 8 KiB device-wide and only one request is
+  open at a time (`ERR_FULL`), so questions cost at most about 11.5 KiB, and nothing when none is
+  open.
+- Answers use the held-event store (`core-events.md` 3.3); the answer text stays in the request.
 - Filters: at most 4 subscribers; one stage call per input on the host scratch.
-- Composition: no host memory; nesting as `stages-services.md` (depth 2).
+- Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
+  stage call each on the host scratch.
 - Widgets: about 16 bytes per made instance, at most 32 device-wide.
 - Status values: a cache of at most 2 KiB, dropped on event 73.
 - Clipboard: at most 3 KiB host heap, fallible. Messages: at most 4 waiting, 1 KiB.
@@ -413,17 +459,18 @@ Bare reply streams and paging as `core.registry` (`registry.md` section 2.1, `pa
 | --- | --- |
 | `Command::OpenScreen(id, params)`, `OpenSlot`, `Replace`, `OpenInSlot` | `command.open` modes 0-3 |
 | `Command::Back`, `Close(key)`, `BackTo` | `command.close` (0 / instance), `command.back_to` |
-| `ScreenKey`, `Cx::params` | `instance`, `event.screen_opened.params` |
+| `ScreenKey`, `Cx::params` | `instance`, `event.screen_opened.params` (`ui.param` stream; again on update) |
+| `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |
 | `Registrar::add_input`, `add_gesture`, `InputSpec`, `GestureSpec` | `input.spec`; recognizer = filter verdict 5 |
 | `Registrar::add_input_filter`, `InputVerdict` | stage `core.input-filter`, `ui.verdict` |
-| `Screen::guards`, sealed actions | `screen.spec.flags` bit 1; `reg_item.flags` bit 1 |
-| `ask::{text, choice, confirm, folder}`, `Typed`, `Picked`, `Confirmed`, `FolderChosen` | `command.ask`, `event.answered`; dialog side `core.ui` op 2, `command.answer` |
-| `Typed::while_typing` (live) | `ask` flag `live`, answer outcome 2 |
+| sealed actions | `reg_item.flags` bit 1 |
+| `ask::{text, choice, confirm, folder}`, `Typed`, `Picked`, `Confirmed`, `FolderChosen` | `core.ui` ops 8-10, `event.answered`; dialog side ops 2, 9-11 |
+| `Typed::while_typing` (live), `slots::REMOTE_KEYBOARD` | `ask` flag `live`, outcome 2; `ask.slot` `core.remote-keyboard` |
 | `help::add`, `help::wait`, `help::ready`, `help::READY` | `help.hint`, `screen.spec` flag `waits_ready`, `command.screen_ready`, event 87, op 3 |
-| `Registrar::add_widget`, `add_widget_place`, `Widgets::make`, `WidgetTarget` | `widget.spec`, `widget.place`, ops 4-7, `ui.compose`, `input.widget` |
-| `Registrar::add_status_item`, `add_status_line`, `add_status_place` | `status.item`, `status.line`, `status.place`, stage `core.status` |
+| `Registrar::add_widget`, `add_widget_place`, `Widgets::make`, `Widget::{height, min_height, place, targets, live}` | `widget.spec`, `widget.place`, ops 4-7, 12, 13, stage `core.widget`, `ui.compose`, `input.widget` |
+| `Registrar::add_status_item`, `add_status_line`, `add_status_place` | `status.item`, `status.line`, `status.place`, ops 14, 15, stage `core.status`, `ui.compose` |
 | `Command::Notify`, `Announce` | `command.notify` (`announce` bit) |
 | `Command::SetClipboard`, `ReadClipboard`, `Env::clipboard` | `command.set_clipboard`, `read_clipboard`, event 88 |
 | `Command::Speak`, `StopSpeaking`, `Spoken` | `command.speak`, `stop_speaking`, event 89 |
@@ -435,7 +482,7 @@ Bare reply streams and paging as `core.registry` (`registry.md` section 2.1, `pa
 - **Kernel:** records, `core.ui@1` schema, the three stage schemas (`core.input-filter`,
   `core.status`, `core.widget` targets), slot 35 in `abi.def`; generator and lock; this document
   final.
-- **Core:** the stack with instances and params, commands 1547-1562, the request table, filter
+- **Core:** the stack with instances, params and policies, commands 1547-1563, the request table and texts, filter
   dispatch and guards, `ui.compose`, widget instances, status cache, clipboard and speech arms
   (speech through the shell), `core.ui` ops.
 - **Firmware/shells:** speech and clipboard backends (Android), notify drawing, the X4 measurements.
