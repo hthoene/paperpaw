@@ -2723,6 +2723,24 @@ storage and translated output separately; neither buffer is allocated by the SDK
 `digits` maps ASCII digits. Both functions return the full required byte length,
 so retry when the result exceeds the output capacity.
 
+### Native library access
+
+Open `native::library::Library` during a callback and release the service handle
+explicitly when finished. Declare `core.library` and request `uses.library` in
+metadata. Build borrowed filters with `Query::new().show(Show::Unread)` and
+`.words(search)?`. `Library::query` returns a page borrowing the output buffer;
+read `page.end().next()` to continue the same query with `.cursor(next)`.
+A stale generation returns `State`; start the query again instead of skipping rows.
+`Entry::badges()` exposes the host's badge texts without a second lookup.
+
+Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
+`set_finished(host, book, true, input, out)` changes only the finished status.
+`set_field` takes the full `plugin.name` field id owned by the caller; an empty
+value removes it.
+The SDK leaves field enumeration out until the host contract supports lossless
+paging for all fields. Reply and input buffers belong to the caller; queries
+allocate no SDK heap storage.
+
 ### Native host wrappers for the Battery pilot
 
 Menu declarations use `native::declare::{MenuEntryDecl, EntryPlacement, MenuSectionDecl}`.
