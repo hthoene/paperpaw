@@ -20,8 +20,11 @@ use crate::{
     },
 };
 use core::pin::pin;
+use paperpaw_native::host_glue::ERR_FULL;
 use paperpaw_native::{
-    host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes},
+    host_glue::{
+        ERR_BUSY, ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    },
     metadata::{Declared, Feature},
 };
 use paperpaw_platform::Instant;
@@ -200,6 +203,89 @@ fn a_document_opens_reads_state_and_ends_with_its_opener() {
     assert_eq!(*fake.ended.borrow(), [id]);
     owner.release_all().unwrap();
     assert_eq!(*fake.ended.borrow(), [id], "retiring twice calls nothing");
+}
+
+#[test]
+fn a_drop_that_meets_a_busy_table_is_retried_by_the_main_loop_until_done() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let owner = pool.try_owner().unwrap();
+    fake.owner
+        .set(owner.caller("opener", AdmittedFeatures::NONE).owner);
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    let id = in_frame!(owner, |scope| {
+        let handle = open(&scope, &owner, &declared, "core.document").unwrap();
+        *fake.answer.borrow_mut() = state_answer(0, 0);
+        let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+        let reply = call(&scope, &owner, handle, op("core.document", 1), &input).unwrap();
+        state_of(&reply).document
+    });
+    {
+        // A call holds the document table while the owner drops.
+        let _busy = fake.table().hold().unwrap();
+        drop(owner);
+        assert!(fake.ended.borrow().is_empty(), "nothing could end yet");
+        assert_eq!(pool.retry_retirements(), Err(ERR_BUSY), "still busy");
+        assert!(pool.hosts().retirements_pending());
+    }
+    // The table is free: the main loop finishes the retirement, once.
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    assert_eq!(*fake.ended.borrow(), [id]);
+    assert!(!pool.hosts().retirements_pending());
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    assert_eq!(*fake.ended.borrow(), [id], "the close count is still one");
+}
+
+#[test]
+fn many_owners_dropped_under_a_busy_table_are_all_kept_and_retired_once() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    // 40 owners, far more than a small fixed queue: 8 of them hold a document.
+    let owners: Vec<_> = (0..40).map(|_| pool.try_owner().unwrap()).collect();
+    let mut ids = Vec::new();
+    for owner in &owners[..8] {
+        fake.owner
+            .set(owner.caller("opener", AdmittedFeatures::NONE).owner);
+        ids.push(in_frame!(owner, |scope| {
+            let handle = open(&scope, owner, &declared, "core.document").unwrap();
+            *fake.answer.borrow_mut() = state_answer(0, 0);
+            let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+            let reply = call(&scope, owner, handle, op("core.document", 1), &input).unwrap();
+            state_of(&reply).document
+        }));
+    }
+    {
+        let _busy = fake.table().hold().unwrap();
+        drop(owners);
+        assert!(fake.ended.borrow().is_empty());
+        assert_eq!(pool.retry_retirements(), Err(ERR_BUSY));
+        assert!(pool.hosts().retirements_pending());
+    }
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    let mut ended = fake.ended.borrow().clone();
+    ended.sort_unstable();
+    ids.sort_unstable();
+    assert_eq!(ended, ids, "every document ended, once");
+    assert!(!pool.hosts().retirements_pending());
+    // New owners work after the queue emptied, and drop quietly.
+    let again = pool.try_owner().unwrap();
+    drop(again);
+    assert_eq!(pool.retry_retirements(), Ok(false));
+}
+
+#[test]
+fn a_retirement_that_cannot_be_queued_is_reported_to_every_retry() {
+    let hosts = crate::native_host::host_services::HostServices::new();
+    // An owner that was never admitted has no room reserved: the broken
+    // invariant is not silent.
+    hosts.owner_gone(5, false);
+    assert_eq!(hosts.retry_retirements(), Err(ERR_FULL));
+    assert_eq!(hosts.retry_retirements(), Err(ERR_FULL), "durable");
 }
 
 #[test]

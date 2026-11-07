@@ -46,10 +46,13 @@ impl ServiceRegistry {
         // New service families add only their implemented backends here. Schema
         // presence alone is not implementation, and test schemas stay refused.
         use crate::abi7::services_wire::{
-            core_device_v1, core_document_v1, core_library_v1, core_lookup_v1, service_schema,
+            core_device_v1, core_document_v1, core_library_v1, core_lookup_v1, core_secrets_v1,
+            core_work_v1, service_schema,
         };
-        use crate::native_host::{device_service, doc_service, lib_service, lookup_service};
-        let implementations: [(&str, u16, Backend); 4] = [
+        use crate::native_host::{
+            device_service, doc_service, lib_service, lookup_service, secrets_service, work_service,
+        };
+        let implementations: [(&str, u16, Backend); 6] = [
             (
                 core_device_v1::KEY,
                 core_device_v1::MAJOR,
@@ -69,6 +72,16 @@ impl ServiceRegistry {
                 core_lookup_v1::KEY,
                 core_lookup_v1::MAJOR,
                 lookup_service::backend,
+            ),
+            (
+                core_work_v1::KEY,
+                core_work_v1::MAJOR,
+                work_service::backend,
+            ),
+            (
+                core_secrets_v1::KEY,
+                core_secrets_v1::MAJOR,
+                secrets_service::backend,
             ),
         ];
         let mut registry = Self {

@@ -2723,6 +2723,39 @@ storage and translated output separately; neither buffer is allocated by the SDK
 `digits` maps ASCII digits. Both functions return the full required byte length,
 so retry when the result exceeds the output capacity.
 
+### Native library access
+
+Open `native::library::Library` during a callback and release the service handle
+explicitly when finished. Declare `core.library` and request `uses.library` in
+metadata. Build borrowed filters with `Query::new().show(Show::Unread)` and
+`.words(search)?`. `Library::query` returns a page borrowing the output buffer;
+read `page.end().next()` to continue the same query with `.cursor(next)`.
+A stale generation returns `State`; start the query again instead of skipping rows.
+`Entry::badges()` exposes the host's badge texts without a second lookup.
+
+Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
+`set_finished(host, book, true, input, out)` changes only the finished status.
+`set_field` takes the full `plugin.name` field id owned by the caller; an empty
+value removes it.
+The SDK leaves field enumeration out until the host contract supports lossless
+paging for all fields. Reply and input buffers belong to the caller; queries
+allocate no SDK heap storage.
+
+### Native device inventory
+
+Open `native::device::Device` from a callback after declaring `core.device` in
+metadata. Its inventory reads include `device`, `firmware`, `native`, `memory`,
+`values` and `builtins`; radio, power and request-status reads use the same handle.
+Call `release(host)` explicitly when the handle is no longer needed.
+Replies borrow the caller's output buffer, and the SDK allocates no reply storage.
+
+Use `DeviceCursor::start()` for a paged list and continue only with
+`page.end().next_cursor()`. A `State` error means restart from the first page.
+Hardware values and physical keys are complete unpaged lists; their terminal
+metadata is checked before rows are exposed. Optional memory readings return
+`None` when the host did not measure them. `FileCheck` is host evidence, not a
+local trust decision; installation still goes through the host confirmation flow.
+
 ### Native host wrappers for the Battery pilot
 
 Menu declarations use `native::declare::{MenuEntryDecl, EntryPlacement, MenuSectionDecl}`.
