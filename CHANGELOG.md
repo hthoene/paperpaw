@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK screen instance policies, borrowed confirmation button labels and flags,
+  dialog label accessors, and an explicit user-defined menu getter (#228).
+
+- Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
+  `core.status` share bounded payload codecs between the host and SDK (#228).
 - Native slot 32 rejects overlapping buffers and delegates bounded inputs and
   uninitialized output directly through the callback frame; production broker wiring follows (#228).
 
@@ -97,6 +102,8 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply

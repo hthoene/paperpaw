@@ -45,7 +45,9 @@ pub(crate) trait Frame {
         _input: &[u8],
         _out: &mut [MaybeUninit<u8>],
     ) -> Result<usize, i32> {
-        Err(ERR_STATE)
+        // TODO(#228): once the production broker is wired, a frame without
+        // stage authority must return ERR_STATE (stages-services.md frame checks).
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     /// The calling plugin: a never-reused host owner id. Service backends
     /// that keep per-caller state (leases) name it.

@@ -67,6 +67,7 @@ pub(super) fn paths(
     // Check the whole list first: a malformed line refuses all of it.
     each_path(host, list.paths, |_| ())?;
     let mut used = 0;
+    let mut rows = 0_u32;
     let mut failure = None;
     each_path(host, list.paths, |path| {
         if failure.is_some() {
@@ -78,11 +79,24 @@ pub(super) fn paths(
             host.can_delete(path)
         };
         match result_row(path, status, flags, &mut out[used..]) {
-            Ok(written) => used += written,
+            Ok(written) => {
+                used += written;
+                rows += 1;
+            }
             Err(error) => failure = Some(error),
         }
     })?;
-    failure.map_or(Ok(used), Err)
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    // One row per path, then exactly one `service.end` (not paged).
+    let end = super::super::wire::ServiceEnd {
+        flags: 0,
+        total: rows,
+        generation: 0,
+        next: 0,
+    };
+    Ok(used + super::super::encode(&Record::ServiceEnd(end), &mut out[used..])?)
 }
 
 /// A book with annotations is `ERR_STATE` unless the caller says `with_notes`

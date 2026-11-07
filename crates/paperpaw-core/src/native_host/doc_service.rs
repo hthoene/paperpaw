@@ -137,15 +137,18 @@ pub(crate) trait DocHost {
     /// Call the format plugin. On success the answer (service-tag records)
     /// is at the start of `out`; the count is at most `out.len()`.
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
-    /// A document ended (closed by its opener, or by the host): the format
-    /// gets op 4 `close` and every image id of the document ends. Best
-    /// effort; nothing the format says can fail it.
-    fn document_ended(&self, document: &Document);
+    /// Tell the format plugin to close a document (op 4 `close`). Best
+    /// effort; nothing the format says can fail it. The service never calls
+    /// it for a document whose format stopped (`format_gone`).
+    fn close_format(&self, document: &Document);
+    /// Every image id of the document ends now. It may be called twice for the
+    /// same document (ids are generation-checked); the second call does
+    /// nothing.
+    fn end_images(&self, document: &Document);
     /// The host closed a document on its own (three malformed answers, the
-    /// format plugin stopped): the opener gets `event.document_closed` and
-    /// every image id of the document ends now. It never calls the format;
-    /// unless `format_gone`, the opener's later `close` still does
-    /// (`document_ended`).
+    /// format plugin stopped): the opener gets `event.document_closed`. Only
+    /// the event; the service ends the image ids (`end_images`) first and
+    /// never calls the format here.
     fn document_closed(&self, document: &Document, reason: u32);
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
@@ -190,7 +193,24 @@ pub(crate) trait DocHost {
 /// when a plugin stops.
 pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
     host.table()
-        .close_owner(owner, |document| host.document_ended(document))
+        .close_owner(owner, |document| end(host, document))
+}
+
+/// A document leaves the table (its opener closed it or stopped, or a `open`
+/// failed): its image ids end (again, if the host's own close ended them; the
+/// host makes that idempotent) and the format is told to close it unless the
+/// format is gone. One place for every path, so no path calls a stopped format.
+fn end(host: &dyn DocHost, document: &Document) {
+    host.end_images(document);
+    if !document.format_gone {
+        host.close_format(document);
+    }
+}
+
+/// The host closes a document on its own: image ids end, the opener hears it.
+fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
+    host.end_images(document);
+    host.document_closed(document, reason);
 }
 
 /// A format plugin stopped or was uninstalled: its documents are closed by the
@@ -199,7 +219,7 @@ pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
 /// the opener's later `close`). The shell calls it when a format plugin stops.
 pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
     host.table()
-        .cancel_format(format, 1, |document| host.document_closed(document, 1))
+        .cancel_format(format, 1, |document| host_closed(host, document, 1))
 }
 
 /// What the shell hands the frame under the key `core.document`.
@@ -240,8 +260,11 @@ impl DocHost for Cx<'_> {
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         self.host.call_format(call, out)
     }
-    fn document_ended(&self, document: &Document) {
-        self.host.document_ended(document);
+    fn close_format(&self, document: &Document) {
+        self.host.close_format(document);
+    }
+    fn end_images(&self, document: &Document) {
+        self.host.end_images(document);
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.host.document_closed(document, reason);
@@ -371,11 +394,7 @@ fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
         return Err(ERR_INVALID);
     };
     let document = host.table().close(host.owner(), reference.document)?;
-    // A format that stopped is not called again; its documents' images ended
-    // when the host closed them (`format_stopped`).
-    if !document.format_gone {
-        host.document_ended(&document);
-    }
+    end(host, &document);
     Ok(0)
 }
 
@@ -429,7 +448,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
         if let Ok(document) = table.close(host.owner(), id) {
-            host.document_ended(&document);
+            end(host, &document);
         }
         return Err(error);
     }
@@ -456,7 +475,7 @@ fn settle(host: &dyn DocHost, document: &Document, verdict: Result<(), i32>) -> 
         }
         Err(ERR_INVALID) => {
             if host.table().strike(document.id) {
-                host.document_closed(document, 1);
+                host_closed(host, document, 1);
             }
             Err(ERR_INVALID)
         }

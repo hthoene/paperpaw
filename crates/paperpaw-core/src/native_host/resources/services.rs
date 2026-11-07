@@ -7,6 +7,7 @@ use crate::abi7::{
     handles,
     services_wire::{ServiceOp, ServiceSchema},
 };
+use crate::native_host::admitted_features::AdmittedFeatures;
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
@@ -19,6 +20,8 @@ pub(crate) type Backend = fn(&dyn Frame, &ServiceOp, &[u8], &mut [u8]) -> Result
 pub(crate) struct ServiceKey {
     pub(crate) schema: &'static ServiceSchema,
     pub(crate) minor: u16,
+    /// The opening instance's admitted features, for gated ops at call time.
+    pub(crate) features: AdmittedFeatures,
 }
 
 #[derive(Debug)]

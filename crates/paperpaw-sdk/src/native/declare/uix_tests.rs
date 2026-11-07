@@ -148,3 +148,34 @@ fn screen_flags_include_uix_policy_without_changing_refresh_bit() {
     let rows = records_wire::records_decode(&batches[0]).unwrap();
     assert!(matches!(rows.iter().next(),Some(records_wire::Record::ScreenSpec(r))if r.flags==63));
 }
+
+#[test]
+fn screen_instances_replace_policy_bits_and_keep_other_flags() {
+    for (instances, bits) in [
+        (Instances::PerParams, 0),
+        (Instances::Single, 1),
+        (Instances::Many, 2),
+    ] {
+        let batches = RefCell::new(Vec::new());
+        let mut declarations = Declarations::new(|bytes: &[u8]| {
+            batches.borrow_mut().push(bytes.to_vec());
+            Ok(())
+        });
+        let mut screen = ScreenDecl::new("screen", "Screen", 1)
+            .guards()
+            .overlay()
+            .waits_ready()
+            .secret()
+            .holds_edges()
+            .instances(Instances::Many)
+            .instances(instances);
+        screen.full_refresh_on_open = true;
+        declarations.screen(screen).unwrap();
+        declarations.submit().unwrap();
+        let batches = batches.borrow();
+        let rows = records_wire::records_decode(&batches[0]).unwrap();
+        assert!(
+            matches!(rows.iter().next(), Some(records_wire::Record::ScreenSpec(r)) if r.flags == 63 | bits << 6)
+        );
+    }
+}

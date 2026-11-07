@@ -1,0 +1,10 @@
+{
+  "replaces_sha256": "09d550a1ab5a876c95e3a0775ae14bd5e93dbc74c6356d8c0d8c167227806226",
+  "reason": "interface 7 is unreleased: the records codec gains records_encode_counted_iter, a counted batch encoder over a cloneable iterator so the SDK encodes records it makes on the fly without a heap slice, and records_encode_counted delegates to it; the generated UIX and DOC command docs cite ui.md and document.md instead of registry.md; so the emitted records and commands sections change for the prior schema too; and core.library@1 ops 9 can_delete and 10 delete answer up to 7 lib_result rows and one service.end, as library.md 2.3 requires, which changes two locked ops",
+  "ticket": "#228",
+  "waives": [
+    "emitted_records",
+    "emitted_commands",
+    "compatible"
+  ]
+}
