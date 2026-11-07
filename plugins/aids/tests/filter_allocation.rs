@@ -80,3 +80,38 @@ fn every_application_copy_refuses_before_block_mutation() {
     }
     panic!("allocation sweep did not reach a successful application");
 }
+
+#[test]
+fn paragraph_bold_growth_refuses_without_changing_the_block() {
+    use paperpaw_sdk::document::{Run, TextStyle};
+    let mut bytes = vec![0; 3840];
+    let len =
+        reader_filter::encode(true, "", pictures::SHOW, "Picture", &mut bytes).expect("fixture");
+    let text = "alpha beta gamma delta epsilon zeta eta theta";
+    let mut original = Block::new(BlockKind::Paragraph, 4, 100, text.to_owned());
+    original.runs.push(Run::new(6, 10, TextStyle::ITALIC));
+    original.map.checkpoint(0, 8);
+    original.map.checkpoint(11, 30);
+    let mut expected = original.clone();
+    reader_filter::apply(&bytes[..len], "book.epub", &mut expected).expect("baseline");
+    assert!(expected.runs.len() > original.runs.len());
+    assert!(expected.runs.contains(&Run::new(0, 3, TextStyle::BOLD)));
+    assert!(expected.runs.contains(&Run::new(6, 10, TextStyle::ITALIC)));
+    for n in 0..128 {
+        let mut block = original.clone();
+        FAIL_AT.set(n);
+        let result = reader_filter::apply(&bytes[..len], "book.epub", &mut block);
+        FAIL_AT.set(usize::MAX);
+        if result.is_ok() {
+            assert!(
+                n > 3,
+                "must exercise run growth after the initial edit copy"
+            );
+            assert_eq!(block, expected);
+            return;
+        }
+        assert_eq!(result, Err(Error::NoMemory), "reservation {n}");
+        assert_eq!(block, original, "reservation {n} changed the original");
+    }
+    panic!("allocation sweep did not reach a successful bold transformation");
+}
