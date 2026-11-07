@@ -57,6 +57,7 @@ pub mod otp;
 pub mod paced;
 pub mod panel;
 pub mod partitions;
+pub mod premake;
 pub mod probe;
 pub mod provision;
 pub mod remote;

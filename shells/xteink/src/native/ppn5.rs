@@ -111,7 +111,9 @@ pub fn load(
     #[cfg(feature = "esp32c3")]
     {
         let (placed, make) = x4::verified(place, storage, code, &header, started)?;
-        x4::run(code, &header, &placed, make, depth, resources, started)
+        x4::run(
+            place, code, &header, &placed, make, depth, resources, started,
+        )
     }
     #[cfg(not(feature = "esp32c3"))]
     {
@@ -361,10 +363,90 @@ mod x4 {
         warn!("native: {id}: still in use at unload, kept");
     }
 
+    /// The steps before `make` with their real allocations
+    /// (`paperpaw_x4::premake::PreMake`).
+    struct Prepare<'a> {
+        id: &'a str,
+        header: &'a Header5,
+        placed: &'a crate::native::flash::Placed5,
+        place: &'a mut crate::native::Place,
+        resources: &'a mut Option<HostResources>,
+        name: Option<alloc::string::String>,
+        share: Option<HostResources>,
+    }
+
+    impl paperpaw_x4::premake::PreMake for Prepare<'_> {
+        type Refusal = PluginProblem;
+
+        fn copy_name(&mut self) -> Result<(), PluginProblem> {
+            self.name = Some(try_string(self.id)?);
+            Ok(())
+        }
+
+        fn table(&mut self) -> Result<(), PluginProblem> {
+            if self.resources.is_none() {
+                *self.resources = Some(HostResources::try_new().map_err(|_| {
+                    warn!(
+                        "native: {}: no room for the host's table of handles",
+                        self.id
+                    );
+                    PluginProblem::NoRoom
+                })?);
+            }
+            Ok(())
+        }
+
+        fn share(&mut self) -> Result<(), PluginProblem> {
+            self.share = self.resources.as_ref().and_then(HostResources::try_clone);
+            if self.share.is_none() {
+                warn!(
+                    "native: {}: no room for a share of the host's table",
+                    self.id
+                );
+                return Err(PluginProblem::NoRoom);
+            }
+            Ok(())
+        }
+
+        fn list_image(&mut self) -> Result<(), PluginProblem> {
+            let (id, header, placed) = (self.id, self.header, self.placed);
+            let Some(name) = self.name.take() else {
+                return Err(PluginProblem::NoRoom);
+            };
+            let listed = critical_section::with(|cs| {
+                let mut images = crate::native::IMAGES.borrow_ref_mut(cs);
+                if images.try_reserve(1).is_err() {
+                    return false;
+                }
+                images.push(crate::native::Image {
+                    id: name,
+                    code_base: placed.base + paperpaw_native::CODE_OFFSET,
+                    len: header.image_len,
+                    hot: placed.hot,
+                    hot_at: header.hot_at,
+                    hot_len: header.hot_len,
+                    took: None,
+                });
+                true
+            });
+            if listed {
+                Ok(())
+            } else {
+                warn!("native: {id}: no room to list the image");
+                Err(PluginProblem::NoRoom)
+            }
+        }
+
+        fn give_back_region(&mut self) {
+            self.place.take_back(*self.placed);
+        }
+    }
+
     /// Makes the plugin of the placed image and returns it as the core's
     /// flat plugin. Called after `make` is read from the written flash and
     /// checked: from here the layout is never rewound.
     pub(super) fn run(
+        place: &mut crate::native::Place,
         code: &CodeFile<'_>,
         header: &Header5,
         placed: &crate::native::flash::Placed5,
@@ -377,29 +459,23 @@ mod x4 {
         let heap = esp_alloc::HEAP.used();
         let internal = crate::native::internal_free();
         let made = crate::micros();
-        // Every allocation here is fallible: a full heap is `NoRoom`, never an
-        // abort of the reader.
-        let name = try_string(id)?;
-        let listed = critical_section::with(|cs| {
-            let mut images = crate::native::IMAGES.borrow_ref_mut(cs);
-            if images.try_reserve(1).is_err() {
-                return false;
-            }
-            images.push(crate::native::Image {
-                id: name,
-                code_base: placed.base + paperpaw_native::CODE_OFFSET,
-                len: header.image_len,
-                hot: placed.hot,
-                hot_at: header.hot_at,
-                hot_len: header.hot_len,
-                took: None,
-            });
-            true
-        });
-        if !listed {
-            warn!("native: {id}: no room to list the image");
+        // Everything that can still be refused before `make`, in the order
+        // that leaves nothing behind (`paperpaw_x4::premake`): a refusal gives
+        // the flash region back to the layout and lists nothing. Every
+        // allocation is fallible: a full heap is `NoRoom`, never an abort.
+        let mut steps = Prepare {
+            id,
+            header,
+            placed,
+            place,
+            resources,
+            name: None,
+            share: None,
+        };
+        paperpaw_x4::premake::prepare(&mut steps)?;
+        let Some(share) = steps.share.take() else {
             return Err(PluginProblem::NoRoom);
-        }
+        };
         // SAFETY: `make` was read from the image just written to flash and
         // checked there (inside its code, even), so it is the plugin's
         // entry, callable for as long as the image stays placed: all session.
@@ -410,19 +486,6 @@ mod x4 {
             teardown_failed,
             call_begin,
             call_end,
-        };
-        // The device-wide table of handles, made with the first plugin (a
-        // full heap is `NoRoom`, never an abort); each plugin owns a counted
-        // share of it.
-        if resources.is_none() {
-            *resources = Some(HostResources::try_new().map_err(|_| {
-                warn!("native: {id}: no room for the host's table of handles");
-                PluginProblem::NoRoom
-            })?);
-        }
-        let Some(share) = resources.as_ref().and_then(HostResources::try_clone) else {
-            warn!("native: {id}: no room for a share of the host's table of handles");
-            return Err(PluginProblem::NoRoom);
         };
         // SAFETY: as above; the read-only data [0, code_at) of the image is
         // mapped at `placed.base` for the session (nothing erases the region
