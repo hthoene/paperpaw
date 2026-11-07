@@ -11,13 +11,13 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 pub(crate) struct CallbackStamp {
     pub(crate) owner: u64,
     pub(crate) epoch: u64,
-    pub(crate) instance: Option<u32>,
 }
 
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
     pub(crate) callback: Option<CallbackStamp>,
+    pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
@@ -41,11 +41,8 @@ impl Frame for CoreFrame<'_> {
     }
 
     fn calling_instance(&self) -> Result<u32, i32> {
-        let stamp = self
-            .callback
-            .filter(|stamp| stamp.epoch != 0)
-            .ok_or(ERR_STATE)?;
-        let instance = stamp
+        self.callback_epoch()?;
+        let instance = self
             .instance
             .filter(|instance| *instance != 0)
             .ok_or(ERR_STATE)?;

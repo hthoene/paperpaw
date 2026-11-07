@@ -43,8 +43,8 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             callback: Some(crate::abi7::core_frame::CallbackStamp {
                 owner: self.identity.owner(),
                 epoch,
-                instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             }),
+            instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             env,
             meter: &self.host.meter,
             font_removals: &self.host.font_removals,

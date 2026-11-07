@@ -328,6 +328,7 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
     let env = kernel.shared.env(Instant(0));
     let frame = CoreFrame {
         callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
@@ -409,6 +410,7 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
     let env = kernel.shared.env(Instant(0));
     let frame = CoreFrame {
         callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,

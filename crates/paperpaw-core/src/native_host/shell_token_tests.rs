@@ -196,6 +196,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
     let env = kernel.shared.env(Instant(12));
     call(&CoreFrame {
         callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,

@@ -13,6 +13,7 @@ use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
 fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
     CoreFrame {
         callback: None,
+        instance: None,
         env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
@@ -228,21 +229,13 @@ fn caller_and_epoch_require_an_actual_nonzero_callback_stamp() {
         frame.callback_epoch(),
         Err(paperpaw_native::host_glue::ERR_STATE)
     );
-    frame.callback = Some(CallbackStamp {
-        owner: 0,
-        epoch: 0,
-        instance: None,
-    });
+    frame.callback = Some(CallbackStamp { owner: 0, epoch: 0 });
     assert_eq!(frame.caller(), Err(paperpaw_native::host_glue::ERR_STATE));
     assert_eq!(
         frame.callback_epoch(),
         Err(paperpaw_native::host_glue::ERR_STATE)
     );
-    frame.callback = Some(CallbackStamp {
-        owner: 0,
-        epoch: 9,
-        instance: None,
-    });
+    frame.callback = Some(CallbackStamp { owner: 0, epoch: 9 });
     assert_eq!(frame.caller(), Ok(0));
     assert_eq!(frame.callback_epoch(), Ok(9));
 }
@@ -276,11 +269,8 @@ fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
         (1, Some(7), Ok(7)),
         (1, Some(8), Ok(8)),
     ] {
-        frame.callback = Some(CallbackStamp {
-            owner: 0,
-            epoch,
-            instance,
-        });
+        frame.callback = Some(CallbackStamp { owner: 0, epoch });
+        frame.instance = instance;
         assert_eq!(frame.calling_instance(), expected);
     }
 }
