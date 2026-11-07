@@ -3,7 +3,7 @@
 //! plugin reads the screen's numbers into a [`Look`] and the question's flags
 //! into [`Asked`]; everything here is plain data and allocates fallibly.
 use crate::hangul;
-use crate::keys::{Key, Layer, Slot, button_scale, height_of, rows_for, size_of, units};
+use crate::keys::{Key, Layer, Slot, button_scale, height_of, size_of, try_rows_for, units};
 use crate::{SHAPE_ROUND, SHAPE_TALL, SHAPE_WIDE, SIZE_LARGE, SIZE_MEDIUM, SIZE_SMALL};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{Point, Rect, native::Error};
@@ -250,10 +250,12 @@ impl Board {
         let (seam, side, most) = spacing(&look, scale);
         let letters = layouts.get(current).map_or("", |l| l.1.as_ref());
         let other = match layer {
-            Layer::Letters => rows_for(letters, Layer::Symbols, false, most, asked.multiline).len(),
+            Layer::Letters => {
+                try_rows_for(letters, Layer::Symbols, false, most, asked.multiline)?.len()
+            }
             _ => 0,
         };
-        let rows = rows_for(letters, layer, layouts.len() > 1, most, asked.multiline);
+        let rows = try_rows_for(letters, layer, layouts.len() > 1, most, asked.multiline)?;
         let count = rows.len().max(other).max(4);
         let touch_row = look.row;
         let strip = if asked.multiline && !buttons.is_empty() {
@@ -625,13 +627,13 @@ impl Board {
     fn rebuild(&mut self) -> Result<(), Error> {
         self.shift = Shift::Off;
         self.shift = self.auto_shift();
-        let rows = rows_for(
+        let rows = try_rows_for(
             self.letters_now(),
             self.layer,
             self.layouts.len() > 1,
             self.most,
             self.asked.multiline,
-        );
+        )?;
         self.rows = rows;
         if let Some((row, index)) = self.focus.filter(|(row, _)| *row != FIELD_ROW) {
             let row = row.min(self.rows.len().saturating_sub(1));
@@ -982,9 +984,12 @@ mod tests {
     }
 
     fn board(touch: bool, asked: Asked, auto: bool) -> Board {
-        let layouts =
-            chosen_for("en", "", "keyboard.layout.en, keyboard.layout.de", false).unwrap();
-        Board::new(look(touch), own(auto), asked, layouts, 0, &[]).unwrap()
+        try_board(touch, asked, auto).unwrap()
+    }
+
+    fn try_board(touch: bool, asked: Asked, auto: bool) -> Result<Board, Error> {
+        let layouts = chosen_for("en", "", "keyboard.layout.en, keyboard.layout.de", false)?;
+        Board::new(look(touch), own(auto), asked, layouts, 0, &[])
     }
 
     fn type_all(board: &mut Board, text: &str) {
@@ -1215,7 +1220,7 @@ mod tests {
             .map(|b| b.rows.len())
         });
         sweep(|| {
-            let mut b = board(true, plain(), false);
+            let mut b = try_board(true, plain(), false)?;
             b.insert("héllo wörld", true)?;
             b.pasted("a\r\nb c")?;
             b.typed("xyz")?;

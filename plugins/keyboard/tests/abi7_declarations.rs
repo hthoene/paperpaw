@@ -83,6 +83,9 @@ fn screens_slot_and_action_match() {
                     screens.push((s.id().as_str().to_string(), s.title().to_string()));
                 }
             }
+            Contribution::Screen(s) => {
+                screens.push((s.id.as_str().to_string(), s.title.to_string()));
+            }
             Contribution::SlotBinding { slot, screen, .. } => {
                 slots.push((slot.to_string(), screen.to_string()));
             }
