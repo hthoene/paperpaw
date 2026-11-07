@@ -104,6 +104,7 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 | 23 | `set_field` | `lib_field_set` | (none) | mutate, own fields only |
 | 24 | `provide` | `lib_provided` | (none) | mutate (section 5) |
 | 25 | `book_key` | `lib_ref` | `lib_key` | query (section 6) |
+| 26 | `edit_receipt` | `lib_receipt_ask` | `lib_receipt`*, `end` | query: a committed transaction's ids, paged |
 
 - [D] `lib_ref` names a book by `path` (root 1, at most 512 bytes) or by `key`: exactly one of them,
   else `ERR_INVALID`; an unknown book `ERR_NOT_FOUND`. `key` here is the **catalog handle**
@@ -186,15 +187,27 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   `edit_begin` (`lib_edit_head`: `lib_ref`, `annotation_generation` the caller read) opens one
   staged transaction (`lib_transaction`: `transaction`, a `u32`) on the book; `edit_add` adds up to
   3 `lib_edit` per call (`action` 0 add, 1 replace, 2 remove, 3 upsert by `client_key`; `id` for 1
-  and 2; the annotation's fields and anchors as above, texts and notes up to 512 bytes inline,
-  longer ones then in parts with `edit_text`: `transaction`, `edit` its index in the transaction,
-  `field` 0 text, 1 note, 2 start XPointer, 3 end XPointer, `offset`, `data` at most 3,072 bytes,
-  `flags` bit 0 last); `edit_commit` applies all edits or none: if the book's annotation generation
-  moved since `edit_begin`, `ERR_STATE` and nothing changes (read again, merge, begin again); an
-  unknown id `ERR_NOT_FOUND` and a range outside the sections `ERR_INVALID` also refuse the whole
-  commit. It answers `lib_committed` (`annotation_generation`, and the ids of the added annotations
-  in order, as `lib_result` rows). A plugin advances its own sync state only after a commit answered
-  `OK`.
+  and 2; the annotation's fields as above, texts and notes up to 512 bytes inline, longer ones and
+  **every XPointer** in parts with `edit_text` (a `lib_edit` carries no XPointer inline: its `flags`
+  bit 4 says the start and end XPointers follow, as `lib_annotation`): `transaction`, `edit` its
+  index in the transaction, `field` 0 text, 1 note, 2 start XPointer, 3 end XPointer, `offset`,
+  `data` at most 3,072 bytes, `flags` bit 0 last); `edit_commit` applies all edits or none: if the
+  book's annotation generation moved since `edit_begin`, `ERR_STATE` and nothing changes (read
+  again, merge, begin again); an unknown id `ERR_NOT_FOUND`, a range outside the sections, and an
+  edit whose flagged XPointers or cut text and note did not arrive whole (parts not ending with
+  `last`) `ERR_INVALID` also refuse the whole commit. It answers `lib_committed` (`transaction`,
+  `annotation_generation`, `edits` the number applied, `added` the number of new annotations), one
+  bounded record whatever the size of the transaction. The ids of the edits are read after it with
+  op 26 `edit_receipt` (`lib_receipt_ask`: `transaction`, `cursor`), paged rows `lib_receipt`
+  (`edit` the edit's index in the transaction, `id` the annotation's id, `action` what was done: 0
+  added, 1 replaced, 2 removed, 3 updated by `client_key`) then `end`, 64 rows a page; the receipt
+  is kept on the card until the plugin's next `edit_begin`, 10 minutes, or the plugin stops
+  (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit answered `OK`.
+- [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
+  3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
+  it by the annotation file alone); each part of `edit_text` at most 3,072
+  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), so no count
+  of edits or parts is capped by itself.
 - [D] Transaction limits and lifetime: one open transaction per plugin and two device-wide
   (`ERR_FULL`); it lives across callbacks until commit, abort or 10 minutes without a call (then
   aborted, logged) or the plugin stops; staged edits are kept in a host temp file on the card, not
@@ -288,8 +301,9 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   by `\n1`, `\n2` and so on, so no two books share a key or its data. Op 25 is the only source of
   a book's key; the SDK has no key function. Data found under a key whose stored path names another
   book is not handed over.
-- [D] **Fingerprint:** `lib_key.fingerprint: str 32` is interface 6's `Fingerprint`
-  (`library/fingerprint.rs`): the file's size and KOReader's partial MD5 (up to twelve 1 KiB reads),
+- [D] **Fingerprint:** `lib_key` carries interface 6's `Fingerprint` (`library/fingerprint.rs`)
+  whole, in two fields: `fingerprint: str 32` the 32 hex digits of KOReader's partial MD5 (up to
+  twelve 1 KiB reads) and `size: u64` the file's size in bytes; both together are the identity,
   so kosync and koreader keep matching other devices. It is kept with each book's data; a book moved
   outside the device is found again at the next walk by it: when a book's path is gone and exactly
   one new file has its fingerprint, the data follows that file. Two or more files with one
@@ -349,8 +363,10 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 | `lib_query` | 1 + 4×5 + 258 × 3 + 130 + 514 + 4×2 + 5 = 1,452 | 4,096 |
 | `lib_annotation` page | 1 + 4×8 + 8×3 + 66 + 514 + 514 + 5 = 1,156; 3 rows + `end` = 3,498 | 4,096 |
 | `lib_anchor` page | 1 + 4×2 + 8 + 1,026 × 2 + 5 = 2,074 at the caps (one row); real XPointers are about 100 bytes, so a page holds the rows that fit | 4,096 |
-| `edit_add` input | 1 + `lib_transaction_ref` 10 + 3 × `lib_edit` (1 + 4×11 + 8×3 + 66 + 514 + 514 + 5 = 1,168) = 3,515 | 4,096 |
+| `edit_add` input | 1 + `lib_transaction_ref` 10 + 3 × `lib_edit` (1 + 4×11 + 8×3 + 66 + 514 + 514 + 5 = 1,168, no XPointer inline) = 3,515 | 4,096 |
 | `edit_text` input | 1 + 1 + 4×5 + 3,074 + 5 = 3,101 | 4,096 |
+| `lib_committed` | 1 + 4×4 + 5 = 22 | 4,096 |
+| `lib_receipt` page | row 1 + 4×3 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
 | `lib_paths` (16 paths) | 16 × 514 = 8,224 | over: at most 7 paths (3,605) |
 | `lib_position` | 1 + 4×4 + 8×2 + 1,026 + 4 + 5 = 1,068 | 4,096 |
 | `badge.value` × 16 | 16 × (1 + 4 + 18 + 66 + 5) = 1,504 | 3,840 |
