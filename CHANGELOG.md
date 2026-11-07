@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native library SDK: borrowed per-book annotation pages with separate annotation
+  cursors and counts, plus complete annotation text/note queries in bounded UTF-8 chunks.
+
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
