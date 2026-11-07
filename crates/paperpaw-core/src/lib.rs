@@ -785,6 +785,12 @@ impl Kernel {
         let shown = |s: &SystemStatus| s.battery.map(|b| (b.percent, b.charging));
         if shown(&old) != shown(&status) || offset(&old) != offset(&status) || jumped {
             self.output.commands.push(events::STATUS_CHANGED.emit(()));
+            self.native_hint(native_host::registrations::EVENT_STATUS_CHANGED_TAG);
+        }
+        // Without a shell external-power fact, charging is the only known source.
+        let charge = native_host::event_producers::ChargeState::from_status;
+        if charge(&old, None) != charge(&status, None) {
+            self.native_hint(native_host::registrations::EVENT_CHARGE_CHANGED_TAG);
         }
         if status.battery.is_some() {
             self.output.commands.push(events::BATTERY_MEASURED.emit(()));

@@ -126,10 +126,12 @@ impl Kernel {
         }
         let scoped = self.shared.settings.goes_to_scope(id.as_str());
         let before = scoped.then(|| self.scoped_values());
+        let native_old = self.native_setting_before(id.as_str());
         let old = self.setting_text_if_heard(id);
         if let Err(error) = self.shared.settings.reset(id.as_str()) {
             return self.warn_runtime(format!("`{id}`: {error}"));
         }
+        self.native_setting_after(id.as_str(), native_old.as_ref());
         if let Some(before) = before {
             self.save_scope();
             self.announce_scope_changes(before);
@@ -208,6 +210,11 @@ impl Kernel {
             return;
         }
         let before = self.scoped_values();
+        let had_values = self
+            .shared
+            .settings
+            .scope()
+            .is_some_and(|scope| !scope.is_empty());
         let read = path.as_deref().map(|path| {
             let storage = self.shared.storage.as_ref();
             paperpaw_sdk::files::load_text_for_update(storage, path, MAX_SCOPE)
@@ -245,6 +252,15 @@ impl Kernel {
             values
         });
         self.shared.settings.set_scope(values);
+        if had_values
+            || self
+                .shared
+                .settings
+                .scope()
+                .is_some_and(|scope| !scope.is_empty())
+        {
+            self.native_setting_typed("", None);
+        }
         let owner = self.stack.last().map(|top| top.serial);
         self.scope = path.map(|path| Scope {
             path,
@@ -256,10 +272,21 @@ impl Kernel {
 
     /// Changes a setting in the active scope and saves the scope.
     pub(crate) fn set_in_scope(&mut self, id: &Id, value: paperpaw_sdk::SettingValue) {
+        // This explicit operation always writes to the active scope, even
+        // before the scope-only switch has been turned on.
+        let native_old = self.native_event_sink().map(|_| {
+            crate::native_host::event_producers::OldValue::capture(
+                self.shared
+                    .settings
+                    .scope()
+                    .and_then(|scope| scope.get(id.as_str())),
+            )
+        });
         let before = self.scoped_values();
         if let Err(error) = self.shared.settings.set_in_scope(id.as_str(), value) {
             return self.warn_runtime(format!("`{id}`: {error}"));
         }
+        self.native_setting_after(id.as_str(), native_old.as_ref());
         self.save_scope();
         self.announce_scope_changes(before);
         // The switch itself is not a scoped value others see change.
@@ -427,6 +454,7 @@ impl Kernel {
         if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
             info.enabled = enabled;
         }
+        self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
     }
 
     pub(crate) fn setting_changed(&mut self, id: &Id) {

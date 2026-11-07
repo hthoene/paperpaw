@@ -646,6 +646,9 @@ impl Kernel {
     /// Tells the plugin whose secret setting `id` is that it changed, and
     /// no other: which secret changed is the owner's business too.
     pub(crate) fn secret_setting_changed(&mut self, id: &Id) {
+        // Secret material never enters the settings value slot. The runtime
+        // applies secret-scoped visibility before routing even this key.
+        self.native_setting_typed(id.as_str(), None);
         let changed = events::SETTING_CHANGED.emit(events::SettingChanged::new(id.clone()));
         if let Command::Emit(event, params) = changed {
             self.emit_to(&event, &params, Some(id.namespace()));
@@ -729,8 +732,10 @@ impl Kernel {
             }
             Command::SetSetting(id, value) => {
                 let old = self.setting_text_if_heard(&id);
+                let native_old = self.native_setting_before(id.as_str());
                 match self.shared.settings.set(id.as_str(), value) {
                     Ok(()) => {
+                        self.native_setting_after(id.as_str(), native_old.as_ref());
                         self.persist_setting(&id);
                         self.setting_changed(&id);
                         let changed = events::SettingChanged::new(id.clone()).old(old);

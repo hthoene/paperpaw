@@ -188,3 +188,14 @@ fn pending_unsupported_events_do_not_enable_admission() {
     }
     assert!(queue.take().is_none());
 }
+
+#[test]
+fn explicit_reread_uses_no_edge_budget_and_is_not_a_drop() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    queue.setting(1, "", Ok(&[]), Readable).unwrap();
+    queue.setting(2, "", Ok(&[]), Readable).unwrap();
+    assert_eq!(budget.used(), 0);
+    assert!(matches!(queue.take(), Some(Ready::Reread)));
+    assert!(queue.take().is_none());
+}

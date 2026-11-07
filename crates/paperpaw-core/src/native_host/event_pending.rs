@@ -104,6 +104,12 @@ impl Pending {
         if visibility == Visibility::Hidden {
             return Ok(());
         }
+        if key.is_empty() {
+            // Scope switches request a reread without holding an edge or
+            // reporting a dropped event.
+            self.touch(REREAD);
+            return Ok(());
+        }
         let result = if visibility == Visibility::Readable {
             old.and_then(|old| self.push_setting(now_ms, key, old))
         } else {

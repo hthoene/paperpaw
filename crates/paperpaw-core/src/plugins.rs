@@ -1107,6 +1107,7 @@ impl Kernel {
         self.apply_ui_text_curve();
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
     }
 
     /// Releases memory reserved while plugins registered: on small devices

@@ -166,3 +166,35 @@ pub(crate) fn setting(
 #[cfg(test)]
 #[path = "event_producers_tests.rs"]
 mod tests;
+
+impl crate::Kernel {
+    /// Capture before a fallible setting write, then publish only after success.
+    pub(crate) fn native_setting_before(&self, key: &str) -> Option<OldValue> {
+        self.native_event_sink().map(|_| {
+            let settings = &self.shared.settings;
+            let old = if settings.goes_to_scope(key) {
+                settings.scope().and_then(|scope| scope.get(key))
+            } else {
+                settings.is_set(key).then(|| settings.global(key)).flatten()
+            };
+            OldValue::capture(old)
+        })
+    }
+    pub(crate) fn native_setting_after(&self, key: &str, old: Option<&OldValue>) {
+        if let (Some(sink), Some(old)) = (self.native_event_sink(), old) {
+            sink.setting(self.now.millis(), key, old.bytes());
+        }
+    }
+    /// Scope transitions already own typed before-values until they are announced.
+    pub(crate) fn native_setting_typed(&self, key: &str, old: Option<&SettingValue>) {
+        if let Some(sink) = self.native_event_sink() {
+            let old = OldValue::capture(old);
+            sink.setting(self.now.millis(), key, old.bytes());
+        }
+    }
+    pub(crate) fn native_hint(&self, tag: u32) {
+        if let Some(sink) = self.native_event_sink() {
+            sink.hint(tag);
+        }
+    }
+}
