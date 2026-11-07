@@ -26,7 +26,14 @@ this is an explicit incomplete path, not a replacement visual.
 
 REG gap resolved in contract #288 at 482556eeb: op-11 reg_item flags bit 5
 marks a user-defined menu, including empty overrides and overrides equal to
-defaults. Pending Services getter and Core host population. Preserve existing
+defaults. The checked PR #292 getter is now retained in each Menu; Core host population
+and the screen callback consumers remain open. Preserve existing
 Changed/Reset/Reset all behavior using this flag; never compare row orders.
 Native pointer contact forwarding is owned by Kernel/Services/Core; do not
 substitute a fabricated id or capture a single contact.
+
+Host acceptance dependencies (Core handoff, 2026-11-07): H1 screen commands
+(Core), H2 services/dialogs (Services), H3 compose and H4 input (Input Engineer).
+Existing native-screen tests are fixtures, not emulator activation proof.
+Integration ceabdc905 and SDK PR #292 at 286a4832826a592663c57501a9cd8cdaaa6edbe7
+are merged locally. SDK interface references/blessing for #292 remain pending.

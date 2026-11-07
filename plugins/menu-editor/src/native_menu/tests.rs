@@ -21,6 +21,7 @@ fn graph(edges: u16) -> MenuGraph {
             id: String::from(*id),
             title: String::from(*id),
             declared: entries.clone(),
+            user_defined: false,
             current: entries,
         });
     }
@@ -138,6 +139,7 @@ fn long_chains_use_bounded_traversal_stack() {
             title: String::new(),
             current: vec![next],
             declared: Vec::new(),
+            user_defined: false,
         });
     }
     let graph = MenuGraph {

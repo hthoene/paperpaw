@@ -1,4 +1,4 @@
-//! Screen identity parity only; not callback or instance-policy parity.
+//! Screen identity and instance-policy parity; callback acceptance is separate.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
@@ -19,21 +19,27 @@ fn screen_identity_matches_existing_registration() {
             match c {
                 Contribution::FixedScreens(screens) => {
                     for s in screens {
-                        d.screen(ScreenDecl::new(
-                            s.id().as_str().strip_prefix("profiles.").unwrap(),
-                            s.title(),
-                            token,
-                        ))
+                        d.screen(
+                            ScreenDecl::new(
+                                s.id().as_str().strip_prefix("profiles.").unwrap(),
+                                s.title(),
+                                token,
+                            )
+                            .instances(instances(s.how_many())),
+                        )
                         .unwrap();
                         token += 1;
                     }
                 }
                 Contribution::Screen(s) => {
-                    d.screen(ScreenDecl::new(
-                        s.id.as_str().strip_prefix("profiles.").unwrap(),
-                        &s.title,
-                        token,
-                    ))
+                    d.screen(
+                        ScreenDecl::new(
+                            s.id.as_str().strip_prefix("profiles.").unwrap(),
+                            &s.title,
+                            token,
+                        )
+                        .instances(instances(s.instances)),
+                    )
                     .unwrap();
                     token += 1;
                 }
@@ -76,4 +82,16 @@ fn actions_menus_and_icons_match_existing_registration() {
         declarations::navigation(&mut d).unwrap();
     }
     assert_eq!(actual, expected);
+}
+
+fn instances(value: paperpaw_sdk::Instances) -> paperpaw_sdk::native::declare::Instances {
+    use paperpaw_sdk::native::declare::Instances;
+    if value == paperpaw_sdk::Instances::SINGLE {
+        Instances::Single
+    } else if value == paperpaw_sdk::Instances::MANY {
+        Instances::Many
+    } else {
+        assert_eq!(value, paperpaw_sdk::Instances::PER_PARAMS);
+        Instances::PerParams
+    }
 }

@@ -18,6 +18,7 @@ pub struct Menu {
     title: String,
     current: Vec<String>,
     declared: Vec<String>,
+    user_defined: bool,
 }
 impl Menu {
     /// Full menu identity.
@@ -27,6 +28,10 @@ impl Menu {
     /// Host-translated menu name.
     pub fn title(&self) -> &str {
         &self.title
+    }
+    /// Whether the host retains a user definition, including an empty one.
+    pub fn user_defined(&self) -> bool {
+        self.user_defined
     }
     /// Entries in the current ordering.
     pub fn entries(&self) -> &[String] {
@@ -70,6 +75,7 @@ impl MenuGraph {
                     title: copy(row.title())?,
                     current: Vec::new(),
                     declared: Vec::new(),
+                    user_defined: row.user_defined(),
                 });
             }
             let Some(next) = page.end().next_cursor() else {
