@@ -75,7 +75,8 @@ impl Ui {
     /// Read a question from the dialog instance opened for it.
     ///
     /// # Errors
-    /// Returns Invalid for a malformed reply or the host's ownership refusal.
+    /// Returns State for a mismatched reply, Invalid for malformed fields,
+    /// or the host's ownership refusal.
     pub fn question<'a>(
         &self,
         host: &Host<'_>,
@@ -93,7 +94,7 @@ impl Ui {
             out,
         )?;
         let wire::Record::ServiceUiQuestion(row) = one(&out[..count])? else {
-            return Err(Error::Invalid);
+            return Err(Error::State);
         };
         let kind = QuestionKind::decode(row.kind)?;
         if row.flags & !0xf7 != 0
@@ -185,8 +186,9 @@ impl Ui {
     /// Read a whole UTF-8 part. The result borrows only out, not this handle.
     ///
     /// # Errors
-    /// Returns Invalid for a mismatched text, offset, size or non-progressing
-    /// reply, or a host refusal (including IO for a removed text card).
+    /// Returns State for a mismatched text or offset, Invalid for an incorrect
+    /// size or non-progressing reply, or a host refusal (including IO for a
+    /// removed text card).
     pub fn text_read<'a>(
         &self,
         host: &Host<'_>,
