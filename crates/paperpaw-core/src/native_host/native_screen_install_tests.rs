@@ -8,6 +8,8 @@ std::thread_local! {
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
+    static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
+    static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
@@ -16,6 +18,8 @@ std::thread_local! {
 
 struct ScreenState {
     table: PpPlugin,
+    host: *const PpHost,
+    context: *mut c_void,
 }
 
 unsafe extern "C" fn screen_make(
@@ -64,6 +68,8 @@ unsafe extern "C" fn screen_make(
         }
     }
     let state = Box::into_raw(Box::new(ScreenState {
+        host,
+        context: ctx,
         table: PpPlugin {
             size: size_of::<PpPlugin>() as u32,
             state: ptr::null_mut(),
@@ -83,6 +89,20 @@ unsafe extern "C" fn screen_make(
     OK
 }
 unsafe extern "C" fn screen_destroy(state: *mut c_void) {
+    if CHECK_TEARDOWN.with(Cell::get) {
+        // SAFETY: teardown retains the pinned host table through the destructor.
+        let status = unsafe {
+            let state = &*state.cast::<ScreenState>();
+            ((*state.host).commands_submit)(
+                state.context,
+                PpBytes {
+                    ptr: ptr::null(),
+                    len: 0,
+                },
+            )
+        };
+        TEARDOWN_STATUS.with(|value| value.set(status));
+    }
     DESTROYED.with(|value| value.set(value.get() + 1));
     // SAFETY: the host returns exactly the allocation published by screen_make.
     unsafe { drop(Box::from_raw(state.cast::<ScreenState>())) };
@@ -244,7 +264,7 @@ fn duplicate_native_screen_install_is_atomic_and_reserved_policy_is_refused() {
     assert_eq!(kernel.stack.len(), 1);
     assert!(matches!(
         install(&mut kernel, 3 << 6),
-        Err(Error::Factory(ERR_INVALID))
+        Err(Error::Factory(host_glue::ERR_UNSUPPORTED))
     ));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
 }
@@ -277,11 +297,22 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();
+        kernel.shared.actions.insert(
+            paperpaw_sdk::ActionSpec::new(Id::new_static("legacy.action"), "legacy.action")
+                .sealed(),
+        );
+        kernel.shared.actions.add_override(
+            Id::new_static("legacy.action"),
+            paperpaw_sdk::Priority(0),
+            Id::new_static("legacy"),
+            Box::new(|_, _, _| {}),
+        );
         let before = kernel.shared.registry.screens.list().iter().count();
         INSTALL_FAIL_NTH.with(|value| value.set(allocation));
         let result = install(&mut kernel, 0);
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
+        assert!(kernel.shared.actions.override_of("legacy.action").is_some());
         if result.is_ok() {
             reached_success = true;
             assert_eq!(
@@ -365,4 +396,70 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     }));
     kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(hidden)));
     assert!(EVENTS.with(|events| events.borrow().contains(&(80, hidden, 0, 0))));
+}
+
+#[test]
+fn duplicate_native_install_allocation_faults_keep_original_owner_registered() {
+    let mut kernel = kernel(0);
+    let before = kernel.shared.registry.screens.list().iter().count();
+    for allocation in 1..32 {
+        DESTROYED.with(|value| value.set(0));
+        INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        let result = install(&mut kernel, 0);
+        arm_failure(0);
+        INSTALL_FAIL_NTH.with(|value| value.set(0));
+        assert!(matches!(
+            result,
+            Err(Error::Status(host_glue::ERR_NO_MEMORY | ERR_INVALID))
+        ));
+        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        assert_eq!(DESTROYED.with(Cell::get), 1);
+    }
+    open(&mut kernel, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+}
+
+#[test]
+fn retiring_open_registered_owner_refuses_callbacks_and_tears_down_under_kernel_borrow() {
+    let mut kernel = kernel(0);
+    open(&mut kernel, Params::new());
+    let before = EVENTS.with(|events| events.borrow().len());
+    let Some(crate::registry::Maker::Native(made)) =
+        kernel.shared.registry.screens.get("factory.screen")
+    else {
+        panic!("native maker missing");
+    };
+    made.retire_for_test();
+    kernel.with_screen(0, |screen, cx| {
+        screen.on_show(cx);
+        Handled::Yes
+    });
+    assert_eq!(EVENTS.with(|events| events.borrow().len()), before);
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    CHECK_TEARDOWN.with(|value| value.set(true));
+    release_under_borrow(&mut kernel);
+    CHECK_TEARDOWN.with(|value| value.set(false));
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    assert_eq!(TEARDOWN_STATUS.with(Cell::get), host_glue::ERR_STATE);
+}
+fn release_under_borrow(kernel: &mut crate::Kernel) {
+    kernel.shared.registry = crate::registry::Registry::default();
+    assert_eq!(
+        DESTROYED.with(Cell::get),
+        0,
+        "the open screen retains its owner"
+    );
+    kernel.stack.clear();
+    kernel.shared.stack.clear();
+}
+
+#[test]
+fn wait_ready_flag_is_refused_until_its_host_policy_is_wired() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    assert!(matches!(
+        install(&mut kernel, 1 << 3),
+        Err(Error::Factory(host_glue::ERR_UNSUPPORTED))
+    ));
 }

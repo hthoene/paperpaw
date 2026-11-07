@@ -538,11 +538,12 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     } = screen;
     relative(plugin_id, name)?;
     ensure(!title.is_empty())?;
-    if flags & !0xff != 0 {
+    // Ready notification is not connected to the host help policy yet.
+    if flags & !0xff != 0 || flags & (1 << 3) != 0 {
         return Err(ERR_UNSUPPORTED);
     }
     if (flags >> 6) & 3 == 3 {
-        return Err(ERR_INVALID);
+        return Err(ERR_UNSUPPORTED);
     }
     Ok(())
 }

@@ -6,7 +6,7 @@ use super::{
     shell,
 };
 use alloc::{boxed::Box, string::String};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Id, Instances, Screen};
 
 pub(crate) struct NativeScreenSpec {
@@ -29,7 +29,7 @@ impl NativeScreenSpec {
             0 => Instances::PER_PARAMS,
             1 => Instances::SINGLE,
             2 => Instances::MANY,
-            _ => return Err(ERR_INVALID),
+            _ => return Err(ERR_UNSUPPORTED),
         };
         let id = callback.id.try_clone().ok_or(ERR_NO_MEMORY)?;
         Ok(Self {
@@ -47,6 +47,11 @@ impl NativeScreenSpec {
 }
 
 impl NativeMade {
+    #[cfg(test)]
+    pub(crate) fn retire_for_test(&self) {
+        self.instance.stop();
+    }
+
     pub(crate) fn refresh(&self) -> Option<paperpaw_sdk::RefreshMode> {
         (self.flags & 1 != 0).then_some(paperpaw_sdk::RefreshMode::Full)
     }

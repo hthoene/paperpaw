@@ -11,6 +11,9 @@ use paperpaw_sdk::{
     Priority, RegisterError, ScreenSpec, SettingSpec, SlotSpec, StatusItemSpec, StatusLineSpec,
 };
 
+pub(crate) const NATIVE_CAPACITY_OVERFLOW: &str = "native screen capacity overflow";
+pub(crate) const NATIVE_CAPACITY_UNAVAILABLE: &str = "native screen capacity unavailable";
+
 /// A candidate screen for a slot, proposed by a plugin.
 #[derive(Debug)]
 struct SlotCandidate {
@@ -553,8 +556,12 @@ fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
 impl Staging {
     pub(crate) fn native_screen(
         &mut self,
+        owner: &Id,
         screen: crate::native_host::native_screen_factory::NativeScreenSpec,
     ) -> Result<(), i32> {
+        if screen.id.namespace() != owner.as_str() {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
         if self
             .native_screens
             .iter()
@@ -632,7 +639,15 @@ impl Staging {
                     .find(|id| registry.slots.contains_key(*id))
             });
         if let Some(id) = duplicate {
-            return Err(RegisterError::Duplicate { id: id.clone() });
+            if !self.native_screens.is_empty() {
+                return Err(RegisterError::Invalid {
+                    message: "native contribution already registered".into(),
+                });
+            }
+            let id = id.try_clone().ok_or(RegisterError::Invalid {
+                message: "duplicate contribution id could not be copied".into(),
+            })?;
+            return Err(RegisterError::Duplicate { id });
         }
         if !self.native_screens.is_empty() {
             let count = self
@@ -640,21 +655,21 @@ impl Staging {
                 .len()
                 .checked_add(self.native_screens.len())
                 .ok_or(RegisterError::Invalid {
-                    message: "native screen capacity overflow".into(),
+                    message: NATIVE_CAPACITY_OVERFLOW.into(),
                 })?;
             registry
                 .screens
                 .titles
                 .try_reserve(count)
                 .map_err(|_| RegisterError::Invalid {
-                    message: "native screen capacity unavailable".into(),
+                    message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
             registry
                 .screens
                 .made
                 .try_reserve(count)
                 .map_err(|_| RegisterError::Invalid {
-                    message: "native screen capacity unavailable".into(),
+                    message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
         }
         for action in self.actions.drain(..) {

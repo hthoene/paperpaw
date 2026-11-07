@@ -90,16 +90,52 @@ impl crate::Kernel {
                         .and_then(|lease| NativeScreenSpec::new(callback, lease))
                         .map_err(shell::Error::Status)?;
                     staging
-                        .native_screen(screen)
+                        .native_screen(&owner, screen)
                         .map_err(shell::Error::Status)?;
                 }
             }
         }
-        self.merge(&owner, staging).map_err(|error| {
-            shell::Error::Status(match error {
-                RegisterError::Invalid { .. } => ERR_NO_MEMORY,
-                _ => ERR_INVALID,
-            })
-        })
+        // Only screen factories are supported here. Publish through the reserved
+        // staging transaction without the legacy merge's allocating action sweep.
+        staging
+            .merge_into(&mut self.shared.registry, &mut self.shared.actions)
+            .map_err(|error| shell::Error::Status(merge_status(&error)))
+    }
+}
+
+fn merge_status(error: &RegisterError) -> i32 {
+    match error {
+        RegisterError::Invalid { message }
+            if message.as_ref() == crate::registry::NATIVE_CAPACITY_OVERFLOW
+                || message.as_ref() == crate::registry::NATIVE_CAPACITY_UNAVAILABLE =>
+        {
+            ERR_NO_MEMORY
+        }
+        _ => ERR_INVALID,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_native_capacity_errors_become_no_memory() {
+        for message in [
+            crate::registry::NATIVE_CAPACITY_OVERFLOW,
+            crate::registry::NATIVE_CAPACITY_UNAVAILABLE,
+        ] {
+            assert_eq!(
+                merge_status(&RegisterError::Invalid {
+                    message: message.into()
+                }),
+                ERR_NO_MEMORY
+            );
+        }
+        assert_eq!(
+            merge_status(&RegisterError::Invalid {
+                message: "invalid native declaration".into()
+            }),
+            ERR_INVALID
+        );
     }
 }

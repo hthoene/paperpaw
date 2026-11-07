@@ -229,7 +229,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             .then(|| Rect::new(0, 0, env.content().width, env.content().height))
     }
     fn shows_through(&self) -> paperpaw_sdk::ShowsThrough {
-        paperpaw_sdk::ShowsThrough::All
+        if self.flags & (1 << 2) != 0 {
+            paperpaw_sdk::ShowsThrough::All
+        } else {
+            paperpaw_sdk::ShowsThrough::Nothing
+        }
     }
 
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
