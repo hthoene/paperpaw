@@ -73,8 +73,28 @@ pub use wire::{
 };
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
+// The host's decoders (lock format 10, #985): only records a plugin sends. The
+// host decodes through these alone, so a device links no decoder for events,
+// input, frames or service replies.
+pub use wire::{
+    host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
+};
+
+/// A plugin's batch as the host decodes it ([`host_records_decode_into`]),
+/// returned by value. A plugin-reachable slot holds its batch on the heap
+/// instead ([`submit`]).
+///
+/// # Errors
+/// The statuses of [`records_decode`]; a record only the host sends is
+/// `ERR_INVALID`.
+pub fn host_records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
+    let mut batch = RecordBatch::EMPTY;
+    host_records_decode_into(bytes, &mut batch)?;
+    Ok(batch)
+}
 
 use super::{Error, registration_scope::RegistrationScope};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
     buffers,
@@ -110,10 +130,21 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
         Ok(wire) => wire,
         Err(error) => return refuse(scope, error),
     };
-    let batch = match wire::records_decode(wire) {
-        Ok(batch) => batch,
-        Err(error) => return refuse(scope, error),
+    // The decoded batch (8 records, 840 bytes on riscv32) lives on the heap:
+    // this slot runs on a plugin's stack band, whose frames stay under 2 KiB
+    // (#953, #985).
+    let mut held = Vec::new();
+    if held.try_reserve_exact(1).is_err() {
+        return refuse_memory(scope);
+    }
+    held.push(RecordBatch::EMPTY);
+    let Some(batch) = held.first_mut() else {
+        return refuse_memory(scope);
     };
+    if let Err(error) = wire::host_records_decode_into(wire, batch) {
+        return refuse(scope, error);
+    }
+    let batch = &*batch;
     // Only events with a host encoder can be named; refuse before staging anything.
     let supported = batch.iter().all(|record| match record {
         Record::Registration(Registration::Event { event_tag, .. }) => {
@@ -124,7 +155,7 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
     if !supported {
         return refuse(scope, ERR_UNSUPPORTED);
     }
-    match scope.submit_wire(&batch, |registration| registration, wire) {
+    match scope.submit_wire(batch, |registration| registration, wire) {
         Ok(()) => OK,
         // The construction latched itself; this also covers an overlapping call.
         Err(error) => refuse(scope, error),
@@ -136,6 +167,14 @@ fn refuse(scope: &RegistrationScope<Registration>, error: i32) -> i32 {
     // of the bytes supplied. Active scopes latch before the status is returned.
     match scope.reject() {
         Ok(()) => error,
+        Err(error) => status(error),
+    }
+}
+
+/// Refuse for lack of memory and latch Memory, not Invalid, as the cause.
+fn refuse_memory(scope: &RegistrationScope<Registration>) -> i32 {
+    match scope.reject_with(Error::Memory) {
+        Ok(()) => ERR_NO_MEMORY,
         Err(error) => status(error),
     }
 }
