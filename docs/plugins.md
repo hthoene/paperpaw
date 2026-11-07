@@ -2635,6 +2635,18 @@ has the steps.
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
 
+### Document-scoped storage
+
+`native::storage::Root::Install` (root 2) reads the plugin's own install folder,
+read only, in any callback. During a permitted format callback, `Book` selects
+root 3, `UserCss` root 4 and `DocumentCache` root 6. An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats may read
+relative paths inside root 3. Root 3 is read only; root 4 is read only and
+available during `core.format` ops 2 and 3 only. The host enforces the callback scope,
+cache quota and reserved `.complete`/`.host/` cache paths. The host writes
+`.complete`; a format never writes it. Use the current callback's `Host`
+for storage calls and never retain it across callbacks.
+
 ### Extension stages and call services
 
 Declare an extension point with `native::declare::StageDecl` and subscribe with
@@ -2648,7 +2660,17 @@ A subscriber receives `native::events::Event::StageCall { stage, schema, payload
 at its declared token. Check the stage and schema, decode `payload` with the
 stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
-does not understand. The SDK leaves stage payloads opaque.
+does not understand. Plugin-defined stage payloads remain opaque.
+
+For `core.widget` major 1, use `native::ui::stages::WidgetCall::decode(payload)`
+to read measure, place and target requests. Reply with `reply_size`,
+`reply_place` or `reply_targets` into caller-owned scratch, then pass the encoded
+bytes to `Reply`. Targets stay in reading order; more than 32 returns
+`Error::NoSpace`. For `core.status` major 1, `StatusCall::decode(payload)` exposes
+borrowed requested item ids and context params. Build `StatusAnswer::text` or
+`StatusAnswer::drawn` values and encode with `StatusCall::reply`. Replies accept
+at most eight requested items and refuse duplicates. These adapters use the
+generated directional codecs and allocate no heap storage.
 
 `native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
 The host refuses another plugin running it with `Error::Denied`.

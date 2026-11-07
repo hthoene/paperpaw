@@ -608,6 +608,7 @@ impl BuilderParts {
         Kernel {
             shared: Shared {
                 native_events: None,
+                native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 registry: Registry::default(),
                 meter,
                 device: self.device,

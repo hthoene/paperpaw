@@ -174,12 +174,12 @@ pub use wire::{
     ServiceDocState, ServiceDocText, ServiceDocTextAt, ServiceDocTextPart, ServiceDocToc,
     ServiceDocXpointer, ServiceLibAnchor, ServiceLibAnnotation, ServiceLibBook,
     ServiceLibCommitted, ServiceLibCover, ServiceLibEdit, ServiceLibEditHead, ServiceLibEditText,
-    ServiceLibEntry, ServiceLibFacet, ServiceLibField, ServiceLibFieldSet, ServiceLibImport,
-    ServiceLibKey, ServiceLibMove, ServiceLibPage, ServiceLibPaths, ServiceLibPosition,
-    ServiceLibPositionSet, ServiceLibProvided, ServiceLibQuery, ServiceLibReceipt,
-    ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult, ServiceLibState, ServiceLibStatus,
-    ServiceLibText, ServiceLibTextAt, ServiceLibTransaction, ServiceLibTransactionRef,
-    ServiceLookupAsk, ServiceLookupEntry,
+    ServiceLibEntry, ServiceLibFacet, ServiceLibField, ServiceLibFieldPage, ServiceLibFieldSet,
+    ServiceLibImport, ServiceLibKey, ServiceLibMove, ServiceLibPage, ServiceLibPaths,
+    ServiceLibPosition, ServiceLibPositionSet, ServiceLibProvided, ServiceLibQuery,
+    ServiceLibReceipt, ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult, ServiceLibState,
+    ServiceLibStatus, ServiceLibText, ServiceLibTextAt, ServiceLibTransaction,
+    ServiceLibTransactionRef, ServiceLookupAsk, ServiceLookupEntry,
 };
 // The device (DEV, `docs/abi/device.md`): events 92-98 and the `core.device` rows
 // 1125-1141; the host answers them once wired (its commands 1564-1592 are in the
@@ -197,6 +197,19 @@ pub use wire::{
     ServiceDevBuiltin, ServiceDevCheck, ServiceDevDevice, ServiceDevFirmware, ServiceDevInstall,
     ServiceDevInterval, ServiceDevKey, ServiceDevMemory, ServiceDevNative, ServiceDevNetwork,
     ServiceDevNotInstalled, ServiceDevPower, ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
+};
+// Field caps of the `core.device` replies (`device.md` 2), for the host's clipping.
+pub use wire::{
+    SERVICE_DEV_BONDED_GIVEN_MAX_BYTES, SERVICE_DEV_BONDED_NAME_MAX_BYTES,
+    SERVICE_DEV_BUILTIN_ID_MAX_BYTES, SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES,
+    SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES, SERVICE_DEV_DEVICE_ID_MAX_BYTES,
+    SERVICE_DEV_DEVICE_MODEL_MAX_BYTES, SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES,
+    SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES, SERVICE_DEV_KEY_NAME_MAX_BYTES,
+    SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES, SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES,
+    SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES, SERVICE_DEV_NETWORK_SSID_MAX_BYTES,
+    SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES, SERVICE_DEV_POWER_MODE_MAX_BYTES,
+    SERVICE_DEV_VALUE_NAME_MAX_BYTES, SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES,
+    SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES, SERVICE_DEV_WIFI_SSID_MAX_BYTES,
 };
 // Folders and files (FS, `docs/abi/files.md`): the `core.files` rows 1142-1147;
 // the host answers them once wired.

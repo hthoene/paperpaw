@@ -722,11 +722,12 @@ jobs:
       - name: Lint the X4 with interface-7 plugins
         working-directory: shells/xteink
         # The `ppn5` code sites are not in the other jobs' lint.
-        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
+        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" --config 'target.riscv32imc-unknown-none-elf.rustflags=["-C","jump-tables=no"]' -- -D warnings
       - name: Build the X4 with interface-7 plugins
         working-directory: shells/xteink
-        # As above: the config's flags, not the job's RUSTFLAGS.
-        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
+        # As above: the config's flags, not the job's RUSTFLAGS; this build is
+        # also given no jump tables (the scan cannot size them yet).
+        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5" --config 'target.riscv32imc-unknown-none-elf.rustflags=["-C","jump-tables=no"]'
       - name: The plugins' host frames fit under the band
         run: |
           cargo run -q --release -p paperpaw-sign -- frames \

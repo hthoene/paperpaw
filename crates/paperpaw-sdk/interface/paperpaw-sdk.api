@@ -3122,6 +3122,10 @@ pub paperpaw_sdk::native::commands::PluginOutcome::Declined
 pub paperpaw_sdk::native::commands::PluginOutcome::Failed
 pub paperpaw_sdk::native::commands::PluginOutcome::Installed
 pub paperpaw_sdk::native::commands::PluginOutcome::NotFound
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PowerAction
+pub paperpaw_sdk::native::commands::PowerAction::PowerOff
+pub paperpaw_sdk::native::commands::PowerAction::Restart
+pub paperpaw_sdk::native::commands::PowerAction::Sleep
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::PresetMode
 pub paperpaw_sdk::native::commands::PresetMode::Apply
 pub paperpaw_sdk::native::commands::PresetMode::Preview
@@ -3163,6 +3167,20 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut se
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::stop_speaking(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::widget_changed(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_then(&mut self, paperpaw_sdk::native::ui::Open<'_>, paperpaw_sdk::native::commands::PowerAction) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::sleep(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wear(&mut self, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_host(&mut self, u32, &str, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_join(&mut self, u32, &str, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_leave(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_on(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
@@ -3200,6 +3218,7 @@ pub paperpaw_sdk::native::declare::EntryPlacement::Last
 pub paperpaw_sdk::native::declare::EntryPlacement::Order
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
 pub paperpaw_sdk::native::declare::EventKind::ActionRun
+pub paperpaw_sdk::native::declare::EventKind::Answered
 pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
 pub paperpaw_sdk::native::declare::EventKind::BookClosed
 pub paperpaw_sdk::native::declare::EventKind::BookFinished
@@ -4467,7 +4486,9 @@ impl paperpaw_sdk::native::snapshot::Snapshot
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_millivolts(&self) -> core::option::Option<u16>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_percent(&self) -> core::option::Option<u8>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_dpi(&self) -> u16
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_gray_levels(&self) -> core::option::Option<u16>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_height(&self) -> u16
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_is_colour(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_width(&self) -> u16
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::has_touch(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::instant(&self) -> paperpaw_platform::input::Instant
@@ -5133,8 +5154,12 @@ impl paperpaw_sdk::native::stages::StageRun<'_>
 pub fn paperpaw_sdk::native::stages::StageRun<'_>::next(&mut self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::stages::StageReply<'_>>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage
 #[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
+pub paperpaw_sdk::native::storage::Root::Book
 pub paperpaw_sdk::native::storage::Root::Data
+pub paperpaw_sdk::native::storage::Root::DocumentCache
 pub paperpaw_sdk::native::storage::Root::Files
+pub paperpaw_sdk::native::storage::Root::Install
+pub paperpaw_sdk::native::storage::Root::UserCss
 pub const paperpaw_sdk::native::storage::MAX_DATA: usize
 pub const paperpaw_sdk::native::storage::MAX_PATH: usize
 pub const paperpaw_sdk::native::storage::MAX_SEGMENT: usize
@@ -5146,6 +5171,36 @@ pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, pape
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::ui
+pub mod paperpaw_sdk::native::ui::stages
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::stages::WidgetCall
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::width: u32
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::rect: paperpaw_sdk::native::callbacks::FrameRect
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::rect: paperpaw_sdk::native::callbacks::FrameRect
+impl paperpaw_sdk::native::ui::stages::WidgetCall
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::decode(&[u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_place(self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_size(self, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_targets(self, &[paperpaw_sdk::native::ui::WidgetTarget], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::ContextParams<'a>
+impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub type paperpaw_sdk::native::ui::stages::ContextParams<'a>::Item = core::result::Result<paperpaw_sdk::native::ui::Param<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::ContextParams<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::drawn(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::text(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::StatusCall<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusCall<'a>
+pub const fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::context(self) -> paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::items(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::reply(self, &[paperpaw_sdk::native::ui::stages::StatusAnswer<'_>], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::Answer
 pub paperpaw_sdk::native::ui::Answer::Accept
 pub paperpaw_sdk::native::ui::Answer::Cancel
