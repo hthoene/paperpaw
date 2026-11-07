@@ -284,7 +284,6 @@ pub fn install_with(
     builder
         .plugin(paperpaw_plugin_update::Update)
         .plugin(paperpaw_plugin_about::About)
-        .plugin(paperpaw_plugin_setup::Setup)
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are
