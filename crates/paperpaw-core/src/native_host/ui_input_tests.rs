@@ -216,13 +216,51 @@ fn a_taken_press_is_held_whole_and_its_release_goes_nowhere_else() {
 }
 
 #[test]
-fn a_taken_release_alone_is_not_held() {
+fn only_the_start_is_taken_anything_else_is_a_pass() {
     let mut chain = InputFilters::new();
     let mut script = Script::default();
+    let rows = [row(A), row(B)];
     script.set(A, Answer::Take);
-    let out = dispatch(&mut chain, &mut script, &[row(A)], &key("k", 1));
-    assert!(is_taken(&out));
-    assert_eq!(chain.held(), 0);
+    // A release, repeat, move or up whose start nobody captured goes on:
+    // the later filter hears it and nothing is held.
+    for input in [
+        key("k", 1),
+        key("k", 2),
+        pointer(1, 1),
+        pointer(1, 2),
+        pointer(1, 3),
+    ] {
+        let out = dispatch(&mut chain, &mut script, &rows, &input);
+        assert!(is_pass(&out), "{input:?}");
+        assert_eq!(script.take_calls(), [A, B]);
+        assert_eq!(chain.held(), 0);
+    }
+    script.set(A, Answer::Cancel);
+    assert!(is_pass(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(1, 2)
+    )));
+}
+
+#[test]
+fn a_replace_may_not_make_the_power_key() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B)];
+    script.set(A, Answer::Replace(one(&key("power", 0))));
+    let out = dispatch(&mut chain, &mut script, &rows, &key("button.menu", 0));
+    assert!(is_pass(&out));
+    assert_eq!(out.refused, 1);
+    // B heard the original.
+    assert_eq!(script.calls[1], (B, one(&key("button.menu", 0))));
+    // Any other name, device-specific ones included, passes through.
+    script.set(A, Answer::Replace(one(&key("scroll-wheel", 0))));
+    assert!(matches!(
+        dispatch(&mut chain, &mut script, &rows, &key("menu", 0)).routed,
+        Routed::Replaced(_)
+    ));
 }
 
 #[test]

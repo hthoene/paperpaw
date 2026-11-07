@@ -31,6 +31,9 @@
 //!   starts fresh with all filters. Flag bit 1 says the top instance is secret;
 //!   a released capture is evicted first when the table is full, and the
 //!   router clears the table on sleep, wake and an input reset (`InputFilters::clear`);
+//! - a filter takes or cancels only at the start (pointer down, key press, or a
+//!   gesture); for an up, move, release or repeat whose start it did not
+//!   capture that is a pass; a replace may not make `power`;
 //! - `raise` and `run` end the chain; `raise` is checked against the
 //!   plugin's own declared inputs and gestures; raised inputs pass no filter
 //!   (the router applies them as a chain step).
@@ -42,6 +45,7 @@ use super::{
     stages_wire::core_input_filter_v1 as stage,
 };
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_SPACE};
+use paperpaw_platform::buttons;
 use paperpaw_sdk::Env;
 
 /// Filters called per input (the stage's subscriber cap).
@@ -125,8 +129,12 @@ impl Encoded {
     /// without control characters (otherwise `ERR_INVALID`).
     fn from_batch(batch: &[u8]) -> Result<Self, i32> {
         let record = wire::records_decode_single(batch)?;
+        // The Power key's escape and power actions come from the physical
+        // button only: a replace may not make it.
         if let Record::InputKey(key) = &record
-            && (key.key.is_empty() || key.key.chars().any(char::is_control))
+            && (key.key.is_empty()
+                || key.key.chars().any(char::is_control)
+                || key.key == buttons::POWER)
         {
             return Err(ERR_INVALID);
         }
@@ -417,6 +425,11 @@ impl InputFilters {
             };
             let routed = match verdict {
                 Verdict::Pass => continue,
+                // Only the start is taken: a screen that got the down always
+                // gets its up. Take and cancel on anything else are a pass.
+                Verdict::Take | Verdict::Cancel if !matches!(phase, Phase::Start | Phase::Once) => {
+                    continue;
+                }
                 Verdict::Take | Verdict::Cancel => {
                     let holder = Holder {
                         plugin: filter.plugin,
