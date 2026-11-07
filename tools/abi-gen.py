@@ -25,7 +25,7 @@ from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 from abi_color import validate_color, compatible_color, rust_color
 from abi_commands import validate_commands, compatible_commands, rust_commands
 from abi_i18n import validate_i18n, compatible_i18n, rust_i18n
-from abi_stages import compatible_stages, load_stages, rust_stages, validate_stages
+from abi_stages import compatible_stages, load_stages, rust_stages, stages_digest, validate_stages
 from abi_services import compatible_services, load_services, rust_services, validate_services
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
@@ -342,7 +342,7 @@ def lock_record(schema, released_minor=0):
             'emitted_streams': rust_streams(schema),
             'emitted_services': rust_services(schema),
             'emitted_host_decode': rust_host_decode(schema),
-            'emitted_stages': rust_stages(schema)}
+            'emitted_stages': stages_digest(schema)}
 
 
 # The emitted sections of a lock: key, renderer name (looked up when used, so
@@ -362,7 +362,7 @@ EMITTED = (('emitted_c', 'header', 1, 'emitted C contract changed from prior loc
             'emitted services contract changed from prior lock'),
            ('emitted_host_decode', 'rust_host_decode', 10,
             'emitted host decoder contract changed from prior lock'),
-           ('emitted_stages', 'rust_stages', 11,
+           ('emitted_stages', 'stages_digest', 11,
             'emitted stages contract changed from prior lock'))
 # What a reviewed baseline replacement may waive, and nothing else: the lock's
 # shape, its format and major, and every check not named stay enforced.

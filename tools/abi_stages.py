@@ -124,7 +124,7 @@ def compatible_stages(old, new, minimum_since):
             _require(record['since'] > stage['revision'], f'{key}: new record needs next revision')
 
 
-def rust_stages(schema):
+def source_stages(schema):
     """Emit one codec per stage; older locks without stages emit no bytes."""
     validate_stages(schema)
     stages = schema.get('stages', [])
@@ -141,10 +141,23 @@ def rust_stages(schema):
     source += '\n/// Every host-defined stage schema, sorted by key and major.\npub static STAGES: &[StageSchema] = &[\n' + ''.join(entries) + '];\n'
     for stage in stages:
         source += _stage_source(stage)
-    # Formatting is part of the emitted contract, independent of module nesting.
+    return source
+
+
+def rust_stages(schema):
+    """Formatted copies, checked independently of the frozen lock digest."""
+    source = source_stages(schema)
+    if not source:
+        return ''
     import subprocess
     return subprocess.run(['rustfmt', '--edition', '2024', '--emit', 'stdout'],
                           input=source, text=True, check=True, capture_output=True).stdout
+
+
+def stages_digest(schema):
+    """Pin emitter semantics before formatting, independent of rustfmt changes."""
+    import hashlib
+    return hashlib.sha256(source_stages(schema).encode()).hexdigest()
 
 
 TABLE_FIELDS = [(name, name.upper()) for name in

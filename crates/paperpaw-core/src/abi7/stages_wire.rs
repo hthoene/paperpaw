@@ -371,9 +371,7 @@ pub mod core_input_filter_v1 {
             FILTER_VERDICT_TAG => FilterVerdict::decode_body(body)?,
             _ => return Err(-2),
         };
-        if !body.remaining.is_empty() {
-            return Err(-2);
-        }
+        // Unknown appended fields are bounded by the record framing.
         record.validate()?;
         Ok(record)
     }
@@ -413,17 +411,40 @@ pub mod core_input_filter_v1 {
     }
     /// Validate the complete batch before exposing records; foreign tags are invalid.
     pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
-        if bytes.len() > MAX_INPUT.max(MAX_REPLY) {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
             return Err(-2);
         }
         let mut reader = Reader { remaining: bytes };
         let count = reader.varint()? as usize;
-        if count > REPLY_ROWS.max(1) {
+        if count > rows {
             return Err(-2);
         }
         let records = reader.remaining;
         for _ in 0..count {
             let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
             decode_body(tag, &mut body)?;
         }
         reader.finish()?;
@@ -434,16 +455,45 @@ pub mod core_input_filter_v1 {
     }
     /// Encode a bounded batch; invalid values and short output leave it untouched.
     pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
-        if records.len() > REPLY_ROWS.max(1) {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
             return Err(-2);
         }
         let mut required = varint_len(records.len() as u32);
         for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
             record.validate()?;
             let body = record.body_len()?;
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
-        if required > MAX_INPUT.max(MAX_REPLY) {
+        if required > cap {
             return Err(-2);
         }
         if out.len() < required {
@@ -465,11 +515,11 @@ pub mod core_input_filter_v1 {
         pub const TAG: u32 = FILTER_INPUT_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::FilterInput(*self)], out)
+            input_encode(&[Record::FilterInput(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = input_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -484,11 +534,11 @@ pub mod core_input_filter_v1 {
         pub const TAG: u32 = FILTER_VERDICT_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::FilterVerdict(*self)], out)
+            reply_encode(&[Record::FilterVerdict(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = reply_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -803,9 +853,7 @@ pub mod core_status_v1 {
             STATUS_VALUE_TAG => StatusValue::decode_body(body)?,
             _ => return Err(-2),
         };
-        if !body.remaining.is_empty() {
-            return Err(-2);
-        }
+        // Unknown appended fields are bounded by the record framing.
         record.validate()?;
         Ok(record)
     }
@@ -845,17 +893,40 @@ pub mod core_status_v1 {
     }
     /// Validate the complete batch before exposing records; foreign tags are invalid.
     pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
-        if bytes.len() > MAX_INPUT.max(MAX_REPLY) {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
             return Err(-2);
         }
         let mut reader = Reader { remaining: bytes };
         let count = reader.varint()? as usize;
-        if count > REPLY_ROWS.max(1) {
+        if count > rows {
             return Err(-2);
         }
         let records = reader.remaining;
         for _ in 0..count {
             let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
             decode_body(tag, &mut body)?;
         }
         reader.finish()?;
@@ -866,16 +937,45 @@ pub mod core_status_v1 {
     }
     /// Encode a bounded batch; invalid values and short output leave it untouched.
     pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
-        if records.len() > REPLY_ROWS.max(1) {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
             return Err(-2);
         }
         let mut required = varint_len(records.len() as u32);
         for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
             record.validate()?;
             let body = record.body_len()?;
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
-        if required > MAX_INPUT.max(MAX_REPLY) {
+        if required > cap {
             return Err(-2);
         }
         if out.len() < required {
@@ -897,11 +997,11 @@ pub mod core_status_v1 {
         pub const TAG: u32 = STATUS_ASK_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::StatusAsk(*self)], out)
+            input_encode(&[Record::StatusAsk(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = input_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -916,11 +1016,11 @@ pub mod core_status_v1 {
         pub const TAG: u32 = STATUS_VALUE_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::StatusValue(*self)], out)
+            reply_encode(&[Record::StatusValue(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = reply_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -1415,9 +1515,7 @@ pub mod core_widget_v1 {
             WIDGET_TARGET_TAG => WidgetTarget::decode_body(body)?,
             _ => return Err(-2),
         };
-        if !body.remaining.is_empty() {
-            return Err(-2);
-        }
+        // Unknown appended fields are bounded by the record framing.
         record.validate()?;
         Ok(record)
     }
@@ -1457,17 +1555,40 @@ pub mod core_widget_v1 {
     }
     /// Validate the complete batch before exposing records; foreign tags are invalid.
     pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
-        if bytes.len() > MAX_INPUT.max(MAX_REPLY) {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
             return Err(-2);
         }
         let mut reader = Reader { remaining: bytes };
         let count = reader.varint()? as usize;
-        if count > REPLY_ROWS.max(1) {
+        if count > rows {
             return Err(-2);
         }
         let records = reader.remaining;
         for _ in 0..count {
             let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
             decode_body(tag, &mut body)?;
         }
         reader.finish()?;
@@ -1478,16 +1599,45 @@ pub mod core_widget_v1 {
     }
     /// Encode a bounded batch; invalid values and short output leave it untouched.
     pub fn records_encode(records: &[Record], out: &mut [u8]) -> Result<usize, i32> {
-        if records.len() > REPLY_ROWS.max(1) {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
             return Err(-2);
         }
         let mut required = varint_len(records.len() as u32);
         for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
             record.validate()?;
             let body = record.body_len()?;
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
-        if required > MAX_INPUT.max(MAX_REPLY) {
+        if required > cap {
             return Err(-2);
         }
         if out.len() < required {
@@ -1509,11 +1659,11 @@ pub mod core_widget_v1 {
         pub const TAG: u32 = WIDGET_MEASURE_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::WidgetMeasure(*self)], out)
+            input_encode(&[Record::WidgetMeasure(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = input_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -1528,11 +1678,11 @@ pub mod core_widget_v1 {
         pub const TAG: u32 = WIDGET_PLACE_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::WidgetPlace(*self)], out)
+            input_encode(&[Record::WidgetPlace(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = input_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -1547,11 +1697,11 @@ pub mod core_widget_v1 {
         pub const TAG: u32 = WIDGET_TARGETS_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::WidgetTargets(*self)], out)
+            input_encode(&[Record::WidgetTargets(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = input_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -1566,11 +1716,11 @@ pub mod core_widget_v1 {
         pub const TAG: u32 = WIDGET_SIZE_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::WidgetSize(*self)], out)
+            reply_encode(&[Record::WidgetSize(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = reply_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }
@@ -1585,11 +1735,11 @@ pub mod core_widget_v1 {
         pub const TAG: u32 = WIDGET_TARGET_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            records_encode(&[Record::WidgetTarget(*self)], out)
+            reply_encode(&[Record::WidgetTarget(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
-            let mut records = records_decode(bytes)?;
+            let mut records = reply_decode(bytes)?;
             if records.len() != 1 {
                 return Err(-2);
             }

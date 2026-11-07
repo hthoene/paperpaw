@@ -216,11 +216,14 @@ fn every_schema_rejects_foreign_tags_missing_fields_and_trailing_bytes() {
     let mut body = vec![0];
     body.extend_from_slice(&1_u32.to_le_bytes());
     body.extend_from_slice(&2_u32.to_le_bytes());
-    body.push(0);
+    body.extend_from_slice(&[3, 4, 5]);
+    let mut bytes = frame(widget::WIDGET_MEASURE_TAG, &body);
     assert_eq!(
-        widget::WidgetMeasure::decode(&frame(widget::WIDGET_MEASURE_TAG, &body)),
-        Err(ERR_INVALID)
+        widget::WidgetMeasure::decode(&bytes),
+        Ok(widget::WidgetMeasure::new(1, 2))
     );
+    bytes.push(0);
+    assert_eq!(widget::WidgetMeasure::decode(&bytes), Err(ERR_INVALID));
 }
 
 #[test]
@@ -275,4 +278,55 @@ fn widget_target_stream_holds_the_maximum_reply_rows() {
         .collect::<Result<Vec<_>, i32>>()
         .unwrap();
     assert_eq!(decoded, records);
+}
+
+#[test]
+fn directional_decoders_check_tags_count_and_empty_input() {
+    let input = widget::Record::WidgetMeasure(widget::WidgetMeasure::new(7, 8));
+    let reply = widget::Record::WidgetSize(widget::WidgetSize::new(9, 10));
+    let mut bytes = [0xa5; 3840];
+    let len = widget::input_encode(&[input], &mut bytes).unwrap();
+    assert_eq!(widget::input_decode(&bytes[..len]).unwrap().len(), 1);
+    assert_eq!(widget::reply_decode(&bytes[..len]).err(), Some(ERR_INVALID));
+    let len = widget::reply_encode(&[reply], &mut bytes).unwrap();
+    assert_eq!(widget::reply_decode(&bytes[..len]).unwrap().len(), 1);
+    assert_eq!(widget::input_decode(&bytes[..len]).err(), Some(ERR_INVALID));
+    let len = widget::records_encode(&[input, input], &mut bytes).unwrap();
+    assert_eq!(widget::input_decode(&bytes[..len]).err(), Some(ERR_INVALID));
+    assert!(widget::reply_decode(&[0]).unwrap().is_empty());
+    assert_eq!(widget::input_decode(&[0]).err(), Some(ERR_INVALID));
+    let mut untouched = [0xa5; 128];
+    assert_eq!(
+        widget::input_encode(&[reply], &mut untouched),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        widget::reply_encode(&[input], &mut untouched),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(widget::input_encode(&[], &mut untouched), Err(ERR_INVALID));
+    assert_eq!(untouched, [0xa5; 128]);
+    let replies = [reply; 33];
+    assert_eq!(
+        widget::reply_encode(&replies, &mut untouched),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn unknown_extended_bitmap_and_fields_stay_inside_the_record() {
+    let mut body = vec![2, 0, 1];
+    body.extend_from_slice(&7_u32.to_le_bytes());
+    body.extend_from_slice(&8_u32.to_le_bytes());
+    body.extend_from_slice(&9_u32.to_le_bytes());
+    let bytes = frame(widget::WIDGET_MEASURE_TAG, &body);
+    assert_eq!(
+        widget::WidgetMeasure::decode(&bytes),
+        Ok(widget::WidgetMeasure::new(7, 8))
+    );
+    assert_eq!(widget::input_decode(&bytes).unwrap().len(), 1);
+    assert_eq!(
+        widget::input_decode(&frame(widget::WIDGET_MEASURE_TAG, &[255])).err(),
+        Some(ERR_INVALID)
+    );
 }

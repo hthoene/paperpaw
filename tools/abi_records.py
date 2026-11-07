@@ -459,15 +459,16 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
                 source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
             source += '}\n'
     source += '_ => {}\n}\nOk(())\n}\n}\n'
-    source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\nif !body.remaining.is_empty() { return Err(-2); }\nrecord.validate()?;\nOk(record)\n}\n'
+    source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n'
     source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
     source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if any(f['optional'] for r in declared for f in r['fields']) else 'write_varint(0, out, &mut offset);')
     for r in declared:
         title, borrows = _camel(r['name']), _lifetime(r)
         source += f"impl<'a> {title}<'a> {{\n" if borrows else f'impl {title} {{\n'
         source += f'/// Local tag of this record.\npub const TAG: u32 = {_const(r["name"])}_TAG;\n'
-        source += '/// Encode this record as a one-record batch.\npub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {\n' + f'records_encode(&[Record::{title}(*self)], out)\n}}\n'
-        source += f"/// Decode a batch holding exactly this record.\npub fn decode(bytes: {'&\'a [u8]' if borrows else '&[u8]'}) -> Result<Self, i32> {{\n" + f'let mut records = records_decode(bytes)?;\nif records.len() != 1 {{ return Err(-2); }}\nmatch records.next() {{\nSome(Ok(Record::{title}(r))) => Ok(r),\n_ => Err(-2),\n}}\n}}\n}}\n'
+        side = 'input' if r['name'] in stage['input'] else 'reply'
+        source += '/// Encode this record as a one-record batch.\npub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {\n' + f'{side}_encode(&[Record::{title}(*self)], out)\n}}\n'
+        source += f"/// Decode a batch holding exactly this record.\npub fn decode(bytes: {'&\'a [u8]' if borrows else '&[u8]'}) -> Result<Self, i32> {{\n" + f'let mut records = {side}_decode(bytes)?;\nif records.len() != 1 {{ return Err(-2); }}\nmatch records.next() {{\nSome(Ok(Record::{title}(r))) => Ok(r),\n_ => Err(-2),\n}}\n}}\n}}\n'
     source = source.replace('@INVALID@', '-2').replace('@NO_SPACE@', '-2').replace('@UTF8@', '-2')
     return source
 
@@ -501,13 +502,27 @@ impl<'a> Iterator for RecordStream<'a> {
 }
 /// Validate the complete batch before exposing records; foreign tags are invalid.
 pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
-    if bytes.len() > MAX_INPUT.max(MAX_REPLY) { return Err(-2); }
+    decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+}
+/// Decode exactly one stage input using only input tags and its byte cap.
+pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+    if records.len() != 1 { return Err(-2); }
+    Ok(records)
+}
+/// Decode a subscriber's reply using only reply tags, rows and byte cap.
+pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+}
+fn decode_with<'a>(bytes: &'a [u8], cap: usize, rows: usize, tags: &[u32]) -> Result<RecordStream<'a>, i32> {
+    if bytes.len() > cap { return Err(-2); }
     let mut reader = Reader { remaining: bytes };
     let count = reader.varint()? as usize;
-    if count > REPLY_ROWS.max(1) { return Err(-2); }
+    if count > rows { return Err(-2); }
     let records = reader.remaining;
     for _ in 0..count {
         let (tag, mut body) = reader.record()?;
+        if !tags.is_empty() && !tags.contains(&tag) { return Err(-2); }
         decode_body(tag, &mut body)?;
     }
     reader.finish()?;
@@ -516,14 +531,27 @@ pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
 '''
 ENCODE_TEMPLATE = '''/// Encode a bounded batch; invalid values and short output leave it untouched.
 pub fn records_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
-    if records.len() > REPLY_ROWS.max(1) { return Err(-2); }
+    encode_with(records, out, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+}
+/// Encode exactly one input using its tag and byte bounds.
+pub fn input_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() != 1 { return Err(-2); }
+    encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+}
+/// Encode a subscriber reply using its tag, row and byte bounds.
+pub fn reply_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+}
+fn encode_with(records: &[@RECORD@], out: &mut [u8], cap: usize, rows: usize, tags: &[u32]) -> Result<usize, i32> {
+    if records.len() > rows { return Err(-2); }
     let mut required = varint_len(records.len() as u32);
     for record in records {
+        if !tags.is_empty() && !tags.contains(&record.tag()) { return Err(-2); }
         record.validate()?;
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
     }
-    if required > MAX_INPUT.max(MAX_REPLY) { return Err(-2); }
+    if required > cap { return Err(-2); }
     if out.len() < required { return Err(-3); }
     let mut offset = 0;
     write_varint(records.len() as u32, out, &mut offset);

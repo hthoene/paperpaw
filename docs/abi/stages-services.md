@@ -289,7 +289,11 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] `tools/abi-gen.py` emits `stages_wire.rs` to `abi/generated/`,
   `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`. All copies are
   identical. Each `<key>_v<major>` module carries the key, version, bounds, input/reply tags and
-  borrowed record codecs; `STAGES` lists the schemas for the host. The codecs share the kernel
+  borrowed record codecs; `STAGES` lists the schemas for the host. `input_decode` checks
+  exactly one input record and `max_input`; `reply_decode` checks reply tags, `reply_rows`
+  and `max_reply`. Both validate the full batch before exposing a borrowed cursor. Unknown
+  appended fields stay within the record length and are skipped; bytes after the batch
+  are refused. The codecs share the kernel
   records emitter, framing and validation rules, without allocation.
 - [D] The ABI lock pins the schema and generated codec. A published schema keeps every key,
   major, record and existing field. New records and appended fields take a newer schema
@@ -299,7 +303,9 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
   target rows) and `core.status` (32 subscribers, up to 8 value rows).
 
-The stage codec is pinned as `emitted_stages` in ABI lock format 11. Older lock
+The stage codec is pinned as `emitted_stages`, the SHA-256 of the unformatted emitter
+output, in ABI lock format 11. Formatting is checked separately, so a rustfmt update
+does not change a frozen digest. Older lock
 formats still validate their original emitted sections. This adds no wire draft.
 
 ## 3. Memory (X4)
