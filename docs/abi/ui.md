@@ -234,10 +234,15 @@ asker learns its request id at once and long texts move in pages, never cut.
   over. An answer committed before the card went is still delivered (outcome, choice and
   `length`), only its op 10 read fails (section 3.2).
   **Secret texts never touch the card**: a `secret` question's text stays in memory, at most
-  2,048 bytes on the X4 (a PIN, a Wi-Fi or account password), `ERR_NO_SPACE` beyond.
-  **Live typing on the X4**: a `typing` answer (outcome 2) is accepted only while the text is in
-  memory (at most 512 bytes; beyond `ERR_NO_SPACE`, the dialog goes on and sends the final answer
-  only), so typing never rewrites the card per key; a final answer may use the card once.
+  8,192 bytes on every device, the 2,000 characters a password field takes in interface 6 in any
+  script (`keyboard/src/lib.rs:116`; the lock hashes the whole code, so nothing is ever cut),
+  allocated part by part as written (`ERR_NO_MEMORY` if the heap cannot, `ERR_NO_SPACE` beyond
+  the cap); a real password costs its own length. **Live typing on the X4**: a `typing` answer
+  (outcome 2) is accepted only while the text is in memory (at most 512 bytes, a secret text up
+  to its cap), so typing never rewrites the card per key. A longer one is `ERR_NO_SPACE` to the
+  dialog, and the asker gets one `typing` event with `flags` bit 2 `typing_stopped` (the live
+  text stopped there, it is not complete); the final answer is always whole and may use the card
+  once.
 - [D] Who may write: the asker inside the callback that asked (the initial text), then only the
   dialog instance the host opened for the request, until its final answer. Who may read: that
   dialog while it is open, and the asker in the callback that delivers its answer. Anyone else
@@ -299,7 +304,7 @@ asker learns its request id at once and long texts move in pages, never cut.
   text in that callback). If the asker stops before delivery, the request is freed at its stop.
   A dialog still open after a final answer keeps no access to it (`ERR_STATE`); its own copy of
   the text is the dialog plugin's (it may keep a draft). `flags` bit 0: the dialog closed itself
-  after this answer; bit 1 `not_started` (section 3.1).
+  after this answer; bit 1 `not_started` (section 3.1); bit 2 `typing_stopped` (section 3.1).
 
 ## 4. Input filters and guards
 
@@ -652,20 +657,22 @@ its caps (hand-off).
 - Host texts (request texts and hand-over texts, sections 1.1 and 3.1): up to 24,576 bytes each.
   On the X4 at most 4 at once (the question, its nested question, two hand-overs; `ERR_FULL`
   beyond), each with at most 512 bytes in memory and the rest in a host file on the card (a
-  secret text up to 2,048 bytes, in memory only), so texts cost at most 3.5 KiB of heap, and 4
-  KiB with no card (2 KiB pool + the secret text); elsewhere at most 16, in memory.
+  secret text up to 8,192 bytes, in memory only, as long as typed), so texts cost at most 9.5 KiB
+  of heap, and 10 KiB with no card (2 KiB pool + the secret text); elsewhere at most 16, in
+  memory.
 - Questions: at most 4 open requests device-wide (on the X4 one and its nested one), about 24
   bytes each plus the question (title, text, choices: at most 3.3 KiB), allocated fallibly at
   `ask` (`ERR_NO_MEMORY`). On the X4 the question goes to the request's card file with its text
   and op 2 reads it from there, so questions cost about 50 bytes of heap, nothing when none is
   open.
-- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 4 (no
-  card; 3.55 with one) + widgets 0.25 + status cache 1 + op 7 target cache 0.8 (only while a
-  callback pages) + clipboard 0 (card) + messages 0.5 = **about 8.3 KiB**, every part allocated
-  fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances
-  with small params, one short question, a status line) about 2 KiB, under the 4 KiB heap gate. Gate
-  before the UIX host is active on the X4: the worst case is a line of the X4 heap budget and the
-  typical case is measured on the device under 4 KiB (hand-off: Firmware, R3 heap measurement).
+- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 10 (no
+  card; 9.55 with one; 8 of it only while an 8 KiB password is typed) + widgets 0.25 + status cache
+  1 + op 7 target cache 0.8 (only while a callback pages) + clipboard 0 (card) + messages 0.5 =
+  **about 14.3 KiB**, every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`,
+  never a panic); typical use (a few instances with small params, one short question, a status line)
+  about 2 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
+  case is a line of the X4 heap budget and the typical case is measured on the device under 4 KiB
+  (hand-off: Firmware, R3 heap measurement).
 - Answers are not held-store edges: each request carries its answer and a pending mark (section
   3.2), so they cost nothing beyond the request.
 - Filters: at most 4 subscribers; one stage call per input on the host scratch.
