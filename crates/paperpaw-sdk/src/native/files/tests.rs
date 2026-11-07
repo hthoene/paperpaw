@@ -255,7 +255,7 @@ fn stat_and_space_are_typed() {
     let calls = state.calls.get();
     assert!(matches!(
         files.stat(&host, Root::Book, "", &mut input, &mut out),
-        Err(Error::Invalid)
+        Err(Error::Unsupported)
     ));
     assert_eq!(state.calls.get(), calls);
 }
@@ -329,6 +329,10 @@ fn changes_check_their_empty_reply_and_carry_their_flags() {
     assert_eq!(state.calls.get(), calls);
 }
 
+fn never() -> bool {
+    false
+}
+
 #[test]
 fn a_tree_is_removed_step_by_step_until_done() {
     open_files!(state, host, files);
@@ -342,7 +346,7 @@ fn a_tree_is_removed_step_by_step_until_done() {
         ],
     );
     let total = files
-        .remove_tree(&host, Root::Data, "old", &mut input, &mut out)
+        .remove_tree(&host, Root::Data, "old", 100, never, &mut input, &mut out)
         .unwrap();
     assert_eq!(total, 69);
     assert_eq!(state.calls.get(), 3);
@@ -354,18 +358,246 @@ fn a_tree_is_removed_step_by_step_until_done() {
         sent.iter().next(),
         Some(Record::ServiceFsList(r)) if (r.path, r.cursor) == ("old", 12)
     ));
-    // A host that never advances is given up on.
-    let before = state.calls.get();
-    reply(&state, &[&[progress(0, 0, 7)]]);
-    assert!(matches!(
-        files.remove_tree(&host, Root::Data, "old", &mut input, &mut out),
-        Err(Error::Invalid)
-    ));
-    assert!(state.calls.get() - before <= STALLED_STEPS + 3);
-    // Unknown flags of a step.
+    // Unknown flags of a step, and more removals than a call may make.
     reply(&state, &[&[progress(0, 2, 0)]]);
     assert!(matches!(
         files.remove_step(&host, Root::Data, "old", 0, &mut input, &mut out),
         Err(Error::Invalid)
     ));
+    reply(&state, &[&[progress(65, 0, 3)]]);
+    assert!(matches!(
+        files.remove_step(&host, Root::Data, "old", 0, &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+}
+
+#[test]
+fn a_tree_removal_that_goes_in_circles_is_given_up_on() {
+    open_files!(state, host, files);
+    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
+    let mut run = |replies: &[&[Record<'_>]]| {
+        reply(&state, replies);
+        state.calls.set(0);
+        let r = files.remove_tree(
+            &host,
+            Root::Data,
+            "old",
+            10_000,
+            never,
+            &mut input,
+            &mut out,
+        );
+        (r, state.calls.get())
+    };
+    // The same place again.
+    let (r, calls) = run(&[&[progress(0, 0, 7)]]);
+    assert_eq!(r, Err(Error::Invalid));
+    assert!(calls <= 3);
+    // Two places taking turns, which a "the cursor changed" check would call
+    // progress for ever.
+    let (r, calls) = run(&[&[progress(0, 0, 1)], &[progress(0, 0, 2)]]);
+    assert_eq!(r, Err(Error::Invalid));
+    assert!(calls <= 6, "{calls}");
+    // A long loop with a tail in front of it.
+    let tail: Vec<Vec<Record<'_>>> = (1..=40u64)
+        .map(|n| vec![progress(0, 0, n % 37 + 100)])
+        .collect();
+    let rows: Vec<&[Record<'_>]> = tail.iter().map(Vec::as_slice).collect();
+    let (r, calls) = run(&rows);
+    assert_eq!(r, Err(Error::Invalid));
+    assert!(calls <= 200, "{calls}");
+    // A removal in between starts the search again: a long folder read in
+    // many calls with removals along the way is not a loop.
+    let mut long: Vec<Vec<Record<'_>>> = Vec::new();
+    for n in 0..300u64 {
+        long.push(vec![progress(u32::from(n % 5 == 0), 0, 1 + n % 3)]);
+    }
+    long.push(vec![progress(1, 1, 0)]);
+    let rows: Vec<&[Record<'_>]> = long.iter().map(Vec::as_slice).collect();
+    let (r, calls) = run(&rows);
+    assert_eq!(r, Ok(61), "{calls}");
+}
+
+#[test]
+fn a_tree_removal_stops_at_its_step_cap_or_when_cancelled() {
+    open_files!(state, host, files);
+    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
+    // Never done, always removing: only the cap ends it.
+    let rows: Vec<Vec<Record<'_>>> = (0..50u64).map(|n| vec![progress(1, 0, 1000 + n)]).collect();
+    let rows: Vec<&[Record<'_>]> = rows.iter().map(Vec::as_slice).collect();
+    reply(&state, &rows);
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "old", 7, never, &mut input, &mut out),
+        Err(Error::Timeout)
+    );
+    assert_eq!(state.calls.get(), 7);
+    // Cancel is asked before each call: true on the third stops it with two made.
+    state.calls.set(0);
+    let mut asked = 0;
+    let cancel = || {
+        asked += 1;
+        asked == 3
+    };
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "old", 100, cancel, &mut input, &mut out),
+        Err(Error::Cancelled)
+    );
+    assert_eq!(state.calls.get(), 2);
+    // No steps allowed, no call.
+    state.calls.set(0);
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "old", 0, never, &mut input, &mut out),
+        Err(Error::Timeout)
+    );
+    assert_eq!(state.calls.get(), 0);
+}
+
+#[test]
+fn replies_are_held_to_the_contract_even_with_a_big_buffer() {
+    open_files!(state, host, files);
+    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
+    let end_with = |next: u32, total: u32, generation: u32| {
+        Record::ServiceEnd(wire::ServiceEnd {
+            flags: 1,
+            total,
+            generation,
+            next,
+            cursor: None,
+        })
+    };
+    let mut list = |rows: &[Record<'_>]| {
+        reply(&state, &[rows]);
+        files
+            .list(&host, Root::Data, "", 0, &mut input, &mut out)
+            .map(|p| p.len())
+    };
+    // The end's next, total and generation are 0 for this service.
+    for (next, total, generation) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
+        assert_eq!(
+            list(&[end_with(next, total, generation)]),
+            Err(Error::Invalid)
+        );
+    }
+    assert_eq!(list(&[end_with(0, 0, 0)]), Ok(0));
+    // A listing never has an empty name, ".", or "..".
+    for name in ["", ".", ".."] {
+        assert_eq!(
+            list(&[entry(name, 0, 1, None), end_with(0, 0, 0)]),
+            Err(Error::Invalid),
+            "{name:?}"
+        );
+    }
+    // Stat names the root with "", and only the root; no "." either.
+    reply(&state, &[&[entry("", 1, 0, None)]]);
+    assert!(
+        files
+            .stat(&host, Root::Data, "", &mut input, &mut out)
+            .unwrap()
+            .is_folder()
+    );
+    for (path, name) in [("a", ""), ("a", "."), ("", "..")] {
+        reply(&state, &[&[entry(name, 1, 0, None)]]);
+        assert_eq!(
+            files
+                .stat(&host, Root::Data, path, &mut input, &mut out)
+                .map(|e| e.size()),
+            Err(Error::Invalid),
+            "{path:?} {name:?}"
+        );
+    }
+    // A reply longer than the operation's largest, in a scratch buffer that is
+    // bigger than needed: the operation's own cap decides.
+    let cap = files.service.max_reply(schema::OP_MAKE_DIR).unwrap();
+    let mut big = vec![0u8; cap + 64];
+    let at_cap = vec![0u8; cap];
+    state.replies.replace(vec![at_cap]);
+    let record = Record::ServiceFsPath(wire::ServiceFsPath { root: 0, path: "a" });
+    let op = schema::OP_MAKE_DIR;
+    assert_eq!(
+        files.call(&host, op, &record, &mut input, &mut big),
+        Ok(cap)
+    );
+    state.replies.replace(vec![vec![0u8; cap + 1]]);
+    assert_eq!(
+        files.call(&host, op, &record, &mut input, &mut big),
+        Err(Error::Invalid)
+    );
+}
+
+#[test]
+fn refusals_come_through_and_short_buffers_are_refused_before_a_call() {
+    open_files!(state, host, files);
+    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
+    reply(&state, &[&[]]);
+    // Busy from the host is passed on untouched, for every changing op.
+    state.error.set(abi::ERR_BUSY);
+    assert_eq!(
+        files.make_dir(&host, Root::Data, "a", &mut input, &mut out),
+        Err(Error::Busy)
+    );
+    assert_eq!(
+        files.remove_tree(&host, Root::Data, "a", 5, never, &mut input, &mut out),
+        Err(Error::Busy)
+    );
+    assert_eq!(
+        files.move_entry(
+            &host,
+            Root::Data,
+            "a",
+            Root::Data,
+            "b",
+            false,
+            &mut input,
+            &mut out
+        ),
+        Err(Error::Busy)
+    );
+    state.error.set(0);
+    // Reserved roots never leave, whichever call.
+    let calls = state.calls.get();
+    for root in [Root::Book, Root::UserCss, Root::DocumentCache] {
+        assert_eq!(
+            files
+                .list(&host, root, "", 0, &mut input, &mut out)
+                .map(|p| p.len()),
+            Err(Error::Unsupported)
+        );
+        assert_eq!(
+            files.make_dir(&host, root, "a", &mut input, &mut out),
+            Err(Error::Unsupported)
+        );
+        assert_eq!(
+            files
+                .space(&host, root, &mut input, &mut out)
+                .map(|s| s.free()),
+            Err(Error::Unsupported)
+        );
+    }
+    assert_eq!(state.calls.get(), calls);
+    // The bundle root (2) is read only: the host says Denied, and it comes through.
+    state.error.set(abi::ERR_DENIED);
+    assert_eq!(
+        files.make_dir(&host, Root::Install, "a", &mut input, &mut out),
+        Err(Error::Denied)
+    );
+    assert_eq!(
+        files.remove_step(&host, Root::Install, "a", 0, &mut input, &mut out),
+        Err(Error::Denied)
+    );
+    state.error.set(0);
+    // Short buffers: no call is made, the answer is NoSpace.
+    let calls = state.calls.get();
+    let mut short_out = [0u8; 16];
+    assert_eq!(
+        files
+            .list(&host, Root::Data, "", 0, &mut input, &mut short_out)
+            .map(|p| p.len()),
+        Err(Error::NoSpace)
+    );
+    let mut short_in = [0u8; 4];
+    assert_eq!(
+        files.make_dir(&host, Root::Data, "a", &mut short_in, &mut out),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(state.calls.get(), calls);
 }

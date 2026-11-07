@@ -33,8 +33,8 @@ const SPACE_TOTAL_KNOWN: u32 = 2;
 const SPACE_IGNORES_CASE: u32 = 4;
 const PROGRESS_DONE: u32 = 1;
 const END_LAST: u32 = 1;
-/// Calls of a whole-tree removal that make no headway before it gives up.
-const STALLED_STEPS: u32 = 64;
+/// Most removals one `remove_tree` call makes.
+const REMOVED_MAX: u32 = 64;
 
 /// A `core.files` service handle. Release it explicitly within a callback.
 #[derive(Debug)]
@@ -53,12 +53,15 @@ pub struct Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
-    fn decode(record: Record<'a>) -> Result<Self, Error> {
+    /// `root` is true for the one row that may have no name: `stat` of a root.
+    fn decode(record: Record<'a>, root: bool) -> Result<Self, Error> {
         let Record::ServiceFsEntry(row) = record else {
             return Err(Error::Invalid);
         };
+        let nameless = row.name.is_empty() || matches!(row.name, "." | "..");
         if row.flags & !(ENTRY_FOLDER | ENTRY_UNADDRESSABLE) != 0
             || row.name.contains('/')
+            || nameless && !(root && row.name.is_empty())
             || row.flags & ENTRY_FOLDER != 0 && row.size != 0
         {
             return Err(Error::Invalid);
@@ -121,9 +124,12 @@ impl<'a> Listing<'a> {
             if count > PAGE_MAX_ROWS {
                 return Err(Error::Invalid);
             }
-            Entry::decode(record)?;
+            Entry::decode(record, false)?;
         };
-        if !rest.is_empty() || end.flags & !END_LAST != 0 {
+        if !rest.is_empty()
+            || end.flags & !END_LAST != 0
+            || (end.next, end.total, end.generation) != (0, 0, 0)
+        {
             return Err(Error::Invalid);
         }
         let next = if end.flags & END_LAST != 0 {
@@ -151,7 +157,7 @@ impl<'a> Listing<'a> {
             left -= 1;
             let (record, n) = wire::record_decode_prefix(rest).ok()?;
             rest = rest.get(n..)?;
-            Entry::decode(record).ok()
+            Entry::decode(record, false).ok()
         })
     }
     /// How many entries the page holds.
@@ -234,8 +240,10 @@ impl Progress {
 }
 
 fn check(root: Root, path: &str) -> Result<(), Error> {
+    // Roots 3 and above are reserved: the service answers Unsupported, and so
+    // does this check, without a call.
     if !matches!(root, Root::Data | Root::Files | Root::Install) {
-        return Err(Error::Invalid);
+        return Err(Error::Unsupported);
     }
     if path.len() > MAX_PATH {
         return Err(Error::NoSpace);
@@ -280,8 +288,14 @@ impl Files {
             input,
         )
         .map_err(Error::from_status)?;
-        self.service
-            .call(host, op, input.get(..len).ok_or(Error::Invalid)?, out)
+        let n = self
+            .service
+            .call(host, op, input.get(..len).ok_or(Error::Invalid)?, out)?;
+        // A larger scratch buffer does not widen what the operation may answer.
+        if n > operation.max_reply {
+            return Err(Error::Invalid);
+        }
+        Ok(n)
     }
 
     fn mutate(
@@ -303,8 +317,10 @@ impl Files {
     ///
     /// # Errors
     /// NotFound for a missing folder, Invalid for a file or a malformed reply
-    /// (also a page that does not go on), NoSpace for a long path, Denied
-    /// for the card without `uses.storage`; otherwise the host's refusal.
+    /// (also a page that does not go on), NoSpace for a long path, Unsupported
+    /// for a root the service does not have (the book, user CSS and cache
+    /// roots), Denied for the card without `uses.storage`, Busy while the host
+    /// uses the folder; otherwise the host's refusal.
     pub fn list<'a>(
         &self,
         host: &Host<'_>,
@@ -343,7 +359,7 @@ impl Files {
             path,
         });
         let n = self.call(host, schema::OP_STAT, &record, input, out)?;
-        Entry::decode(one(out.get(..n).ok_or(Error::Invalid)?)?)
+        Entry::decode(one(out.get(..n).ok_or(Error::Invalid)?)?, path.is_empty())
     }
 
     /// Free and total bytes of the medium `root` lives on.
@@ -425,7 +441,7 @@ impl Files {
         let Record::ServiceFsProgress(row) = one(out.get(..n).ok_or(Error::Invalid)?)? else {
             return Err(Error::Invalid);
         };
-        if row.flags & !PROGRESS_DONE != 0 {
+        if row.flags & !PROGRESS_DONE != 0 || row.removed > REMOVED_MAX {
             return Err(Error::Invalid);
         }
         Ok(Progress {
@@ -439,33 +455,58 @@ impl Files {
     /// a time until it is gone; how many entries were removed. What was removed
     /// stays removed where it stops with an error.
     ///
+    /// The loop has a progress policy of its own, so no host can keep it
+    /// running: `cancel` is asked before every step (true stops with
+    /// Cancelled), at most `max_steps` calls are made (more is Timeout; each
+    /// call is at most 64 removals and 256 entries read, so a plugin sizes it
+    /// to its largest tree), and a run of calls that remove nothing which comes
+    /// back to a place it has been at, however many places away, is a cycle
+    /// (Invalid). Use [`Files::remove_step`] for work that resumes later.
+    ///
     /// # Errors
-    /// As [`Files::remove_step`]; Invalid where the host stops making headway.
+    /// As [`Files::remove_step`]; Cancelled, Timeout or Invalid as above.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the call's buffers and its progress policy"
+    )]
     pub fn remove_tree(
         &self,
         host: &Host<'_>,
         root: Root,
         path: &str,
+        max_steps: u32,
+        mut cancel: impl FnMut() -> bool,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<u64, Error> {
-        let (mut cursor, mut total, mut stalled) = (0, 0u64, 0u32);
-        loop {
+        let (mut cursor, mut total) = (0, 0u64);
+        // Brent's cycle search over the places of a run that removes nothing:
+        // the host keeps no state, so such a run is a function of the place
+        // and a place seen twice is a loop.
+        let (mut mark, mut power, mut seen) = (0u64, 1u32, 0u32);
+        for _ in 0..max_steps {
+            if cancel() {
+                return Err(Error::Cancelled);
+            }
             let step = self.remove_step(host, root, path, cursor, input, out)?;
             total = total.saturating_add(u64::from(step.removed));
             if step.done {
                 return Ok(total);
             }
-            if step.removed == 0 && step.next == cursor {
-                stalled += 1;
-                if stalled > STALLED_STEPS {
+            if step.removed > 0 {
+                (mark, power, seen) = (step.next, 1, 0);
+            } else {
+                if step.next == mark || step.next == cursor {
                     return Err(Error::Invalid);
                 }
-            } else {
-                stalled = 0;
+                seen += 1;
+                if seen == power {
+                    (mark, power, seen) = (step.next, power.saturating_mul(2), 0);
+                }
             }
             cursor = step.next;
         }
+        Err(Error::Timeout)
     }
 
     /// Move or rename the file or folder `from` to `to` (also between the data
