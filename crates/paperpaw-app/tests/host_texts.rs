@@ -42,6 +42,7 @@ const KEYS: &[&str] = &[
     "core.host-library.name-taken",
     "core.host-library.replace-denied",
     "core.host-safe-mode.power-escape",
+    "core.host-secrets.needs-wifi",
 ];
 
 fn placeholders(text: &str) -> Vec<&str> {

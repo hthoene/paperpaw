@@ -2,7 +2,7 @@
 use super::*;
 use crate::native_host::{
     secrets_file::{Sealer, Veiling},
-    secrets_service::{Rng, SecretsHost},
+    secrets_service::{Rng, SecretsHost, SecretsServices, check_owner},
 };
 
 /// The shell's sealing of secret values, with no allocation or retained plaintext.
@@ -73,6 +73,7 @@ pub struct SecretsInputs {
     sealer: Option<Sealing>,
     random: Option<Random>,
     unreadable: Option<Rc<dyn Fn()>>,
+    needs_radio: Option<Rc<dyn Fn()>>,
 }
 impl core::fmt::Debug for SecretsInputs {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -80,6 +81,7 @@ impl core::fmt::Debug for SecretsInputs {
             .field("custom_sealer", &self.sealer.is_some())
             .field("random", &self.random.is_some())
             .field("unreadable", &self.unreadable.is_some())
+            .field("needs_radio", &self.needs_radio.is_some())
             .finish()
     }
 }
@@ -93,6 +95,7 @@ impl SecretsInputs {
             sealer: Some(Sealing(sealer)),
             random: None,
             unreadable: None,
+            needs_radio: None,
         }
     }
     /// Keep interface 6's veiling on the emulator or in Android's private
@@ -105,6 +108,7 @@ impl SecretsInputs {
             sealer: None,
             random: None,
             unreadable: None,
+            needs_radio: None,
         }
     }
     /// Set the random source. Without one, random requests are unsupported.
@@ -118,6 +122,20 @@ impl SecretsInputs {
     #[must_use]
     pub fn unreadable(mut self, notice: Rc<dyn Fn()>) -> Self {
         self.unreadable = Some(notice);
+        self
+    }
+}
+impl SecretsInputs {
+    /// Notify the shell when a save was refused because the sealer could not
+    /// draw a strong nonce now ([`ShellSealer::seal`] or [`ShellRandom::fill`]
+    /// answered `ERR_STATE`; the X4 with its radio off). The call fails with
+    /// `ERR_STATE` and the file is unchanged. The shell shows the host text
+    /// `core.host-secrets.needs-wifi` ("Turn on Wi-Fi to save this."). Called at
+    /// every refused `keep`, `remove` or uninstall, never for
+    /// [`SecretsMaintenance::migrate`]; the shell rate-limits its toast.
+    #[must_use]
+    pub fn needs_radio(mut self, notice: Rc<dyn Fn()>) -> Self {
+        self.needs_radio = Some(notice);
         self
     }
 }
@@ -136,6 +154,96 @@ impl SecretsHost for SecretsInputs {
     fn unreadable(&self) {
         if let Some(notice) = &self.unreadable {
             notice();
+        }
+    }
+    fn needs_radio(&self) {
+        if let Some(notice) = &self.needs_radio {
+            notice();
+        }
+    }
+}
+
+/// Where a startup migration step goes on; start with [`Self::default`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MigrationCursor(u32);
+
+/// How far a [`SecretsMaintenance::migrate`] step got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Migration {
+    /// No veiled value is left to seal from the cursor on.
+    Done,
+    /// A bounded batch was sealed; call again with this cursor.
+    More(MigrationCursor),
+}
+
+/// What the user chose for the data folder of a plugin being removed
+/// (decision 124).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DataChoice {
+    /// "Remove and keep data": its secrets stay, found again on reinstall.
+    Keep,
+    /// "Remove and delete data": its secrets go with the folder.
+    Delete,
+}
+
+/// The shell's maintenance of the secrets file, from [`WiredHosts::secrets`].
+/// It shares the wired service's inputs and holds no key or plaintext.
+#[derive(Clone)]
+pub struct SecretsMaintenance(SecretsServices);
+
+impl core::fmt::Debug for SecretsMaintenance {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretsMaintenance")
+    }
+}
+
+impl SecretsMaintenance {
+    pub(super) fn new(service: SecretsServices) -> Self {
+        Self(service)
+    }
+
+    /// Startup migration from interface 6 (`docs/abi/secrets.md` 3.1): seals
+    /// veiled values, a bounded batch per call (at most eight values; one pass
+    /// over a file of at most 64 KiB), and replaces the file by rename, so a
+    /// power cut leaves the old file, still readable, or the new one. Call it
+    /// once after [`HostResources::wire`], one step per turn, with the cursor
+    /// from the last step until it answers [`Migration::Done`]. A device that
+    /// only veils is `Done` at once. A veiled value that does not open is
+    /// passed over, and a step that finds none writes nothing.
+    ///
+    /// Any save also seals every veiled value it finds, so the migration is
+    /// an eager start, not a precondition.
+    ///
+    /// # Errors
+    /// `ERR_IO` (card away; nothing changed, the unreadable notice follows once),
+    /// `ERR_STATE` (the sealer has no strong nonce now, the X4 with its radio
+    /// off; nothing changed, try again later; no notice is raised),
+    /// `ERR_NO_MEMORY`.
+    pub fn migrate(&self, cursor: MigrationCursor) -> Result<Migration, i32> {
+        let step = self.0.migrate(cursor.0)?;
+        Ok(step.next.map_or(Migration::Done, |next| {
+            Migration::More(MigrationCursor(next))
+        }))
+    }
+
+    /// A plugin was removed by the user's choice (decision 124). With
+    /// [`DataChoice::Delete`] every secret of `plugin` is removed from the file,
+    /// also those that do not open here, in one pass and replaced by rename;
+    /// call it after the data folder was moved away. With [`DataChoice::Keep`]
+    /// the secrets stay and nothing is read or written. `plugin` is the validated
+    /// installed id, never a name a plugin gave.
+    ///
+    /// # Errors
+    /// `ERR_INVALID` (not a usable id), `ERR_IO` (nothing changed; the secrets
+    /// remain: retry), `ERR_STATE` (a veiled value was due for sealing and no
+    /// strong nonce is available; nothing changed; the `needs_radio` notice
+    /// follows), `ERR_NO_MEMORY`.
+    pub fn plugin_removed(&self, plugin: &str, data: DataChoice) -> Result<(), i32> {
+        match data {
+            DataChoice::Keep => check_owner(plugin),
+            DataChoice::Delete => self.0.forget_plugin(plugin),
         }
     }
 }

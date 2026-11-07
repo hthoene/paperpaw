@@ -19,7 +19,10 @@ use paperpaw_platform::Storage;
 
 #[path = "shell_wiring/secrets.rs"]
 mod secrets;
-pub use secrets::{SecretsInputs, ShellRandom, ShellSealer};
+pub use secrets::{
+    DataChoice, Migration, MigrationCursor, SecretsInputs, SecretsMaintenance, ShellRandom,
+    ShellSealer,
+};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
 /// family the shell does not name.
@@ -111,6 +114,7 @@ impl HyphenTables {
 #[non_exhaustive]
 pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
+    secrets: Option<SecretsMaintenance>,
 }
 
 impl WiredHosts {
@@ -118,6 +122,12 @@ impl WiredHosts {
     #[must_use]
     pub fn hyphen(&self) -> Option<&HyphenTables> {
         self.hyphen.as_ref()
+    }
+
+    /// The secrets file's maintenance, if `core.secrets` was wired.
+    #[must_use]
+    pub fn secrets(&self) -> Option<&SecretsMaintenance> {
+        self.secrets.as_ref()
     }
 }
 
@@ -144,7 +154,9 @@ impl HostResources {
             hosts.wire_device(host)?;
         }
         if let Some(inputs) = wiring.secrets {
-            hosts.wire_secrets(SecretsServices::new(Rc::new(inputs)))?;
+            let service = SecretsServices::new(Rc::new(inputs));
+            hosts.wire_secrets(service.clone())?;
+            wired.secrets = Some(SecretsMaintenance::new(service));
         }
         Ok(wired)
     }
