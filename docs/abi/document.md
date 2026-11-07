@@ -71,6 +71,14 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   at most 8; empty: every format). `flags` reserved, 0. Op 21 lists them; which one opens a book is
   the opener's choice (the files plugin remembers it in its Data, as interface 6
   `readers::remember`).
+- [D] **Opening a book** (interface 6 `readers::open`, `open_page`, `Command::OpenBook`) is
+  `command.open` (`ui.md` section 1) with a hand-over of the params `path` (the book's root-1 path)
+  and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the
+  screen the user bound there (the default reading app); mode 3 with a `doc_reader.screen` as
+  target and slot `core.reader` opens it with that reader. The reader opens the document with
+  op 1 (`open`), which starts the host's reading session (`core-events.md`). The interface-6
+  kernel resolver (a reader per book, folder or format, `cannot_open` passing on to the next) is
+  not carried: a reader that cannot open a book shows why itself.
 
 ## 2. The service `core.document` (major 1)
 
