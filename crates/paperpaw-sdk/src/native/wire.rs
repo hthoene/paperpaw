@@ -36,3 +36,13 @@ pub(crate) mod color_wire;
     reason = "generated command codec (abi/generated/commands_wire.rs, byte for byte)"
 )]
 pub(crate) mod commands_wire;
+#[rustfmt::skip]
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    missing_docs,
+    dead_code,
+    unreachable_pub,
+    reason = "generated service op tables (abi/generated/services_wire.rs, byte for byte)"
+)]
+pub(crate) mod services_wire;

@@ -91,6 +91,12 @@ pub struct PpHost {
     pub text_ink: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, text: PpBytes, top: *mut i32, bottom: *mut i32, left: *mut i32, right: *mut i32) -> i32,
     /// canvas.clip: mutate, status, since 1.
     pub canvas_clip: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32) -> i32,
+    /// stage.run: mutate, count, since 1.
+    pub stage_run: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, stage: PpBytes, cursor: u32, input: PpBytes, out: PpBuffer) -> i32,
+    /// service.open: mutate, status, since 1.
+    pub service_open: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, major: u16, minor: u16, out: *mut u32) -> i32,
+    /// service.call: mutate, count, since 1.
+    pub service_call: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, service: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

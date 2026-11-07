@@ -26,12 +26,19 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+#[path = "native_host/call_services.rs"]
+mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 mod service_slots;
+#[allow(
+    dead_code,
+    reason = "stage broker wiring follows this framing foundation"
+)]
+mod stage_wire;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
@@ -82,6 +89,49 @@ pub mod frames;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this owner holder"
+)]
+#[path = "native_host/retained.rs"]
+mod retained;
+
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this screen router"
+)]
+#[path = "native_host/native_screen.rs"]
+mod native_screen;
+
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows these owned values"
+)]
+#[path = "native_host/native_values.rs"]
+mod native_values;
+
+#[allow(
+    dead_code,
+    reason = "native registry publication follows this dispatcher"
+)]
+#[path = "native_host/native_dispatch.rs"]
+mod native_dispatch;
+
+#[allow(
+    dead_code,
+    reason = "production native activation and stage broker follow this registry"
+)]
+#[path = "native_host/native_instances.rs"]
+pub(crate) mod native_instances;
+
+// Static-entry activation uses the shared D1 reader; registry wiring follows.
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this prerequisite"
+)]
+#[path = "native_host/linked_entry.rs"]
+pub(crate) mod linked_entry;
+
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
 #[path = "native_host/shell.rs"]
@@ -303,6 +353,11 @@ impl<C, M> HostOwner<C, M> {
         self.inner.is_active()
     }
 
+    /// Whether callback admission remains open, including between callbacks.
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.is_live()
+    }
+
     /// Revoke immediately and run cancellation then release once, unless a
     /// callback is active. The shell must defer Busy to its next tick. After
     /// success, remove subscriptions and queued work before calling finish.
@@ -389,8 +444,14 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
     pub fn reject(&mut self) {
+        self.reject_with(Error::Invalid);
+    }
+
+    /// [`reject`](Self::reject) with a cause other than Invalid, such as
+    /// Memory when the host could not allocate to decode a batch.
+    pub fn reject_with(&mut self, cause: Error) {
         if self.failure.is_none() {
-            self.failure = Some(Error::Invalid);
+            self.failure = Some(cause);
         }
     }
 
@@ -441,6 +502,34 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
+        self.publish(teardown)
+    }
+
+    /// Validate and map every native declaration before callback activation.
+    /// Mapping returns only host-owned staging; nothing is visible on failure.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this transaction"
+    )]
+    pub(crate) fn commit_native<R>(
+        mut self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
+        if let Some(error) = self.failure {
+            return Err(registrations::status(error));
+        }
+        self.finish_declarations()?;
+        let staging = map(&self.declaration_view())?;
+        // The mapper owns every value it keeps. Release construction copies
+        // and image indexes before activation instead of retaining both sets.
+        self.declarations = Declarations::default();
+        self.raw = raw_declarations::RawDeclarations::default();
+        let batch = self.publish(teardown).map_err(registrations::status)?;
+        Ok((batch, staging))
+    }
+
+    fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
@@ -614,6 +703,16 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
+    }
+
+    /// Dispatch a declared contribution's token through this batch's owner.
+    /// The host resolves and validates the declaration before calling this.
+    pub(crate) fn dispatch_owner<R>(
+        &self,
+        depth: &DispatchDepth,
+        callback: impl FnOnce(Pin<&C>) -> R,
+    ) -> Result<R, Error> {
+        self.lease.dispatch(depth, callback)
     }
 
     /// Dispatch one registered record after owner and shared-state admission.

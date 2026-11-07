@@ -26,7 +26,7 @@ use core::ptr;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
     self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
-    read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
+    read_plugin_draw, read_plugin_drop, read_plugin_input, read_plugin_size, read_plugin_state,
 };
 use paperpaw_platform::Rect;
 
@@ -68,6 +68,7 @@ pub type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpP
 
 type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
 type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
+type Input = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 /// What `make` returned, copied from its table: only generated, bounded
 /// fields, and never a reference to the whole table.
@@ -77,6 +78,7 @@ struct PluginOutput {
     destroy: unsafe extern "C" fn(*mut c_void),
     event: Option<Event>,
     draw: Option<Draw>,
+    input: Option<Input>,
 }
 
 fn optional<T>(callback: Result<T, i32>) -> Result<Option<T>, Error> {
@@ -110,6 +112,7 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
             destroy: read_plugin_drop(table, accessible).map_err(|_| Error::Plugin)?,
             event: optional(read_plugin_dispatch_event(table, accessible))?,
             draw: optional(read_plugin_draw(table, accessible))?,
+            input: optional(read_plugin_input(table, accessible))?,
         })
     }
 }
@@ -136,6 +139,7 @@ pub struct Context<S> {
     attempted: Cell<bool>,
     /// The scope in which `make`'s registrations are staged.
     pub registrations: RegistrationScope<Registration>,
+    pub(crate) commands: super::commands::CommandScope,
     /// The scope in which a callback may query the environment.
     pub environment: EnvironmentScope,
     /// The scope in which a draw callback may paint.
@@ -196,8 +200,8 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 pub struct Hosted<S, M> {
     owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
-    /// The plugin's read-only data as mapped: address and length.
-    image: (usize, usize),
+    /// The plugin's read-only data as mapped: pointer with provenance and length.
+    image: (*const u8, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
     stopped: Cell<bool>,
 }
@@ -212,6 +216,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.registrations_submit = registrations_submit::<S>;
+    table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
     table.settings_read = settings_read::<S>;
     table.canvas_fill_rect = canvas_fill_rect::<S>;
@@ -229,6 +234,8 @@ pub fn host_table<S: Services>() -> PpHost {
     table.storage_rename = storage_rename::<S>;
     table.storage_remove = storage_remove::<S>;
     table.storage_sync = storage_sync::<S>;
+    table.service_open = service_open::<S>;
+    table.service_call = service_call::<S>;
     table.services_query = services_query::<S>;
     table.blob_read = blob_read::<S>;
     table.blob_release = blob_release::<S>;
@@ -248,8 +255,8 @@ pub fn host_table<S: Services>() -> PpHost {
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
     /// `report` is the shell's real diagnostic sink, including the X4 sink.
-    /// `image` is the address and length of the plugin's read-only data
-    /// (`(0, 0)` for none).
+    /// `image` is the pointer and length of the plugin's read-only data
+    /// (null and zero for none).
     ///
     /// # Errors
     /// `Allocation` when the id or the owner cannot be placed; `services` and
@@ -260,7 +267,7 @@ impl<S: Services, M> Hosted<S, M> {
     /// - `make` is the validated entry of the code that `module` keeps loaded,
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
-    ///   while `module` lives, or `(0, 0)`.
+    ///   while `module` lives, or a null pointer with zero length.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the owner resources and checked requirements"
@@ -270,7 +277,7 @@ impl<S: Services, M> Hosted<S, M> {
         module: M,
         make: Make,
         id: &str,
-        image: (usize, usize),
+        image: (*const u8, usize),
         report: Report<S>,
         resources: super::HostResources,
         declared_services: DeclaredServices,
@@ -295,6 +302,7 @@ impl<S: Services, M> Hosted<S, M> {
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
+            commands: super::commands::CommandScope::new(),
             environment: EnvironmentScope::with_resources(scoped_resources),
             canvas: CanvasScope::new(),
         };
@@ -353,7 +361,7 @@ impl<S: Services, M> Hosted<S, M> {
         }
         // SAFETY: `new`'s contract: a read-only mapping of `len` bytes at
         // `start`, held by the owner's module for as long as `self` lives.
-        Some(unsafe { core::slice::from_raw_parts(start as *const u8, len) })
+        Some(unsafe { core::slice::from_raw_parts(start, len) })
     }
 
     /// Starts the transaction `make` registers in.
@@ -505,6 +513,32 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         })?;
         self.armed = false;
         Ok(batch)
+    }
+
+    /// Keep native output pending until all declaration mapping succeeds.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this transaction"
+    )]
+    pub(crate) fn commit_native<R>(
+        mut self,
+        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(Batch<'a, S, M, T>, R), Error> {
+        let transaction = self.transaction.take().ok_or(Error::Attempt)?;
+        let result = transaction
+            .staging
+            .commit_native(
+                crate::native_host::Teardown {
+                    report: report_context::<S>,
+                    cancel: cancel_context::<S>,
+                    release: release_context::<S>,
+                    destroy: destroy_context::<S>,
+                },
+                map,
+            )
+            .map_err(Error::Status)?;
+        self.armed = false;
+        Ok(result)
     }
 }
 
@@ -829,6 +863,14 @@ fn invoke_registration<S>(
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }
 }
+
+#[path = "shell_tokens.rs"]
+mod tokens;
+#[allow(
+    unused_imports,
+    reason = "native built-in adapter follows this prerequisite"
+)]
+pub(crate) use tokens::{TokenInvocation, dispatch_token, dispatch_token_draw};
 
 /// Dispatches record `index` without a frame.
 ///
@@ -1251,6 +1293,9 @@ unsafe extern "C" fn text_draw<S>(
     }
 }
 
+#[cfg(test)]
+#[path = "shell_token_tests.rs"]
+mod token_tests;
 unsafe extern "C" fn services_query<S>(
     ctx: *mut c_void,
     key: PpBytes,
@@ -1291,4 +1336,66 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
         return host_glue::ERR_INVALID;
     };
     super::service_slots::release(&context.environment, &context.resources, blob)
+}
+
+#[cfg(test)]
+#[path = "shell_core.rs"]
+mod core_dispatch;
+
+unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32 {
+    // SAFETY: nonnull ctx is the pinned host context supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: the slot contract supplies stable, readable batch bytes.
+    unsafe { context.commands.submit(batch.ptr, batch.len) }
+}
+
+unsafe extern "C" fn service_open<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::open(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn service_call<S>(
+    ctx: *mut c_void,
+    service: u32,
+    op: u32,
+    input: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::call(
+            &context.environment,
+            &context.resources,
+            service,
+            op,
+            input,
+            out,
+        )
+    }
 }

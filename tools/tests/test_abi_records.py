@@ -15,6 +15,7 @@ SPEC.loader.exec_module(ABI)
 from abi_records import rust_records, validate_records
 from abi_declarations import rust_streams
 from abi_i18n import rust_i18n
+from abi_host_decode import rust_host_decode
 
 
 RUST_TESTS = r'''
@@ -232,7 +233,15 @@ class RecordsTests(unittest.TestCase):
                           ('command.redraw', 58), ('command.close_screen', 59),
                           ('menu.entry', 13), ('icon.spec', 14), ('menu.need', 15),
                           ('menu.section', 16), ('menu.hide', 17), ('menu.describe', 18),
-                          ('command.set_item_state', 60)])
+                          ('command.set_item_state', 60), ('stage.spec', 19),
+                          ('registration.stage', 20), ('stage.call', 512), ('stage.reply', 513),
+                          ('service.echo', 1024),
+                          ('event.setting_changed', 64), ('event.book_opened', 65),
+                          ('event.book_closed', 66), ('event.book_finished', 67),
+                          ('event.book_moved', 68), ('event.book_removed', 69),
+                          ('event.plugins_changed', 70), ('event.wifi_changed', 71),
+                          ('event.power_changed', 72), ('event.status_changed', 73),
+                          ('event.charge_changed', 74)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -347,8 +356,10 @@ class RecordsTests(unittest.TestCase):
 
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)
+        served = ABI.with_services(self.schema, ROOT / 'abi/services')
         for path in COPIES:
-            self.assertEqual((ROOT / path).read_text(), source)
+            self.assertEqual((ROOT / path).read_text(), source + rust_host_decode(served))
+        source += rust_host_decode(self.schema)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'abi').mkdir()

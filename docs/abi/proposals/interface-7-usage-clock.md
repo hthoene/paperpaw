@@ -295,10 +295,13 @@ plugin without a translated name gets its id.
 | a known service with an argument of the wrong shape (`core.usage/x`, `core.plugin` without an id or with an id outside the id grammar, `core.plugin-usage/foo`) | `ERR_INVALID` |
 | key not declared in the metadata, wrong major, or minor too high | `ERR_UNSUPPORTED` |
 | unknown plugin id in `core.plugin` or `core.work-note`, or no note | `ERR_NOT_FOUND` |
-| a live blob already exists, or a stream chunk is outstanding (X4: device-wide), or no free handle (per owner or in the registry) | `ERR_BUSY` |
+| the owner already holds 2 live blobs (the blob family's cap, `screens-input.md` section 7), or the handle registry is full | `ERR_FULL` |
+| a live blob already exists, or a stream chunk is outstanding (X4: device-wide), or the device's blob bytes are used up | `ERR_BUSY` |
 | allocation failed (everything allocated so far is freed) | `ERR_NO_MEMORY` |
 | otherwise: build the blob, insert the handle, write `out_handle` | `OK` |
 
+- [D] The per-owner cap is `ERR_FULL`, as for every family's cap (`screens-input.md` section 7, which wins
+  here over this document's first revision); on the X4 the device-wide single blob gives `ERR_BUSY` first.
 - [D] `ERR_BUSY` means a single-slot resource or a limit that frees itself when handles are released, a
   chunk is consumed or the callback ends. This **refines** ADR 0034's "quota failure returns NoSpace" for
   such resources. `ERR_NO_SPACE` stays as the ADR says for capacity: an output buffer or batch too small,

@@ -26,19 +26,20 @@ trait Target<T> {
         convert: fn(Registration) -> T,
         wire: Option<&[u8]>,
     ) -> Result<(), i32>;
-    fn reject(&self);
+    fn reject(&self, cause: Error);
 }
 
 struct Staging<'scope, 'owner, C, M, T> {
     construction: RefCell<&'scope mut Construction<'owner, C, M, T>>,
-    rejected: Cell<bool>,
+    // The first refusal's cause, latched into the construction on drop.
+    rejected: Cell<Option<Error>>,
 }
 
 impl<'scope, 'owner, C, M, T> Staging<'scope, 'owner, C, M, T> {
     fn new(construction: &'scope mut Construction<'owner, C, M, T>) -> Self {
         Self {
             construction: RefCell::new(construction),
-            rejected: Cell::new(false),
+            rejected: Cell::new(None),
         }
     }
 }
@@ -47,8 +48,8 @@ impl<C, M, T> Drop for Staging<'_, '_, C, M, T> {
     fn drop(&mut self) {
         // Reset is dropped first. All short-lived submission borrows have ended,
         // so propagate refusal without borrowing the RefCell or invoking code.
-        if self.rejected.get() {
-            self.construction.get_mut().reject();
+        if let Some(cause) = self.rejected.get() {
+            self.construction.get_mut().reject_with(cause);
         }
     }
 }
@@ -56,14 +57,14 @@ impl<C, M, T> Drop for Staging<'_, '_, C, M, T> {
 impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
     fn admission(&self) -> Result<(), Error> {
         let Ok(construction) = self.construction.try_borrow() else {
-            self.reject();
+            self.reject(Error::Invalid);
             return Err(Error::Busy);
         };
         if let Some(error) = construction.failure {
             return Err(error);
         }
-        if self.rejected.get() {
-            return Err(Error::Invalid);
+        if let Some(cause) = self.rejected.get() {
+            return Err(cause);
         }
         Ok(())
     }
@@ -75,7 +76,7 @@ impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
         if let Ok(mut construction) = self.construction.try_borrow_mut() {
             construction.stage(record)
         } else {
-            self.reject();
+            self.reject(Error::Invalid);
             Err((Error::Busy, record))
         }
     }
@@ -92,13 +93,16 @@ impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
         if let Ok(mut construction) = self.construction.try_borrow_mut() {
             construction.stage_with_raw(batch, convert, wire)
         } else {
-            self.reject();
+            self.reject(Error::Invalid);
             Err(ERR_BUSY)
         }
     }
 
-    fn reject(&self) {
-        self.rejected.set(true);
+    fn reject(&self, cause: Error) {
+        // Keep the first cause, as the construction does.
+        if self.rejected.get().is_none() {
+            self.rejected.set(Some(cause));
+        }
     }
 }
 
@@ -186,10 +190,20 @@ impl<T: 'static> RegistrationScope<T> {
     /// # Errors
     /// Returns State when no construction scope is installed.
     pub fn reject(&self) -> Result<(), Error> {
+        self.reject_with(Error::Invalid)
+    }
+
+    /// Latch a refusal with its cause, such as Memory when the host could not
+    /// allocate to decode a batch; [`reject`](Self::reject) latches Invalid.
+    /// The first cause of a transaction stays.
+    ///
+    /// # Errors
+    /// Returns State when no construction scope is installed.
+    pub fn reject_with(&self, cause: Error) -> Result<(), Error> {
         let pointer = self.current.get().ok_or(Error::State)?;
         // SAFETY: the same scoped target lifetime as submit. Rejection uses
         // only its independent Cell, including during a submission borrow.
-        unsafe { pointer.as_ref() }.reject();
+        unsafe { pointer.as_ref() }.reject(cause);
         Ok(())
     }
 
@@ -267,7 +281,7 @@ mod tests {
             let target = Staging::new(&mut construction);
             let held = target.construction.borrow_mut();
             assert_eq!(target.submit(17), Err((Error::Busy, 17)));
-            target.reject();
+            target.reject(Error::Invalid);
             drop(held);
             assert_eq!(target.submit(18), Err((Error::Invalid, 18)));
         }
