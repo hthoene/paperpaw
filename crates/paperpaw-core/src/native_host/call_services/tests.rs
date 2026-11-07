@@ -430,3 +430,38 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
 
 #[path = "row_tests.rs"]
 mod row_tests;
+
+#[test]
+fn reply_scratch_is_wiped_after_copy_and_error() {
+    let secret = b"private reply";
+    let mut bytes = [0xa5; 64];
+    let mut plugin = [0; 13];
+    {
+        let scratch = ReplyScratch(&mut bytes);
+        scratch.0[..secret.len()].copy_from_slice(secret);
+        plugin.copy_from_slice(&scratch.0[..secret.len()]);
+    }
+    assert_eq!(&plugin, secret);
+    assert_eq!(bytes, [0; 64], "the unused tail must also be wiped");
+
+    let fail = |bytes: &mut [u8]| -> Result<(), i32> {
+        let scratch = ReplyScratch(bytes);
+        scratch.0[..secret.len()].copy_from_slice(secret);
+        Err(ERR_BUSY)
+    };
+    assert_eq!(fail(&mut bytes), Err(ERR_BUSY));
+    assert_eq!(bytes, [0; 64]);
+}
+
+#[cfg(panic = "unwind")]
+#[test]
+fn reply_scratch_is_wiped_when_backend_unwinds() {
+    let mut bytes = [0xa5; 64];
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let scratch = ReplyScratch(&mut bytes);
+        scratch.0.fill(0x73);
+        panic!("fixture backend unwound");
+    }));
+    assert!(result.is_err());
+    assert_eq!(bytes, [0; 64]);
+}
