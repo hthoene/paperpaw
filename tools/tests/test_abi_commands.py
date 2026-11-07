@@ -405,7 +405,10 @@ class CommandTests(unittest.TestCase):
         for line in ["pub struct SecretText<'a>(&'a str);", "        password: SecretText<'a>,",
                      '        f.write_str("SecretText(..)")',
                      '    /// The `command.wifi_join` command (`docs/abi/device.md`).',
-                     '    /// The `command.reset_setting` command (`docs/abi/registry.md`).']:
+                     '    /// The `command.reset_setting` command (`docs/abi/registry.md`).',
+                     '    /// The `command.open` command (`docs/abi/ui.md`).',
+                     '    /// The `command.screen_policy` command (`docs/abi/ui.md`).',
+                     '    /// The `command.image_prepare` command (`docs/abi/document.md`).']:
             self.assertIn(line, source)
         self.assertEqual(source.count("password: SecretText<'a>,"), 2)
         # Without a secret field the codec has no SecretText at all.

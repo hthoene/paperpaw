@@ -176,14 +176,16 @@ Field meanings:
   is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
-- `reg_item.flags` (actions, screens, inputs): bit 0 hidden from lists, 1 sealed (interface 6
+- `reg_item.flags` (actions, screens, inputs, menus): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
   3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),
   5 user-defined (menus, op 11: the user has a `command.set_menu` definition for this menu, even
   an empty one or one equal to the declared rows; interface 6 `is_customized`; cleared by
-  `set_menu` `reset`).
+  `set_menu` `reset`). It is the menu-level form of `reg_menu_row.flags` bit 4, which only rows
+  carry, so an empty user-defined menu shows only here.
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
-  enabled, 2 hidden, 3 removed, 4 user-defined menu, 5 in the declared rows (the editor's
+  enabled, 2 hidden, 3 removed, 4 user-defined menu (per row; the menu-level flag is op 11's
+  `reg_item.flags` bit 5), 5 in the declared rows (the editor's
   "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
   `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
 - `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
