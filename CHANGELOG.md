@@ -38,6 +38,9 @@ change the plugin SDK.
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native
   build, hardware values and memory probes, with validated borrowed reply pages (#228).
+- Native SDK widget and status provider adapters decode generated stage requests
+  and encode complete replies without heap allocation. Widget targets and status
+  values use bounded scratch and refuse oversized replies (#228).
 - Core native screen admission uses a shared declaration entry, fallible factories,
   retained owners and declared instance policies. Native screen lifecycle events
   carry nonzero instance ids. Other declaration families remain refused until wired (#228).
