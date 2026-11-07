@@ -87,6 +87,7 @@ fn end(total: u32, generation: u32, next: u32) -> Record<'static> {
         total,
         generation,
         next,
+        cursor: None,
     })
 }
 
