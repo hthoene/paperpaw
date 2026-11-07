@@ -88,6 +88,7 @@ fn verdict(answer: &Answer, out: &mut [u8]) -> Result<usize, i32> {
 struct Script {
     answers: Vec<(u64, Answer)>,
     calls: Vec<(u64, Vec<u8>)>,
+    flags: Vec<u32>,
 }
 
 impl Script {
@@ -118,6 +119,7 @@ impl FilterRunner for Script {
         let input = stage::FilterInput::decode(payload).unwrap();
         wire::records_decode_single(input.input).unwrap();
         self.calls.push((filter.plugin, input.input.to_vec()));
+        self.flags.push(input.flags);
         let answer = self
             .answers
             .iter()
@@ -138,6 +140,7 @@ fn declared(owner: u64, name: &str) -> bool {
 fn policy(touch: bool) -> Policy<'static> {
     Policy {
         touch,
+        secret: false,
         runs: &all,
         declared: &declared,
     }
@@ -242,10 +245,10 @@ fn a_taken_or_cancelled_pointer_down_is_held_to_its_up_per_contact() {
     assert_eq!(chain.held(), 2);
     script.take_calls();
     // Interleaved moves and ups: each goes to its own capturer alone.
-    for (contact, owner) in [(2, B), (1, A), (2, B)] {
+    for (contact, heard) in [(2, vec![A, B]), (1, vec![A]), (2, vec![A, B])] {
         let moved = dispatch(&mut chain, &mut script, &rows, &pointer(contact, 1));
         assert!(is_taken(&moved));
-        assert_eq!(script.take_calls(), [owner]);
+        assert_eq!(script.take_calls(), heard);
     }
     assert!(is_taken(&dispatch(
         &mut chain,
@@ -324,11 +327,18 @@ fn replace_passes_the_new_input_to_the_filters_after_it() {
     assert_eq!(replaced.record().unwrap(), other);
     // B saw the replacement, not the original.
     assert_eq!(script.calls[1], (B, one(&other)));
-    // A taker after a replace holds the replaced input.
+    // A taker after a replace holds the physical input, not the replaced one:
+    // its release is `button.up`'s, and the replacer before it replaces that too.
     script.set(B, Answer::Take);
+    script.take_calls();
     dispatch(&mut chain, &mut script, &rows, &key("button.up", 0));
-    let release = dispatch(&mut chain, &mut script, &rows, &key("button.down", 1));
+    assert_eq!(chain.held(), 1);
+    script.take_calls();
+    let release = dispatch(&mut chain, &mut script, &rows, &key("button.up", 1));
     assert!(is_taken(&release));
+    let heard = script.calls.clone();
+    assert_eq!(script.take_calls(), [A, B]);
+    assert_eq!(heard[1].1, one(&other));
     assert_eq!(chain.held(), 0);
 }
 
@@ -519,6 +529,7 @@ fn the_guard_rule_skips_a_filter_without_calling_it() {
     let only_b = |plugin: u64| plugin == B;
     let policy = Policy {
         touch: true,
+        secret: false,
         runs: &only_b,
         declared: &declared,
     };
@@ -749,4 +760,212 @@ fn a_key_repeat_is_more_of_the_held_key_and_a_replaced_key_name_is_checked() {
         assert!(is_pass(&out), "{bad:?}");
         assert_eq!(out.refused, 1);
     }
+}
+
+#[test]
+fn the_rest_of_a_capture_goes_through_earlier_filters_then_the_capturer_with_the_flag() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B), row(C)];
+    script.set(B, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    assert_eq!(chain.held(), 1);
+    script.calls.clear();
+    script.flags.clear();
+    // A (before B) hears the move first, without the flag; C (after) never.
+    // Its take is ignored for the rest.
+    script.set(A, Answer::Take);
+    script.set(B, Answer::Pass);
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(1, 1));
+    assert!(is_taken(&moved));
+    assert_eq!(script.called(), [A, B]);
+    assert_eq!(script.flags, [0, FLAG_CAPTURED]);
+    // The secret flag rides along.
+    script.calls.clear();
+    script.flags.clear();
+    let secret = Policy {
+        secret: true,
+        ..policy(true)
+    };
+    chain
+        .dispatch(&mut script, &rows, &secret, &pointer(1, 2))
+        .unwrap();
+    assert_eq!(script.flags, [FLAG_SECRET, FLAG_SECRET | FLAG_CAPTURED]);
+    assert_eq!(chain.held(), 0);
+}
+
+#[test]
+fn an_earlier_replacer_replaces_the_rest_for_the_capturer() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B)];
+    let other = pointer(7, 1);
+    script.set(B, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    script.calls.clear();
+    script.set(A, Answer::Replace(one(&other)));
+    script.set(B, Answer::Pass);
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(1, 1)
+    )));
+    assert_eq!(script.calls[1], (B, one(&other)));
+}
+
+#[test]
+fn the_capturers_run_and_raise_act_on_the_rest_and_replace_is_ignored() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B)];
+    script.set(A, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    script.set(A, Answer::Raise("input.a.mine"));
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(1, 1));
+    assert!(matches!(moved.routed, Routed::Raise { owner: A, .. }));
+    assert_eq!(chain.held(), 1);
+    script.set(A, Answer::Replace(one(&pointer(3, 1))));
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(1, 1)
+    )));
+    // A cancel or take on the rest only ends it; run acts at the up.
+    script.set(A, Answer::Cancel);
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(1, 1)
+    )));
+    script.set(A, Answer::Run("core.next"));
+    let up = dispatch(&mut chain, &mut script, &rows, &pointer(1, 2));
+    assert!(matches!(up.routed, Routed::Run(a) if a.as_str() == "core.next"));
+    assert_eq!(chain.held(), 0);
+    // A raise of a name not declared ends the rest, counted.
+    script.set(A, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    script.set(A, Answer::Raise("input.b.theirs"));
+    let bad = dispatch(&mut chain, &mut script, &rows, &pointer(1, 1));
+    assert!(is_taken(&bad));
+    assert_eq!(bad.refused, 1);
+}
+
+#[test]
+fn a_capture_belongs_to_one_subscription_and_one_token() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let mut second = row(A);
+    second.token = 99;
+    let rows = [row(A), second];
+    // Both subscriptions are A's; the second takes.
+    struct ByToken(Script);
+    impl FilterRunner for ByToken {
+        fn call(
+            &mut self,
+            filter: &Subscription<'_>,
+            payload: &[u8],
+            reply: &mut [u8],
+        ) -> Result<usize, i32> {
+            self.0.set(
+                filter.plugin,
+                if filter.token == 99 {
+                    Answer::Take
+                } else {
+                    Answer::Pass
+                },
+            );
+            self.0.call(filter, payload, reply)
+        }
+    }
+    let mut runner = ByToken(core::mem::take(&mut script));
+    chain
+        .dispatch(&mut runner, &rows, &policy(true), &pointer(1, 0))
+        .unwrap();
+    runner.0.calls.clear();
+    chain
+        .dispatch(&mut runner, &rows, &policy(true), &pointer(1, 1))
+        .unwrap();
+    // Token 1 (before) and token 99 (the holder) both heard it.
+    assert_eq!(runner.0.called(), [A, A]);
+    assert_eq!(runner.0.flags.last(), Some(&FLAG_CAPTURED));
+    assert_eq!(runner.0.flags[runner.0.flags.len() - 2], 0);
+}
+
+#[test]
+fn a_gesture_is_raised_at_the_up_by_its_recognizer() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A)];
+    script.set(A, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    script.set(A, Answer::Raise("input.a.mine"));
+    // Nothing on the moves (a raise there acts too, but a recognizer waits).
+    script.set(A, Answer::Pass);
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(1, 1)
+    )));
+    script.set(A, Answer::Raise("input.a.mine"));
+    let up = dispatch(&mut chain, &mut script, &rows, &pointer(1, 2));
+    assert!(matches!(up.routed, Routed::Raise { owner: A, .. }));
+    assert_eq!(chain.held(), 0);
+}
+
+#[test]
+fn the_capturing_token_leaving_releases_the_capture_even_if_another_token_stays() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let mut second = row(A);
+    second.token = 99;
+    script.set(A, Answer::Take);
+    // Token 1 takes (the first of A's two subscriptions).
+    dispatch(&mut chain, &mut script, &[row(A), second], &pointer(1, 0));
+    script.calls.clear();
+    // Token 1 is removed; token 99 of the same plugin must not stand in.
+    let moved = dispatch(&mut chain, &mut script, &[second], &pointer(1, 1));
+    assert!(is_taken(&moved));
+    assert!(script.calls.is_empty());
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &[second],
+        &pointer(1, 2)
+    )));
+    assert_eq!(chain.held(), 0);
+}
+
+#[test]
+fn a_released_capture_is_evicted_first_when_the_table_is_full() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    script.set(A, Answer::Take);
+    let rows = [row(A)];
+    for contact in 0..MAX_CAPTURES as u32 {
+        dispatch(&mut chain, &mut script, &rows, &pointer(contact, 0));
+    }
+    // One plugin stops: its captures wait for ups that may never come. A new
+    // down takes the room of a released one instead of failing.
+    chain.owner_stopped(A);
+    script.set(B, Answer::Take);
+    let rows_b = [row(B)];
+    let fresh = dispatch(&mut chain, &mut script, &rows_b, &pointer(50, 0));
+    assert!(is_taken(&fresh));
+    assert_eq!(fresh.refused, 0);
+    assert_eq!(chain.held(), MAX_CAPTURES);
+    // With every capture live, the next is refused as before.
+    chain.clear();
+    for contact in 0..MAX_CAPTURES as u32 {
+        dispatch(&mut chain, &mut script, &rows, &pointer(contact, 0));
+    }
+    assert!(is_pass(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows_b,
+        &pointer(60, 0)
+    )));
 }

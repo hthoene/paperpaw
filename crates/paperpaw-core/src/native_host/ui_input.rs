@@ -20,12 +20,17 @@
 //!   a run without an action, a replace that is not one key, pointer or
 //!   gesture record, a raise of a name the filter's plugin did not declare:
 //!   pass, counted in [`Dispatched::refused`] for the log;
-//! - take and cancel of a pointer down or key press capture it whole: its
-//!   moves, up or release go to nothing else. The capturing filter alone is
-//!   called with them (its verdict ends nothing: the input is taken); if it
-//!   stops or its callback fails, the capture is released and the rest still
-//!   goes nowhere, until the up or release, and the next input starts fresh
-//!   with all filters;
+//! - take and cancel of a pointer down or key press capture it whole, for one
+//!   subscription (plugin and token) and keyed by the physical input: its
+//!   moves, up, repeats and release go through the filters before the
+//!   capturer (only their pass and replace count), then to the capturer with
+//!   `filter.input.flags` bit 0, and to nothing after it. The capturer's run
+//!   and raise act on them, replace is ignored, the rest end it. If the
+//!   capturing plugin stops or its callback fails, the capture is released and
+//!   the rest still goes nowhere until the up or release; the next input
+//!   starts fresh with all filters. Flag bit 1 says the top instance is secret;
+//!   a released capture is evicted first when the table is full, and the
+//!   router clears the table on sleep, wake and an input reset (`InputFilters::clear`);
 //! - `raise` and `run` end the chain; `raise` is checked against the
 //!   plugin's own declared inputs and gestures; raised inputs pass no filter
 //!   (the router applies them as a chain step).
@@ -221,6 +226,8 @@ pub(crate) struct Dispatched {
 pub(crate) struct Policy<'a> {
     /// Touch inputs (pointers, gestures) are filtered; the X4 filters keys only.
     pub(crate) touch: bool,
+    /// The instance on top is secret (`filter.input.flags` bit 1).
+    pub(crate) secret: bool,
     /// The guard rule: whether the filter of this plugin is called now
     /// (`ui_guard::filter_runs` over the stack rows).
     pub(crate) runs: &'a dyn Fn(u64) -> bool,
@@ -285,12 +292,27 @@ impl FilterRunner for BrokerRunner<'_, '_> {
     }
 }
 
+/// `filter.input.flags` bit 0: this input is the rest of one the filter took
+/// or cancelled.
+const FLAG_CAPTURED: u32 = 1;
+/// `filter.input.flags` bit 1: the instance on top is secret.
+const FLAG_SECRET: u32 = 2;
+
+/// The subscription that holds a capture: its plugin and token.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Holder {
+    plugin: u64,
+    token: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Capture {
+    /// The physical input (the key as the device gave it, the pointer
+    /// contact), not what a replace made of it.
     subject: Subject,
-    /// The capturing plugin; `None` once it stopped or failed (the rest of
-    /// the input is swallowed without a call).
-    owner: Option<u64>,
+    /// The capturing subscription; `None` once its plugin stopped or it
+    /// failed (the rest of the input is swallowed without a call).
+    owner: Option<Holder>,
 }
 
 /// The captures; the only state of the chain.
@@ -311,9 +333,9 @@ impl InputFilters {
 
     /// The plugin stopped: whatever it captured is swallowed to its up or
     /// release, without a call.
-    pub(crate) fn owner_stopped(&mut self, owner: u64) {
+    pub(crate) fn owner_stopped(&mut self, plugin: u64) {
         for capture in self.captures.iter_mut().flatten() {
-            if capture.owner == Some(owner) {
+            if capture.owner.is_some_and(|o| o.plugin == plugin) {
                 capture.owner = None;
             }
         }
@@ -330,10 +352,17 @@ impl InputFilters {
             .position(|c| c.is_some_and(|c| c.subject == *subject))
     }
 
-    fn capture(&mut self, subject: Subject, owner: u64) -> Result<(), i32> {
+    fn capture(&mut self, subject: Subject, owner: Holder) -> Result<(), i32> {
+        // Free room first; else a released capture (its plugin stopped or
+        // failed, it only waits for an up that may never come).
         let at = self
             .find(&subject)
             .or_else(|| self.captures.iter().position(Option::is_none))
+            .or_else(|| {
+                self.captures
+                    .iter()
+                    .position(|c| c.is_some_and(|c| c.owner.is_none()))
+            })
             .ok_or(ERR_FULL)?;
         self.captures[at] = Some(Capture {
             subject,
@@ -353,13 +382,15 @@ impl InputFilters {
         input: &Record<'_>,
     ) -> Result<Dispatched, i32> {
         let original = Encoded::from_record(input)?;
+        // The physical input: captures are keyed by it, whatever a replace
+        // turns it into on the way.
         let (subject, phase) = classify(input)?;
-        let pass = |routed| Ok(Dispatched { routed, refused: 0 });
-        // Moves, up and release of a captured contact or key go nowhere else.
+        let secret = if policy.secret { FLAG_SECRET } else { 0 };
+        // Moves, up and release of a captured contact or key.
         if matches!(phase, Phase::Mid | Phase::End)
             && let Some(at) = self.find(&subject)
         {
-            return Ok(self.captured_tail(at, phase, runner, filters, policy, &original));
+            return Ok(self.captured_rest(at, phase, runner, filters, policy, &original));
         }
         // A press or down while one is held for it: the up was lost; fresh start.
         if phase == Phase::Start
@@ -368,25 +399,30 @@ impl InputFilters {
             self.captures[at] = None;
         }
         if !policy.touch && !matches!(subject, Subject::Key { .. }) {
-            return pass(Routed::Pass);
+            return Ok(Dispatched {
+                routed: Routed::Pass,
+                refused: 0,
+            });
         }
         let mut current = original;
-        let mut subject = subject;
-        let mut phase = phase;
         let mut changed = false;
         let mut refused = 0;
         for filter in filters.iter().filter(|f| f.enabled).take(MAX_FILTERS) {
             if !(policy.runs)(filter.plugin) {
                 continue;
             }
-            let Some(verdict) = ask(runner, filter, &current) else {
+            let Some(verdict) = ask(runner, filter, &current, secret) else {
                 refused += 1;
                 continue;
             };
             let routed = match verdict {
                 Verdict::Pass => continue,
                 Verdict::Take | Verdict::Cancel => {
-                    if phase == Phase::Start && self.capture(subject, filter.plugin).is_err() {
+                    let holder = Holder {
+                        plugin: filter.plugin,
+                        token: filter.token,
+                    };
+                    if phase == Phase::Start && self.capture(subject, holder).is_err() {
                         refused += 1;
                         continue;
                     }
@@ -396,41 +432,23 @@ impl InputFilters {
                         Routed::Cancelled
                     }
                 }
-                Verdict::Run(action) => match Short::new(action.as_str()) {
-                    Some(action) if !action.as_str().is_empty() => Routed::Run(action),
-                    _ => {
-                        refused += 1;
-                        continue;
-                    }
-                },
+                Verdict::Run(action) => run(action),
                 Verdict::Replace(next) => {
-                    match next.record().and_then(|record| classify(&record)) {
-                        Ok((next_subject, next_phase)) => {
-                            current = next;
-                            subject = next_subject;
-                            phase = next_phase;
-                            changed = true;
-                        }
-                        Err(_) => refused += 1,
-                    }
-                    continue;
-                }
-                Verdict::Raise(name) => {
-                    if name.as_str().is_empty() || !(policy.declared)(filter.plugin, name.as_str())
-                    {
+                    if replacement_fits(&next) {
+                        current = next;
+                        changed = true;
+                    } else {
                         refused += 1;
-                        continue;
                     }
-                    Routed::Raise {
-                        owner: filter.plugin,
-                        input: name,
-                    }
-                }
-                Verdict::Invalid => {
-                    refused += 1;
                     continue;
                 }
+                Verdict::Raise(name) => raise(filter, name, policy),
+                Verdict::Invalid => Routed::Pass,
             };
+            if matches!(routed, Routed::Pass) {
+                refused += 1;
+                continue;
+            }
             return Ok(Dispatched { routed, refused });
         }
         Ok(Dispatched {
@@ -443,11 +461,14 @@ impl InputFilters {
         })
     }
 
-    /// The rest of a captured input: only the capturing filter hears it (to
-    /// follow the finger or key); the input is taken whatever it answers. A
-    /// failed call, or a filter no longer there, releases the capture to the
-    /// up or release.
-    fn captured_tail(
+    /// The rest of a captured input: the filters before the capturer hear it
+    /// first (only their pass and replace count, so a replacer replaces the
+    /// rest as it did the start), then the capturer, with the `captured` flag;
+    /// nothing after it. The capturer's run and raise act, its replace is
+    /// ignored, the others end it. The input is taken either way. A failed call,
+    /// or a subscription no longer there, releases the capture to the up or
+    /// release; a released capture is swallowed without a call.
+    fn captured_rest(
         &mut self,
         at: usize,
         phase: Phase,
@@ -456,34 +477,97 @@ impl InputFilters {
         policy: &Policy<'_>,
         input: &Encoded,
     ) -> Dispatched {
+        let secret = if policy.secret { FLAG_SECRET } else { 0 };
         let mut refused = 0;
-        if let Some(capture) = self.captures[at].as_mut()
-            && let Some(owner) = capture.owner
-        {
-            let filter = filters
+        let mut routed = Routed::Taken;
+        let mut owner = self.captures[at].and_then(|c| c.owner);
+        // A subscription no longer there releases the capture before anyone is
+        // called: the rest goes nowhere.
+        if let Some(held) = owner
+            && !filters
                 .iter()
                 .filter(|f| f.enabled)
                 .take(MAX_FILTERS)
-                .find(|f| f.plugin == owner);
-            match filter {
-                Some(filter) if (policy.runs)(owner) => {
-                    if ask(runner, filter, input).is_none() {
-                        refused += 1;
-                        capture.owner = None;
+                .any(|f| f.plugin == held.plugin && f.token == held.token)
+        {
+            if let Some(capture) = self.captures[at].as_mut() {
+                capture.owner = None;
+            }
+            owner = None;
+        }
+        if let Some(owner) = owner {
+            let mut current = *input;
+            let mut found = false;
+            for filter in filters.iter().filter(|f| f.enabled).take(MAX_FILTERS) {
+                let is_owner = filter.plugin == owner.plugin && filter.token == owner.token;
+                if !(policy.runs)(filter.plugin) {
+                    if is_owner {
+                        found = true;
+                        break;
                     }
+                    continue;
                 }
-                Some(_) => {}
-                None => capture.owner = None,
+                if !is_owner {
+                    match ask(runner, filter, &current, secret) {
+                        Some(Verdict::Replace(next)) if replacement_fits(&next) => current = next,
+                        Some(_) => {}
+                        None => refused += 1,
+                    }
+                    continue;
+                }
+                found = true;
+                match ask(runner, filter, &current, secret | FLAG_CAPTURED) {
+                    None => {
+                        refused += 1;
+                        found = false;
+                    }
+                    Some(Verdict::Run(action)) => routed = run(action),
+                    Some(Verdict::Raise(name)) => routed = raise(filter, name, policy),
+                    Some(_) => {}
+                }
+                break;
+            }
+            if !found && let Some(capture) = self.captures[at].as_mut() {
+                capture.owner = None;
+            }
+            if matches!(routed, Routed::Pass) {
+                // A run or raise that did not fit still ends the rest.
+                refused += 1;
+                routed = Routed::Taken;
             }
         }
         if phase == Phase::End {
             self.captures[at] = None;
         }
-        Dispatched {
-            routed: Routed::Taken,
-            refused,
+        Dispatched { routed, refused }
+    }
+}
+
+/// A run verdict: it needs an action. `Pass` stands for "refused".
+fn run(action: Short<128>) -> Routed {
+    if action.as_str().is_empty() {
+        Routed::Pass
+    } else {
+        Routed::Run(action)
+    }
+}
+
+/// A raise verdict: the name must be one the filter's plugin declared.
+fn raise(filter: &Subscription<'_>, name: Short<64>, policy: &Policy<'_>) -> Routed {
+    if name.as_str().is_empty() || !(policy.declared)(filter.plugin, name.as_str()) {
+        Routed::Pass
+    } else {
+        Routed::Raise {
+            owner: filter.plugin,
+            input: name,
         }
     }
+}
+
+/// A replacement is one key, pointer or gesture record, whole (checked when it
+/// was decoded); it only has to be classifiable.
+fn replacement_fits(next: &Encoded) -> bool {
+    next.record().and_then(|record| classify(&record)).is_ok()
 }
 
 enum Verdict {
@@ -503,9 +587,10 @@ fn ask(
     runner: &mut dyn FilterRunner,
     filter: &Subscription<'_>,
     input: &Encoded,
+    flags: u32,
 ) -> Option<Verdict> {
     let mut payload = [0; PAYLOAD_BYTES];
-    let length = stage::FilterInput::new(input.batch(), 0)
+    let length = stage::FilterInput::new(input.batch(), flags)
         .encode(&mut payload)
         .ok()?;
     let mut reply = [0; REPLY_BYTES];
