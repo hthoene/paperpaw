@@ -321,12 +321,14 @@ def reach(functions, file, body, generated=None, native_users=frozenset()):
                 files = ", ".join(str(path) for path in generated[callee])
                 sys.exit(f"{at}: shared body calls {callee}, defined only in "
                          f"generated or native source: {files}; its body cannot be skipped")
-            if callee in STANDARD:
-                continue
+            # Also before standard names: in a file that imports from the
+            # facade, a standard name (`retain`) may mean the facade's method.
             if at in native_users and generated and any(
                     is_native(path) for path in generated.get(callee, [])):
                 sys.exit(f"{at}: shared body calls {callee}, which src/native/ also "
                          "defines, from a file that imports from native; rename it")
+            if callee in STANDARD:
+                continue
             local = [d for d in defs if d[0] == at]
             if local:
                 defs = local

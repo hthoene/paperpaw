@@ -70,6 +70,18 @@ class SharedTableNative(unittest.TestCase):
         self.assertIn('is_last', str(refused.exception))
         self.assertIn('imports from native', str(refused.exception))
 
+    def test_a_standard_name_the_facade_defines_is_refused_in_a_file_importing_it(self):
+        native = NATIVE + 'pub fn retain(n: u32) -> u32 { n }\n'
+        ui = 'use crate::native::Menu;\n'
+        folder = self.crate({'native/mod.rs': native, 'other.rs': OTHER, 'ui.rs': ui})
+        with self.assertRaises(SystemExit) as refused:
+            self.reach(folder, 'ui.rs', '{ m.retain(3) }')
+        self.assertIn('retain', str(refused.exception))
+        self.assertIn('imports from native', str(refused.exception))
+        # Without the import it is the standard method.
+        folder = self.crate({'native/mod.rs': native, 'other.rs': OTHER, 'ui.rs': ''})
+        self.assertEqual(self.reach(folder, 'ui.rs', '{ v.retain(3) }'), set())
+
     def test_a_grouped_import_from_native_counts(self):
         ui = 'use crate::{\n    native::{only_native},\n    other,\n};\n'
         folder = self.crate({'native/mod.rs': NATIVE, 'other.rs': OTHER, 'ui.rs': ui})
