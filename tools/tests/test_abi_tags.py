@@ -152,7 +152,8 @@ const CASES: &[(u32, &[u8])] = &[
         # through slot 16), and draw frames inside the input block.
         shared = {frozenset({'setting', 'resource', 'action', 'menu', 'screen', 'icon',
                              'format', 'registration', 'setup', 'slot', 'key', 'preset',
-                             'help', 'widget', 'status'}),
+                             'help', 'widget', 'status', 'reader', 'lookup', 'book_field',
+                             'book_badge', 'book_data'}),
                   frozenset({'input', 'draw'})}
         top = {name: spans for name, spans in TAG_RANGES.items() if '.' not in name}
         for first, spans in top.items():

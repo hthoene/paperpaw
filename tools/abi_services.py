@@ -33,7 +33,8 @@ EFFECTS = ('query', 'mutate')
 BOUNDS = ('none', 'card')
 MAX_KEY_BYTES = 128
 MAX_OPS = 64
-MAX_TAGS = 8
+# DOC op 6 answers a block stream of ten record kinds (document.md section 4).
+MAX_TAGS = 16
 MAX_CALL_BYTES = 4096
 
 

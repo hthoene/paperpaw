@@ -182,7 +182,10 @@ fn services_match_exactly_and_requirement_keys_are_unique_and_sorted() {
                 Refusal::Service { key: wanted.key }
             );
         }
-        for second in [wanted, host.services.last().unwrap()] {
+        // The greatest key, so that writing it first is out of order.
+        let greatest = host.services.iter().max_by_key(|s| s.key).unwrap();
+        assert_ne!(greatest.key, wanted.key);
+        for second in [wanted, greatest] {
             let mut bad = base.clone();
             service(
                 &mut bad,
