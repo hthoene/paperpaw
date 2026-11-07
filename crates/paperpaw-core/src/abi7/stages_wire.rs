@@ -32,6 +32,18 @@ pub struct StageSchema {
 /// Every host-defined stage schema, sorted by key and major.
 pub static STAGES: &[StageSchema] = &[
     StageSchema {
+        key: core_format_v1::KEY,
+        major: core_format_v1::MAJOR,
+        revision: core_format_v1::REVISION,
+        test_only: core_format_v1::TEST_ONLY,
+        max_subscribers: core_format_v1::MAX_SUBSCRIBERS,
+        max_input: core_format_v1::MAX_INPUT,
+        max_reply: core_format_v1::MAX_REPLY,
+        reply_rows: core_format_v1::REPLY_ROWS,
+        input_tags: core_format_v1::INPUT_TAGS,
+        reply_tags: core_format_v1::REPLY_TAGS,
+    },
+    StageSchema {
         key: core_input_filter_v1::KEY,
         major: core_input_filter_v1::MAJOR,
         revision: core_input_filter_v1::REVISION,
@@ -42,6 +54,18 @@ pub static STAGES: &[StageSchema] = &[
         reply_rows: core_input_filter_v1::REPLY_ROWS,
         input_tags: core_input_filter_v1::INPUT_TAGS,
         reply_tags: core_input_filter_v1::REPLY_TAGS,
+    },
+    StageSchema {
+        key: core_lookup_v1::KEY,
+        major: core_lookup_v1::MAJOR,
+        revision: core_lookup_v1::REVISION,
+        test_only: core_lookup_v1::TEST_ONLY,
+        max_subscribers: core_lookup_v1::MAX_SUBSCRIBERS,
+        max_input: core_lookup_v1::MAX_INPUT,
+        max_reply: core_lookup_v1::MAX_REPLY,
+        reply_rows: core_lookup_v1::REPLY_ROWS,
+        input_tags: core_lookup_v1::INPUT_TAGS,
+        reply_tags: core_lookup_v1::REPLY_TAGS,
     },
     StageSchema {
         key: core_status_v1::KEY,
@@ -68,6 +92,2529 @@ pub static STAGES: &[StageSchema] = &[
         reply_tags: core_widget_v1::REPLY_TAGS,
     },
 ];
+
+/// Local records of `core.format` major 1.
+pub mod core_format_v1 {
+    /// Schema key.
+    pub const KEY: &str = "core.format";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 32;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 3840;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 3840;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 64;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1, 2];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[
+        3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ];
+    /// Each mirrored record: its local tag and the kernel tag of the service row
+    /// it is the same record as (only the tag changes).
+    pub const SERVICE_TAGS: &[(u32, u32)] = &[
+        (2, 1061),
+        (5, 1062),
+        (6, 1064),
+        (7, 1065),
+        (8, 1068),
+        (9, 52),
+        (10, 1082),
+        (11, 1090),
+        (12, 1083),
+        (13, 1084),
+        (14, 1091),
+        (15, 1085),
+        (16, 1086),
+        (17, 1087),
+        (18, 1070),
+        (19, 1069),
+        (20, 1072),
+        (21, 1073),
+        (22, 1075),
+        (23, 1077),
+        (24, 1081),
+    ];
+    struct Reader<'a> {
+        remaining: &'a [u8],
+    }
+
+    impl<'a> Reader<'a> {
+        fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+            if len > self.remaining.len() {
+                return Err(-2);
+            }
+            let (value, rest) = self.remaining.split_at(len);
+            self.remaining = rest;
+            Ok(value)
+        }
+
+        fn varint(&mut self) -> Result<u32, i32> {
+            let mut value = 0_u32;
+            for index in 0..5 {
+                let byte = self.take(1)?[0];
+                if index == 4 && byte > 0x0f {
+                    return Err(-2);
+                }
+                value |= u32::from(byte & 0x7f) << (index * 7);
+                if byte & 0x80 == 0 {
+                    if index > 0 && byte == 0 {
+                        return Err(-2);
+                    }
+                    return Ok(value);
+                }
+            }
+            Err(-2)
+        }
+
+        fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+            let mut value = [0; N];
+            value.copy_from_slice(self.take(N)?);
+            Ok(value)
+        }
+
+        fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+            let tag = self.varint()?;
+            let len = self.varint()? as usize;
+            let body = Reader {
+                remaining: self.take(len)?,
+            };
+            Ok((tag, body))
+        }
+
+        fn bitmap(&mut self) -> Result<(), i32> {
+            let len = self.varint()? as usize;
+            // Unknown optional bits and fields are skipped using the record length.
+            self.take(len)?;
+            Ok(())
+        }
+
+        fn finish(self) -> Result<(), i32> {
+            if self.remaining.is_empty() {
+                Ok(())
+            } else {
+                Err(-2)
+            }
+        }
+    }
+
+    fn varint_len(mut value: u32) -> usize {
+        let mut len = 1;
+        while value >= 0x80 {
+            len += 1;
+            value >>= 7;
+        }
+        len
+    }
+
+    fn record_len(tag: u32, fields: u32) -> usize {
+        let body_len = fields + 1; // The initial bitmap is empty.
+        varint_len(tag) + varint_len(body_len) + body_len as usize
+    }
+
+    fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+            *offset += 1;
+            if value == 0 {
+                return;
+            }
+        }
+    }
+
+    fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+        *offset += bytes.len();
+    }
+
+    fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+        write_varint(tag, out, offset);
+        write_varint(fields + 1, out, offset);
+        write_varint(0, out, offset);
+    }
+
+    /// Wire tag of the `fmt.call` record.
+    pub const FMT_CALL_TAG: u32 = 1;
+    /// Maximum bytes of `fmt.call.text`.
+    pub const FMT_CALL_TEXT_MAX_BYTES: usize = 1024;
+    /// Maximum bytes of `fmt.call.arg`.
+    pub const FMT_CALL_ARG_MAX_BYTES: usize = 512;
+
+    /// The `fmt.call` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtCall<'a> {
+        /// Little-endian u32.
+        pub op: u32,
+        /// Little-endian u32.
+        pub document: u32,
+        /// Little-endian u32.
+        pub section: u32,
+        /// Little-endian u32.
+        pub offset: u32,
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub cursor: u32,
+        /// Little-endian u32.
+        pub generation: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Little-endian u32.
+        pub image_side: u32,
+        /// Little-endian u32.
+        pub cover_side: u32,
+        /// Little-endian u64.
+        pub conversion: u64,
+        /// UTF-8 text of at most 1024 bytes.
+        pub text: &'a str,
+        /// Opaque bytes, at most 512.
+        pub arg: &'a [u8],
+    }
+
+    impl<'a> FmtCall<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtCall(Self {
+                op: u32::from_le_bytes(body.scalar()?),
+                document: u32::from_le_bytes(body.scalar()?),
+                section: u32::from_le_bytes(body.scalar()?),
+                offset: u32::from_le_bytes(body.scalar()?),
+                index: u32::from_le_bytes(body.scalar()?),
+                cursor: u32::from_le_bytes(body.scalar()?),
+                generation: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+                image_side: u32::from_le_bytes(body.scalar()?),
+                cover_side: u32::from_le_bytes(body.scalar()?),
+                conversion: u64::from_le_bytes(body.scalar()?),
+                text: body.string(FMT_CALL_TEXT_MAX_BYTES)?,
+                arg: body.blob(FMT_CALL_ARG_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 8;
+            len += blob_len(self.text.len(), FMT_CALL_TEXT_MAX_BYTES)?;
+            len += blob_len(self.arg.len(), FMT_CALL_ARG_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.op.to_le_bytes(), out, offset);
+            write_bytes(&self.document.to_le_bytes(), out, offset);
+            write_bytes(&self.section.to_le_bytes(), out, offset);
+            write_bytes(&self.offset.to_le_bytes(), out, offset);
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.cursor.to_le_bytes(), out, offset);
+            write_bytes(&self.generation.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_bytes(&self.image_side.to_le_bytes(), out, offset);
+            write_bytes(&self.cover_side.to_le_bytes(), out, offset);
+            write_bytes(&self.conversion.to_le_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+            write_blob(self.arg, out, offset);
+        }
+    }
+
+    impl<'a> FmtCall<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            op: u32,
+            document: u32,
+            section: u32,
+            offset: u32,
+            index: u32,
+            cursor: u32,
+            generation: u32,
+            flags: u32,
+            image_side: u32,
+            cover_side: u32,
+            conversion: u64,
+            text: &'a str,
+            arg: &'a [u8],
+        ) -> Self {
+            Self {
+                op,
+                document,
+                section,
+                offset,
+                index,
+                cursor,
+                generation,
+                flags,
+                image_side,
+                cover_side,
+                conversion,
+                text,
+                arg,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.option` record.
+    pub const FMT_OPTION_TAG: u32 = 2;
+    /// Maximum bytes of `fmt.option.key`.
+    pub const FMT_OPTION_KEY_MAX_BYTES: usize = 64;
+    /// Maximum bytes of `fmt.option.value`.
+    pub const FMT_OPTION_VALUE_MAX_BYTES: usize = 128;
+
+    /// The `fmt.option` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtOption<'a> {
+        /// UTF-8 text of at most 64 bytes.
+        pub key: &'a str,
+        /// UTF-8 text of at most 128 bytes.
+        pub value: &'a str,
+    }
+
+    impl<'a> FmtOption<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtOption(Self {
+                key: body.string(FMT_OPTION_KEY_MAX_BYTES)?,
+                value: body.string(FMT_OPTION_VALUE_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.key.len(), FMT_OPTION_KEY_MAX_BYTES)?;
+            len += blob_len(self.value.len(), FMT_OPTION_VALUE_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.key.as_bytes(), out, offset);
+            write_blob(self.value.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtOption<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(key: &'a str, value: &'a str) -> Self {
+            Self { key, value }
+        }
+    }
+    /// Wire tag of the `fmt.yes` record.
+    pub const FMT_YES_TAG: u32 = 3;
+
+    /// The `fmt.yes` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtYes {
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl FmtYes {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtYes(Self {
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtYes {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(flags: u32) -> Self {
+            Self { flags }
+        }
+    }
+    /// Wire tag of the `fmt.image` record.
+    pub const FMT_IMAGE_TAG: u32 = 4;
+    /// Maximum bytes of `fmt.image.path`.
+    pub const FMT_IMAGE_PATH_MAX_BYTES: usize = 256;
+
+    /// The `fmt.image` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtImage<'a> {
+        /// UTF-8 text of at most 256 bytes.
+        pub path: &'a str,
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub width: u32,
+        /// Little-endian u32.
+        pub height: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl<'a> FmtImage<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtImage(Self {
+                path: body.string(FMT_IMAGE_PATH_MAX_BYTES)?,
+                index: u32::from_le_bytes(body.scalar()?),
+                width: u32::from_le_bytes(body.scalar()?),
+                height: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.path.len(), FMT_IMAGE_PATH_MAX_BYTES)?;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.path.as_bytes(), out, offset);
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.width.to_le_bytes(), out, offset);
+            write_bytes(&self.height.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtImage<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(path: &'a str, index: u32, width: u32, height: u32, flags: u32) -> Self {
+            Self {
+                path,
+                index,
+                width,
+                height,
+                flags,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.state` record.
+    pub const FMT_STATE_TAG: u32 = 5;
+    /// Maximum bytes of `fmt.state.format`.
+    pub const FMT_STATE_FORMAT_MAX_BYTES: usize = 128;
+
+    /// The `fmt.state` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtState<'a> {
+        /// Little-endian u32.
+        pub document: u32,
+        /// Little-endian u32.
+        pub state: u32,
+        /// Little-endian u32.
+        pub progress_ppm: u32,
+        /// Little-endian i32.
+        pub status: i32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Little-endian u64.
+        pub conversion: u64,
+        /// UTF-8 text of at most 128 bytes.
+        pub format: &'a str,
+    }
+
+    impl<'a> FmtState<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtState(Self {
+                document: u32::from_le_bytes(body.scalar()?),
+                state: u32::from_le_bytes(body.scalar()?),
+                progress_ppm: u32::from_le_bytes(body.scalar()?),
+                status: i32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+                conversion: u64::from_le_bytes(body.scalar()?),
+                format: body.string(FMT_STATE_FORMAT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 8;
+            len += blob_len(self.format.len(), FMT_STATE_FORMAT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.document.to_le_bytes(), out, offset);
+            write_bytes(&self.state.to_le_bytes(), out, offset);
+            write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+            write_bytes(&self.status.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_bytes(&self.conversion.to_le_bytes(), out, offset);
+            write_blob(self.format.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtState<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            document: u32,
+            state: u32,
+            progress_ppm: u32,
+            status: i32,
+            flags: u32,
+            conversion: u64,
+            format: &'a str,
+        ) -> Self {
+            Self {
+                document,
+                state,
+                progress_ppm,
+                status,
+                flags,
+                conversion,
+                format,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.meta` record.
+    pub const FMT_META_TAG: u32 = 6;
+    /// Maximum bytes of `fmt.meta.title`.
+    pub const FMT_META_TITLE_MAX_BYTES: usize = 512;
+    /// Maximum bytes of `fmt.meta.language`.
+    pub const FMT_META_LANGUAGE_MAX_BYTES: usize = 35;
+    /// Maximum bytes of `fmt.meta.series`.
+    pub const FMT_META_SERIES_MAX_BYTES: usize = 512;
+    /// Maximum bytes of `fmt.meta.series_index`.
+    pub const FMT_META_SERIES_INDEX_MAX_BYTES: usize = 32;
+
+    /// The `fmt.meta` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtMeta<'a> {
+        /// UTF-8 text of at most 512 bytes.
+        pub title: &'a str,
+        /// UTF-8 text of at most 35 bytes.
+        pub language: &'a str,
+        /// UTF-8 text of at most 512 bytes.
+        pub series: &'a str,
+        /// UTF-8 text of at most 32 bytes.
+        pub series_index: &'a str,
+        /// Little-endian u32.
+        pub direction: u32,
+        /// Little-endian u32.
+        pub writing_mode: u32,
+        /// Little-endian u32.
+        pub sections: u32,
+        /// Little-endian u32.
+        pub authors: u32,
+        /// Little-endian u32.
+        pub subjects: u32,
+        /// Little-endian u32.
+        pub description_bytes: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl<'a> FmtMeta<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtMeta(Self {
+                title: body.string(FMT_META_TITLE_MAX_BYTES)?,
+                language: body.string(FMT_META_LANGUAGE_MAX_BYTES)?,
+                series: body.string(FMT_META_SERIES_MAX_BYTES)?,
+                series_index: body.string(FMT_META_SERIES_INDEX_MAX_BYTES)?,
+                direction: u32::from_le_bytes(body.scalar()?),
+                writing_mode: u32::from_le_bytes(body.scalar()?),
+                sections: u32::from_le_bytes(body.scalar()?),
+                authors: u32::from_le_bytes(body.scalar()?),
+                subjects: u32::from_le_bytes(body.scalar()?),
+                description_bytes: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.title.len(), FMT_META_TITLE_MAX_BYTES)?;
+            len += blob_len(self.language.len(), FMT_META_LANGUAGE_MAX_BYTES)?;
+            len += blob_len(self.series.len(), FMT_META_SERIES_MAX_BYTES)?;
+            len += blob_len(self.series_index.len(), FMT_META_SERIES_INDEX_MAX_BYTES)?;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.title.as_bytes(), out, offset);
+            write_blob(self.language.as_bytes(), out, offset);
+            write_blob(self.series.as_bytes(), out, offset);
+            write_blob(self.series_index.as_bytes(), out, offset);
+            write_bytes(&self.direction.to_le_bytes(), out, offset);
+            write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
+            write_bytes(&self.sections.to_le_bytes(), out, offset);
+            write_bytes(&self.authors.to_le_bytes(), out, offset);
+            write_bytes(&self.subjects.to_le_bytes(), out, offset);
+            write_bytes(&self.description_bytes.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtMeta<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            title: &'a str,
+            language: &'a str,
+            series: &'a str,
+            series_index: &'a str,
+            direction: u32,
+            writing_mode: u32,
+            sections: u32,
+            authors: u32,
+            subjects: u32,
+            description_bytes: u32,
+            flags: u32,
+        ) -> Self {
+            Self {
+                title,
+                language,
+                series,
+                series_index,
+                direction,
+                writing_mode,
+                sections,
+                authors,
+                subjects,
+                description_bytes,
+                flags,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.text` record.
+    pub const FMT_TEXT_TAG: u32 = 7;
+    /// Maximum bytes of `fmt.text.text`.
+    pub const FMT_TEXT_TEXT_MAX_BYTES: usize = 1024;
+
+    /// The `fmt.text` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtText<'a> {
+        /// Little-endian u32.
+        pub kind: u32,
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub total: u32,
+        /// UTF-8 text of at most 1024 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> FmtText<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtText(Self {
+                kind: u32::from_le_bytes(body.scalar()?),
+                index: u32::from_le_bytes(body.scalar()?),
+                total: u32::from_le_bytes(body.scalar()?),
+                text: body.string(FMT_TEXT_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.text.len(), FMT_TEXT_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.kind.to_le_bytes(), out, offset);
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.total.to_le_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtText<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(kind: u32, index: u32, total: u32, text: &'a str) -> Self {
+            Self {
+                kind,
+                index,
+                total,
+                text,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.section` record.
+    pub const FMT_SECTION_TAG: u32 = 8;
+
+    /// The `fmt.section` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtSection {
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub length: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl FmtSection {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtSection(Self {
+                index: u32::from_le_bytes(body.scalar()?),
+                length: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.length.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtSection {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(index: u32, length: u32, flags: u32) -> Self {
+            Self {
+                index,
+                length,
+                flags,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.end` record.
+    pub const FMT_END_TAG: u32 = 9;
+
+    /// The `fmt.end` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtEnd {
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Little-endian u32.
+        pub total: u32,
+        /// Little-endian u32.
+        pub generation: u32,
+        /// Little-endian u32.
+        pub next: u32,
+        /// Little-endian u64. Appended and optional; `None` when absent.
+        pub cursor: Option<u64>,
+    }
+
+    impl FmtEnd {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            let bits = body.bitmap_bits()?;
+            Ok(Record::FmtEnd(Self {
+                flags: u32::from_le_bytes(body.scalar()?),
+                total: u32::from_le_bytes(body.scalar()?),
+                generation: u32::from_le_bytes(body.scalar()?),
+                next: u32::from_le_bytes(body.scalar()?),
+                cursor: body.maybe_u64(bits, 0x01)?,
+            }))
+        }
+
+        fn bits(&self) -> u8 {
+            let mut bits = 0;
+            if self.cursor.is_some() {
+                bits |= 0x01;
+            }
+            bits
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let bits = self.bits();
+            // The bitmap is one byte when any optional field is present.
+            let mut len = 1 + usize::from(bits != 0);
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            if bits & 0x01 != 0 {
+                len += 8;
+            }
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_bytes(&self.total.to_le_bytes(), out, offset);
+            write_bytes(&self.generation.to_le_bytes(), out, offset);
+            write_bytes(&self.next.to_le_bytes(), out, offset);
+            if let Some(value) = self.cursor {
+                write_bytes(&value.to_le_bytes(), out, offset);
+            }
+        }
+    }
+
+    impl FmtEnd {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            flags: u32,
+            total: u32,
+            generation: u32,
+            next: u32,
+            cursor: Option<u64>,
+        ) -> Self {
+            Self {
+                flags,
+                total,
+                generation,
+                next,
+                cursor,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.block` record.
+    pub const FMT_BLOCK_TAG: u32 = 10;
+    /// Maximum bytes of `fmt.block.lang`.
+    pub const FMT_BLOCK_LANG_MAX_BYTES: usize = 35;
+
+    /// The `fmt.block` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtBlock<'a> {
+        /// Little-endian u32.
+        pub kind: u32,
+        /// Little-endian u32.
+        pub level: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Little-endian u32.
+        pub start: u32,
+        /// Little-endian u32.
+        pub end: u32,
+        /// Little-endian u32.
+        pub align: u32,
+        /// Little-endian i32.
+        pub indent: i32,
+        /// Little-endian u32.
+        pub space: u32,
+        /// Little-endian u32.
+        pub size: u32,
+        /// Little-endian u32.
+        pub margin_start: u32,
+        /// Little-endian u32.
+        pub margin_end: u32,
+        /// Little-endian u32.
+        pub line_height: u32,
+        /// Little-endian u32.
+        pub dir: u32,
+        /// Little-endian u32.
+        pub writing_mode: u32,
+        /// UTF-8 text of at most 35 bytes.
+        pub lang: &'a str,
+        /// Little-endian u32.
+        pub drop_cap: u32,
+        /// Little-endian u32.
+        pub text_bytes: u32,
+    }
+
+    impl<'a> FmtBlock<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtBlock(Self {
+                kind: u32::from_le_bytes(body.scalar()?),
+                level: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+                start: u32::from_le_bytes(body.scalar()?),
+                end: u32::from_le_bytes(body.scalar()?),
+                align: u32::from_le_bytes(body.scalar()?),
+                indent: i32::from_le_bytes(body.scalar()?),
+                space: u32::from_le_bytes(body.scalar()?),
+                size: u32::from_le_bytes(body.scalar()?),
+                margin_start: u32::from_le_bytes(body.scalar()?),
+                margin_end: u32::from_le_bytes(body.scalar()?),
+                line_height: u32::from_le_bytes(body.scalar()?),
+                dir: u32::from_le_bytes(body.scalar()?),
+                writing_mode: u32::from_le_bytes(body.scalar()?),
+                lang: body.string(FMT_BLOCK_LANG_MAX_BYTES)?,
+                drop_cap: u32::from_le_bytes(body.scalar()?),
+                text_bytes: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.lang.len(), FMT_BLOCK_LANG_MAX_BYTES)?;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.kind.to_le_bytes(), out, offset);
+            write_bytes(&self.level.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_bytes(&self.start.to_le_bytes(), out, offset);
+            write_bytes(&self.end.to_le_bytes(), out, offset);
+            write_bytes(&self.align.to_le_bytes(), out, offset);
+            write_bytes(&self.indent.to_le_bytes(), out, offset);
+            write_bytes(&self.space.to_le_bytes(), out, offset);
+            write_bytes(&self.size.to_le_bytes(), out, offset);
+            write_bytes(&self.margin_start.to_le_bytes(), out, offset);
+            write_bytes(&self.margin_end.to_le_bytes(), out, offset);
+            write_bytes(&self.line_height.to_le_bytes(), out, offset);
+            write_bytes(&self.dir.to_le_bytes(), out, offset);
+            write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
+            write_blob(self.lang.as_bytes(), out, offset);
+            write_bytes(&self.drop_cap.to_le_bytes(), out, offset);
+            write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtBlock<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            kind: u32,
+            level: u32,
+            flags: u32,
+            start: u32,
+            end: u32,
+            align: u32,
+            indent: i32,
+            space: u32,
+            size: u32,
+            margin_start: u32,
+            margin_end: u32,
+            line_height: u32,
+            dir: u32,
+            writing_mode: u32,
+            lang: &'a str,
+            drop_cap: u32,
+            text_bytes: u32,
+        ) -> Self {
+            Self {
+                kind,
+                level,
+                flags,
+                start,
+                end,
+                align,
+                indent,
+                space,
+                size,
+                margin_start,
+                margin_end,
+                line_height,
+                dir,
+                writing_mode,
+                lang,
+                drop_cap,
+                text_bytes,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.text_part` record.
+    pub const FMT_TEXT_PART_TAG: u32 = 11;
+    /// Maximum bytes of `fmt.text_part.text`.
+    pub const FMT_TEXT_PART_TEXT_MAX_BYTES: usize = 3072;
+
+    /// The `fmt.text_part` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtTextPart<'a> {
+        /// UTF-8 text of at most 3072 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> FmtTextPart<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtTextPart(Self {
+                text: body.string(FMT_TEXT_PART_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.text.len(), FMT_TEXT_PART_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtTextPart<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(text: &'a str) -> Self {
+            Self { text }
+        }
+    }
+    /// Wire tag of the `fmt.run` record.
+    pub const FMT_RUN_TAG: u32 = 12;
+
+    /// The `fmt.run` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtRun {
+        /// Little-endian u32.
+        pub start: u32,
+        /// Little-endian u32.
+        pub end: u32,
+        /// Little-endian u32.
+        pub style: u32,
+    }
+
+    impl FmtRun {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtRun(Self {
+                start: u32::from_le_bytes(body.scalar()?),
+                end: u32::from_le_bytes(body.scalar()?),
+                style: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.start.to_le_bytes(), out, offset);
+            write_bytes(&self.end.to_le_bytes(), out, offset);
+            write_bytes(&self.style.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtRun {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(start: u32, end: u32, style: u32) -> Self {
+            Self { start, end, style }
+        }
+    }
+    /// Wire tag of the `fmt.map` record.
+    pub const FMT_MAP_TAG: u32 = 13;
+
+    /// The `fmt.map` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtMap {
+        /// Little-endian u32.
+        pub text: u32,
+        /// Little-endian u32.
+        pub source: u32,
+    }
+
+    impl FmtMap {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtMap(Self {
+                text: u32::from_le_bytes(body.scalar()?),
+                source: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.text.to_le_bytes(), out, offset);
+            write_bytes(&self.source.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtMap {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(text: u32, source: u32) -> Self {
+            Self { text, source }
+        }
+    }
+    /// Wire tag of the `fmt.columns` record.
+    pub const FMT_COLUMNS_TAG: u32 = 14;
+    /// Maximum bytes of `fmt.columns.weights`.
+    pub const FMT_COLUMNS_WEIGHTS_MAX_BYTES: usize = 32;
+
+    /// The `fmt.columns` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtColumns<'a> {
+        /// Opaque bytes, at most 32.
+        pub weights: &'a [u8],
+    }
+
+    impl<'a> FmtColumns<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtColumns(Self {
+                weights: body.blob(FMT_COLUMNS_WEIGHTS_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.weights.len(), FMT_COLUMNS_WEIGHTS_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.weights, out, offset);
+        }
+    }
+
+    impl<'a> FmtColumns<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(weights: &'a [u8]) -> Self {
+            Self { weights }
+        }
+    }
+    /// Wire tag of the `fmt.cell` record.
+    pub const FMT_CELL_TAG: u32 = 15;
+
+    /// The `fmt.cell` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtCell {
+        /// Little-endian u32.
+        pub end: u32,
+        /// Little-endian u32.
+        pub span: u32,
+        /// Little-endian u32.
+        pub rows: u32,
+        /// Little-endian u32.
+        pub align: u32,
+        /// Little-endian u32.
+        pub vertical: u32,
+        /// Little-endian u32.
+        pub width: u32,
+    }
+
+    impl FmtCell {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtCell(Self {
+                end: u32::from_le_bytes(body.scalar()?),
+                span: u32::from_le_bytes(body.scalar()?),
+                rows: u32::from_le_bytes(body.scalar()?),
+                align: u32::from_le_bytes(body.scalar()?),
+                vertical: u32::from_le_bytes(body.scalar()?),
+                width: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.end.to_le_bytes(), out, offset);
+            write_bytes(&self.span.to_le_bytes(), out, offset);
+            write_bytes(&self.rows.to_le_bytes(), out, offset);
+            write_bytes(&self.align.to_le_bytes(), out, offset);
+            write_bytes(&self.vertical.to_le_bytes(), out, offset);
+            write_bytes(&self.width.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtCell {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            end: u32,
+            span: u32,
+            rows: u32,
+            align: u32,
+            vertical: u32,
+            width: u32,
+        ) -> Self {
+            Self {
+                end,
+                span,
+                rows,
+                align,
+                vertical,
+                width,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.ruby` record.
+    pub const FMT_RUBY_TAG: u32 = 16;
+    /// Maximum bytes of `fmt.ruby.text`.
+    pub const FMT_RUBY_TEXT_MAX_BYTES: usize = 1024;
+
+    /// The `fmt.ruby` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtRuby<'a> {
+        /// Little-endian u32.
+        pub start: u32,
+        /// Little-endian u32.
+        pub end: u32,
+        /// Little-endian u32.
+        pub kind: u32,
+        /// Little-endian u32.
+        pub size: u32,
+        /// UTF-8 text of at most 1024 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> FmtRuby<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtRuby(Self {
+                start: u32::from_le_bytes(body.scalar()?),
+                end: u32::from_le_bytes(body.scalar()?),
+                kind: u32::from_le_bytes(body.scalar()?),
+                size: u32::from_le_bytes(body.scalar()?),
+                text: body.string(FMT_RUBY_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.text.len(), FMT_RUBY_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.start.to_le_bytes(), out, offset);
+            write_bytes(&self.end.to_le_bytes(), out, offset);
+            write_bytes(&self.kind.to_le_bytes(), out, offset);
+            write_bytes(&self.size.to_le_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtRuby<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(start: u32, end: u32, kind: u32, size: u32, text: &'a str) -> Self {
+            Self {
+                start,
+                end,
+                kind,
+                size,
+                text,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.inline_lang` record.
+    pub const FMT_INLINE_LANG_TAG: u32 = 17;
+    /// Maximum bytes of `fmt.inline_lang.lang`.
+    pub const FMT_INLINE_LANG_LANG_MAX_BYTES: usize = 35;
+
+    /// The `fmt.inline_lang` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtInlineLang<'a> {
+        /// UTF-8 text of at most 35 bytes.
+        pub lang: &'a str,
+    }
+
+    impl<'a> FmtInlineLang<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtInlineLang(Self {
+                lang: body.string(FMT_INLINE_LANG_LANG_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.lang.len(), FMT_INLINE_LANG_LANG_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.lang.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtInlineLang<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(lang: &'a str) -> Self {
+            Self { lang }
+        }
+    }
+    /// Wire tag of the `fmt.toc` record.
+    pub const FMT_TOC_TAG: u32 = 18;
+    /// Maximum bytes of `fmt.toc.title`.
+    pub const FMT_TOC_TITLE_MAX_BYTES: usize = 512;
+
+    /// The `fmt.toc` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtToc<'a> {
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub level: u32,
+        /// Little-endian u32.
+        pub section: u32,
+        /// Little-endian u32.
+        pub offset: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// UTF-8 text of at most 512 bytes.
+        pub title: &'a str,
+    }
+
+    impl<'a> FmtToc<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtToc(Self {
+                index: u32::from_le_bytes(body.scalar()?),
+                level: u32::from_le_bytes(body.scalar()?),
+                section: u32::from_le_bytes(body.scalar()?),
+                offset: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+                title: body.string(FMT_TOC_TITLE_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.title.len(), FMT_TOC_TITLE_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.level.to_le_bytes(), out, offset);
+            write_bytes(&self.section.to_le_bytes(), out, offset);
+            write_bytes(&self.offset.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_blob(self.title.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtToc<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            index: u32,
+            level: u32,
+            section: u32,
+            offset: u32,
+            flags: u32,
+            title: &'a str,
+        ) -> Self {
+            Self {
+                index,
+                level,
+                section,
+                offset,
+                flags,
+                title,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.at` record.
+    pub const FMT_AT_TAG: u32 = 19;
+
+    /// The `fmt.at` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtAt {
+        /// Little-endian u32.
+        pub document: u32,
+        /// Little-endian u32.
+        pub section: u32,
+        /// Little-endian u32.
+        pub offset: u32,
+        /// Little-endian u32.
+        pub insert: u32,
+        /// Little-endian u32.
+        pub cursor: u32,
+        /// Little-endian u32.
+        pub generation: u32,
+    }
+
+    impl FmtAt {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtAt(Self {
+                document: u32::from_le_bytes(body.scalar()?),
+                section: u32::from_le_bytes(body.scalar()?),
+                offset: u32::from_le_bytes(body.scalar()?),
+                insert: u32::from_le_bytes(body.scalar()?),
+                cursor: u32::from_le_bytes(body.scalar()?),
+                generation: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.document.to_le_bytes(), out, offset);
+            write_bytes(&self.section.to_le_bytes(), out, offset);
+            write_bytes(&self.offset.to_le_bytes(), out, offset);
+            write_bytes(&self.insert.to_le_bytes(), out, offset);
+            write_bytes(&self.cursor.to_le_bytes(), out, offset);
+            write_bytes(&self.generation.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtAt {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            document: u32,
+            section: u32,
+            offset: u32,
+            insert: u32,
+            cursor: u32,
+            generation: u32,
+        ) -> Self {
+            Self {
+                document,
+                section,
+                offset,
+                insert,
+                cursor,
+                generation,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.label` record.
+    pub const FMT_LABEL_TAG: u32 = 20;
+    /// Maximum bytes of `fmt.label.text`.
+    pub const FMT_LABEL_TEXT_MAX_BYTES: usize = 32;
+
+    /// The `fmt.label` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtLabel<'a> {
+        /// UTF-8 text of at most 32 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> FmtLabel<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtLabel(Self {
+                text: body.string(FMT_LABEL_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.text.len(), FMT_LABEL_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtLabel<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(text: &'a str) -> Self {
+            Self { text }
+        }
+    }
+    /// Wire tag of the `fmt.xpointer` record.
+    pub const FMT_XPOINTER_TAG: u32 = 21;
+    /// Maximum bytes of `fmt.xpointer.text`.
+    pub const FMT_XPOINTER_TEXT_MAX_BYTES: usize = 1024;
+
+    /// The `fmt.xpointer` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtXpointer<'a> {
+        /// Little-endian u32.
+        pub document: u32,
+        /// UTF-8 text of at most 1024 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> FmtXpointer<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtXpointer(Self {
+                document: u32::from_le_bytes(body.scalar()?),
+                text: body.string(FMT_XPOINTER_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += blob_len(self.text.len(), FMT_XPOINTER_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.document.to_le_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtXpointer<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(document: u32, text: &'a str) -> Self {
+            Self { document, text }
+        }
+    }
+    /// Wire tag of the `fmt.link` record.
+    pub const FMT_LINK_TAG: u32 = 22;
+    /// Maximum bytes of `fmt.link.href`.
+    pub const FMT_LINK_HREF_MAX_BYTES: usize = 1024;
+
+    /// The `fmt.link` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtLink<'a> {
+        /// Little-endian u32.
+        pub start: u32,
+        /// Little-endian u32.
+        pub end: u32,
+        /// Little-endian u32.
+        pub kind: u32,
+        /// UTF-8 text of at most 1024 bytes.
+        pub href: &'a str,
+    }
+
+    impl<'a> FmtLink<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtLink(Self {
+                start: u32::from_le_bytes(body.scalar()?),
+                end: u32::from_le_bytes(body.scalar()?),
+                kind: u32::from_le_bytes(body.scalar()?),
+                href: body.string(FMT_LINK_HREF_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.href.len(), FMT_LINK_HREF_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.start.to_le_bytes(), out, offset);
+            write_bytes(&self.end.to_le_bytes(), out, offset);
+            write_bytes(&self.kind.to_le_bytes(), out, offset);
+            write_blob(self.href.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FmtLink<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(start: u32, end: u32, kind: u32, href: &'a str) -> Self {
+            Self {
+                start,
+                end,
+                kind,
+                href,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.font` record.
+    pub const FMT_FONT_TAG: u32 = 23;
+
+    /// The `fmt.font` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtFont {
+        /// Little-endian u32.
+        pub index: u32,
+        /// Little-endian u32.
+        pub family: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Little-endian u32.
+        pub bytes: u32,
+    }
+
+    impl FmtFont {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtFont(Self {
+                index: u32::from_le_bytes(body.scalar()?),
+                family: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+                bytes: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.index.to_le_bytes(), out, offset);
+            write_bytes(&self.family.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_bytes(&self.bytes.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtFont {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(index: u32, family: u32, flags: u32, bytes: u32) -> Self {
+            Self {
+                index,
+                family,
+                flags,
+                bytes,
+            }
+        }
+    }
+    /// Wire tag of the `fmt.progress` record.
+    pub const FMT_PROGRESS_TAG: u32 = 24;
+
+    /// The `fmt.progress` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct FmtProgress {
+        /// Little-endian u32.
+        pub progress_ppm: u32,
+    }
+
+    impl FmtProgress {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::FmtProgress(Self {
+                progress_ppm: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl FmtProgress {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(progress_ppm: u32) -> Self {
+            Self { progress_ppm }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `fmt.call` record.
+        FmtCall(FmtCall<'a>),
+        /// A `fmt.option` record.
+        FmtOption(FmtOption<'a>),
+        /// A `fmt.yes` record.
+        FmtYes(FmtYes),
+        /// A `fmt.image` record.
+        FmtImage(FmtImage<'a>),
+        /// A `fmt.state` record.
+        FmtState(FmtState<'a>),
+        /// A `fmt.meta` record.
+        FmtMeta(FmtMeta<'a>),
+        /// A `fmt.text` record.
+        FmtText(FmtText<'a>),
+        /// A `fmt.section` record.
+        FmtSection(FmtSection),
+        /// A `fmt.end` record.
+        FmtEnd(FmtEnd),
+        /// A `fmt.block` record.
+        FmtBlock(FmtBlock<'a>),
+        /// A `fmt.text_part` record.
+        FmtTextPart(FmtTextPart<'a>),
+        /// A `fmt.run` record.
+        FmtRun(FmtRun),
+        /// A `fmt.map` record.
+        FmtMap(FmtMap),
+        /// A `fmt.columns` record.
+        FmtColumns(FmtColumns<'a>),
+        /// A `fmt.cell` record.
+        FmtCell(FmtCell),
+        /// A `fmt.ruby` record.
+        FmtRuby(FmtRuby<'a>),
+        /// A `fmt.inline_lang` record.
+        FmtInlineLang(FmtInlineLang<'a>),
+        /// A `fmt.toc` record.
+        FmtToc(FmtToc<'a>),
+        /// A `fmt.at` record.
+        FmtAt(FmtAt),
+        /// A `fmt.label` record.
+        FmtLabel(FmtLabel<'a>),
+        /// A `fmt.xpointer` record.
+        FmtXpointer(FmtXpointer<'a>),
+        /// A `fmt.link` record.
+        FmtLink(FmtLink<'a>),
+        /// A `fmt.font` record.
+        FmtFont(FmtFont),
+        /// A `fmt.progress` record.
+        FmtProgress(FmtProgress),
+    }
+    impl<'a> Reader<'a> {
+        fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+            let len = self.varint()? as usize;
+            if len > cap {
+                return Err(-2);
+            }
+            self.take(len)
+        }
+        fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+            core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+        }
+
+        fn bitmap_bits(&mut self) -> Result<u8, i32> {
+            let len = self.varint()? as usize;
+            // At most eight optional fields: the first bitmap byte is all that is known.
+            Ok(self.take(len)?.first().copied().unwrap_or(0))
+        }
+
+        fn maybe_u64(&mut self, bits: u8, mask: u8) -> Result<Option<u64>, i32> {
+            if bits & mask == 0 {
+                return Ok(None);
+            }
+            Ok(Some(u64::from_le_bytes(self.scalar()?)))
+        }
+    }
+    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+        if len > cap {
+            return Err(-2);
+        }
+        Ok(varint_len(len as u32) + len)
+    }
+    fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        write_varint(bytes.len() as u32, out, offset);
+        write_bytes(bytes, out, offset);
+    }
+    fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+        let mut count = 0;
+        for item in value.split(separator) {
+            count += 1;
+            if item.is_empty() || item.len() > item_max || count > max_items {
+                return false;
+            }
+        }
+        true
+    }
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            match self {
+                Record::FmtCall(_) => FMT_CALL_TAG,
+                Record::FmtOption(_) => FMT_OPTION_TAG,
+                Record::FmtYes(_) => FMT_YES_TAG,
+                Record::FmtImage(_) => FMT_IMAGE_TAG,
+                Record::FmtState(_) => FMT_STATE_TAG,
+                Record::FmtMeta(_) => FMT_META_TAG,
+                Record::FmtText(_) => FMT_TEXT_TAG,
+                Record::FmtSection(_) => FMT_SECTION_TAG,
+                Record::FmtEnd(_) => FMT_END_TAG,
+                Record::FmtBlock(_) => FMT_BLOCK_TAG,
+                Record::FmtTextPart(_) => FMT_TEXT_PART_TAG,
+                Record::FmtRun(_) => FMT_RUN_TAG,
+                Record::FmtMap(_) => FMT_MAP_TAG,
+                Record::FmtColumns(_) => FMT_COLUMNS_TAG,
+                Record::FmtCell(_) => FMT_CELL_TAG,
+                Record::FmtRuby(_) => FMT_RUBY_TAG,
+                Record::FmtInlineLang(_) => FMT_INLINE_LANG_TAG,
+                Record::FmtToc(_) => FMT_TOC_TAG,
+                Record::FmtAt(_) => FMT_AT_TAG,
+                Record::FmtLabel(_) => FMT_LABEL_TAG,
+                Record::FmtXpointer(_) => FMT_XPOINTER_TAG,
+                Record::FmtLink(_) => FMT_LINK_TAG,
+                Record::FmtFont(_) => FMT_FONT_TAG,
+                Record::FmtProgress(_) => FMT_PROGRESS_TAG,
+            }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            match self {
+                Record::FmtCall(r) => r.body_len(),
+                Record::FmtOption(r) => r.body_len(),
+                Record::FmtYes(r) => r.body_len(),
+                Record::FmtImage(r) => r.body_len(),
+                Record::FmtState(r) => r.body_len(),
+                Record::FmtMeta(r) => r.body_len(),
+                Record::FmtText(r) => r.body_len(),
+                Record::FmtSection(r) => r.body_len(),
+                Record::FmtEnd(r) => r.body_len(),
+                Record::FmtBlock(r) => r.body_len(),
+                Record::FmtTextPart(r) => r.body_len(),
+                Record::FmtRun(r) => r.body_len(),
+                Record::FmtMap(r) => r.body_len(),
+                Record::FmtColumns(r) => r.body_len(),
+                Record::FmtCell(r) => r.body_len(),
+                Record::FmtRuby(r) => r.body_len(),
+                Record::FmtInlineLang(r) => r.body_len(),
+                Record::FmtToc(r) => r.body_len(),
+                Record::FmtAt(r) => r.body_len(),
+                Record::FmtLabel(r) => r.body_len(),
+                Record::FmtXpointer(r) => r.body_len(),
+                Record::FmtLink(r) => r.body_len(),
+                Record::FmtFont(r) => r.body_len(),
+                Record::FmtProgress(r) => r.body_len(),
+            }
+        }
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            match self {
+                Record::FmtCall(r) => r.write(out, offset),
+                Record::FmtOption(r) => r.write(out, offset),
+                Record::FmtYes(r) => r.write(out, offset),
+                Record::FmtImage(r) => r.write(out, offset),
+                Record::FmtState(r) => r.write(out, offset),
+                Record::FmtMeta(r) => r.write(out, offset),
+                Record::FmtText(r) => r.write(out, offset),
+                Record::FmtSection(r) => r.write(out, offset),
+                Record::FmtEnd(r) => r.write(out, offset),
+                Record::FmtBlock(r) => r.write(out, offset),
+                Record::FmtTextPart(r) => r.write(out, offset),
+                Record::FmtRun(r) => r.write(out, offset),
+                Record::FmtMap(r) => r.write(out, offset),
+                Record::FmtColumns(r) => r.write(out, offset),
+                Record::FmtCell(r) => r.write(out, offset),
+                Record::FmtRuby(r) => r.write(out, offset),
+                Record::FmtInlineLang(r) => r.write(out, offset),
+                Record::FmtToc(r) => r.write(out, offset),
+                Record::FmtAt(r) => r.write(out, offset),
+                Record::FmtLabel(r) => r.write(out, offset),
+                Record::FmtXpointer(r) => r.write(out, offset),
+                Record::FmtLink(r) => r.write(out, offset),
+                Record::FmtFont(r) => r.write(out, offset),
+                Record::FmtProgress(r) => r.write(out, offset),
+            }
+        }
+
+        fn bits(&self) -> u8 {
+            match self {
+                Record::FmtEnd(record) => record.bits(),
+                _ => 0,
+            }
+        }
+
+        fn write_bitmap(&self, out: &mut [u8], offset: &mut usize) {
+            let bits = self.bits();
+            write_varint(u32::from(bits != 0), out, offset);
+            if bits != 0 {
+                write_bytes(&[bits], out, offset);
+            }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let record = match tag {
+            FMT_CALL_TAG => FmtCall::decode_body(body)?,
+            FMT_OPTION_TAG => FmtOption::decode_body(body)?,
+            FMT_YES_TAG => FmtYes::decode_body(body)?,
+            FMT_IMAGE_TAG => FmtImage::decode_body(body)?,
+            FMT_STATE_TAG => FmtState::decode_body(body)?,
+            FMT_META_TAG => FmtMeta::decode_body(body)?,
+            FMT_TEXT_TAG => FmtText::decode_body(body)?,
+            FMT_SECTION_TAG => FmtSection::decode_body(body)?,
+            FMT_END_TAG => FmtEnd::decode_body(body)?,
+            FMT_BLOCK_TAG => FmtBlock::decode_body(body)?,
+            FMT_TEXT_PART_TAG => FmtTextPart::decode_body(body)?,
+            FMT_RUN_TAG => FmtRun::decode_body(body)?,
+            FMT_MAP_TAG => FmtMap::decode_body(body)?,
+            FMT_COLUMNS_TAG => FmtColumns::decode_body(body)?,
+            FMT_CELL_TAG => FmtCell::decode_body(body)?,
+            FMT_RUBY_TAG => FmtRuby::decode_body(body)?,
+            FMT_INLINE_LANG_TAG => FmtInlineLang::decode_body(body)?,
+            FMT_TOC_TAG => FmtToc::decode_body(body)?,
+            FMT_AT_TAG => FmtAt::decode_body(body)?,
+            FMT_LABEL_TAG => FmtLabel::decode_body(body)?,
+            FMT_XPOINTER_TAG => FmtXpointer::decode_body(body)?,
+            FMT_LINK_TAG => FmtLink::decode_body(body)?,
+            FMT_FONT_TAG => FmtFont::decode_body(body)?,
+            FMT_PROGRESS_TAG => FmtProgress::decode_body(body)?,
+            _ => return Err(-2),
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            record.write_bitmap(out, &mut offset);
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    impl<'a> FmtCall<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_CALL_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::FmtCall(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtCall(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtOption<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_OPTION_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::FmtOption(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtOption(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtYes {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_YES_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtYes(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtYes(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtImage<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_IMAGE_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtImage(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtImage(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtState<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_STATE_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtState(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtState(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtMeta<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_META_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtMeta(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtMeta(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtText<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_TEXT_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtText(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtText(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtSection {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_SECTION_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtSection(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtSection(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtEnd {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_END_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtEnd(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtEnd(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtBlock<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_BLOCK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtBlock(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtBlock(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtTextPart<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_TEXT_PART_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtTextPart(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtTextPart(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtRun {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_RUN_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtRun(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtRun(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtMap {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_MAP_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtMap(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtMap(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtColumns<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_COLUMNS_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtColumns(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtColumns(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtCell {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_CELL_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtCell(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtCell(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtRuby<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_RUBY_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtRuby(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtRuby(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtInlineLang<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_INLINE_LANG_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtInlineLang(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtInlineLang(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtToc<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_TOC_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtToc(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtToc(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtAt {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_AT_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtAt(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtAt(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtLabel<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_LABEL_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtLabel(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtLabel(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtXpointer<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_XPOINTER_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtXpointer(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtXpointer(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> FmtLink<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_LINK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtLink(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtLink(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtFont {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_FONT_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtFont(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtFont(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl FmtProgress {
+        /// Local tag of this record.
+        pub const TAG: u32 = FMT_PROGRESS_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::FmtProgress(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::FmtProgress(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
 
 /// Local records of `core.input-filter` major 1.
 pub mod core_input_filter_v1 {
@@ -544,6 +3091,497 @@ pub mod core_input_filter_v1 {
             }
             match records.next() {
                 Some(Ok(Record::FilterVerdict(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
+
+/// Local records of `core.lookup` major 1.
+pub mod core_lookup_v1 {
+    /// Schema key.
+    pub const KEY: &str = "core.lookup";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 32;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 3840;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 3840;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 1;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[2];
+    /// Each mirrored record: its local tag and the kernel tag of the service row
+    /// it is the same record as (only the tag changes).
+    pub const SERVICE_TAGS: &[(u32, u32)] = &[(1, 1092)];
+    struct Reader<'a> {
+        remaining: &'a [u8],
+    }
+
+    impl<'a> Reader<'a> {
+        fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+            if len > self.remaining.len() {
+                return Err(-2);
+            }
+            let (value, rest) = self.remaining.split_at(len);
+            self.remaining = rest;
+            Ok(value)
+        }
+
+        fn varint(&mut self) -> Result<u32, i32> {
+            let mut value = 0_u32;
+            for index in 0..5 {
+                let byte = self.take(1)?[0];
+                if index == 4 && byte > 0x0f {
+                    return Err(-2);
+                }
+                value |= u32::from(byte & 0x7f) << (index * 7);
+                if byte & 0x80 == 0 {
+                    if index > 0 && byte == 0 {
+                        return Err(-2);
+                    }
+                    return Ok(value);
+                }
+            }
+            Err(-2)
+        }
+
+        fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+            let mut value = [0; N];
+            value.copy_from_slice(self.take(N)?);
+            Ok(value)
+        }
+
+        fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+            let tag = self.varint()?;
+            let len = self.varint()? as usize;
+            let body = Reader {
+                remaining: self.take(len)?,
+            };
+            Ok((tag, body))
+        }
+
+        fn bitmap(&mut self) -> Result<(), i32> {
+            let len = self.varint()? as usize;
+            // Unknown optional bits and fields are skipped using the record length.
+            self.take(len)?;
+            Ok(())
+        }
+
+        fn finish(self) -> Result<(), i32> {
+            if self.remaining.is_empty() {
+                Ok(())
+            } else {
+                Err(-2)
+            }
+        }
+    }
+
+    fn varint_len(mut value: u32) -> usize {
+        let mut len = 1;
+        while value >= 0x80 {
+            len += 1;
+            value >>= 7;
+        }
+        len
+    }
+
+    fn record_len(tag: u32, fields: u32) -> usize {
+        let body_len = fields + 1; // The initial bitmap is empty.
+        varint_len(tag) + varint_len(body_len) + body_len as usize
+    }
+
+    fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+            *offset += 1;
+            if value == 0 {
+                return;
+            }
+        }
+    }
+
+    fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+        *offset += bytes.len();
+    }
+
+    fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+        write_varint(tag, out, offset);
+        write_varint(fields + 1, out, offset);
+        write_varint(0, out, offset);
+    }
+
+    /// Wire tag of the `lookup.ask` record.
+    pub const LOOKUP_ASK_TAG: u32 = 1;
+    /// Maximum bytes of `lookup.ask.text`.
+    pub const LOOKUP_ASK_TEXT_MAX_BYTES: usize = 1024;
+    /// Maximum bytes of `lookup.ask.language`.
+    pub const LOOKUP_ASK_LANGUAGE_MAX_BYTES: usize = 35;
+    /// Maximum bytes of `lookup.ask.context`.
+    pub const LOOKUP_ASK_CONTEXT_MAX_BYTES: usize = 1024;
+
+    /// The `lookup.ask` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct LookupAsk<'a> {
+        /// UTF-8 text of at most 1024 bytes.
+        pub text: &'a str,
+        /// UTF-8 text of at most 35 bytes.
+        pub language: &'a str,
+        /// UTF-8 text of at most 1024 bytes.
+        pub context: &'a str,
+        /// Little-endian u32.
+        pub cursor: u32,
+    }
+
+    impl<'a> LookupAsk<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::LookupAsk(Self {
+                text: body.string(LOOKUP_ASK_TEXT_MAX_BYTES)?,
+                language: body.string(LOOKUP_ASK_LANGUAGE_MAX_BYTES)?,
+                context: body.string(LOOKUP_ASK_CONTEXT_MAX_BYTES)?,
+                cursor: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.text.len(), LOOKUP_ASK_TEXT_MAX_BYTES)?;
+            len += blob_len(self.language.len(), LOOKUP_ASK_LANGUAGE_MAX_BYTES)?;
+            len += blob_len(self.context.len(), LOOKUP_ASK_CONTEXT_MAX_BYTES)?;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.text.as_bytes(), out, offset);
+            write_blob(self.language.as_bytes(), out, offset);
+            write_blob(self.context.as_bytes(), out, offset);
+            write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> LookupAsk<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(text: &'a str, language: &'a str, context: &'a str, cursor: u32) -> Self {
+            Self {
+                text,
+                language,
+                context,
+                cursor,
+            }
+        }
+    }
+    /// Wire tag of the `lookup.entry` record.
+    pub const LOOKUP_ENTRY_TAG: u32 = 2;
+    /// Maximum bytes of `lookup.entry.title`.
+    pub const LOOKUP_ENTRY_TITLE_MAX_BYTES: usize = 256;
+    /// Maximum bytes of `lookup.entry.text`.
+    pub const LOOKUP_ENTRY_TEXT_MAX_BYTES: usize = 2048;
+
+    /// The `lookup.entry` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct LookupEntry<'a> {
+        /// UTF-8 text of at most 256 bytes.
+        pub title: &'a str,
+        /// UTF-8 text of at most 2048 bytes.
+        pub text: &'a str,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl<'a> LookupEntry<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::LookupEntry(Self {
+                title: body.string(LOOKUP_ENTRY_TITLE_MAX_BYTES)?,
+                text: body.string(LOOKUP_ENTRY_TEXT_MAX_BYTES)?,
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.title.len(), LOOKUP_ENTRY_TITLE_MAX_BYTES)?;
+            len += blob_len(self.text.len(), LOOKUP_ENTRY_TEXT_MAX_BYTES)?;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.title.as_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> LookupEntry<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(title: &'a str, text: &'a str, flags: u32) -> Self {
+            Self { title, text, flags }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `lookup.ask` record.
+        LookupAsk(LookupAsk<'a>),
+        /// A `lookup.entry` record.
+        LookupEntry(LookupEntry<'a>),
+    }
+    impl<'a> Reader<'a> {
+        fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+            let len = self.varint()? as usize;
+            if len > cap {
+                return Err(-2);
+            }
+            self.take(len)
+        }
+        fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+            core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+        }
+    }
+    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+        if len > cap {
+            return Err(-2);
+        }
+        Ok(varint_len(len as u32) + len)
+    }
+    fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        write_varint(bytes.len() as u32, out, offset);
+        write_bytes(bytes, out, offset);
+    }
+    fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+        let mut count = 0;
+        for item in value.split(separator) {
+            count += 1;
+            if item.is_empty() || item.len() > item_max || count > max_items {
+                return false;
+            }
+        }
+        true
+    }
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            match self {
+                Record::LookupAsk(_) => LOOKUP_ASK_TAG,
+                Record::LookupEntry(_) => LOOKUP_ENTRY_TAG,
+            }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            match self {
+                Record::LookupAsk(r) => r.body_len(),
+                Record::LookupEntry(r) => r.body_len(),
+            }
+        }
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            match self {
+                Record::LookupAsk(r) => r.write(out, offset),
+                Record::LookupEntry(r) => r.write(out, offset),
+            }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let record = match tag {
+            LOOKUP_ASK_TAG => LookupAsk::decode_body(body)?,
+            LOOKUP_ENTRY_TAG => LookupEntry::decode_body(body)?,
+            _ => return Err(-2),
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    impl<'a> LookupAsk<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = LOOKUP_ASK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::LookupAsk(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::LookupAsk(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> LookupEntry<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = LOOKUP_ENTRY_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::LookupEntry(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::LookupEntry(r))) => Ok(r),
                 _ => Err(-2),
             }
         }

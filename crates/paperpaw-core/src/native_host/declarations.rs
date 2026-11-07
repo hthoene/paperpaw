@@ -5,7 +5,9 @@
 //! that must resolve, limits per plugin) belong to the commit and are not here.
 //! Statuses: unknown enum values and flag bits return `ERR_UNSUPPORTED`, every
 //! other violation returns `ERR_INVALID`; UTF-8 and byte caps are already
-//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
+//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`). The document, library and
+//! lookup declarations (`declarations_docs.rs`) are the exception: their unknown
+//! values are `ERR_INVALID`.
 
 use super::registrations::{
     ActionSpec, ICON_SPEC_ICON_MAX_BYTES, IconSpec, MenuDescribe, MenuEntry, MenuHide, MenuNeed,
@@ -63,7 +65,9 @@ pub fn validate_batch(plugin_id: &str, batch: &RecordBatch<'_>) -> Check {
 ///
 /// # Errors
 /// `ERR_UNSUPPORTED` for unknown kinds, flag bits, styles or a nonzero `check`;
-/// `ERR_INVALID` for any other violated rule.
+/// `ERR_INVALID` for any other violated rule. The format, reader, lookup and
+/// book declarations are the exception: their unknown values are
+/// `ERR_INVALID` too (`declarations_docs.rs`).
 #[expect(
     clippy::too_many_lines,
     reason = "one explicit arm per record kind (no catch-all): a new record fails to compile here until it is classified"
@@ -115,12 +119,19 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
         // `library.md`): refused until the host admits them (DOC/LIB hand-off).
-        Record::FormatSpec(_)
-        | Record::ReaderSpec(_)
-        | Record::LookupSpec(_)
-        | Record::BookFieldSpec(_)
-        | Record::BookBadgeSpec(_)
-        | Record::BookDataSpec(_) => Err(ERR_UNSUPPORTED),
+        // Checked, then refused until the host admits them (the format index).
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::BookFieldSpec(spec) => {
+            docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookBadgeSpec(spec) => {
+            docs::book_badge_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookDataSpec(spec) => {
+            docs::book_data_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -163,7 +174,17 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventNetworkIdle(_)
         | Record::EventFirmwareChanged(_)
         | Record::EventInstallDone(_)
-        | Record::EventBluetooth(_) => Err(ERR_INVALID),
+        | Record::EventBluetooth(_)
+        | Record::EventHttpDone(_)
+        | Record::EventHttpProgress(_)
+        | Record::EventServer(_)
+        | Record::EventServedRequest(_)
+        | Record::EventWorkDue(_)
+        | Record::EventWorkRefused(_)
+        | Record::EventWorkAllowed(_)
+        | Record::EventSocket(_)
+        | Record::EventBroadcast(_)
+        | Record::EventDocumentClosed(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
@@ -298,7 +319,47 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDevRequest(_)
         | Record::ServiceDevInstall(_)
         | Record::ServiceDevNotInstalled(_)
-        | Record::ServiceDevKey(_) => Err(ERR_INVALID),
+        | Record::ServiceDevKey(_)
+        | Record::ServiceFsPath(_)
+        | Record::ServiceFsList(_)
+        | Record::ServiceFsMove(_)
+        | Record::ServiceFsEntry(_)
+        | Record::ServiceFsSpace(_)
+        | Record::ServiceFsProgress(_)
+        | Record::ServiceNetRequest(_)
+        | Record::ServiceNetHeader(_)
+        | Record::ServiceNetFile(_)
+        | Record::ServiceNetBody(_)
+        | Record::ServiceNetStarted(_)
+        | Record::ServiceNetToken(_)
+        | Record::ServiceNetId(_)
+        | Record::ServiceNetAnswer(_)
+        | Record::ServiceNetRead(_)
+        | Record::ServiceNetBytes(_)
+        | Record::ServiceNetServe(_)
+        | Record::ServiceNetResponse(_)
+        | Record::ServiceSecName(_)
+        | Record::ServiceSecValue(_)
+        | Record::ServiceSecList(_)
+        | Record::ServiceSecEntry(_)
+        | Record::ServiceSecKeep(_)
+        | Record::ServiceSecRandom(_)
+        | Record::ServiceSecBytes(_)
+        | Record::ServiceWorkSpec(_)
+        | Record::ServiceWorkKey(_)
+        | Record::ServiceWorkRow(_)
+        | Record::ServiceSockConnect(_)
+        | Record::ServiceSockPin(_)
+        | Record::ServiceSockStarted(_)
+        | Record::ServiceSockSend(_)
+        | Record::ServiceSockRead(_)
+        | Record::ServiceSockAt(_)
+        | Record::ServiceSockBytes(_)
+        | Record::ServiceSockTls(_)
+        | Record::ServiceSockRef(_)
+        | Record::ServiceSockPeer(_)
+        | Record::ServiceSockBroadcast(_)
+        | Record::ServiceSockPort(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),
@@ -758,6 +819,9 @@ pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> 
     full_id(stage)?;
     ensure(i16::try_from(*order).is_ok())
 }
+
+#[path = "declarations_docs.rs"]
+mod docs;
 
 #[cfg(test)]
 #[path = "declarations_menu_tests.rs"]

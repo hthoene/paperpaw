@@ -1610,6 +1610,41 @@
         "min_table_bytes": 0,
         "semantic_revision": 0,
         "since": 1
+      },
+      {
+        "key": "core.files",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.net",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.secrets",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.work",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.sockets",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
       }
     ]
   },
@@ -2541,6 +2576,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u64"
         }
       ],
       "id": 52,
@@ -11603,6 +11647,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 32,
+          "name": "sha256",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "bytes"
         }
       ],
       "id": 1130,
@@ -12972,6 +13025,1907 @@
       ],
       "id": 98,
       "name": "event.bluetooth",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1142,
+      "name": "service.fs_path",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1143,
+      "name": "service.fs_list",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "from_root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "from",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "to_root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "to",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1144,
+      "name": "service.fs_move",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 765,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "modified",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1145,
+      "name": "service.fs_entry",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1146,
+      "name": "service.fs_space",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "removed",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "next",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1147,
+      "name": "service.fs_progress",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "body_len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 99,
+      "name": "event.http_done",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "received",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 100,
+      "name": "event.http_progress",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "server",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "address",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 101,
+      "name": "event.server",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "server",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 16,
+          "name": "method",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "body_len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 102,
+      "name": "event.served_request",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 16,
+          "name": "method",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "url",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "timeout_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max_body",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max_file",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1148,
+      "name": "service.net_request",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "secret": true,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1149,
+      "name": "service.net_header",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "role",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1150,
+      "name": "service.net_file",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 2048,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1151,
+      "name": "service.net_body",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1152,
+      "name": "service.net_started",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1153,
+      "name": "service.net_token",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1154,
+      "name": "service.net_id",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "body_len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "etag",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "content_type",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "final_url",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1155,
+      "name": "service.net_answer",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1156,
+      "name": "service.net_read",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 3840,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1157,
+      "name": "service.net_bytes",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "port",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max_body",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1158,
+      "name": "service.net_serve",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "content_type",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1159,
+      "name": "service.net_response",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1160,
+      "name": "service.sec_name",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "secret": true,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1161,
+      "name": "service.sec_value",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1162,
+      "name": "service.sec_list",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1163,
+      "name": "service.sec_entry",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "secret": true,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1164,
+      "name": "service.sec_keep",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1165,
+      "name": "service.sec_random",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1166,
+      "name": "service.sec_bytes",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "why",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 103,
+      "name": "event.work_due",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 104,
+      "name": "event.work_refused",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 105,
+      "name": "event.work_allowed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "needs",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "moments",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "after_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "within_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "every_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "at_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1167,
+      "name": "service.work_spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1168,
+      "name": "service.work_key",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "due_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1169,
+      "name": "service.work_row",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 106,
+      "name": "event.socket",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "from",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 107,
+      "name": "event.broadcast",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "port",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "timeout_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "idle_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 253,
+          "name": "host",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 253,
+          "name": "server_name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1170,
+      "name": "service.sock_connect",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "hash",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1171,
+      "name": "service.sock_pin",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1172,
+      "name": "service.sock_started",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 3840,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1173,
+      "name": "service.sock_send",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "len",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1174,
+      "name": "service.sock_read",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1175,
+      "name": "service.sock_at",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 3840,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1176,
+      "name": "service.sock_bytes",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "timeout_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "idle_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 253,
+          "name": "server_name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1177,
+      "name": "service.sock_tls",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "socket",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1178,
+      "name": "service.sock_ref",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "certificate",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1179,
+      "name": "service.sock_peer",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "wait_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1180,
+      "name": "service.sock_broadcast",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "port",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1181,
+      "name": "service.sock_port",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "document",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 108,
+      "name": "event.document_closed",
       "since": 1
     }
   ],

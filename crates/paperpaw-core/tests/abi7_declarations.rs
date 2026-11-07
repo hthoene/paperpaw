@@ -1306,21 +1306,73 @@ fn uix_declarations_stay_refused_until_admitted() {
 /// refused until the host admits them, as the UIX ones.
 #[test]
 fn doc_and_lib_declarations_stay_refused_until_admitted() {
-    for tag in [31, 229, 230, 231, 232, 233] {
-        // 128 zero bytes are a valid body of every generated record.
-        let bytes = batch(&[record(tag, &[vec![0; 128]])]);
+    use paperpaw_core::native_host::registrations::{
+        BookBadgeSpec, BookDataSpec, BookFieldSpec, FormatSpec, LookupSpec, ReaderSpec,
+    };
+    // Well-formed ones: checked, then refused, never accepted and dropped.
+    let valid = [
+        Record::FormatSpec(FormatSpec {
+            name: "epub",
+            title: "format.epub",
+            extensions: "epub",
+            flags: 0,
+            priority: 0,
+            token: 1,
+        }),
+        Record::ReaderSpec(ReaderSpec {
+            name: "main",
+            screen: "main",
+            formats: "",
+            flags: 0,
+        }),
+        Record::LookupSpec(LookupSpec {
+            name: "dict",
+            title: "lookup.dict",
+            languages: "en",
+            flags: 0,
+            token: 1,
+        }),
+        Record::BookFieldSpec(BookFieldSpec {
+            name: "rating",
+            title: "field.rating",
+            flags: 0,
+        }),
+        Record::BookBadgeSpec(BookBadgeSpec {
+            name: "new",
+            token: 1,
+            flags: 0,
+        }),
+        Record::BookDataSpec(BookDataSpec {
+            name: "notes",
+            kind: 0,
+        }),
+    ];
+    for record in valid {
+        let bytes = encode(&[record]);
         let decoded = records_decode(&bytes).unwrap();
         let first = decoded.iter().next().unwrap();
         assert_eq!(
             validate_record(PLUGIN, &first),
             Err(ERR_UNSUPPORTED),
-            "tag {tag}"
+            "{first:?}"
         );
         let (result, committed) = run(&bytes);
-        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert_eq!(result, Err(ERR_UNSUPPORTED), "{first:?}");
         assert!(
             committed.is_err(),
-            "tag {tag}: refusal must poison construction"
+            "{first:?}: refusal must poison construction"
         );
+    }
+    // Zero bodies decode but name nothing: malformed, not merely unsupported.
+    for tag in [31, 229, 230, 231, 232, 233] {
+        let bytes = batch(&[record(tag, &[vec![0; 128]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &first),
+            Err(ERR_INVALID),
+            "tag {tag}"
+        );
+        assert_eq!(run(&bytes).0, Err(ERR_INVALID), "tag {tag}");
     }
 }

@@ -242,9 +242,12 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Row counts, each written only where it differs from its default (so other ops keep their
   exact form and lock): `input_rows` 2..=64, the most records one input batch holds (default 1);
   `paged: false` on a list op (its reply ends with `service.end`) that answers all its rows in one
-  call, with `reply_rows` 1..=64 its most rows before `end`; a paged list op (the default) holds
-  the schema's `page_rows`. The generated `ServiceOp` carries all three (`input_rows`, `paged`,
-  `reply_rows`, 0 for an op that is no list), so readers check from the table, never by op number.
+  call, with `reply_rows` 1..=64 its most rows before `end`. Its `end` is the unpaged end:
+  `total` the rows written, `flags`, `next` and `generation` 0 (no `last` bit: there is no other
+  page), else the host and the SDK refuse the reply with `ERR_INVALID`. A paged list op (the
+  default) holds the schema's `page_rows`. The generated `ServiceOp` carries all three
+  (`input_rows`, `paged`, `reply_rows`, 0 for an op that is no list), so readers check from the
+  table, never by op number.
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
   per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK
@@ -297,8 +300,24 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   same types, bounds, optional bitmap and list rules as `abi.def` records. Stage tags do not
   reserve or reuse kernel record tags. Plugin-defined stages publish their own payload schemas;
   the host checks their framing only.
-- [D] `input` and `reply` each name 1..=8 distinct records from this schema; no record belongs to
-  both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
+- [D] **Mirrors.** A record may name `"mirrors": "service.<name>"` instead of `fields`: it is
+  the same record as that `abi.def` service row under its stage-local tag, and the generator
+  copies the row's fields (at the record's `since`), so the two never drift apart. The module's
+  `SERVICE_TAGS` lists `(local tag, service tag)` for each mirrored record: the host passes such
+  a reply on as a service row by changing only its tag (DOC's `core.format` rows and block stream,
+  `document.md` section 3).
+- [D] **A mirror grows only with a revision.** A field appended to the service row in a later minor
+  must be named in the mirror's `"field_since": {"<field>": <revision>}` with the stage revision
+  that takes it (the generator refuses the schema otherwise), so its stamp never moves when the
+  revision grows again; mirrored records then take the same compatibility check as every other
+  stage record (fields only appended, optional, at a newer revision).
+- [D] **Retagging grows a reply by at most one byte a row.** Local tags below 128 take one byte,
+  service tags (1024-1535) two, and the frame's length and body stay. The generator checks that
+  `max_reply` + `reply_rows` x that growth fits the service's 4,096-byte reply: `core.format` is
+  3,840 + 64 = 3,904. The host still checks the retagged reply against the service op's
+  `max_reply` and refuses an overrun as a malformed answer.
+- [D] `input` names 1..=8 and `reply` 1..=32 distinct records from this schema; no record belongs
+  to both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
   `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at
   its field caps exceeds `max_input`, or one framed reply record exceeds `max_reply`.
   Row and byte caps bind independently; the host sizes reply room by `max_reply`.
@@ -317,7 +336,9 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] Stages have no `metadata.services` catalog entry: plugins do not open them as services.
   Stage declarations select the stage by key and major. The initial schemas are
   `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
-  target rows) and `core.status` (32 subscribers, up to 8 value rows).
+  target rows) and `core.status` (32 subscribers, up to 8 value rows); DOC adds `core.format`
+  (the format call, 22 reply kinds, up to 64 rows) and `core.lookup` (one entry per provider
+  call), `document.md` sections 3 and 7.
 
 The stage codec is pinned as `emitted_stages`, the SHA-256 of the unformatted emitter
 output, in ABI lock format 11. Formatting is checked separately, so a rustfmt update
