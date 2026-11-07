@@ -62,6 +62,55 @@ fn submit(scope: &RegistrationScope<Registration>, bytes: &[u8]) -> i32 {
 }
 
 #[test]
+fn successful_native_mapping_releases_decoded_raw_and_image_construction_stores() {
+    for mode in 0..3 {
+        let owner = pin!(HostOwner::new((), ()));
+        let scope = pin!(RegistrationScope::<Registration>::new());
+        let bytes = encode(&[group("g", "")]);
+        let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+        if mode == 0 {
+            construction
+                .stage_batch(&records_decode(&bytes).unwrap(), |r| r)
+                .unwrap();
+            assert!(!construction.declarations.is_empty());
+        } else {
+            if mode == 2 {
+                construction.set_image(&bytes).unwrap();
+            }
+            scope
+                .as_ref()
+                .scope(&mut construction, || assert_eq!(submit(&scope, &bytes), OK))
+                .unwrap();
+            assert!(!construction.raw.batches.is_empty());
+        }
+        let (batch, count) = construction
+            .commit_native(
+                Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| {},
+                },
+                |view| {
+                    let mut count = 0;
+                    view.visit(&mut |_| count += 1)?;
+                    Ok(count)
+                },
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(batch.declarations.groups().len(), 0);
+        assert_eq!(batch.declarations.bytes(), 0);
+        assert_eq!(batch.raw.batches.capacity(), 0);
+        assert_eq!(batch.raw.index.capacity(), 0);
+        assert_eq!(batch.raw.index_bytes, 0);
+        drop(batch);
+        owner.as_ref().prepare_teardown().unwrap();
+        owner.as_ref().finish().unwrap();
+    }
+}
+
+#[test]
 fn image_setup_is_once_only_before_any_submission_including_empty_images() {
     let owner = pin!(HostOwner::new((), ()));
     let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();

@@ -485,6 +485,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         self.finish_declarations()?;
         let staging = map(&self.declaration_view())?;
+        // The mapper owns every value it keeps. Release construction copies
+        // and image indexes before activation instead of retaining both sets.
+        self.declarations = Declarations::default();
+        self.raw = raw_declarations::RawDeclarations::default();
         let batch = self.publish(teardown).map_err(registrations::status)?;
         Ok((batch, staging))
     }

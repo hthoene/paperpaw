@@ -392,6 +392,11 @@ fn native_mapping_finishes_before_callbacks_activate() {
     })
     .unwrap();
     assert_eq!(count, 1);
+    let batch = instance.batch().unwrap();
+    assert!(batch.raw.batches.is_empty());
+    assert_eq!(batch.raw.batches.capacity(), 0);
+    assert_eq!(batch.raw.index.capacity(), 0);
+    assert!(batch.declarations.is_empty());
     drop(instance);
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }
