@@ -1,0 +1,197 @@
+# Interface 7 family SEC: stored secrets and randomness (draft)
+
+Contract draft for #228 (assignment #1088), reviewed with `network.md` (NET). Items marked [D] are
+proposed decisions, [Q] open questions for Plugin and Senior. Inputs: an audit of interface 6's
+secrets and randomness (the SDK's `secrets.rs`, `random.rs`, `wifi.rs`, `served.rs`; the kernel's
+`lib.rs` `set_secret`, `builder.rs`, `commands.rs` `vet_reserved`, `config.rs` secret settings;
+the X4, desktop and Android shells' random sources and the Android private folder), the 15
+first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets), `device.md`
+(Wi-Fi passwords, `dev_network.flags` bit 1), `commands.md` (slot 15 refuses secret settings),
+`registry.md` (the secret flag of `reg_setting`), `files.md` section 4 (decision 124) and
+`stages-services.md` (D4: `core.secrets` is SEC's service). Doc-only; records follow once approved.
+
+## 0. Scope and principles
+
+- [D] **One service, `core.secrets` (major 1).** Reading, listing, keeping and removing secrets
+  and drawing random bytes are calls with a status (section 2). Interface 6's `Env::secrets()`
+  and `Env::random()` and `Command::SetSecret` have no other copies.
+- [D] **A plugin's secrets are its own, by name.** A plugin names a secret within its own space
+  (`password`, `token`); the host stamps the owner from the calling plugin, as root 0. No prefix
+  to spoof: interface 6's "first segment must be the running plugin" check becomes the stamp.
+- [D] **Values never go to another plugin.** Only the owner reads a value. The settings editor
+  (the plugin with `uses.secrets`, 1.1) may list every plugin's secrets (names and labels, never
+  values) and change or remove them for the user; it cannot read them, as in interface 6.
+- [D] **Honest about storage.** Secrets are kept apart from settings and logs, and veiled on the
+  card, not encrypted: whoever has the card can read them (interface 6's wording, kept in the
+  user's help). Android keeps them in the app's private folder.
+- Out of SEC: TLS trust and pinning (NET, SOCK), the server key guard (the SDK's `served`, over
+  `random`), Wi-Fi joining (DEV: `join` with `remember` keeps the password as the Wi-Fi plugin's
+  secret, 4), hashing (plugin code, e.g. lock's salted hash).
+
+## 1. Features and ownership
+
+### 1.1 Feature
+
+| Key | Allows | Plugins (first-party) |
+| --- | --- | --- |
+| `uses.secrets` | `list` of every plugin's secrets; `keep` and `remove` of another plugin's | settings |
+
+- [D] A signed metadata feature (revision 1). It replaces interface 6's editor exemption
+  (`vet_reserved`'s `guarded_exempt`): a feature is visible on the store page and does not depend
+  on which plugin is bound as the editor. Reading and keeping one's own secrets and `random` need
+  no feature.
+- [Q1] (Senior) Interface 6 let every plugin list all secrets' ids and labels (`listed()`); only
+  the settings plugin used it. This draft narrows listing others to `uses.secrets`. Agreed?
+
+### 1.2 Names, labels, values
+
+- [D] **`plugin`** names the owner in a call: `""` is the caller itself; another plugin's id needs
+  `uses.secrets` (`ERR_DENIED`) and is only allowed for `list`, `keep` and `remove`.
+- [D] **`name`**: 1-64 bytes of UTF-8 without control characters (`ERR_INVALID`); compared
+  exactly. The Wi-Fi plugin names a network's password by its SSID (any bytes an SSID can be in
+  UTF-8; the host escapes tab, newline and backslash in its file, as interface 6).
+- [D] **`label`**: at most 64 bytes, what the settings editor shows (a translation key of the
+  owner's catalog, or plain text when there is none, as interface 6). `""` when keeping an
+  existing secret keeps its label.
+- [D] **`value`**: at most 1,024 bytes of UTF-8 (passwords, API keys, OAuth tokens). It is marked
+  secret in the schema, so neither side's generated `Debug` shows it and no host log prints it.
+- [D] **Limits:** at most 32 secrets per plugin (`ERR_FULL`), and the host's file at most 64 KiB
+  (`ERR_FULL`).
+- [D] **`changeable`** (flags bit 0): the user may change the value in the settings editor.
+  Secrets a plugin made itself (kosync's key, lock's code hash, read-later-cloud's account) are
+  kept with it clear: the editor can only remove them.
+
+## 2. The service `core.secrets` (major 1)
+
+Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one record.
+
+| Op | Name | Effect | Input | Reply | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `get` | query | `sec_name` | `sec_value` | one of the caller's own secrets |
+| 2 | `list` | query | `sec_list` | `sec_entry`*, `end` | names and labels, paged, `page_rows` 32 |
+| 3 | `keep` | mutate | `sec_keep` | (none) | adds or replaces a secret, saved before the reply |
+| 4 | `remove` | mutate | `sec_name` | (none) | removes a secret, saved before the reply |
+| 5 | `random` | query | `sec_random` | `sec_bytes` | random bytes from the device's source |
+
+`max_input` 1,280 (`keep`) or 256, `max_reply` 4,096 (`list`) or 1,280; `bound: card` for `keep`
+and `remove`, `none` for the others.
+
+### 2.1 `get`
+
+- [D] `sec_name.plugin` must be `""` (another plugin's is `ERR_DENIED`, also with `uses.secrets`).
+  Replies `sec_value`: `value`, `label`, `flags` (bit 0 `changeable`). `ERR_NOT_FOUND` when there
+  is none.
+
+### 2.2 `list`
+
+- [D] `sec_list.flags` bit 0 `all`: every plugin's secrets (needs `uses.secrets`); without it, the
+  caller's own. Rows are `sec_entry`: `plugin` (the owner's id), `name`, `label`, `flags` (bit 0
+  `changeable`). Never a value. A page holds as many whole rows as fit in 4,096 bytes, at most
+  32. Order: by owner, then by name, so the cursor is a row number into that order
+  (`service.end.next`, 0 when done); a secret kept or removed between pages may be listed twice or
+  not at all.
+
+### 2.3 `keep`
+
+- [D] `sec_keep`: `plugin`, `name`, `label`, `value`, `flags` (bit 0 `changeable`). Adds the secret
+  or replaces its value (and its label unless `""`). The owner keeps any of its own; the editor
+  (`uses.secrets`) only replaces an **existing changeable** secret of another plugin
+  (`ERR_NOT_FOUND`, `ERR_DENIED` when not changeable) and cannot change `changeable`. An empty
+  `value` is a value (an open Wi-Fi network's).
+- [D] `OK` means saved on the card. Otherwise nothing changed and the call answers `ERR_IO` (card
+  away or unwritable) or `ERR_FULL` (1.2); the old value stays.
+
+### 2.4 `remove`
+
+- [D] Removes the secret; one that does not exist is `OK` (nothing to do). Another plugin's needs
+  `uses.secrets` (any, changeable or not: the user may always remove a secret). `OK` means saved;
+  `ERR_IO` as 2.3.
+
+### 2.5 `random`
+
+- [D] `sec_random.len` 1-256 bytes (`ERR_INVALID`); replies `sec_bytes`: `data` of exactly `len`
+  bytes and `flags` bit 0 `strong`. A host without a source answers `ERR_UNSUPPORTED` and never
+  a weaker stand-in (interface 6). Not cached, not shared between callers.
+- [D] **`strong`** is set when the source is fully random at that moment. On the X4 the chip's
+  generator is fully random while the radio is on and pseudo-random before (interface 6's
+  wording), so `strong` follows the radio. Plugins that make a long-lived key (the served key,
+  a Wi-Fi access-point password, lock's salt) draw it when `strong` is set, as interface 6
+  advised; desktop and Android are always `strong`.
+- [Q2] (Plugin) lock draws its salt when the code is set, maybe with the radio off. Is a
+  pseudo-random salt acceptable there (it only stops a precomputed table), or should lock set the
+  code only after a strong draw?
+
+## 3. Saving and the card
+
+- [D] Secrets live in one host file, `.paperpaw/secrets.txt` (interface 6's format: one line per
+  secret, owner and name, label, flags, veiled value), loaded at start and **written whole by the
+  storage's replace** after each `keep` and `remove`, so a power cut leaves the old file or the new
+  one, never half of either.
+- [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
+  error; lines the host does not understand are kept as they are and do not count), `keep` and
+  `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
+  `core.secrets-unreadable`; reads answer from what was read. Interface 6 applied such changes in
+  memory only; this draft refuses them so `OK` always means saved.
+- [D] Android keeps the file in the app's private folder; the X4 and desktop on the card.
+
+## 4. Settings, Wi-Fi, uninstall
+
+- [D] **Secret settings.** A setting declared secret (`reg_setting` flag, `registry.md`) is the
+  owner's secret named by the setting's key (mail's `password`). The plugin reads it with `get`;
+  the settings editor changes it with `keep` (slot 15 keeps refusing it, `commands.md`); resetting
+  the setting removes the secret. A value found in `paperpaw.ini` for such a setting moves into
+  secrets at load (interface 6). Secret settings are never announced to other plugins
+  (`core-events.md`).
+- [D] **Wi-Fi.** Known networks are the Wi-Fi plugin's secrets, named by SSID. DEV's `join` with
+  `remember` keeps the password there for the plugin; `dev_network.flags` bit 1 `known` is set for
+  a network that has one. Only the Wi-Fi plugin reads them; the host joins with them itself.
+- [D] **Uninstall (decision 124).** A plugin's secrets go with its data folder: removed when the
+  user chooses to delete the data, kept otherwise (found again on reinstall). The host removes
+  them by the validated plugin id, never by a name a plugin gave.
+- Bluetooth bonds stay the host's own (not reachable through `core.secrets`).
+
+## 5. Records
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 1160 | `service.sec_name` | `plugin: str 64`, `name: str 64` |
+| 1161 | `service.sec_value` | `flags: u32`, `label: str 64`, `value: str 1024` (secret) |
+| 1162 | `service.sec_list` | `flags: u32`, `cursor: u32` |
+| 1163 | `service.sec_entry` | `flags: u32`, `plugin: str 64`, `name: str 64`, `label: str 64` |
+| 1164 | `service.sec_keep` | `plugin: str 64`, `name: str 64`, `label: str 64`, `flags: u32`, `value: str 1024` (secret) |
+| 1165 | `service.sec_random` | `len: u32` |
+| 1166 | `service.sec_bytes` | `flags: u32`, `data: bytes 256` |
+
+- [D] `value` carries `"secret": true` (as `net_header.value`, `network.md` section 7). The
+  host's reply buffer that held a value is cleared after the call.
+
+## 6. Who uses what (first-party, interface 6 audit)
+
+| Plugin | Secrets (own names) | Random |
+| --- | --- | --- |
+| calibre | `password` | |
+| joplin | `password` | |
+| kosync | `key` (not changeable) | |
+| lock | `code` (salted hash, not changeable) | salt (token) |
+| mail | `password` (secret setting) | 8 bytes per Message-ID |
+| opds | one per catalog (`<hash of the URL>`), removed with the catalog | |
+| read-later-cloud | `token`, `account` (not changeable) | |
+| readwise | `token` | |
+| settings | every plugin's: list, change, remove (`uses.secrets`) | |
+| stats | `webdav` | |
+| translate | `deepl-key` | |
+| wallabag | `password`, `client-secret` | |
+| wifi | one per network (SSID) | form token, access-point password |
+| transfer, vocabulary | | the served key (`served::key`) |
+
+## 7. Hand-offs (after approval)
+
+- **Core (or Host Engineer):** the `core.secrets` host over interface 6's `Secrets` store: owner
+  stamping, `uses.secrets` checks, the limits, saving by replace, the unreadable-file refusal,
+  secret settings (key = name, reset removes), uninstall removal with decision 124's data choice,
+  `random` over the device source with `strong`; tests for each status. Generator: `secret` on
+  service record fields (Kernel, at the records step).
+- **Firmware:** the X4's `strong` signal (radio on) for `random`.
+- **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
+  interface 6's `token`, `readable` and `grouped` helpers over it; `served::key` on top.
+- **Plugin:** settings declares `uses.secrets`; ports use their own names without the prefix.
