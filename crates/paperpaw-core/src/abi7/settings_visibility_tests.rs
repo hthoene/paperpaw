@@ -173,3 +173,88 @@ fn slot_five_uses_identity_for_short_grants_and_keeps_own_secret_behavior() {
         })
         .unwrap();
 }
+
+#[test]
+fn placed_setting_identity_cannot_alias_grants_or_foreign_secrets() {
+    use paperpaw_native::host_glue::ERR_INVALID;
+    static SECRET: SettingExtra = SettingExtra::new().secret();
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    for spec in [
+        SettingSpec::text("own.secret", "Secret", "own-value", builtin::groups::OTHER)
+            .with_extra(&SECRET),
+        SettingSpec::text(
+            "other.secret",
+            "Secret",
+            "foreign-value",
+            builtin::groups::OTHER,
+        )
+        .with_extra(&SECRET),
+        SettingSpec::switch("own.public", "Public", false, builtin::groups::OTHER),
+        SettingSpec::switch(
+            "core.grant.style.own",
+            "Grant",
+            true,
+            builtin::groups::OTHER,
+        ),
+        SettingSpec::switch(
+            "core.grant.style.other",
+            "Grant",
+            true,
+            builtin::groups::OTHER,
+        ),
+    ] {
+        kernel.shared.settings.define(spec).unwrap();
+    }
+    kernel
+        .shared
+        .settings
+        .set("own@1.secret", SettingValue::Text("placed-value".into()))
+        .unwrap();
+    kernel
+        .shared
+        .settings
+        .set("own.public@2", SettingValue::Bool(true))
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let frame = View {
+        env: &env,
+        editor: None,
+    };
+    let slot = pin!(FrameSlot::new());
+    let caller = Id::new_static("own");
+    slot.as_ref()
+        .scope(&frame, || {
+            for (key, expected) in [
+                ("core.grant.style.other", ERR_DENIED),
+                ("core@1.grant.style.other", ERR_DENIED),
+                ("core.grant@1.style.other", ERR_DENIED),
+                ("other.secret", ERR_DENIED),
+                ("other@1.secret", ERR_DENIED),
+                ("other.secret@2", ERR_DENIED),
+                ("other@1.secret@2", ERR_INVALID),
+                ("own@1.secret@2", ERR_INVALID),
+                ("own@1.public@2", ERR_INVALID),
+                ("core@1.grant@2.style.other", ERR_INVALID),
+                ("own@.secret", ERR_INVALID),
+                ("own.secret@1@2", ERR_INVALID),
+            ] {
+                let mut out = [71; 128];
+                assert_eq!(read(&slot, &caller, key, &mut out), expected, "{key}");
+                assert_eq!(out, [71; 128], "{key}");
+            }
+            for (key, expected) in [
+                ("own@1.secret", SettingValueRef::Text("placed-value")),
+                ("own.secret@2", SettingValueRef::Text("own-value")),
+                ("own.public@2", SettingValueRef::Bool(true)),
+                ("own@2.public", SettingValueRef::Bool(false)),
+                ("core@1.grant.style", SettingValueRef::Bool(true)),
+            ] {
+                let mut out = [71; 128];
+                let len = usize::try_from(read(&slot, &caller, key, &mut out)).unwrap();
+                assert_eq!(settings_decode(&out[..len]).unwrap(), expected, "{key}");
+            }
+        })
+        .unwrap();
+}

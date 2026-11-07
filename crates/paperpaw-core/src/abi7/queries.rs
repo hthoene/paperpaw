@@ -1,10 +1,10 @@
 //! Copy-out query backends for a live scoped frame.
 //!
 //! Pointer validation precedes lookups. Results are copied while the frame
-//! and its catalog borrow remain live. These adapters add no temporary String;
-//! existing Settings placement resolution and catalog reads may allocate.
+//! and its catalog borrow remain live. Authorization compares borrowed canonical
+//! identity spans without allocating. Settings value resolution may allocate.
 
-use super::settings_visibility::{Visibility, visibility};
+use super::settings_visibility::{Visibility, visibility_for};
 use super::{
     context::FrameSlot,
     settings_wire::{SettingValueRef, settings_encode},
@@ -46,24 +46,28 @@ fn read_for(
     out: &mut [core::mem::MaybeUninit<u8>],
 ) -> i32 {
     use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID};
-    // Only the short identity route may name a grant without editor authority.
-    if let Some(kind) = key.strip_prefix("core.grant.")
-        && !kind.contains('.')
-    {
-        if !matches!(kind, "style" | "install") {
+    let identity = match SettingIdentity::new(key) {
+        Ok(identity) => identity,
+        Err(error) => return error,
+    };
+    let grant = identity.bytes().take(11).eq(b"core.grant.".iter().copied());
+    // Short grant reads always use the host caller, including placed aliases.
+    if grant && !identity.bytes().skip(11).any(|byte| byte == b'.') {
+        let kind = if identity.matches("core.grant.style") {
+            "core.grant.style"
+        } else if identity.matches("core.grant.install") {
+            "core.grant.install"
+        } else {
             return ERR_UNSUPPORTED;
-        }
-        let length = key
-            .len()
-            .saturating_add(1)
-            .saturating_add(caller.as_str().len());
+        };
+        let length = kind.len() + 1 + caller.as_str().len();
         let mut full = [0; 128];
         if length > full.len() {
             return ERR_INVALID;
         }
-        full[..key.len()].copy_from_slice(key.as_bytes());
-        full[key.len()] = b'.';
-        full[key.len() + 1..length].copy_from_slice(caller.as_str().as_bytes());
+        full[..kind.len()].copy_from_slice(kind.as_bytes());
+        full[kind.len()] = b'.';
+        full[kind.len() + 1..length].copy_from_slice(caller.as_str().as_bytes());
         let Ok(full) = core::str::from_utf8(&full[..length]) else {
             return ERR_INVALID;
         };
@@ -72,12 +76,64 @@ fn read_for(
     }
     let secret = frame
         .settings()
-        .spec(key)
+        .specs()
+        .find(|spec| identity.matches(spec.id.as_str()))
         .is_some_and(|spec| spec.extra().secret);
-    match visibility(caller, key, secret, frame.settings_editor()) {
+    match visibility_for(caller, grant, secret, frame.settings_editor()) {
         Visibility::Hidden => ERR_DENIED,
-        Visibility::Redacted if key.split('.').next() != Some(caller.as_str()) => ERR_DENIED,
+        Visibility::Redacted if key.split(['.', '@']).next() != Some(caller.as_str()) => ERR_DENIED,
         Visibility::Redacted | Visibility::Readable => copy_value(frame, key, out),
+    }
+}
+
+/// A canonical identity as two borrowed spans, with at most one placement.
+/// Comparing spans avoids both heap allocation and a large stack scratch buffer.
+struct SettingIdentity<'a> {
+    head: &'a str,
+    tail: &'a str,
+}
+impl<'a> SettingIdentity<'a> {
+    fn new(key: &'a str) -> Result<Self, i32> {
+        use paperpaw_native::host_glue::ERR_INVALID;
+        let mut placement = None;
+        for segment in key.split('.') {
+            let name = if let Some((name, number)) = segment.split_once('@') {
+                if placement.is_some()
+                    || number.is_empty()
+                    || !number.bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return Err(ERR_INVALID);
+                }
+                placement = key.find('@');
+                name
+            } else {
+                segment
+            };
+            if name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            {
+                return Err(ERR_INVALID);
+            }
+        }
+        let Some(at) = placement else {
+            return Ok(Self {
+                head: key,
+                tail: "",
+            });
+        };
+        let end = key[at..].find('.').map_or(key.len(), |dot| at + dot);
+        Ok(Self {
+            head: &key[..at],
+            tail: &key[end..],
+        })
+    }
+    fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.head.bytes().chain(self.tail.bytes())
+    }
+    fn matches(&self, key: &str) -> bool {
+        self.bytes().eq(key.bytes())
     }
 }
 
