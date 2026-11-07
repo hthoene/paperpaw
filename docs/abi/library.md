@@ -174,6 +174,12 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   (`lib_entry.key`, a `u32`, interface 6's catalog offset that "fits 32 bits") with the catalog
   generation it came from (stale: `ERR_STATE`). It is not the **book key** of section 6 (a 16-hex
   string of the path), which only names per-book folders.
+- [D] **No library path reaches `plugins/` or `.paperpaw/`.** Every path a LIB op takes or makes
+  (`lib_ref.path`, each `lib_paths` item, `lib_move` `from` and `to`, an import's target and its
+  folders) follows FS's root-1 rules (`files.md` 1.1): its first segment may not resolve to
+  `plugins` or `.paperpaw`, compared by identity (case, 8.3 aliases), not by spelling; such a path
+  is `ERR_INVALID` and nothing is touched. This holds also when the library folder is the card's
+  root, so no LIB op can move, delete or import into the kernel's or the plugins' folders.
 
 ### 2.1 The catalog
 
@@ -407,15 +413,21 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   after, no two entries share a cluster once settled, and no cluster in use is free. An exFAT
   backend (#5, with its allocation bitmap and entry-set checksums) holds the library only after it
   passes the same suite with the bitmap as a cut point; until then it is a gate item, not a claim.
-- [D] **Journalled library steps.** `move`, `delete` and `import` write a library journal entry
+- [D] **Journalled library steps.** Every LIB op that changes files on the card (`move`, `delete`,
+  `import`, and the per-book data they carry) writes a library journal entry
   (`from`, `to` or the removal, the old and new keys) into `.paperpaw/library/journal`, synced,
-  before touching anything; then the file, then the kept data (renamed into `.paperpaw/.removing/`
+  **before any card change**; then the file, then the kept data (renamed into `.paperpaw/.removing/`
   for a delete, removed there), each a card move as above. At the next start, after
   `settle_moves`, the host finishes or rolls back every journalled step: a book at its new place
   gets its data moved there too, an import whose file arrived has `from` removed and is
   catalogued, an import whose file did not arrive has its host temp file removed (fault-injection
   tests after every write, as the uninstall data removal of decision 124). The catalog walk never
-  runs while a journal entry is open.
+  runs while a journal entry is open. Single-file writes (`set_position`, fields, annotation
+  commits) are atomic replaces and need no entry.
+- [D] **Paths in use are busy.** A `move`, `delete` or `import` over a path the host uses (the
+  book open in a reader, a download's target or `.part` file, a served request body, a staged
+  install copy; FS's paths-in-use table, `files.md` section 3) answers `ERR_BUSY` (per path in
+  `lib_result.status` for ops 9 and 10, the call's status for the others) and changes nothing.
 - [D] **Card failure.** A missing or failing card is `ERR_IO` for every op that reads the card (no
   partial rows: a page is answered whole or not at all); a full card `ERR_NO_SPACE` for writes, the
   old state stays. A pulled card raises `library_changed` bit 0 when it is back (the walk checks
