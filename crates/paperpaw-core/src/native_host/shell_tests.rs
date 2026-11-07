@@ -568,8 +568,9 @@ pub(super) fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the id, the 2nd the owner.
-    for nth in [1, 2] {
+    // The 1st allocation is the room reserved for the owner's retirement (the
+    // owner is not admitted: a status), the 2nd the id, the 3rd the owner.
+    for nth in [1, 2, 3] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
@@ -588,7 +589,12 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
             )
         };
         arm_failure(0);
-        assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
+        let expected = if nth == 1 {
+            Error::Status(host_glue::ERR_NO_MEMORY)
+        } else {
+            Error::Allocation
+        };
+        assert_eq!(refused.err(), Some(expected), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
     }
