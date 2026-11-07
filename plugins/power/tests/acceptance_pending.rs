@@ -28,7 +28,7 @@ fn switching_off_shows_the_sleep_screen_first() {
 }
 
 #[test]
-#[ignore = "needs the status stage on the host (Core todo 76) and PR #335"]
+#[ignore = "needs the host to call the stage core.status for plugin items (Core todo 76)"]
 fn the_status_item_shows_the_mode_unless_it_is_normal() {
     unreachable!("core.status answers nothing in Normal and the Saving/Offline marker otherwise");
 }

@@ -44,9 +44,9 @@ The interface-6 plugin and its Kernel tests are gone.
 
 ## Not ported yet (explicit)
 
-- The answer of the status stage (`core.status`): waits for the typed stage helpers
-  (PR #335) and the host calling it (Core todo 76). The item and its tap action
-  are declared; the callback returns `Unsupported` meanwhile.
+- The status stage is answered (`StatusCall`/`StatusAnswer` from PR #335, stacked here
+  until it merges), but the host does not call it yet (Core todo 76): the answer is only
+  covered by the ignored acceptance test.
 - The host does not admit menu entries, icons, key bindings, status items and stage
   subscriptions yet (`native_host/declarations.rs`: `ERR_UNSUPPORTED`).
   `tests/declarations.rs` pins that these, and only these, are the records that wait.

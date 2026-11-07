@@ -13,7 +13,10 @@ use paperpaw_sdk::native::{
     reply::Reply,
     settings::{self, SettingValue},
     snapshot::capture_snapshot,
-    ui::{Open, Param, Question, RequestId, Ui},
+    ui::{
+        Open, Param, Question, RequestId, Ui,
+        stages::{StatusAnswer, StatusCall},
+    },
 };
 
 mod image {
@@ -22,6 +25,7 @@ mod image {
 
 const OPEN: &str = "power.open";
 const MENU: &str = "power.menu";
+const STATUS: &str = "power.status";
 /// The touch lock's switch and action (the lock plugin's, which may be off or
 /// absent: the menu then has no entry for it).
 const TOUCH_LOCK: &str = "lock.touch";
@@ -318,14 +322,57 @@ fn flag(host: &Host<'_>, key: &str, default: bool) -> bool {
     }
 }
 
-/// The status item: nothing in Normal, so the lines stay calm.
+/// The status item: nothing in Normal, so the lines stay calm; the mode's
+/// name while saving or offline.
 fn status(
-    _host: &Host<'_>,
-    _stage: &str,
-    _payload: &[u8],
-    _reply: &mut Reply<'_>,
+    host: &Host<'_>,
+    stage: &str,
+    payload: &[u8],
+    reply: &mut Reply<'_>,
 ) -> Result<(), Error> {
-    Err(Error::Unsupported)
+    if stage != "core.status" {
+        return Err(Error::Unsupported);
+    }
+    let call = StatusCall::decode(payload)?;
+    let key = match worn_level(host)? {
+        Level::Normal => None,
+        Level::Saving => Some("power.mode.saving"),
+        Level::Offline => Some("power.mode.offline"),
+    };
+    let mut label = [0; LABEL];
+    let text = match key {
+        Some(key) => copy_message(host, key, &mut label)?,
+        None => "",
+    };
+    let mut answers = [None; 1];
+    for item in call.items() {
+        if item == STATUS && answers[0].is_none() {
+            answers[0] = Some(StatusAnswer::text(item, text)?);
+        }
+    }
+    let [Some(answer)] = answers else {
+        return Ok(());
+    };
+    let mut out = [0; 512];
+    let length = call.reply(&[answer], &mut out)?;
+    reply.write(&out[..length])
+}
+
+/// The level worn at present.
+fn worn_level(host: &Host<'_>) -> Result<Level, Error> {
+    let device = Device::open(host)?;
+    let level = (|| {
+        let (mut input, mut out) = ([0; 64], [0; 512]);
+        Ok(match device.power(host, 0, &mut input, &mut out)?.level() {
+            PowerLevel::Saving => Level::Saving,
+            PowerLevel::Offline => Level::Offline,
+            _ => Level::Normal,
+        })
+    })();
+    let released = device.release(host);
+    let level = level?;
+    released?;
+    Ok(level)
 }
 
 fn alloc_text(text: &str) -> Result<String, Error> {
