@@ -114,7 +114,10 @@ jobs:
       # warnings). A plugin built into the firmware says why it embeds
       # large files in its Cargo.toml (`embedded-assets`).
       - name: Every first-party plugin keeps the plugin conventions
-        run: target/release/paperpaw-dev package --strict plugins/*/
+        # `plugins/test-support/` holds shared test code, not a plugin.
+        run: |
+          dirs=$(ls -d plugins/*/ | grep -v '^plugins/test-support/$')
+          target/release/paperpaw-dev package --strict $dirs
 
   msrv:
     name: Oldest Rust
