@@ -112,6 +112,28 @@ fn run(kernel: &mut Kernel, owner: &Id, commands: &[WireCommand<'_>], clock: &Cl
     status
 }
 
+/// Stage `commands` for `owner` and keep the output undrained.
+fn stage_only(
+    kernel: &Kernel,
+    owner: &Id,
+    commands: &[WireCommand<'_>],
+) -> (i32, super::DevBatchOutput) {
+    let env = kernel.shared.env(Instant(0));
+    let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
+    let status = submit(&mut stage, commands);
+    (status, stage.into_dev_output())
+}
+
+/// Drain a kept output with `clock`.
+fn drain(kernel: &mut Kernel, owner: &Id, output: super::DevBatchOutput, clock: &Clock) {
+    let (staged, redraw, _, batch) = output;
+    let host = DevHost {
+        clock,
+        stored: &Stored,
+    };
+    kernel.drain_native_dev(owner, staged, redraw, batch, &host);
+}
+
 fn wifi_calls(kernel: &mut Kernel) -> Vec<WifiCommand> {
     core::mem::take(&mut kernel.io.wifi_calls)
 }
@@ -764,6 +786,62 @@ fn a_dropped_output_does_not_take_a_later_request_with_the_same_number() {
     );
     drop(new);
     assert!(kernel.radio_requests.borrow().is_empty());
+}
+
+#[test]
+fn batch_tokens_are_never_reused_and_their_exhaustion_refuses_a_join_whole() {
+    let mut kernel = kernel();
+    let owner = Id::new_static("wifi");
+    // A stage without a join takes no token.
+    let (status, output) = stage_only(&kernel, &owner, &[WireCommand::WifiOn {}]);
+    assert_eq!(status, OK);
+    drop(output);
+    assert_eq!(kernel.radio_requests.borrow_mut().new_token(), Some(1));
+    // A retained output with a token; its entries go with the sender.
+    let (status, old) = stage_only(&kernel, &owner, &[join(1, "net")]);
+    assert_eq!(status, OK);
+    kernel.radio_requests.borrow_mut().sender_stopped("wifi");
+    // All tokens used: the next join is refused whole, nothing is reserved.
+    kernel.radio_requests.borrow_mut().exhaust_tokens();
+    let (status, fresh) = stage_only(&kernel, &owner, &[WireCommand::WifiOn {}, join(1, "other")]);
+    assert_eq!(status, ERR_FULL);
+    assert!(kernel.radio_requests.borrow().is_empty());
+    assert_eq!(fresh.3.items.len(), 0, "no earlier work kept either");
+    // Commands without a join still work, and the old output does nothing.
+    let (status, plain) = stage_only(&kernel, &owner, &[WireCommand::WifiOn {}]);
+    assert_eq!(status, OK);
+    drop((old, fresh, plain));
+    assert!(kernel.radio_requests.borrow().is_empty());
+    assert!(wifi_calls(&mut kernel).is_empty());
+}
+
+#[test]
+fn draining_an_output_that_outlived_its_sender_applies_nothing_of_a_reused_number() {
+    let mut kernel = kernel();
+    let owner = Id::new_static("wifi");
+    let clock = Clock(10_000, Some(9_000));
+    let (status, old) = stage_only(&kernel, &owner, &[join(1, "old-net")]);
+    assert_eq!(status, OK);
+    kernel.radio_requests.borrow_mut().sender_stopped("wifi");
+    let (status, new) = stage_only(&kernel, &owner, &[join(1, "new-net")]);
+    assert_eq!(status, OK);
+    // The old output is drained: its join is not sent, and the new
+    // reservation is neither activated nor ended.
+    drain(&mut kernel, &owner, old, &clock);
+    assert!(
+        wifi_calls(&mut kernel).is_empty(),
+        "the old join is not sent"
+    );
+    assert!(kernel.radio_requests.borrow().holds("wifi", 1));
+    assert!(outcome(&kernel, "wifi").is_none());
+    // The new output still applies normally.
+    drain(&mut kernel, &owner, new, &clock);
+    let calls = wifi_calls(&mut kernel);
+    assert_eq!(calls.len(), 1);
+    assert!(matches!(
+        &calls[0],
+        WifiCommand::Join { ssid, .. } if ssid == "new-net"
+    ));
 }
 
 #[test]

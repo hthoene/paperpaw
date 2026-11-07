@@ -391,6 +391,7 @@ g_firmware-build() {
         cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
+    run "firmware-build: clippy the interface-7 host code (ppn5)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 -- -D warnings"
     run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
         (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'

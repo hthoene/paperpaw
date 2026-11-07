@@ -718,6 +718,10 @@ jobs:
             shells/xteink
             .
           key: x4-ppn5
+      - name: Lint the X4 with interface-7 plugins
+        working-directory: shells/xteink
+        # The `ppn5` code sites are not in the other jobs' lint.
+        run: env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
       - name: Build the X4 with interface-7 plugins
         working-directory: shells/xteink
         # As above: the config's flags, not the job's RUSTFLAGS.

@@ -229,10 +229,31 @@ impl RadioRequests {
     }
 
     /// A token for one staged batch: the entries it reserves carry it, so
-    /// giving the batch back touches only them (never 0).
-    pub fn new_token(&mut self) -> u32 {
-        self.last_token = self.last_token.wrapping_add(1).max(1);
-        self.last_token
+    /// giving the batch back touches only them (never 0). Tokens are issued
+    /// once each and never reused, because an old output can outlive its
+    /// entries; `None` when all `u32::MAX` are used (then no batch can
+    /// reserve a request, and nothing else is affected).
+    pub fn new_token(&mut self) -> Option<u32> {
+        self.last_token = self.last_token.checked_add(1)?;
+        Some(self.last_token)
+    }
+
+    /// Whether the batch with `token` still holds `request` of `owner`, not
+    /// yet applied: the only entry it may activate or end.
+    #[must_use]
+    pub fn holds_reserved_in(&self, token: u32, owner: &str, request: u32) -> bool {
+        token != 0
+            && self.position(owner, request).is_some_and(|at| {
+                self.entries
+                    .get(at)
+                    .is_some_and(|entry| entry.token == token && entry.phase == Phase::Reserved)
+            })
+    }
+
+    /// Use up every token (a test of the exhaustion rule).
+    #[cfg(test)]
+    pub(crate) fn exhaust_tokens(&mut self) {
+        self.last_token = u32::MAX;
     }
 
     /// An attempt for `ssid` is no longer waited for but still runs.

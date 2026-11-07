@@ -16,7 +16,7 @@ use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*}
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 use paperpaw_sdk::{
     Command, Id, SettingValue, StackEntry, power::MODE_KIND, power::Wear, wifi::WifiCommand,
@@ -214,6 +214,10 @@ impl Drop for Release {
         }
     }
 }
+
+/// What [`CommandStage::into_dev_output`] returns.
+#[cfg(test)]
+pub(crate) type DevBatchOutput = (Vec<Command>, Option<ui::Redraw>, u8, DevBatch);
 
 /// What the stage needs to judge DEV commands. Without it every DEV command
 /// is `ERR_UNSUPPORTED`, as before the host wired the family.
@@ -481,10 +485,12 @@ impl<'a> CommandStage<'a> {
         };
         let requests = Rc::clone(&dev.ctx.requests);
         let mut table = requests.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        if dev.token == 0 {
-            dev.token = table.new_token();
-        }
         let new = dev.items.get(start..).unwrap_or_default();
+        // A token only for a batch that reserves something, and before the
+        // first reservation: its exhaustion refuses the batch whole.
+        if dev.token == 0 && new.iter().any(|item| matches!(item.op, DevOp::Join(_))) {
+            dev.token = table.new_token().ok_or(ERR_FULL)?;
+        }
         for (index, item) in new.iter().enumerate() {
             let DevOp::Join(join) = &item.op else {
                 continue;
@@ -580,20 +586,21 @@ impl crate::Kernel {
         mut batch: DevBatch,
         host: &DevHost<'_>,
     ) {
+        let token = batch.release.as_ref().map_or(0, |release| release.token);
         let mut items = core::mem::take(&mut batch.items).into_iter().peekable();
         for (index, command) in commands.into_iter().enumerate() {
             while let Some(item) = items.next_if(|item| item.at <= index) {
-                self.apply_dev(owner, item.op, host);
+                self.apply_dev(owner, item.op, host, token);
             }
             self.drain_native_command(owner, command);
         }
         for item in items {
-            self.apply_dev(owner, item.op, host);
+            self.apply_dev(owner, item.op, host, token);
         }
         self.finish_native_redraw(owner, redraw);
     }
 
-    fn apply_dev(&mut self, owner: &Id, op: DevOp, host: &DevHost<'_>) {
+    fn apply_dev(&mut self, owner: &Id, op: DevOp, host: &DevHost<'_>, token: u32) {
         match op {
             DevOp::WifiOn => self.apply(Command::Wifi(WifiCommand::On)),
             DevOp::WifiScan => self.apply(Command::Wifi(WifiCommand::Scan)),
@@ -612,7 +619,7 @@ impl crate::Kernel {
                     wear
                 }));
             }
-            DevOp::Join(join) => self.apply_join(owner, join, host),
+            DevOp::Join(join) => self.apply_join(owner, join, host, token),
         }
     }
 
@@ -647,8 +654,18 @@ impl crate::Kernel {
         )
     }
 
-    fn apply_join(&mut self, owner: &Id, join: JoinOp, host: &DevHost<'_>) {
+    fn apply_join(&mut self, owner: &Id, join: JoinOp, host: &DevHost<'_>, token: u32) {
         let (name, request) = (owner.as_str(), join.request);
+        // Only the batch that reserved the request may apply it: an output
+        // that outlived its sender (or whose number a newer request reuses)
+        // sends nothing and touches no entry.
+        let live = self
+            .radio_requests
+            .try_borrow()
+            .is_ok_and(|table| table.holds_reserved_in(token, name, request));
+        if !live {
+            return;
+        }
         let end = |kernel: &Self, reason: u32| {
             if let Ok(mut table) = kernel.radio_requests.try_borrow_mut() {
                 table.end(name, request, Outcome::failed(reason));

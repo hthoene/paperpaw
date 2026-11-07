@@ -248,7 +248,7 @@ fn only_unapplied_reservations_are_given_back() {
     table.reserve(&a, 2, false, "net").unwrap();
     table.release_reserved("a", 1);
     assert!(table.holds("a", 1), "a waiting request stays");
-    let token = table.new_token();
+    let token = table.new_token().unwrap();
     table.reserve_in(token, &a, 3, false, "net").unwrap();
     table.discard_reserved(0);
     assert!(table.holds("a", 2), "token 0 gives nothing back");
