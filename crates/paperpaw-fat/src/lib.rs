@@ -87,6 +87,7 @@ mod disk;
 mod found;
 mod free;
 mod listed;
+mod owned;
 mod settle;
 mod swap;
 
@@ -146,8 +147,8 @@ impl<IO: ReadWriteSeek + 'static> Open<IO> {
     }
 }
 
-/// PaperPaw's storage on a FAT file system that lives as long as the
-/// device runs (`Box::leak` it).
+/// PaperPaw's storage on a FAT file system, owned with [`Self::owned`]
+/// or borrowed for the device's lifetime with [`Self::new`].
 pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     fs: &'static FileSystem<IO>,
     /// The files used last, the latest last.
@@ -173,6 +174,10 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     /// The folders whose temporary files of earlier versions were looked
     /// at since the start, by a hash of their paths (`clean_old`).
     cleaned: RefCell<Vec<u64>>,
+    // Must remain last: Rust drops fields in declaration order. Every
+    // cached file and folder above borrows this allocation. No borrowed
+    // FAT handle or file-system reference may escape this storage.
+    owner: Option<owned::FileSystemOwner<IO>>,
 }
 
 impl<IO: ReadWriteSeek + 'static> core::fmt::Debug for FatStorage<IO> {
@@ -669,7 +674,17 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             settling: Cell::new(false),
             stuck: RefCell::new(None),
             cleaned: RefCell::new(Vec::new()),
+            owner: None,
         }
+    }
+
+    /// Owns the file system and releases it after its cached files and
+    /// folders on drop. Moving the storage does not move the file system.
+    /// Call [`Storage::sync`] before dropping a card that is still present
+    /// to report write errors. A removed card must reject old-mount I/O,
+    /// as [`Watched`] does, including writes attempted by destructors.
+    pub fn owned(fs: FileSystem<IO>) -> Self {
+        owned::storage(fs)
     }
 
     /// The same, with the file system's disk shared ([`SharedDisk`]): its
