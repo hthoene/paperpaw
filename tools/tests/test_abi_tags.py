@@ -151,7 +151,8 @@ const CASES: &[(u32, &[u8])] = &[
         # Families that share a block on purpose: all declarations (submitted
         # through slot 16), and draw frames inside the input block.
         shared = {frozenset({'setting', 'resource', 'action', 'menu', 'screen', 'icon',
-                             'format', 'registration'}), frozenset({'input', 'draw'})}
+                             'format', 'registration', 'setup', 'slot', 'key', 'preset'}),
+                  frozenset({'input', 'draw'})}
         top = {name: spans for name, spans in TAG_RANGES.items() if '.' not in name}
         for first, spans in top.items():
             for second, others in top.items():
