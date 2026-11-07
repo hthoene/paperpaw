@@ -33,16 +33,23 @@ pub const TEST_NETWORK: &str = "PaperPaw Test";
 pub const WORKSHOP_NETWORK: &str = "Workshop Wi-Fi";
 pub const WORKSHOP_PASSWORD: &str = "workshop";
 
+/// The networks the pretend radio finds, strongest first: ssid, signal in
+/// dBm, secured. Static, so the emulator's `core.device` host lists them
+/// without allocating (`device_host`).
+pub(crate) const PRETEND_SCAN: &[(&str, i8, bool)] = &[
+    (TEST_NETWORK, -48, true),
+    ("Cafe", -70, false),
+    ("Far Away", -88, true),
+];
+
 /// The networks the pretend radio finds; `workshop` adds the one an
-/// emulator started with `--wifi online` is in. Also what the emulator's
-/// `core.device` host (`device_host`) lists.
+/// emulator started with `--wifi online` is in.
 pub(crate) fn pretend_networks(workshop: bool) -> Vec<WifiNetwork> {
     let net = |ssid: &str, signal, secured| WifiNetwork::new(String::from(ssid), signal, secured);
-    let mut networks = vec![
-        net(TEST_NETWORK, -48, true),
-        net("Cafe", -70, false),
-        net("Far Away", -88, true),
-    ];
+    let mut networks: Vec<WifiNetwork> = PRETEND_SCAN
+        .iter()
+        .map(|&(ssid, signal, secured)| net(ssid, signal, secured))
+        .collect();
     if workshop {
         networks.insert(0, net(WORKSHOP_NETWORK, -40, true));
     }

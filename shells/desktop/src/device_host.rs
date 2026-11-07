@@ -176,11 +176,13 @@ impl DeviceHost for DesktopDevice {
         if !self.profile.wifi {
             return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
         }
-        for network in crate::wifi::pretend_networks(false) {
+        // Borrowed from a static list: no allocation, so no allocator
+        // refusal can reach a network query.
+        for &(ssid, signal, secured) in crate::wifi::PRETEND_SCAN {
             let row = NetworkRow {
-                ssid: &network.ssid,
-                signal: i32::from(network.signal),
-                secured: network.secured,
+                ssid,
+                signal: i32::from(signal),
+                secured,
                 known: false,
             };
             if visit(&row).is_break() {
@@ -254,7 +256,13 @@ mod tests {
             ControlFlow::Continue(())
         })
         .unwrap();
-        assert_eq!(ssids.len(), 3);
+        // The rows are the static list, strongest first (no allocation).
+        let expected: Vec<(String, i32)> = crate::wifi::PRETEND_SCAN
+            .iter()
+            .map(|&(ssid, signal, _)| (ssid.to_string(), i32::from(signal)))
+            .collect();
+        assert_eq!(ssids, expected);
+        assert!(ssids.windows(2).all(|pair| pair[0].1 >= pair[1].1));
         assert_eq!(x4.bluetooth(), Err(ERR_NOT_FOUND));
         assert_eq!(
             x4.bonded(&mut |_| ControlFlow::Break(())),
