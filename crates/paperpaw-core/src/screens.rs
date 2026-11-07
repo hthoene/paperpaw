@@ -75,6 +75,16 @@ impl Kernel {
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
+        // A native factory is fallible and independent of the viewport. Finish
+        // it before changing the serial, layout or current screen.
+        let native_screen = if spec.is_native() {
+            match spec.make(&self.shared.env(self.now), params) {
+                Ok(screen) => Some(screen),
+                Err(_) => return,
+            }
+        } else {
+            None
+        };
         let on_open = spec.refresh_on_open();
         let serial = self.next_serial;
         let Some(next_serial) = serial.checked_add(1) else {
@@ -89,7 +99,16 @@ impl Kernel {
         let mut area = self.layout(hinted, Some(&entry), None);
         set_area(&mut self.shared.device, &mut self.shared.content, area);
         let running = self.shared.meter.enter(id.namespace());
-        let mut screen = spec.make(&self.shared.env(self.now), params);
+        let mut screen = match native_screen {
+            Some(screen) => screen,
+            None => {
+                // Legacy factories are infallible; this also keeps their sizing order.
+                let Ok(screen) = spec.make(&self.shared.env(self.now), params) else {
+                    return;
+                };
+                screen
+            }
+        };
         // It says otherwise of the row of hints: made again for the part
         // of the screen it then has.
         let own = match screen.mode().is_full_screen() {
@@ -103,7 +122,7 @@ impl Kernel {
             hinted = !hinted;
             area = self.layout(hinted, Some(&entry), None);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            screen = spec.make(&self.shared.env(self.now), params);
+            spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
         // An overlay shares its full screen's part, a guard has no bars:
         // made again for that part.
@@ -111,7 +130,7 @@ impl Kernel {
         if place != area {
             area = place;
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            screen = spec.make(&self.shared.env(self.now), params);
+            spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
         let pane = paperpaw_sdk::call_since(screen.as_mut(), 2, Pane::FULL, |s| s.pane()).known();
         drop(running);
@@ -128,8 +147,10 @@ impl Kernel {
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             let _running = self.shared.meter.enter(id.namespace());
             // The one made for all of it goes first (see `Gone`).
-            drop(mem::replace(&mut screen, Box::new(Gone)));
-            screen = spec.make(&self.shared.env(self.now), params);
+            if !spec.is_native() {
+                drop(mem::replace(&mut screen, Box::new(Gone)));
+                spec.remake(&mut screen, &self.shared.env(self.now), params);
+            }
         }
         let active = ActiveScreen {
             id,
@@ -274,7 +295,9 @@ impl Kernel {
         let env = self.shared.env(self.now);
         let params = Params::new().with(builtin_params::TEXT, text);
         let running = self.shared.meter.enter(id.namespace());
-        let screen = spec.make(&env, &params);
+        let Ok(screen) = spec.make(&env, &params) else {
+            return;
+        };
         drop(running);
         let seconds = self
             .shared
@@ -701,8 +724,10 @@ impl Kernel {
         };
         let _running = self.shared.meter.enter(active.id.namespace());
         // `Gone` has no size: nothing is allocated for it.
-        active.screen = Box::new(Gone);
-        active.screen = spec.make(&env, &active.params);
+        if !spec.is_native() {
+            active.screen = Box::new(Gone);
+            spec.remake(&mut active.screen, &env, &active.params);
+        }
         let made = active.screen.as_mut();
         active.pane = paperpaw_sdk::call_since(made, 2, Pane::FULL, |s| s.pane()).known();
         false

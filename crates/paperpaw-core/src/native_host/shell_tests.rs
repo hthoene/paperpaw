@@ -1324,3 +1324,6 @@ mod stage_broker_oom;
 mod evt_oom;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
+
+#[path = "native_screen_install_tests.rs"]
+mod native_screen_install;

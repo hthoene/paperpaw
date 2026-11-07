@@ -32,7 +32,12 @@ pub(crate) struct Screens {
 }
 
 /// What makes a screen, of its [`ScreenSpec`].
-pub(crate) struct Made {
+enum Made {
+    Added(AddedMade),
+    Native(crate::native_host::native_screen_factory::NativeMade),
+}
+
+pub(crate) struct AddedMade {
     pub(crate) factory: paperpaw_sdk::ScreenFactory,
     pub(crate) refresh_on_open: Option<paperpaw_sdk::RefreshMode>,
     pub(crate) instances: paperpaw_sdk::Instances,
@@ -41,7 +46,8 @@ pub(crate) struct Made {
 /// What makes a screen of either kind.
 #[derive(Clone, Copy)]
 pub(crate) enum Maker<'a> {
-    Added(&'a Made),
+    Added(&'a AddedMade),
+    Native(&'a crate::native_host::native_screen_factory::NativeMade),
     Fixed(&'static paperpaw_sdk::FixedScreen),
 }
 
@@ -50,17 +56,37 @@ impl Maker<'_> {
         self,
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
-    ) -> alloc::boxed::Box<dyn paperpaw_sdk::Screen> {
+    ) -> Result<alloc::boxed::Box<dyn paperpaw_sdk::Screen>, i32> {
         match self {
-            Maker::Added(made) => (made.factory)(env, params),
-            Maker::Fixed(fixed) => fixed.make(env, params),
+            Maker::Added(made) => Ok((made.factory)(env, params)),
+            Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
+            Maker::Native(made) => made.make(params),
         }
+    }
+
+    /// Native wrappers keep their instance identity while the viewport changes.
+    pub(crate) fn remake(
+        self,
+        screen: &mut alloc::boxed::Box<dyn paperpaw_sdk::Screen>,
+        env: &paperpaw_sdk::Env<'_>,
+        params: &paperpaw_sdk::Params,
+    ) {
+        match self {
+            Maker::Added(made) => *screen = (made.factory)(env, params),
+            Maker::Fixed(fixed) => *screen = fixed.make(env, params),
+            Maker::Native(_) => {}
+        }
+    }
+
+    pub(crate) fn is_native(self) -> bool {
+        matches!(self, Maker::Native(_))
     }
 
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
             Maker::Added(made) => made.refresh_on_open,
             Maker::Fixed(fixed) => fixed.refresh(),
+            Maker::Native(made) => made.refresh(),
         }
     }
 
@@ -68,6 +94,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => made.instances,
             Maker::Fixed(fixed) => fixed.how_many(),
+            Maker::Native(made) => made.instances,
         }
     }
 }
@@ -96,7 +123,10 @@ impl Screens {
 
     pub(crate) fn get<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> Option<Maker<'_>> {
         match self.find(id.borrow()) {
-            Ok(at) => Some(Maker::Added(&self.made[at])),
+            Ok(at) => Some(match &self.made[at] {
+                Made::Added(made) => Maker::Added(made),
+                Made::Native(made) => Maker::Native(made),
+            }),
             Err(_) => self
                 .find_fixed(id.borrow())
                 .ok()
@@ -137,11 +167,26 @@ impl Screens {
             instances,
             ..
         } = spec;
-        let made = Made {
+        let made = Made::Added(AddedMade {
             factory,
             refresh_on_open,
             instances,
-        };
+        });
+        self.insert_made(id, title, made);
+    }
+
+    fn insert_native(
+        &mut self,
+        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
+    ) {
+        self.insert_made(
+            screen.id,
+            Cow::Owned(screen.title),
+            Made::Native(screen.made),
+        );
+    }
+
+    fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: Made) {
         if let Ok(at) = self.find_fixed(id.as_str()) {
             self.fixed.remove(at);
         }
@@ -347,7 +392,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
         params: &paperpaw_sdk::Params,
     ) -> Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>> {
         let maker = self.screens.get(id.as_str())?;
-        Some(maker.make(env, params))
+        maker.make(env, params).ok()
     }
 
     fn slot_screen(&self, slot: &str) -> Option<&Id> {
@@ -412,6 +457,7 @@ impl Staged {
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
     screens: Vec<ScreenSpec>,
+    native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
     candidates: Vec<SlotCandidate>,
     pub(crate) settings: Vec<Staged>,
@@ -485,7 +531,34 @@ pub(crate) struct Staging {
     pub(crate) contributions: Vec<(Id, Cow<'static, str>)>,
 }
 
+fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
+    target
+        .try_reserve(1)
+        .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+    target.push(value);
+    Ok(())
+}
+
 impl Staging {
+    pub(crate) fn native_screen(
+        &mut self,
+        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
+    ) -> Result<(), i32> {
+        if self
+            .native_screens
+            .iter()
+            .any(|other| other.id == screen.id)
+            || self.screens.iter().any(|other| other.id == screen.id)
+            || self
+                .fixed_screens
+                .iter()
+                .any(|list| list.iter().any(|other| other.id() == &screen.id))
+        {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(&mut self.native_screens, screen)
+    }
+
     /// Stage already decoded native contributions without infallible growth.
     /// The caller publishes only after every record has mapped successfully.
     #[allow(
@@ -494,19 +567,16 @@ impl Staging {
     )]
     pub(crate) fn native(&mut self, owner: &Id, contribution: Contribution) -> Result<(), i32> {
         use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
-        fn push<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
-            target.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-            target.push(value);
-            Ok(())
-        }
         match contribution {
-            Contribution::Action(action) => push(&mut self.actions, *action),
-            Contribution::Screen(screen) => push(&mut self.screens, screen),
-            Contribution::Setting(setting) => push(&mut self.settings, Staged::Owned(setting)),
-            Contribution::SettingGroup(group) => push(&mut self.setting_groups, group),
+            Contribution::Action(action) => push_native(&mut self.actions, *action),
+            Contribution::Screen(screen) => push_native(&mut self.screens, screen),
+            Contribution::Setting(setting) => {
+                push_native(&mut self.settings, Staged::Owned(setting))
+            }
+            Contribution::SettingGroup(group) => push_native(&mut self.setting_groups, group),
             Contribution::Subscription { event, handler, .. } => {
                 let owner = owner.try_clone().ok_or(ERR_NO_MEMORY)?;
-                push(
+                push_native(
                     &mut self.subscriptions,
                     (owner, Subscribed::One(event, handler)),
                 )
@@ -536,6 +606,7 @@ impl Staging {
                 self.screens
                     .iter()
                     .map(|s| &s.id)
+                    .chain(self.native_screens.iter().map(|s| &s.id))
                     .chain(
                         self.fixed_screens
                             .iter()
@@ -552,6 +623,29 @@ impl Staging {
         if let Some(id) = duplicate {
             return Err(RegisterError::Duplicate { id: id.clone() });
         }
+        if !self.native_screens.is_empty() {
+            let count = self
+                .screens
+                .len()
+                .checked_add(self.native_screens.len())
+                .ok_or(RegisterError::Invalid {
+                    message: "native screen capacity overflow".into(),
+                })?;
+            registry
+                .screens
+                .titles
+                .try_reserve(count)
+                .map_err(|_| RegisterError::Invalid {
+                    message: "native screen capacity unavailable".into(),
+                })?;
+            registry
+                .screens
+                .made
+                .try_reserve(count)
+                .map_err(|_| RegisterError::Invalid {
+                    message: "native screen capacity unavailable".into(),
+                })?;
+        }
         for action in self.actions.drain(..) {
             actions.insert(action);
         }
@@ -560,6 +654,9 @@ impl Staging {
         }
         for screen in self.screens.drain(..) {
             registry.screens.insert(screen);
+        }
+        for screen in self.native_screens.drain(..) {
+            registry.screens.insert_native(screen);
         }
         for list in self.fixed_screens.drain(..) {
             registry.screens.insert_fixed(list);

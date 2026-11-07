@@ -85,6 +85,9 @@ pub(crate) struct NativeScreen<D> {
     token: u32,
     dispatch: D,
     key: Option<ScreenKey>,
+    flags: u32,
+    opened: bool,
+    params_count: u32,
 }
 
 impl<D: Dispatch> NativeScreen<D> {
@@ -94,7 +97,20 @@ impl<D: Dispatch> NativeScreen<D> {
             token,
             dispatch,
             key: None,
+            flags: 0,
+            opened: false,
+            params_count: 0,
         }
+    }
+
+    pub(crate) fn with_flags(mut self, flags: u32) -> Self {
+        self.flags = flags;
+        self
+    }
+
+    pub(crate) fn with_params_count(mut self, count: u32) -> Self {
+        self.params_count = count;
+        self
     }
 
     fn shown(&self, env: &Env<'_>) -> bool {
@@ -104,13 +120,44 @@ impl<D: Dispatch> NativeScreen<D> {
             screen: self.id.as_str(),
             width: u32::from(pane.width),
             height: u32::from(pane.height),
-            // Screen instances (`docs/abi/ui.md` section 1.1) are not wired yet.
-            instance: None,
+            instance: self.key.map(ScreenKey::serial),
         });
         let mut bytes = [0; 192];
         let result = wire::records_encode(&[record], &mut bytes)
             .and_then(|len| self.dispatch.event(self.token, &bytes[..len], env));
         self.status(result)
+    }
+
+    fn opened(&self, again: bool, count: u32, env: &Env<'_>) {
+        let Some(key) = self.key else {
+            return;
+        };
+        let slot = env
+            .stack()
+            .iter()
+            .find(|entry| entry.key == key)
+            .and_then(|entry| entry.slot.as_ref())
+            .map_or("", Id::as_str);
+        self.event(
+            Record::EventScreenOpened(wire::EventScreenOpened {
+                now_ms: env.now().millis(),
+                screen: self.id.as_str(),
+                instance: key.serial(),
+                slot,
+                flags: u32::from(again),
+                handover: 0,
+                params: count,
+                text_bytes: 0,
+            }),
+            env,
+        );
+    }
+
+    fn event(&self, record: Record<'_>, env: &Env<'_>) {
+        let mut bytes = [0; 384];
+        let result = wire::records_encode(&[record], &mut bytes)
+            .and_then(|len| self.dispatch.event(self.token, &bytes[..len], env));
+        self.status(result);
     }
 
     fn status(&self, result: Result<i32, i32>) -> bool {
@@ -168,6 +215,23 @@ impl<D: Dispatch> NativeScreen<D> {
 }
 
 impl<D: Dispatch> Screen for NativeScreen<D> {
+    fn guards(&self) -> bool {
+        self.flags & (1 << 1) != 0
+    }
+    fn secret(&self) -> bool {
+        self.guards() || self.flags & (1 << 4) != 0
+    }
+    fn holds_edges(&self) -> bool {
+        self.flags & (1 << 5) != 0
+    }
+    fn region(&self, env: &Env<'_>) -> Option<Rect> {
+        (self.flags & (1 << 2) != 0)
+            .then(|| Rect::new(0, 0, env.content().width, env.content().height))
+    }
+    fn shows_through(&self) -> paperpaw_sdk::ShowsThrough {
+        paperpaw_sdk::ShowsThrough::All
+    }
+
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         // The native contract sends neither draw nor input below the top screen.
         // Compare instance keys, since several instances may have the same id.
@@ -181,14 +245,42 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
 
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
         self.key = cx.key();
+        if !self.opened && self.key.is_some() {
+            self.opened = true;
+            self.opened(false, self.params_count, cx.env());
+        }
         self.shown(cx.env());
     }
 
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
-        if self.shown(cx.env()) {
-            Handled::Yes
-        } else {
-            Handled::No
+        self.shown(cx.env());
+        // The host owns the viewport; native instances are never remade for size.
+        Handled::Yes
+    }
+
+    fn on_reopen(&mut self, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+        let Ok(count) = u32::try_from(params.iter().count()) else {
+            self.dispatch.dropped(self.token, ERR_INVALID);
+            return;
+        };
+        self.params_count = count;
+        self.opened(true, count, cx.env());
+        self.shown(cx.env());
+    }
+
+    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
+        if self.opened {
+            self.opened = false;
+            if let Some(key) = self.key {
+                self.event(
+                    Record::EventScreenClosed(wire::EventScreenClosed {
+                        now_ms: cx.env().now().millis(),
+                        screen: self.id.as_str(),
+                        instance: key.serial(),
+                    }),
+                    cx.env(),
+                );
+            }
         }
     }
 
