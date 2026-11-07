@@ -904,3 +904,7 @@ mod event_hook_tests;
 #[cfg(test)]
 #[path = "native_host/registry_page.rs"]
 mod registry_page;
+
+#[cfg(test)]
+#[path = "native_host/declaration_reg_index_tests.rs"]
+mod declaration_reg_index_tests;

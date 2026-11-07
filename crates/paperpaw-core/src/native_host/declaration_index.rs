@@ -12,6 +12,14 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("screen.spec", 5),
     ("action.spec", 6),
     ("stage.spec", 7),
+    ("setup.step", 8),
+    ("slot.spec", 9),
+    ("slot.offer", 10),
+    ("key.bind", 11),
+    ("setting.default", 12),
+    ("setting.choice", 13),
+    ("preset.spec", 14),
+    ("preset.value", 15),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
@@ -70,9 +78,79 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::ScreenSpec(r) => (5, r.name),
         Record::ActionSpec(r) => (6, r.name),
         Record::StageSpec(r) => (STAGE_KIND, r.name),
+        Record::SetupStep(r) => (KIND_TABLE[8].1, r.name),
+        Record::SlotSpec(r) => (KIND_TABLE[9].1, r.name),
+        Record::SlotOffer(r) => (KIND_TABLE[10].1, r.slot),
+        Record::KeyBind(r) => (KIND_TABLE[11].1, r.layer),
+        Record::SettingDefault(r) => (KIND_TABLE[12].1, r.key),
+        Record::SettingChoice(r) => (KIND_TABLE[13].1, r.key),
+        Record::PresetSpec(r) => (KIND_TABLE[14].1, r.name),
+        Record::PresetValue(r) => (KIND_TABLE[15].1, r.preset),
         _ => return None,
     })
 }
+/// All unique-key fields, borrowed from the record without joining strings.
+fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
+    let (kind, name) = key(record)?;
+    let mut parts = [name, "", "", ""];
+    let len = match record {
+        Record::SlotOffer(r) => {
+            parts[1] = r.screen;
+            2
+        }
+        Record::KeyBind(r) => {
+            parts[1] = r.input;
+            parts[2] = r.when_key;
+            parts[3] = r.when_value;
+            4
+        }
+        Record::SettingChoice(r) => {
+            parts[1] = r.value;
+            2
+        }
+        Record::PresetValue(r) => {
+            parts[1] = r.key;
+            2
+        }
+        _ => 1,
+    };
+    Some((kind, parts, len))
+}
+
+pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
+    let (kind, parts, len) = name_parts(record)?;
+    Some(if len == 1 {
+        name_hash(kind, parts[0])
+    } else {
+        composite_hash(kind, &parts[..len])
+    })
+}
+
+/// Hash equality never replaces comparison of every original key field.
+pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
+    let (Some((ak, a, al)), Some((bk, b, bl))) = (name_parts(a), name_parts(b)) else {
+        return false;
+    };
+    ak == bk
+        && al == bl
+        && a[..al]
+            .iter()
+            .zip(&b[..bl])
+            .all(|(a, b)| same_name(ak, a, b))
+}
+
+pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bool {
+    let Some((actual_kind, parts, len)) = name_parts(record) else {
+        return false;
+    };
+    actual_kind == kind
+        && len == wanted.len()
+        && parts[..len]
+            .iter()
+            .zip(wanted)
+            .all(|(a, b)| same_name(kind, a, b))
+}
+
 pub(crate) fn same_name(kind: u8, a: &str, b: &str) -> bool {
     if kind == 3 {
         a.eq_ignore_ascii_case(b)
