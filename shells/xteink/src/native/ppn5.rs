@@ -539,6 +539,11 @@ mod x4 {
             call_begin,
             call_end,
         };
+        // The read-only data is the image's first `code_at` bytes. `Header5::read`
+        // checked `code_at <= image_len` (the whole image is in the placed
+        // room); the length is bounded by it again where the slice is formed,
+        // so the bound is visible here and cannot be passed by a later change.
+        let data_len = header.code_at.min(header.image_len) as usize;
         // The image is flash memory-mapped at a fixed address: the one place
         // an address becomes a pointer, with the provenance exposed for it.
         let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
@@ -551,7 +556,7 @@ mod x4 {
                 FlashModule,
                 make,
                 id,
-                (image_ptr, header.code_at as usize),
+                (image_ptr, data_len),
                 report,
                 hooks,
                 share,
