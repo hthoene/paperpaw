@@ -4,10 +4,15 @@
 //! [`Storage::remove_dir_all`] walks a whole tree in one call and, on the
 //! storages that hold names on the heap while they do, needs room for every
 //! name of a folder at once. [`remove_tree_step`] is the bounded form the
-//! interface-7 file service (`docs/abi/files.md` 2.5) needs: one call reads
-//! at most [`MAX_READS`] folder entries and removes at most [`MAX_REMOVALS`],
-//! keeps nothing between calls but a 64-bit place it hands back, and never
-//! puts a name on the heap.
+//! interface-7 file service (`docs/abi/files.md` 2.5) needs: one call shows
+//! it at most [`MAX_READS`] folder entries (every entry a listing visits is
+//! counted, the look-ahead, the descent and the checks that a folder is empty
+//! too) and removes at most [`MAX_REMOVALS`] entries, keeps nothing between
+//! calls but a 64-bit place it hands back, and never puts a name on the heap.
+//! Entries are removed one at a time, by their path or, for names no path can
+//! hold, by their place ([`Storage::remove_listed`]); a folder is handed to
+//! [`Storage::remove_dir_all`] only once a listing from its start has shown
+//! it empty.
 //!
 //! The walk only ever goes **down** from the folder it is given, by names it
 //! has just listed and checked ([`is_usable_name`]); it never follows a
@@ -27,11 +32,12 @@ use crate::storage::{DirEntry, Storage, StorageError, is_valid_path};
 /// Most removals one [`remove_tree_step`] makes (a file, or a folder
 /// that is empty).
 pub const MAX_REMOVALS: u32 = 64;
-/// Most folder entries one [`remove_tree_step`] reads below its descent.
+/// Most folder entries one [`remove_tree_step`] has a listing show.
 pub const MAX_READS: u32 = 256;
-/// Deepest folder the walk goes into itself; a folder deeper is removed whole
-/// by the storage ([`Storage::remove_dir_all`]).
-pub const MAX_DEPTH: usize = 16;
+/// Deepest folder the walk goes into itself; a folder deeper than that is
+/// not entered and cannot be removed by it (`InvalidPath`, as a folder that
+/// is not empty).
+pub const MAX_DEPTH: usize = 32;
 /// Longest path the walk builds, in bytes.
 pub const MAX_PATH: usize = 640;
 /// Longest name the walk uses, in bytes (a segment of a path).
@@ -185,16 +191,18 @@ enum Next {
 
 /// The entry at `position` of `dir` and the place after it. One listing call
 /// asking for two entries: it stops at the second, whose place is wanted and
-/// which is still there when the first is gone.
+/// which is still there when the first is gone. Every entry shown is counted.
 fn fetch(
     storage: &dyn Storage,
     dir: &str,
     position: u64,
     entry: &mut Entry,
+    reads: &mut u32,
 ) -> Result<Next, StorageError> {
     let room = room(dir);
     let mut seen = 0u8;
     let stopped = storage.list_from(dir, position, &mut |found| {
+        *reads += 1;
         if seen == 0 {
             entry.take(&found, room);
             seen = 1;
@@ -216,32 +224,22 @@ fn room(dir: &str) -> usize {
     MAX_PATH.saturating_sub(dir.len() + 1)
 }
 
-/// Whether the folder holds an entry the walk can use.
-fn holds_usable(storage: &dyn Storage, dir: &str) -> Result<bool, StorageError> {
-    let mut found = false;
-    let room = room(dir);
-    storage.list_from(dir, 0, &mut |entry| {
-        found = is_usable_name(entry.name) && entry.name.len() <= room;
-        !found
-    })?;
-    Ok(found)
-}
-
 /// One bounded piece of removing the tree at `root` (a path the caller has
 /// checked; a file is removed as a one-entry tree, a missing path is done at
 /// once). With `keep_root` the folder `root` itself stays, emptied.
 ///
-/// `place` is 0 to start, or the `next` of the call before. At most
-/// [`MAX_REMOVALS`] entries are removed and [`MAX_READS`] folder entries read
-/// (the folders above the one being emptied are read again to find it, and
-/// not counted). A call that reads its share before removing anything
-/// still advances. Power loss or a failing call: what was removed is gone, the
-/// rest is whole, and calling again from the last place or from 0 goes on.
+/// `place` is 0 to start, or the `next` of the call before. A call has at
+/// most [`MAX_READS`] entries shown by listings and removes at most
+/// [`MAX_REMOVALS`] entries; the folders above the one being emptied are read
+/// again to find it, and counted. A call that uses its reads before removing
+/// anything still advances: the listing it stopped in is where the next one
+/// goes on. Power loss or a failing call: what was removed is gone, the rest is
+/// whole, and calling again from the last place or from 0 goes on.
 ///
-/// Names the walk cannot use are not followed and not counted: they are
-/// removed with the folder that holds them by the storage's own
-/// [`Storage::remove_dir_all`] once nothing else is in it (so a folder
-/// kept with `keep_root` that holds only such names is left as it is).
+/// Names that no path can hold (made by a computer: a trailing dot, a
+/// reserved name, over 255 bytes) are removed by their place, as is anything
+/// the walk cannot enter (too deep, too long a path); such a folder that is
+/// not empty ends the call with `InvalidPath`, nothing outside it touched.
 ///
 /// # Errors
 /// The storage's own; a `root` path longer than [`MAX_PATH`] is
@@ -272,7 +270,8 @@ pub fn remove_tree_step(
     }
     let mut path = Path::new(root).ok_or(StorageError::InvalidPath)?;
     let (target, resume) = decode(place);
-    let (mut removed, mut reads) = (0u32, 0u32);
+    // The check of the kind showed one entry.
+    let (mut removed, mut reads) = (0u32, 1u32);
     let mut level = 0usize;
     // Where each folder's listing goes on; `END` once its last entry is taken.
     const END: u64 = u64::MAX;
@@ -280,7 +279,8 @@ pub fn remove_tree_step(
     positions[0] = if target == 0 { resume } else { 0 };
     let mut entry = Entry::EMPTY;
     loop {
-        if removed >= MAX_REMOVALS || reads >= MAX_READS {
+        // A look at two entries must fit, so no call shows more than its share.
+        if removed >= MAX_REMOVALS || reads + 2 > MAX_READS {
             let position = positions[level];
             return Ok(TreeStep {
                 removed,
@@ -289,21 +289,22 @@ pub fn remove_tree_step(
             });
         }
         let folder = path.at(level);
-        let counted = level >= target;
-        let next = if positions[level] == END {
-            Next::Nothing
-        } else {
-            fetch(storage, folder, positions[level], &mut entry)?
-        };
+        if positions[level] == END {
+            // The listing was over; whether the folder is empty is shown by a
+            // listing from its start (one that skipped an entry as entries
+            // went is not proof).
+            positions[level] = 0;
+            continue;
+        }
+        let here = positions[level];
+        let next = fetch(storage, folder, here, &mut entry, &mut reads)?;
         let after = match next {
+            Next::Nothing if here != 0 => {
+                positions[level] = 0;
+                continue;
+            }
             Next::Nothing => {
-                // The listing is over. The folder is done when it holds
-                // nothing the walk can use (a listing that skipped an entry
-                // as entries were removed is checked from its start).
-                if holds_usable(storage, folder)? {
-                    positions[level] = 0;
-                    continue;
-                }
+                // Shown empty from its start: the folder goes.
                 if level == 0 {
                     if !keep_root {
                         storage.remove_dir_all(folder)?;
@@ -323,31 +324,22 @@ pub fn remove_tree_step(
             Next::Last => END,
             Next::At(position) => position,
         };
-        if counted {
-            reads += 1;
-        }
         positions[level] = after;
-        if !entry.usable {
-            continue;
-        }
-        if !entry.is_dir {
-            let Some(child) = path.child(level, entry.name()) else {
+        if entry.usable && !entry.is_dir {
+            if let Some(child) = path.child(level, entry.name()) {
+                storage.remove(child)?;
+                removed += 1;
                 continue;
-            };
-            storage.remove(child)?;
-            removed += 1;
+            }
+        } else if entry.usable && level + 1 < MAX_DEPTH && path.child(level, entry.name()).is_some()
+        {
+            level += 1;
+            positions[level] = if level == target { resume } else { 0 };
             continue;
         }
-        let Some(child) = path.child(level, entry.name()) else {
-            // Too long a path for the walk: its parent's sweep takes it.
-            continue;
-        };
-        if level + 1 >= MAX_DEPTH {
-            storage.remove_dir_all(child)?;
-            removed += 1;
-            continue;
-        }
-        level += 1;
-        positions[level] = if level == target { resume } else { 0 };
+        // A name no path holds, or one the walk cannot enter: by its place
+        // (a folder only if it is empty).
+        storage.remove_listed(path.at(level), here)?;
+        removed += 1;
     }
 }

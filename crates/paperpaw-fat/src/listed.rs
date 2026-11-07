@@ -120,4 +120,73 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         }
         visit_on(dir, items, before, None, visit)
     }
+
+    /// [`Storage::remove_listed`]: the entry `list_from` shows first from
+    /// `place`, taken away by itself: a file, or a folder with nothing in it
+    /// (not even a name PaperPaw does not take). Its name is not looked for:
+    /// a name no path holds is removed all the same.
+    pub(super) fn remove_listed_entry(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        if !dir.is_empty() {
+            check(dir)?;
+        }
+        self.settle_moves()?;
+        // The sizes in the folders, as appended.
+        self.sync()?;
+        let folder = self.dir(dir)?;
+        let entry = if place == 0 {
+            let mut first = None;
+            for entry in entries(&folder) {
+                let entry = entry?;
+                if shown(dir, &entry, &mut |_| ()).is_some() {
+                    first = Some(entry);
+                    break;
+                }
+            }
+            first
+        } else {
+            let slot = (place & u64::from(u32::MAX)) * SLOT;
+            if !folder.begins_entry(slot).map_err(error)? {
+                return Err(StorageError::NotFound);
+            }
+            let mut first = None;
+            // Only the entry at the place: later ones are not its.
+            if let Some(entry) = bounded(
+                folder
+                    .iter_from(slot)
+                    .map_err(error)?
+                    .map(|e| e.map_err(error)),
+            )
+            .next()
+            {
+                let entry = entry?;
+                if shown(dir, &entry, &mut |_| ()).is_some() {
+                    first = Some(entry);
+                }
+            }
+            first
+        };
+        let entry = entry.ok_or(StorageError::NotFound)?;
+        let path = child(dir, &entry.file_name());
+        if entry.is_dir() {
+            // Empty: its `.` and `..` only.
+            for inner in entries(&entry.to_dir()) {
+                let name = inner?.file_name();
+                if name != "." && name != ".." {
+                    return Err(StorageError::InvalidPath);
+                }
+            }
+        }
+        self.hold(&path)?;
+        self.close(&path)?;
+        self.forget(&path);
+        self.written(dir_remove_found(&folder, &entry))
+    }
+}
+
+/// `entry` of `dir` taken away where it is, not looked up by its name.
+fn dir_remove_found<IO: ReadWriteSeek + 'static>(
+    dir: &FatDir<IO>,
+    entry: &FatEntry<IO>,
+) -> Result<(), StorageError> {
+    dir.remove_found(entry).map_err(error)
 }

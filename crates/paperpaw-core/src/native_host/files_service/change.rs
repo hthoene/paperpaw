@@ -25,16 +25,18 @@ pub(super) fn make_dir(view: &View<'_>, record: Record<'_>) -> Result<usize, i32
         return Err(ERR_INVALID);
     };
     let target = target::resolve(view, input.root, input.path, Intent::Change)?;
-    // The root itself always exists.
+    // The root itself always exists, while the card is there.
     if target.is_root() {
-        return Ok(0);
+        return super::read::root_present(view, &target).map(|()| 0);
     }
     // The host's folder: a plugin reads it, never makes names in it.
     if target.is_received() {
         return Err(ERR_DENIED);
     }
     let joined = target.joined();
-    if view.host.busy(joined, Access::Rework) {
+    // Only the old name of a move job is closed to new names; below the new
+    // name they go on (`files.md` 2.6).
+    if view.host.busy(joined, Access::Write) {
         return Err(ERR_BUSY);
     }
     match kind(view.storage, joined).map_err(status)? {

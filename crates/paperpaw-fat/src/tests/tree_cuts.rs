@@ -306,3 +306,70 @@ fn names_of_other_systems_are_removed_with_their_folder() {
     walk(&s, "T", false, 0);
     assert!(!exists_dir(&s, "T"));
 }
+
+/// Names a computer made that PaperPaw's paths refuse (`nul.txt`, a long
+/// name, a trailing dot) are removed by their place, one at a time, and the
+/// walk leaves nothing, also below a kept root and also cut at any block.
+#[test]
+fn names_no_path_holds_are_removed_by_their_place() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("T/ok.txt", b"ok").unwrap();
+    s.write("T/sub/ok2.txt", b"ok").unwrap();
+    s.write("Keep/k.txt", b"keep").unwrap();
+    for (dir, name) in [
+        ("T", "nul.txt"),
+        ("T", "aux"),
+        ("T/sub", "NUL"),
+        ("T/sub", "lpt1.dat"),
+    ] {
+        s.sync().unwrap();
+        s.dir(dir).unwrap().create_file(name).unwrap();
+    }
+    s.sync().unwrap();
+    // One junk entry by its place: the listing's first.
+    let mut shown = Vec::new();
+    s.list("T", &mut |e| shown.push(e.name.to_string()))
+        .unwrap();
+    assert!(shown.iter().any(|n| n == "nul.txt"), "{shown:?}");
+    let image = card.image();
+    let cuts = cuts_of(image, |s| {
+        walk(s, "T", true, 0);
+        s.sync().unwrap();
+    });
+    for (n, cut) in cuts.iter().enumerate() {
+        let check = mounted(cut.clone());
+        assert_eq!(
+            whole(&check, "Keep/k.txt").as_deref(),
+            Ok(&b"keep"[..]),
+            "cut {n}"
+        );
+        let again = mounted(cut.clone());
+        walk(&again, "T", true, 0);
+        let mut left = Vec::new();
+        again
+            .list("T", &mut |e| left.push(e.name.to_string()))
+            .unwrap();
+        assert!(left.is_empty(), "cut {n}: {left:?}");
+        assert_eq!(
+            whole(&again, "Keep/k.txt").as_deref(),
+            Ok(&b"keep"[..]),
+            "cut {n}"
+        );
+    }
+}
+
+#[test]
+fn a_folder_that_is_not_empty_is_not_removed_by_its_place() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("T/sub/x.txt", b"x").unwrap();
+    s.sync().unwrap();
+    assert_eq!(s.remove_listed("T", 0), Err(StorageError::InvalidPath));
+    assert_eq!(whole(&s, "T/sub/x.txt").as_deref(), Ok(&b"x"[..]));
+    s.remove("T/sub/x.txt").unwrap();
+    s.remove_listed("T", 0).unwrap();
+    assert!(!exists_dir(&s, "T/sub"));
+    assert_eq!(s.remove_listed("T", 0), Err(StorageError::NotFound));
+    assert_eq!(s.remove_listed("T", 0x1234), Err(StorageError::NotFound));
+}

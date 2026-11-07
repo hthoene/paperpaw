@@ -294,6 +294,10 @@ impl Storage for Swappable {
     ) -> Result<Option<u64>, StorageError> {
         self.with(Err(StorageError::Io), |s| s.list_from(dir, from, visit))
     }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.with(IO, |s| s.remove_listed(dir, place))
+    }
 }
 
 /// The storage of a card lost for this run: everything fails with

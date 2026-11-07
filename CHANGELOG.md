@@ -26,7 +26,9 @@ change the plugin SDK.
   host's paths in use, and a family that stays `ERR_UNSUPPORTED` until a shell
   wires its host view. `paperpaw_platform::tree` adds `remove_tree_step`, a
   folder tree removed a bounded piece at a time (at most 64 removals and 256
-  folder entries per call) over any `Storage`, without heap, and `kind` (#228).
+  listed entries per call, every visit counted) over any `Storage`, without
+  heap, and `kind`; `Storage::remove_listed` removes an entry by its place for
+  names no path can hold (FAT overrides it) (#228).
 
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).

@@ -192,7 +192,7 @@ pub(super) fn stat(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
 
 /// A root always exists; the card being away is `ERR_IO`. The data and install
 /// folders may not be made yet.
-fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> {
+pub(super) fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> {
     if target.root == CARD {
         return card_present(view.storage);
     }

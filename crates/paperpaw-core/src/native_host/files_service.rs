@@ -57,7 +57,10 @@ pub(crate) trait FilesHost {
     /// Whether `access` to `path` (card relative) is `ERR_BUSY` now: the host
     /// holds it in use (the reader's book, a staged install, a download's
     /// file, a served request body) or the library's move job runs and says
-    /// so (`Moves::busy`). Reading is never asked about.
+    /// so (`Moves::busy`). A folder that holds (or is below) an in-use path
+    /// is busy too: removing or moving it would take that path away, and the
+    /// service asks about the folder only, never about what is inside it.
+    /// Reading is never asked about.
     fn busy(&self, _path: &str, _access: Access) -> bool {
         false
     }

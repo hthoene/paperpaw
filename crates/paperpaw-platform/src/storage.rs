@@ -245,6 +245,65 @@ pub trait Storage {
     ) -> Result<Option<u64>, StorageError> {
         list_counted(self, dir, from, visit)
     }
+
+    /// Removes the one entry [`Storage::list_from`] shows first from place
+    /// `place` of folder `dir`: a file, or a folder that is empty. For the
+    /// bounded removal of a tree ([`crate::tree::remove_tree_step`]), which
+    /// has to take away entries it cannot name by a path (a name made by a
+    /// computer that this storage's paths refuse) without collecting names.
+    /// `NotFound` where nothing is at the place; `InvalidPath` for a folder
+    /// that is not empty.
+    ///
+    /// The default goes by path, which is all a storage can do whose names
+    /// are all valid paths; others override it.
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        remove_listed_by_path(self, dir, place)
+    }
+}
+
+/// [`Storage::remove_listed`] by the entry's path, where the name is a valid
+/// segment that fits (else `Unsupported`).
+pub fn remove_listed_by_path<S: Storage + ?Sized>(
+    storage: &S,
+    dir: &str,
+    place: u64,
+) -> Result<(), StorageError> {
+    const NAME: usize = 255;
+    const PATH: usize = 640;
+    let mut path = [0u8; PATH];
+    let mut found = None;
+    storage.list_from(dir, place, &mut |entry| {
+        let start = if dir.is_empty() { 0 } else { dir.len() + 1 };
+        let end = start + entry.name.len();
+        if entry.name.len() <= NAME
+            && end <= PATH
+            && is_valid_path(entry.name)
+            && !entry.name.contains('/')
+        {
+            path[..dir.len()].copy_from_slice(dir.as_bytes());
+            if start > 0 {
+                path[dir.len()] = b'/';
+            }
+            path[start..end].copy_from_slice(entry.name.as_bytes());
+            found = Some((end, entry.is_dir));
+        } else {
+            found = Some((0, entry.is_dir));
+        }
+        false
+    })?;
+    let (end, is_dir) = found.ok_or(StorageError::NotFound)?;
+    if end == 0 {
+        return Err(StorageError::Unsupported);
+    }
+    let path = core::str::from_utf8(&path[..end]).map_err(|_| StorageError::InvalidPath)?;
+    if !is_dir {
+        return storage.remove(path);
+    }
+    // Only a folder with nothing in it.
+    match storage.list_from(path, 0, &mut |_| false)? {
+        Some(_) => Err(StorageError::InvalidPath),
+        None => storage.remove_dir_all(path),
+    }
 }
 
 /// [`Storage::list_from`] for a storage that lists a directory whole
@@ -380,6 +439,15 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         }
         let (storage, dir) = self.route(dir);
         storage.list_from(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // The root's places count the mount point too.
+        if dir.is_empty() {
+            return remove_listed_by_path(self, dir, place);
+        }
+        let (storage, dir) = self.route(dir);
+        storage.remove_listed(dir, place)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {

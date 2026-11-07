@@ -220,6 +220,12 @@ impl Storage for Recalled {
         self.inner.list_from(dir, from, visit)
     }
 
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // An entry by its place: no path to forget, so whatever was read.
+        self.recall.clear();
+        self.inner.remove_listed(dir, place)
+    }
+
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.recall.forget(path);
         self.inner.remove(path)

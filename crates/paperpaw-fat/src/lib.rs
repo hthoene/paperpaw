@@ -1174,6 +1174,10 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         self.list_piece(dir, from, visit)
     }
 
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.remove_listed_entry(dir, place)
+    }
+
     fn modified(&self, path: &str) -> Option<i64> {
         let path = path.trim_matches('/');
         check(path).ok()?;

@@ -89,6 +89,19 @@ fn make_dir_keeps_the_reserve_and_reports_a_full_card() {
 }
 
 #[test]
+fn make_dir_of_a_root_needs_the_card() {
+    let (card, host) = fixture();
+    card.gone.set(true);
+    for root in [0, 1] {
+        assert_eq!(make_dir(&host, root, ""), Err(ERR_IO), "root {root}");
+    }
+    card.gone.set(false);
+    for root in [0, 1] {
+        assert_eq!(make_dir(&host, root, ""), Ok(()), "root {root}");
+    }
+}
+
+#[test]
 fn the_hosts_received_folder_is_not_made_in() {
     let (card, host) = fixture();
     assert_eq!(make_dir(&host, 0, ".received"), Err(ERR_DENIED));
@@ -202,6 +215,36 @@ fn remove_tree_root_rules() {
         flags: 2,
     });
     assert_eq!(call(&host, 5, flags), Err(ERR_UNSUPPORTED));
+}
+
+#[test]
+fn remove_tree_of_the_data_folder_leaves_nothing_even_names_no_path_holds() {
+    let (card, host) = fixture();
+    // Made by a computer while the card was a drive: names the paths refuse.
+    for name in ["bad.", "nul.txt", "co:lon", "trail ", "a/b"] {
+        if name.contains('/') {
+            continue;
+        }
+        card.file(&std::format!("{DATA}/{name}"), 1);
+        card.file(&std::format!("{DATA}/sub/{name}"), 1);
+    }
+    card.file(&std::format!("{DATA}/{}", "x".repeat(300)), 1);
+    card.file(&std::format!("{DATA}/ok.txt"), 1);
+    card.file(".paperpaw/plugins/other/keep", 1);
+    let calls = remove_all(&host, 0, "");
+    assert!(calls >= 1);
+    let left: Vec<_> = card
+        .paths()
+        .into_iter()
+        .filter(|p| p.starts_with(DATA) && p != DATA)
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    assert!(card.is_dir(DATA) && card.has(".paperpaw/plugins/other/keep"));
+    // The same on root 1.
+    card.file("Junk/bad.", 1);
+    card.file("Junk/d/nul.txt", 1);
+    remove_all(&host, 1, "Junk");
+    assert!(!card.has("Junk"));
 }
 
 #[test]

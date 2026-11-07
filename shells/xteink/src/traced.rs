@@ -201,6 +201,13 @@ impl Storage for Traced {
         )
     }
 
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        note(
+            || format!("remove_listed {dir} at {place}"),
+            || self.0.remove_listed(dir, place),
+        )
+    }
+
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         note(|| format!("remove {path}"), || self.0.remove(path))
     }

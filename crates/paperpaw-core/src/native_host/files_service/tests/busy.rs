@@ -71,18 +71,16 @@ fn removals_at_below_or_holding_either_name_are_busy() {
 }
 
 #[test]
-fn make_dir_at_or_below_either_name_is_busy_ancestors_are_not() {
+fn make_dir_at_or_below_the_old_name_is_busy_the_new_name_and_ancestors_are_not() {
     let (card, host) = job();
     let make = |p: &'static str| status(&host, 4, path(1, p));
-    for busy in [
-        "Books/A",
-        "Books/A/New",
-        "Books/A/Sub/Deeper",
-        "Books/B",
-        "Books/B/New",
-    ] {
+    for busy in ["Books/A", "Books/A/New", "Books/A/Sub/Deeper"] {
         assert_eq!(make(busy), Err(ERR_BUSY), "{busy}");
     }
+    // Below the new name they are allowed (the reader meets the walk there).
+    assert_eq!(make("Books/B"), Ok(()));
+    assert_eq!(make("Books/B/New"), Ok(()));
+    assert_eq!(make("Books/B/Sub/Deeper"), Ok(()));
     assert_eq!(make("Books"), Ok(()), "an ancestor exists");
     assert_eq!(make("Books/Other"), Ok(()));
     assert_eq!(make("Books/C/New"), Ok(()));

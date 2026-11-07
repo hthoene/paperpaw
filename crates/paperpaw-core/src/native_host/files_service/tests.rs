@@ -7,6 +7,7 @@ extern crate std;
 use super::*;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::{
+    admitted_features::AdmittedFeatures,
     call_services::validate_reply,
     lib_service::moves::{Access, Entry, MoveHost, Moves, Phase},
 };
@@ -20,6 +21,8 @@ use paperpaw_sdk::{Env, Settings};
 mod busy;
 #[path = "tests/change.rs"]
 mod change;
+#[path = "tests/dispatch.rs"]
+mod dispatch;
 #[path = "tests/hostile.rs"]
 mod hostile;
 #[path = "tests/oom.rs"]
@@ -322,6 +325,33 @@ impl Storage for Card {
                 return Err(StorageError::InvalidPath);
             }
         }
+        self.nodes.borrow_mut()[at] = Node::FREE;
+        Ok(())
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.check()?;
+        self.folder(dir)?;
+        let node = {
+            let nodes = self.nodes.borrow();
+            nodes
+                .iter()
+                .filter(|n| n.used && n.serial >= place && self.same(parent(n.path()), dir))
+                .min_by_key(|n| n.serial)
+                .copied()
+        };
+        let node = node.ok_or(StorageError::NotFound)?;
+        if node.folder
+            && self
+                .nodes
+                .borrow()
+                .iter()
+                .any(|n| n.used && n.len > node.len && self.within(n.path(), node.path()))
+        {
+            return Err(StorageError::InvalidPath);
+        }
+        self.changes.set(self.changes.get() + 1);
+        let at = self.find(node.path()).unwrap();
         self.nodes.borrow_mut()[at] = Node::FREE;
         Ok(())
     }

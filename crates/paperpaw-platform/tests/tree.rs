@@ -181,8 +181,35 @@ impl Storage for Tree {
         Ok(())
     }
 
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.fails()?;
+        let children = self.children(dir);
+        let found = if self.stable {
+            children.into_iter().find(|(_, serial, _)| *serial >= place)
+        } else {
+            children.into_iter().nth(place as usize)
+        };
+        let (name, _, is_dir) = found.ok_or(StorageError::NotFound)?;
+        let path = if dir.is_empty() {
+            name
+        } else {
+            format!("{dir}/{name}")
+        };
+        if is_dir && !self.children(&path).is_empty() {
+            return Err(StorageError::InvalidPath);
+        }
+        self.nodes.borrow_mut().remove(&path);
+        self.log.borrow_mut().push(format!("{path}#"));
+        Ok(())
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.fails()?;
+        // Only ever a folder a listing showed empty.
+        assert!(
+            self.children(path).is_empty(),
+            "remove_dir_all of {path}, not empty"
+        );
         let prefix = format!("{path}/");
         self.nodes
             .borrow_mut()
@@ -200,6 +227,7 @@ fn run(tree: &Tree, root: &str, keep: bool) -> usize {
         let removals = tree.removals.get();
         let step = remove_tree_step(tree, root, keep, place).unwrap();
         assert!(step.removed <= MAX_REMOVALS, "removals: {}", step.removed);
+        assert!(tree.reads.get() <= MAX_READS, "reads: {}", tree.reads.get());
         assert_eq!(step.removed, tree.removals.get() - removals, "the count");
         if step.done {
             assert_eq!(step.next, 0);
@@ -378,16 +406,22 @@ fn names_it_cannot_use_do_not_stop_it() {
 }
 
 #[test]
-fn unusable_names_stay_with_a_kept_root() {
-    let tree = Tree::new(true);
-    tree.file("t/ok");
-    tree.file("t/bad.");
-    run(&tree, "t", true);
-    assert_eq!(tree.paths(), ["t", "t/bad."]);
+fn unusable_names_are_removed_also_below_a_kept_root() {
+    both(|tree| {
+        tree.file("t/ok");
+        tree.file("t/bad.");
+        tree.file("t/sub/nul.");
+        tree.file("t/sub/co:lon");
+        run(tree, "t", true);
+        assert_eq!(tree.paths(), ["t"], "nothing is left");
+    });
 }
 
+/// A folder the walk cannot enter (too deep, too long a path) is not removed
+/// whole behind its back: the call ends with an error, and the rest of the
+/// tree goes on being removable.
 #[test]
-fn a_tree_deeper_than_the_walk_goes_is_removed_whole_below() {
+fn a_folder_the_walk_cannot_enter_is_an_error_not_an_unbounded_removal() {
     both(|tree| {
         let mut path = String::from("t");
         for i in 0..MAX_DEPTH + 4 {
@@ -395,13 +429,34 @@ fn a_tree_deeper_than_the_walk_goes_is_removed_whole_below() {
         }
         tree.file(&format!("{path}/leaf"));
         tree.file("t/side");
+        let mut place = 0;
+        let error = loop {
+            match remove_tree_step(tree, "t", false, place) {
+                Ok(step) if step.done => panic!("done"),
+                Ok(step) => place = step.next,
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(error, StorageError::InvalidPath);
+        assert!(
+            tree.paths().iter().any(|p| p.ends_with("leaf")),
+            "the deep leaf stays"
+        );
+    });
+    // Within the depth it goes all the way.
+    both(|tree| {
+        let mut path = String::from("t");
+        for i in 0..MAX_DEPTH - 2 {
+            path.push_str(&format!("/d{i}"));
+        }
+        tree.file(&format!("{path}/leaf"));
         run(tree, "t", false);
         assert!(tree.paths().is_empty());
     });
 }
 
 #[test]
-fn a_path_too_long_to_build_does_not_loop() {
+fn a_path_too_long_to_build_is_an_error() {
     both(|tree| {
         // Names of 200 bytes, five deep: over the walk's 640-byte path.
         let name = |i: usize| format!("{i}{}", "n".repeat(199));
@@ -411,8 +466,16 @@ fn a_path_too_long_to_build_does_not_loop() {
             path.push_str(&name(i));
         }
         tree.file(&format!("{path}/leaf"));
-        run(tree, "t", false);
-        assert!(tree.paths().is_empty());
+        tree.file("t/side");
+        let mut place = 0;
+        let error = loop {
+            match remove_tree_step(tree, "t", false, place) {
+                Ok(step) if step.done => panic!("done"),
+                Ok(step) => place = step.next,
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(error, StorageError::InvalidPath);
     });
 }
 
@@ -468,9 +531,9 @@ fn a_failure_at_any_removal_leaves_a_whole_rest() {
 }
 
 #[test]
-fn a_call_that_reads_its_share_before_removing_still_advances() {
-    // 300 names the walk cannot use come first; nothing is removed by the
-    // first calls, and every call goes on from where the one before stopped.
+fn a_call_that_reads_its_share_before_removing_much_still_advances() {
+    // 300 names the walk cannot use come first: they are removed by place,
+    // so every call removes some and the calls end.
     let tree = Tree::new(true);
     for i in 0..300 {
         tree.file(&format!("t/j{i}."));
@@ -480,8 +543,19 @@ fn a_call_that_reads_its_share_before_removing_still_advances() {
     }
     let first = remove_tree_step(&tree, "t", false, 0).unwrap();
     assert!(!first.done);
-    assert_eq!(first.removed, 0);
-    assert_ne!(first.next, 0);
+    assert!(first.removed > 0);
     run(&tree, "t", false);
     assert!(tree.paths().is_empty());
+}
+
+#[test]
+fn a_nested_tree_never_asks_remove_dir_all_for_more_than_an_empty_folder() {
+    both(|tree| {
+        for d in 0..6 {
+            tree.file(&format!("t/d{d}/s/f"));
+            tree.file(&format!("t/d{d}/j."));
+        }
+        run(tree, "t", false);
+        assert!(tree.paths().is_empty());
+    });
 }
