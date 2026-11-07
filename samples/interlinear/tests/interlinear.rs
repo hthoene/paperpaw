@@ -49,7 +49,7 @@ fn page(config: &str) -> Vec<u8> {
         .with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE)
         .storage(storage)
-        .user_config(format!("[help]\nshow = false\n{config}"));
+        .user_config(format!("{config}"));
     let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
         .plugin(Interlinear)
         .build()

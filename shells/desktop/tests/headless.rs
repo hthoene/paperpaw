@@ -82,7 +82,6 @@ fn run_in(library: &Path, profile: &str, script: &str, args: &[&str]) -> Run {
     Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
         .args(["--profile", profile, "--headless", "--library"])
         .arg(library)
-        .args(["--set", "help.show=false"])
         .args(["--script", script])
         .args(args)
         .output()
