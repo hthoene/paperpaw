@@ -177,7 +177,7 @@ paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.2" 
 paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.2" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.2" }
 paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.2" }
-paperpaw-plugin-power = { path = "plugins/power", version = "1.1.0" }
+paperpaw-plugin-power = { path = "plugins/power", version = "1.1.2" }
 paperpaw-plugin-file-manager = { path = "plugins/file-manager", version = "1.0.3" }
 paperpaw-plugin-transfer = { path = "plugins/transfer", version = "1.0.3" }
 paperpaw-plugin-browser = { path = "plugins/browser", version = "1.0.3" }
