@@ -45,6 +45,23 @@ fn legacy_reaches(graph: &MenuGraph, from: &str, target: &str) -> bool {
 
 proptest! {
     #[test]
+    fn menu_order_matches_original_for_arbitrary_cycles(edges: u16) {
+        let mut graph = graph(edges);
+        for (menu, title) in graph.menus.iter_mut().zip(["Zulu", "alpha", "ALPHA", "Änderungen"]) {
+            menu.title = String::from(title);
+        }
+        let mut roots: Vec<_> = (0..graph.menus.len()).filter(|index| {
+            !graph.menus.iter().any(|menu| menu.current.contains(&graph.menus[*index].id))
+        }).collect();
+        roots.sort_by_key(|index| graph.menus[*index].title.to_lowercase());
+        let mut expected = Vec::new();
+        for index in roots.into_iter().chain(0..graph.menus.len()) {
+            legacy_order(&graph, index, graph.menus[index].title.clone(), &mut expected);
+        }
+        prop_assert_eq!(graph.display_order().unwrap(), expected);
+    }
+
+    #[test]
     fn traversal_matches_original_for_arbitrary_cycles(edges: u16) {
         let graph = graph(edges);
         for root in 0..graph.menus.len() {
@@ -52,6 +69,20 @@ proptest! {
                 prop_assert_eq!(graph.reaches(root, target, false, None).unwrap(),
                     legacy_reaches(&graph, &graph.menus[root].id, target));
             }
+        }
+    }
+}
+
+// Mirrors the original add_with_submenus recursion, restricted to four menus.
+fn legacy_order(graph: &MenuGraph, index: usize, name: String, out: &mut Vec<(usize, String)>) {
+    if out.iter().any(|row| row.0 == index) {
+        return;
+    }
+    out.push((index, name.clone()));
+    for id in &graph.menus[index].current {
+        if let Some(child) = graph.index(id) {
+            let title = alloc::format!("{name} › {}", graph.menus[child].title);
+            legacy_order(graph, child, title, out);
         }
     }
 }
