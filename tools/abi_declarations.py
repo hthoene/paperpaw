@@ -29,6 +29,10 @@ TAG_RANGES = {
     'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
     # Registry declarations (REG, docs/abi/registry.md section 6).
     'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
+    # UIX declarations (docs/abi/ui.md sections 2, 5, 7); `input.spec` by its full name,
+    # beside the `input` family of host-sent inputs.
+    'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
+    'status': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -91,7 +95,10 @@ def is_growth_command(item):
 
 
 def growth_fields(record):
-    """The checked fields of a growth-block command, as for a generated record."""
+    """The checked fields of a growth-block command, as for a generated record; a
+    command that asks for one thing only (`command.show_hints`) has none."""
+    if record.get('fields') == []:
+        return []
     return _fields(record)
 
 

@@ -97,6 +97,8 @@ pub struct PpHost {
     pub service_open: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, major: u16, minor: u16, out: *mut u32) -> i32,
     /// service.call: mutate, count, since 1.
     pub service_call: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, service: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32,
+    /// ui.compose: mutate, status, since 1.
+    pub ui_compose: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

@@ -260,7 +260,29 @@ class RecordsTests(unittest.TestCase):
                           ('command.set_menu', 1540), ('command.bind_key', 1541),
                           ('command.bind_slot', 1542), ('command.set_plugin_enabled', 1543),
                           ('command.request_plugins', 1544), ('command.answer_plugin', 1545),
-                          ('command.apply_preset', 1546)])
+                          ('command.apply_preset', 1546),
+                          ('input.spec', 29), ('help.hint', 30), ('widget.spec', 224),
+                          ('widget.place', 225), ('status.item', 226), ('status.line', 227),
+                          ('status.place', 228), ('event.screen_opened', 79),
+                          ('event.screen_closed', 80), ('event.stack_changed', 81),
+                          ('event.answered', 82), ('event.widget_made', 84),
+                          ('event.widget_dropped', 85), ('event.widget_changed', 86),
+                          ('event.screen_ready', 87), ('event.spoken', 89), ('input.widget', 193),
+                          ('service.ui_screen', 1041), ('service.ui_request', 1042),
+                          ('service.ui_question', 1043), ('service.ui_hint', 1044),
+                          ('service.ui_widget_ref', 1045), ('service.ui_instance', 1046),
+                          ('service.ui_widget_input', 1047), ('service.ui_target', 1048),
+                          ('service.ui_ask', 1049), ('service.ui_text', 1050),
+                          ('service.ui_text_at', 1051), ('service.ui_answer', 1052),
+                          ('service.ui_widget_area', 1053), ('service.ui_size', 1054),
+                          ('service.ui_status_ask', 1055), ('service.ui_status_value', 1056),
+                          ('service.ui_param', 1057), ('service.ui_handle', 1058),
+                          ('command.open', 1547), ('command.close', 1548),
+                          ('command.back_to', 1549), ('command.set_key_layer', 1550),
+                          ('command.show_hints', 1551), ('command.raise_input', 1552),
+                          ('command.widget_changed', 1556), ('command.screen_ready', 1557),
+                          ('command.notify', 1558), ('command.speak', 1561),
+                          ('command.stop_speaking', 1562), ('command.screen_policy', 1563)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
