@@ -1,7 +1,7 @@
 //! Bounded host-run stages over the existing retained instance registry.
 //! Replies stage changes in a private transaction; only a completed run commits.
 use super::{
-    native_instances::{InstanceState, NativeInstances, NativeLease},
+    native_instances::{CallbackEpoch, InstanceState, NativeInstances, NativeLease},
     native_screen::Dispatch,
     registrations::{self as wire, Record},
 };
@@ -43,12 +43,14 @@ struct Subscriber {
     id: Id,
     registration: Subscription<'static>,
     instance: Option<NativeLease>,
+    lazy: bool,
 }
 
 /// Callback-local membership and two scratch buffers; never a second registry.
 pub(crate) struct Run<'a> {
     schema: &'a Schema,
     depth: &'a super::DispatchDepth,
+    _epoch: CallbackEpoch<'a>,
     subscribers: Vec<Subscriber>,
     call: Vec<u8>,
     reply: Vec<u8>,
@@ -82,7 +84,7 @@ impl<'a> Run<'a> {
         schema: &'a Schema,
         depth: &'a super::DispatchDepth,
         input: &[u8],
-        registry: &NativeInstances,
+        registry: &'a NativeInstances,
         registrations: impl IntoIterator<Item = Subscription<'s>>,
     ) -> Result<Self, i32> {
         if schema.major == 0
@@ -97,7 +99,17 @@ impl<'a> Run<'a> {
         if input.len() > schema.max_input {
             return Err(ERR_NO_SPACE);
         }
+        super::declarations::stage_registration_check(&wire::RegistrationStage {
+            stage: schema.key,
+            token: 0,
+            order: 0,
+            signature: 0,
+        })?;
+        if registry.depth() != 0 || depth.0.current() != 0 {
+            return Err(ERR_STATE);
+        }
         (schema.input)(input)?;
+        let epoch = registry.callback()?;
         let selected = select(schema, registry, registrations)?;
         let mut subscribers = Vec::new();
         subscribers
@@ -105,13 +117,10 @@ impl<'a> Run<'a> {
             .map_err(|_| ERR_NO_MEMORY)?;
         for registration in selected {
             let id = registry.id(registration.plugin).ok_or(ERR_STATE)?;
-            let instance = match registry.state(registration.plugin)? {
-                InstanceState::Running(lease) => Some(lease),
-                InstanceState::Lazy => {
-                    registry.request_start(registration.plugin)?;
-                    None
-                }
-                InstanceState::Stopped => None,
+            let (instance, lazy) = match registry.state(registration.plugin)? {
+                InstanceState::Running(lease) => (Some(lease), false),
+                InstanceState::Lazy => (None, true),
+                InstanceState::Stopped => (None, false),
             };
             subscribers.push(Subscriber {
                 id: id.try_clone().ok_or(ERR_NO_MEMORY)?,
@@ -121,6 +130,7 @@ impl<'a> Run<'a> {
                     ..registration
                 },
                 instance,
+                lazy,
             });
         }
         let mut call = scratch(CALL_BYTES)?;
@@ -134,9 +144,17 @@ impl<'a> Run<'a> {
         )?;
         call.truncate(len);
         let reply = scratch(schema.max_reply)?;
+        // Publish deduplicated lazy starts only after every allocation succeeded.
+        // The retained callback epoch prevents flushing before the run drops.
+        for subscriber in &subscribers {
+            if subscriber.lazy {
+                registry.request_start(subscriber.registration.plugin)?;
+            }
+        }
         Ok(Self {
             schema,
             depth,
+            _epoch: epoch,
             subscribers,
             call,
             reply,
