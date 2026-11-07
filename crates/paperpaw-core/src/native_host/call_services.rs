@@ -102,14 +102,67 @@ pub(super) unsafe fn open(
     result.map_or_else(|error| error, |()| OK)
 }
 
-fn validate_batch(bytes: &[u8], expected: &[u32]) -> Result<(), i32> {
-    super::stage_wire::visit_batch(bytes, u32::MAX, |tag, framed| {
-        if !expected.contains(&tag) {
-            return Err(ERR_UNSUPPORTED);
+fn validate_batch(bytes: &[u8], expected: &[u32], max_records: usize) -> Result<(), i32> {
+    // The generated counted visitor enforces input_rows before any callback.
+    registrations::host_records_visit(bytes, max_records, &mut |_| Ok(()))?;
+    super::stage_wire::visit_batch(bytes, u32::MAX, |tag, _| {
+        if expected.contains(&tag) {
+            Ok(())
+        } else {
+            Err(ERR_UNSUPPORTED)
         }
-        registrations::record_decode_one(framed)?;
+    })
+}
+
+/// Shared by dispatch and backend conformance tests; replies are bare streams.
+pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
+    if bytes.len() > op.max_reply {
+        return Err(ERR_INVALID);
+    }
+    let mut rows = 0_u32;
+    let mut ended = false;
+    let mut next_tag = 0;
+    super::stage_wire::visit_stream(bytes, |tag, framed| {
+        if ended {
+            return Err(ERR_INVALID);
+        }
+        let index = op
+            .reply
+            .iter()
+            .position(|expected| *expected == tag)
+            .ok_or(ERR_INVALID)?;
+        let record = registrations::record_decode_one(framed).map_err(|_| ERR_INVALID)?;
+        if op.reply_rows == 0 {
+            if tag == registrations::SERVICE_END_TAG || index < next_tag {
+                return Err(ERR_INVALID);
+            }
+            next_tag = index + 1;
+            rows += 1;
+            return Ok(());
+        }
+        match record {
+            registrations::Record::ServiceEnd(end) => {
+                if !op.paged
+                    && (end.total != rows || end.next != 0 || end.generation != 0 || end.flags != 0)
+                {
+                    return Err(ERR_INVALID);
+                }
+                ended = true;
+            }
+            _ => {
+                rows += 1;
+                if rows > u32::from(op.reply_rows) {
+                    return Err(ERR_INVALID);
+                }
+            }
+        }
         Ok(())
     })
+    .map_err(|_| ERR_INVALID)?;
+    if op.reply_rows != 0 && !ended {
+        return Err(ERR_INVALID);
+    }
+    Ok(())
 }
 
 fn validate_op(
@@ -131,7 +184,7 @@ fn validate_op(
     if input.len() > op.max_input || output < op.max_reply {
         return Err(ERR_NO_SPACE);
     }
-    validate_batch(input, op.input)?;
+    validate_batch(input, op.input, usize::from(op.input_rows))?;
     Ok(op)
 }
 
@@ -161,7 +214,7 @@ pub(super) unsafe fn call(
             scratch.resize(op.max_reply, 0);
             let length = running.run(frame, op, input, &mut scratch)?;
             let reply = scratch.get(..length).ok_or(ERR_INVALID)?;
-            validate_batch(reply, op.reply)?;
+            validate_reply(reply, op)?;
             // SAFETY: output has the declared capacity; no output was written on
             // any earlier failure, including a service's own failure.
             let output = unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) }?;

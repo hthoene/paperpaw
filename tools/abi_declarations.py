@@ -33,6 +33,9 @@ TAG_RANGES = {
     # beside the `input` family of host-sent inputs.
     'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
     'status': DECLARATIVE,
+    # DOC and LIB declarations (docs/abi/document.md section 1 and 7, library.md section 1).
+    'reader': DECLARATIVE, 'lookup': DECLARATIVE, 'book_field': DECLARATIVE,
+    'book_badge': DECLARATIVE, 'book_data': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -172,7 +175,12 @@ def _fields(record):
                      and type(items['item_max_bytes']) is int
                      and 1 <= items['item_max_bytes'] <= cap,
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        secret = 'secret' in field
+        _require(not secret or (field['secret'] is True and kind == 'str' and items is None
+                                and is_growth_command(record)),
+                 f'{name}.{label}: secret must be true, on a str field of a command, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        secret=secret,
                         since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))

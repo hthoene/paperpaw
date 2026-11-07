@@ -6,7 +6,7 @@
 use super::Error;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
-    Command as WireCommand, CommandBatch, commands_decode, commands_encode,
+    Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
 };
 use crate::abi7::settings_wire::SettingValueRef;
 use alloc::{borrow::Cow, string::String, vec::Vec};
@@ -125,9 +125,10 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // `answer_plugin` needs the install feature (`uses.install`, DEV), which
-        // no catalog defines yet: refused for every plugin, wherever it sits in
-        // the batch (`docs/abi/registry.md` section 5).
+        // `answer_plugin` needs the install feature (`uses.install`, DEV,
+        // `docs/abi/device.md` section 1). Until command staging checks
+        // features (DEV host side), it is refused for every plugin, wherever it
+        // sits in the batch.
         if batch
             .iter()
             .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))

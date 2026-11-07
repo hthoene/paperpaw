@@ -545,6 +545,9 @@ fn mode(mode: u32) -> Result<u32, i32> {{
             '@UTF8@', str(utf8))
     if any(field['items'] for item in growth for field in growth_fields(item)):
         helpers += _LIST_HELPER.replace('@INVALID@', str(invalid))
+    if any(field['secret'] for item in growth for field in growth_fields(item)):
+        source = _swap(source, "\n/// A fully validated, allocation-free command batch.",
+                       SECRET_TEXT + "\n/// A fully validated, allocation-free command batch.")
     source = _swap(source, "\n/// Decode an entire batch before exposing any command.",
                    helpers + "\n/// Decode an entire batch before exposing any command.")
     source = _swap(source, f"""        if tag != COMMAND_SET_SETTING_TAG {{
@@ -777,8 +780,76 @@ def _pattern(indent, variant, names):
     the fields take more than 18 columns (its struct literal width)."""
     if len(', '.join(names)) <= 18:
         return f"{indent}Command::{variant} {{ {', '.join(names)} }}"
+    # With a rest pattern rustfmt lays the named fields out alone: where they
+    # take at most 18 columns they share one line, `..` after them.
+    if names[-1] == '..' and len(', '.join(names[:-1])) <= 18:
+        return f"{indent}Command::{variant} {{\n{indent}    {', '.join(names)}\n{indent}}}"
     lines = [f"{indent}    {name}{'' if name == '..' else ','}\n" for name in names]
     return f"{indent}Command::{variant} {{\n{''.join(lines)}{indent}}}"
+
+
+def _blob_len(label, cap):
+    """`len += blob_len(..)?;` as rustfmt lays it out: arguments a line each
+    once they take more than 60 columns (its call width) or the line passes 100."""
+    line = f"            len += blob_len({label}.len(), {cap})?;\n"
+    if len(f"{label}.len(), {cap}") <= 60 and len(line) - 1 <= 100:
+        return line
+    return (f"            len += blob_len(\n                {label}.len(),\n"
+            f"                {cap},\n            )?;\n")
+
+
+# The contract document of each growth-command tag range, for the generated
+# doc links; other growth commands cite `registry.md`.
+COMMAND_DOCS = ((1547, 1558, 'ui.md'), (1559, 1560, 'document.md'), (1561, 1563, 'ui.md'),
+                (1564, 1592, 'device.md'))
+
+
+def _command_doc(tag):
+    """The `docs/abi/` file that defines the command with this tag."""
+    return next((doc for low, high, doc in COMMAND_DOCS if low <= tag <= high), 'registry.md')
+
+
+# A secret text field (`"secret": true`) is wrapped so that no Debug output,
+# log or panic message of a command ever shows it.
+SECRET_TEXT = """
+/// Text a command carries that must never be shown (a password, a key):
+/// its `Debug` prints neither the text nor its length.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SecretText<'a>(&'a str);
+
+impl<'a> SecretText<'a> {
+    /// Wrap the text.
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The text itself, for the code that uses it, never for a log.
+    pub const fn expose(self) -> &'a str {
+        self.0
+    }
+
+    /// Its length in bytes.
+    pub const fn len(self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether it is empty.
+    pub const fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Its UTF-8 bytes, for the encoder.
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl core::fmt::Debug for SecretText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretText(..)")
+    }
+}
+"""
 
 
 def _growth_command(item, consts, variants, arms, lens, writes):
@@ -814,7 +885,11 @@ def _growth_command(item, consts, variants, arms, lens, writes):
             what = (f"UTF-8 list of at most {items['max_items']} items of at most "
                     f"{items['item_max_bytes']} bytes, at most {field['cap']} bytes in all"
                     if items else f"UTF-8 text of at most {field['cap']} bytes")
-            docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
+            if field['secret']:
+                docs.append(f"        /// Secret {what}; its Debug shows nothing of it.\n"
+                            f"        {label}: SecretText<'a>,\n")
+            else:
+                docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
             if items:
                 shape = [f"{stem}_SEPARATOR", f"{stem}_MAX_ITEMS", f"{stem}_ITEM_MAX_BYTES"]
                 pad = ' ' * 24
@@ -825,6 +900,13 @@ def _growth_command(item, consts, variants, arms, lens, writes):
                 lists.append(f"            list(\n{pad}{label},\n"
                              + "".join(f"{pad}{name},\n" for name in shape)
                              + "            )?;\n")
+            elif field['secret']:
+                # One line where it fits in 100 columns, else broken as rustfmt does.
+                line = f"                    {label}: SecretText::new(text(body.bytes()?, {cap})?),\n"
+                decode.append(line if len(line) - 1 <= 100 else
+                              f"                    {label}: SecretText::new(text(\n"
+                              f"                        body.bytes()?,\n                        {cap},\n"
+                              "                    )?),\n")
             else:
                 decode.append(f"                    {label}: text(body.bytes()?, {cap})?,\n")
             written.append(f"                write_blob({label}.as_bytes(), out, &mut offset);\n")
@@ -841,7 +923,7 @@ def _growth_command(item, consts, variants, arms, lens, writes):
         lens.append(f"        Command::{variant} {{}} => Ok(({tag}, 1)),\n")
         writes.append(f"            Command::{variant} {{}} => {{}}\n")
         return
-    variants.append(f"    /// The `{name}` command (`docs/abi/registry.md`).\n"
+    variants.append(f"    /// The `{name}` command (`docs/abi/{_command_doc(item['id'])}`).\n"
                     f"    {variant} {{\n{''.join(docs)}    }},\n")
     arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"
                 f"                Command::{variant} {{\n{''.join(decode)}"
@@ -852,8 +934,7 @@ def _growth_command(item, consts, variants, arms, lens, writes):
         names = [label for label, _ in sized] + (['..'] if len(sized) < len(fields) else [])
         lens.append(_pattern('        ', variant, names) + " => {\n"
                     + f"            let mut len = {fixed};\n"
-                    + "".join(f"            len += blob_len({label}.len(), {cap})?;\n"
-                              for label, cap in sized)
+                    + "".join(_blob_len(label, cap) for label, cap in sized)
                     + "".join(lists)
                     + f"            Ok(({tag}, len))\n        }}\n")
     else:
