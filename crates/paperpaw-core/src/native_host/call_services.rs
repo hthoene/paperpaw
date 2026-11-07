@@ -8,8 +8,7 @@ use super::{
 use crate::abi7::services_wire::ServiceOp;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
-    buffers,
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
 };
 
 fn input_pair(pair: PpBytes) -> Result<(), i32> {
@@ -91,7 +90,14 @@ pub(super) unsafe fn open(
             {
                 return Err(ERR_UNSUPPORTED);
             }
-            let handle = owner.insert_service(ServiceKey { schema, minor }, declared.count())?;
+            let handle = owner.insert_service(
+                ServiceKey {
+                    schema,
+                    minor,
+                    features: declared.features(),
+                },
+                declared.count(),
+            )?;
             // SAFETY: only success publishes to the validated scalar output.
             unsafe {
                 out.write(handle);
@@ -176,10 +182,11 @@ fn validate_op(
         .op(op)
         .filter(|op| op.since <= key.minor)
         .ok_or(ERR_UNSUPPORTED)?;
-    // No implemented operation currently has a feature gate. Do not infer a
-    // declaration or user grant when a later service introduces one.
-    if op.feature.is_some() {
-        return Err(ERR_DENIED);
+    // A gated op asks the opening instance's admitted features before the
+    // sizes: `ERR_UNSUPPORTED` when the host has not wired the feature,
+    // `ERR_DENIED` when this instance did not request it.
+    if let Some(required) = op.feature {
+        key.features.feature(required)?;
     }
     if input.len() > op.max_input || output < op.max_reply {
         return Err(ERR_NO_SPACE);

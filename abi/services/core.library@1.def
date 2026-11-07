@@ -148,11 +148,14 @@
         "service.lib_paths"
       ],
       "reply": [
-        "service.lib_result"
+        "service.lib_result",
+        "service.end"
       ],
       "max_input": 4096,
       "max_reply": 4096,
-      "bound": "card"
+      "bound": "card",
+      "paged": false,
+      "reply_rows": 7
     },
     {
       "id": 10,
@@ -164,11 +167,14 @@
         "service.lib_paths"
       ],
       "reply": [
-        "service.lib_result"
+        "service.lib_result",
+        "service.end"
       ],
       "max_input": 4096,
       "max_reply": 4096,
-      "bound": "card"
+      "bound": "card",
+      "paged": false,
+      "reply_rows": 7
     },
     {
       "id": 11,
