@@ -95,6 +95,43 @@ pub(super) fn copy_id(text: &str) -> Result<Id, i32> {
     })
 }
 
+impl crate::Kernel {
+    /// Drain after foreign code and all borrowed callback scopes have returned.
+    pub(crate) fn drain_native_ui(
+        &mut self,
+        owner: &Id,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+    ) {
+        for command in commands {
+            if let Command::Close(key) = &command
+                && !self.native_top(owner, *key)
+            {
+                self.warn_runtime("native close dropped: its screen is no longer on top");
+                continue;
+            }
+            self.apply(command);
+        }
+        if let Some(redraw) = redraw {
+            if !self.native_top(owner, redraw.screen) {
+                self.warn_runtime("native redraw dropped: its screen is no longer on top");
+                return;
+            }
+            match redraw.mode {
+                Some(mode) => self.apply(Command::Redraw(mode)),
+                None => self.output.redraw = true,
+            }
+        }
+    }
+
+    fn native_top(&self, owner: &Id, key: ScreenKey) -> bool {
+        self.shared
+            .stack
+            .last()
+            .is_some_and(|top| top.key == key && top.screen.namespace() == owner.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
@@ -180,41 +217,53 @@ mod tests {
         );
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
     }
-}
-
-impl crate::Kernel {
-    /// Drain after foreign code and all borrowed callback scopes have returned.
-    pub(crate) fn drain_native_ui(
-        &mut self,
-        owner: &Id,
-        commands: Vec<Command>,
-        redraw: Option<Redraw>,
-    ) {
-        for command in commands {
-            if let Command::Close(key) = &command
-                && !self.native_top(owner, *key)
-            {
-                self.warn_runtime("native close dropped: its screen is no longer on top");
-                continue;
-            }
-            self.apply(command);
-        }
-        if let Some(redraw) = redraw {
-            if !self.native_top(owner, redraw.screen) {
-                self.warn_runtime("native redraw dropped: its screen is no longer on top");
-                return;
-            }
-            match redraw.mode {
-                Some(mode) => self.apply(Command::Redraw(mode)),
-                None => self.output.redraw = true,
-            }
-        }
-    }
-
-    fn native_top(&self, owner: &Id, key: ScreenKey) -> bool {
-        self.shared
-            .stack
-            .last()
-            .is_some_and(|top| top.key == key && top.screen.namespace() == owner.as_str())
+    #[test]
+    fn redraw_only_preserves_refresh_and_stale_instance_effects_are_dropped() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.drain_native_ui(
+            &owner,
+            Vec::new(),
+            Some(Redraw {
+                screen: key,
+                mode: None,
+            }),
+        );
+        assert!(kernel.output.redraw);
+        assert_eq!(
+            kernel.output.refresh, None,
+            "mode zero never requests refresh"
+        );
+        kernel.output.redraw = false;
+        kernel.shared.stack.clear();
+        // Same id, different instance: the old stamp is still stale.
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            ScreenKey::new(8),
+        ));
+        kernel.drain_native_ui(
+            &owner,
+            alloc::vec![Command::Close(key)],
+            Some(Redraw {
+                screen: key,
+                mode: Some(RefreshMode::Full),
+            }),
+        );
+        assert!(!kernel.output.redraw);
+        assert_eq!(kernel.output.refresh, None);
+        assert_eq!(kernel.shared.stack.last().unwrap().key, ScreenKey::new(8));
     }
 }
