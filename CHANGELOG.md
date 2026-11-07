@@ -21,7 +21,8 @@ change the plugin SDK.
 
 - Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
   cursors expose host-stamped style grants; schema-checked service handles survive
-  callbacks and release explicitly (#228).
+  callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
+  draft 13 are refused (#228).
 
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
