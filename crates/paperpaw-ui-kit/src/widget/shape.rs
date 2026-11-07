@@ -150,7 +150,7 @@ pub fn capsule(
     let half = i64::from(width.max(1)) * 4;
     // The line runs through a pixel's middle for an odd width and along the
     // edge between two pixels for an even one, so it is `width` pixels thick.
-    let mid = if width.max(1) % 2 == 0 { 0 } else { 4 };
+    let mid = if width.max(1).is_multiple_of(2) { 0 } else { 4 };
     let (ax, ay) = (i64::from(a.x) * 8 + mid, i64::from(a.y) * 8 + mid);
     let (bx, by) = (i64::from(b.x) * 8 + mid, i64::from(b.y) * 8 + mid);
     let (dx, dy) = (bx - ax, by - ay);
