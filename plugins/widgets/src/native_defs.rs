@@ -7,6 +7,21 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::Paint;
 use paperpaw_ui_kit::widget::Cx;
 
+/// What a tap on a widget does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tap {
+    /// Nothing.
+    None,
+    /// It opens the widget's settings: for widgets that show what the reader
+    /// chose (a date, places).
+    Settings,
+    /// It asks for the text of the setting `key` on the keyboard.
+    Text {
+        key: &'static str,
+        title: &'static str,
+    },
+}
+
 /// The behaviour of one widget.
 #[derive(Debug, Clone, Copy)]
 pub struct Behaviour {
@@ -17,9 +32,8 @@ pub struct Behaviour {
     /// A number that changes when what it shows changes (0: nothing shown); it
     /// needs neither font nor look, so no drawing context is opened for it.
     pub shows: fn(&Host<'_>, &str) -> Result<u64, Error>,
-    /// A tap on it opens its settings: for widgets that show what the reader
-    /// chose (a date, places).
-    pub settable: bool,
+    /// What a tap on it does.
+    pub tap: Tap,
 }
 
 /// The behaviour of the widget declared with `token`.
@@ -29,63 +43,73 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         height: crate::native_day::height,
         draw: crate::native_day::draw,
         shows: crate::native_day::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static TILES: Behaviour = Behaviour {
         height: crate::native_tiles::height,
         draw: crate::native_tiles::draw,
         shows: crate::native_tiles::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static CALENDAR: Behaviour = Behaviour {
         height: crate::native_calendar::height,
         draw: crate::native_calendar::draw,
         shows: crate::native_calendar::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static COUNTDOWN: Behaviour = Behaviour {
         height: crate::native_countdown::height,
         draw: crate::native_countdown::draw,
         shows: crate::native_countdown::shows,
-        settable: true,
+        tap: Tap::Settings,
     };
     static YEAR: Behaviour = Behaviour {
         height: crate::native_year::height,
         draw: crate::native_year::draw,
         shows: crate::native_year::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static ANALOGUE: Behaviour = Behaviour {
         height: crate::native_analogue::height,
         draw: crate::native_analogue::draw,
         shows: crate::native_analogue::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static MOON: Behaviour = Behaviour {
         height: crate::native_moon::height,
         draw: crate::native_moon::draw,
         shows: crate::native_moon::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static WORLD: Behaviour = Behaviour {
         height: crate::native_world::height,
         draw: crate::native_world::draw,
         shows: crate::native_world::shows,
-        settable: true,
+        tap: Tap::Settings,
     };
     static WORD_CLOCK: Behaviour = Behaviour {
         height: crate::native_word_clock::height,
         draw: crate::native_word_clock::draw,
         shows: crate::native_word_clock::shows,
-        settable: false,
+        tap: Tap::None,
     };
     static GREETING: Behaviour = Behaviour {
         height: crate::native_greeting::height,
         draw: crate::native_greeting::draw,
         shows: crate::native_greeting::shows,
-        settable: false,
+        tap: Tap::None,
+    };
+    static NOTE: Behaviour = Behaviour {
+        height: crate::native_note::height,
+        draw: crate::native_note::draw,
+        shows: crate::native_note::shows,
+        tap: Tap::Text {
+            key: "text",
+            title: "widgets.note.setting.text",
+        },
     };
     match token {
+        110 => Some(&NOTE),
         109 => Some(&GREETING),
         108 => Some(&WORD_CLOCK),
         107 => Some(&WORLD),

@@ -392,6 +392,29 @@ const GREETING_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const NOTE_OPTIONS: &[Opt] = &[
+    Opt::Text(
+        "text",
+        "widgets.note.setting.text",
+        "",
+        "widgets.note.setting.text.help",
+    ),
+    Opt::Text(
+        "heading",
+        "widgets.note.setting.heading",
+        "",
+        "widgets.note.setting.heading.help",
+    ),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -483,6 +506,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: GREETING_OPTIONS,
+    },
+    Def {
+        name: "note",
+        token: 110,
+        category: category::PERSONAL,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: NOTE_OPTIONS,
     },
 ];
 
