@@ -36,6 +36,16 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/ui_compose.rs"]
+pub(crate) mod ui_compose;
+
+#[path = "native_host/ui_handles.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are the core.ui ops 4/14/15 and the compose hook"
+)]
+pub(crate) mod ui_handles;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,
