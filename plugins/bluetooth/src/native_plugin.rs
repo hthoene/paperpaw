@@ -554,17 +554,9 @@ impl NativeBluetooth {
                 }
                 CommandSender::new(host, &mut scratch).bt_disconnect(id)?;
                 CommandSender::new(host, &mut scratch).back()?;
-                // The notice is last: if it cannot be said, the pairing is done all the same.
-                let mut say = Messages::new()?;
-                let text = say.format(
-                    host,
-                    "bluetooth.paired",
-                    &[Arg::Text {
-                        name: "name",
-                        value: &name,
-                    }],
-                )?;
-                CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)?;
+                // The notice is last and best effort: if it cannot be said, the
+                // pairing is done all the same.
+                native_model::best_effort(Self::tell(host, "bluetooth.paired", &name));
             }
             Step::Nothing => {}
         }
@@ -641,6 +633,21 @@ impl NativeBluetooth {
         }
     }
 
+    /// A notice with the device's `name`.
+    fn tell(host: &Host<'_>, key: &str, name: &str) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let text = say.format(
+            host,
+            key,
+            &[Arg::Text {
+                name: "name",
+                value: name,
+            }],
+        )?;
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+
     /// A long press (or the menu button) forgets a device.
     fn held(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
         if token != PAGE_TOKEN {
@@ -656,19 +663,10 @@ impl NativeBluetooth {
             return Ok(());
         };
         let (id, name) = (bond.id, copy(&bond.name)?);
-        let mut say = Messages::new()?;
-        let text = say.format(
-            host,
-            "bluetooth.forgotten",
-            &[Arg::Text {
-                name: "name",
-                value: &name,
-            }],
-        )?;
-        let mut scratch = [0; 512];
-        let mut sender = CommandSender::new(host, &mut scratch);
-        sender.bt_forget(id)?;
-        sender.notify(Notify::new(&text)?)?;
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).bt_forget(id)?;
+        // Said after the device is forgotten, best effort.
+        native_model::best_effort(Self::tell(host, "bluetooth.forgotten", &name));
         redraw(host)
     }
 }

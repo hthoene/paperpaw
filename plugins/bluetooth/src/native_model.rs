@@ -221,6 +221,14 @@ pub fn switched(plan: Plan, bond: &Bond) -> Option<bool> {
     }
 }
 
+/// Drops the error of a notice: a notice that cannot be said (no memory, no
+/// room in the scratch, a refusal) never undoes what it is about.
+pub fn best_effort<T>(notice: Result<T, Error>) {
+    match notice {
+        Ok(_) | Err(_) => {}
+    }
+}
+
 /// A device a search found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
@@ -584,6 +592,28 @@ mod tests {
         assert_eq!(search.problem, None);
         search.failed(0, None);
         assert_eq!(search.problem, Some(Problem::Failed));
+    }
+
+    #[test]
+    fn a_notice_that_fails_changes_nothing() {
+        for error in [
+            Error::NoMemory,
+            Error::NoSpace,
+            Error::State,
+            Error::Invalid,
+        ] {
+            best_effort::<()>(Err(error));
+        }
+        best_effort(Ok(()));
+        // What the notice is about is decided before it: pairing sends the keys,
+        // the disconnect and back, then the notice; forgetting forgets, then says so.
+        let mut search = Search::default();
+        search.found(found(7, None, Kind::Remote)).unwrap();
+        search.begin_add(7);
+        let Step::Paired { id, typing, .. } = search.paired(7, Kind::Other, "").unwrap() else {
+            panic!("paired");
+        };
+        assert_eq!((id, typing, search.adding), (7, true, None));
     }
 
     #[test]
