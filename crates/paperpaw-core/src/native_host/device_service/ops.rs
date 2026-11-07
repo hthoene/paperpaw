@@ -308,6 +308,7 @@ impl<'o> Rows<'o> {
             total: 0,
             generation: 0,
             next: 0,
+            cursor: None,
         };
         let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
         let limit = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
@@ -377,6 +378,7 @@ impl<'o> Rows<'o> {
                 total,
                 generation,
                 next,
+                cursor: None,
             }
         } else if self.full || self.written != total {
             return Err(ERR_NO_SPACE);
@@ -386,6 +388,7 @@ impl<'o> Rows<'o> {
                 total,
                 generation: 0,
                 next: 0,
+                cursor: None,
             }
         };
         let room = self.out.get_mut(self.used..).ok_or(ERR_NO_SPACE)?;
