@@ -59,6 +59,8 @@ pub enum Event<'a> {
         width: u32,
         height: u32,
     },
+    /// A registered action was invoked.
+    ActionRun { now_ms: u64, action: &'a str },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
     ///
@@ -82,8 +84,6 @@ pub enum Event<'a> {
         schema: u32,
         payload: &'a [u8],
     },
-    /// A registered action was invoked.
-    ActionRun { now_ms: u64, action: &'a str },
 }
 
 impl<'a> Event<'a> {
