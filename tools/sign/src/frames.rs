@@ -303,6 +303,25 @@ fn writes_rd(opcode: u32) -> bool {
     )
 }
 
+/// `jalr x0, imm(rs1)`: a return, a jump through a table's word, a tail call
+/// by `auipc` and `jr` (the compilers' `tail`: where it goes is known, a jump
+/// like `jal`'s, out of the function or into it), or a jump through a register
+/// the scan does not know.
+fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
+    match (rs1, imm_i, state.tab[rs1]) {
+        (1, 0, _) => Ctl::Ret,
+        (_, 0, Tab::Entry(at)) => Ctl::Table(at),
+        _ => match state.regs[rs1] {
+            // The address as the CPU makes it: the sum wraps in 32 bits and
+            // the low bit is cleared (`jalr`).
+            Some(v) => {
+                Ctl::Jump(i64::from((v as u32).wrapping_add(imm_i as u32) & !1) - i64::from(pc))
+            }
+            None => Ctl::Indirect,
+        },
+    }
+}
+
 /// A 32-bit instruction.
 fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let opcode = w & 0x7f;
@@ -391,11 +410,7 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         // jalr: a return, a call (falls through), or a jump through a register.
         0x67 => {
             if rd == 0 {
-                effect.ctl = match (rs1, imm_i, state.tab[rs1]) {
-                    (1, 0, _) => Ctl::Ret,
-                    (_, 0, Tab::Entry(at)) => Ctl::Table(at),
-                    _ => Ctl::Indirect,
-                };
+                effect.ctl = jump_through(state, rs1, imm_i, pc);
             } else {
                 // A call through a register, an `auipc` pair's: where to?
                 let target = state.regs[rs1].map(|v| (v as u32).wrapping_add(imm_i as u32));
@@ -568,8 +583,11 @@ pub struct Tables<'a> {
     pub addr: u32,
     /// The bytes of `.rodata`.
     pub bytes: &'a [u8],
-    /// The offsets in `bytes` of the words to relocate.
-    pub relocated: &'a std::collections::BTreeSet<u32>,
+    /// The offsets in `bytes` of the words to relocate. `None`: the code is
+    /// linked at its place (a firmware), no word moves, and the words of a
+    /// table are final addresses; the run of them still ends at the first
+    /// word that is not an address in the function.
+    pub relocated: Option<&'a std::collections::BTreeSet<u32>>,
 }
 
 static NO_WORDS: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -584,7 +602,7 @@ impl Tables<'static> {
         Tables {
             addr: 0,
             bytes: &[],
-            relocated: &NO_WORDS,
+            relocated: Some(&NO_WORDS),
         }
     }
 }
@@ -723,7 +741,9 @@ impl Walk<'_> {
         }
         let mut out = Vec::new();
         while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
-            if !u32::try_from(at).is_ok_and(|o| tables.relocated.contains(&o)) {
+            if let Some(relocated) = tables.relocated
+                && !u32::try_from(at).is_ok_and(|o| relocated.contains(&o))
+            {
                 break;
             }
             let to = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
@@ -817,23 +837,29 @@ impl Walk<'_> {
             Ctl::NoReturn | Ctl::Trap => [None, None],
             Ctl::Indirect | Ctl::Table(_) => {
                 self.out.returns = true;
-                if self.env.lenient {
-                    // The cases are entered from the jump, with the frame
-                    // pointer it had, and no register known.
-                    let mut s = state.clone();
-                    s.forget_regs();
-                    self.indirect = Some(match self.indirect.take() {
-                        Some(old) => old.join(&s),
-                        None => s,
-                    });
-                } else if state.sp != 0 {
+                if state.sp != 0 {
                     // Inside a frame: where it goes is not known (a jump
-                    // table's case, or the start, to grow the frame again).
+                    // table's case, or the start, to grow the frame again). A
+                    // plugin's pack is refused here. The firmware's listing
+                    // reads the cases the jump may reach from the jump, with
+                    // the frame pointer it had and no register known: the
+                    // frame is a lower bound, and the function counts as not
+                    // sized.
                     self.out.table.get_or_insert(at);
+                    if self.env.lenient {
+                        let mut s = state.clone();
+                        s.forget_regs();
+                        self.indirect = Some(match self.indirect.take() {
+                            Some(old) => old.join(&s),
+                            None => s,
+                        });
+                    }
                 } else {
                     // With no frame: a tail call out of the function, or a
-                    // jump anywhere in it. `sp` there is at most this (the
-                    // walk keeps the lowest); the rest is not known.
+                    // jump anywhere in it, in the listing too (a jump that
+                    // cannot be read may enter code already walked, with a
+                    // register it had constant there). `sp` there is at most
+                    // this (the walk keeps the lowest); the rest is not known.
                     let mut s = state.clone();
                     s.forget_regs();
                     s.fp = None;
@@ -1046,19 +1072,45 @@ pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
     scan_ranges(code, &ranges(code, starts), Env::none())
 }
 
-/// The frame of each function in `ranges` (`None`: `sp` not bounded).
+/// A function's frame as the walk found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sized {
+    /// The frame in bytes; `None` where it is not bounded: a change of `sp`
+    /// that cannot be followed, or a jump through a register inside a frame
+    /// (which a lenient walk reads only as far as the cases it can see).
+    pub bytes: Option<u32>,
+    /// What the walk saw at least, whether or not it is the frame.
+    pub at_least: u32,
+}
+
+/// The frame of each function in `ranges`.
+#[allow(
+    dead_code,
+    reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
+)]
+pub fn sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Sized> {
+    ranges
+        .iter()
+        .map(|&(s, e)| {
+            let w = walk(code, s, e, env);
+            Sized {
+                bytes: (w.unbounded.is_none() && w.table.is_none() && w.misaligned.is_none())
+                    .then_some(w.frame),
+                at_least: w.frame,
+            }
+        })
+        .collect()
+}
+
+/// [`sizes_in`], the frames only (`None`: not bounded).
 #[allow(
     dead_code,
     reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
 )]
 pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Option<u32>> {
-    ranges
-        .iter()
-        .map(|&(s, e)| {
-            let w = walk(code, s, e, env);
-            (w.unbounded.is_none() && w.table.is_none() && w.misaligned.is_none())
-                .then_some(w.frame)
-        })
+    sizes_in(code, ranges, env)
+        .into_iter()
+        .map(|s| s.bytes)
         .collect()
 }
 

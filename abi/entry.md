@@ -28,7 +28,10 @@ status make(const PpHost *host, void *host_ctx, const PpPlugin **out);
 ```
 
 The loader supplies the host table and context only as arguments to `make`, on
-every platform. There is no global host-pointer slot or writable plugin static.
+every platform. There is no global host-pointer slot or writable plugin static,
+with one named exception: the optional read-only heap word `PAPERPAW_HEAP`, which
+the loader fills before `make` with the address of the context-free heap table
+`PpHeap` and nothing else (`abi/heap-word.md`).
 The plugin retains these arguments in its owned instance state. The host table
 and opaque owner context remain valid through instance destruction and
 all associated leases. Only host code casts `host_ctx`; only plugin code casts

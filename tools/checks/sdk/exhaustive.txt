@@ -60,3 +60,4 @@ paperpaw_xml::Token
 paperpaw_zip::Entry
 paperpaw_native::host_glue::PpEntry  # generated repr(C) entry prefix: plugins initialize its exact sized factory contract
 paperpaw_native::host_glue::PpPlugin  # generated repr(C) lifecycle prefix: plugins initialize its exact sized state/drop contract
+paperpaw_native::host_glue::PpHeap  # generated repr(C) heap table the host fills: it grows by sized appends of generated slots (size/minor checked), never by Rust fields

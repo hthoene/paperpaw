@@ -280,6 +280,14 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// emits both required symbols in the platform linker sections. A malformed
 /// prefix or metadata requiring a newer SDK minor fails at compile time.
 ///
+/// It also gives the plugin its heap (`abi/heap-word.md`): the read-only heap
+/// word `PAPERPAW_HEAP` the loader fills before `make`, a global allocator over
+/// the host's context-free heap table (each allocation charged to the plugin),
+/// and a panic handler that reports to the host and allocates nothing. Outside
+/// tests only, so a plugin's own unit tests keep the test harness's. A plugin
+/// that brings its own allocator and panic handler, or allocates nothing,
+/// writes `heap = none`: then neither the word nor those two are emitted.
+///
 /// ```compile_fail
 /// use paperpaw_sdk::native::{Plugin, Host, Error};
 /// struct P;
@@ -300,7 +308,14 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// ```
 #[macro_export]
 macro_rules! native_plugin {
+    ($ty:ty, metadata = $metadata:expr, heap = none) => {
+        $crate::native_plugin!(@entry $ty, $metadata);
+    };
     ($ty:ty, metadata = $metadata:expr) => {
+        $crate::native_plugin!(@entry $ty, $metadata);
+        $crate::native_plugin!(@heap);
+    };
+    (@entry $ty:ty, $metadata:expr) => {
         #[used]
         #[unsafe(no_mangle)]
         #[unsafe(link_section = ".rodata.paperpaw_metadata")]
@@ -327,5 +342,79 @@ macro_rules! native_plugin {
                 None => panic!("invalid interface-7 entry metadata"),
             }
         };
+    };
+    (@heap) => {
+        // The heap word: zero in the file, written by the loader before
+        // `make`, never by the plugin. Defined in assembly so that Rust never
+        // sees a value to fold; code reads only the hidden alias.
+        #[cfg(not(any(target_os = "none", target_os = "linux", target_os = "android")))]
+        ::core::compile_error!("the heap word needs an ELF target; use `heap = none`");
+        ::core::arch::global_asm!(
+            ".pushsection .rodata.paperpaw_heap,\"a\",@progbits",
+            ".globl PAPERPAW_HEAP",
+            ".type PAPERPAW_HEAP,@object",
+            ".size PAPERPAW_HEAP,{size}",
+            ".globl paperpaw_heap_local",
+            ".hidden paperpaw_heap_local",
+            ".balign {size}",
+            "PAPERPAW_HEAP:",
+            "paperpaw_heap_local:",
+            ".zero {size}",
+            ".popsection",
+            size = const ::core::mem::size_of::<usize>(),
+        );
+
+        /// The heap word's value: the host's heap table, or null.
+        #[cfg(not(test))]
+        fn paperpaw_heap() -> *const $crate::native::__heap::PpHeap {
+            unsafe extern "C" {
+                static paperpaw_heap_local: *const $crate::native::__heap::PpHeap;
+            }
+            // SAFETY: the word defined above; the loader writes it before
+            // `make` and it never changes while the plugin runs.
+            unsafe { paperpaw_heap_local }
+        }
+
+        /// The global allocator over the host's heap table.
+        #[cfg(not(test))]
+        struct PaperpawHeap;
+
+        // SAFETY: every call forwards to the host's allocator, which keeps
+        // `GlobalAlloc`'s contract (`abi/heap-word.md` section 3).
+        #[cfg(not(test))]
+        unsafe impl ::core::alloc::GlobalAlloc for PaperpawHeap {
+            unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
+                // SAFETY: the caller's layout and the heap word's table.
+                unsafe { $crate::native::__heap::alloc(paperpaw_heap(), layout) }
+            }
+
+            unsafe fn dealloc(&self, block: *mut u8, layout: ::core::alloc::Layout) {
+                // SAFETY: a block of this allocator with its layout.
+                unsafe { $crate::native::__heap::dealloc(paperpaw_heap(), block, layout) }
+            }
+
+            unsafe fn realloc(
+                &self,
+                block: *mut u8,
+                layout: ::core::alloc::Layout,
+                new_size: usize,
+            ) -> *mut u8 {
+                // SAFETY: a block of this allocator with its layout.
+                unsafe {
+                    $crate::native::__heap::realloc(paperpaw_heap(), block, layout, new_size)
+                }
+            }
+        }
+
+        #[cfg(not(test))]
+        #[global_allocator]
+        static PAPERPAW_GLOBAL_HEAP: PaperpawHeap = PaperpawHeap;
+
+        #[cfg(not(test))]
+        #[panic_handler]
+        fn paperpaw_panic(info: &::core::panic::PanicInfo<'_>) -> ! {
+            // SAFETY: the heap word's value.
+            unsafe { $crate::native::__heap::panic(paperpaw_heap(), info) }
+        }
     };
 }
