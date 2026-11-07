@@ -1,15 +1,18 @@
 //! Host side of the service `core.library` (`docs/abi/library.md` 2).
 //!
 //! Like [`doc_service`](super::doc_service): the backend is the generic
-//! stateless function, and the frame supplies the caller and the
+//! stateless function, and the dispatcher supplies the caller and the
 //! [`LibHost`] behind the key `core.library`. The ops split in two halves
 //! with one trait each: [`query`] (reads: state, query, book, text, facets,
 //! series, cover, position, annotations, anchors, fields, book key) and
 //! [`write`] (status, delete, move, import, position, staged annotation
 //! transactions, fields, provide, receipts). Every op needs the feature
-//! `uses.library`, which the generic dispatcher checks through
-//! `Frame::feature` before this code runs.
-use super::registrations::{self as wire, Record};
+//! `uses.library`, which the generic dispatcher checks against the opening
+//! instance's admitted features before this code runs.
+use super::{
+    host_services::Caller as HostCaller,
+    registrations::{self as wire, Record},
+};
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
@@ -19,6 +22,11 @@ mod query;
 mod write;
 #[allow(unused_imports, reason = "the query and write halves name it")]
 pub(crate) use args::BookRef;
+#[cfg(test)]
+pub(crate) use {
+    query::LibQuery,
+    write::{LibWrite, Transactions},
+};
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]
@@ -49,21 +57,27 @@ pub(crate) trait LibExcluded {
 /// What the shell hands the frame under the key `core.library`.
 pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);
 
+/// The plugin stopped: its annotation transactions end and what they staged
+/// is dropped. The table is released before the host is called.
+pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) {
+    if let Some(transactions) = host.transactions() {
+        transactions.close_owner(owner, |id| host.abort_staged(id));
+    }
+}
+
 /// The `core.library` backend.
 pub(crate) fn backend(
-    frame: &dyn Frame,
+    _frame: &dyn Frame,
+    caller: &HostCaller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = frame
-        .host_service("core.library")
-        .and_then(<dyn core::any::Any>::downcast_ref::<LibServices>)
-        .ok_or(ERR_UNSUPPORTED)?;
+    let services = caller.hosts.library().ok_or(ERR_UNSUPPORTED)?;
     let who = Caller {
-        owner: frame.caller()?,
-        plugin: frame.caller_plugin()?,
-        storage: frame.feature("uses.storage"),
+        owner: caller.owner,
+        plugin: caller.plugin,
+        storage: caller.features.feature("uses.storage"),
     };
     let host: &dyn LibHost = &*services.0;
     match op.id {

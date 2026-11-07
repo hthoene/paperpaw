@@ -315,13 +315,13 @@ fn a_row_that_fits_no_page_is_a_refusal_not_a_loop() {
     let bytes = input(2, &[query(|_| ())]).unwrap();
     let mut out = std::vec![0; 40];
     let result = with(host(&fake), |frame| {
-        backend(frame, schema_op(2), &bytes, &mut out)
+        frame.run(schema_op(2), &bytes, &mut out)
     });
     assert_eq!(result, Err(ERR_NO_SPACE));
     // A scratch that cannot even hold the `end`.
     let mut out = std::vec![0; 8];
     let result = with(host(&fake), |frame| {
-        backend(frame, schema_op(2), &bytes, &mut out)
+        frame.run(schema_op(2), &bytes, &mut out)
     });
     assert_eq!(result, Err(ERR_NO_SPACE));
 }

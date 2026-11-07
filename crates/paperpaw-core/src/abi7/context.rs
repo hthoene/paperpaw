@@ -49,28 +49,6 @@ pub(crate) trait Frame {
         // stage authority must return ERR_STATE (stages-services.md frame checks).
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
-    /// The calling plugin: a never-reused host owner id. Service backends
-    /// that keep per-caller state (leases) name it.
-    fn caller(&self) -> Result<u64, i32> {
-        Err(ERR_STATE)
-    }
-    /// The calling plugin's id, for rules that name it (a field is the
-    /// caller's own).
-    fn caller_plugin(&self) -> Result<&str, i32> {
-        Err(ERR_STATE)
-    }
-    /// A feature key the plugin declared and the host wired, for ops that
-    /// need one (`uses.library`): `ERR_UNSUPPORTED` when the host has not
-    /// wired it, `ERR_DENIED` when this plugin did not declare it.
-    fn feature(&self, _key: &str) -> Result<(), i32> {
-        Err(paperpaw_native::host_glue::ERR_DENIED)
-    }
-    /// The host view a service family keeps behind its key (`core.document`,
-    /// `core.library`, `core.lookup`), downcast by that family's backend; a
-    /// frame without one answers the family `ERR_UNSUPPORTED`.
-    fn host_service(&self, _key: &str) -> Option<&dyn core::any::Any> {
-        None
-    }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }

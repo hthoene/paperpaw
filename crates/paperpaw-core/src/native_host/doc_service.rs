@@ -14,7 +14,10 @@
 //! answer is written into it, checked there and, for pictures, rewritten in
 //! place. No call keeps anything. The peak of the DOC host side beyond the
 //! scratch is the table: 80 bytes.
-use super::registrations::{self as wire, Record};
+use super::{
+    host_services::Caller,
+    registrations::{self as wire, Record},
+};
 use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::ServiceOp,
@@ -157,6 +160,10 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The owner is a format plugin that stopped: it is removed from the
+    /// format index and `visit` gets each format reference it had. Nothing
+    /// is called on the plugin.
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
     /// Section 1's formats in a stable order; `ERR_STATE` for a stale
     /// generation (never 0, as REG's).
     fn formats(
@@ -254,6 +261,9 @@ impl DocHost for Cx<'_> {
     ) -> Result<Option<u32>, i32> {
         self.host.map_image(document, image, in_block)
     }
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.host.formats_of_owner(owner, visit);
+    }
     fn formats(
         &self,
         cursor: u32,
@@ -308,18 +318,16 @@ mod op {
 
 /// The `core.document` backend.
 pub(crate) fn backend(
-    frame: &dyn Frame,
+    _frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = frame
-        .host_service("core.document")
-        .and_then(<dyn core::any::Any>::downcast_ref::<DocServices>)
-        .ok_or(ERR_UNSUPPORTED)?;
+    let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
     let host = &Cx {
         host: &*services.0,
-        owner: frame.caller()?,
+        owner: who.owner,
     };
     let host: &dyn DocHost = host;
     match op.id {
@@ -977,4 +985,4 @@ fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize,
 
 #[cfg(test)]
 #[path = "doc_service/tests.rs"]
-mod tests;
+pub(crate) mod tests;

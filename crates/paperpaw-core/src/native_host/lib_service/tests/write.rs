@@ -246,7 +246,7 @@ pub(super) fn go_rows(
     let bytes = input(op, records)?;
     let op = schema_op(op);
     let mut out = std::vec![0; op.max_reply];
-    let length = with(host(fake), |frame| backend(frame, op, &bytes, &mut out))?;
+    let length = with(host(fake), |frame| frame.run(op, &bytes, &mut out))?;
     out.truncate(length);
     Ok(out)
 }

@@ -1,0 +1,343 @@
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+//! The three families end to end: `service.open` and `service.call` through
+//! the device registry into the wired host views, and what happens to an
+//! owner's documents and transactions when it is retired.
+extern crate std;
+use super::*;
+use crate::native_host::resources;
+use crate::{
+    abi7::services_wire::{self, ServiceOp},
+    native_host::{
+        HostResources,
+        admitted_features::AdmittedFeatures,
+        call_services,
+        declared_services::DeclaredServices,
+        doc_service::tests::{Fake, doc_ref, open_record, state_answer, state_of},
+        doc_service::{DocHost, Limits},
+        environment::EnvironmentScope,
+        lib_service::{LibExcluded, LibQuery, LibWrite, Transactions},
+        lookup_service::LookupHost,
+        registrations::{self, Record},
+    },
+};
+use core::pin::pin;
+use paperpaw_native::{
+    host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes},
+    metadata::{Declared, Feature},
+};
+use paperpaw_platform::Instant;
+use std::{rc::Rc, vec::Vec};
+
+const WIRED: &[Feature<'static>] = &[Feature {
+    key: "uses.library",
+    revision: 1,
+}];
+
+fn declared(keys: &[&'static str], features: AdmittedFeatures) -> DeclaredServices {
+    DeclaredServices::try_from_iter(keys.iter().map(|key| Declared {
+        key,
+        major: 1,
+        semantic_revision: 0,
+    }))
+    .unwrap()
+    .with_features(features)
+}
+
+fn encode(family: &str, op: u32, records: &[Record<'_>]) -> Vec<u8> {
+    let op = services_wire::service_schema(family, 1)
+        .unwrap()
+        .op(op)
+        .unwrap();
+    let mut bytes = std::vec![0; 4096];
+    let used = registrations::records_encode_counted(
+        records,
+        usize::from(op.input_rows),
+        op.max_input,
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(used);
+    bytes
+}
+
+/// One `service.call` as a plugin makes it: the reply bytes or the status.
+fn call(
+    scope: &EnvironmentScope,
+    owner: &resources::OwnerResources,
+    handle: u32,
+    op: &ServiceOp,
+    input: &[u8],
+) -> Result<Vec<u8>, i32> {
+    let mut out = std::vec![0; op.max_reply];
+    // SAFETY: the fixture's input and output are live and disjoint.
+    let status = unsafe {
+        call_services::call(
+            scope,
+            owner,
+            "opener",
+            handle,
+            op.id,
+            PpBytes {
+                ptr: input.as_ptr(),
+                len: input.len(),
+            },
+            PpBuffer {
+                ptr: out.as_mut_ptr(),
+                cap: out.len(),
+            },
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    out.truncate(status as usize);
+    Ok(out)
+}
+
+fn open(
+    scope: &EnvironmentScope,
+    owner: &resources::OwnerResources,
+    declared: &DeclaredServices,
+    key: &str,
+) -> Result<u32, i32> {
+    let mut handle = 0;
+    // SAFETY: the key and the scalar output are live and disjoint.
+    let status = unsafe {
+        call_services::open(
+            scope,
+            owner,
+            declared,
+            PpBytes {
+                ptr: key.as_ptr(),
+                len: key.len(),
+            },
+            1,
+            0,
+            &mut handle,
+        )
+    };
+    if status == OK {
+        Ok(handle)
+    } else {
+        Err(status)
+    }
+}
+
+fn op(family: &str, id: u32) -> &'static ServiceOp {
+    services_wire::service_schema(family, 1)
+        .unwrap()
+        .op(id)
+        .unwrap()
+}
+
+macro_rules! in_frame {
+    ($owner:expr, |$scope:ident| $body:block) => {{
+        let $scope = pin!(EnvironmentScope::with_resources($owner.try_view().unwrap()));
+        let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let env = kernel.shared.env(Instant(0));
+        $scope.as_ref().scope(&env, || $body).unwrap()
+    }};
+}
+
+#[test]
+fn the_device_registry_offers_the_three_families() {
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    for key in ["core.document", "core.library", "core.lookup"] {
+        assert!(owner.service_schema(key).is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn a_family_the_host_has_not_wired_answers_unsupported() {
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let declared = declared(&["core.document", "core.lookup"], AdmittedFeatures::NONE);
+    in_frame!(owner, |scope| {
+        let document = open(&scope, &owner, &declared, "core.document").unwrap();
+        let open_op = op("core.document", 1);
+        let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+        assert_eq!(
+            call(&scope, &owner, document, open_op, &input),
+            Err(ERR_UNSUPPORTED)
+        );
+    });
+}
+
+#[test]
+fn a_document_opens_reads_state_and_ends_with_its_opener() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    assert_eq!(
+        pool.hosts().wire_documents(fake.clone()),
+        Err(ERR_STATE),
+        "wired once"
+    );
+    let owner = pool.try_owner().unwrap();
+    fake.owner
+        .set(owner.caller("opener", AdmittedFeatures::NONE).owner);
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    let id = in_frame!(owner, |scope| {
+        let handle = open(&scope, &owner, &declared, "core.document").unwrap();
+        *fake.answer.borrow_mut() = state_answer(0, 0);
+        let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+        let reply = call(&scope, &owner, handle, op("core.document", 1), &input).unwrap();
+        let id = state_of(&reply).document;
+        // Op 2 on the same id, through the same handle.
+        let input = encode("core.document", 2, &[doc_ref(id)]);
+        let reply = call(&scope, &owner, handle, op("core.document", 2), &input).unwrap();
+        assert_eq!(state_of(&reply).document, id);
+        // A malformed batch is refused before the host sees it.
+        assert!(call(&scope, &owner, handle, op("core.document", 2), &[0xff]).is_err());
+        id
+    });
+    assert!(fake.ended.borrow().is_empty());
+    // The opener is retired: its document ends and the format is told once.
+    owner.release_all().unwrap();
+    assert_eq!(*fake.ended.borrow(), [id]);
+    owner.release_all().unwrap();
+    assert_eq!(*fake.ended.borrow(), [id], "retiring twice calls nothing");
+}
+
+#[test]
+fn the_stop_hook_sequence_for_openers_and_format_plugins() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let (opener, format) = (pool.try_owner().unwrap(), pool.try_owner().unwrap());
+    let key = opener.caller("opener", AdmittedFeatures::NONE).owner;
+    fake.owner.set(key);
+    fake.format_owner
+        .set(format.caller("format", AdmittedFeatures::NONE).owner);
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    let id = in_frame!(opener, |scope| {
+        let handle = open(&scope, &opener, &declared, "core.document").unwrap();
+        *fake.answer.borrow_mut() = state_answer(0, 0);
+        let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+        let reply = call(&scope, &opener, handle, op("core.document", 1), &input).unwrap();
+        state_of(&reply).document
+    });
+    // The format plugin stops first: the host closes the document (reason 1),
+    // the opener hears it, and the stopped format is never called.
+    format.release_all().unwrap();
+    assert_eq!(*fake.closed.borrow(), [(id, 1)]);
+    assert!(fake.images_ended.borrow().contains(&id));
+    // The opener stops afterwards: still no call into the stopped format, and
+    // no second event.
+    opener.release_all().unwrap();
+    assert!(fake.ended.borrow().is_empty());
+    assert_eq!(*fake.closed.borrow(), [(id, 1)]);
+    assert!(fake.table().lease(key, id).is_err(), "the id is gone");
+}
+
+struct Lib {
+    transactions: Transactions,
+    aborted: core::cell::RefCell<Vec<u32>>,
+}
+impl Lib {
+    fn new() -> Self {
+        Self {
+            transactions: Transactions::try_new().unwrap(),
+            aborted: core::cell::RefCell::new(Vec::new()),
+        }
+    }
+}
+impl LibQuery for Lib {}
+impl LibExcluded for Lib {
+    fn excluded(&self, _: &str) -> bool {
+        false
+    }
+}
+impl LibWrite for Lib {
+    fn transactions(&self) -> Option<&Transactions> {
+        Some(&self.transactions)
+    }
+    fn abort_staged(&self, transaction: u32) {
+        self.aborted.borrow_mut().push(transaction);
+    }
+}
+
+#[test]
+fn the_library_needs_the_feature_per_instance_and_its_transactions_end_with_the_owner() {
+    let pool = HostResources::try_new().unwrap();
+    let lib = Rc::new(Lib::new());
+    pool.hosts().wire_library(lib.clone()).unwrap();
+    let owner = pool.try_owner().unwrap();
+    let who = owner.caller("books", AdmittedFeatures::NONE).owner;
+    let state = op("core.library", 1);
+    // Without the feature in the catalog the host has not wired it.
+    let none = declared(&["core.library"], AdmittedFeatures::NONE);
+    let not_granted = declared(&["core.library"], AdmittedFeatures::test(0, WIRED));
+    let granted = declared(&["core.library"], AdmittedFeatures::test(1, WIRED));
+    in_frame!(owner, |scope| {
+        let input = encode("core.library", 1, &[]);
+        let handle = open(&scope, &owner, &none, "core.library").unwrap();
+        assert_eq!(
+            call(&scope, &owner, handle, state, &input),
+            Err(ERR_UNSUPPORTED)
+        );
+        owner.release(handle).unwrap();
+        let handle = open(&scope, &owner, &not_granted, "core.library").unwrap();
+        assert_eq!(call(&scope, &owner, handle, state, &input), Err(ERR_DENIED));
+        owner.release(handle).unwrap();
+        // Granted: the call reaches the host (this fake backs no reads).
+        let handle = open(&scope, &owner, &granted, "core.library").unwrap();
+        assert_ne!(call(&scope, &owner, handle, state, &input), Err(ERR_DENIED));
+    });
+    // A transaction of the owner ends with it, after the table was released.
+    let t = lib.transactions.begin_for_test(who, 0);
+    let other = lib.transactions.begin_for_test(who + 1, 0);
+    owner.release_all().unwrap();
+    assert_eq!(*lib.aborted.borrow(), [t]);
+    assert_eq!(lib.transactions.open_count(), 1, "another owner's stays");
+    let _ = other;
+}
+
+struct Dictionary;
+impl LookupHost for Dictionary {
+    fn ask(
+        &self,
+        _owner: u64,
+        _ask: &registrations::ServiceLookupAsk<'_>,
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(ERR_NOT_FOUND)
+    }
+}
+
+#[test]
+fn a_lookup_reaches_the_wired_providers() {
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let declared = declared(&["core.lookup"], AdmittedFeatures::NONE);
+    let ask = encode(
+        "core.lookup",
+        1,
+        &[Record::ServiceLookupAsk(registrations::ServiceLookupAsk {
+            text: "word",
+            language: "en",
+            context: "",
+            cursor: 0,
+        })],
+    );
+    in_frame!(owner, |scope| {
+        let handle = open(&scope, &owner, &declared, "core.lookup").unwrap();
+        let lookup = op("core.lookup", 1);
+        assert_eq!(
+            call(&scope, &owner, handle, lookup, &ask),
+            Err(ERR_UNSUPPORTED),
+            "not wired"
+        );
+        pool.hosts().wire_lookup(Rc::new(Dictionary)).unwrap();
+        assert_eq!(
+            call(&scope, &owner, handle, lookup, &ask),
+            Err(ERR_NOT_FOUND),
+            "no provider is left: the asker's loop ends"
+        );
+    });
+}

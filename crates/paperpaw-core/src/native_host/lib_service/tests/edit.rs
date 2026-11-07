@@ -522,8 +522,7 @@ fn a_reply_that_cannot_be_written_stops_before_anything_is_applied() {
     let mut small = [0_u8; 4];
     let applied = |fake: &Rc<Fake>| fake.log.borrow().iter().any(|l| l.starts_with("commit"));
     assert_eq!(
-        with(host(&fake), |frame| backend(
-            frame,
+        with(host(&fake), |frame| frame.run(
             schema_op(20),
             &bytes,
             &mut small

@@ -19,11 +19,23 @@ mod write;
 pub(super) const OWNER: u64 = 7;
 pub(super) const PLUGIN: &str = "files";
 
-/// A frame whose caller is plugin `files` (owner 7) and that grants
-/// `uses.library` as `feature` says.
+/// The features the fixture's host wires: `uses.library` and `uses.storage`.
+const WIRED: &[paperpaw_native::metadata::Feature<'static>] = &[
+    paperpaw_native::metadata::Feature {
+        key: "uses.library",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.storage",
+        revision: 1,
+    },
+];
+
+/// A frame, and the caller plugin `files` (owner 7) with the library host
+/// wired (or not) and `uses.library` / `uses.storage` as the fields say.
 pub(super) struct View<'a> {
     env: &'a Env<'a>,
-    services: Option<LibServices>,
+    hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
     pub(super) storage: bool,
 }
@@ -34,25 +46,18 @@ impl Frame for View<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
-    fn caller(&self) -> Result<u64, i32> {
-        Ok(OWNER)
-    }
-    fn caller_plugin(&self) -> Result<&str, i32> {
-        Ok(PLUGIN)
-    }
-    fn feature(&self, key: &str) -> Result<(), i32> {
-        let granted = match key {
-            "uses.library" => self.granted,
-            "uses.storage" => self.storage,
-            other => panic!("unexpected feature {other}"),
+}
+impl View<'_> {
+    /// The backend as the dispatcher calls it.
+    pub(super) fn run(&self, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let bits = u32::from(self.granted) | (u32::from(self.storage) << 1);
+        let caller = crate::native_host::host_services::Caller {
+            owner: OWNER,
+            plugin: PLUGIN,
+            features: crate::native_host::admitted_features::AdmittedFeatures::test(bits, WIRED),
+            hosts: &self.hosts,
         };
-        if granted { Ok(()) } else { Err(ERR_DENIED) }
-    }
-    fn host_service(&self, key: &str) -> Option<&dyn core::any::Any> {
-        (key == "core.library")
-            .then_some(self.services.as_ref())
-            .flatten()
-            .map(|services| services as &dyn core::any::Any)
+        backend(self, &caller, op, input, out)
     }
 }
 
@@ -67,9 +72,11 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_library(host).unwrap();
     body(&View {
         env: &env,
-        services: Some(LibServices(host)),
+        hosts,
         granted: true,
         storage: STORAGE.with(core::cell::Cell::get),
     })
@@ -108,7 +115,7 @@ pub(super) fn call(
 pub(super) fn call_raw(host: &Rc<dyn LibHost>, id: u32, bytes: &[u8]) -> Result<Vec<u8>, i32> {
     let op = schema_op(id);
     let mut out = std::vec![0; op.max_reply];
-    let length = with(host.clone(), |frame| backend(frame, op, bytes, &mut out))?;
+    let length = with(host.clone(), |frame| frame.run(op, bytes, &mut out))?;
     out.truncate(length);
     validate_reply(&out, op)?;
     Ok(out)
@@ -122,11 +129,11 @@ fn a_frame_without_the_host_refuses_the_family() {
     let env = kernel.shared.env(Instant(0));
     let view = View {
         env: &env,
-        services: None,
+        hosts: crate::native_host::host_services::HostServices::new(),
         granted: true,
         storage: true,
     };
     let op = schema_op(1);
     let mut out = std::vec![0; op.max_reply];
-    assert_eq!(backend(&view, op, &[0], &mut out), Err(ERR_UNSUPPORTED));
+    assert_eq!(view.run(op, &[0], &mut out), Err(ERR_UNSUPPORTED));
 }

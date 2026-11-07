@@ -55,6 +55,8 @@ struct Table {
     handles: RefCell<Handles<Resource>>,
     blob_limits: blobs::Limits,
     services: ServiceRegistry,
+    /// The wired views behind `core.document`, `core.library`, `core.lookup`.
+    hosts: super::host_services::HostServices,
 }
 
 /// Device-wide handle pool, shared by every hosted plugin on that device.
@@ -90,6 +92,7 @@ impl HostResources {
             handles: RefCell::new(Handles::new()),
             blob_limits,
             services,
+            hosts: super::host_services::HostServices::new(),
         })
         .map(Self)
         .map_err(|_| FlatError::Allocation)
@@ -99,6 +102,12 @@ impl HostResources {
     #[must_use]
     pub fn try_clone(&self) -> Option<Self> {
         self.0.try_clone().map(Self)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host views; tests do today")]
+    /// The wired host views, to wire a family once (a shell, a test).
+    pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
+        &self.0.hosts
     }
 
     /// Assign a never-reused host owner, without allocation.
@@ -194,7 +203,25 @@ impl OwnerResources {
 
     pub(crate) fn release_all(&self) -> Result<(), i32> {
         crate::abi7::handles::release_owner(&self.table.handles, self.owner)
-            .map_err(crate::abi7::handles::Error::status)
+            .map_err(crate::abi7::handles::Error::status)?;
+        // The owner is retired: what the document and library services held
+        // for it ends now (revocation came first; no handle is left).
+        self.table.hosts.owner_retired(self.owner);
+        Ok(())
+    }
+
+    /// The caller of a service call: this owner and the plugin `plugin`.
+    pub(crate) fn caller<'a>(
+        &'a self,
+        plugin: &'a str,
+        features: super::admitted_features::AdmittedFeatures,
+    ) -> super::host_services::Caller<'a> {
+        super::host_services::Caller {
+            owner: self.owner,
+            plugin,
+            features,
+            hosts: &self.table.hosts,
+        }
     }
 }
 
