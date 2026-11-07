@@ -373,7 +373,7 @@ pub enum Command<'a> {
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.open` command (`docs/abi/registry.md`).
+    /// The `command.open` command (`docs/abi/ui.md`).
     Open {
         /// UTF-8 text of at most 128 bytes.
         target: &'a str,
@@ -384,43 +384,43 @@ pub enum Command<'a> {
         /// Little-endian u32.
         handover: u32,
     },
-    /// The `command.close` command (`docs/abi/registry.md`).
+    /// The `command.close` command (`docs/abi/ui.md`).
     Close {
         /// Little-endian u32.
         instance: u32,
     },
-    /// The `command.back_to` command (`docs/abi/registry.md`).
+    /// The `command.back_to` command (`docs/abi/ui.md`).
     BackTo {
         /// UTF-8 text of at most 128 bytes.
         target: &'a str,
     },
-    /// The `command.set_key_layer` command (`docs/abi/registry.md`).
+    /// The `command.set_key_layer` command (`docs/abi/ui.md`).
     SetKeyLayer {
         /// UTF-8 text of at most 128 bytes.
         layer: &'a str,
     },
     /// The `command.show_hints` command.
     ShowHints {},
-    /// The `command.raise_input` command (`docs/abi/registry.md`).
+    /// The `command.raise_input` command (`docs/abi/ui.md`).
     RaiseInput {
         /// UTF-8 text of at most 64 bytes.
         input: &'a str,
     },
-    /// The `command.widget_changed` command (`docs/abi/registry.md`).
+    /// The `command.widget_changed` command (`docs/abi/ui.md`).
     WidgetChanged {
         /// Little-endian u32.
         instance: u32,
     },
     /// The `command.screen_ready` command.
     ScreenReady {},
-    /// The `command.notify` command (`docs/abi/registry.md`).
+    /// The `command.notify` command (`docs/abi/ui.md`).
     Notify {
         /// UTF-8 text of at most 256 bytes.
         text: &'a str,
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.speak` command (`docs/abi/registry.md`).
+    /// The `command.speak` command (`docs/abi/ui.md`).
     Speak {
         /// Little-endian u32.
         cookie: u32,
@@ -435,14 +435,14 @@ pub enum Command<'a> {
     },
     /// The `command.stop_speaking` command.
     StopSpeaking {},
-    /// The `command.screen_policy` command (`docs/abi/registry.md`).
+    /// The `command.screen_policy` command (`docs/abi/ui.md`).
     ScreenPolicy {
         /// Little-endian u32.
         instance: u32,
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.image_prepare` command (`docs/abi/registry.md`).
+    /// The `command.image_prepare` command (`docs/abi/document.md`).
     ImagePrepare {
         /// Little-endian u32.
         root: u32,
@@ -455,7 +455,7 @@ pub enum Command<'a> {
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.image_release` command (`docs/abi/registry.md`).
+    /// The `command.image_release` command (`docs/abi/document.md`).
     ImageRelease {
         /// Little-endian u32.
         image: u32,

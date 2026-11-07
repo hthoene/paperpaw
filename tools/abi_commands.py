@@ -800,7 +800,8 @@ def _blob_len(label, cap):
 
 # The contract document of each growth-command tag range, for the generated
 # doc links; other growth commands cite `registry.md`.
-COMMAND_DOCS = ((1564, 1592, 'device.md'),)
+COMMAND_DOCS = ((1547, 1558, 'ui.md'), (1559, 1560, 'document.md'), (1561, 1563, 'ui.md'),
+                (1564, 1592, 'device.md'))
 
 
 def _command_doc(tag):

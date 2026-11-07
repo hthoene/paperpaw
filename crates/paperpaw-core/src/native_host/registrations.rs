@@ -208,7 +208,7 @@ pub use wire::{
     host_records_visit,
 };
 // Counted service inputs above the registration limit (`ServiceOp::input_rows`).
-pub use wire::records_encode_counted;
+pub use wire::{records_encode_counted, records_encode_counted_iter};
 
 /// A plugin's batch as the host decodes it ([`host_records_decode_into`]),
 /// returned by value. A plugin-reachable slot holds its batch on the heap

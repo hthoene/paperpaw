@@ -733,12 +733,33 @@ pub fn records_encode_counted(
     max_bytes: usize,
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    if records.len() > max_records || records.len() > u32::MAX as usize {
+    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)
+}
+
+/// [`records_encode_counted`] over records made on the fly: no slice of
+/// them is ever collected. The iterator is cloned and walked three times
+/// (count, size, write), so it must yield the same records each time, as a
+/// clone of an iterator over borrowed data does. Every cap and the output
+/// capacity are checked before any write, in the order and with the statuses
+/// of [`records_encode_counted`]. An iterator that yields other records on
+/// the writing walk is refused with ERR_INVALID; the output is then
+/// unspecified, and it is never written past `out`.
+pub fn records_encode_counted_iter<'r, I>(
+    records: I,
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32>
+where
+    I: Iterator<Item = Record<'r>> + Clone,
+{
+    let count = records.clone().take(max_records.saturating_add(1)).count();
+    if count > max_records || count > u32::MAX as usize {
         return Err(@NO_SPACE@);
     }
-    let mut required = varint_len(records.len() as u32);
-    for record in records {
-        required += record_framed_len(record)?;
+    let mut required = varint_len(count as u32);
+    for record in records.clone() {
+        required += record_framed_len(&record)?;
         if required > max_bytes {
             return Err(@NO_SPACE@);
         }
@@ -747,10 +768,15 @@ pub fn records_encode_counted(
         return Err(@NO_SPACE@);
     }
     let mut offset = 0;
-    write_varint(records.len() as u32, out, &mut offset);
+    write_varint(count as u32, out, &mut offset);
+    let mut written = 0;
     for record in records {
-        let rest = out.get_mut(offset..).ok_or(@NO_SPACE@)?;
-        offset += record_encode_one(record, rest)?;
+        written += 1;
+        let rest = out.get_mut(offset..required).ok_or(@INVALID@)?;
+        offset += record_encode_one(&record, rest).map_err(|_| @INVALID@)?;
+    }
+    if written != count || offset != required {
+        return Err(@INVALID@);
     }
     Ok(offset)
 }
