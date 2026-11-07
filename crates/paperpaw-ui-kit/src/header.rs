@@ -48,9 +48,11 @@ pub fn prepare(
     );
     let half = (s.title * 0.38) as i32;
     let reach = (half * 4 / 5) / 2;
-    let extent = half * 4 / 5 + i32::from(s.line * 3).max(3);
+    let extent = half * 4 / 5 + (i32::from(s.line) * 3).max(3);
     let left = if touch {
-        s.margin + ((s.text * 1.15) as u16 + s.gap).max(extent as u16 + s.gap)
+        let arrow =
+            ((s.text * 1.15) as u32 + u32::from(s.gap)).max(extent as u32 + u32::from(s.gap));
+        crate::geometry::clamp_u16(i64::from(s.margin) + i64::from(arrow))
     } else {
         s.margin
     };
@@ -109,7 +111,7 @@ fn pager(
             &[
                 Arg::Int {
                     name: "page",
-                    value: (index + 1) as i64,
+                    value: index.saturating_add(1) as i64,
                 },
                 Arg::Int {
                     name: "pages",
@@ -119,7 +121,11 @@ fn pager(
         )?;
         let label_width = font.measure_text(s.small, &label)? as u16;
         let next_x = i32::from(width) - i32::from(s.margin) - reach - 1;
-        let arrow_width = if touch { s.header * 4 / 5 } else { 0 };
+        let arrow_width = if touch {
+            (u32::from(s.header) * 4 / 5) as u16
+        } else {
+            0
+        };
         let next_start = if touch {
             (next_x - i32::from(arrow_width / 2)).max(0) as u16
         } else {
@@ -166,7 +172,11 @@ fn pager(
                 next_x,
                 i32::from(band.height) / 2,
                 false,
-                if index + 1 == count { s.disabled } else { ink },
+                if index.saturating_add(1) == count {
+                    s.disabled
+                } else {
+                    ink
+                },
             )?;
         }
     }
@@ -182,7 +192,7 @@ fn arrow(
 ) -> Result<(), Error> {
     let half = (s.title * 0.38) as i32;
     let width = half * 4 / 5;
-    let thickness = (s.line * 3).max(3);
+    let thickness = (u32::from(s.line) * 3).max(3).min(u32::from(u16::MAX)) as u16;
     for dy in -half..=half {
         let dx = width * dy.abs() / half.max(1);
         let tip = if left {

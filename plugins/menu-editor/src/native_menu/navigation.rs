@@ -39,18 +39,22 @@ impl ScreenState {
             return Err(Error::Invalid);
         }
         let mut menu = String::new();
-        let mut index = 0;
+        let mut index = None;
         if let Some(handover) = handover {
             for param in ui.params(host, handover, input, output)? {
                 let param = param?;
                 match param.key() {
                     "menu" => menu = copy(param.value())?,
-                    "index" => index = param.value().parse().unwrap_or(0),
+                    "index" => index = Some(parse_index(param.value())?),
                     _ => {}
                 }
             }
         }
-        Self::from_parts(screen, menu, index)
+        let wants_menu = screen != "menu-editor.menus";
+        if (wants_menu && menu.is_empty()) || (screen == "menu-editor.entry") != index.is_some() {
+            return Err(Error::Invalid);
+        }
+        Self::from_parts(screen, menu, index.unwrap_or(0))
     }
     fn from_parts(screen: &str, menu: String, index: usize) -> Result<Self, Error> {
         match screen {
@@ -83,7 +87,7 @@ impl ScreenState {
         let menu = Param::new("menu", menu)?;
         let handover = if let Some(index) = index {
             let mut digits = [0; 20];
-            let index = Param::new("index", decimal(index, &mut digits))?;
+            let index = Param::new("index", paperpaw_ui_kit::text::decimal(index, &mut digits))?;
             ui.handover(host, &[menu, index], input, output)?
         } else {
             ui.handover(host, &[menu], input, output)?
@@ -92,19 +96,12 @@ impl ScreenState {
     }
 }
 
-// Parameter text only; wire framing belongs exclusively to the SDK.
-fn decimal(mut value: usize, digits: &mut [u8; 20]) -> &str {
-    let mut at = digits.len();
-    loop {
-        at -= 1;
-        digits[at] = b'0' + (value % 10) as u8;
-        value /= 10;
-        if value == 0 {
-            break;
-        }
+/// A decimal entry index: digits only, no sign, no overflow.
+fn parse_index(text: &str) -> Result<usize, Error> {
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(Error::Invalid);
     }
-    // All bytes above are decimal ASCII.
-    core::str::from_utf8(&digits[at..]).unwrap_or("")
+    text.parse().map_err(|_| Error::Invalid)
 }
 
 #[cfg(test)]
@@ -130,7 +127,21 @@ mod tests {
     fn indices_roundtrip_without_allocating_text() {
         for value in [0, 1, 9, 10, 99, 100, usize::MAX] {
             let mut buffer = [0; 20];
-            assert_eq!(decimal(value, &mut buffer).parse(), Ok(value));
+            assert_eq!(
+                paperpaw_ui_kit::text::decimal(value, &mut buffer).parse(),
+                Ok(value)
+            );
+        }
+    }
+    #[test]
+    fn handover_indices_are_digits_that_fit_or_are_refused() {
+        assert_eq!(parse_index("0"), Ok(0));
+        assert_eq!(parse_index("42"), Ok(42));
+        let max = alloc::format!("{}", usize::MAX);
+        assert_eq!(parse_index(&max), Ok(usize::MAX));
+        let over = alloc::format!("{max}0");
+        for bad in ["", "-1", "+1", " 1", "1 ", "1.5", "x", over.as_str(), "٣"] {
+            assert_eq!(parse_index(bad), Err(Error::Invalid), "{bad:?}");
         }
     }
 }

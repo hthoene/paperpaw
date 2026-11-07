@@ -1,12 +1,12 @@
 //! Reads from the registry that the screens need, as owned copies.
 use crate::model::{Bound, GLOBAL, POLICY, Place};
 use alloc::{string::String, vec::Vec};
-use paperpaw_ui_kit::{rows, text::copy};
 use paperpaw_sdk::builtin::slots;
 use paperpaw_sdk::native::{
     Error, Host,
     registry::{MenuQuery, Registry, RegistryBindingOrigin},
 };
+use paperpaw_ui_kit::{rows, text::copy};
 
 const INPUT: usize = 512;
 const OUTPUT: usize = 4096;
@@ -38,11 +38,14 @@ pub struct Named {
 
 impl<'h, 'cb> Reader<'h, 'cb> {
     pub fn open(host: &'h Host<'cb>) -> Result<Self, Error> {
+        // Buffers first: a refused allocation must not leave a registry handle open.
+        let input = buffer(INPUT)?;
+        let output = buffer(OUTPUT)?;
         Ok(Self {
             host,
             registry: Registry::open(host)?,
-            input: buffer(INPUT)?,
-            output: buffer(OUTPUT)?,
+            input,
+            output,
         })
     }
 
@@ -177,7 +180,31 @@ pub fn places(
             layers: layers(&screen.id)?,
         });
     }
-    screens_here.sort_by_cached_key(|p| (p.title.to_lowercase(), String::from(p.layer())));
-    places.extend(screens_here);
+    // Lower-case title, then layer: the order of the standard keyed sort, with no scratch.
+    paperpaw_ui_kit::mem::stable_sort_by(&mut screens_here, |a, b| {
+        paperpaw_ui_kit::text::cmp_lowercase(&a.title, &b.title)
+            .then_with(|| a.layer().cmp(b.layer()))
+    });
+    paperpaw_ui_kit::mem::extend(&mut places, screens_here)?;
     Ok(places)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn places_survive_every_refused_allocation() {
+        let screens: Vec<Named> = ["notes.list", "zeta.screen", "alpha.screen"]
+            .iter()
+            .map(|id| Named {
+                id: String::from(*id),
+                title: String::from(*id),
+            })
+            .collect();
+        let policy = [String::from("zeta.screen")];
+        crate::fail_alloc::sweep(|| {
+            places(&mut |key| copy(key), &screens, &policy, true).map(|p| p.len())
+        });
+    }
 }

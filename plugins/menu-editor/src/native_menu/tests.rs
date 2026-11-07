@@ -151,3 +151,16 @@ fn long_chains_use_bounded_traversal_stack() {
     assert!(graph.reaches(0, "core.settings", false, None).unwrap());
     assert!(!graph.reaches(0, "test.missing", false, None).unwrap());
 }
+
+#[test]
+fn the_menu_order_survives_every_refused_allocation() {
+    let mut graph = graph(0b0000_0000_0110_0100);
+    for (menu, title) in graph
+        .menus
+        .iter_mut()
+        .zip(["Zulu", "alpha", "ALPHA", "Änderungen"])
+    {
+        menu.title = String::from(title);
+    }
+    crate::fail_alloc::sweep(|| graph.display_order().map(|order| order.len()));
+}

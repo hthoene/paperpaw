@@ -84,7 +84,7 @@ impl MenuGraph {
             self.keep(&mut found, present, menu, &other.id, &other.title, true)?;
         }
         self.note_hidden(registry, host, menu, &mut found, input, output)?;
-        found.sort_by(by_name);
+        paperpaw_ui_kit::mem::stable_sort_by(&mut found, by_name);
         Ok(found)
     }
 

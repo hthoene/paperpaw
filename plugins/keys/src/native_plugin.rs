@@ -2,10 +2,7 @@
 //! an action picker. Views own copies; the host's registry stays the truth.
 use crate::model::{self, POLICY, Place};
 use crate::native_data::{self, Named, Reader};
-use alloc::{format, string::String, vec::Vec};
-use paperpaw_ui_kit::{
-    Item, ItemList, ItemStep, Messages, Screens, items::RowItem, text::copy,
-};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     keys::POLICIES,
@@ -20,6 +17,13 @@ use paperpaw_sdk::{
         ui::{Instance, Notify, Open, Param, Question, QuestionKind, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::{
+    Item, ItemList, ItemStep, Messages, Screens,
+    items::RowItem,
+    mem::{self, SERVICE_BUFFER, buffer, push},
+    text::{concat, copy},
+    uitext,
+};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/keys_declarations.rs"));
@@ -31,12 +35,8 @@ const PICK: u32 = 10;
 const PLACE: u32 = 11;
 const LIST: u32 = 12;
 
-fn buffer(len: usize) -> Result<Vec<u8>, Error> {
-    let mut bytes = Vec::new();
-    bytes.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
-    bytes.resize(len, 0);
-    Ok(bytes)
-}
+/// The longest search words the picker takes.
+const SEARCH_LIMIT: usize = 256;
 
 /// What an open question is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,10 +136,8 @@ impl Plugin for NativeKeys {
         {
             registrations::submit(host, batch)?;
         }
-        Ok(Self {
-            ui: Some(Ui::open(host)?),
-            ..Self::default()
-        })
+        // `core.ui` is opened by the first callback: opening needs a live frame.
+        Ok(Self::default())
     }
 
     fn event(
@@ -149,6 +147,7 @@ impl Plugin for NativeKeys {
         event: Event<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        self.ensure_ui(host)?;
         match event {
             Event::ActionRun {
                 action: "keys.open",
@@ -199,6 +198,7 @@ impl Plugin for NativeKeys {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ensure_ui(host)?;
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
@@ -216,6 +216,14 @@ impl Plugin for NativeKeys {
 }
 
 impl NativeKeys {
+    /// Opens `core.ui` in the first live callback; the handle serves later ones.
+    fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
     }
@@ -227,8 +235,8 @@ impl NativeKeys {
         instance: Instance,
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
-        let mut input = buffer(512)?;
-        let mut output = buffer(1536)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
         let (mut chosen, mut layers) = (String::new(), String::new());
         if let Some(handover) = handover {
             for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
@@ -258,7 +266,7 @@ impl NativeKeys {
             "keys.list" => {
                 let inputs = reader.inputs()?;
                 let mut view = ListView {
-                    touch: model::has_touch(&ids(&inputs)),
+                    touch: model::has_touch(&ids(&inputs)?),
                     inputs,
                     places: Vec::new(),
                     place: 0,
@@ -294,20 +302,18 @@ impl NativeKeys {
                 )?;
                 // Every screen that is not listed yet, told apart by kind.
                 rest.retain(|p| !places.iter().any(|q| q.layer() == p.layer()));
-                let kinds = core::cell::RefCell::new(Messages::new()?);
-                let kind = |layer: &str| -> String {
+                let mut kinds = Messages::new()?;
+                let mut kind = |layer: &str| -> Result<String, Error> {
                     let last = layer.rsplit('.').next().unwrap_or(layer);
-                    kinds
-                        .borrow_mut()
-                        .copy(host, &format!("keys.kind.{last}"))
-                        .unwrap_or_else(|_| last.replace('-', " "))
+                    match kinds.copy(host, &concat(&["keys.kind.", last])?) {
+                        Ok(name) => Ok(name),
+                        Err(Error::NoMemory) => Err(Error::NoMemory),
+                        Err(_) => mem::replace_char(last, '-', ' '),
+                    }
                 };
-                model::tell_apart(&mut rest, &kind);
-                places.extend(rest);
-                let items = places
-                    .iter()
-                    .map(|p| Item::row(&p.title, ""))
-                    .collect::<Result<Vec<_>, _>>()?;
+                model::tell_apart(&mut rest, &mut kind)?;
+                mem::extend(&mut places, rest)?;
+                let items = mem::collect(places.iter().map(|p| Item::row(&p.title, "")))?;
                 Ok(View::Place(PlaceView {
                     list: ItemList::new(items),
                     places,
@@ -353,24 +359,23 @@ impl NativeKeys {
     }
 
     fn choose(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
-        let mut scratch = buffer(1024)?;
+        let mut scratch = buffer(SERVICE_BUFFER)?;
         match token {
             LIST => {
                 let Some(View::List(view)) = self.screens.top(token) else {
                     return Ok(());
                 };
-                match view.rows.get(index).cloned() {
+                match view.rows.get(index) {
                     Some(Row::Place) => {
                         CommandSender::new(host, &mut scratch).open(Open::screen("keys.place")?)
                     }
                     Some(Row::Policy) => view.next_policy(host, &mut scratch),
                     Some(Row::Input(input)) => {
-                        let layers = view.place().layers.join(",");
-                        let mut output = buffer(1536)?;
-                        let params = [Param::new("input", &input)?, Param::new("layers", &layers)?];
-                        let handover =
-                            self.ui()?
-                                .handover(host, &params, &mut scratch, &mut output)?;
+                        let layers = mem::join(&view.place().layers, ",")?;
+                        let mut output = buffer(SERVICE_BUFFER)?;
+                        let params = [Param::new("input", input)?, Param::new("layers", &layers)?];
+                        let ui = self.ui.as_ref().ok_or(Error::State)?;
+                        let handover = ui.handover(host, &params, &mut scratch, &mut output)?;
                         CommandSender::new(host, &mut scratch)
                             .open(Open::screen("keys.pick")?.handover(handover))
                     }
@@ -382,15 +387,16 @@ impl NativeKeys {
                 let Some(View::Place(view)) = self.screens.top(token) else {
                     return Ok(());
                 };
-                let Some(place) = view.places.get(index).cloned() else {
+                let Some(place) = view.places.get(index) else {
                     return Ok(());
                 };
+                let place = place.try_clone()?;
                 let mut reader = Reader::open(host)?;
                 let done = (|| {
                     let mut messages = Messages::new()?;
                     for view in self.screens.all() {
                         if let View::List(list) = view {
-                            list.choose_place(place.clone());
+                            list.choose_place(place.try_clone()?)?;
                             list.rebuild(host, &mut reader, &mut messages)?;
                         }
                     }
@@ -410,9 +416,9 @@ impl NativeKeys {
         let question = messages.copy(host, "keys.reset.question")?;
         let yes = messages.copy(host, "keys.option.reset")?;
         let no = messages.copy(host, "keys.option.cancel")?;
-        let labels = format!("{yes}\n{no}");
-        let mut input = buffer(1024)?;
-        let mut output = buffer(256)?;
+        let labels = concat(&[&yes, "\n", &no])?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
         let asked = Question::confirm(&title, &question)?.confirm_labels(&labels)?;
         let request = self.ui()?.ask(host, asked, &mut input, &mut output)?;
         self.asked = Some((request, Purpose::Reset));
@@ -430,13 +436,19 @@ impl NativeKeys {
             Some(Pick::Action(at)) => Some(copy(&view.actions[*at].id)?),
             _ => return Ok(()),
         };
-        let (input, layers) = (copy(&view.input)?, view.layers.clone());
+        let (input, layers) = (copy(&view.input)?, mem::copy_strings(&view.layers)?);
         let mut reader = Reader::open(host)?;
         let facts = (|| Ok((reader.inputs()?, reader.bindings(&layers)?)))();
         let (inputs, bindings) = reader.finish(facts)?;
-        let mut scratch = buffer(1024)?;
+        let mut scratch = buffer(SERVICE_BUFFER)?;
         let mut messages = Messages::new()?;
-        let refusal = model::refused(&ids(&inputs), &bindings, &layers, &input, action.as_deref());
+        let refusal = model::refused(
+            &ids(&inputs)?,
+            &bindings,
+            &layers,
+            &input,
+            action.as_deref(),
+        )?;
         let mut commands = CommandSender::new(host, &mut scratch);
         if let Some(message) = refusal {
             let text = messages.copy(host, message)?;
@@ -459,8 +471,8 @@ impl NativeKeys {
         let mut messages = Messages::new()?;
         let title = messages.copy(host, "keys.search")?;
         let query = copy(&view.query)?;
-        let mut input = buffer(1024)?;
-        let mut output = buffer(256)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
         let request = self
             .ui()?
             .ask(host, Question::text(&title, "")?, &mut input, &mut output)?;
@@ -505,12 +517,8 @@ impl NativeKeys {
                 self.reset(host)
             }
             Purpose::Search(instance) => {
-                let mut input = buffer(512)?;
-                let mut output = buffer(1536)?;
-                let part =
-                    self.ui()?
-                        .text_read(host, request.text(), 0, &mut input, &mut output)?;
-                let query = copy(part.data().trim())?;
+                let words = uitext::read_all(self.ui()?, host, request.text(), SEARCH_LIMIT)?;
+                let query = copy(words.trim())?;
                 let mut messages = Messages::new()?;
                 if let Some(View::Pick(view)) = self.screens.get(instance) {
                     view.query = query;
@@ -529,7 +537,7 @@ impl NativeKeys {
         let mut reader = Reader::open(host)?;
         let changes = reader.policy_layers_and_changes();
         let changes = reader.finish(changes);
-        let mut scratch = buffer(1024)?;
+        let mut scratch = buffer(SERVICE_BUFFER)?;
         let mut commands = CommandSender::new(host, &mut scratch);
         let key = match &changes {
             Ok(_) => "keys.reset.done",
@@ -546,8 +554,8 @@ impl NativeKeys {
     }
 }
 
-fn ids(inputs: &[Named]) -> Vec<String> {
-    inputs.iter().map(|i| i.id.clone()).collect()
+fn ids(inputs: &[Named]) -> Result<Vec<String>, Error> {
+    mem::collect(inputs.iter().map(|i| copy(&i.id)))
 }
 
 fn split_layers(layers: &str) -> Result<Vec<String>, Error> {
@@ -568,7 +576,7 @@ fn input_name(
 ) -> Result<String, Error> {
     let (kind, name) = input.split_once('.').unwrap_or((input, ""));
     let part = |messages: &mut Messages, prefix: &str| {
-        messages.copy(host, &format!("keys.{prefix}.{name}"))
+        messages.copy(host, &concat(&["keys.", prefix, ".", name])?)
     };
     let with = |messages: &mut Messages, key: &str, arg: &'static str, value: &str| {
         messages.format(host, key, &[Arg::Text { name: arg, value }])
@@ -577,11 +585,11 @@ fn input_name(
         "button" => part(messages, "button"),
         "long" | "double" => {
             let button = part(messages, "button")?;
-            with(messages, &format!("keys.{kind}"), "input", &button)
+            with(messages, &concat(&["keys.", kind])?, "input", &button)
         }
         "tap" | "double-tap" | "long-tap" => {
             let zone = part(messages, "zone")?;
-            with(messages, &format!("keys.{kind}"), "zone", &zone)
+            with(messages, &concat(&["keys.", kind])?, "zone", &zone)
         }
         "tap2" => messages.copy(host, "keys.tap2"),
         "swipe" | "edge" | "pinch" => part(messages, kind),
@@ -598,16 +606,15 @@ impl ListView {
         &self.places[self.place.min(self.places.len().saturating_sub(1))]
     }
 
-    fn choose_place(&mut self, place: Place) {
+    fn choose_place(&mut self, place: Place) -> Result<(), Error> {
         match self.places.iter().position(|p| p.layer() == place.layer()) {
             Some(at) => self.place = at,
             None => {
-                if self.places.try_reserve(1).is_ok() {
-                    self.places.push(place);
-                    self.place = self.places.len() - 1;
-                }
+                push(&mut self.places, place)?;
+                self.place = self.places.len() - 1;
             }
         }
+        Ok(())
     }
 
     fn rebuild(
@@ -616,10 +623,10 @@ impl ListView {
         reader: &mut Reader<'_, '_>,
         messages: &mut Messages,
     ) -> Result<(), Error> {
-        let layers = self.place().layers.clone();
+        let layers = mem::copy_strings(&self.place().layers)?;
         let bindings = reader.bindings(&layers)?;
         let actions = reader.actions()?;
-        let all = ids(&self.inputs);
+        let all = ids(&self.inputs)?;
         let everywhere = self.place().everywhere();
         let mut rows = Vec::new();
         let mut items = Vec::new();
@@ -652,13 +659,13 @@ impl ListView {
                 Row::Policy,
                 Item::noted(
                     &messages.copy(host, "keys.policy")?,
-                    &messages.copy(host, &format!("keys.{now}"))?,
-                    &messages.copy(host, &format!("keys.{now}.help"))?,
+                    &messages.copy(host, &concat(&["keys.", now])?)?,
+                    &messages.copy(host, &concat(&["keys.", now, ".help"])?)?,
                 )?,
             )?;
         }
         let nothing = messages.copy(host, "core.action.nothing")?;
-        for section in model::sections(&all) {
+        for section in model::sections(&all)? {
             add(
                 Row::Heading,
                 Item::heading(&messages.copy(host, section.heading)?)?,
@@ -718,7 +725,7 @@ impl PickView {
         let mut sets: [Vec<String>; 2] = [Vec::new(), Vec::new()];
         for (set, menus) in sets.iter_mut().zip(groups) {
             for menu in menus {
-                set.extend(reader.menu_items(menu)?);
+                mem::extend(set, reader.menu_items(menu)?)?;
             }
         }
         for named in reader.actions()? {
@@ -733,18 +740,17 @@ impl PickView {
                 group,
             });
         }
-        self.actions
-            .sort_by_cached_key(|a| (a.group, a.title.to_lowercase()));
+        mem::stable_sort_by(&mut self.actions, |a, b| {
+            a.group
+                .cmp(&b.group)
+                .then_with(|| paperpaw_ui_kit::text::cmp_lowercase(&a.title, &b.title))
+        });
         Ok(())
     }
 
     fn build(&mut self, host: &Host<'_>, messages: &mut Messages) -> Result<(), Error> {
-        let words: Vec<String> = self
-            .query
-            .to_lowercase()
-            .split_whitespace()
-            .map(String::from)
-            .collect();
+        let query = mem::lowercase(&self.query)?;
+        let words = mem::collect(query.split_whitespace().map(Ok))?;
         let mut entries = Vec::new();
         let mut items = Vec::new();
         let mut add = |entry: Pick, item: Item| -> Result<(), Error> {
@@ -770,8 +776,8 @@ impl PickView {
         }
         let mut group = None;
         for (at, action) in self.actions.iter().enumerate() {
-            let name = action.title.to_lowercase();
-            if !words.iter().all(|w| name.contains(w.as_str())) {
+            let name = mem::lowercase(&action.title)?;
+            if !words.iter().all(|w| name.contains(*w)) {
                 continue;
             }
             if group != Some(action.group) {

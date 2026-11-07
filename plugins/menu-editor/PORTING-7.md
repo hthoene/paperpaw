@@ -42,3 +42,21 @@ Pending cases are `#[ignore]`d refusals in `tests/acceptance_pending.rs`; they n
   because the snapshot gives no display gray levels.
 - Legacy `Plugin` registration and the app's `offered(.., MenuEditor)` stay until
   the host activates native plugins; then they are removed together (no shim).
+
+## Robustness (review of PR #317)
+
+- `core.ui` opens in the first live callback, not in `make` (construction has no
+  frame); `tests/hosted_construction.rs` constructs in the kernel's real registered
+  scope. Today the host refuses that construction with `Unsupported` because it
+  admits screen declarations only (#310); the positive case is an ignored refusal.
+- Every allocation on the callback paths is reserved first (`paperpaw_ui_kit::mem`,
+  `text::concat`); allocator-failure sweeps (`plugins/test-support/fail_alloc.rs`)
+  refuse each allocation in turn for the model/store code and the kit and require
+  `NoMemory` and recovery. Views and dialog state that call the host are not covered
+  by a sweep: that needs the host's UI service (H1-H4).
+- `core.ui` calls use 4096-byte buffers (the schema's reply capacity). Registry
+  readers allocate their buffers before opening the handle.
+- Peak memory on the X4 (buffers, paint operations, rows) is not measured: device gate open.
+- Handover indices are digits that fit a `usize` and are in range for the entry, else the
+  screen is refused before a view is installed; moves use checked arithmetic. Candidates
+  are ordered by an in-place stable insertion sort (no scratch).

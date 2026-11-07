@@ -4,13 +4,7 @@
 //! outlive their callback. The host stays authoritative: a rejected edit leaves
 //! the old view in place until the registry publishes the new menu.
 use crate::native_menu::{Candidate, ListRenderer, MenuGraph, ScreenState};
-use alloc::{format, string::String, vec::Vec};
-use paperpaw_ui_kit::{
-    ListFocus, ListInput, Messages, Style, focus,
-    list::row as prepare_row,
-    paint::{self, Paint},
-    text,
-};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
     native::{
@@ -25,6 +19,12 @@ use paperpaw_sdk::{
         snapshot,
         ui::{Instance, Ui},
     },
+};
+use paperpaw_ui_kit::{
+    ListFocus, ListInput, Messages, Style, focus,
+    list::row as prepare_row,
+    paint::{self, Paint},
+    text,
 };
 
 mod image {
@@ -148,10 +148,8 @@ impl Plugin for NativeMenuEditor {
         {
             registrations::submit(host, batch)?;
         }
-        Ok(Self {
-            ui: Some(Ui::open(host)?),
-            ..Self::default()
-        })
+        // The UI service is opened by the first callback: opening needs a live frame.
+        Ok(Self::default())
     }
 
     fn event(
@@ -161,6 +159,7 @@ impl Plugin for NativeMenuEditor {
         event: Event<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        self.ensure_ui(host)?;
         match event {
             Event::ActionRun {
                 action: "menu-editor.open",
@@ -211,6 +210,7 @@ impl Plugin for NativeMenuEditor {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ensure_ui(host)?;
         let Some(at) = self.top_index(token) else {
             return Ok(Handled::No);
         };
@@ -288,6 +288,14 @@ enum Edit {
 }
 
 impl NativeMenuEditor {
+    /// Opens `core.ui` in the first live callback; the handle serves later ones.
+    fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
     fn close_top(&self, host: &Host<'_>) -> Result<(), Error> {
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).back()
@@ -407,6 +415,15 @@ impl View {
                 list: Rows::default(),
             },
         };
+        if let Self::Entry { menu, index, .. } = &view
+            && !graph
+                .menus()
+                .iter()
+                .find(|m| m.id() == menu.as_str())
+                .is_some_and(|m| *index < m.entries().len())
+        {
+            return Err(Error::Invalid);
+        }
         view.refresh(host, graph, None)?;
         Ok(view)
     }
@@ -433,7 +450,7 @@ impl View {
                     } else {
                         String::new()
                     };
-                    rows.push(&name, &format!("{changed} ›"))?;
+                    rows.push(&name, &text::concat(&[&changed, " ›"])?)?;
                     found.try_reserve(1).map_err(|_| Error::NoMemory)?;
                     found.push(text::copy(menu.id())?);
                 }
@@ -525,7 +542,7 @@ impl View {
                         }],
                     )?
                 }
-                None if candidate.is_menu() => String::from("›"),
+                None if candidate.is_menu() => text::copy("›")?,
                 None => String::new(),
             };
             rows.push(candidate.title(), &beside)?;
@@ -596,7 +613,7 @@ impl View {
                 style.ink,
             ),
         )?;
-        let title_area = Rect::new(0, region.y + style.gap, width, style.row);
+        let title_area = Rect::new(0, region.y.saturating_add(style.gap), width, style.row);
         let room = f32::from(width) - 2.0 * f32::from(style.margin);
         let fitted = text::fit(&font, style.title, title, room)?;
         text::label(
@@ -609,7 +626,7 @@ impl View {
             style.ink,
             None,
         )?;
-        let top = region.y + style.row + style.gap;
+        let top = region.y.saturating_add(style.row).saturating_add(style.gap);
         *options = (top, style.row);
         if refused {
             let message = Self::text(host, "menu-editor.locked")?;
@@ -741,11 +758,14 @@ impl View {
                         from: index,
                         to: index - 1,
                     }),
-                    1 => Outcome::Edit(Edit::Move {
-                        menu,
-                        from: index,
-                        to: index + 1,
-                    }),
+                    1 => match index.checked_add(1) {
+                        Some(to) => Outcome::Edit(Edit::Move {
+                            menu,
+                            from: index,
+                            to,
+                        }),
+                        None => Outcome::Back,
+                    },
                     2 => Outcome::Edit(Edit::Remove { menu, index }),
                     _ => Outcome::Back,
                 })
@@ -793,7 +813,7 @@ fn entry_step(
                 EntryStep::Focus(focus.saturating_sub(1))
             }
             "core.down" | "core.right" | "core.next" | "core.next-page" => {
-                EntryStep::Focus((focus + 1).min(OPTIONS.len() - 1))
+                EntryStep::Focus(focus.saturating_add(1).min(OPTIONS.len() - 1))
             }
             _ => EntryStep::Ignored,
         },
@@ -803,7 +823,7 @@ fn entry_step(
             ..
         } if region.contains(position) => {
             let (top, high) = options;
-            let below = position.y - i32::from(top);
+            let below = position.y.saturating_sub(i32::from(top));
             if refused {
                 EntryStep::Chosen(OPTIONS.len() - 1)
             } else if below >= 0 && high > 0 && (below as usize / usize::from(high)) < OPTIONS.len()

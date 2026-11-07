@@ -312,8 +312,11 @@ impl ItemList {
                 f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
                 4,
             )?;
-            let line = font.read_line_metrics(style.small)?.line_height;
-            let high = (style.row * 3 / 2).max(style.line + (line * lines.len() as f32) as u16 + 1);
+            let line = crate::geometry::line_height(&font, style.small)?;
+            let notes =
+                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
+            let high = (style.row.saturating_mul(3) / 2)
+                .max(style.line.saturating_add(notes).saturating_add(1));
             area.height = area.height.saturating_sub(high);
             note = Some((
                 Rect::new(0, height.saturating_sub(high), width, high),
@@ -327,7 +330,7 @@ impl ItemList {
         for item in &self.items {
             heights.push(item_height(&font, &style, width, item)?);
         }
-        let starts = paginate(&self.items, &heights, area.height);
+        let starts = paginate(&self.items, &heights, area.height)?;
         let page = starts
             .iter()
             .rposition(|start| *start <= self.focus)
@@ -397,13 +400,18 @@ fn draw_note(
         paint::push(
             paint,
             Paint::Fill(
-                Rect::new(rect.x + style.margin, rect.y, width, style.line),
+                Rect::new(
+                    rect.x.saturating_add(style.margin),
+                    rect.y,
+                    width,
+                    style.line,
+                ),
                 style.rule,
             ),
         )?;
     }
-    let line = font.read_line_metrics(style.small)?.line_height as u16;
-    let mut y = rect.y + style.line;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let mut y = rect.y.saturating_add(style.line);
     for text in lines {
         let area = Rect::new(rect.x, y, rect.width, line);
         text::label(
@@ -432,10 +440,12 @@ fn draw_empty(
 ) -> Result<(), Error> {
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
     let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
-    let head = font.read_line_metrics(style.title)?.line_height as u16;
-    let line = font.read_line_metrics(style.small)?.line_height as u16;
-    let total = head + style.gap + line * lines.len() as u16;
-    let mut y = area.y + area.height.saturating_sub(total) / 2;
+    let head = crate::geometry::line_px(font, style.title)?;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let total = crate::geometry::clamp_u16(
+        i64::from(head) + i64::from(style.gap) + i64::from(line) * lines.len() as i64,
+    );
+    let mut y = area.y.saturating_add(area.height.saturating_sub(total) / 2);
     let centred = |font: &Font<'_>, size: f32, text: &str| -> Result<f32, Error> {
         Ok((f32::from(area.width) - font.measure_text(size, text)?).max(0.0) / 2.0)
     };
@@ -451,7 +461,7 @@ fn draw_empty(
         style.ink,
         None,
     )?;
-    y = y.saturating_add(head + style.gap);
+    y = y.saturating_add(head.saturating_add(style.gap));
     for text in &lines {
         let x = centred(font, style.small, text)?;
         text::label(
@@ -471,21 +481,31 @@ fn draw_empty(
 
 /// Where each page starts: items are placed one after the other and a page
 /// ends where the next does not fit. A heading never ends a page alone.
-#[must_use]
-pub fn paginate(items: &[Item], heights: &[u16], room: u16) -> Vec<usize> {
-    let mut starts = Vec::from([0]);
+///
+/// # Errors
+/// [`Error::Invalid`] when `heights` and `items` differ in length;
+/// [`Error::NoMemory`] when a start cannot be recorded. Nothing is returned
+/// partially.
+pub fn paginate(items: &[Item], heights: &[u16], room: u16) -> Result<Vec<usize>, Error> {
+    if items.len() != heights.len() {
+        return Err(Error::Invalid);
+    }
+    let mut starts = Vec::new();
+    starts.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    starts.push(0);
     let mut used = 0u32;
     for (index, high) in heights.iter().enumerate() {
         let first = starts.last().copied().unwrap_or(0);
         if used + u32::from(*high) > u32::from(room) && index > first {
             let orphan = index > first + 1 && matches!(items[index - 1], Item::Heading(_));
             let start = if orphan { index - 1 } else { index };
+            starts.try_reserve(1).map_err(|_| Error::NoMemory)?;
             starts.push(start);
             used = heights[start..index].iter().map(|h| u32::from(*h)).sum();
         }
         used += u32::from(*high);
     }
-    starts
+    Ok(starts)
 }
 
 fn item_height(font: &Font<'_>, style: &Style, width: u16, item: &Item) -> Result<u16, Error> {
@@ -494,10 +514,12 @@ fn item_height(font: &Font<'_>, style: &Style, width: u16, item: &Item) -> Resul
         Item::Row(row) if row.note.is_empty() => Ok(style.row),
         Item::Row(row) => {
             let lines = note_lines(font, style, width, &row.note, row.zone.is_some())?;
-            let line = font.read_line_metrics(style.small)?.line_height;
+            let line = crate::geometry::line_height(font, style.small)?;
+            let notes =
+                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
             Ok(style
                 .row
-                .saturating_add((line * lines.len() as f32) as u16)
+                .saturating_add(notes)
                 .saturating_add(style.gap / 2))
         }
     }
@@ -534,10 +556,13 @@ fn heading(
     rect: Rect,
     title: &str,
 ) -> Result<(), Error> {
-    let line = font.read_line_metrics(style.small)?.line_height as u16;
+    let line = crate::geometry::line_px(font, style.small)?;
     let area = Rect::new(
         rect.x,
-        rect.y + rect.height.saturating_sub(line + style.gap / 2),
+        rect.y.saturating_add(
+            rect.height
+                .saturating_sub(line.saturating_add(style.gap / 2)),
+        ),
         rect.width.saturating_sub(style.margin),
         line,
     );
@@ -568,8 +593,18 @@ fn draw_row(
     if let Some(zone) = row.zone {
         let shift = zone_room(style).min(rect.width);
         zone_picture(paint, style, band, zone, ink)?;
-        band = Rect::new(band.x + shift, band.y, band.width - shift, band.height);
-        note_at = Rect::new(rect.x + shift, rect.y, rect.width - shift, rect.height);
+        band = Rect::new(
+            band.x.saturating_add(shift),
+            band.y,
+            band.width.saturating_sub(shift),
+            band.height,
+        );
+        note_at = Rect::new(
+            rect.x.saturating_add(shift),
+            rect.y,
+            rect.width.saturating_sub(shift),
+            rect.height,
+        );
     }
     columns(paint, font, style, band, &row.title, &row.value, ink)?;
     if row.note.is_empty() {
@@ -581,8 +616,8 @@ fn draw_row(
         style.note
     };
     let lines = note_lines(font, style, rect.width, &row.note, row.zone.is_some())?;
-    let line = font.read_line_metrics(style.small)?.line_height as u16;
-    let mut y = band.y + band.height;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let mut y = band.y.saturating_add(band.height);
     for text in &lines {
         let area = Rect::new(note_at.x, y, note_at.width, line);
         text::label(
@@ -686,19 +721,26 @@ mod tests {
     fn a_heading_never_ends_a_page_alone() {
         let list = items("rrhrr");
         // Three rows fit; the heading would be last of the first page.
-        let starts = paginate(&list, &[10, 10, 10, 10, 10], 30);
+        let starts = paginate(&list, &[10, 10, 10, 10, 10], 30).unwrap();
         assert_eq!(starts, [0, 2]);
         // A page that ends before the heading is left as it is.
-        let starts = paginate(&list, &[10, 10, 10, 10, 10], 20);
+        let starts = paginate(&list, &[10, 10, 10, 10, 10], 20).unwrap();
         assert_eq!(starts, [0, 2, 4]);
+    }
+
+    #[test]
+    fn pagination_survives_every_refused_allocation() {
+        let list = items("rrhrrrhrr");
+        crate::fail_alloc::sweep(|| paginate(&list, &[10; 9], 20).map(|starts| starts.len()));
     }
 
     #[test]
     fn pages_follow_the_heights() {
         let list = items("rrrr");
-        assert_eq!(paginate(&list, &[10, 25, 10, 10], 30), [0, 1, 2]);
-        assert_eq!(paginate(&list, &[40, 40], 30), [0, 1]);
-        assert_eq!(paginate(&[], &[], 30), [0]);
+        assert_eq!(paginate(&list, &[10, 25, 10, 10], 30).unwrap(), [0, 1, 2]);
+        assert_eq!(paginate(&items("rr"), &[40, 40], 30).unwrap(), [0, 1]);
+        assert_eq!(paginate(&list, &[40, 40], 30), Err(Error::Invalid));
+        assert_eq!(paginate(&[], &[], 30).unwrap(), [0]);
     }
 
     #[test]

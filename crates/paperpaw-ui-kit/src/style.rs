@@ -81,15 +81,15 @@ impl Style {
         let base = integer(host, UI_SIZE)?.clamp(6, 40) as f32;
         let text = pt(base);
         let small = pt(base * 0.75);
-        let line_height = font.read_line_metrics(text)?.line_height;
+        let line_height = crate::geometry::line_height(font, text)?;
         let rows = integer(host, UI_ROW)?.clamp(120, 300) as f32 / 100.0;
         let control_row = line_height * rows;
-        let least_line = font.read_line_metrics(small * 0.7)?.line_height;
+        let least_line = crate::geometry::line_height(font, small * 0.7)?;
         let row = if 2.0 * least_line > control_row {
             if base < 10.0 {
                 control_row.max(2.0 * least_line + tenth(6) as f32)
             } else {
-                control_row.max(2.0 * font.read_line_metrics(small)?.line_height + tenth(20) as f32)
+                control_row.max(2.0 * crate::geometry::line_height(font, small)? + tenth(20) as f32)
             }
         } else {
             control_row
@@ -148,13 +148,16 @@ impl Style {
             rule: color("rule", Color::gray(150)),
             muted: faint("muted", Color::gray(90)),
             note: faint("note", Color::gray(60)),
-            heading: (font.read_line_metrics(small)?.line_height * 1.25) as u16 + gap,
+            heading: narrow(
+                (crate::geometry::line_height(font, small)? * 1.25) as u32 + u32::from(gap),
+            ),
         })
     }
 }
 
+/// A length in pixels, capped at [`crate::geometry::MAX_PX`] so sums of a few never wrap.
 fn narrow(value: u32) -> u16 {
-    u16::try_from(value).unwrap_or(u16::MAX)
+    value.min(crate::geometry::MAX_PX as u32) as u16
 }
 
 fn palette_color(palette: &str, name: &str, default: Color) -> Color {

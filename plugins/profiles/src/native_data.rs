@@ -1,7 +1,6 @@
 //! The settings a profile keeps, read from and applied through the host.
 use crate::store::{Kind, Profile, Value};
 use alloc::{string::String, vec::Vec};
-use paperpaw_ui_kit::{rows, text::copy};
 use paperpaw_sdk::builtin::{groups, settings};
 use paperpaw_sdk::native::{
     Error, Host,
@@ -9,11 +8,12 @@ use paperpaw_sdk::native::{
     registry::{Registry, RegistrySettingKind},
     settings::SettingValue,
 };
+use paperpaw_ui_kit::{rows, text::copy};
 
 /// The groups whose settings a profile keeps: everything about reading, the
 /// display and the status lines.
 /// A setting a profile keeps and its value now.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Current {
     /// Its id.
     pub key: String,
@@ -41,11 +41,14 @@ fn buffer(len: usize) -> Result<Vec<u8>, Error> {
 
 impl<'h, 'cb> Reader<'h, 'cb> {
     pub fn open(host: &'h Host<'cb>) -> Result<Self, Error> {
+        // Buffers first: a refused allocation must not leave a registry handle open.
+        let input = buffer(512)?;
+        let output = buffer(4096)?;
         Ok(Self {
             host,
             registry: Registry::open(host)?,
-            input: buffer(512)?,
-            output: buffer(4096)?,
+            input,
+            output,
         })
     }
 
@@ -136,11 +139,11 @@ impl<'h, 'cb> Reader<'h, 'cb> {
             };
             let mut kind = now.kind;
             // Bounds only where the value differs: most do not.
-            if matches!(kind, Kind::Int { .. }) && now.value.to_text() != *text {
+            if matches!(kind, Kind::Int { .. }) && !now.value.text_is(text) {
                 let (min, max) = self.bounds(key)?;
                 kind = Kind::Int { min, max };
             }
-            let Some(value) = Value::parse(kind, text) else {
+            let Some(value) = Value::parse(kind, text)? else {
                 continue;
             };
             if value != now.value {

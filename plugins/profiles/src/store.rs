@@ -1,10 +1,15 @@
 //! The file of profiles (`profiles.ini`, version 2) and what a profile's
-//! values are, without the host.
-use alloc::{format, string::String, vec::Vec};
-use paperpaw_sdk::config;
+//! values are, without the host. Every growth is reserved first: a refused
+//! allocation is `Error::NoMemory` and leaves the caller's state as it was.
+use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::{config, native::Error};
+use paperpaw_ui_kit::{
+    mem::push,
+    text::{cmp_lowercase, concat, copy},
+};
 
 /// A named set of setting values.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Profile {
     /// Its name.
     pub name: String,
@@ -12,25 +17,98 @@ pub struct Profile {
     pub values: Vec<(String, String)>,
 }
 
+impl Profile {
+    /// A copy made with fallible allocation.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(self.values.len())
+            .map_err(|_| Error::NoMemory)?;
+        for (id, value) in &self.values {
+            values.push((copy(id)?, copy(value)?));
+        }
+        Ok(Self {
+            name: copy(&self.name)?,
+            values,
+        })
+    }
+}
+
 /// The file's version this plugin writes.
 const VERSION: u32 = 2;
 
+/// A string grown only after its room is reserved.
+struct Out(String);
+
+impl Out {
+    fn put(&mut self, text: &str) -> Result<(), Error> {
+        self.0
+            .try_reserve(text.len())
+            .map_err(|_| Error::NoMemory)?;
+        self.0.push_str(text);
+        Ok(())
+    }
+
+    fn put_char(&mut self, c: char) -> Result<(), Error> {
+        self.0
+            .try_reserve(c.len_utf8())
+            .map_err(|_| Error::NoMemory)?;
+        self.0.push(c);
+        Ok(())
+    }
+
+    /// `value` as `config::quote` writes it: quoted and escaped where it would
+    /// not survive unquoted.
+    fn put_quoted(&mut self, value: &str) -> Result<(), Error> {
+        let plain = !value.is_empty()
+            && value.trim() == value
+            && !value.starts_with('"')
+            && !value.contains(['\n', '\r']);
+        if plain {
+            return self.put(value);
+        }
+        self.put_char('"')?;
+        for c in value.chars() {
+            match c {
+                '"' => self.put("\\\"")?,
+                '\\' => self.put("\\\\")?,
+                '\n' => self.put("\\n")?,
+                '\t' => self.put("\\t")?,
+                '\r' => {}
+                c => self.put_char(c)?,
+            }
+        }
+        self.put_char('"')
+    }
+
+    fn put_number(&mut self, number: u64) -> Result<(), Error> {
+        let mut digits = [0; 20];
+        self.put(paperpaw_ui_kit::text::decimal_u64(number, &mut digits))
+    }
+}
+
 /// Version 1 to 2: the names out of the section headers (version 1 had the
 /// name as the section, `[Night]`, which an ini file cannot hold with spaces).
-fn upgrade_names(v1: &str) -> String {
+fn upgrade_names(v1: &str) -> Result<String, Error> {
     let mut profiles: Vec<Profile> = Vec::new();
     for line in v1.lines() {
         let line = line.trim();
         if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            profiles.push(Profile {
-                name: name.trim().into(),
-                values: Vec::new(),
-            });
+            push(
+                &mut profiles,
+                Profile {
+                    name: copy(name.trim())?,
+                    values: Vec::new(),
+                },
+            )?;
         } else if let (Some(profile), Some((id, value))) =
             (profiles.last_mut(), line.split_once('='))
             && is_id(id.trim())
         {
-            profile.values.push((id.trim().into(), value.trim().into()));
+            push(&mut profile.values, (copy(id.trim())?, copy(value.trim())?))?;
         }
     }
     text(&profiles)
@@ -46,86 +124,192 @@ pub fn is_id(id: &str) -> bool {
 }
 
 /// The profiles as the file's text (without its version).
-fn text(profiles: &[Profile]) -> String {
-    let mut text = String::new();
+fn text(profiles: &[Profile]) -> Result<String, Error> {
+    let mut out = Out(String::new());
     for (i, profile) in profiles.iter().enumerate() {
         if i > 0 {
-            text.push('\n');
+            out.put_char('\n')?;
         }
-        text.push_str(&format!("[profile.{}]\n", i + 1));
-        text.push_str(&format!("name = {}\n", config::quote(&profile.name)));
+        out.put("[profile.")?;
+        out.put_number(i as u64 + 1)?;
+        out.put("]\nname = ")?;
+        out.put_quoted(&profile.name)?;
+        out.put_char('\n')?;
         for (id, value) in &profile.values {
-            text.push_str(&format!("{id} = {}\n", config::quote(value)));
+            out.put(id)?;
+            out.put(" = ")?;
+            out.put_quoted(value)?;
+            out.put_char('\n')?;
         }
     }
-    text
+    Ok(out.0)
 }
 
 /// The file's text for `profiles`: its version, then the profiles.
-#[must_use]
-pub fn encode(profiles: &[Profile]) -> String {
-    format!("# format {VERSION}\n{}", text(profiles))
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn encode(profiles: &[Profile]) -> Result<String, Error> {
+    encode_within(profiles, usize::MAX)
+}
+
+/// The file's text for `profiles`, refused when it would be longer than `limit`
+/// bytes: what is written must be what [`decode`]'s reader accepts.
+///
+/// # Errors
+/// [`Error::NoSpace`] beyond `limit`, [`Error::NoMemory`].
+pub fn encode_within(profiles: &[Profile], limit: usize) -> Result<String, Error> {
+    let body = text(profiles)?;
+    let mut digits = [0; 20];
+    let head = concat(&[
+        "# format ",
+        paperpaw_ui_kit::text::decimal(VERSION as usize, &mut digits),
+        "\n",
+    ])?;
+    let len = head.len().checked_add(body.len()).ok_or(Error::NoSpace)?;
+    if len > limit {
+        return Err(Error::NoSpace);
+    }
+    let mut out = Out(head);
+    out.put(&body)?;
+    Ok(out.0)
 }
 
 /// The profiles of a file; `None` where it cannot be read as one (a newer
 /// version, or not text): then nothing may be saved over it.
-#[must_use]
-pub fn decode(bytes: &[u8]) -> Option<Vec<Profile>> {
-    let source = core::str::from_utf8(bytes).ok()?;
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn decode(bytes: &[u8]) -> Result<Option<Vec<Profile>>, Error> {
+    let Ok(source) = core::str::from_utf8(bytes) else {
+        return Ok(None);
+    };
     let version = source
         .lines()
         .next()
         .and_then(|l| l.strip_prefix("# format "))
-        .map_or(Some(1), |v| v.trim().parse::<u32>().ok())?;
+        .map_or(Some(1), |v| v.trim().parse::<u32>().ok());
     match version {
-        1 => Some(parse(&upgrade_names(source))),
-        VERSION => Some(parse(source)),
-        _ => None,
+        Some(1) => parse(&upgrade_names(source)?).map(Some),
+        Some(VERSION) => parse(source).map(Some),
+        _ => Ok(None),
     }
 }
 
+/// A value's text with escapes resolved, as `config::Value::as_str` gives it.
+fn value_text(source: &str, value: config::Value<'_>) -> Result<String, Error> {
+    let raw = value.raw();
+    // A quoted value is the text between quotes: the byte before it is the quote.
+    let at = (raw.as_ptr() as usize).wrapping_sub(source.as_ptr() as usize);
+    let quoted = at > 0 && at <= source.len() && source.as_bytes()[at - 1] == b'"';
+    if !quoted || !raw.contains('\\') {
+        return copy(raw);
+    }
+    let mut out = Out(String::new());
+    out.0
+        .try_reserve_exact(raw.len())
+        .map_err(|_| Error::NoMemory)?;
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.put_char(c)?;
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.put_char('\n')?,
+            Some('t') => out.put_char('\t')?,
+            Some('u') => {
+                let rest = chars.as_str();
+                if let Some((c, len)) = unicode_escape(rest) {
+                    out.put_char(c)?;
+                    chars = rest[len..].chars();
+                }
+            }
+            Some(other) => out.put_char(other)?,
+            None => {}
+        }
+    }
+    Ok(out.0)
+}
+
+/// `{XXXX}` (1 to 6 hex digits): the character and the bytes it took.
+fn unicode_escape(s: &str) -> Option<(char, usize)> {
+    let body = s.strip_prefix('{')?;
+    let end = body.find('}')?;
+    let hex = &body[..end];
+    if hex.is_empty() || hex.len() > 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let code = u32::from_str_radix(hex, 16).ok()?;
+    Some((char::from_u32(code)?, end + 2))
+}
+
 /// The profiles of the file's text (in this version).
-fn parse(text: &str) -> Vec<Profile> {
+fn parse(text: &str) -> Result<Vec<Profile>, Error> {
     let mut profiles: Vec<(&str, Profile)> = Vec::new();
     for entry in config::parse(text).filter_map(Result::ok) {
         if !entry.section.starts_with("profile.") {
             continue;
         }
         if profiles.last().is_none_or(|(s, _)| *s != entry.section) {
-            profiles.push((
-                entry.section,
-                Profile {
-                    name: String::new(),
-                    values: Vec::new(),
-                },
-            ));
+            push(
+                &mut profiles,
+                (
+                    entry.section,
+                    Profile {
+                        name: String::new(),
+                        values: Vec::new(),
+                    },
+                ),
+            )?;
         }
         let Some((_, profile)) = profiles.last_mut() else {
             continue;
         };
-        let value = String::from(entry.value.as_str());
         if entry.key == "name" {
-            profile.name = value;
+            profile.name = value_text(text, entry.value)?;
         } else if is_id(entry.key) {
-            profile.values.push((entry.key.into(), value));
+            let value = value_text(text, entry.value)?;
+            push(&mut profile.values, (copy(entry.key)?, value))?;
         }
     }
-    profiles.into_iter().map(|(_, p)| p).collect()
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(profiles.len())
+        .map_err(|_| Error::NoMemory)?;
+    found.extend(profiles.into_iter().map(|(_, p)| p));
+    Ok(found)
 }
 
 /// Whether `a` and `b` name the same profile: as they read, whatever the case.
 #[must_use]
 pub fn same_name(a: &str, b: &str) -> bool {
-    a.to_lowercase() == b.to_lowercase()
+    cmp_lowercase(a, b).is_eq()
 }
 
 /// A name as typed: words joined by single spaces, without brackets; `None`
 /// where nothing is left.
-#[must_use]
-pub fn clean(name: &str) -> Option<String> {
-    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    let name = name.replace(['[', ']'], "");
-    (!name.trim().is_empty()).then(|| name.trim().into())
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn clean(name: &str) -> Result<Option<String>, Error> {
+    let mut out = Out(String::new());
+    out.0
+        .try_reserve_exact(name.len())
+        .map_err(|_| Error::NoMemory)?;
+    for (at, word) in name.split_whitespace().enumerate() {
+        if at > 0 {
+            out.put_char(' ')?;
+        }
+        for c in word.chars().filter(|c| !matches!(c, '[' | ']')) {
+            out.put_char(c)?;
+        }
+    }
+    let name = out.0.trim_end().len();
+    out.0.truncate(name);
+    let start = out.0.len() - out.0.trim_start().len();
+    out.0.drain(..start);
+    Ok((!out.0.is_empty()).then_some(out.0))
 }
 
 /// The kind of value a setting holds, as far as profiles care.
@@ -141,7 +325,7 @@ pub enum Kind {
 
 /// A value of the kind in the text of a configuration file, as the profile
 /// keeps it, or in the typed form: `None` where the setting does not take it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Value {
     /// A switch.
     Bool(bool),
@@ -153,33 +337,69 @@ pub enum Value {
 
 impl Value {
     /// How a profile keeps it.
-    #[must_use]
-    pub fn to_text(&self) -> String {
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn to_text(&self) -> Result<String, Error> {
         match self {
-            Self::Bool(true) => "on".into(),
-            Self::Bool(false) => "off".into(),
-            Self::Int(v) => format!("{v}"),
-            Self::Text(v) => v.clone(),
+            Self::Bool(true) => copy("on"),
+            Self::Bool(false) => copy("off"),
+            Self::Int(v) => {
+                let mut out = Out(String::new());
+                if *v < 0 {
+                    out.put_char('-')?;
+                }
+                out.put_number(v.unsigned_abs())?;
+                Ok(out.0)
+            }
+            Self::Text(v) => copy(v),
+        }
+    }
+
+    /// Whether [`Self::to_text`] would be `text`, without making it.
+    #[must_use]
+    pub fn text_is(&self, text: &str) -> bool {
+        match self {
+            Self::Bool(true) => text == "on",
+            Self::Bool(false) => text == "off",
+            Self::Int(v) => {
+                let mut digits = [0; 20];
+                let magnitude = paperpaw_ui_kit::text::decimal_u64(v.unsigned_abs(), &mut digits);
+                match text.strip_prefix('-') {
+                    Some(rest) => *v < 0 && rest == magnitude,
+                    None => *v >= 0 && text == magnitude,
+                }
+            }
+            Self::Text(v) => text == v,
         }
     }
 
     /// The value `text` is for a setting of `kind`, if it takes it.
-    #[must_use]
-    pub fn parse(kind: Kind, text: &str) -> Option<Self> {
-        match kind {
-            Kind::Bool => match text.trim().to_ascii_lowercase().as_str() {
-                "on" | "true" | "yes" | "1" => Some(Self::Bool(true)),
-                "off" | "false" | "no" | "0" => Some(Self::Bool(false)),
-                _ => None,
-            },
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn parse(kind: Kind, text: &str) -> Result<Option<Self>, Error> {
+        Ok(match kind {
+            Kind::Bool => {
+                let word = text.trim();
+                let is = |names: &[&str]| names.iter().any(|n| word.eq_ignore_ascii_case(n));
+                if is(&["on", "true", "yes", "1"]) {
+                    Some(Self::Bool(true))
+                } else if is(&["off", "false", "no", "0"]) {
+                    Some(Self::Bool(false))
+                } else {
+                    None
+                }
+            }
             Kind::Int { min, max } => text
                 .trim()
                 .parse::<i64>()
                 .ok()
                 .filter(|v| (min..=max).contains(v))
                 .map(Self::Int),
-            Kind::Choice => (!text.is_empty()).then(|| Self::Text(text.into())),
-        }
+            Kind::Choice if text.is_empty() => None,
+            Kind::Choice => Some(Self::Text(copy(text)?)),
+        })
     }
 }
 
@@ -205,15 +425,19 @@ mod tests {
 
     #[test]
     fn profiles_are_kept_whatever_their_names() {
-        assert!(decode(b"").unwrap().is_empty());
+        assert!(decode(b"").unwrap().unwrap().is_empty());
         let profiles = profiles();
-        let loaded = decode(encode(&profiles).as_bytes()).unwrap();
+        let loaded = decode(encode(&profiles).unwrap().as_bytes())
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded, profiles, "names with brackets and spaces too");
     }
 
     #[test]
     fn the_file_of_version_2_is_read_as_it_was_written() {
-        let loaded = decode(include_bytes!("../testdata/profiles.ini.v2")).unwrap();
+        let loaded = decode(include_bytes!("../testdata/profiles.ini.v2"))
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.len(), 3);
         assert_eq!(loaded[0].name, "Night reading");
         assert_eq!(loaded[1].name, "  Large [print] = big ");
@@ -224,14 +448,16 @@ mod tests {
         );
         // What this writes is what it read, byte for byte.
         assert_eq!(
-            encode(&loaded).as_bytes(),
+            encode(&loaded).unwrap().as_bytes(),
             include_bytes!("../testdata/profiles.ini.v2")
         );
     }
 
     #[test]
     fn files_of_version_1_are_read_and_written_as_version_2() {
-        let loaded = decode(include_bytes!("../testdata/profiles.ini.v1")).unwrap();
+        let loaded = decode(include_bytes!("../testdata/profiles.ini.v1"))
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].name, "Night");
         assert_eq!(
@@ -242,23 +468,29 @@ mod tests {
             ]
         );
         assert_eq!(loaded[1].name, "Large print");
-        let text = encode(&loaded);
+        let text = encode(&loaded).unwrap();
         assert!(text.starts_with("# format 2\n[profile.1]\nname = Night\n"));
-        assert_eq!(decode(text.as_bytes()).unwrap(), loaded);
+        assert_eq!(decode(text.as_bytes()).unwrap().unwrap(), loaded);
     }
 
     #[test]
     fn a_file_of_another_version_or_not_text_is_not_read() {
-        assert_eq!(decode(b"# format 3\n[profile.1]\nname = x\n"), None);
-        assert_eq!(decode(b"# format 0\n"), None);
-        assert_eq!(decode(b"# format x\n"), None);
-        assert_eq!(decode(&[0xff, 0xfe]), None);
+        assert_eq!(
+            decode(b"# format 3\n[profile.1]\nname = x\n").unwrap(),
+            None
+        );
+        assert_eq!(decode(b"# format 0\n").unwrap(), None);
+        assert_eq!(decode(b"# format x\n").unwrap(), None);
+        assert_eq!(decode(&[0xff, 0xfe]).unwrap(), None);
     }
 
     #[test]
     fn names_are_tidied_and_compared_without_case() {
-        assert_eq!(clean("  Night   [mode] "), Some("Night mode".into()));
-        assert_eq!(clean(" [ ] "), None);
+        assert_eq!(
+            clean("  Night   [mode] ").unwrap(),
+            Some("Night mode".into())
+        );
+        assert_eq!(clean(" [ ] ").unwrap(), None);
         assert!(same_name("NIGHT", "night"));
         assert!(!same_name("Night", "Nights"));
     }
@@ -266,18 +498,103 @@ mod tests {
     #[test]
     fn values_are_taken_only_where_the_setting_accepts_them() {
         let int = Kind::Int { min: 6, max: 40 };
-        assert_eq!(Value::parse(Kind::Bool, "on"), Some(Value::Bool(true)));
-        assert_eq!(Value::parse(Kind::Bool, "Off"), Some(Value::Bool(false)));
-        assert_eq!(Value::parse(Kind::Bool, "maybe"), None);
-        assert_eq!(Value::parse(int, "12"), Some(Value::Int(12)));
-        assert_eq!(Value::parse(int, "41"), None);
-        assert_eq!(Value::parse(int, "x"), None);
         assert_eq!(
-            Value::parse(Kind::Choice, "core.contrast.strong"),
+            Value::parse(Kind::Bool, "on").unwrap(),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(
+            Value::parse(Kind::Bool, "Off").unwrap(),
+            Some(Value::Bool(false))
+        );
+        assert_eq!(Value::parse(Kind::Bool, "maybe").unwrap(), None);
+        assert_eq!(Value::parse(int, "12").unwrap(), Some(Value::Int(12)));
+        assert_eq!(Value::parse(int, "41").unwrap(), None);
+        assert_eq!(Value::parse(int, "x").unwrap(), None);
+        assert_eq!(
+            Value::parse(Kind::Choice, "core.contrast.strong").unwrap(),
             Some(Value::Text("core.contrast.strong".into()))
         );
-        assert_eq!(Value::parse(Kind::Choice, ""), None);
-        assert_eq!(Value::Bool(true).to_text(), "on");
-        assert_eq!(Value::Int(-3).to_text(), "-3");
+        assert_eq!(Value::parse(Kind::Choice, "").unwrap(), None);
+        assert_eq!(Value::Bool(true).to_text().unwrap(), "on");
+        assert_eq!(Value::Int(-3).to_text().unwrap(), "-3");
+    }
+
+    #[test]
+    fn the_limit_is_checked_before_anything_is_written() {
+        let profiles = profiles();
+        let size = encode(&profiles).unwrap().len();
+        assert_eq!(encode_within(&profiles, size).unwrap().len(), size);
+        assert_eq!(encode_within(&profiles, size - 1), Err(Error::NoSpace));
+    }
+
+    #[test]
+    fn numbers_keep_their_text_at_the_ends_of_the_range() {
+        for v in [0, -1, 7, i64::MIN, i64::MAX] {
+            let value = Value::Int(v);
+            let text = value.to_text().unwrap();
+            assert_eq!(text, alloc::format!("{v}"));
+            assert!(value.text_is(&text));
+            assert!(!value.text_is(&alloc::format!(" {text}")));
+        }
+        assert!(!Value::Int(5).text_is("-5"));
+        assert!(!Value::Int(-5).text_is("5"));
+    }
+
+    mod against_the_config_crate {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// What is written and read back is what the standard quoting and
+            /// unescaping make of any value.
+            #[test]
+            fn values_are_written_and_read_as_the_config_crate_does(
+                name in "[ -~\\n\\t\\r\u{e4}\u{1f600}]{0,24}",
+                value in "[ -~\\n\\t\\r\u{e4}\u{1f600}]{0,24}",
+            ) {
+                let profile = Profile {
+                    name: name.clone(),
+                    values: Vec::from([(String::from("core.x-y"), value.clone())]),
+                };
+                let mut out = Out(String::new());
+                out.put_quoted(&name).unwrap();
+                prop_assert_eq!(out.0.as_str(), &*config::quote(&name));
+                let file = encode(core::slice::from_ref(&profile)).unwrap();
+                let read = decode(file.as_bytes()).unwrap().unwrap();
+                prop_assert_eq!(read.len(), 1);
+                // The same reading the standard accessor gives.
+                let expected: Vec<_> = config::parse(&file)
+                    .filter_map(Result::ok)
+                    .filter(|e| e.section == "profile.1")
+                    .map(|e| (String::from(e.key), String::from(&*e.value.as_str())))
+                    .collect();
+                let mut got = Vec::from([(String::from("name"), read[0].name.clone())]);
+                got.extend(read[0].values.iter().map(|(k, v)| (k.clone(), v.clone())));
+                prop_assert_eq!(got, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn the_file_code_survives_every_refused_allocation() {
+        let profiles = [
+            Profile {
+                name: "Quote \" and \\ back\nnew".into(),
+                values: Vec::from([("core.font-size".into(), " 18 ".into())]),
+            },
+            Profile {
+                name: "Night".into(),
+                values: Vec::from([("core.night-mode".into(), "on".into())]),
+            },
+        ];
+        let file = encode(&profiles).unwrap();
+        crate::fail_alloc::sweep(|| encode_within(&profiles, 4096).map(|t| t.len()));
+        crate::fail_alloc::sweep(|| decode(file.as_bytes()).map(|p| p.map_or(0, |p| p.len())));
+        let v1 = include_bytes!("../testdata/profiles.ini.v1");
+        crate::fail_alloc::sweep(|| decode(v1).map(|p| p.map_or(0, |p| p.len())));
+        crate::fail_alloc::sweep(|| clean("  Night   [mode] ").map(|n| n.map_or(0, |n| n.len())));
+        crate::fail_alloc::sweep(|| Value::Int(i64::MIN).to_text().map(|t| t.len()));
+        crate::fail_alloc::sweep(|| Value::parse(Kind::Choice, "core.x").map(|v| v.is_some()));
+        crate::fail_alloc::sweep(|| profiles[0].try_clone().map(|p| p.values.len()));
     }
 }

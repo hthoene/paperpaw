@@ -2,8 +2,7 @@
 //! and questions, profiles kept in the plugin's data folder.
 use crate::native_data::{self, Reader};
 use crate::store::{self, Profile};
-use alloc::{format, string::String, vec::Vec};
-use paperpaw_ui_kit::{Footer, Item, ItemList, ItemStep, Messages, Screens, files, text::copy};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -17,6 +16,12 @@ use paperpaw_sdk::{
         storage::Root,
         ui::{Instance, Notify, Open, Question, RequestId, TextWrite, Ui},
     },
+};
+use paperpaw_ui_kit::{
+    Footer, Item, ItemList, ItemStep, Messages, Screens, files,
+    mem::{SERVICE_BUFFER, buffer, push},
+    text::{concat, copy},
+    uitext,
 };
 
 mod image {
@@ -33,15 +38,11 @@ const LAST: &str = "last.txt";
 const MAX_FILE: usize = 64 * 1024;
 const OPTIONS: [&str; 3] = ["update", "rename", "remove"];
 
-fn buffer(len: usize) -> Result<Vec<u8>, Error> {
-    let mut bytes = Vec::new();
-    bytes.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
-    bytes.resize(len, 0);
-    Ok(bytes)
-}
+/// The longest profile name the name dialog takes.
+const NAME_LIMIT: usize = 256;
 
 /// What an open question is for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Asked {
     /// A name for a new profile.
     NewName,
@@ -88,10 +89,8 @@ impl Plugin for NativeProfiles {
         {
             registrations::submit(host, batch)?;
         }
-        Ok(Self {
-            ui: Some(Ui::open(host)?),
-            ..Self::default()
-        })
+        // `core.ui` is opened by the first callback: opening needs a live frame.
+        Ok(Self::default())
     }
 
     fn event(
@@ -101,6 +100,7 @@ impl Plugin for NativeProfiles {
         event: Event<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        self.ensure_ui(host)?;
         match event {
             Event::ActionRun {
                 action: "profiles.open",
@@ -144,6 +144,7 @@ impl Plugin for NativeProfiles {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ensure_ui(host)?;
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
@@ -170,6 +171,14 @@ impl Plugin for NativeProfiles {
 }
 
 impl NativeProfiles {
+    /// Opens `core.ui` in the first live callback; the handle serves later ones.
+    fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
     }
@@ -233,7 +242,7 @@ impl NativeProfiles {
     fn next(host: &Host<'_>) -> Result<(), Error> {
         let profiles = load(host)?.unwrap_or_default();
         let last = files::read_all(host, Root::Data, LAST, 1024)?.unwrap_or_default();
-        let last = String::from_utf8_lossy(&last);
+        let last = core::str::from_utf8(&last).unwrap_or("");
         let at = profiles.iter().position(|p| p.name == last.trim());
         let next = at.map_or(0, |at| (at + 1) % profiles.len().max(1));
         match profiles.get(next) {
@@ -279,10 +288,9 @@ impl NativeProfiles {
         let mut messages = Messages::new()?;
         let mut choices = String::new();
         for (n, option) in OPTIONS.iter().enumerate() {
-            if n > 0 {
-                choices.push('\n');
-            }
-            choices.push_str(&messages.copy(host, &format!("profiles.option.{option}"))?);
+            let label = messages.copy(host, &concat(&["profiles.option.", option])?)?;
+            let separator = if n > 0 { "\n" } else { "" };
+            choices = concat(&[&choices, separator, &label])?;
         }
         let question = Question::choice(&name, "", &choices)?;
         let asked = Asked::Options {
@@ -293,8 +301,8 @@ impl NativeProfiles {
     }
 
     fn ask(&mut self, host: &Host<'_>, question: Question<'_>, asked: Asked) -> Result<(), Error> {
-        let mut input = buffer(1024)?;
-        let mut output = buffer(256)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
         let request = self.ui()?.ask(host, question, &mut input, &mut output)?;
         self.asked = Some((request, asked));
         Ok(())
@@ -302,8 +310,8 @@ impl NativeProfiles {
 
     fn ask_name(&mut self, host: &Host<'_>, initial: &str, asked: Asked) -> Result<(), Error> {
         let title = Messages::new()?.copy(host, "profiles.name")?;
-        let mut input = buffer(1024)?;
-        let mut output = buffer(256)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
         let request = self
             .ui()?
             .ask(host, Question::text(&title, "")?, &mut input, &mut output)?;
@@ -332,17 +340,19 @@ impl NativeProfiles {
             name: "name",
             value: &name,
         }];
-        let question = messages.format(host, &format!("profiles.{option}.question"), &arg)?;
-        let text = messages.copy(host, &format!("profiles.{option}.text"))?;
+        let question =
+            messages.format(host, &concat(&["profiles.", option, ".question"])?, &arg)?;
+        let text = messages.copy(host, &concat(&["profiles.", option, ".text"])?)?;
         let (yes, no) = match option {
             "update" => ("profiles.replace", "profiles.cancel"),
             _ => ("profiles.option.remove", "profiles.keep"),
         };
-        let labels = format!(
-            "{}\n{}",
-            messages.copy(host, yes)?,
-            messages.copy(host, no)?
-        );
+        let labels = concat(&[
+            "",
+            &messages.copy(host, yes)?,
+            "\n",
+            &messages.copy(host, no)?,
+        ])?;
         let asked = Question::confirm(&question, &text)?.confirm_labels(&labels)?;
         self.ask(
             host,
@@ -360,24 +370,22 @@ impl NativeProfiles {
         host: &Host<'_>,
         answer: paperpaw_sdk::native::events::Answered,
     ) -> Result<(), Error> {
-        let Some((request, asked)) = self.asked.clone() else {
+        let Some((request, _)) = &self.asked else {
             return Ok(());
         };
-        if request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
+        if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        self.asked = None;
+        let Some((request, asked)) = self.asked.take() else {
+            return Ok(());
+        };
         if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
         }
         match asked {
             Asked::NewName | Asked::Rename { .. } => {
-                let mut input = buffer(512)?;
-                let mut output = buffer(1536)?;
-                let part =
-                    self.ui()?
-                        .text_read(host, request.text(), 0, &mut input, &mut output)?;
-                let Some(name) = store::clean(part.data()) else {
+                let typed = uitext::read_all(self.ui()?, host, request.text(), NAME_LIMIT)?;
+                let Some(name) = store::clean(&typed)? else {
                     return Ok(());
                 };
                 match asked {
@@ -417,22 +425,22 @@ impl NativeProfiles {
     }
 
     /// Keeps the profiles of the list on the card; whether it could. Where it
-    /// could not, the list shows what the card holds.
-    fn save(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+    /// could not (too large, a card refusal, no memory) `undo` puts the list
+    /// back as it was and it shows what the card holds.
+    fn save(&mut self, host: &Host<'_>, undo: Undo) -> Result<bool, Error> {
         let Some(view) = self.screens.top(LIST) else {
             return Ok(false);
         };
+        // The text is made and measured whole before anything is replaced.
         let saved = view.readable
-            && files::replace(
-                host,
-                Root::Data,
-                FILE,
-                store::encode(&view.profiles).as_bytes(),
-            )
-            .is_ok();
+            && match store::encode_within(&view.profiles, MAX_FILE) {
+                Ok(text) => files::replace(host, Root::Data, FILE, text.as_bytes()).is_ok(),
+                Err(_) => false,
+            };
         if saved {
             return Ok(true);
         }
+        undo.apply(&mut view.profiles);
         let key = if view.readable {
             "profiles.not-saved"
         } else {
@@ -440,9 +448,11 @@ impl NativeProfiles {
         };
         let text = Messages::new()?.copy(host, key)?;
         Self::notify(host, &text)?;
-        let loaded = load(host)?;
-        view.readable = loaded.is_some();
-        view.profiles = loaded.unwrap_or_default();
+        // What the card holds, when it can be read now.
+        if let Ok(loaded) = load(host) {
+            view.readable = loaded.is_some();
+            view.profiles = loaded.unwrap_or_default();
+        }
         view.rebuild(host)?;
         Ok(false)
     }
@@ -491,7 +501,7 @@ impl NativeProfiles {
             .try_reserve_exact(current.len())
             .map_err(|_| Error::NoMemory)?;
         for setting in current {
-            values.push((setting.key, setting.value.to_text()));
+            values.push((setting.key, setting.value.to_text()?));
         }
         Ok(values)
     }
@@ -504,13 +514,15 @@ impl NativeProfiles {
         let Some(view) = self.screens.top(LIST) else {
             return Ok(());
         };
-        view.profiles.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        view.profiles.push(Profile {
-            name: copy(name)?,
-            values,
-        });
+        push(
+            &mut view.profiles,
+            Profile {
+                name: copy(name)?,
+                values,
+            },
+        )?;
         let last = view.profiles.len() - 1;
-        if self.save(host)? {
+        if self.save(host, Undo::Added)? {
             let _ = files::replace(host, Root::Data, LAST, name.as_bytes());
             if let Some(view) = self.screens.top(LIST) {
                 view.rebuild(host)?;
@@ -532,7 +544,8 @@ impl NativeProfiles {
             return Ok(());
         };
         let old = core::mem::replace(&mut profile.name, copy(name)?);
-        if self.save(host)? {
+        let kept = copy(&old)?;
+        if self.save(host, Undo::Renamed { index, old: kept })? {
             // The profile applied last keeps being it, by its new name.
             let last = files::read_all(host, Root::Data, LAST, 1024)?.unwrap_or_default();
             if String::from_utf8_lossy(&last).trim() == old {
@@ -553,9 +566,9 @@ impl NativeProfiles {
         let Some(profile) = view.profiles.get_mut(index) else {
             return Ok(());
         };
-        profile.values = values;
         let name = copy(&profile.name)?;
-        if self.save(host)? {
+        let old = core::mem::replace(&mut profile.values, values);
+        if self.save(host, Undo::Updated { index, old })? {
             if let Some(view) = self.screens.top(LIST) {
                 view.rebuild(host)?;
             }
@@ -569,9 +582,15 @@ impl NativeProfiles {
             return Ok(());
         };
         if index < view.profiles.len() {
-            view.profiles.remove(index);
+            let removed = view.profiles.remove(index);
+            self.save(
+                host,
+                Undo::Removed {
+                    index,
+                    profile: removed,
+                },
+            )?;
         }
-        self.save(host)?;
         if let Some(view) = self.screens.top(LIST) {
             view.rebuild(host)?;
         }
@@ -579,11 +598,55 @@ impl NativeProfiles {
     }
 }
 
+/// How to put the list back where a save was refused.
+enum Undo {
+    /// The last profile was added.
+    Added,
+    Renamed {
+        index: usize,
+        old: String,
+    },
+    Updated {
+        index: usize,
+        old: Vec<(String, String)>,
+    },
+    /// Room for it is still there: it was just taken out.
+    Removed {
+        index: usize,
+        profile: Profile,
+    },
+}
+
+impl Undo {
+    fn apply(self, profiles: &mut Vec<Profile>) {
+        match self {
+            Self::Added => {
+                profiles.pop();
+            }
+            Self::Renamed { index, old } => {
+                if let Some(profile) = profiles.get_mut(index) {
+                    profile.name = old;
+                }
+            }
+            Self::Updated { index, old } => {
+                if let Some(profile) = profiles.get_mut(index) {
+                    profile.values = old;
+                }
+            }
+            Self::Removed { index, profile } => {
+                if index <= profiles.len() {
+                    profiles.insert(index, profile);
+                }
+            }
+        }
+    }
+}
+
 /// The profiles kept: none where there is no file yet, `None` where it cannot
 /// be read (then nothing may be saved over it).
 fn load(host: &Host<'_>) -> Result<Option<Vec<Profile>>, Error> {
     match files::read_all(host, Root::Data, FILE, MAX_FILE) {
-        Ok(Some(bytes)) => Ok(store::decode(&bytes)),
+        Ok(Some(bytes)) => store::decode(&bytes),
         Ok(None) => Ok(Some(Vec::new())),
         Err(Error::NoMemory) => Err(Error::NoMemory),
         Err(_) => Ok(None),
