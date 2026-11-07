@@ -1,5 +1,6 @@
 //! Real service-handle and scratch allocations fail without publishing output.
 use super::arm_failure;
+use crate::native_host::host_services::Caller;
 use crate::{
     abi7::{context::Frame, services_wire::ServiceOp},
     native_host::{
@@ -14,7 +15,13 @@ use paperpaw_native::{
 };
 use paperpaw_platform::Instant;
 
-fn echo(_: &dyn Frame, _: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+fn echo(
+    _: &dyn Frame,
+    _: &Caller<'_>,
+    _: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
     let record = registrations::records_decode_single(input)?;
     registrations::record_encode_one(&record, out)
 }
@@ -90,6 +97,7 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
                 call_services::call(
                     &scope,
                     &owner,
+                    "files",
                     handle,
                     1,
                     pair(&input[..length]),
@@ -107,6 +115,7 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
                 call_services::call(
                     &scope,
                     &owner,
+                    "files",
                     handle,
                     1,
                     pair(&input[..length]),

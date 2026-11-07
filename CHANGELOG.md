@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Core native screen admission uses a shared declaration entry, fallible factories,
+  retained owners and declared instance policies. Native screen lifecycle events
+  carry nonzero instance ids. Other declaration families remain refused until wired (#228).
+
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).
 
