@@ -19,6 +19,12 @@ change the plugin SDK.
 
 ### Added
 
+- Bluetooth 1.0.3: the interface-7 native plugin (the page of bonded devices with remotes' keys, forgetting
+  and giving a sensor to a plugin, adding a device with a search and pairing, *Remotes*: by hand, while
+  reading or always) on `paperpaw-ui-kit`, the device reads and the typed Bluetooth senders and event; the
+  interface-6 plugin and its app registration are gone. The status item (the sign while a device is
+  connected) and the *how it works* text wait on the SDK and the host (#228).
+
 - Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
   `bt_disconnect`, `bt_forget`, `bt_give`, `bt_take_back`, `bt_keys`) and the typed `event.bluetooth`
   (`Event::Bluetooth` with typed kind, device kind and reason; unknown values read as `Other`) for the

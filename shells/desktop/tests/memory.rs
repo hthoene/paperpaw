@@ -529,6 +529,7 @@ fn reading_an_epub_stays_within_the_x4_pro_budget() {
 /// radio state (the link, the remote's report decoding) fits beside
 /// reading.
 #[test]
+#[ignore = "re-enable at Bluetooth activation: the interface-6 Bluetooth plugin is no longer in the app (its page and `bluetooth.remotes` setting are gone until the native plugin is wired)"]
 fn bluetooth_stays_within_the_x4_pro_budget() {
     let mut secrets = paperpaw_core::sdk::secrets::Secrets::default();
     secrets.apply(paperpaw_core::sdk::secrets::SecretChange::keep(
