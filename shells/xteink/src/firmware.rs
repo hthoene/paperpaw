@@ -224,6 +224,13 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // Power held 8 s (G12): out, whatever else is going on. The timer's
+        // readings reset the processor if this is not reached in time.
+        if input::escape_requested() {
+            input::escape_take();
+            info!("Power held: switching off");
+            return self.sleep(false);
+        }
         // Kept only where the mark was written: a flash that fails to write
         // leaves the update on trial (it may still go back), and the hold
         // on code plugins with it (`Kernel::trial_kept`).
@@ -755,7 +762,12 @@ impl Firmware {
         self.write_back();
         // A plugin may have asked to switch off while it heard core.suspend
         // or in the work finished: that is honoured now, not after a wake.
-        let next = paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed);
+        // Power held 8 s (G12) is out, whatever else was pressed meanwhile.
+        let next = if input::escape_active() {
+            paperpaw_x4::sleeping::After::SwitchOff
+        } else {
+            paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed)
+        };
         if next == paperpaw_x4::sleeping::After::Awake {
             // A press meanwhile: awake after all.
             info!("sleep: a press, awake");
@@ -804,7 +816,9 @@ impl Firmware {
         // (a case or a sleeve pressing it): the radio would listen all that
         // time.
         self.network.leave();
-        // Released first: held, the button would wake it at once.
+        // Released first: held, the button would wake it at once. A hold
+        // meanwhile (a sleeve pressing it) is not the escape.
+        input::escape_off();
         self.wait_for_power_release();
         let mut power = input::stop().expect("the power button");
         // The X4 Classic keeps its power on and holds its lines, as its

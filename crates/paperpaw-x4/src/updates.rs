@@ -63,6 +63,34 @@ pub const KEYS: &[[u8; 32]] = &[
 ];
 /// Read from the card and written a piece at a time.
 const PIECE: usize = 4096;
+/// The code of [`InstallFailure::Other`] for an install refused because the
+/// memory has no room for its buffers (the update is not started; nothing
+/// is written; a later try may find room). Listed with the others in
+/// `paperpaw_sdk::firmware`.
+///
+/// [`InstallFailure::Other`]: paperpaw_sdk::firmware::InstallFailure::Other
+pub const NO_MEMORY: u16 = 2;
+
+/// An install's one I/O buffer, zeroed, or the refusal for no room: the
+/// allocation is fallible (the X4 has no room to abort, and a failed one
+/// ends in a clean refusal before anything is written).
+fn zeroed(len: usize) -> Result<Box<[u8]>, InstallFailure> {
+    let mut buf = alloc::vec::Vec::new();
+    buf.try_reserve_exact(len)
+        .map_err(|_| InstallFailure::Other(NO_MEMORY))?;
+    buf.resize(len, 0);
+    Ok(buf.into_boxed_slice())
+}
+
+/// `text` as an owned string, or the refusal for no room.
+fn owned(text: &str) -> Result<String, InstallFailure> {
+    let mut out = String::new();
+    out.try_reserve_exact(text.len())
+        .map_err(|_| InstallFailure::Other(NO_MEMORY))?;
+    out.push_str(text);
+    Ok(out)
+}
+
 /// Written per [`Updates::step`]: the main loop goes on in between.
 const STEP: u32 = ota::BLOCK;
 /// An update on trial is taken as good once it ran this long in all,
@@ -98,7 +126,9 @@ struct Install {
     /// The partition it goes to.
     slot: u32,
     check: Checking,
-    buf: Box<[u8; PIECE]>,
+    /// The one I/O buffer (`PIECE` bytes): read from the card, hashed and
+    /// written from it, allocated fallibly in `begin`.
+    buf: Box<[u8]>,
     /// The last twentieth of the image said to be written.
     said: u32,
 }
@@ -505,7 +535,11 @@ impl<F: Flash> Updates<F> {
         let len = u32::try_from(image.len).map_err(|_| InstallFailure::TooLarge)?;
         let check = Checking::Foreign(ForeignCheck::new(self.this.chip, self.board, image.len));
         let installing = self.install_into_other(path, len, check)?;
-        let what = alloc::format!("{} {}", image.info.project, image.info.version);
+        let mut what = owned(&image.info.project)?;
+        what.try_reserve(1 + image.info.version.len())
+            .map_err(|_| InstallFailure::Other(NO_MEMORY))?;
+        what.push(' ');
+        what.push_str(&image.info.version);
         Ok((installing, what))
     }
 
@@ -517,6 +551,10 @@ impl<F: Flash> Updates<F> {
         len: u32,
         check: Checking,
     ) -> Result<Installing, InstallFailure> {
+        // The buffers first: a refusal for no room leaves the flash and the
+        // OTA data as they were.
+        let buf = zeroed(PIECE)?;
+        let path = owned(path)?;
         let running = self.running;
         let partition = &mut self.data_partition();
         let slot = OtaData::read(partition)
@@ -524,12 +562,12 @@ impl<F: Flash> Updates<F> {
             .map_err(|_| InstallFailure::Write)?;
         let offset = self.apps[slot as usize].0;
         self.install = Some(Install {
-            path: String::from(path),
+            path,
             image: Image::new(len),
             offset,
             slot,
             check,
-            buf: Box::new([0; PIECE]),
+            buf,
             said: 0,
         });
         Ok(Installing { len, offset })
@@ -603,5 +641,27 @@ impl<F: Flash> Updates<F> {
             Ok(()) => FirmwareState::Installed,
             Err(_) => FirmwareState::Failed(InstallFailure::Write),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_buffer_that_cannot_be_had_is_a_refusal_for_no_memory_not_a_crash() {
+        assert_eq!(
+            zeroed(usize::MAX).unwrap_err(),
+            InstallFailure::Other(NO_MEMORY)
+        );
+        let buf = zeroed(PIECE).unwrap();
+        assert_eq!(buf.len(), PIECE);
+        assert!(buf.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn the_paths_copy_keeps_its_text() {
+        assert_eq!(owned("updates/x.ppu").unwrap(), "updates/x.ppu");
+        assert_eq!(owned("").unwrap(), "");
     }
 }
