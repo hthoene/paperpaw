@@ -406,7 +406,9 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
-            self.native_instance_closed(self.stack[i].serial);
+            if self.native_instance_closed(self.stack[i].serial).is_err() {
+                self.warn_runtime("UI instance cleanup failed");
+            }
             self.stack.truncate(i);
             self.screens_changed = true;
         }
@@ -485,7 +487,12 @@ impl Kernel {
             screen.on_close(cx);
             Handled::Yes
         });
-        self.native_instance_closed(self.stack[index].serial);
+        if self
+            .native_instance_closed(self.stack[index].serial)
+            .is_err()
+        {
+            self.warn_runtime("UI instance cleanup failed");
+        }
         self.stack.remove(index);
         self.screens_changed = true;
         self.sync_stack();
@@ -503,6 +510,9 @@ impl Kernel {
 
     pub(crate) fn drain_deferred_ui_closes(&mut self) {
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        if self.shared.stack_rows.take_close_error() != 0 {
+            self.warn_runtime("deferred UI dialog close queue is full");
+        }
         for _ in 0..native_host::stack_rows::STACK_MAX {
             let Some(instance) = self.shared.stack_rows.take_close() else {
                 break;
@@ -518,7 +528,9 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
-            self.native_instance_closed(instance);
+            if self.native_instance_closed(instance).is_err() {
+                self.warn_runtime("UI dialog cleanup failed");
+            }
             self.stack.remove(index);
             self.screens_changed = true;
             self.sync_stack();
@@ -534,7 +546,12 @@ impl Kernel {
             if self.stack[index].id.namespace() == owner.as_str() {
                 // The owner is revoked already. Dropping its private wrapper
                 // releases the lease without calling retired plugin code.
-                self.native_instance_closed(self.stack[index].serial);
+                if self
+                    .native_instance_closed(self.stack[index].serial)
+                    .is_err()
+                {
+                    self.warn_runtime("UI instance cleanup failed");
+                }
                 self.stack.remove(index);
                 removed = true;
             }

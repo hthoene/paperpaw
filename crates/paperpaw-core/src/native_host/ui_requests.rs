@@ -687,6 +687,24 @@ impl UiStore {
     /// A plugin stopped: the requests it asked are freed with no event and its
     /// nested ones with them. A dialog of a request it owned is cancelled via
     /// [`UiStore::dialog_closed`] when the stack closes it.
+    pub(crate) fn owner_dialogs(&self, owner: u64, visit: &mut dyn FnMut(u32)) -> Result<(), i32> {
+        let inner = self.inner_busy()?;
+        for request in &inner.requests {
+            let parent_owned = request.parent.is_some_and(|id| {
+                inner
+                    .requests
+                    .iter()
+                    .any(|parent| parent.id == id && parent.asker == owner)
+            });
+            if (request.asker == owner || parent_owned)
+                && let Some(dialog) = request.dialog
+            {
+                visit(dialog);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn requests_owner_stopped(inner: &mut Inner, owner: u64) {
         // Each row the stopped plugin asked goes with the nested rows that hang
         // under it (asked by the keyboard, not by the stopped plugin). Rows of

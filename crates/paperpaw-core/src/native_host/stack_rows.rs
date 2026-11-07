@@ -26,6 +26,7 @@ pub(crate) struct StackRows {
     len: Cell<u8>,
     generation: Cell<u64>,
     closes: [Cell<u32>; STACK_MAX],
+    close_error: Cell<i32>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -34,6 +35,7 @@ impl Default for StackRows {
             len: Cell::new(0),
             generation: Cell::new(1),
             closes: [const { Cell::new(0) }; STACK_MAX],
+            close_error: Cell::new(0),
         }
     }
 }
@@ -67,6 +69,14 @@ impl StackRows {
         pending.set(instance);
         Ok(())
     }
+    pub(crate) fn note_close_error(&self, error: i32) {
+        if error != paperpaw_native::host_glue::ERR_STATE && self.close_error.get() == 0 {
+            self.close_error.set(error);
+        }
+    }
+    pub(crate) fn take_close_error(&self) -> i32 {
+        self.close_error.replace(0)
+    }
     pub(crate) fn take_close(&self) -> Option<u32> {
         self.closes
             .iter()
@@ -74,7 +84,7 @@ impl StackRows {
             .map(|pending| pending.replace(0))
     }
     pub(crate) fn closes_pending(&self) -> bool {
-        self.closes.iter().any(|pending| pending.get() != 0)
+        self.close_error.get() != 0 || self.closes.iter().any(|pending| pending.get() != 0)
     }
 
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.

@@ -115,7 +115,9 @@ impl crate::Kernel {
                 return None;
             }
         }
-        self.native_owner_stopped(key);
+        if self.native_owner_stopped(key).is_err() {
+            return None;
+        }
         self.remove_retired_native_screens(owner);
         self.shared
             .registry
@@ -137,30 +139,35 @@ impl crate::Kernel {
         }
     }
 
-    fn native_owner_stopped(&self, owner: u64) {
-        if let Some(store) = self.shared.native_instances.ui_store() {
-            store.owner_stopped(owner);
+    fn queue_native_dialog_close(&self, dialog: u32) {
+        if let Err(status) = self
+            .shared
+            .stack_rows
+            .defer_close(dialog, self.shared.stack_rows.generation())
+        {
+            self.shared.stack_rows.note_close_error(status);
         }
     }
 
-    pub(crate) fn native_instance_closed(&self, instance: u32) {
+    fn native_owner_stopped(&self, owner: u64) -> Result<(), i32> {
         if let Some(store) = self.shared.native_instances.ui_store() {
-            store.dialog_closed(instance);
+            store.owner_dialogs(owner, &mut |dialog| self.queue_native_dialog_close(dialog))?;
+            store.owner_stopped(owner)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn native_instance_closed(&self, instance: u32) -> Result<(), i32> {
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            store.dialog_closed(instance)?;
             store.asker_instance_closed(instance, &mut |cancelled| {
                 if let Some(dialog) = cancelled.dialog {
-                    // A missing dialog has already closed. Live requests are
-                    // bounded below the fixed queue's sixteen entries.
-                    if let Err(status) = self
-                        .shared
-                        .stack_rows
-                        .defer_close(dialog, self.shared.stack_rows.generation())
-                    {
-                        debug_assert_eq!(status, paperpaw_native::host_glue::ERR_STATE);
-                    }
+                    self.queue_native_dialog_close(dialog);
                 }
-            });
-            store.instance_closed(instance);
+            })?;
+            store.instance_closed(instance)?;
         }
+        Ok(())
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
