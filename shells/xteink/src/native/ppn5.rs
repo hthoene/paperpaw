@@ -517,6 +517,12 @@ mod x4 {
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
+        // Plugin calls into the host's slots are told to the record of calls,
+        // so the Power-hold escape never blames a plugin for waiting on the host.
+        paperpaw_core::native_host::host_slot::set(
+            crate::safe_mode::host_begin,
+            crate::safe_mode::host_end,
+        );
         let heap = esp_alloc::HEAP.used();
         let internal = crate::native::internal_free();
         let made = crate::micros();
