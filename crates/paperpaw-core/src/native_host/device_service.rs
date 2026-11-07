@@ -435,11 +435,12 @@ pub trait DeviceHost {
     }
 }
 
-/// What the shell hands the frame under the key `core.device`:
-/// `HostServices::wire_device` keeps it for the backend.
+/// The shell's view of the device behind `core.device`, kept by
+/// `HostServices::wire_device` for the backend (which reaches it through the
+/// caller's `hosts`).
 ///
-/// This holds an `Rc` and not a borrow, as `DocServices` does: `dyn Any`
-/// needs a `'static` type, so the shell keeps its host alive and shares it.
+/// It holds an `Rc` and not a borrow, as `DocServices` does: the shell keeps
+/// its host alive and shares it.
 pub struct DeviceServices(pub Rc<dyn DeviceHost>);
 
 impl core::fmt::Debug for DeviceServices {
