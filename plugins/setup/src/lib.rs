@@ -2,124 +2,48 @@
 //! settings that matter, one a page, each with a sensible default already
 //! chosen, so *Next* is always right.
 //!
-//! - The steps come from the plugins ([`paperpaw_sdk::setup`]): the
-//!   language, the buttons, the text size, the time zone, Wi-Fi, the
-//!   keyboard, the screen lock, and any other plugin's. Those this device
-//!   does not need are left out (e.g. Wi-Fi where the system runs it).
-//! - Skipped as a whole on its first page (by *Back* after a question),
-//!   never shown again once done or skipped; *Set up PaperPaw* in the
-//!   settings opens it again.
+//! - The steps come from the plugins (`setup.step` declarations, listed by
+//!   the registry): the language, the buttons, the text size, the time zone,
+//!   Wi-Fi, the keyboard, the screen lock, and any other plugin's. Those this
+//!   device does not need are left out by the host (e.g. Wi-Fi where the
+//!   system runs it).
+//! - Skipped as a whole on its first page (by *Back* after a question), never
+//!   shown again once done or skipped; *Set up PaperPaw* in the settings opens
+//!   it again.
 //! - The last page tells where books come from.
-//! - It is the screen of the slot [`slots::SETUP`], so another plugin can
-//!   replace it.
+//! - It is the screen of the slot `core.setup`, so another plugin can replace it.
 //!
-//! Not shown on a device that was used before it came (a book was
-//! opened already), nor where the storage cannot be written: it would
-//! come again at every start, its choices lost (the kernel tells why,
-//! e.g. a card that is not FAT32).
+//! Not shown on a device that was used before it came (a book was opened
+//! already), nor where the storage cannot be written: it would come again at
+//! every start, its choices lost (the kernel tells why, e.g. a card that is
+//! not FAT32).
+//!
+//! The plugin is the interface-7 plugin [`native_plugin::NativeSetup`].
 
 #![no_std]
 
 extern crate alloc;
 
-mod guide;
+#[cfg(test)]
+extern crate std;
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::format;
-
-use paperpaw_sdk::builtin::{events, menus, slots};
-use paperpaw_sdk::{
-    Command, Env, FixedAction, FixedScreen, Id, Manifest, MenuEntry, Params, Plugin, Priority,
-    RegisterError, Registrar, library,
-};
-
-pub const PLUGIN: Id = Id::new_static("setup");
-/// Opens the guide (from the settings).
-pub const OPEN: Id = Id::new_static("setup.open");
-/// The guide.
-pub const SCREEN: Id = Id::new_static("setup.guide");
-
-/// The file whose being there says the setup was done or skipped.
-fn done_file() -> alloc::string::String {
-    format!("{}/done", Env::plugin_dir(PLUGIN.as_str()))
-}
-
-/// The file written before the guide opens: where it cannot be, the done
-/// mark could not be either.
-fn trial_file() -> alloc::string::String {
-    format!("{}/trial", Env::plugin_dir(PLUGIN.as_str()))
-}
-
-/// Notes that the setup was done or skipped: it does not come again by
-/// itself. Where that cannot be written, what tells the reader.
-#[must_use]
-pub(crate) fn mark_done(env: &Env<'_>) -> Option<Command> {
-    let storage = env.storage();
-    if storage.write(&done_file(), b"").is_err() {
-        return Some(Command::Notify(env.i18n().tr("setup.not-kept").into()));
-    }
-    let _ = storage.remove(&trial_file());
-    None
-}
-
-/// The first-run setup.
-#[derive(Debug, Default)]
-pub struct Setup;
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-
-static ACTIONS: [FixedAction; 1] = [FixedAction::new(OPEN, "setup.open")
-    .handler(|_, _, out| out.push(Command::OpenSlot(slots::SETUP, Params::new())))];
-// In the device's part of the settings, before *About*.
-static ENTRIES: [MenuEntry; 1] = [MenuEntry::new(menus::SETTINGS, OPEN).order(97)];
-static ICONS: [(Id, &str); 1] = [(OPEN, "wand")];
-
-static SCREENS: [FixedScreen; 1] = [FixedScreen::new(SCREEN, "setup.title", |env, _| {
-    Box::new(guide::Guide::new(env))
-})
-.instances(paperpaw_sdk::Instances::SINGLE)];
-
-impl Plugin for Setup {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "Setup", paperpaw_sdk::package_version!())
-            .description("A short guide through the settings that matter, on the first start.")
-            .how(&HOW)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screens(&SCREENS)?;
-        r.bind_slot(slots::SETUP, SCREEN, Priority::DEFAULT)?;
-        r.add_actions(&ACTIONS)?;
-        r.add_menu_entries(&ENTRIES)?;
-        r.add_icons(&ICONS)?;
-        // The first start: the guide, once.
-        r.on(events::STARTED, |env, _, out| {
-            if env.storage().exists(&done_file()) {
-                return;
-            }
-            if !library::opened_books(env.storage()).is_empty() {
-                // Used before the guide came: not a first start.
-                out.extend(mark_done(env));
-            } else if env.storage().write(&trial_file(), b"").is_ok() {
-                out.push(Command::OpenSlot(slots::SETUP, Params::new()));
-            }
-        })?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
-    }
-}
+mod data;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+pub mod model;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
+pub mod view;
 
 #[cfg(test)]
 mod tests {
-    extern crate std;
-
     use paperpaw_i18n::{Catalog, check};
 
     #[test]
