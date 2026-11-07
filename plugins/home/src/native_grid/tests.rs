@@ -172,3 +172,56 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     let extra = tool("e.f");
     sweep(|| add(&Fixed, &g, &items, extra.try_clone()?).map(|v| v.map(|v| v.len())));
 }
+
+/// A layout setting is user data: whatever it holds, reading and placing it
+/// ends in items (some unplaced) or an error, never a panic, and the result
+/// is written and read again unchanged.
+#[test]
+fn corrupt_layouts_are_read_and_placed_without_panics() {
+    let g = grid();
+    let commas = ",".repeat(4096);
+    let spaced = ", ".repeat(2048);
+    let long_id = "x".repeat(4096);
+    let cases = [
+        "",
+        "   ",
+        &commas,
+        &spaced,
+        "home.clock 99999999999999999999/0 4x1",
+        "home.clock 0/99999999999999999999 4x1",
+        "home.clock 0/0 99999999999999999999x1",
+        "home.clock 0/0 4x99999999999999999999",
+        "home.clock 256/256 255x255",
+        "home.clock -1/-1 -1x-1",
+        "home.clock 0/0 0x0",
+        "home.clock 0/0 0x0, home.clock 0/0 0x0",
+        "tool:, tool: 0/0 1x1",
+        "tool:not an id 0/0 1x1, tool:..., tool:A B",
+        "tool:core.library 0/0 1x1, tool:core.library 0/0 1x1",
+        "home.clock 0/0, home.clock 0/0 4, home.clock 0/0 4x, home.clock /0 4x1",
+        "home.clock 0/0 4x1 extra words, ,, ,",
+        "\u{0}\u{ffff}, \u{1f980}/\u{1f980} \u{1f980}x\u{1f980}",
+        &long_id,
+    ];
+    for text in cases {
+        let items = parse(text).unwrap();
+        let written = write(&items).unwrap();
+        let again = parse(&written).unwrap();
+        assert_eq!(write(&again).unwrap(), written, "{text:.40}");
+        let (shown, left) = fit(&Fixed, &g, &items).unwrap();
+        assert_eq!(shown.len() + left.len(), items.len(), "{text:.40}");
+        assert!(shown.iter().all(|i| i.at.is_some()));
+        let (shown, left) = refit(&Fixed, &g, 4, 3, &items).unwrap();
+        assert_eq!(shown.len() + left.len(), items.len(), "{text:.40}");
+        let (shown, left) = refit(&Fixed, &g, 0, 0, &items).unwrap();
+        assert_eq!(shown.len() + left.len(), items.len(), "{text:.40}");
+    }
+    // What is no id or no number is left out, or left unplaced.
+    assert!(parse(&commas).unwrap().is_empty());
+    assert!(parse("tool:, tool:A B").unwrap().is_empty());
+    assert_eq!(
+        parse("home.clock 99999999999999999999/0 4x1").unwrap()[0].at,
+        None
+    );
+    assert_eq!(parse("home.clock 0/0 -1x1").unwrap()[0].at, None);
+}

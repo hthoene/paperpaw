@@ -42,3 +42,11 @@ settings and the menu entries. Each will be an ignored acceptance case naming wh
   suites in `tests/` with the app wiring (`.plugin(paperpaw_plugin_home::Home)` in
   `crates/paperpaw-app` and the harnesses that use it); then no shim stays.
 - Peak memory on the X4 is not measured: device gate open.
+
+## Notes for the native screen
+
+`Source::columns`, `has_widget` and `status_bar` (and `Sizes::widget`, `widest_px`) are infallible
+in the trait: they have no way to report a host refusal. The shell must not hide one there by
+answering a default (a made-up column count, "no such widget"): that would reflow or drop a page's
+widgets on a mere refusal and write that back. A failed read must end the whole operation (read the
+values fallibly first, then call the model), so that nothing is stored.
