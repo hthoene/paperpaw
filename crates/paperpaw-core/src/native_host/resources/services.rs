@@ -37,7 +37,13 @@ impl ServiceRegistry {
     pub(super) fn device() -> Result<Self, i32> {
         // New service families add only their implemented backends here. Schema
         // presence alone is not implementation, and test schemas stay refused.
-        let implementations: &[(&'static ServiceSchema, Backend)] = &[];
+        let device = crate::abi7::services_wire::service_schema(
+            crate::abi7::services_wire::core_device_v1::KEY,
+            crate::abi7::services_wire::core_device_v1::MAJOR,
+        )
+        .ok_or(ERR_NOT_FOUND)?;
+        let implementations: &[(&'static ServiceSchema, Backend)] =
+            &[(device, crate::native_host::device_service::backend)];
         let mut registry = Self {
             entries: Vec::new(),
         };
@@ -187,6 +193,7 @@ mod tests {
             registry.register(test_only, |_, _, _, _| Ok(0), false),
             Err(ERR_UNSUPPORTED)
         );
-        assert!(registry.entries.is_empty());
+        // Only the implemented backends are there (core.device).
+        assert_eq!(registry.entries.len(), 1);
     }
 }

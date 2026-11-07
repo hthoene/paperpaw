@@ -39,6 +39,7 @@ mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+pub mod device_service;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 mod service_slots;
