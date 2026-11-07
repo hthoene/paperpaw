@@ -16,7 +16,6 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
-        storage::{self, Root},
         ui::{HandoverId, Instance, Open, Param, Ui},
     },
 };
@@ -168,7 +167,7 @@ impl NativeEndOfBook {
 
     /// The end of a book: it counts as finished as the setting says, and
     /// the screen opens unless that is off. A book the library does not
-    /// have, or whose file is gone from the card, has no end to speak of.
+    /// have (gone from the card) has no end to speak of.
     fn finished(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
         self.ensure(host)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -179,9 +178,6 @@ impl NativeEndOfBook {
             Ok(_) => {}
             Err(Error::NotFound) => return Ok(()),
             Err(error) => return Err(error),
-        }
-        if !on_card(host, path)? {
-            return Ok(());
         }
         let mark = switch(host, "end-of-book.mark")?;
         self.kept = Some(Session {
@@ -210,9 +206,6 @@ impl NativeEndOfBook {
         let Some(session) = self.kept.take().filter(|s| s.path == path) else {
             return Ok(());
         };
-        if !on_card(host, path)? {
-            return Ok(());
-        }
         self.ensure(host)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         match self.library()?.set_finished(
@@ -351,17 +344,6 @@ impl NativeEndOfBook {
             }
             None => Ok(()),
         }
-    }
-}
-
-/// Whether the book's file is still on the card (the library keeps a
-/// book's entry until its next walk). Absent is `NotFound`; any other
-/// refusal is the caller's to see.
-fn on_card(host: &Host<'_>, path: &str) -> Result<bool, Error> {
-    match storage::size(host, Root::Files, path) {
-        Ok(_) => Ok(true),
-        Err(Error::NotFound) => Ok(false),
-        Err(error) => Err(error),
     }
 }
 
