@@ -263,7 +263,7 @@ impl Lookup {
     ///
     /// ```compile_fail
     /// use paperpaw_sdk::native::{Host, lookup::{Lookup, Question}};
-    /// fn f(l: &Lookup, h: &Host<'_>, q: &Question<'_>, i: &mut [u8], out: &mut [u8]) {
+    /// fn ask_entries(l: &Lookup, h: &Host<'_>, q: &Question<'_>, i: &mut [u8], out: &mut [u8]) {
     ///     let entry = l.ask(h, q, i, out).unwrap();
     ///     out[0] = 0;
     ///     drop(entry);
