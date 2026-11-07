@@ -29,7 +29,6 @@ store-plugins = [
     "dep:paperpaw-plugin-koreader",
     "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
-    "dep:paperpaw-plugin-rules",
     "dep:paperpaw-plugin-profiles",
     "dep:paperpaw-plugin-keys",
     "dep:paperpaw-plugin-menu-editor",
@@ -124,7 +123,6 @@ paperpaw-plugin-file-manager.workspace = true
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
-paperpaw-plugin-rules = { workspace = true, optional = true }
 paperpaw-plugin-lock.workspace = true
 paperpaw-plugin-profiles = { workspace = true, optional = true }
 paperpaw-plugin-keys = { workspace = true, optional = true }
@@ -141,7 +139,6 @@ paperpaw-plugin-koreader = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-about.workspace = true
 paperpaw-plugin-setup.workspace = true
-paperpaw-plugin-help.workspace = true
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }

@@ -189,7 +189,6 @@ dependencies = [
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
- "paperpaw-plugin-rules",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-translate",
  "paperpaw-plugin-vocabulary",
@@ -432,14 +431,6 @@ name = "paperpaw-plugin-readwise"
 version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-rules"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]

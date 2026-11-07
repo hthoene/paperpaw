@@ -24,10 +24,10 @@ with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata
 ## Tests
 
 Unit: layout of zones and the box (`layout`), `seen.txt` lines, allocator-failure sweeps for
-both and for the kit's dialog. Declaration parity with the interface-6 registration
-(`tests/abi7_declarations.rs`: settings, extras, screens, the overlay flag), linked entry,
+both and for the kit's dialog. The image holds what the builders make and the host admits the screens
+(`tests/abi7_declarations.rs`), linked entry,
 construction in the kernel's real registered scope (`tests/hosted_construction.rs`: refused
-by the host today, see below). `tests/help.rs` still pins the interface-6 behaviour.
+by the host today, see below).
 
 ## Acceptance pending on the host
 
@@ -41,9 +41,8 @@ question (H1, H2, H3).
   Confirm): there is no native hint-row API (H3).
 - The readable column on wide screens, right-to-left mirroring and the room of the hint
   row (dialog differences listed in `paperpaw_ui_kit::dialog`).
-- Legacy `Plugin` registration (`Help`, `overlay.rs`, `seen`/`mark_seen` over `Storage`) and
-  the app's `offered(.., Help)` stay until the host activates native plugins; the removal step
-  deletes `src/overlay.rs`, the interface-6 half of `src/lib.rs` (`Help`, `SCREENS`, `explain`,
-  `covered`, `seen`, `mark_seen`, `forget_seen`, `again`), `tests/help.rs` and the app wiring
-  together (no shim).
+- The interface-6 plugin is removed: `Help`, `overlay.rs`, the `Storage` helpers, `tests/help.rs` and the
+  app's `.plugin(Help)` wiring (the hints do not show in the app until the host activates native
+  plugins). Parity tests against the interface-6 registration became image-versus-builder and
+  host-admission tests (`tests/abi7_declarations.rs`).
 - `core.ui` opens in the first callback; make has no frame. Peak memory on the X4 is not measured.

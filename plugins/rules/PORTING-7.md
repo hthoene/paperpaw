@@ -36,11 +36,11 @@ likewise `metadata.host.*`).
 
 Unit (`src/native_rules/tests.rs`): file round trips of every kind, version 1, unread and
 damaged lines, the limit, allocator-failure sweeps of read, write and copy, the engine
-(conditions, chain, battery levels, time and days, local time). Declaration parity with the
-interface-6 registration (`tests/abi7_declarations.rs`: screens, action, menu entry, icon),
+(conditions, chain, battery levels, time and days, local time). The image holds what the builders make, and the host admits the screens
+(`tests/abi7_declarations.rs`),
 linked entry, construction in the kernel's real registered scope (`tests/hosted_construction.rs`:
-refused by the host today). `tests/battery.rs`, `timing.rs` and `picking.rs` still pin the
-interface-6 behaviour on a kernel.
+refused by the host today). The kernel tests that pinned the interface-6 plugin (`battery.rs`, `timing.rs`, `picking.rs`)
+went with it; the engine's logic is pinned without the host above.
 
 ## Acceptance pending on the host
 
@@ -53,8 +53,7 @@ time of day (H1), pause (H1, H4), add and hold (H1, H2, H4).
   by owner.
 - The paused state is a word (on/off) in the row, not a switch row (the kit has none).
 - Views and dialog state that call the host have no allocator-failure sweep (no mock host).
-- Legacy `Plugin` registration (`Rules`, `rule.rs`, `screens.rs`, the `.plugin(...)` wiring in
-  `paperpaw-app`) and `tests/battery.rs`, `timing.rs`, `picking.rs` stay until the host activates
-  native plugins; the removal step deletes them together with the interface-6 half of `src/lib.rs`
-  (no shim).
+- The interface-6 plugin is removed: `Rules`, `rule.rs`, `screens.rs`, the kernel tests, the app's
+  `offered(.., Rules)` wiring and `STORE_PLUGINS` entry, and the plugin-file build (`tools/plugin-files`
+  bin, `plugins.txt`). Rules do not run in the app until the host activates native plugins.
 - `core.ui` opens in the first callback; make has no frame. Peak memory on the X4 is not measured.

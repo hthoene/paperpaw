@@ -1,6 +1,7 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin has its behaviour pinned by `tests/battery.rs`, `tests/timing.rs` and
-//! `tests/picking.rs`, which run it on a kernel. These cases are the same
+//! plugin's behaviour was pinned on a kernel by tests that went with it
+//! (battery levels, time of day, picking); the engine's logic is pinned
+//! without the host in `src/native_rules/tests.rs`. These cases are the same
 //! behaviours through the production loader with the native plugin; they never
 //! pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]

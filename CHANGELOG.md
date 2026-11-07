@@ -21,11 +21,12 @@ change the plugin SDK.
 
 - Rules 1.0.8: the interface-7 native plugin (the engine on the host's events, the list with pause,
   conditions and removal, adding a rule step by step); `rules.txt` kept byte for byte, lines this
-  version cannot read are kept. Time of day and "every so many minutes" follow the minute tick (#228).
+  version cannot read are kept. Time of day and "every so many minutes" follow the minute tick; the
+  interface-6 plugin, its app wiring and its store file are removed (#228).
 
 - Hints 1.0.4: the interface-7 native plugin (hints over a screen, show again, the settings) on
   `paperpaw-ui-kit`'s new `Dialog`; the button-hint labels while the hints are open wait for a native
-  hint-row API (#228).
+  hint-row API; the interface-6 plugin and its app wiring are removed (#228).
 
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with

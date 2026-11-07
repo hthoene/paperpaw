@@ -1,7 +1,6 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin has no desktop golden; `tests/help.rs` pins its behaviour on a
-//! kernel with the interface-6 plugin. Each case needs the same run through
-//! the production loader with the native plugin; these never pass by themselves.
+//! plugin has no desktop golden. Each case needs a run through the production
+//! loader with the native plugin; these never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
