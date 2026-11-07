@@ -30,6 +30,8 @@ pub struct RowItem {
     pub note: String,
     /// A 3x3 picture of the screen with this zone (0..9) filled, at the left.
     pub zone: Option<u8>,
+    /// A number: − and + buttons at the right (touch screens), each a tap target.
+    pub stepper: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -68,6 +70,7 @@ impl Item {
             value: text::copy(value)?,
             note: text::copy(note)?,
             zone: None,
+            stepper: false,
         }))
     }
 
@@ -91,6 +94,8 @@ pub enum ItemStep {
     Held(usize),
     /// The header's action should run.
     Header(&'static str),
+    /// The − (-1) or + (1) of this stepper row was tapped.
+    Step(usize, i8),
 }
 
 /// What a list shows besides its rows.
@@ -119,6 +124,8 @@ pub struct ItemList {
     /// First item of each page, from the last frame.
     starts: Vec<usize>,
     hits: Vec<(Rect, usize)>,
+    /// The − and + buttons of the stepper rows of the last frame.
+    steps: Vec<(Rect, Rect, usize)>,
     header: Page,
 }
 
@@ -223,9 +230,26 @@ impl ItemList {
         }
     }
 
+    /// Where item `index` was drawn in the last frame; `None` off the page.
+    #[must_use]
+    pub fn rect_of(&self, index: usize) -> Option<Rect> {
+        self.hits
+            .iter()
+            .find(|(_, item)| *item == index)
+            .map(|(rect, _)| *rect)
+    }
+
     fn tap(&self, position: Point) -> ItemStep {
         if let Some(action) = self.header.action(position) {
             return ItemStep::Header(action);
+        }
+        for (minus, plus, item) in &self.steps {
+            if minus.contains(position) {
+                return ItemStep::Step(*item, -1);
+            }
+            if plus.contains(position) {
+                return ItemStep::Step(*item, 1);
+            }
         }
         self.hits
             .iter()
@@ -248,7 +272,9 @@ impl ItemList {
                     self.focus = to;
                 }
             }
-            ItemStep::Chosen(item) | ItemStep::Held(item) => self.focus = item,
+            ItemStep::Chosen(item) | ItemStep::Held(item) | ItemStep::Step(item, _) => {
+                self.focus = item;
+            }
             ItemStep::Header(action) => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
@@ -337,7 +363,12 @@ impl ItemList {
             .unwrap_or(0);
         let mut header = Page::default();
         let mut messages = Messages::new()?;
-        let title = messages.copy(host, title)?;
+        // A title that is a catalog key is translated; text already translated
+        // (a group's name) is not a key and is shown as it is.
+        let title = match messages.copy(host, title) {
+            Err(Error::NotFound | Error::Invalid) => text::copy(title)?,
+            other => other?,
+        };
         header::prepare(
             &mut header,
             host,
@@ -354,6 +385,7 @@ impl ItemList {
         let mut body = Vec::new();
         paint::push(&mut body, Paint::Fill(area, style.paper))?;
         let mut hits = Vec::new();
+        let mut steps = Vec::new();
         let mut y = top;
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
@@ -361,7 +393,12 @@ impl ItemList {
             match &self.items[index] {
                 Item::Heading(text) => heading(&mut body, &font, &style, rect, text)?,
                 Item::Row(row) => {
-                    draw_row(&mut body, &font, &style, rect, row, focused)?;
+                    if let Some((minus, plus)) =
+                        draw_row(&mut body, &font, &style, rect, row, focused)?
+                    {
+                        steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                        steps.push((minus, plus, index));
+                    }
                     hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
                     hits.push((rect, index));
                 }
@@ -383,6 +420,7 @@ impl ItemList {
         self.header = header;
         self.starts = starts;
         self.hits = hits;
+        self.steps = steps;
         Ok(())
     }
 }
@@ -585,7 +623,7 @@ fn draw_row(
     rect: Rect,
     row: &RowItem,
     focused: bool,
-) -> Result<(), Error> {
+) -> Result<Option<(Rect, Rect)>, Error> {
     backdrop(paint, style, rect, focused)?;
     let ink = ink(style, focused);
     let mut band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
@@ -606,9 +644,29 @@ fn draw_row(
             rect.height,
         );
     }
+    let mut buttons = None;
+    if row.stepper {
+        // Square buttons at the right end of the row's first line; the value
+        // sits to their left.
+        let side = band.height.min(band.width / 4);
+        let right = band
+            .x
+            .saturating_add(band.width)
+            .saturating_sub(style.margin / 2);
+        let plus = Rect::new(right.saturating_sub(side), band.y, side, band.height);
+        let minus = Rect::new(plus.x.saturating_sub(side), band.y, side, band.height);
+        for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
+            let size = style.text;
+            let x =
+                f32::from(rect.x) + (f32::from(rect.width) - font.measure_text(size, glyph)?) / 2.0;
+            text::label(paint, font, glyph, size, x, rect, ink, Some(rect))?;
+        }
+        band.width = minus.x.saturating_sub(band.x);
+        buttons = Some((minus, plus));
+    }
     columns(paint, font, style, band, &row.title, &row.value, ink)?;
     if row.note.is_empty() {
-        return Ok(());
+        return Ok(buttons);
     }
     let color = if focused && !style.ring {
         style.paper
@@ -632,7 +690,7 @@ fn draw_row(
         )?;
         y = y.saturating_add(line);
     }
-    Ok(())
+    Ok(buttons)
 }
 
 /// A small 3x3 grid at the left of `rect` with cell `zone` filled: the part of
