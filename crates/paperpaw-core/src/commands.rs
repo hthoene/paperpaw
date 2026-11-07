@@ -489,7 +489,9 @@ impl Kernel {
         if open.is_none()
             && let Some(index) = in_slot.filter(|&index| !below_guard(index))
         {
-            if !self.may_close_from(index, paperpaw_sdk::CloseCause::Slot) {
+            if !self.require_screen_keys(1)
+                || !self.may_close_from(index, paperpaw_sdk::CloseCause::Slot)
+            {
                 return;
             }
             let closed = (index..self.stack.len())
@@ -514,7 +516,9 @@ impl Kernel {
                 }
                 return;
             }
-            if !self.may_close_from(index, paperpaw_sdk::CloseCause::Slot) {
+            if !self.require_screen_keys(1)
+                || !self.may_close_from(index, paperpaw_sdk::CloseCause::Slot)
+            {
                 return;
             }
             // The slot for something else (e.g. another book): opened anew

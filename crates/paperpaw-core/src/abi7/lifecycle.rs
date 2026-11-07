@@ -8,7 +8,13 @@
 
 use super::calls::{Depth, Instance};
 use crate::native_host::Error as HostError;
-use core::{cell::Cell, marker::PhantomPinned, mem::ManuallyDrop, pin::Pin};
+use core::{
+    cell::Cell,
+    marker::{PhantomData, PhantomPinned},
+    mem::ManuallyDrop,
+    pin::Pin,
+    ptr::NonNull,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Host lifecycle or teardown-hook refusal. Busy is retryable without effects.
@@ -85,7 +91,8 @@ pub(crate) struct Owner<C, M> {
 /// A registration or queued callback retains its owner, context and module.
 /// These are host-only borrows, never foreign pointers or Rust wire values.
 pub(crate) struct Lease<'a, C, M> {
-    owner: Pin<&'a Owner<C, M>>,
+    owner: NonNull<Owner<C, M>>,
+    _borrow: PhantomData<Pin<&'a Owner<C, M>>>,
 }
 
 impl<C, M> Owner<C, M> {
@@ -157,20 +164,26 @@ impl<C, M> Owner<C, M> {
         }
         self.activate(teardown)?;
         self.leases.set(self.leases.get() + 1);
-        Ok(Lease { owner: self })
+        Ok(Lease {
+            owner: NonNull::from(self.get_ref()),
+            _borrow: PhantomData,
+        })
     }
 
     /// Reserve before publishing a registration or queued callback. Eight is
     /// a conservative local lease bound, not a device-wide memory guarantee.
     pub(crate) fn lease(self: Pin<&Self>) -> Result<Lease<'_, C, M>, Error> {
-        if self.state.get() != State::Live {
+        if !self.is_live() {
             return Err(Error::State);
         }
         if self.leases.get() >= 8 {
             return Err(Error::Capacity);
         }
         self.leases.set(self.leases.get() + 1);
-        Ok(Lease { owner: self })
+        Ok(Lease {
+            owner: NonNull::from(self.get_ref()),
+            _borrow: PhantomData,
+        })
     }
 
     /// Refuse new admission before removing registrations and cancelling work.
@@ -184,6 +197,10 @@ impl<C, M> Owner<C, M> {
     /// resource cleanup until that callback has returned.
     pub(crate) fn is_active(&self) -> bool {
         self.instance.is_active()
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        self.state.get() == State::Live
     }
 
     pub(crate) fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
@@ -253,6 +270,20 @@ impl<C, M> Owner<C, M> {
 }
 
 impl<C, M> Lease<'_, C, M> {
+    /// The caller must retain the pinned owner until this lease is dropped.
+    #[allow(
+        dead_code,
+        reason = "standalone lifecycle tests omit the retained host adapter"
+    )]
+    pub(crate) unsafe fn into_retained(self) -> Lease<'static, C, M> {
+        let owner = self.owner;
+        core::mem::forget(self);
+        Lease {
+            owner,
+            _borrow: PhantomData,
+        }
+    }
+
     /// Host dispatch supplies the registered callback only after admission.
     /// The shared instance guard covers every token for this owner. There is no
     /// wire table or registration parser in this increment.
@@ -261,24 +292,25 @@ impl<C, M> Lease<'_, C, M> {
         depth: &Depth,
         callback: impl FnOnce(Pin<&C>) -> R,
     ) -> Result<R, Error> {
-        if self.owner.state.get() != State::Live {
+        // SAFETY: the lease's borrow or its retained holder keeps this owner
+        // pinned and alive. This reference lasts only through this dispatch.
+        let owner = unsafe { Pin::new_unchecked(self.owner.as_ref()) };
+        if !owner.is_live() {
             return Err(Error::State);
         }
-        let _call = self
-            .owner
-            .instance
-            .enter(depth)
-            .map_err(|error| match error {
-                super::calls::Error::Busy => Error::Busy,
-                super::calls::Error::Depth => Error::Depth,
-            })?;
-        Ok(callback(self.owner.context()))
+        let _call = owner.instance.enter(depth).map_err(|error| match error {
+            super::calls::Error::Busy => Error::Busy,
+            super::calls::Error::Depth => Error::Depth,
+        })?;
+        Ok(callback(owner.context()))
     }
 }
 
 impl<C, M> Drop for Lease<'_, C, M> {
     fn drop(&mut self) {
-        self.owner.leases.set(self.owner.leases.get() - 1);
+        // SAFETY: the lease drops before its borrowed or retained pinned owner.
+        let owner = unsafe { self.owner.as_ref() };
+        owner.leases.set(owner.leases.get() - 1);
     }
 }
 
