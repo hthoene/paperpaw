@@ -156,3 +156,150 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     );
     assert_eq!(dispatch.calls.borrow().len(), 4);
 }
+
+/// A kernel whose stack holds the fixture screen on top under `key`.
+fn kernel_with_screen(key: paperpaw_sdk::ScreenKey) -> crate::Kernel {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("fixture.screen"),
+        None,
+        false,
+        key,
+    ));
+    kernel
+}
+
+fn pointer(id: u8, phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
+    PointerEvent::new(
+        id,
+        phase,
+        paperpaw_platform::Point::new(x, y),
+        paperpaw_platform::PointerTool::Finger,
+        1000,
+    )
+}
+
+fn decoded_pointers(dispatch: &Recorder) -> Vec<(i32, i32, u32, Option<u32>)> {
+    dispatch
+        .calls
+        .borrow()
+        .iter()
+        .map(|(token, bytes)| {
+            assert_eq!(*token, 10);
+            let Record::InputPointer(p) = wire::records_decode_single(bytes).unwrap() else {
+                panic!("not a pointer record")
+            };
+            (p.x, p.y, p.phase, p.contact)
+        })
+        .collect()
+}
+
+/// Todo 51: interleaved contacts reach the plugin whole, each with the id the
+/// platform gave it, from its down to its up.
+#[test]
+fn interleaved_contacts_keep_their_ids_from_down_to_up() {
+    let key = paperpaw_sdk::ScreenKey::new(3);
+    let kernel = kernel_with_screen(key);
+    let env = kernel.shared.env(Instant(5));
+    let (mut screen, dispatch) = screen();
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    screen.on_show(&mut cx);
+    dispatch.calls.borrow_mut().clear();
+    dispatch.result.set(1);
+    // A down, B down, B move, B up, A move, A up.
+    let (a, b) = (1, 2);
+    let script = [
+        pointer(a, PointerPhase::Down, 10, 10),
+        pointer(b, PointerPhase::Down, 50, 60),
+        pointer(b, PointerPhase::Move, 51, 61),
+        pointer(b, PointerPhase::Up, 52, 62),
+        pointer(a, PointerPhase::Move, 11, 12),
+        pointer(a, PointerPhase::Up, 12, 13),
+    ];
+    for event in &script {
+        // Every event is delivered, and a handled one is reported handled.
+        assert_eq!(screen.on_pointer(event, &mut cx), Handled::Yes);
+    }
+    assert_eq!(
+        decoded_pointers(&dispatch),
+        [
+            (10, 10, 0, Some(1)),
+            (50, 60, 0, Some(2)),
+            (51, 61, 1, Some(2)),
+            (52, 62, 2, Some(2)),
+            (11, 12, 1, Some(1)),
+            (12, 13, 2, Some(1)),
+        ]
+    );
+}
+
+#[test]
+fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
+    let key = paperpaw_sdk::ScreenKey::new(3);
+    let kernel = kernel_with_screen(key);
+    let env = kernel.shared.env(Instant(5));
+    let (mut screen, dispatch) = screen();
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    screen.on_show(&mut cx);
+    dispatch.calls.borrow_mut().clear();
+    // Contact 0 (a single-contact device) is sent as 0, not left out; 255 is
+    // the largest the platform has. A cancel names its contact too.
+    for (id, phase) in [
+        (0, PointerPhase::Down),
+        (0, PointerPhase::Cancel),
+        (255, PointerPhase::Down),
+        (7, PointerPhase::Down),
+        (255, PointerPhase::Cancel),
+        (7, PointerPhase::Up),
+    ] {
+        screen.on_pointer(&pointer(id, phase, 1, 2), &mut cx);
+    }
+    assert_eq!(
+        decoded_pointers(&dispatch),
+        [
+            (1, 2, 0, Some(0)),
+            (1, 2, 3, Some(0)),
+            (1, 2, 0, Some(255)),
+            (1, 2, 0, Some(7)),
+            (1, 2, 3, Some(255)),
+            (1, 2, 2, Some(7)),
+        ]
+    );
+}
+
+#[test]
+fn a_screen_below_the_top_gets_no_pointer_at_all() {
+    let key = paperpaw_sdk::ScreenKey::new(3);
+    let mut kernel = kernel_with_screen(key);
+    let env = kernel.shared.env(Instant(5));
+    let (mut screen, dispatch) = screen();
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    screen.on_show(&mut cx);
+    dispatch.calls.borrow_mut().clear();
+    // Outside the stack (no key), and with another screen over it.
+    let mut aside = paperpaw_sdk::Output::default();
+    let mut outside = Cx::new(&env, &mut aside);
+    assert_eq!(
+        screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut outside),
+        Handled::No
+    );
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("other.screen"),
+        None,
+        false,
+        paperpaw_sdk::ScreenKey::new(4),
+    ));
+    let env = kernel.shared.env(Instant(6));
+    let mut covered = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut covered).for_screen(key);
+    assert_eq!(
+        screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut cx),
+        Handled::No
+    );
+    assert!(dispatch.calls.borrow().is_empty());
+}
