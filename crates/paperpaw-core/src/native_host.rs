@@ -67,6 +67,10 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+/// The device-wide table of Wi-Fi join and host requests (DEV).
+#[path = "native_host/radio_requests.rs"]
+pub mod radio_requests;
+
 #[path = "native_host/declaration_index.rs"]
 mod declaration_index;
 
