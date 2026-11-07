@@ -1,4 +1,5 @@
 """Validate and emit the bounded slot-15 command batch codec."""
+from abi_declarations import growth_fields, is_growth_command
 
 
 def _require(ok, message):
@@ -50,6 +51,17 @@ def _extras(schema):
     return [records[name] for name in EXTRA_COMMANDS if name in records]
 
 
+def _growth(schema):
+    """The growth-block commands, in schema order, generated from their fields."""
+    return [item for item in schema.get('records', []) if is_growth_command(item)]
+
+
+def _variant(name):
+    """`command.bind_key` is `BindKey`; `command.a.b_c` is `ABC` (dots as underscores)."""
+    rest = name.split('.', 1)[1].replace('.', '_')
+    return ''.join(part.capitalize() for part in rest.split('_'))
+
+
 def _validate_extra(record, descriptor, schema):
     _require(type(record.get('id')) is int and 0 <= record['id'] <= 65535,
              'command tag must be an unsigned declaration ID')
@@ -99,12 +111,25 @@ def validate_commands(schema):
              1 <= descriptor['max_records'] <= 8, 'command codec count cap')
     _require(len(recognized) == 1, 'command codec needs exactly one SetSetting record')
     known = {'command.set_setting', *EXTRA_COMMANDS}
-    _require(all(item.get('name') in known for item in records
+    _require(all(item.get('name') in known or is_growth_command(item) for item in records
                  if type(item) is dict and str(item.get('name', '')).startswith('command.')),
              'unknown command record')
     for extra in _extras(schema):
         _validate_extra(extra, descriptor, schema)
-    ids = [item['id'] for item in [recognized[0], *_extras(schema)]]
+    variants = {'SetSetting', *(EXTRA_COMMANDS[item['name']][0] for item in _extras(schema))}
+    for item in _growth(schema):
+        _require(type(item.get('since')) is int and
+                 descriptor['since'] <= item['since'] <= schema.get('minor', 0),
+                 'command since outside codec/schema minor')
+        for field in growth_fields(item):
+            _require(field['since'] <= schema.get('minor', 0),
+                     f'{item["name"]}.{field["name"]}: since outside schema minor')
+            _require(not field['optional'], f'{item["name"]}: growth commands have no optional '
+                     'fields yet')
+        variant = _variant(item['name'])
+        _require(variant not in variants, f'{item["name"]}: variant {variant} taken')
+        variants.add(variant)
+    ids = [item['id'] for item in [recognized[0], *_extras(schema), *_growth(schema)]]
     _require(len(set(ids)) == len(ids), 'duplicate command tag')
     record = recognized[0]
     _require(type(record.get('id')) is int and 0 <= record['id'] <= 65535,
@@ -403,9 +428,9 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
 '''
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
-    extras = _extras(schema)
-    if extras:
-        source = _extended(source, extras, statuses)
+    extras, growth = _extras(schema), _growth(schema)
+    if extras or growth:
+        source = _extended(source, extras, statuses, growth)
     return source
 
 
@@ -418,9 +443,10 @@ def _const(name):
     return 'COMMAND_' + name.split('.', 1)[1].upper() + '_TAG'
 
 
-def _extended(source, extras, statuses):
-    """The codec with the declared extra commands. Applied to the SetSetting-only
-    source only when extras exist, so that source stays byte for byte as locked."""
+def _extended(source, extras, statuses, growth=()):
+    """The codec with the declared extra and growth-block commands. Applied to the
+    SetSetting-only source only when either exists, so that source stays byte for
+    byte as locked."""
     names = {item['name']: item for item in extras}
     invalid, unsupported = statuses['ERR_INVALID'], statuses['ERR_UNSUPPORTED']
     no_space, utf8 = statuses['ERR_NO_SPACE'], statuses['ERR_UTF8']
@@ -474,6 +500,8 @@ def _extended(source, extras, statuses):
                         f"                Command::{variant}\n            }}\n")
             lens.append(f"        Command::{variant} => Ok(({tag}, 1)),\n")
             writes.append(f"            Command::{variant} => {{}}\n")
+    for item in growth:
+        _growth_command(item, consts, variants, arms, lens, writes)
     source = _swap(source, "pub const COMMAND_SET_SETTING_TAG: u32 = ",
                    "".join(consts) + "pub const COMMAND_SET_SETTING_TAG: u32 = ")
     source = _swap(source, "        value: SettingValueRef<'a>,\n    },\n}\n",
@@ -512,6 +540,9 @@ fn mode(mode: u32) -> Result<u32, i32> {{
     if 'command.set_item_state' in names:
         helpers += _ITEM_STATE_HELPERS.replace('@INVALID@', str(invalid)).replace(
             '@NO_SPACE@', str(no_space)).replace('@UTF8@', str(utf8))
+    if growth:
+        helpers += _GROWTH_HELPERS.replace('@NO_SPACE@', str(no_space)).replace(
+            '@UTF8@', str(utf8))
     source = _swap(source, "\n/// Decode an entire batch before exposing any command.",
                    helpers + "\n/// Decode an entire batch before exposing any command.")
     source = _swap(source, f"""        if tag != COMMAND_SET_SETTING_TAG {{
@@ -673,3 +704,117 @@ def _item_state(item, tag, consts, variants, arms, lens, writes):
         "                    write_field(field, out, &mut offset);\n"
         "                }\n"
         "            }\n")
+
+
+# Field helpers of the growth-block commands: the generated record codec's rules
+# (text and bytes within their caps, empty allowed; little-endian scalars).
+_GROWTH_HELPERS = """
+fn text(bytes: &[u8], cap: usize) -> Result<&str, i32> {
+    if bytes.len() > cap {
+        Err(@NO_SPACE@)
+    } else {
+        core::str::from_utf8(bytes).map_err(|_| @UTF8@)
+    }
+}
+
+fn blob(bytes: &[u8], cap: usize) -> Result<&[u8], i32> {
+    if bytes.len() > cap {
+        Err(@NO_SPACE@)
+    } else {
+        Ok(bytes)
+    }
+}
+
+fn scalar<const N: usize>(bytes: &[u8]) -> [u8; N] {
+    let mut value = [0; N];
+    value.copy_from_slice(bytes);
+    value
+}
+
+fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+    if len > cap {
+        Err(@NO_SPACE@)
+    } else {
+        Ok(varint_len(len as u32) + len)
+    }
+}
+
+fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+"""
+
+_SCALAR_WIDTH = {'u32': 4, 'i32': 4, 'u64': 8}
+
+
+def _pattern(indent, variant, names):
+    """`Command::Variant { a, b }` as rustfmt lays it out: one field a line once
+    the fields take more than 18 columns (its struct literal width)."""
+    if len(', '.join(names)) <= 18:
+        return f"{indent}Command::{variant} {{ {', '.join(names)} }}"
+    lines = [f"{indent}    {name}{'' if name == '..' else ','}\n" for name in names]
+    return f"{indent}Command::{variant} {{\n{''.join(lines)}{indent}}}"
+
+
+def _growth_command(item, consts, variants, arms, lens, writes):
+    """The pieces of one growth-block command, generated from its fields."""
+    name, variant = item['name'], _variant(item['name'])
+    base = 'COMMAND_' + name.split('.', 1)[1].upper().replace('.', '_')
+    tag = base + '_TAG'
+    fields = growth_fields(item)
+    consts.append(f"/// Wire tag of the `{name}` command.\npub const {tag}: u32 = {item['id']};\n")
+    docs, decode, sized, written = [], [], [], []
+    for field in fields:
+        label, kind = field['name'], field['kind']
+        if kind in _SCALAR_WIDTH:
+            width = _SCALAR_WIDTH[kind]
+            docs.append(f"        /// Little-endian {kind}.\n        {label}: {kind},\n")
+            decode.append(f"                    {label}: {kind}::from_le_bytes(scalar(body.take({width})?)),\n")
+            written.append(f"                out[offset..offset + {width}].copy_from_slice(&{label}.to_le_bytes());\n"
+                           f"                offset += {width};\n")
+            continue
+        cap = f"{base}_{label.upper()}_MAX_BYTES"
+        consts.append(f"/// Maximum bytes of `{name}.{label}`.\npub const {cap}: usize = {field['cap']};\n")
+        items = field['items']
+        if items:
+            stem = f"{base}_{label.upper()}"
+            separator = repr(items['separator']).strip("'")
+            consts.append(f"/// Item separator of `{name}.{label}`.\n"
+                          f"pub const {stem}_SEPARATOR: char = '{separator}';\n"
+                          f"/// Maximum items of `{name}.{label}`.\n"
+                          f"pub const {stem}_MAX_ITEMS: usize = {items['max_items']};\n"
+                          f"/// Maximum bytes of one item of `{name}.{label}`.\n"
+                          f"pub const {stem}_ITEM_MAX_BYTES: usize = {items['item_max_bytes']};\n")
+        if kind == 'str':
+            what = (f"UTF-8 list of at most {items['max_items']} items of at most "
+                    f"{items['item_max_bytes']} bytes, at most {field['cap']} bytes in all"
+                    if items else f"UTF-8 text of at most {field['cap']} bytes")
+            docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
+            decode.append(f"                    {label}: text(body.bytes()?, {cap})?,\n")
+            written.append(f"                write_blob({label}.as_bytes(), out, &mut offset);\n")
+        else:
+            docs.append(f"        /// At most {field['cap']} bytes.\n        {label}: &'a [u8],\n")
+            decode.append(f"                    {label}: blob(body.bytes()?, {cap})?,\n")
+            written.append(f"                write_blob({label}, out, &mut offset);\n")
+        sized.append((label, cap))
+    variants.append(f"    /// The `{name}` command (`docs/abi/registry.md`).\n"
+                    f"    {variant} {{\n{''.join(docs)}    }},\n")
+    arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"
+                f"                Command::{variant} {{\n{''.join(decode)}"
+                f"                }}\n            }}\n")
+    scalars = sum(_SCALAR_WIDTH.get(field['kind'], 0) for field in fields)
+    fixed = f"1 + {scalars}" if scalars else "1"
+    if sized:
+        names = [label for label, _ in sized] + (['..'] if len(sized) < len(fields) else [])
+        lens.append(_pattern('        ', variant, names) + " => {\n"
+                    f"            let mut len = {fixed};\n"
+                    + "".join(f"            len += blob_len({label}.len(), {cap})?;\n"
+                              for label, cap in sized)
+                    + f"            Ok(({tag}, len))\n        }}\n")
+    else:
+        lens.append(f"        Command::{variant} {{ .. }} => Ok(({tag}, {fixed})),\n")
+    every = [field['name'] for field in fields]
+    writes.append(_pattern('            ', variant, every) + f" => {{\n{''.join(written)}"
+                  f"            }}\n")

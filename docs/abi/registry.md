@@ -1,8 +1,10 @@
 # Interface 7: registry (REG)
 
-Status: **draft** of family 2 (#228), revised after Senior's review (#986), before records and schema land. Input: Plugin's
-needs inventory (#984, `plugin-needs-reg-uix-dev-lib-doc-228.md`, REG section). Items marked [D]
-are proposed decisions, [Q] open questions. Nothing here is generated yet.
+Status: **draft** of family 2 (#228), revised after Senior's review (#986). The records are in
+`abi/abi.def` and the service schema in `abi/services/core.registry@1.def` (generated); the host
+side is Core's hand-off (section 9). Input: Plugin's needs inventory (#984,
+`plugin-needs-reg-uix-dev-lib-doc-228.md`, REG section). Items marked [D] are decisions, [Q] open
+questions.
 
 REG lets plugins see and change what the host has registered: settings and their groups, plugins,
 actions, screens, slots, menus, key bindings and setup steps. The settings editor, menu editor,
@@ -68,7 +70,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
 | 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
 | 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
-| 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`?, `reg_need`* | description, features, requirements |
+| 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`? | description; requirements are op 20 |
 | 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
 | 8 | `screens` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
 | 9 | `slots` | `reg_query` (`scope` empty) | `reg_slot`*, `end` | with the bound and the default screen |
@@ -82,10 +84,11 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 17 | `preset` | `reg_key` | `reg_item`, `reg_text`? | name and description |
 | 18 | `values` | `reg_query` (`scope`: a preset id, or with `flags` bit 0 a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values a preset or a placement sets, whole |
 | 19 | `widgets` | `reg_query` (`scope`: widget kind or empty) | `reg_widget`*, `end` | widget discovery, section 6 |
+| 20 | `needs` | `reg_query` (`scope`: plugin id) | `reg_need`*, `end` | features, services and required plugins, paged (up to 32 + 32 + more do not fit one reply) |
 
 - [D] `scope` that names nothing known gives an empty page (`total` 0), not an error: a plugin may
   ask for a group or menu of a plugin that is not installed.
-- [D] `setting` and `plugin` with an unknown key: `ERR_NOT_FOUND`.
+- [D] `setting`, `plugin` and `preset` with an unknown key: `ERR_NOT_FOUND`.
 - [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
 
 ### 2.3 Authority (what a reply shows)
@@ -117,7 +120,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
   bit 1 (`declared`) answers the declared rows in declared order, ignoring the user's definition:
   the default order the editor resets to. User order and reset stay distinct.
 
-## 3. Records (service block, 1025-1047)
+## 3. Records (service block, 1025-1040)
 
 All are `service.*` records in the growth block 1024-1535 (`stages-services.md` section 2.2).
 Text the user reads (`title`, `help`, `label`, `badge`, choice titles) is **translated by the host**
@@ -129,7 +132,7 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1025 | `service.reg_query` | `scope: str 128`, `cursor: u32`, `generation: u32`, `flags: u32` |
 | 1026 | `service.reg_key` | `key: str 128` |
 | 1027 | `service.reg_setting` | `key: str 128`, `group: str 128`, `kind: u32`, `flags: u32`, `source: u32`, `title: str 128`, `value: bytes 64` |
-| 1028 | `service.reg_setting_extra` | `min: i64`, `max: i64`, `step: i64`, `unit: str 32`, `section: str 128`, `follows: str 128`, `shown_key: str 128`, `shown_value: bytes 64`, `editor_kind: u32`, `editor: str 128`, `choices: u32` |
+| 1028 | `service.reg_setting_extra` | `min: i32`, `max: i32`, `step: i32`, `unit: str 96`, `section: str 128`, `follows: str 128`, `shown_id: str 128`, `shown_value: str 128`, `editor_kind: u32`, `editor: str 128`, `choices: u32` |
 | 1029 | `service.reg_choice` | `value: str 64`, `title: str 128` |
 | 1030 | `service.reg_text` | `text: str 1024` |
 | 1031 | `service.reg_group` | `id: str 128`, `parent: str 128`, `page: str 128`, `order: i32`, `title: str 128` |
@@ -151,7 +154,8 @@ Field meanings:
   governs (another setting's `shown_if` names it: re-read the list when it changes). `source`:
   0 default, 1 preset, 2 profile, 3 user, 4 book scope.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
-- `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs;
+- `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs, with their
+  types (`min`/`max`/`step` are `i32` there; `shown_id`/`shown_value` are `setting.extra`'s);
   `choices` is the number of choices, read with op 3 (paged: foreign `setting.choice` extensions
   make the count open; the longest fixed list today is 33).
 - `reg_text` in `setting` is the help text; in `plugin` the description.
@@ -201,7 +205,7 @@ key and text bytes within the stage budget.
 | --- | --- | --- |
 | 1536 | `command.reset_setting` | `key: str 128`, `flags: u32` |
 | 1537 | `command.preview_setting` | `key: str 128`, `value: bytes 512`, `flags: u32` |
-| 1538 | `command.preview_end` | (none) |
+| 1538 | `command.preview_end` | `flags: u32` (0; other values `ERR_INVALID`) |
 | 1539 | `command.set_scope` | `path: str 512` |
 | 1540 | `command.set_menu` | `menu: str 128`, `items: str 2048`, `flags: u32` |
 | 1541 | `command.bind_key` | `layer: str 128`, `input: str 64`, `action: str 128`, `flags: u32` |
@@ -326,17 +330,19 @@ These change the user's configuration of the whole device, so they need the D1 f
 
 Interface 6 registered these from code (`Registrar`); interface 7 needs them as declaration records
 (declaration range 5-31, applied by S2 like `setting.spec`). Text fields are message keys of the
-declaring plugin, as in `setting.spec`.
+declaring plugin, as in `setting.spec`; names, titles and help have `setting.spec`'s caps (96), and
+`applies_value`/`when_value` are text as `setting.extra.shown_value` is. Until the host admits them
+(Core), a batch with any of them is refused with `ERR_UNSUPPORTED`.
 
 | Tag | Record | Fields | Interface 6 |
 | --- | --- | --- | --- |
-| 21 | `setup.step` | `name: str 128`, `title: str 128`, `help: str 128`, `order: i32`, `page_kind: u32`, `page: str 128`, `applies_key: str 128`, `applies_value: bytes 64`, `need: u32`, `capability: u64`, `flags: u32` | `add_setup_step` |
-| 22 | `slot.spec` | `name: str 128`, `title: str 128` | `add_slot` |
+| 21 | `setup.step` | `name: str 96`, `title: str 96`, `help: str 96`, `order: i32`, `page_kind: u32`, `page: str 128`, `applies_key: str 128`, `applies_value: str 128`, `need: u32`, `capability: u64`, `flags: u32` | `add_setup_step` |
+| 22 | `slot.spec` | `name: str 96`, `title: str 96` | `add_slot` |
 | 23 | `slot.offer` | `slot: str 128`, `screen: str 128`, `priority: i32` | `bind_slot` |
-| 24 | `key.bind` | `layer: str 128`, `input: str 64`, `action: str 128`, `when_key: str 128`, `when_value: bytes 64` | `add_keymap`, `add_keymap_when` |
+| 24 | `key.bind` | `layer: str 128`, `input: str 64`, `action: str 128`, `when_key: str 128`, `when_value: str 128` | `add_keymap`, `add_keymap_when` |
 | 25 | `setting.default` | `key: str 128`, `value: bytes 512` | `set_setting_default` (another plugin's setting) |
-| 26 | `setting.choice` | `key: str 128`, `value: str 64`, `title: str 128` | `add_choice` (another plugin's choice setting) |
-| 27 | `preset.spec` | `name: str 128`, `kind: str 128`, `title: str 128`, `help: str 128` | `add_preset(s)`, `presets.ini` |
+| 26 | `setting.choice` | `key: str 128`, `value: str 64`, `title: str 96` | `add_choice` (another plugin's choice setting) |
+| 27 | `preset.spec` | `name: str 96`, `kind: str 128`, `title: str 96`, `help: str 96` | `add_preset(s)`, `presets.ini` |
 | 28 | `preset.value` | `preset: str 128`, `key: str 128`, `value: bytes 512`, `flags: u32` | the preset's lines |
 
 - [D] **Setup applicability** replaces the interface-6 `AppliesFn` callback; no plugin code runs
@@ -386,7 +392,7 @@ declaring plugin, as in `setting.spec`.
 | Interface 6 | Interface 7 |
 | --- | --- |
 | `env.settings()` specs, groups, values | ops 1-4; values also slot 5 (`settings.read`) |
-| `env.plugins()` (`get`, `iter`, `owner`, `restart_needed`, `kernel`) | ops 5, 6; `event.plugins_changed` |
+| `env.plugins()` (`get`, `iter`, `owner`, `restart_needed`, `kernel`) | ops 5, 6, 20; `event.plugins_changed` |
 | `env.actions()`, `env.screens()`, `env.screen_title()` | ops 7, 8 |
 | `env.slots()`, `slot_screen`, `slot_screens`, `slot_title`, `slot_choice`, `has_slot` | ops 9, 10 |
 | `env.menus()` (`menu_ids`, `ids`, `items`, `shown_items`, `default_ids`, `is_customized`, `hidden_by`, `state`, `icon`, `description`, `order_of`, `available`) | ops 11, 12 |

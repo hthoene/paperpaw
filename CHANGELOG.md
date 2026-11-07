@@ -19,6 +19,15 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
+  20 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
+  steps, presets and widgets; rows 1025-1040), the registry commands 1536-1546 (reset, preview,
+  book scope, menus, key and slot bindings, plugin switching, plugin requests and answers,
+  presets), events 75-78 (registry and preview changes, plugin requests and answers) and the
+  declarations 21-28 (`setup.step`, `slot.spec`, `slot.offer`, `key.bind`, `setting.default`,
+  `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
+  growth block are generated from their `abi.def` fields into the command codec. Hosts answer
+  `ERR_UNSUPPORTED` until wired (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

@@ -81,6 +81,26 @@ pub use wire::{
     EventBookRemoved, EventChargeChanged, EventPluginsChanged, EventPowerChanged,
     EventSettingChanged, EventStatusChanged, EventWifiChanged,
 };
+// Registry (REG, `docs/abi/registry.md`): declarations 21-28, events 75-78 and
+// the `core.registry` rows 1025-1040; the host admits and answers them once
+// wired (Core hand-off).
+pub use wire::{
+    EVENT_PLUGIN_ANSWERED_TAG, EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES,
+    EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS, EVENT_PLUGINS_REQUESTED_PLUGINS_SEPARATOR,
+    EVENT_PLUGINS_REQUESTED_TAG, EVENT_PREVIEW_CHANGED_TAG, EVENT_REGISTRY_CHANGED_TAG,
+    EventPluginAnswered, EventPluginsRequested, EventPreviewChanged, EventRegistryChanged,
+    KEY_BIND_TAG, KeyBind, PRESET_SPEC_TAG, PRESET_VALUE_TAG, PresetSpec, PresetValue,
+    SERVICE_REG_BINDING_TAG, SERVICE_REG_CHOICE_TAG, SERVICE_REG_GROUP_TAG, SERVICE_REG_ITEM_TAG,
+    SERVICE_REG_KEY_TAG, SERVICE_REG_MENU_ROW_TAG, SERVICE_REG_NEED_TAG, SERVICE_REG_PLUGIN_TAG,
+    SERVICE_REG_QUERY_TAG, SERVICE_REG_SETTING_EXTRA_TAG, SERVICE_REG_SETTING_TAG,
+    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_TEXT_TAG, SERVICE_REG_VALUE_TAG,
+    SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG, SETUP_STEP_TAG,
+    SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice, ServiceRegGroup,
+    ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed, ServiceRegPlugin,
+    ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra, ServiceRegSetupStep,
+    ServiceRegSlot, ServiceRegText, ServiceRegValue, ServiceRegWidget, SettingChoice,
+    SettingDefault, SetupStep, SlotOffer, SlotSpec,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 

@@ -539,8 +539,18 @@ const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_PATH_MAX_BY
 const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_TAG: u32 = 37u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_TITLE_MAX_BYTES: usize = 256usize
 const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_CHANGED_TAG: u32 = 70u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_BY_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS: usize = 16usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_PLUGINS_SEPARATOR: char = '\n'
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGINS_REQUESTED_TAG: u32 = 77u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGIN_ANSWERED_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PLUGIN_ANSWERED_TAG: u32 = 78u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_POWER_CHANGED_MODE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::EVENT_POWER_CHANGED_TAG: u32 = 72u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_PREVIEW_CHANGED_TAG: u32 = 76u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_REGISTRY_CHANGED_TAG: u32 = 75u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_RESUME_TAG: u32 = 33u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::EVENT_SCREEN_SHOWN_TAG: u32 = 38u32
@@ -572,6 +582,12 @@ const paperpaw_sdk::native::declare::records_wire::INPUT_GESTURE_TAG: u32 = 42u3
 const paperpaw_sdk::native::declare::records_wire::INPUT_KEY_KEY_MAX_BYTES: usize = 32usize
 const paperpaw_sdk::native::declare::records_wire::INPUT_KEY_TAG: u32 = 40u32
 const paperpaw_sdk::native::declare::records_wire::INPUT_POINTER_TAG: u32 = 41u32
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_ACTION_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_INPUT_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_LAYER_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_TAG: u32 = 24u32
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_WHEN_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::KEY_BIND_WHEN_VALUE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::MENU_DESCRIBE_ITEM_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::MENU_DESCRIBE_KEY_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::MENU_DESCRIBE_TAG: u32 = 18u32
@@ -588,6 +604,15 @@ const paperpaw_sdk::native::declare::records_wire::MENU_SECTION_MENU_MAX_BYTES: 
 const paperpaw_sdk::native::declare::records_wire::MENU_SECTION_NAME_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::MENU_SECTION_TAG: u32 = 16u32
 const paperpaw_sdk::native::declare::records_wire::MENU_SECTION_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_SPEC_HELP_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_SPEC_KIND_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_SPEC_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_SPEC_TAG: u32 = 27u32
+const paperpaw_sdk::native::declare::records_wire::PRESET_SPEC_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_VALUE_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_VALUE_PRESET_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::PRESET_VALUE_TAG: u32 = 28u32
+const paperpaw_sdk::native::declare::records_wire::PRESET_VALUE_VALUE_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::declare::records_wire::RECORD_CARRY_MAX_BYTES: usize = 256usize
 const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_RECORDS: usize = 8usize
@@ -616,9 +641,83 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_PLUGIN_TAG: u32 = 50u
 const paperpaw_sdk::native::declare::records_wire::SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_PLUGIN_USAGE_TAG: u32 = 49u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_BINDING_ACTION_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_BINDING_INPUT_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_BINDING_LAYER_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_BINDING_TAG: u32 = 1_037u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_TAG: u32 = 1_029u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_VALUE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_PAGE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_PARENT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_TAG: u32 = 1_031u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_ITEM_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_ITEM_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_ITEM_TAG: u32 = 1_034u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_ITEM_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_KEY_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_KEY_TAG: u32 = 1_026u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_BADGE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_BY_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_DESCRIBE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_ICON_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_ITEM_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_TAG: u32 = 1_036u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_MENU_ROW_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_NEED_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_NEED_TAG: u32 = 1_033u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_NEED_VERSION_MAX_BYTES: usize = 32usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_PLUGIN_ID_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_PLUGIN_NAME_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_PLUGIN_TAG: u32 = 1_032u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_PLUGIN_UPDATE_MAX_BYTES: usize = 32usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_PLUGIN_VERSION_MAX_BYTES: usize = 32usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_QUERY_SCOPE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_QUERY_TAG: u32 = 1_025u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_EDITOR_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_FOLLOWS_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_SECTION_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_SHOWN_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_TAG: u32 = 1_028u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_EXTRA_UNIT_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_GROUP_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_TAG: u32 = 1_027u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_VALUE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_TAG: u32 = 1_038u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SLOT_DEFAULT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SLOT_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SLOT_SCREEN_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SLOT_TAG: u32 = 1_035u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SLOT_TITLE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_TEXT_TAG: u32 = 1_030u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_TEXT_TEXT_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_VALUE_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_VALUE_TAG: u32 = 1_039u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_VALUE_VALUE_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ICON_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_KIND_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TAG: u32 = 1_040u32
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TITLE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_USAGE_TAG: u32 = 48u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_WORK_NOTE_TAG: u32 = 51u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_WORK_NOTE_TEXT_MAX_BYTES: usize = 256usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_CHOICE_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_CHOICE_TAG: u32 = 26u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_CHOICE_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_CHOICE_VALUE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_DEFAULT_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_DEFAULT_TAG: u32 = 25u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_DEFAULT_VALUE_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_EDITOR_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_NAME_MAX_BYTES: usize = 96usize
@@ -642,6 +741,19 @@ const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_HELP_MAX_BYTES: 
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_NAME_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TAG: u32 = 6u32
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_APPLIES_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_APPLIES_VALUE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_HELP_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_PAGE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_TAG: u32 = 21u32
+const paperpaw_sdk::native::declare::records_wire::SETUP_STEP_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SLOT_OFFER_SCREEN_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SLOT_OFFER_SLOT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SLOT_OFFER_TAG: u32 = 23u32
+const paperpaw_sdk::native::declare::records_wire::SLOT_SPEC_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SLOT_SPEC_TAG: u32 = 22u32
+const paperpaw_sdk::native::declare::records_wire::SLOT_SPEC_TITLE_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::STAGE_CALL_PAYLOAD_MAX_BYTES: usize = 3_840usize
 const paperpaw_sdk::native::declare::records_wire::STAGE_CALL_STAGE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::STAGE_CALL_TAG: u32 = 512u32
@@ -662,6 +774,17 @@ const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::native::storage::MAX_DATA: usize = 4_096usize
 const paperpaw_sdk::native::storage::MAX_PATH: usize = 512usize
 const paperpaw_sdk::native::storage::MAX_SEGMENT: usize = 255usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_ANSWER_PLUGIN_TAG: u32 = 1_545u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_APPLY_PRESET_PRESET_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_APPLY_PRESET_TAG: u32 = 1_546u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_KEY_ACTION_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_KEY_INPUT_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_KEY_LAYER_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_KEY_TAG: u32 = 1_541u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_SLOT_SCREEN_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_SLOT_SLOT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_BIND_SLOT_TAG: u32 = 1_542u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_CLOSE_SCREEN_TAG: u32 = 59u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_ITEM_FAINT: u32 = 2u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_ITEM_FLAGS: u32 = 31u32
@@ -678,11 +801,55 @@ const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_KEY_BYTES: usize = 
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_RECORDS: usize = 8usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_SCREEN_BYTES: usize = 128usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_OPEN_SCREEN_TAG: u32 = 56u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_PREVIEW_END_TAG: u32 = 1_538u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_PREVIEW_SETTING_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_PREVIEW_SETTING_TAG: u32 = 1_537u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_REDRAW_MAX_MODE: u32 = 3u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_REDRAW_TAG: u32 = 58u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_REQUEST_PLUGINS_PLUGINS_ITEM_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS: usize = 16usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_REQUEST_PLUGINS_PLUGINS_SEPARATOR: char = '\n'
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_REQUEST_PLUGINS_TAG: u32 = 1_544u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_RESET_SETTING_KEY_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_RESET_SETTING_TAG: u32 = 1_536u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_RUN_ACTION_TAG: u32 = 57u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_ITEM_STATE_TAG: u32 = 60u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_ITEMS_MAX_BYTES: usize = 2_048usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS: usize = 64usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_ITEMS_SEPARATOR: char = '\n'
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_MENU_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_MENU_TAG: u32 = 1_540u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_PLUGIN_ENABLED_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_PLUGIN_ENABLED_TAG: u32 = 1_543u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SCOPE_PATH_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SCOPE_TAG: u32 = 1_539u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SETTING_TAG: u32 = 4u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::KEY: &str = "core.registry"
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_ACTIONS: u32 = 7u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_BINDINGS: u32 = 13u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_CHOICES: u32 = 3u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_GROUPS: u32 = 4u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_INPUTS: u32 = 14u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_MENU: u32 = 12u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_MENUS: u32 = 11u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_NEEDS: u32 = 20u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_PLUGIN: u32 = 6u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_PLUGINS: u32 = 5u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_PRESET: u32 = 17u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_PRESETS: u32 = 16u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SCREENS: u32 = 8u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SETTING: u32 = 2u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SETTINGS: u32 = 1u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SETUP: u32 = 15u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SLOTS: u32 = 9u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_SLOT_OFFERS: u32 = 10u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_VALUES: u32 = 18u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::OP_WIDGETS: u32 = 19u32
+const paperpaw_sdk::native::wire::services_wire::core_registry_v1::REVISION: u16 = 0u16
 const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::KEY: &str = "core.test-echo"
 const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::MAJOR: u16 = 1u16
 const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::OP_ECHO: u32 = 1u32
@@ -967,7 +1134,7 @@ enum paperpaw_sdk::native::declare::EditorDecl<'a> { Screen(0: &'a str), Slot(0:
 enum paperpaw_sdk::native::declare::Kind<'a> { Bool(0: bool), Int { default: i64, min: i32, max: i32 }, Choice { default: &'a str, choices: &'a [&'a str] }, Text(0: &'a str), Language(0: &'a str), List(0: &'a str) }
 enum paperpaw_sdk::native::declare::Latched { Sink(0: i32), NoMemory, Refused(0: paperpaw_sdk::native::declare::DeclareError) }
 enum paperpaw_sdk::native::declare::callbacks::EventKind { Tick, Started, Resume, Suspend, Stopping, BatteryMeasured, PageTurned, ScreenShown, ActionRun }
-enum paperpaw_sdk::native::declare::records_wire::Record<'a> { Registration(0: paperpaw_sdk::native::declare::records_wire::Registration), SettingGroup(0: paperpaw_sdk::native::declare::records_wire::SettingGroup<'a>), SettingSpec(0: paperpaw_sdk::native::declare::records_wire::SettingSpec<'a>), SettingExtra(0: paperpaw_sdk::native::declare::records_wire::SettingExtra<'a>), ResourceHyphenation(0: paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a>), ResourceFontFace(0: paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a>), ResourceFontExtension(0: paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a>), EventStarted(0: paperpaw_sdk::native::declare::records_wire::EventStarted), EventResume(0: paperpaw_sdk::native::declare::records_wire::EventResume), EventSuspend(0: paperpaw_sdk::native::declare::records_wire::EventSuspend), EventStopping(0: paperpaw_sdk::native::declare::records_wire::EventStopping), EventBatteryMeasured(0: paperpaw_sdk::native::declare::records_wire::EventBatteryMeasured), EventPageTurned(0: paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a>), ServiceUsage(0: paperpaw_sdk::native::declare::records_wire::ServiceUsage), ServicePluginUsage(0: paperpaw_sdk::native::declare::records_wire::ServicePluginUsage<'a>), ServicePlugin(0: paperpaw_sdk::native::declare::records_wire::ServicePlugin<'a>), ServiceWorkNote(0: paperpaw_sdk::native::declare::records_wire::ServiceWorkNote<'a>), ServiceEnd(0: paperpaw_sdk::native::declare::records_wire::ServiceEnd), ScreenSpec(0: paperpaw_sdk::native::declare::records_wire::ScreenSpec<'a>), ActionSpec(0: paperpaw_sdk::native::declare::records_wire::ActionSpec<'a>), EventScreenShown(0: paperpaw_sdk::native::declare::records_wire::EventScreenShown<'a>), EventActionRun(0: paperpaw_sdk::native::declare::records_wire::EventActionRun<'a>), InputKey(0: paperpaw_sdk::native::declare::records_wire::InputKey<'a>), InputPointer(0: paperpaw_sdk::native::declare::records_wire::InputPointer), InputGesture(0: paperpaw_sdk::native::declare::records_wire::InputGesture), InputAction(0: paperpaw_sdk::native::declare::records_wire::InputAction<'a>), I18nArgStr(0: paperpaw_sdk::native::declare::records_wire::I18nArgStr<'a>), I18nArgInt(0: paperpaw_sdk::native::declare::records_wire::I18nArgInt<'a>), I18nCount(0: paperpaw_sdk::native::declare::records_wire::I18nCount), DrawFrame(0: paperpaw_sdk::native::declare::records_wire::DrawFrame<'a>), MenuEntry(0: paperpaw_sdk::native::declare::records_wire::MenuEntry<'a>), IconSpec(0: paperpaw_sdk::native::declare::records_wire::IconSpec<'a>), MenuNeed(0: paperpaw_sdk::native::declare::records_wire::MenuNeed<'a>), MenuSection(0: paperpaw_sdk::native::declare::records_wire::MenuSection<'a>), MenuHide(0: paperpaw_sdk::native::declare::records_wire::MenuHide<'a>), MenuDescribe(0: paperpaw_sdk::native::declare::records_wire::MenuDescribe<'a>), StageSpec(0: paperpaw_sdk::native::declare::records_wire::StageSpec<'a>), RegistrationStage(0: paperpaw_sdk::native::declare::records_wire::RegistrationStage<'a>), StageCall(0: paperpaw_sdk::native::declare::records_wire::StageCall<'a>), StageReply(0: paperpaw_sdk::native::declare::records_wire::StageReply<'a>), ServiceEcho(0: paperpaw_sdk::native::declare::records_wire::ServiceEcho<'a>), EventSettingChanged(0: paperpaw_sdk::native::declare::records_wire::EventSettingChanged<'a>), EventBookOpened(0: paperpaw_sdk::native::declare::records_wire::EventBookOpened<'a>), EventBookClosed(0: paperpaw_sdk::native::declare::records_wire::EventBookClosed<'a>), EventBookFinished(0: paperpaw_sdk::native::declare::records_wire::EventBookFinished<'a>), EventBookMoved(0: paperpaw_sdk::native::declare::records_wire::EventBookMoved<'a>), EventBookRemoved(0: paperpaw_sdk::native::declare::records_wire::EventBookRemoved<'a>), EventPluginsChanged(0: paperpaw_sdk::native::declare::records_wire::EventPluginsChanged), EventWifiChanged(0: paperpaw_sdk::native::declare::records_wire::EventWifiChanged), EventPowerChanged(0: paperpaw_sdk::native::declare::records_wire::EventPowerChanged<'a>), EventStatusChanged(0: paperpaw_sdk::native::declare::records_wire::EventStatusChanged), EventChargeChanged(0: paperpaw_sdk::native::declare::records_wire::EventChargeChanged) }
+enum paperpaw_sdk::native::declare::records_wire::Record<'a> { Registration(0: paperpaw_sdk::native::declare::records_wire::Registration), SettingGroup(0: paperpaw_sdk::native::declare::records_wire::SettingGroup<'a>), SettingSpec(0: paperpaw_sdk::native::declare::records_wire::SettingSpec<'a>), SettingExtra(0: paperpaw_sdk::native::declare::records_wire::SettingExtra<'a>), ResourceHyphenation(0: paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a>), ResourceFontFace(0: paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a>), ResourceFontExtension(0: paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a>), EventStarted(0: paperpaw_sdk::native::declare::records_wire::EventStarted), EventResume(0: paperpaw_sdk::native::declare::records_wire::EventResume), EventSuspend(0: paperpaw_sdk::native::declare::records_wire::EventSuspend), EventStopping(0: paperpaw_sdk::native::declare::records_wire::EventStopping), EventBatteryMeasured(0: paperpaw_sdk::native::declare::records_wire::EventBatteryMeasured), EventPageTurned(0: paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a>), ServiceUsage(0: paperpaw_sdk::native::declare::records_wire::ServiceUsage), ServicePluginUsage(0: paperpaw_sdk::native::declare::records_wire::ServicePluginUsage<'a>), ServicePlugin(0: paperpaw_sdk::native::declare::records_wire::ServicePlugin<'a>), ServiceWorkNote(0: paperpaw_sdk::native::declare::records_wire::ServiceWorkNote<'a>), ServiceEnd(0: paperpaw_sdk::native::declare::records_wire::ServiceEnd), ScreenSpec(0: paperpaw_sdk::native::declare::records_wire::ScreenSpec<'a>), ActionSpec(0: paperpaw_sdk::native::declare::records_wire::ActionSpec<'a>), EventScreenShown(0: paperpaw_sdk::native::declare::records_wire::EventScreenShown<'a>), EventActionRun(0: paperpaw_sdk::native::declare::records_wire::EventActionRun<'a>), InputKey(0: paperpaw_sdk::native::declare::records_wire::InputKey<'a>), InputPointer(0: paperpaw_sdk::native::declare::records_wire::InputPointer), InputGesture(0: paperpaw_sdk::native::declare::records_wire::InputGesture), InputAction(0: paperpaw_sdk::native::declare::records_wire::InputAction<'a>), I18nArgStr(0: paperpaw_sdk::native::declare::records_wire::I18nArgStr<'a>), I18nArgInt(0: paperpaw_sdk::native::declare::records_wire::I18nArgInt<'a>), I18nCount(0: paperpaw_sdk::native::declare::records_wire::I18nCount), DrawFrame(0: paperpaw_sdk::native::declare::records_wire::DrawFrame<'a>), MenuEntry(0: paperpaw_sdk::native::declare::records_wire::MenuEntry<'a>), IconSpec(0: paperpaw_sdk::native::declare::records_wire::IconSpec<'a>), MenuNeed(0: paperpaw_sdk::native::declare::records_wire::MenuNeed<'a>), MenuSection(0: paperpaw_sdk::native::declare::records_wire::MenuSection<'a>), MenuHide(0: paperpaw_sdk::native::declare::records_wire::MenuHide<'a>), MenuDescribe(0: paperpaw_sdk::native::declare::records_wire::MenuDescribe<'a>), StageSpec(0: paperpaw_sdk::native::declare::records_wire::StageSpec<'a>), RegistrationStage(0: paperpaw_sdk::native::declare::records_wire::RegistrationStage<'a>), StageCall(0: paperpaw_sdk::native::declare::records_wire::StageCall<'a>), StageReply(0: paperpaw_sdk::native::declare::records_wire::StageReply<'a>), ServiceEcho(0: paperpaw_sdk::native::declare::records_wire::ServiceEcho<'a>), EventSettingChanged(0: paperpaw_sdk::native::declare::records_wire::EventSettingChanged<'a>), EventBookOpened(0: paperpaw_sdk::native::declare::records_wire::EventBookOpened<'a>), EventBookClosed(0: paperpaw_sdk::native::declare::records_wire::EventBookClosed<'a>), EventBookFinished(0: paperpaw_sdk::native::declare::records_wire::EventBookFinished<'a>), EventBookMoved(0: paperpaw_sdk::native::declare::records_wire::EventBookMoved<'a>), EventBookRemoved(0: paperpaw_sdk::native::declare::records_wire::EventBookRemoved<'a>), EventPluginsChanged(0: paperpaw_sdk::native::declare::records_wire::EventPluginsChanged), EventWifiChanged(0: paperpaw_sdk::native::declare::records_wire::EventWifiChanged), EventPowerChanged(0: paperpaw_sdk::native::declare::records_wire::EventPowerChanged<'a>), EventStatusChanged(0: paperpaw_sdk::native::declare::records_wire::EventStatusChanged), EventChargeChanged(0: paperpaw_sdk::native::declare::records_wire::EventChargeChanged), SetupStep(0: paperpaw_sdk::native::declare::records_wire::SetupStep<'a>), SlotSpec(0: paperpaw_sdk::native::declare::records_wire::SlotSpec<'a>), SlotOffer(0: paperpaw_sdk::native::declare::records_wire::SlotOffer<'a>), KeyBind(0: paperpaw_sdk::native::declare::records_wire::KeyBind<'a>), SettingDefault(0: paperpaw_sdk::native::declare::records_wire::SettingDefault<'a>), SettingChoice(0: paperpaw_sdk::native::declare::records_wire::SettingChoice<'a>), PresetSpec(0: paperpaw_sdk::native::declare::records_wire::PresetSpec<'a>), PresetValue(0: paperpaw_sdk::native::declare::records_wire::PresetValue<'a>), EventRegistryChanged(0: paperpaw_sdk::native::declare::records_wire::EventRegistryChanged), EventPreviewChanged(0: paperpaw_sdk::native::declare::records_wire::EventPreviewChanged), EventPluginsRequested(0: paperpaw_sdk::native::declare::records_wire::EventPluginsRequested<'a>), EventPluginAnswered(0: paperpaw_sdk::native::declare::records_wire::EventPluginAnswered<'a>), ServiceRegQuery(0: paperpaw_sdk::native::declare::records_wire::ServiceRegQuery<'a>), ServiceRegKey(0: paperpaw_sdk::native::declare::records_wire::ServiceRegKey<'a>), ServiceRegSetting(0: paperpaw_sdk::native::declare::records_wire::ServiceRegSetting<'a>), ServiceRegSettingExtra(0: paperpaw_sdk::native::declare::records_wire::ServiceRegSettingExtra<'a>), ServiceRegChoice(0: paperpaw_sdk::native::declare::records_wire::ServiceRegChoice<'a>), ServiceRegText(0: paperpaw_sdk::native::declare::records_wire::ServiceRegText<'a>), ServiceRegGroup(0: paperpaw_sdk::native::declare::records_wire::ServiceRegGroup<'a>), ServiceRegPlugin(0: paperpaw_sdk::native::declare::records_wire::ServiceRegPlugin<'a>), ServiceRegNeed(0: paperpaw_sdk::native::declare::records_wire::ServiceRegNeed<'a>), ServiceRegItem(0: paperpaw_sdk::native::declare::records_wire::ServiceRegItem<'a>), ServiceRegSlot(0: paperpaw_sdk::native::declare::records_wire::ServiceRegSlot<'a>), ServiceRegMenuRow(0: paperpaw_sdk::native::declare::records_wire::ServiceRegMenuRow<'a>), ServiceRegBinding(0: paperpaw_sdk::native::declare::records_wire::ServiceRegBinding<'a>), ServiceRegSetupStep(0: paperpaw_sdk::native::declare::records_wire::ServiceRegSetupStep<'a>), ServiceRegValue(0: paperpaw_sdk::native::declare::records_wire::ServiceRegValue<'a>), ServiceRegWidget(0: paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a>) }
 enum paperpaw_sdk::native::declare::records_wire::Registration { Event { event_tag: u32, token: u32 }, Draw { token: u32 } }
 enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::events::Event<'a> { Tick { now_ms: u64 }, Started { now_ms: u64 }, Resume { now_ms: u64 }, Suspend { now_ms: u64 }, Stopping { now_ms: u64 }, BatteryMeasured { now_ms: u64 }, PageTurned(0: paperpaw_sdk::native::events::PageTurn<'a>), ScreenShown { now_ms: u64, screen: &'a str, width: u32, height: u32 }, ActionRun { now_ms: u64, action: &'a str } }
@@ -978,7 +1145,7 @@ enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSig
 enum paperpaw_sdk::native::settings::GrantKind { Style, Install }
 enum paperpaw_sdk::native::settings::SettingValue<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
-enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> }, OpenScreen { screen: &'a str }, RunAction { action: &'a str }, Redraw { mode: u32 }, CloseScreen, SetItemState { item: &'a str, flags: u32, label: &'a str, label_args: &'a [u8], badge: &'a str, badge_args: &'a [u8] } }
+enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> }, OpenScreen { screen: &'a str }, RunAction { action: &'a str }, Redraw { mode: u32 }, CloseScreen, SetItemState { item: &'a str, flags: u32, label: &'a str, label_args: &'a [u8], badge: &'a str, badge_args: &'a [u8] }, ResetSetting { key: &'a str, flags: u32 }, PreviewSetting { key: &'a str, value: &'a [u8], flags: u32 }, PreviewEnd { flags: u32 }, SetScope { path: &'a str }, SetMenu { menu: &'a str, items: &'a str, flags: u32 }, BindKey { layer: &'a str, input: &'a str, action: &'a str, flags: u32 }, BindSlot { slot: &'a str, screen: &'a str }, SetPluginEnabled { plugin: &'a str, enabled: u32 }, RequestPlugins { plugins: &'a str }, AnswerPlugin { request: u32, plugin: &'a str, outcome: u32 }, ApplyPreset { preset: &'a str, flags: u32 } }
 enum paperpaw_sdk::native::wire::services_wire::ServiceBound { None, Card }
 enum paperpaw_sdk::native::wire::snapshot_wire::PixelFormat { Mono1, Gray2, Gray4, Gray8, Rgb565, Rgb888, Other { code: u16, bits: u8 } }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
@@ -1279,8 +1446,12 @@ struct paperpaw_sdk::native::declare::records_wire::EventBookOpened<'a> { now_ms
 struct paperpaw_sdk::native::declare::records_wire::EventBookRemoved<'a> { now_ms: u64, path: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::EventChargeChanged { now_ms: u64, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a> { now_ms: u64, section: u32, offset: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32>, insert: core::option::Option<u32> }
+struct paperpaw_sdk::native::declare::records_wire::EventPluginAnswered<'a> { now_ms: u64, request: u32, plugin: &'a str, outcome: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventPluginsChanged { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventPluginsRequested<'a> { now_ms: u64, request: u32, by: &'a str, plugins: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::EventPowerChanged<'a> { now_ms: u64, level: u32, flags: u32, stretch: u32, mode: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::EventPreviewChanged { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventRegistryChanged { now_ms: u64, what: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventResume { now_ms: u64 }
 struct paperpaw_sdk::native::declare::records_wire::EventScreenShown<'a> { now_ms: u64, screen: &'a str, width: u32, height: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventSettingChanged<'a> { now_ms: u64, key: &'a str, old: &'a [u8] }
@@ -1297,11 +1468,14 @@ struct paperpaw_sdk::native::declare::records_wire::InputAction<'a> { now_ms: u6
 struct paperpaw_sdk::native::declare::records_wire::InputGesture { now_ms: u64, kind: u32, x: i32, y: i32 }
 struct paperpaw_sdk::native::declare::records_wire::InputKey<'a> { now_ms: u64, key: &'a str, state: u32 }
 struct paperpaw_sdk::native::declare::records_wire::InputPointer { now_ms: u64, x: i32, y: i32, phase: u32 }
+struct paperpaw_sdk::native::declare::records_wire::KeyBind<'a> { layer: &'a str, input: &'a str, action: &'a str, when_key: &'a str, when_value: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::MenuDescribe<'a> { item: &'a str, key: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::MenuEntry<'a> { menu: &'a str, item: &'a str, order: i32, place: u32, anchor: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::MenuHide<'a> { menu: &'a str, item: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::MenuNeed<'a> { item: &'a str, need: u32, capability: u64 }
 struct paperpaw_sdk::native::declare::records_wire::MenuSection<'a> { name: &'a str, title: &'a str, menu: &'a str, order: i32 }
+struct paperpaw_sdk::native::declare::records_wire::PresetSpec<'a> { name: &'a str, kind: &'a str, title: &'a str, help: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::PresetValue<'a> { preset: &'a str, key: &'a str, value: &'a [u8], flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::RecordBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>; 8], len: usize }
 struct paperpaw_sdk::native::declare::records_wire::RecordIter<'b, 'a> { records: core::slice::iter::Iter<'b, core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>> }
 struct paperpaw_sdk::native::declare::records_wire::RecordStream { carry: [u8; 256], len: usize }
@@ -1315,11 +1489,32 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceEcho<'a> { text: &'a 
 struct paperpaw_sdk::native::declare::records_wire::ServiceEnd { flags: u32, total: u32, generation: u32, next: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServicePlugin<'a> { name: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServicePluginUsage<'a> { plugin: &'a str, busy_us: u64, calls: u32, shown_ms: u64, fast: u32, partial: u32, full: u32, pixels: u64, read: u64, written: u64, syncs: u32, requests: u32, refused: u32, awake_ms: u64, awake_reason: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegBinding<'a> { layer: &'a str, input: &'a str, action: &'a str, origin: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegChoice<'a> { value: &'a str, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegGroup<'a> { id: &'a str, parent: &'a str, page: &'a str, order: i32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegItem<'a> { id: &'a str, plugin: &'a str, flags: u32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegKey<'a> { key: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegMenuRow<'a> { item: &'a str, kind: u32, flags: u32, order: i32, by: &'a str, title: &'a str, icon: &'a str, badge: &'a str, describe: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegNeed<'a> { kind: u32, key: &'a str, version: &'a str, flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegPlugin<'a> { id: &'a str, name: &'a str, version: &'a str, kind: u32, state: u32, flags: u32, problem: u32, problem_arg: u32, update: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegQuery<'a> { scope: &'a str, cursor: u32, generation: u32, flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegSetting<'a> { key: &'a str, group: &'a str, kind: u32, flags: u32, source: u32, title: &'a str, value: &'a [u8] }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegSettingExtra<'a> { min: i32, max: i32, step: i32, unit: &'a str, section: &'a str, follows: &'a str, shown_id: &'a str, shown_value: &'a str, editor_kind: u32, editor: &'a str, choices: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegSetupStep<'a> { id: &'a str, page_kind: u32, page: &'a str, order: i32, flags: u32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegSlot<'a> { id: &'a str, screen: &'a str, default: &'a str, flags: u32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegText<'a> { text: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegValue<'a> { key: &'a str, value: &'a [u8], flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> { id: &'a str, plugin: &'a str, kind: &'a str, icon: &'a str, flags: u32, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceUsage { fast: u32, partial: u32, full: u32, pixels: u64, inputs: u32, sleeps: u32, panel_ms: u64, bluetooth_ms: u64 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceWorkNote<'a> { at_ms: u64, text: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingChoice<'a> { key: &'a str, value: &'a str, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingDefault<'a> { key: &'a str, value: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::SettingExtra<'a> { name: &'a str, unit: &'a str, section: &'a str, follows: &'a str, shown_id: &'a str, shown_value: &'a str, editor_kind: u32, editor: &'a str, step: i32, flags: u32, check: u32 }
 struct paperpaw_sdk::native::declare::records_wire::SettingGroup<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::SettingSpec<'a> { name: &'a str, kind: u32, flags: u32, group: &'a str, title: &'a str, help: &'a str, default: &'a [u8], min: i32, max: i32, choices: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SetupStep<'a> { name: &'a str, title: &'a str, help: &'a str, order: i32, page_kind: u32, page: &'a str, applies_key: &'a str, applies_value: &'a str, need: u32, capability: u64, flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::SlotOffer<'a> { slot: &'a str, screen: &'a str, priority: i32 }
+struct paperpaw_sdk::native::declare::records_wire::SlotSpec<'a> { name: &'a str, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::StageCall<'a> { stage: &'a str, schema: u32, payload: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::StageReply<'a> { subscriber: &'a str, index: u32, status: i32, flags: u32, signature: u64, payload: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::StageSpec<'a> { name: &'a str, schema: u32, flags: u32, max_input: u32, max_reply: u32, max_records: u32 }
