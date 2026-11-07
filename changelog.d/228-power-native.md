@@ -8,4 +8,5 @@
 ### Changed
 
 - **Shorter help for "Sleep after" and "Record battery use"** (#228). Both explanations now fit
-  their two lines at the largest text size on the X4 Pro, so they show whole (en and de).
+  their two lines at the largest text size on the X4 Pro, so they show whole (en and de); so does
+  the help of "Plugins may keep awake" on the Boox.
