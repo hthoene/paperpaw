@@ -42,6 +42,8 @@ change the plugin SDK.
   generation cursor. Typed book-field and badge declarations expose the existing
   library records to providers (#228).
 
+- Home 1.0.5: the host-free model of the pages for interface 7 (the grid of cells and the pages,
+  with fallible allocation and refusal sweeps); the screens follow (#228).
 - `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
   plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
 - Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
