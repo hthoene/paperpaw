@@ -11,6 +11,9 @@
 //! - A key that reads is never replaced. A flash that fails to read is not
 //!   erased. A sector without a valid key (erased, damaged) gets a new key
 //!   only at a seal.
+//! - Statuses: `ERR_STATE` means only "the random numbers are weak now" (the host
+//!   then asks to turn Wi-Fi on); a failing cipher or flash is `ERR_IO`, a flash that
+//!   somebody else holds is `ERR_BUSY`.
 //! - Fallible throughout: the GCM context is made with `try_reserve`, a
 //!   panic is never the answer to a value that does not open.
 
@@ -30,7 +33,7 @@ use mbedtls_rs::sys::{
 };
 use paperpaw_core::native_host::{ShellRandom, ShellSealer};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 use paperpaw_x4::device_key::{self as dk, KEY, NONCE, Sector, TAG};
 
@@ -47,13 +50,18 @@ impl ShellRandom for ChipRandom {
     }
 }
 
+/// Overwrites `bytes` so the compiler cannot drop it.
+fn wipe(bytes: &mut [u8]) {
+    // SAFETY: a valid, exclusively borrowed slice of the length given.
+    unsafe { mbedtls_platform_zeroize(bytes.as_mut_ptr().cast(), bytes.len()) };
+}
+
 /// A key that wipes itself.
 struct Key([u8; KEY]);
 
 impl Drop for Key {
     fn drop(&mut self) {
-        // SAFETY: a valid, exclusively borrowed array of the length given.
-        unsafe { mbedtls_platform_zeroize(self.0.as_mut_ptr().cast(), KEY) };
+        wipe(&mut self.0);
     }
 }
 
@@ -79,7 +87,7 @@ impl Gcm {
             )
         };
         if set != 0 {
-            return Err(ERR_STATE);
+            return Err(ERR_IO);
         }
         Ok(gcm)
     }
@@ -118,7 +126,7 @@ impl DeviceSealer {
         if let Some(at) = self.at.get() {
             return Ok(at);
         }
-        let mut flash = self.flash.try_borrow_mut().map_err(|_| ERR_STATE)?;
+        let mut flash = self.flash.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         let mut table = Vec::new();
         table
             .try_reserve_exact(PARTITION_TABLE_MAX_LEN)
@@ -148,10 +156,12 @@ impl DeviceSealer {
         let mut record = [0u8; dk::LEN];
         self.flash
             .try_borrow_mut()
-            .map_err(|_| ERR_STATE)?
+            .map_err(|_| ERR_BUSY)?
             .read(at, &mut record)
             .map_err(|_| ERR_IO)?;
-        Ok(dk::read(&record))
+        let sector = dk::read(&record);
+        wipe(&mut record);
+        Ok(sector)
     }
 
     /// The device key; with `make`, a new one where there is none.
@@ -166,14 +176,20 @@ impl DeviceSealer {
         if !self.random.fill(&mut key.0)? {
             return Err(ERR_STATE);
         }
+        // Read again before a key is replaced: one bad read must not destroy
+        // a key that is there.
+        if let Sector::Key(there) = self.read()? {
+            return Ok(Key(there));
+        }
         let at = self.sector()?;
-        let record = dk::record(&key.0);
+        let mut record = dk::record(&key.0);
         {
-            let mut flash = self.flash.try_borrow_mut().map_err(|_| ERR_STATE)?;
-            flash
+            let mut flash = self.flash.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+            let written = flash
                 .erase(at, at + dk::SECTOR as u32)
-                .map_err(|_| ERR_IO)?;
-            flash.write_nor(at, &record).map_err(|_| ERR_IO)?;
+                .and_then(|()| flash.write_nor(at, &record));
+            wipe(&mut record);
+            written.map_err(|_| ERR_IO)?;
         }
         // It counts once it reads back as written.
         match self.read()? {
@@ -224,7 +240,7 @@ impl ShellSealer for DeviceSealer {
         };
         if done != 0 {
             out.fill(0);
-            return Err(ERR_STATE);
+            return Err(ERR_IO);
         }
         Ok(total)
     }

@@ -41,7 +41,7 @@ pub const MAX_PLAIN: usize = 1024;
 pub const MAX_SEALED: usize = NONCE + MAX_PLAIN + TAG;
 
 /// What the key's sector holds.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum Sector {
     /// A key.
     Key([u8; KEY]),
@@ -49,6 +49,17 @@ pub enum Sector {
     Erased,
     /// Something else, or a record cut short: no key.
     Damaged,
+}
+
+/// Never prints the key (a log line or a failed assertion must not show it).
+impl core::fmt::Debug for Sector {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Key(_) => f.write_str("Key(<redacted>)"),
+            Self::Erased => f.write_str("Erased"),
+            Self::Damaged => f.write_str("Damaged"),
+        }
+    }
 }
 
 /// The first [`LEN`] bytes of the sector, as read.
@@ -114,6 +125,14 @@ mod tests {
 
     fn key() -> [u8; KEY] {
         core::array::from_fn(|i| i as u8 ^ 0x5A)
+    }
+
+    #[test]
+    fn debug_never_shows_the_key() {
+        use alloc::format;
+        assert_eq!(format!("{:?}", Sector::Key(key())), "Key(<redacted>)");
+        assert_eq!(format!("{:?}", Sector::Erased), "Erased");
+        assert_eq!(format!("{:?}", Sector::Damaged), "Damaged");
     }
 
     #[test]
