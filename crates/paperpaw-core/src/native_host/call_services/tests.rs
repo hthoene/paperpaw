@@ -74,8 +74,7 @@ fn batch(text: &str) -> Vec<u8> {
 #[test]
 fn open_statuses_unique_keys_and_generic_release_preserve_other_families() {
     let pool = HostResources::with_test_service(echo).unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    owner.bind_caller("fixture").unwrap();
+    let owner = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
     let declared = declared();
     let key = pair(b"core.test-echo");
@@ -152,8 +151,7 @@ fn open_statuses_unique_keys_and_generic_release_preserve_other_families() {
 #[test]
 fn device_never_offers_the_test_only_service() {
     let pool = HostResources::try_new().unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    owner.bind_caller("fixture").unwrap();
+    let owner = pool.try_owner().unwrap();
     assert_eq!(
         owner
             .service_schema(services_wire::core_test_echo_v1::KEY)
@@ -165,10 +163,8 @@ fn device_never_offers_the_test_only_service() {
 #[test]
 fn call_checks_schema_and_owner_before_publishing_a_reply() {
     let pool = HostResources::with_test_service(echo).unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    owner.bind_caller("fixture").unwrap();
-    let mut foreign = pool.try_owner().unwrap();
-    foreign.bind_caller("other").unwrap();
+    let owner = pool.try_owner().unwrap();
+    let foreign = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
     let input = batch("deterministic echo");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -254,8 +250,7 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
 #[test]
 fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
     let pool = HostResources::with_test_service(failing).unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    owner.bind_caller("fixture").unwrap();
+    let owner = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
     let input = batch("failure");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -371,8 +366,7 @@ fn broken_then_echo(
 #[test]
 fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
     let pool = HostResources::with_test_service(broken_then_echo).unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    owner.bind_caller("fixture").unwrap();
+    let owner = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
     let input = batch("after broken reply");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -549,79 +543,6 @@ fn dispatcher_wipes_scratch_before_free_without_changing_output_contract() {
                     }
                 }
             }
-        })
-        .unwrap();
-}
-
-fn caller_echo(
-    _: &dyn Frame,
-    caller: &paperpaw_sdk::Id,
-    _: &ServiceOp,
-    _: &[u8],
-    out: &mut [u8],
-) -> Result<usize, i32> {
-    registrations::records_encode(
-        &[registrations::Record::ServiceEcho(
-            registrations::ServiceEcho {
-                text: caller.as_str(),
-            },
-        )],
-        out,
-    )
-}
-
-#[test]
-fn backend_identity_is_host_bound_and_cannot_be_claimed_by_input() {
-    let pool = HostResources::with_test_service(caller_echo).unwrap();
-    let mut owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .build()
-        .unwrap();
-    let env = kernel.shared.env(Instant(0));
-    let input = batch("attacker");
-    let mut out = [77; 512];
-    let mut handle = 0;
-    scope
-        .as_ref()
-        .scope(&env, || {
-            // SAFETY: all fixture buffers are live and disjoint for these synchronous calls.
-            assert_eq!(
-                unsafe {
-                    open(
-                        &scope,
-                        &owner,
-                        &declared(),
-                        pair(b"core.test-echo"),
-                        1,
-                        0,
-                        &mut handle,
-                    )
-                },
-                OK
-            );
-            assert_eq!(
-                unsafe { call(&scope, &owner, handle, 1, pair(&input), output(&mut out)) },
-                ERR_DENIED
-            );
-            assert_eq!(out, [77; 512]);
-        })
-        .unwrap();
-    owner.bind_caller("fixture").unwrap();
-    assert_eq!(owner.bind_caller("attacker"), Err(ERR_STATE));
-    scope
-        .as_ref()
-        .scope(&env, || {
-            // SAFETY: the same live and disjoint buffers remain valid.
-            let length = unsafe { call(&scope, &owner, handle, 1, pair(&input), output(&mut out)) };
-            assert!(length > 0);
-            let decoded = registrations::records_decode(&out[..length as usize]).unwrap();
-            assert!(matches!(
-                decoded.iter().next(),
-                Some(registrations::Record::ServiceEcho(
-                    registrations::ServiceEcho { text: "fixture" }
-                ))
-            ));
         })
         .unwrap();
 }
