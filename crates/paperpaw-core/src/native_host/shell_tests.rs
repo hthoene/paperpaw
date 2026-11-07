@@ -1212,3 +1212,6 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
 }
 #[path = "shell_service_oom_tests.rs"]
 mod service_oom;
+
+#[path = "shell_evt_oom_tests.rs"]
+mod evt_oom;

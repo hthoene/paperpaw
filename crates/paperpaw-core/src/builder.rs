@@ -607,6 +607,7 @@ impl BuilderParts {
         translator.built_catalogs(self.built_catalogs);
         Kernel {
             shared: Shared {
+                native_events: None,
                 registry: Registry::default(),
                 meter,
                 device: self.device,
