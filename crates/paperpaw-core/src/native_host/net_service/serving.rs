@@ -3,7 +3,7 @@
 //! `.received/<server>/<request>`, `respond`, and events 101 and 102.
 use super::super::host_services::Caller;
 use super::{
-    ANSWER_MS, IO_BUFFER, NetHost, PLUGIN_SERVERS, Reply, SERVER_OPEN, args, own, reason,
+    ANSWER_MS, IO_BUFFER, NetHost, PLUGIN_SERVERS, Reply, SERVER_OPEN, args, gate, own, reason,
     table::{Inner, Pick},
     wire::{self, Record},
 };
@@ -118,6 +118,7 @@ fn tell(
     tables
         .events
         .retain(|e| !(e.owner == owner && e.token == token && e.state == STARTED));
+    gate()?;
     tables.events.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
     tables.events.push(event);
     Ok(())
@@ -161,6 +162,7 @@ pub(super) fn serve(
         return Err(ERR_BUSY);
     }
     // Room for everything before the old server is touched.
+    gate()?;
     inner
         .serving
         .servers
@@ -210,7 +212,7 @@ pub(super) fn serve(
                 screen,
                 max_body,
             });
-            tell(
+            if let Err(error) = tell(
                 &mut inner,
                 host,
                 who.owner,
@@ -218,7 +220,13 @@ pub(super) fn serve(
                 STARTED,
                 0,
                 &address,
-            )?;
+            ) {
+                // No event could be made: the server is not kept.
+                inner.serving.servers.pop();
+                host.transport().unlisten(key);
+                inner.sync_demand(host);
+                return Err(error);
+            }
         }
         Err(why) => tell(&mut inner, host, who.owner, serve.token, FAILED, why, "")?,
     }
@@ -384,6 +392,7 @@ pub(crate) fn served_head(
         return Ok(Decision::Reject(503));
     }
     let made = (|| {
+        gate()?;
         inner
             .serving
             .served

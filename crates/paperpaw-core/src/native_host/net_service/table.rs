@@ -4,7 +4,7 @@ use super::super::host_services::Caller;
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
-    args, reason, serving,
+    args, gate, reason, serving,
     wire::{self, Record},
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -170,12 +170,11 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
-        if r.saving {
-            if let Ok(parsed) = args::parse_request(&r.batch)
-                && let Some(file) = parsed.save
-            {
-                host.release_save(r.owner, file.root, file.path);
-            }
+        if r.saving
+            && let Ok(parsed) = args::parse_request(&r.batch)
+            && let Some(file) = parsed.save
+        {
+            host.release_save(r.owner, file.root, file.path);
         }
         done.stamp = stamp;
         // The pool keeps only what the held answer needs.
@@ -320,6 +319,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
     if !host.subscribed(who.owner, wire::EVENT_HTTP_DONE_TAG) {
         return Err(ERR_STATE);
     }
+    gate()?;
     let mut batch = Vec::new();
     batch
         .try_reserve_exact(input.len())
@@ -337,6 +337,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         return Err(ERR_BUSY);
     }
     let replaced = same_save_file(host, &inner, who.owner, &parsed)?;
+    gate()?;
     inner.reqs.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
     let id = inner.next_id.checked_add(1).ok_or(ERR_FULL)?;
     let now = host.now_ms();
@@ -411,8 +412,14 @@ fn same_save_file(
             continue;
         }
         if r.owner != owner {
+            // Root 0 is each plugin's own folder: the same path is another
+            // file there.
+            if new.root == 0 {
+                continue;
+            }
             return Err(ERR_BUSY);
         }
+        gate()?;
         ids.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         ids.push(r.id);
     }
@@ -488,7 +495,7 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     if parts[0].len() > 256 || parts[1].len() > 128 || parts[2].len() > 1024 {
         return Err(ERR_INVALID);
     }
-    if done.head.try_reserve_exact(total).is_err() {
+    if gate().is_err() || done.head.try_reserve_exact(total).is_err() {
         // No room for the answer's head: the body goes too.
         done.reason = reason::TOO_LARGE;
         done.status = 0;
@@ -696,7 +703,7 @@ pub(crate) fn event_delivered(host: &dyn NetHost, owner: u64) -> Result<(), i32>
     Ok(())
 }
 
-fn held<'a>(inner: &'a Inner, owner: u64, id: u32) -> Result<&'a Req, i32> {
+fn held(inner: &Inner, owner: u64, id: u32) -> Result<&Req, i32> {
     inner
         .reqs
         .iter()
@@ -767,12 +774,12 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
         if r.state == State::Running {
             host.transport().abort(r.id);
         }
-        if Inner::live(r) && r.saving {
-            if let Ok(parsed) = args::parse_request(&r.batch)
-                && let Some(file) = parsed.save
-            {
-                host.release_save(owner, file.root, file.path);
-            }
+        if Inner::live(r)
+            && r.saving
+            && let Ok(parsed) = args::parse_request(&r.batch)
+            && let Some(file) = parsed.save
+        {
+            host.release_save(owner, file.root, file.path);
         }
         freed = freed.saturating_add(r.reserved);
         inner.reqs.remove(index);

@@ -49,6 +49,7 @@ pub(crate) use table::NetTable;
 pub(crate) mod reason {
     pub(crate) const OK: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
+    pub(crate) const DNS: u32 = 2;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const TOO_LARGE: u32 = 6;
@@ -298,8 +299,33 @@ fn reply(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
     wire::record_encode_one(record, out)
 }
 
+// The test hook for allocation failures: the `n`th gate of a test that armed
+// `tests::FAIL_NTH` answers `ERR_NO_MEMORY`. Every fallible allocation of this
+// service goes through `gate` first.
+#[cfg(test)]
+pub(crate) fn gate() -> Result<(), i32> {
+    tests::FAIL_NTH.with(|nth| match nth.get() {
+        0 => Ok(()),
+        1 => {
+            nth.set(0);
+            Err(ERR_NO_MEMORY)
+        }
+        n => {
+            nth.set(n - 1);
+            Ok(())
+        }
+    })
+}
+
+#[cfg(not(test))]
+#[inline]
+pub(crate) const fn gate() -> Result<(), i32> {
+    Ok(())
+}
+
 /// A fallible copy of a string (`ERR_NO_MEMORY`).
 fn own(text: &str) -> Result<String, i32> {
+    gate()?;
     let mut copy = String::new();
     copy.try_reserve_exact(text.len())
         .map_err(|_| ERR_NO_MEMORY)?;
