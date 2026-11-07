@@ -23,6 +23,10 @@ change the plugin SDK.
   device check run on `paperpaw-ui-kit` and the device reads; the report is kept in the
   plugin's data folder (`.paperpaw/plugins/diagnostics/device-check.txt`); the snapshot
   reports the panel's gray levels and colour (#228).
+- Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
+  through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
+  chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
+  other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
