@@ -403,23 +403,25 @@ agree (a host test).
   `paperpaw-fat` `move_entry`, the old entry unlinked without freeing its clusters, so a cut never
   leaves two entries freeing one chain), and the tests replay a cut after each block write.
 - [D] **Firmware:** the running slot is never written; a cut while writing leaves the old slot
-  starting, since the new slot's first word is still missing. The new image runs as a trial (the
-  firmware's own, not the boot loader's app rollback, which the doc does not rely on): it is marked
-  trial at its first start; **a good start** is one that drew the home screen's first frame, and
-  only run time after that point counts, before any code plugin's time is counted against it; the
-  image becomes valid once good starts sum to 30 s; a start that ends uncleanly during the trial (a
-  panic, a watchdog or brown-out reset, the 8 s Power escape) is undone at the next start, which
-  boots the old image again (`dev_firmware.undone`). A failing code plugin cannot fail the trial:
-  safe mode (op 5) handles it.
-- [D] **The trial runs first** (Senior's #1033 remark): its check is the first thing the new image
-  does at boot, before the allocator, the display and the card, and it keeps a boot counter
-  (in RTC memory, with a flash copy that survives a power cut): a trial image that has started
-  three times without reaching a good start gives way to the old image at the next boot. An image
-  that dies before even that check (a fault in the boot loader's hand-off or the first
-  instructions) cannot undo itself and starts again and again until the web flasher restores
-  PaperPaw; the confirmation for a new firmware says, in plain words, that the web flasher is the
-  way back if the device stops starting. [Q] Firmware: the trial's place at boot and the counter's
-  RTC/flash storage today, else Firmware fixes them with DEV.
+  starting, since the new slot's first word is still missing. The new image runs as a trial,
+  the firmware's own (`crates/paperpaw-x4/src/updates.rs`); the espflash boot loader does not roll
+  back, and the doc does not rely on it:
+  - the new image marks itself on trial (OTA data `PendingVerify`, in flash, so it survives a power
+    cut) as early as the shell can, **before the kernel, the display and the card** (Senior's #1033
+    remark: the trial check comes first at boot);
+  - it becomes valid after 30 s of run time summed across starts (`TRIAL_MS`); a clean sleep or
+    restart pauses and resumes the count and keeps the trial;
+  - a start that finds the trial still open (the last run ended uncleanly: a panic, a watchdog or
+    brown-out reset, the 8 s Power escape) marks the image bad and restarts into the previous slot,
+    which reports `dev_firmware.undone`; so the first unclean end during the trial rolls back;
+  - [D] **a good start**: the 30 s count begins only once the home screen's first frame is shown,
+    so an image that never gets there cannot become valid (today the count runs from the shell's
+    start: a Firmware change with DEV). A failing code plugin cannot fail the trial: safe mode (op
+    5) handles it.
+- [D] **What the trial cannot catch:** an image that dies before its trial mark is set (in the boot
+  loader's hand-off or its first instructions) cannot undo itself and starts again and again until
+  the web flasher restores PaperPaw; the confirmation for a new firmware says, in plain words, that
+  the web flasher is the way back if the device stops starting.
 - [D] **Downgrades:** an older image that predates the trial (any image from before interface 7)
   has no rollback once it runs; the confirmation for an older version says so in addition to
   "older", and that the web flasher is the way back.
@@ -553,8 +555,8 @@ where a capability is missing.
   rule, `check_file` as a queued job.
 - **Firmware:** the X4 adapters (Wi-Fi, power, memory probe, values, keys), the firmware writer in
   64 KiB steps with digest binding and its trial, the fallible OTA buffer (`updates.rs:532`, offered
-  by Firmware), the good-start point of the trial, the trial check first at boot with its boot
-  counter, the read-back hash pass, foreign images final at the switch, the Power hold timer off the
+  by Firmware), the good-start point of the trial (count from the home screen's first frame), the
+  read-back hash pass, foreign images final at the switch, the Power hold timer off the
   main loop (G12), the device checks with the owner (install confirmation, Wi-Fi join/host, sleep,
   power off, restart, step time and card read speed).
 - **Services:** the SDK facade (typed reads, command builders, install request helpers with
