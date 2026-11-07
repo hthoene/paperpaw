@@ -79,3 +79,59 @@ impl Kernel {
         })?
     }
 }
+
+impl Kernel {
+    /// The test caller resolves the token from its checked native screen.
+    /// Input and its real command stage use the current kernel screen identity.
+    pub(crate) fn input_native_for_test<S, M>(
+        &mut self,
+        batch: &Batch<'_, S, M, Registration>,
+        token: u32,
+        depth: &DispatchDepth,
+        bytes: &[u8],
+        now: Instant,
+    ) -> Result<i32, Error> {
+        use crate::native_host::commands::CommandStage;
+        let (status, owner, (commands, redraw, _hop)) = {
+            let env = self.shared.env(now);
+            let frame = CoreFrame {
+                env: &env,
+                meter: &self.shared.meter,
+                font_removals: &self.shared.font_removals,
+                usage: &self.shared.usage,
+                plugins: &self.shared.plugins,
+                work: &self.shared.work_states,
+            };
+            batch.dispatch_owner(depth, |context| {
+                let owner =
+                    paperpaw_sdk::Id::try_parse(&context.id).map_err(|error| match error {
+                        paperpaw_sdk::IdError::NoMemory => Error::Allocation,
+                        _ => Error::Status(paperpaw_native::host_glue::ERR_INVALID),
+                    })?;
+                let screen = env.stack().last().map(|entry| entry.key);
+                let mut stage = CommandStage::new(
+                    &owner,
+                    env.settings(),
+                    Some(self.command_settings_authority(&owner)),
+                    8,
+                    4096,
+                )
+                .with_ui(&env, screen, 0);
+                // SAFETY: the command scope is structurally pinned by the owner.
+                let scope = unsafe { context.map_unchecked(|value| &value.commands) };
+                let status = scope.scope(&mut stage, || {
+                    super::tokens::invoke_token(
+                        context,
+                        token,
+                        &frame,
+                        super::TokenInvocation::Input(bytes),
+                    )
+                })??;
+                let output = stage.into_ui_output();
+                Ok::<_, Error>((status, owner, output))
+            })??
+        };
+        self.drain_native_ui(&owner, commands, redraw);
+        Ok(status)
+    }
+}

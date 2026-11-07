@@ -30,34 +30,43 @@ pub(crate) fn dispatch_token<S, M>(
     invocation: TokenInvocation<'_>,
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
-        let instance = context.instance.get().ok_or(Error::Attempt)?;
-        // SAFETY: the owner structurally pins the field; nothing moves it.
-        let scope = unsafe { context.map_unchecked(|value| &value.environment) };
-        scope.scope_core(frame, || match invocation {
-            TokenInvocation::Event(bytes) => {
-                let callback = instance
-                    .event
-                    .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-                // SAFETY: the admitted owner retains state and code. The
-                // host-produced payload is borrowed only until this returns.
-                Ok(status_only(unsafe {
-                    callback(instance.state, token, borrowed(bytes), no_reply())
-                }))
-            }
-            TokenInvocation::Input(bytes) => {
-                let Some(callback) = instance.input else {
-                    return Ok(0);
-                };
-                // SAFETY: the admitted owner retains state and code, and this
-                // host-produced input is borrowed only for the callback.
-                let status = unsafe { callback(instance.state, token, borrowed(bytes)) };
-                Ok(if status > 1 {
-                    host_glue::ERR_INVALID
-                } else {
-                    status
-                })
-            }
-        })?
+        invoke_token(context, token, frame, invocation)
+    })?
+}
+
+pub(super) fn invoke_token<S>(
+    context: core::pin::Pin<&super::Context<S>>,
+    token: u32,
+    frame: &crate::abi7::core_frame::CoreFrame<'_>,
+    invocation: TokenInvocation<'_>,
+) -> Result<i32, Error> {
+    let instance = context.instance.get().ok_or(Error::Attempt)?;
+    // SAFETY: the owner structurally pins the field; nothing moves it.
+    let scope = unsafe { context.map_unchecked(|value| &value.environment) };
+    scope.scope_core(frame, || match invocation {
+        TokenInvocation::Event(bytes) => {
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: the admitted owner retains state and code. The
+            // host-produced payload is borrowed only until this returns.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
+        }
+        TokenInvocation::Input(bytes) => {
+            let Some(callback) = instance.input else {
+                return Ok(0);
+            };
+            // SAFETY: the admitted owner retains state and code, and this
+            // host-produced input is borrowed only for the callback.
+            let status = unsafe { callback(instance.state, token, borrowed(bytes)) };
+            Ok(if status > 1 {
+                host_glue::ERR_INVALID
+            } else {
+                status
+            })
+        }
     })?
 }
 

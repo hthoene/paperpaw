@@ -95,6 +95,14 @@ impl native::Plugin for ScreenProbe {
             r,
         )
     }
+    fn input(
+        &mut self,
+        h: &Host<'_>,
+        t: u32,
+        input: native::callbacks::Input<'_>,
+    ) -> Result<paperpaw_sdk::Handled, Error> {
+        native::Plugin::input(&mut self.0, h, t, input)
+    }
     fn draw(&mut self, h: &Host<'_>, t: u32, f: DrawFrame<'_>) -> Result<(), Error> {
         native::Plugin::draw(&mut self.0, h, t, f)
     }
@@ -139,6 +147,13 @@ impl Plugin for Catalogs {
         )
     }
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        // The test shell supplies an actual stack entry for command authority.
+        // Pixels still come only from native callbacks on the shared host table.
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("battery.screen"),
+            "battery.title",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(AcceptanceShell)),
+        ))?;
         r.add_setting(SettingSpec::switch(
             "battery.enabled",
             "battery.setting.enabled",
@@ -162,6 +177,11 @@ impl Plugin for Catalogs {
         Ok(())
     }
 }
+struct AcceptanceShell;
+impl paperpaw_sdk::Screen for AcceptanceShell {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+}
+
 fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
     let services = [
@@ -198,7 +218,7 @@ fn declared_services() -> shell::DeclaredServices {
     shell::DeclaredServices::try_from_iter(checked.services()).unwrap()
 }
 
-fn render(kernel: &Kernel) -> (i32, Vec<u8>) {
+fn render(kernel: &mut Kernel, actions: &[&str]) -> (i32, Vec<u8>) {
     // SAFETY: statically linked code and metadata live for the whole test; no image range.
     let hosted = unsafe {
         shell::Hosted::new(
@@ -228,6 +248,24 @@ fn render(kernel: &Kernel) -> (i32, Vec<u8>) {
             Instant(200),
         )
         .unwrap();
+    for action in actions {
+        if status != 0 {
+            break;
+        }
+        let input = crate::native_host::registrations::Record::InputAction(
+            crate::native_host::registrations::InputAction {
+                now_ms: 200,
+                action,
+            },
+        );
+        let len = crate::native_host::registrations::records_encode(&[input], &mut bytes).unwrap();
+        let handled = kernel
+            .input_native_for_test(&batch, 10, &depth, &bytes[..len], Instant(200))
+            .unwrap();
+        if handled != 1 {
+            status = if handled < 0 { handled } else { -4 };
+        }
+    }
     let mut framebuffer = Framebuffer::new(480, 800, PixelFormat::Gray4).unwrap();
     framebuffer
         .canvas()
@@ -302,6 +340,7 @@ struct Case {
     developer: bool,
     history: Option<String>,
     charge: Option<Charge>,
+    actions: Vec<&'static str>,
 }
 fn cases() -> Vec<Case> {
     let known = Some(Charge::new(73, false, Some(4012)));
@@ -321,6 +360,7 @@ fn cases() -> Vec<Case> {
                 history,
                 charge,
                 developer: false,
+                actions: vec![],
             });
         }
     }
@@ -369,6 +409,23 @@ fn cases() -> Vec<Case> {
             developer,
             history: Some(history),
             charge: Some(charge),
+            actions: vec![],
+        });
+    }
+    for (name, next, previous) in [
+        ("many-page-2", 1, 0),
+        ("many-last-page", 9, 0),
+        ("many-page-1-again", 9, 12),
+    ] {
+        let mut actions = vec!["core.next-page"; next];
+        actions.extend(core::iter::repeat_n("core.prev-page", previous));
+        cases.push(Case {
+            name,
+            language: "en",
+            developer: false,
+            history: Some(many()),
+            charge: Some(Charge::new(64, false, None)),
+            actions,
         });
     }
     cases
@@ -420,7 +477,12 @@ fn native_battery_pixel_acceptance() {
             .unwrap();
         kernel.start(Instant(0));
         kernel.set_status(Instant(100), SystemStatus::new(None, case.charge));
-        let (status, pixels) = render(&kernel);
+        kernel.apply(paperpaw_sdk::Command::OpenScreen(
+            Id::new_static("battery.screen"),
+            paperpaw_sdk::Params::new(),
+        ));
+        kernel.run_commands();
+        let (status, pixels) = render(&mut kernel, &case.actions);
         if status != 0 {
             eprintln!("{}: BLOCKED native render, status {status}", case.name);
             failures.push(case.name);

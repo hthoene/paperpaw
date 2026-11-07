@@ -14,7 +14,6 @@ pub(super) struct UiContext<'a> {
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
     pub(crate) mode: Option<RefreshMode>,
-    pub(crate) before: usize,
 }
 
 impl<'a> CommandStage<'a> {
@@ -159,7 +158,6 @@ mod tests {
         let redraw = redraw.unwrap();
         assert_eq!(redraw.screen, key);
         assert_eq!(redraw.mode, Some(RefreshMode::Partial));
-        assert_eq!(redraw.before, 0, "redraw precedes the queued close");
         assert_eq!(hop, 0);
 
         let foreign = Id::new_static("other");
@@ -182,5 +180,42 @@ mod tests {
             ERR_BUSY
         );
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
+    }
+}
+
+impl crate::Kernel {
+    /// Drain after foreign code and all borrowed callback scopes have returned.
+    pub(crate) fn drain_native_ui(
+        &mut self,
+        owner: &Id,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+    ) {
+        for command in commands {
+            if let Command::Close(key) = &command
+                && !self.native_top(owner, *key)
+            {
+                self.warn_runtime("native close dropped: its screen is no longer on top");
+                continue;
+            }
+            self.apply(command);
+        }
+        if let Some(redraw) = redraw {
+            if !self.native_top(owner, redraw.screen) {
+                self.warn_runtime("native redraw dropped: its screen is no longer on top");
+                return;
+            }
+            match redraw.mode {
+                Some(mode) => self.apply(Command::Redraw(mode)),
+                None => self.output.redraw = true,
+            }
+        }
+    }
+
+    fn native_top(&self, owner: &Id, key: ScreenKey) -> bool {
+        self.shared
+            .stack
+            .last()
+            .is_some_and(|top| top.key == key && top.screen.namespace() == owner.as_str())
     }
 }
