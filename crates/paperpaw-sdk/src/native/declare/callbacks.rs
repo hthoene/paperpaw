@@ -24,6 +24,28 @@ pub enum EventKind {
     ScreenShown,
     /// An action was run.
     ActionRun,
+    /// Subscribe to the setting changed host event.
+    SettingChanged,
+    /// Subscribe to the book opened host event.
+    BookOpened,
+    /// Subscribe to the book closed host event.
+    BookClosed,
+    /// Subscribe to the book finished host event.
+    BookFinished,
+    /// Subscribe to the book moved host event.
+    BookMoved,
+    /// Subscribe to the book removed host event.
+    BookRemoved,
+    /// Subscribe to the plugins changed host event.
+    PluginsChanged,
+    /// Subscribe to the wifi changed host event.
+    WifiChanged,
+    /// Subscribe to the power changed host event.
+    PowerChanged,
+    /// Subscribe to the status changed host event.
+    StatusChanged,
+    /// Subscribe to the charge changed host event.
+    ChargeChanged,
 }
 
 impl EventKind {
@@ -38,6 +60,17 @@ impl EventKind {
             Self::PageTurned => records_wire::EVENT_PAGE_TURNED_TAG,
             Self::ScreenShown => records_wire::EVENT_SCREEN_SHOWN_TAG,
             Self::ActionRun => records_wire::EVENT_ACTION_RUN_TAG,
+            Self::SettingChanged => records_wire::EVENT_SETTING_CHANGED_TAG,
+            Self::BookOpened => records_wire::EVENT_BOOK_OPENED_TAG,
+            Self::BookClosed => records_wire::EVENT_BOOK_CLOSED_TAG,
+            Self::BookFinished => records_wire::EVENT_BOOK_FINISHED_TAG,
+            Self::BookMoved => records_wire::EVENT_BOOK_MOVED_TAG,
+            Self::BookRemoved => records_wire::EVENT_BOOK_REMOVED_TAG,
+            Self::PluginsChanged => records_wire::EVENT_PLUGINS_CHANGED_TAG,
+            Self::WifiChanged => records_wire::EVENT_WIFI_CHANGED_TAG,
+            Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,
+            Self::StatusChanged => records_wire::EVENT_STATUS_CHANGED_TAG,
+            Self::ChargeChanged => records_wire::EVENT_CHARGE_CHANGED_TAG,
         }
     }
 }
