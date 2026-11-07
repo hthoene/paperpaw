@@ -101,7 +101,7 @@ fn run(kernel: &mut Kernel, owner: &Id, commands: &[WireCommand<'_>], clock: &Cl
         let env = kernel.shared.env(Instant(0));
         let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
         let status = submit(&mut stage, commands);
-        (status, stage.into_dev_output())
+        (status, stage.into_dev_output().unwrap())
     };
     let (staged, redraw, _, batch) = output;
     let host = DevHost {
@@ -279,7 +279,8 @@ fn the_guard_alone_may_restart_or_power_off_and_sleep_stays_open() {
         DevContext::new(features(WIFI | POWER), &kernel.radio_requests).guarded_by(&stack);
     let power = Id::new_static("power");
     let lock = Id::new_static("lock");
-    let mut stage = CommandStage::new(&power, env.settings(), None, 16, 4096).with_dev(context);
+    let mut stage =
+        CommandStage::new(&power, env.settings(), None, 16, 4096).with_dev(context.clone());
     assert_eq!(submit(&mut stage, &[WireCommand::Restart {}]), ERR_DENIED);
     assert_eq!(submit(&mut stage, &[WireCommand::PowerOff {}]), ERR_DENIED);
     assert_eq!(submit(&mut stage, &[WireCommand::Sleep {}]), OK);
@@ -553,7 +554,7 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
         let second = submit(&mut stage, &[set(false)]);
         assert_eq!((first, second), (OK, OK));
         assert_eq!(stage.staged().len(), 2);
-        (OK, stage.into_dev_output())
+        (OK, stage.into_dev_output().unwrap())
     };
     let (staged, redraw, _, batch) = output;
     let at: Vec<usize> = batch.items.iter().map(|item| item.at).collect();
@@ -683,4 +684,140 @@ fn a_secret_is_wiped_before_it_is_freed() {
     secret.wipe();
     assert_eq!(secret.0.len(), PASSWORD.len());
     assert!(secret.0.iter().all(|byte| *byte == 0));
+}
+
+#[test]
+fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    // Four dropped outputs would fill the table if their reservations stayed.
+    for round in 1..=4_u32 {
+        let owner = Id::new_static(if round % 2 == 0 { "a" } else { "b" });
+        let mut stage = stage_of(&owner, &kernel, &env, WIFI);
+        assert_eq!(submit(&mut stage, &[join(round, "net")]), OK);
+        assert_eq!(kernel.radio_requests.borrow().len(), 1, "reserved");
+        drop(stage.into_dev_output().unwrap());
+        assert!(
+            kernel.radio_requests.borrow().is_empty(),
+            "round {round}: the unapplied reservation is given back"
+        );
+    }
+    // And the table is whole: four requests fit again.
+    let owner = Id::new_static("c");
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI);
+    for request in 1..=4 {
+        assert_eq!(submit(&mut stage, &[join(request, "net")]), OK);
+    }
+}
+
+#[test]
+fn a_drained_output_keeps_its_applied_entries_and_only_unapplied_ones_go() {
+    let mut kernel = kernel();
+    let owner = Id::new_static("wifi");
+    let clock = Clock(10_000, Some(9_000));
+    assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
+    assert!(
+        kernel.radio_requests.borrow().holds("wifi", 1),
+        "waiting for the radio after the drain"
+    );
+}
+
+#[test]
+fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() {
+    use crate::native_host::shell::tests::arm_failure;
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("wifi");
+    let mut refused = 0;
+    for nth in 1..=64 {
+        let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+        let mut bytes = [0; 1024];
+        let len = commands_encode(
+            &[
+                join(1, "net"),
+                WireCommand::WifiOn {},
+                WireCommand::Sleep {},
+            ],
+            &mut bytes,
+        )
+        .unwrap();
+        let batch = commands_decode(&bytes[..len]).unwrap();
+        arm_failure(nth);
+        let status = stage.stage(&batch);
+        let output = stage.into_dev_output();
+        arm_failure(0);
+        if status != OK || output.is_err() {
+            refused += 1;
+        }
+        // Whatever failed, dropping what is left gives everything back.
+        drop(output);
+        assert!(
+            kernel.radio_requests.borrow().is_empty(),
+            "allocation {nth} (status {status}): a reservation is left"
+        );
+    }
+    assert!(
+        refused > 0,
+        "no allocation of the staging failed in the sweep"
+    );
+}
+
+#[test]
+fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reservations() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("wifi");
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    // A valid batch first: one reservation and one command kept.
+    assert_eq!(
+        submit(&mut stage, &[WireCommand::WifiOn {}, join(1, "net")]),
+        OK
+    );
+    assert_eq!(dev_len(&stage), 2);
+    assert_eq!(kernel.radio_requests.borrow().len(), 1);
+    // Bit 0 of join.flags is accepted unchanged; any other bit refuses the
+    // whole batch, the valid commands before it in the same batch too.
+    let remember = WireCommand::WifiJoin {
+        request: 2,
+        ssid: "net",
+        password: SecretText::new(PASSWORD),
+        flags: 1,
+    };
+    assert_eq!(submit(&mut stage, &[remember]), OK);
+    assert_eq!(kernel.radio_requests.borrow().len(), 2);
+    for flags in [2_u32, 0x8000_0000, 3] {
+        let bad = WireCommand::WifiJoin {
+            request: 3,
+            ssid: "net",
+            password: SecretText::new(PASSWORD),
+            flags,
+        };
+        assert_eq!(
+            submit(&mut stage, &[WireCommand::WifiScan {}, bad]),
+            ERR_UNSUPPORTED,
+            "join flags {flags:#x}"
+        );
+        assert_eq!(dev_len(&stage), 3, "nothing of the refused batch is kept");
+        assert_eq!(
+            kernel.radio_requests.borrow().len(),
+            2,
+            "the earlier reservations stay, none is added"
+        );
+        assert!(kernel.radio_requests.borrow().holds("wifi", 1));
+        assert!(!kernel.radio_requests.borrow().holds("wifi", 3));
+    }
+    // wear.flags: bit 0 is the only one.
+    for flags in [2_u32, 0x10] {
+        let wear = WireCommand::Wear {
+            mode: "no-such-mode",
+            flags,
+        };
+        // An undefined bit is reported before the unknown mode.
+        assert_eq!(
+            submit(&mut stage, &[WireCommand::Sleep {}, wear]),
+            ERR_UNSUPPORTED,
+            "wear flags {flags:#x}"
+        );
+        assert_eq!(dev_len(&stage), 3);
+    }
 }

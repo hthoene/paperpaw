@@ -362,8 +362,8 @@ g_firmware() {
         skip "firmware: x4, x3 clippy" "toolchain $x4_toolchain not installed (rustup toolchain install $x4_toolchain --profile minimal --component clippy --target riscv32imc-unknown-none-elf)"
     else
         for device in x4 x3; do
-            run "firmware: clippy $device + remote" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
-            run "firmware: clippy $device" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
+            run "firmware: clippy $device + remote" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
+            run "firmware: clippy $device" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
         done
     fi
     skip "firmware: x4-pro, x4-classic" "needs the Xtensa (esp) toolchain; CI only"
@@ -383,7 +383,7 @@ g_firmware-build() {
         skip "firmware-build: x4" "toolchain $x4_toolchain not installed"
         return
     fi
-    run "firmware-build: x4 release build" "cd shells/xteink && cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
+    run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
     run "firmware-build: sample plugin fits the firmware" '
         fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)

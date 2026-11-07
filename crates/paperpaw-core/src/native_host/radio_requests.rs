@@ -162,10 +162,27 @@ struct Entry {
     phase: Phase,
 }
 
+/// Attempts the host stopped waiting for (superseded, left, the sender
+/// stopped) whose terminal report the radio has not made yet, per ssid. The
+/// X4's radio runs its queued commands strictly one after the other and ends
+/// every join or host with exactly one report (`Failed`, `Online` or
+/// `Hosting`), so each such attempt will produce one more report for its
+/// ssid that belongs to no waiting request. Counting them lets a late
+/// `Failed` of a superseded attempt be told from the replacement's own.
+#[derive(Clone, Copy)]
+struct Stale {
+    ssid: Ssid,
+    count: u8,
+    /// When the host first saw it (set at the next tick); it expires after
+    /// [`BACKSTOP_MS`], so a report that never comes cannot mute one forever.
+    since_ms: Option<u64>,
+}
+
 /// The table. See the module documentation.
 #[derive(Default)]
 pub struct RadioRequests {
     entries: Vec<Entry>,
+    stale: [Option<Stale>; MAX_REQUESTS],
 }
 
 impl fmt::Debug for RadioRequests {
@@ -200,7 +217,46 @@ impl RadioRequests {
     pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
+            stale: [None; MAX_REQUESTS],
         }
+    }
+
+    /// An attempt for `ssid` is no longer waited for but still runs.
+    fn note_stale(&mut self, ssid: Ssid) {
+        let free = self.stale.iter().position(Option::is_none);
+        let same = self
+            .stale
+            .iter()
+            .position(|slot| slot.is_some_and(|stale| stale.ssid.as_str() == ssid.as_str()));
+        // Every slot taken by other ssids: the oldest (first) gives way.
+        let at = same.or(free).unwrap_or(0);
+        if let Some(slot) = self.stale.get_mut(at) {
+            let count = slot.map_or(0, |stale| stale.count);
+            *slot = Some(Stale {
+                ssid,
+                count: count.saturating_add(1),
+                since_ms: None,
+            });
+        }
+    }
+
+    /// The radio made a terminal report for `ssid`: whether it belongs to a
+    /// stale attempt (and is used up).
+    fn take_stale(&mut self, ssid: &str) -> bool {
+        let Some(slot) = self
+            .stale
+            .iter_mut()
+            .find(|slot| slot.is_some_and(|stale| stale.ssid.as_str() == ssid))
+        else {
+            return false;
+        };
+        if let Some(stale) = slot {
+            stale.count = stale.count.saturating_sub(1);
+            if stale.count == 0 {
+                *slot = None;
+            }
+        }
+        true
     }
 
     /// Entries held (reserved, waiting or ended and undelivered).
@@ -282,7 +338,24 @@ impl RadioRequests {
     /// A newer join or host from any plugin replaces the waiting one: its
     /// outcome is [`reason::SUPERSEDED`].
     pub fn supersede_waiting(&mut self) {
+        self.cancel_waiting();
+    }
+
+    /// Ends every waiting request as superseded; their attempts may still
+    /// run at the radio, so each is noted as stale.
+    fn cancel_waiting(&mut self) {
+        let mut stale = [None; MAX_REQUESTS];
+        for (slot, entry) in stale.iter_mut().zip(
+            self.entries
+                .iter()
+                .filter(|entry| matches!(entry.phase, Phase::Waiting { .. })),
+        ) {
+            *slot = Some(entry.ssid);
+        }
         self.end_waiting(Outcome::failed(reason::SUPERSEDED), |_| true);
+        for ssid in stale.into_iter().flatten() {
+            self.note_stale(ssid);
+        }
     }
 
     /// End one request that has not ended; false when it was not held or had
@@ -311,7 +384,7 @@ impl RadioRequests {
 
     /// The radio is told to leave or switch off: what waited is cancelled.
     pub fn radio_stopped(&mut self) {
-        self.end_waiting(Outcome::failed(reason::SUPERSEDED), |_| true);
+        self.cancel_waiting();
     }
 
     /// What the radio reported: the network a waiting join named up (online)
@@ -329,19 +402,31 @@ impl RadioRequests {
             // Only the network the request named completes it: a late report of
             // an earlier, superseded attempt (another ssid) is not its outcome.
             WifiEvent::State(WifiState::Online { ssid, .. }) => {
+                // The goal state holds whichever attempt reached it; a stale
+                // attempt's report is used up.
+                self.take_stale(ssid.as_str());
                 self.end_waiting(Outcome::success(STATE_ONLINE), |entry| {
                     !entry.host && entry.ssid.as_str() == ssid.as_str()
                 });
             }
             WifiEvent::State(WifiState::Hosting { ssid, .. }) => {
+                self.take_stale(ssid.as_str());
                 self.end_waiting(Outcome::success(STATE_HOSTING), |entry| {
                     entry.host && entry.ssid.as_str() == ssid.as_str()
                 });
             }
             WifiEvent::State(WifiState::Off) => {
+                // The queue is cleared with the radio: nothing is still to
+                // report.
+                self.stale = [None; MAX_REQUESTS];
                 self.end_waiting(Outcome::failed(reason::OTHER), |_| true);
             }
             WifiEvent::Failed { ssid, reason } => {
+                // The report of an attempt the host stopped waiting for is
+                // not the replacement's outcome, also for the same ssid.
+                if self.take_stale(ssid.as_str()) {
+                    return;
+                }
                 self.end_waiting(Outcome::of_join(*reason), |entry| {
                     entry.ssid.as_str() == ssid.as_str()
                 });
@@ -352,6 +437,15 @@ impl RadioRequests {
 
     /// Time passes: a request that waited [`BACKSTOP_MS`] ends as a timeout.
     pub fn tick(&mut self, now_ms: u64) {
+        for slot in &mut self.stale {
+            let expired = slot.as_mut().is_some_and(|stale| {
+                let since = *stale.since_ms.get_or_insert(now_ms);
+                now_ms.saturating_sub(since) >= BACKSTOP_MS
+            });
+            if expired {
+                *slot = None;
+            }
+        }
         let mut late = |entry: &Entry| {
             matches!(entry.phase, Phase::Waiting { since_ms }
                 if now_ms.saturating_sub(since_ms) >= BACKSTOP_MS)
@@ -361,6 +455,19 @@ impl RadioRequests {
 
     /// The sender stopped: its entries are released with no delivery.
     pub fn sender_stopped(&mut self, owner: &str) {
+        // A waiting attempt of the dead sender still ends at the radio.
+        let mut stale = [None; MAX_REQUESTS];
+        for (slot, entry) in stale.iter_mut().zip(
+            self.entries
+                .iter()
+                .filter(|entry| entry.owner.as_str() == owner)
+                .filter(|entry| matches!(entry.phase, Phase::Waiting { .. })),
+        ) {
+            *slot = Some(entry.ssid);
+        }
+        for ssid in stale.into_iter().flatten() {
+            self.note_stale(ssid);
+        }
         self.entries.retain(|entry| entry.owner.as_str() != owner);
     }
 

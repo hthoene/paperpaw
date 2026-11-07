@@ -13,7 +13,7 @@
 
 use super::{CommandBatch, CommandStage, WireCommand, ui};
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
-use alloc::{string::String, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
@@ -42,6 +42,9 @@ const PASSWORD_MAX: usize = 63;
 const HOST_PASSWORD_MIN: usize = 8;
 /// `wear.flags` bit 0: chosen by the battery.
 const WEAR_AUTOMATIC: u32 = 1;
+/// `join.flags` bit 0: remember the password (the Wi-Fi plugin's store; this
+/// host has none yet and accepts the bit unchanged).
+const JOIN_REMEMBER: u32 = 1;
 
 /// When the user last acted and what time it is, injected so that the
 /// window rules are testable without a real clock.
@@ -179,27 +182,52 @@ pub(crate) struct DevItem {
     op: DevOp,
 }
 
-/// The DEV commands of one callback, in submission order.
+/// The DEV commands of one callback, in submission order. It owns the
+/// cleanup of the request table's reservations: applied by
+/// [`Kernel::drain_native_dev`] they become waiting entries, and dropped
+/// without that (a refused drain, an error on the way) the ones still
+/// reserved are given back, so four dropped batches cannot fill the table.
 #[derive(Debug, Default)]
 pub(crate) struct DevBatch {
     items: Vec<DevItem>,
+    release: Option<Release>,
+}
+
+/// Gives back an owner's reserved (never applied) table entries when dropped.
+struct Release {
+    table: Rc<RefCell<RadioRequests>>,
+    owner: Id,
+}
+
+impl fmt::Debug for Release {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Release").finish_non_exhaustive()
+    }
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        if let Ok(mut table) = self.table.try_borrow_mut() {
+            table.discard_reserved(self.owner.as_str());
+        }
+    }
 }
 
 /// What the stage needs to judge DEV commands. Without it every DEV command
 /// is `ERR_UNSUPPORTED`, as before the host wired the family.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct DevContext<'a> {
     features: AdmittedFeatures,
-    requests: &'a RefCell<RadioRequests>,
+    requests: Rc<RefCell<RadioRequests>>,
     guard_owner: Option<&'a str>,
 }
 
 impl<'a> DevContext<'a> {
     /// The submitting instance's admitted features and the device-wide table.
-    pub(crate) fn new(features: AdmittedFeatures, requests: &'a RefCell<RadioRequests>) -> Self {
+    pub(crate) fn new(features: AdmittedFeatures, requests: &Rc<RefCell<RadioRequests>>) -> Self {
         Self {
             features,
-            requests,
+            requests: Rc::clone(requests),
             guard_owner: None,
         }
     }
@@ -291,14 +319,27 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Like `into_ui_output`, with the DEV commands to apply in order.
-    pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when the batch cannot name its owner for the cleanup;
+    /// the reservations are then given back and nothing is applied.
+    pub(crate) fn into_dev_output(
+        mut self,
+    ) -> Result<(Vec<Command>, Option<ui::Redraw>, u8, DevBatch), i32> {
+        let release = match &self.dev {
+            Some(dev) => Some(Release {
+                table: Rc::clone(&dev.ctx.requests),
+                owner: dev.owner.try_clone().ok_or(ERR_NO_MEMORY)?,
+            }),
+            None => None,
+        };
         let items = self
             .dev
             .as_mut()
             .map(|dev| core::mem::take(&mut dev.items))
             .unwrap_or_default();
         let (commands, redraw, hop) = self.into_ui_output();
-        (commands, redraw, hop, DevBatch { items })
+        Ok((commands, redraw, hop, DevBatch { items, release }))
     }
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
@@ -342,8 +383,13 @@ impl<'a> CommandStage<'a> {
                 request,
                 ssid,
                 password,
-                ..
+                flags,
             } => {
+                // Bit 0 (remember) is the only bit defined; another is a
+                // contract this host does not know, refused, not ignored.
+                if flags & !JOIN_REMEMBER != 0 {
+                    return Err(ERR_UNSUPPORTED);
+                }
                 check_request(request, ssid, password.len(), 0, seen)?;
                 Ok(ssid.len() + password.len())
             }
@@ -358,7 +404,10 @@ impl<'a> CommandStage<'a> {
             WireCommand::GoOnline { for_ms } if !(1..=MAX_ONLINE_MS).contains(&for_ms) => {
                 Err(ERR_INVALID)
             }
-            WireCommand::Wear { mode, .. } => {
+            WireCommand::Wear { mode, flags } => {
+                if flags & !WEAR_AUTOMATIC != 0 {
+                    return Err(ERR_UNSUPPORTED);
+                }
                 let known = self
                     .settings
                     .presets()
@@ -528,10 +577,10 @@ impl crate::Kernel {
         owner: &Id,
         commands: Vec<Command>,
         redraw: Option<ui::Redraw>,
-        batch: DevBatch,
+        mut batch: DevBatch,
         host: &DevHost<'_>,
     ) {
-        let mut items = batch.items.into_iter().peekable();
+        let mut items = core::mem::take(&mut batch.items).into_iter().peekable();
         for (index, command) in commands.into_iter().enumerate() {
             while let Some(item) = items.next_if(|item| item.at <= index) {
                 self.apply_dev(owner, item.op, host);

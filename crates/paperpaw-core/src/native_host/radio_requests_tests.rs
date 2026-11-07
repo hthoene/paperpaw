@@ -291,3 +291,108 @@ fn debug_shows_counts_only() {
     assert!(text.contains("entries: 1") && text.contains("waiting: 1"));
     assert!(!text.contains("secret-ssid"));
 }
+
+fn failed(ssid: &str, reason: JoinFailure) -> WifiEvent {
+    WifiEvent::Failed {
+        ssid: ssid.to_string(),
+        reason,
+    }
+}
+
+#[test]
+fn a_late_failure_of_a_superseded_same_ssid_attempt_is_not_the_replacements_outcome() {
+    let (a, b) = (id("a"), id("b"));
+    let mut table = RadioRequests::new();
+    // Join "net" (wrong password), then join "net" again before it answered.
+    waiting(&mut table, &a, 1, "net");
+    waiting(&mut table, &b, 2, "net");
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome,
+        Outcome::failed(reason::SUPERSEDED)
+    );
+    // The radio runs the commands one after the other: the first attempt's
+    // report comes first and belongs to nobody.
+    table.on_wifi_event(&failed("net", JoinFailure::Password));
+    assert!(table.next_outcome("b").is_none(), "B still waits");
+    // The second attempt's own report is B's outcome.
+    table.on_wifi_event(&failed("net", JoinFailure::Timeout));
+    assert_eq!(
+        table.next_outcome("b").unwrap().outcome,
+        Outcome::failed(reason::TIMEOUT)
+    );
+    // Nothing is left to mute a later failure.
+    assert!(table.delivered("a", 1));
+    assert!(table.delivered("b", 2));
+    waiting(&mut table, &a, 3, "net");
+    table.on_wifi_event(&failed("net", JoinFailure::NotFound));
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome.reason,
+        reason::NOT_FOUND
+    );
+}
+
+#[test]
+fn a_stale_success_is_used_up_and_the_radio_off_clears_what_is_left() {
+    let (a, b) = (id("a"), id("b"));
+    let online = WifiEvent::State(WifiState::Online {
+        ssid: "net".to_string(),
+        address: String::new(),
+        name: None,
+    });
+    // The superseded attempt succeeds: the goal holds for B too, and the
+    // report is used up, so a later failure of another join counts.
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "net");
+    waiting(&mut table, &b, 2, "net");
+    table.on_wifi_event(&online);
+    assert_eq!(
+        table.next_outcome("b").unwrap().outcome,
+        Outcome::success(STATE_ONLINE)
+    );
+    assert!(table.delivered("b", 2));
+    assert!(table.delivered("a", 1));
+    waiting(&mut table, &a, 3, "net");
+    table.on_wifi_event(&failed("net", JoinFailure::Other));
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome.reason,
+        reason::OTHER
+    );
+    // A leave or off that cancels a waiting join leaves its report pending;
+    // the radio reporting Off clears it, and so does time.
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "net");
+    table.radio_stopped();
+    table.on_wifi_event(&WifiEvent::State(WifiState::Off));
+    assert!(table.delivered("a", 1));
+    waiting(&mut table, &a, 2, "net");
+    table.on_wifi_event(&failed("net", JoinFailure::Timeout));
+    assert!(table.next_outcome("a").is_some(), "nothing was muted");
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "net");
+    table.radio_stopped();
+    table.tick(1_000);
+    table.tick(1_000 + BACKSTOP_MS);
+    assert!(table.delivered("a", 1));
+    waiting(&mut table, &a, 2, "net");
+    table.on_wifi_event(&failed("net", JoinFailure::Timeout));
+    assert!(table.next_outcome("a").is_some(), "the stale count expired");
+}
+
+#[test]
+fn a_stopped_sender_leaves_its_attempts_report_stale() {
+    let (a, b) = (id("a"), id("b"));
+    let mut table = RadioRequests::new();
+    waiting(&mut table, &a, 1, "net");
+    table.sender_stopped("a");
+    assert!(table.is_empty());
+    // B joins the same network; the dead sender's attempt still reports.
+    table.reserve(&b, 5, false, "net").unwrap();
+    table.activate("b", 5, 0);
+    table.on_wifi_event(&failed("net", JoinFailure::Password));
+    assert!(table.next_outcome("b").is_none());
+    table.on_wifi_event(&failed("net", JoinFailure::Password));
+    assert_eq!(
+        table.next_outcome("b").unwrap().outcome.reason,
+        reason::PASSWORD
+    );
+}
