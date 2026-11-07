@@ -37,11 +37,15 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(test)]
+mod alloc_refusal_tests;
 mod apkg;
 mod cards;
 mod decks;
 mod export;
+mod files;
 mod fsrs;
+mod lines;
 mod marks;
 mod phone;
 mod review;
@@ -441,7 +445,7 @@ impl WordsScreen {
     /// Counts the words and reads the visible page.
     fn load(&mut self, env: &Env<'_>) {
         self.read_after = self.changes.count();
-        self.count = store::count(env.storage());
+        self.count = store::count(env.storage()).unwrap_or(0);
         let len = self.len();
         if self.list.focus() >= len {
             self.list.set_focus(len.saturating_sub(1));
@@ -458,6 +462,7 @@ impl WordsScreen {
             self.count - first.min(self.count),
         );
         self.visible = store::range(env.storage(), from, to)
+            .unwrap_or_default()
             .into_iter()
             .map(|(n, word)| (self.count - 1 - n, n, word))
             .collect();
@@ -513,7 +518,7 @@ impl WordsScreen {
         let dir = notes_dir(&env);
         let _ = env.storage().create_dir(&dir);
         let file = format!("{dir}/{EXPORT_NAME}");
-        let message = if store::export(env.storage(), &file) {
+        let message = if store::export(env.storage(), &file).is_ok() {
             env.i18n()
                 .format("vocabulary.exported", &[("path", Arg::Str(&file))])
         } else {
