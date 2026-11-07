@@ -8,7 +8,7 @@
 
 use super::{
     declarations,
-    registrations::{Record, records_decode},
+    registrations::{Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
@@ -208,7 +208,7 @@ impl PendingDeclarations {
             return Err(ERR_STATE);
         }
         let bytes = input.bytes();
-        let decoded = records_decode(bytes)?;
+        let decoded = host_records_decode(bytes)?;
         declarations::validate_batch(self.id.as_str(), &decoded)?;
         let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
         let mut counts = [0usize; 6];
@@ -538,7 +538,7 @@ fn decode_entry<'a>(
         }
         DeclRef::Owned(bytes) => bytes,
     };
-    let (record, _) = super::registrations::record_decode_prefix(
+    let (record, _) = super::registrations::host_decode_prefix(
         bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?,
     )?;
     declarations::validate_record(owner.id.as_str(), &record)?;

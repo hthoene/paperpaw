@@ -1,0 +1,149 @@
+"""The host's decoder section of records_wire.rs (lock format 10, #985).
+
+A host decodes only records a plugin sends it: registrations, declarations,
+format arguments, stage replies and service inputs. Records only the host sends
+(events, input, frames, service replies, stage calls) are refused by tag before
+their body is read, so a host that decodes through this section links no
+decoder for them. The section is separate from the records section, so that
+section re-renders byte-identical for earlier locks.
+"""
+from abi_declarations import _camel, _const, wire_records
+
+# Families whose records only the host sends.
+HOST_SENT_FAMILIES = ('event', 'input', 'draw')
+# Records only the host sends, in families a plugin also sends.
+HOST_SENT_RECORDS = ('stage.call',)
+
+
+def service_inputs(schema):
+    """Every service record a schema op takes as input: a plugin sends it."""
+    return {name for service in schema.get('services') or []
+            for op in service.get('ops', []) for name in op.get('input', [])}
+
+
+def host_sent(schema, name):
+    """Whether only the host sends this record, so the host never decodes it."""
+    family = name.split('.')[0]
+    if family == 'service':
+        return name not in service_inputs(schema)
+    return family in HOST_SENT_FAMILIES or name in HOST_SENT_RECORDS
+
+
+def rust_host_decode(schema):
+    """The host decoder section; empty without declaration records."""
+    declared = wire_records(schema)
+    if not declared:
+        return ''
+    statuses = {item['name']: item['value'] for item in schema['statuses']}
+    sent = [r for r in declared if host_sent(schema, r['name'])]
+    taken = [r for r in declared if not host_sent(schema, r['name'])]
+    arms = ''.join(f"        {_const(r['name'])}_TAG => {_camel(r['name'])}::decode(body)?,\n"
+                   for r in taken)
+    if sent:
+        arms += ('        ' + '\n        | '.join(_const(r['name']) + '_TAG' for r in sent)
+                 + ' => return Err(@INVALID@),\n')
+    source = HOST_TEMPLATE.replace('@ARMS@', arms.rstrip('\n'))
+    for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),
+                         ('@NO_SPACE@', 'ERR_NO_SPACE')]:
+        source = source.replace(marker, str(statuses[name]))
+    return source
+
+
+HOST_TEMPLATE = '''
+// The host's decoders (lock format 10): records a plugin sends, nothing else.
+
+/// Decode a record a plugin sends the host. A record only the host sends (an
+/// event, input, a frame, a service reply, a stage call) is ERR_INVALID before
+/// its body is read; an unknown tag is ERR_UNSUPPORTED. Other statuses are
+/// those of [`records_decode`].
+fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+    Ok(match tag {
+        REGISTRATION_EVENT_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Event {
+                event_tag: u32::from_le_bytes(body.scalar()?),
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+        REGISTRATION_DRAW_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Draw {
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+@ARMS@
+        _ => return Err(@UNSUPPORTED@),
+    })
+}
+
+impl RecordBatch<'_> {
+    /// A batch without records, to decode into ([`host_records_decode_into`]).
+    pub const EMPTY: Self = Self {
+        records: [None; REGISTRATION_MAX_RECORDS],
+        len: 0,
+    };
+}
+
+/// [`records_decode`] as the host decodes a plugin's batch, into a batch the
+/// caller holds (for example on the heap, so it never passes through the
+/// stack). Records only the host sends are ERR_INVALID ([`host_decode_one`]).
+/// On an error the batch is empty.
+pub fn host_records_decode_into<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result<(), i32> {
+    let decoded = host_records_fill(bytes, batch);
+    if decoded.is_err() {
+        batch.len = 0;
+        for place in batch.records.iter_mut() {
+            *place = None;
+        }
+    }
+    decoded
+}
+
+fn host_records_fill<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result<(), i32> {
+    batch.len = 0;
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > REGISTRATION_MAX_RECORDS {
+        return Err(@NO_SPACE@);
+    }
+    for (index, place) in batch.records.iter_mut().enumerate() {
+        *place = if index < len {
+            let (tag, mut body) = reader.record()?;
+            Some(host_decode(tag, &mut body)?)
+        } else {
+            None
+        };
+    }
+    reader.finish()?;
+    batch.len = len;
+    Ok(())
+}
+
+/// [`record_decode_prefix`] as the host decodes a record a plugin sent (a
+/// stored declaration): records only the host sends are ERR_INVALID.
+pub fn host_decode_prefix(bytes: &[u8]) -> Result<(Record<'_>, usize), i32> {
+    let limit = bytes.len().min(REGISTRATION_MAX_BYTES);
+    let mut reader = Reader {
+        remaining: bytes.get(..limit).unwrap_or(bytes),
+    };
+    let (tag, mut body) = reader.record()?;
+    let record = host_decode(tag, &mut body)?;
+    Ok((record, limit - reader.remaining.len()))
+}
+
+/// [`record_decode_one`] as the host decodes a record a plugin sent (a stage
+/// reply, a service input): records only the host sends are ERR_INVALID.
+pub fn host_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let (tag, mut body) = reader.record()?;
+    let record = host_decode(tag, &mut body)?;
+    reader.finish()?;
+    Ok(record)
+}
+'''
