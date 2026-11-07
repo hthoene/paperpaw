@@ -22,6 +22,21 @@ change the plugin SDK.
 - Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
   tests are removed, the events table and storage goldens run on the native recorder, and the app
   and the store-file build no longer register it until Core publishes native plugins (#228).
+- Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
+  `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
+  footers, whole-file storage helpers and a screen registry (#228).
+
+- Buttons and gestures 1.0.8: the interface-7 native plugin (list of inputs, place chooser, action
+  picker) on `paperpaw-ui-kit`'s item lists (#228).
+
+- Menu editor 1.0.8: the interface-7 native plugin (menus, entries, entry options, add), built
+  on `paperpaw-ui-kit`; dragging an entry and the soft focus style wait for host input and
+  display support (#228).
+
+- `paperpaw-ui-kit`: drawing helpers for interface-7 plugin screens (stock UI style,
+  header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
+  messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
+
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native

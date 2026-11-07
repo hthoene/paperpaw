@@ -278,6 +278,15 @@ pub struct Kernel {
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
+    /// When the user last pressed, touched or drew (`Kernel::handle`) and
+    /// nothing else: not a page turned by itself, not an open asked from
+    /// outside. The "no silent network change" window of the DEV commands
+    /// (`docs/abi/device.md` section 3) counts from it.
+    last_user_input: Option<Instant>,
+    /// Wi-Fi join and host requests of native plugins, device-wide (DEV).
+    /// Shared with the DEV command stages and their outputs, which give back
+    /// reservations an unapplied batch leaves.
+    radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -452,6 +461,7 @@ impl Kernel {
         self.hint.pressed = None;
         self.now = now;
         self.last_activity = now;
+        self.last_user_input = Some(now);
         // Not counted while a screen guards the device: the count would
         // tell how long a code typed into it is.
         if self.guard().is_none() {
@@ -835,6 +845,9 @@ impl Kernel {
         }
         if self.network_deadline().is_some_and(|at| at <= now) {
             self.fail_waiting_network();
+        }
+        if let Ok(mut table) = self.radio_requests.try_borrow_mut() {
+            table.tick(now.millis());
         }
         if self.bluetooth_deadline().is_some_and(|at| at <= now) {
             self.bluetooth_tick();
