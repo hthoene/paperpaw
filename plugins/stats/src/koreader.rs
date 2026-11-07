@@ -4,11 +4,12 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::cell::Cell;
 
-use paperpaw_sdk::Storage;
+use paperpaw_sdk::{Storage, StorageError};
 use paperpaw_sqlite::{Database, Error, SchemaEntry, Value, Writer, encode_record};
 
-use crate::extsort;
+use crate::{extsort, room};
 
 /// The schema version KOReader writes (`PRAGMA user_version`).
 pub(crate) const SCHEMA_VERSION: u32 = 20_221_111;
@@ -52,43 +53,53 @@ fn require(columns: &[String], needed: &[&str]) -> Result<(), Error> {
     }
 }
 
-/// The books of a statistics database.
+/// The books of a statistics database. A refused allocation is
+/// [`StorageError::TooLarge`]; no book is then returned (a list cut
+/// short would look like books deleted).
 pub(crate) fn books(db: &Database<'_>) -> Result<Vec<KoBook>, Error> {
     let (columns, root) = db.table("book")?;
     require(&columns, &["title", "authors", "md5"])?;
     let at = |name: &str| columns.iter().position(|c| c.eq_ignore_ascii_case(name));
     let id_column = at("id");
     let mut books = Vec::new();
+    let refused = Cell::new(false);
     db.scan(root, &mut |rowid, values| {
         let get = |name: &str| at(name).and_then(|i| values.get(i));
-        let text = |name: &str| {
-            get(name)
-                .and_then(Value::as_text)
-                .unwrap_or_default()
-                .to_string()
-        };
+        let text =
+            |name: &str| room::string(&[get(name).and_then(Value::as_text).unwrap_or_default()]);
         let int = |name: &str| get(name).and_then(Value::as_int).unwrap_or(0);
         // `id` is the row id (an INTEGER PRIMARY KEY).
         let id = id_column
             .and_then(|i| values.get(i))
             .and_then(Value::as_int)
             .unwrap_or(rowid);
-        books.push(KoBook {
-            id,
-            title: text("title"),
-            authors: text("authors"),
-            notes: int("notes"),
-            last_open: int("last_open"),
-            highlights: int("highlights"),
-            pages: int("pages"),
-            series: text("series"),
-            language: text("language"),
-            md5: text("md5"),
-            total_read_time: int("total_read_time"),
-            total_read_pages: int("total_read_pages"),
-        });
-        true
+        let book = || -> Result<KoBook, StorageError> {
+            Ok(KoBook {
+                id,
+                title: text("title")?,
+                authors: text("authors")?,
+                notes: int("notes"),
+                last_open: int("last_open"),
+                highlights: int("highlights"),
+                pages: int("pages"),
+                series: text("series")?,
+                language: text("language")?,
+                md5: text("md5")?,
+                total_read_time: int("total_read_time"),
+                total_read_pages: int("total_read_pages"),
+            })
+        };
+        match book().and_then(|book| room::push(&mut books, book)) {
+            Ok(()) => true,
+            Err(_) => {
+                refused.set(true);
+                false
+            }
+        }
     })?;
+    if refused.get() {
+        return Err(Error::Storage(StorageError::TooLarge));
+    }
     Ok(books)
 }
 
@@ -174,8 +185,14 @@ pub(crate) const STAT: usize = 20;
 
 /// The five numbers of a [`STAT`] record.
 pub(crate) fn fields(r: &[u8]) -> [i64; 5] {
-    let n = |i: usize| i64::from(u32::from_be_bytes([r[i], r[i + 1], r[i + 2], r[i + 3]]));
-    [n(0), n(4), n(8), n(12), n(16)]
+    [0, 4, 8, 12, 16].map(|i| i64::from(be(r, i)))
+}
+
+/// The big-endian number of 4 bytes at `at`; 0 where the record is shorter.
+pub(crate) fn be(r: &[u8], at: usize) -> u32 {
+    r.get(at..at + 4)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map_or(0, u32::from_be_bytes)
 }
 
 /// A [`STAT`] record: book, page, start, duration and pages.
@@ -198,7 +215,7 @@ pub(crate) fn write(
     stats: &str,
     temp: &str,
 ) -> Result<(), Error> {
-    let keys = alloc::format!("{temp}.keys");
+    let keys = room::string(&[temp, ".keys"]).map_err(Error::Storage)?;
     let result = write_with(storage, path, books, stats, &keys, temp);
     #[expect(
         clippy::let_underscore_must_use,
@@ -246,7 +263,9 @@ fn write_with(
     let last_id = books.iter().map(|b| b.id).max().unwrap_or(0);
     let sequence = writer.table([(1, encode_record(&[text("book"), int(last_id)]))])?;
     // In SQLite's order: texts bytewise, then the row id.
-    let mut order: Vec<usize> = (0..books.len()).collect();
+    let mut order: Vec<usize> = Vec::new();
+    room::reserve(&mut order, books.len()).map_err(Error::Storage)?;
+    order.extend(0..books.len());
     fn index_key(b: &KoBook) -> (&[u8], &[u8], &[u8], i64) {
         (
             b.title.as_bytes(),
@@ -265,7 +284,12 @@ fn write_with(
     // The stays, row by row in time order; the keys of the unique index
     // (book, page, start, row) go to a file to be sorted on the way.
     storage.write(keys, &[])?;
-    let pending = core::cell::RefCell::new(Vec::<u8>::new());
+    // Room for the flush limit and one more row of keys: it never grows.
+    let mut keys_buffer = Vec::<u8>::new();
+    keys_buffer
+        .try_reserve_exact(4096 + 16)
+        .map_err(|_| Error::Storage(StorageError::TooLarge))?;
+    let pending = core::cell::RefCell::new(keys_buffer);
     let failed = core::cell::Cell::new(None);
     let flush = |force: bool| {
         let mut pending = pending.borrow_mut();
@@ -276,7 +300,7 @@ fn write_with(
             pending.clear();
         }
     };
-    let mut records = extsort::Records::new(storage, stats, STAT);
+    let mut records = extsort::Records::new(storage, stats, STAT)?;
     let rows = records.by_ref().enumerate().map(|(i, r)| {
         let rowid = i as i64 + 1;
         let [book, page, start, duration, pages] = fields(&r);
@@ -297,14 +321,14 @@ fn write_with(
         return Err(Error::Storage(e));
     }
     extsort::sort(storage, keys, keys, 16, temp)?;
-    let mut sorted = extsort::Records::new(storage, keys, 16);
+    let mut sorted = extsort::Records::new(storage, keys, 16)?;
     let unique = sorted.by_ref().map(|r| {
-        let n = |i: usize| i64::from(u32::from_be_bytes([r[i], r[i + 1], r[i + 2], r[i + 3]]));
+        let n = |i: usize| i64::from(be(&r, i));
         encode_record(&[int(n(0)), int(n(4)), int(n(8)), int(n(12))])
     });
     let unique_root = writer.index(unique)?;
     // By start time: the rows are in that order already.
-    let mut again = extsort::Records::new(storage, stats, STAT);
+    let mut again = extsort::Records::new(storage, stats, STAT)?;
     let by_start = again
         .by_ref()
         .enumerate()
