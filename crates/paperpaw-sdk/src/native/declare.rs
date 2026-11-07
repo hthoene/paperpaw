@@ -366,6 +366,19 @@ impl<'a> FontExtensionDecl<'a> {
     }
 }
 
+/// How repeated opens of a native screen create or reuse instances.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Instances {
+    /// Reuse the instance with equal parameters.
+    #[default]
+    PerParams,
+    /// Reuse any open instance of the screen.
+    Single,
+    /// Create a new instance for every open.
+    Many,
+}
+
 /// A `screen.spec` declaration with a plugin-owned callback token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -395,6 +408,18 @@ impl<'a> ScreenDecl<'a> {
 }
 
 impl ScreenDecl<'_> {
+    /// Choose how ordinary opens create or reuse this screen's instances.
+    #[must_use]
+    pub const fn instances(mut self, instances: Instances) -> Self {
+        let bits = match instances {
+            Instances::PerParams => 0,
+            Instances::Single => 1,
+            Instances::Many => 2,
+        };
+        self.policy_flags = (self.policy_flags & !0xc0) | (bits << 6);
+        self
+    }
+
     /// Guard the device from this screen's opening.
     #[must_use]
     pub const fn guards(mut self) -> Self {
