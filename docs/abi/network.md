@@ -100,14 +100,21 @@ file's size, 2.1).
   in memory, the whole request, connection and TLS counted, and for a request with a file
   60,000 **without a byte moving** (a long download never ends while it moves).
 - [D] **`max_body`**: 0 for the host's default (65,536 on devices of the small memory class, the X4,
-  or the profile's `NET_POOL` when smaller: 49,152 until measured, 3.4; 1,048,576 on others); else
-  at most that default (`ERR_NO_SPACE` above it). Ignored when saving. **`max_file`**: 0 for 64 MiB,
-  the most; else at most 64 MiB. A longer saved answer fails with reason `too_large` (4.1) and the
-  file is left as it was.
+  or the profile's `NET_POOL` when smaller: 49,152 until measured, 3.4; 1,048,576 on others);
+  else at most that default (`ERR_NO_SPACE` above it). Ignored when saving. **`max_file`**: 0
+  for 64 MiB, the most; else at most 64 MiB (`ERR_NO_SPACE` above it). A longer saved answer
+  fails with reason `too_large` (4.1) and the file is left as it was.
 - [D] Root checks as `files.md` section 3 (root 1 without `uses.storage` is `ERR_DENIED`, the
   root-1 exclusions, the path rules).
 - [D] **Limits:** at most 4 requests per plugin not yet ended and 16 per device (`ERR_BUSY`, the
   plugin waits for a `net.http_done`). Interface 6 queued without limit.
+- [D] **A request's input is held in the pool.** The host keeps what it still has to send (method,
+  URL, headers, body: the request's input batch, at most 4,096 bytes) from the call until the
+  request has sent it or ended. On devices with a `NET_POOL` (3.4) that copy is reserved from the
+  pool at the call, at its exact size, never 4 KiB by default; with no room the call answers
+  `ERR_NO_MEMORY` and nothing is queued (the plugin retries after a `net.http_done`). So queued
+  requests never hold memory outside the pool: 16 waiting requests of 4 KiB each, 64 KiB, cannot
+  build up next to it on the X4. Other devices hold it from the heap, within the limits above.
 - [D] **Same save file:** a request that saves to a file (same root, path compared by identity, as
   root-1 exclusions) another of the plugin's unfinished requests saves to ends that older one at
   once with reason `replaced`; the new one goes on (interface 6). If **another plugin's** unfinished
@@ -197,9 +204,10 @@ file's size, 2.1).
 - [D] **One network pool on the X4.** Devices of the small memory class have one device-wide pool,
   `NET_POOL` in the profile (**48 KiB on the X4 until Firmware has measured**, so a memory body
   there is at most 48 KiB, `max_body`'s X4 default 49,152; 80 KiB would hold one 64 KiB body and two
-  sockets), for every network buffer the host holds for plugins: memory bodies, held `respond`
-  bodies, the 4 KiB write buffer of a saving request and of each `serve` upload being received (5.2:
-  a request whose buffer does not fit is answered 503 by the host), and SOCK's send queues, reads
+  sockets), for every network buffer the host holds for plugins: requests' held input (2.1),
+  memory bodies, held `respond` bodies, the 4 KiB write buffer of a saving request and of each
+  `serve` upload being received (5.2: a request whose buffer does not fit is answered 503 by the
+  host), and SOCK's send queues, reads
   and broadcast answers (`sockets.md` section 6). Each is reserved from the pool before it is used,
   never grown later: a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving)
   before its transfer starts and waits in the queue while the pool has not that room (its
@@ -278,6 +286,9 @@ file's size, 2.1).
   most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
   (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
   with a token in use stops the old server first (interface 6).
+- [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
+  or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
+  idempotent, so a plugin may stop on every close without tracking whether the server still runs.
 - [D] The outcome is `event.server`: `state` 0 `started` with `address` (`192.168.1.20:8080`, or
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
