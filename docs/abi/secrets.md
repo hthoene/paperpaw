@@ -221,15 +221,15 @@ and `remove`, `none` for the others.
   secret settings (key = name, reset removes), uninstall removal with decision 124's data choice,
   `random` over the device source with `strong`; tests for each status. Generator: `secret` on
   service record fields (Kernel, at the records step).
-- **Firmware (with H10):** the device-side secret store (the card file on the X4 and the
-  emulator, the private folder on Android), **decision 138 on the X4:** making the device key
-  (32 strong random bytes, once) and keeping it in internal flash across firmware updates, sealing
-  and opening values with AES-256-GCM (mbedTLS, already in the firmware) as section 3.1 says,
-  treating a value that does not open as absent and writing its line back unchanged, rewriting
-  interface 6's veiled values sealed at the first start, and tests for a card from another device,
-  a lost key and a damaged line (absent, never a panic); the random sources with the X4's `strong` signal (radio on), a check whether the
-  ESP32-C3's SAR ADC entropy source makes draws fully random with the radio off, and the shells
-  advertising `uses.secrets` where the settings editor runs.
+- **Firmware (with H10):** the device-side secret store (the card file on the X4 and the emulator,
+  the private folder on Android), **decision 138 on the X4:** making the device key (32 strong
+  random bytes, once) and keeping it in internal flash across firmware updates, sealing and opening
+  values with AES-256-GCM (mbedTLS, already in the firmware) as section 3.1 says, treating a value
+  that does not open as absent and writing its line back unchanged, rewriting interface 6's veiled
+  values sealed at the first start, and tests for a card from another device, a lost key and a
+  damaged line (absent, never a panic); the random sources with the X4's `strong` signal (radio on),
+  a check whether the ESP32-C3's SAR ADC entropy source makes draws fully random with the radio off,
+  and the shells advertising `uses.secrets` where the settings editor runs.
 - **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
   interface 6's `token`, `readable` and `grouped` helpers over it; `served::key` on top.
 - **Plugin:** settings declares `uses.secrets`; ports use their own names without the prefix.
