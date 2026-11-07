@@ -12,6 +12,7 @@ Usage:
   python tools/flash-x4.py --no-monitor     flash and stop, no log
   python tools/flash-x4.py --yes            do not ask before flashing
   python tools/flash-x4.py --dry-run        say what would run, run nothing
+  python tools/flash-x4.py --features ppn5  build with more cargo features (a comma list)
   python tools/flash-x4.py --backup x4-stock-firmware.bin
                                             read the whole flash into a file first,
                                             to go back to what the reader had
@@ -33,6 +34,7 @@ built with the firmware). For the X4 Pro and the X4 Classic also espup's
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -165,6 +167,12 @@ def main():
     parser.add_argument("--no-monitor", action="store_true", help="flash, show no log")
     parser.add_argument("--yes", action="store_true", help="do not ask before flashing")
     parser.add_argument("--dry-run", action="store_true", help="print the steps, run none")
+    parser.add_argument(
+        "--features",
+        metavar="LIST",
+        help="more cargo features on top of the device's own, comma separated "
+        "(e.g. ppn5: the X4 loads interface-7 plugins, off by default)",
+    )
     parser.add_argument("--backup", metavar="FILE", help="save the reader's flash to FILE first")
     args = parser.parse_args()
     spec = DEVICES[args.device]
@@ -211,6 +219,11 @@ def main():
             return 1
 
     command = list(spec["cargo"])
+    if args.features:
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+(,[A-Za-z0-9_\-]+)*", args.features):
+            print(f"\n--features takes a comma list of feature names, not {args.features!r}.")
+            return 1
+        command += ["--features", args.features]
     if args.no_monitor:
         # The runner of `cargo run` is `espflash flash --monitor ...`
         # (shells/xteink/.cargo/config.toml); the same without the log. A

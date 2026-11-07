@@ -1,0 +1,17 @@
+# How an interface-7 native plugin for the X4 is built (`abi/ppn5.md`):
+# linked with `paperpaw-plugin7.x` (the copy beside this folder, as the
+# PaperPaw release has it), its relocations kept for the packer. Never set
+# RUSTFLAGS: it would replace the flags below, which link the plugin.
+[alias]
+x4 = "build --release --target riscv32imc-unknown-none-elf"
+
+[target.riscv32imc-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=-Tpaperpaw-plugin7.x",
+    "-C", "link-arg=--emit-relocs",
+    # Calls stay `auipc` and `jalr`, which the packer can patch where they
+    # reach across the edge of hot code.
+    "-C", "link-arg=--no-relax",
+    "-C", "code-model=medium",
+    "-C", "relocation-model=static",
+]
