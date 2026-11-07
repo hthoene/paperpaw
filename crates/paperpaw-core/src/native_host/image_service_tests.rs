@@ -267,19 +267,101 @@ fn drawing_is_banded_clipped_and_checked() {
         t.draw(B, id, &mut canvas, &storage, 0, 0, 8, 4, 0),
         Err(ERR_NOT_FOUND)
     );
-    // Flags: the unknown ones are invalid, the two not drawn yet unsupported.
-    for bad in [8, 0x100, u32::MAX] {
+    // Reserved flag bits are unsupported, never silently ignored.
+    for bad in [4, 8, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
         assert_eq!(
             t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
-            Err(ERR_INVALID)
-        );
-    }
-    for later in [NO_DITHER, INVERTED, FILL | INVERTED] {
-        assert_eq!(
-            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, later),
             Err(ERR_UNSUPPORTED)
         );
     }
+}
+
+fn alpha_file(storage: &MemoryStorage, path: &str, width: u32, height: u32, gray: u8, alpha: u8) {
+    let mut writer = paperpaw_sdk::image::AlphaWriter::new(storage, path);
+    writer.start(width, height).unwrap();
+    let row: std::vec::Vec<u8> = (0..width).flat_map(|_| [gray, alpha]).collect();
+    for _ in 0..height {
+        writer.row_alpha(&row).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+#[test]
+fn transparency_small_and_alpha_pictures_blend_over_what_is_below() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 0);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    // Opaque black, then transparency 255 draws nothing, 128 shows both.
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    let half = 128 << TRANSPARENCY_SHIFT;
+    t.draw(
+        A,
+        id,
+        &mut canvas,
+        &storage,
+        0,
+        0,
+        8,
+        4,
+        255 << TRANSPARENCY_SHIFT,
+    )
+    .unwrap();
+    assert_eq!(gray(&canvas, 2, 2), 255, "fully transparent: nothing");
+    t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, half)
+        .unwrap();
+    let mixed = gray(&canvas, 2, 2);
+    assert!((100..160).contains(&mixed), "half: {mixed}");
+    // A small picture does not count towards the ghost refresh, a large does.
+    let mut fb = screen();
+    {
+        let mut canvas = fb.canvas();
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, SMALL)
+            .unwrap();
+    }
+    assert_eq!(fb.take_pictured(), 0);
+    {
+        let mut canvas = fb.canvas();
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, 0).unwrap();
+    }
+    assert!(fb.take_pictured() > 0);
+    // An alpha cache image: clear parts show what is below.
+    alpha_file(&storage, "c/a.alpha", 8, 4, 0, 0);
+    let clear = t.add(
+        A,
+        Origin::Document {
+            document: 1,
+            index: 1,
+        },
+        "c/a.alpha",
+        8,
+        4,
+        false,
+    );
+    let clear = clear.unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    t.draw(A, clear, &mut canvas, &storage, 0, 0, 8, 4, 0)
+        .unwrap();
+    assert_eq!(gray(&canvas, 2, 2), 255, "clear alpha: paper stays");
+    alpha_file(&storage, "c/b.alpha", 8, 4, 0, 255);
+    let solid = t
+        .add(
+            A,
+            Origin::Document {
+                document: 1,
+                index: 2,
+            },
+            "c/b.alpha",
+            8,
+            4,
+            false,
+        )
+        .unwrap();
+    t.draw(A, solid, &mut canvas, &storage, 0, 0, 8, 4, 0)
+        .unwrap();
+    assert_eq!(gray(&canvas, 2, 2), 0, "solid alpha: black");
 }
 
 #[test]

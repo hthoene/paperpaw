@@ -18,13 +18,14 @@
 //! **Drawing** takes no heap of its own beyond the band drawer's row buffers
 //! of the picture's width (a picture is at most [`MAX_SIDE`] pixels a side):
 //! the file is read row by row from the card by the SDK's band drawer
-//! (`paperpaw_sdk::ui::draw_image`), clipped by the canvas. A picture that
+//! (`paperpaw_sdk::ui::draw_image_over`), clipped by the canvas. A picture that
 //! the card no longer holds is `ERR_IO` (nothing drawn); a file whose header
 //! does not say the stated size is `ERR_INVALID`.
 //!
-//! Not drawn yet: flags bit 1 (no dithering) and bit 2 (inverted): the band
-//! drawer has neither, so they answer `ERR_UNSUPPORTED` rather than draw
-//! something else.
+//! Flags: bit 0 fill and crop, bit 1 small (not counted towards the e-paper
+//! ghost full refresh), bits 8 to 15 transparency (255 minus the opacity); an
+//! alpha cache image blends over what is below, all by the SDK's
+//! `draw_image_over`. Other bits answer `ERR_UNSUPPORTED`.
 use super::registrations::{self as wire, Record};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -47,8 +48,11 @@ pub(crate) const PATH_MAX: usize = 512;
 
 /// `canvas.draw_image` flags.
 const FILL: u32 = 1;
-const NO_DITHER: u32 = 2;
-const INVERTED: u32 = 4;
+/// Flags bit 1: a small picture, no ghost full refresh for it.
+const SMALL: u32 = 2;
+/// Flags bits 8 to 15: 255 minus the opacity (0, opaque, by default).
+const TRANSPARENCY_SHIFT: u32 = 8;
+const KNOWN: u32 = FILL | SMALL | (0xff << TRANSPARENCY_SHIFT);
 
 /// Where an image came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -306,8 +310,8 @@ impl ImageTable {
     /// centred (`FILL`: covering it and cropped to it), clipped by the canvas.
     ///
     /// # Errors
-    /// `ERR_INVALID` (flags over bit 2, a drawn picture beyond 65,535 pixels, a file
-    /// that does not say its stated size), `ERR_UNSUPPORTED` (bits 1, 2),
+    /// `ERR_INVALID` (a drawn picture beyond 65,535 pixels, a file that does
+    /// not say its stated size), `ERR_UNSUPPORTED` (reserved flag bits),
     /// `ERR_NOT_FOUND`, `ERR_IO` (the card cannot read it, nothing drawn),
     /// `ERR_BUSY`.
     #[allow(clippy::too_many_arguments, reason = "the slot's scalars")]
@@ -323,12 +327,10 @@ impl ImageTable {
         height: u32,
         flags: u32,
     ) -> Result<(), i32> {
-        if flags & !(FILL | NO_DITHER | INVERTED) != 0 {
-            return Err(ERR_INVALID);
-        }
-        if flags & (NO_DITHER | INVERTED) != 0 {
+        if flags & !KNOWN != 0 {
             return Err(ERR_UNSUPPORTED);
         }
+        let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
         let (path, w, h) = {
             let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
             let e = inner
@@ -363,12 +365,14 @@ impl ImageTable {
             height: h,
         };
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
-        paperpaw_sdk::ui::draw_image(
-            &mut child,
-            storage,
-            &image,
-            Rect::new(0, 0, place.width, place.height),
-        );
+        let area = Rect::new(0, 0, place.width, place.height);
+        if flags & SMALL != 0 {
+            child.small_pictures(|child| {
+                paperpaw_sdk::ui::draw_image_over(child, storage, &image, area, opacity);
+            });
+        } else {
+            paperpaw_sdk::ui::draw_image_over(&mut child, storage, &image, area, opacity);
+        }
         self.drawn(owner, id)
     }
 
