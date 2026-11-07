@@ -30,6 +30,10 @@ pub fn move_to(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error>
     }
     match storage.rename(from, to) {
         Err(StorageError::Unsupported) => {
+            // Copied over itself it would be emptied, and then deleted.
+            if same_path(storage, from, to) {
+                return Err(Error::Invalid);
+            }
             copy(storage, from, to)?;
             delete(storage, from)
         }
@@ -102,6 +106,10 @@ fn part_of(path: &str) -> Result<String, Error> {
 }
 
 fn copy_file(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error> {
+    // The copy is begun by emptying its target: over itself it would be gone.
+    if same_path(storage, from, to) {
+        return Err(Error::Invalid);
+    }
     let part = part_of(to)?;
     let copied = copy_bytes(storage, from, &part);
     let had_old = storage.exists(to);

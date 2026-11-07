@@ -65,6 +65,24 @@ fn a_folder_is_not_copied_or_moved_into_itself() {
 }
 
 #[test]
+fn a_file_is_not_copied_or_moved_onto_itself_where_that_would_empty_it() {
+    let mut q = Quiet::new(tree());
+    q.cannot_rename = true;
+    assert_eq!(copy(&q, "src/a.txt", "src/a.txt"), Err(Error::Invalid));
+    assert_eq!(copy(&q, "src/a.txt", "/src/a.txt/"), Err(Error::Invalid));
+    assert_eq!(move_to(&q, "src/a.txt", "src/a.txt"), Err(Error::Invalid));
+    assert_eq!(q.get("src/a.txt").unwrap(), b"alpha");
+    // On a storage that ignores case, a name alike but for case is the same file.
+    q.folds = true;
+    assert_eq!(copy(&q, "src/a.txt", "src/A.txt"), Err(Error::Invalid));
+    assert_eq!(move_to(&q, "src/a.txt", "src/A.TXT"), Err(Error::Invalid));
+    assert_eq!(q.get("src/a.txt").unwrap(), b"alpha");
+    // Where the storage renames, a move onto itself is its own business.
+    let ok = Quiet::new(tree());
+    assert_ne!(copy(&ok, "src/a.txt", "src/a.txt"), Ok(()));
+}
+
+#[test]
 fn folders_nested_too_deep_are_refused() {
     let mut deep = String::from("d");
     let mut storage = MemoryStorage::new();

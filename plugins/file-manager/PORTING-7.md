@@ -17,10 +17,14 @@ of entries, two paths, a page per folder level or one 4 KiB copy buffer.
   order folders first, then names regardless of case, then exact names (moved from `folder.rs`,
   fallible: each page reserves `n + 1` once, each name is copied fallibly).
 - `ops`: `move_to` (rename, else copy and delete; never a folder into itself), `copy` (file
-  to a `.part` beside it, put in place whole; a folder with everything in it, a page of 8
+  to a `.part` beside it through a 4 KiB buffer (interface 6: 16 KiB; one fallible allocation per file), put in place whole; a folder with everything in it, a page of 8
   entries at a time and at most 16 levels deep, `NoSpace` beyond), `delete`, `rename` (to a
   free name where the name is taken; through a name between where the storage ignores case).
-- Errors are the host's (`paperpaw_sdk::native::Error`): a refused allocation is `NoMemory`.
+- Errors are the host's (`paperpaw_sdk::native::Error`): a refused allocation is `NoMemory`;
+  a storage failure that has no variant of its own (card gone, any other I/O failure) is `Io`
+  (interface 6 knew `CARD_GONE`: the shell tells it from `Io` by the storage's state).
+- A file is never copied (or moved on a storage without rename) onto itself, whatever the
+  case on a storage that ignores it: that would empty it first (`Invalid`).
 - Tests: the pages and ranks of the interface-6 `folder.rs` tests on explicit expectations;
   every allocation refused in turn for the pages, a tree copy, a file copied over another, a
   move without rename and the three renames (source kept, a copy whole or not there, no
@@ -30,6 +34,15 @@ Behaviour changes, on purpose: a folder is copied a page at a time (interface 6 
 whole listing, and a storage may not take calls from inside its listing); folders nested more
 than 16 deep are refused (`NoSpace`) instead of recursing; `delete` of a missing path is
 still not an error (the storage's rule).
+
+## For the shell and for activation
+
+- The shell needs its own texts for `NoSpace` (a folder nested deeper than 16, a path over
+  the cap) and `NoMemory` (a refused allocation); interface 6 had no such messages.
+- Measure a folder of 1,000 files on the X4 when this is activated: a page of 8 entries
+  is one directory pass (`Folder::after`/`before`), so a page costs a pass over the folder and
+  a copy of a big folder costs one pass per 8 entries. Raise the page (a few more names on the
+  heap) if the measurement asks for it.
 
 ## Not ported yet
 
