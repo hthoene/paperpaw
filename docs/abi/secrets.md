@@ -88,8 +88,8 @@ and `remove`, `none` for the others.
   caller's own. Rows are `sec_entry`: `plugin` (the owner's id), `name`, `label`, `flags` (bit 0
   `changeable`). Never a value. A page holds as many whole rows as fit in 4,096 bytes, at most
   32. Order: by owner, then by name, so the cursor is a row number into that order
-  (`service.end.next`, 0 when done); a secret kept or removed between pages may be listed twice or
-  not at all.
+  (`service.end.next`; `flags` bit 0 `last` on the last page, as `core.registry`); a secret kept
+  or removed between pages may be listed twice or not at all.
 
 ### 2.3 `keep`
 
@@ -117,9 +117,9 @@ and `remove`, `none` for the others.
   wording), so `strong` follows the radio. Plugins that make a long-lived key (the served key,
   a Wi-Fi access-point password, lock's salt) draw it when `strong` is set, as interface 6
   advised; desktop and Android are always `strong`.
-- [Q2] (Plugin) lock draws its salt when the code is set, maybe with the radio off. Is a
-  pseudo-random salt acceptable there (it only stops a precomputed table), or should lock set the
-  code only after a strong draw?
+- Settled with Plugin: **lock** keeps setting its code offline. It takes the salt from `random`
+  whether `strong` is set or not (interface 6 fell back to the device id and the time), and claims
+  no cryptographic strength for it: the salt only stops a precomputed table.
 
 ## 3. Saving and the card
 
@@ -186,12 +186,15 @@ and `remove`, `none` for the others.
 
 ## 7. Hand-offs (after approval)
 
-- **Core (or Host Engineer):** the `core.secrets` host over interface 6's `Secrets` store: owner
+- **Host Engineer (after the H9 wiring):** the `core.secrets` host in `paperpaw-core` over
+  interface 6's `Secrets` store: owner
   stamping, `uses.secrets` checks, the limits, saving by replace, the unreadable-file refusal,
   secret settings (key = name, reset removes), uninstall removal with decision 124's data choice,
   `random` over the device source with `strong`; tests for each status. Generator: `secret` on
   service record fields (Kernel, at the records step).
-- **Firmware:** the X4's `strong` signal (radio on) for `random`.
+- **Firmware (with H10):** the device-side secret store (the card file on the X4 and the
+  emulator, the private folder on Android), the random sources with the X4's `strong` signal
+  (radio on), and the shells advertising `uses.secrets` where the settings editor runs.
 - **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
   interface 6's `token`, `readable` and `grouped` helpers over it; `served::key` on top.
 - **Plugin:** settings declares `uses.secrets`; ports use their own names without the prefix.

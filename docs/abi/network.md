@@ -339,21 +339,23 @@ file's size, 2.1).
 
 - No first-party plugin reads response headers other than ETag and Content-Type, reads request
   headers on a server, or streams a memory body; none is offered (section 0).
-- [Q1] (Plugin) **translate** posts the text to translate as a form body. Text over 2 KiB goes
-  through a root-0 file (`net_file` send). Does translate ever send more than 2 KiB, and is a
-  file per long request acceptable, or should the inline cap be 3 KiB (a smaller URL then)?
-- [Q2] (Plugin) **wikipedia** and **weather** keep answers in memory; a 64 KiB X4 cap is
-  unchanged from interface 6. Any plugin that today relies on more in memory on Android?
+- Settled with Plugin: **translate** sends up to 3,000 characters, percent-encoded up to about
+  36,000 bytes, so a long request goes through a root-0 file (`net_file` send); a larger inline
+  cap would not help. No plugin needs more in memory than the 64 KiB (X4) and 1 MiB (others)
+  defaults; only wikipedia lowers `max_body` (16 KiB), larger answers are saved to files.
 
 ## 9. Hand-offs (after approval)
 
-- **Core (or Host Engineer):** the `core.net` host over the platform's HTTP client: admission
+- **Host Engineer (after the H9 wiring):** the `core.net` host in `paperpaw-core` over the
+  platform's HTTP client: admission
   (2.1 checks, limits, `uses.network`), the request table (ids, tokens, same-file replace,
   cancel, ends-exactly-once), routing of 99-102 from the tables, the answer hold and `body`
   pieces, power-saving ends, the server table (screen ties, `.received/` bodies, 120 s answer
   time), and tests for each status and reason. Interface 6's `io/http.rs` and `io/servers.rs`
   logic moves over; the shells' `HttpCall` / `ServerCall` stay.
-- **Firmware:** the X4 shell keeps its HTTP client and server; it reports `.part` renames and the
-  20-port probe as today, and measures the X4 heap for 2 held bodies plus one TLS session.
+- **Firmware (with H10):** the shell transport. The X4 shell keeps its HTTP client and server
+  (`.part` renames, the 20-port probe, the cable server), the emulator and Android shells keep
+  theirs, and the shells advertise `uses.network`; Firmware measures the X4 heap for 2 held
+  bodies plus one TLS session.
 - **Services:** `native::net` (builder, token table, body reader), `served` and `web` kept.
 - **Plugin:** ports declare `uses.network` (and `uses.storage` where they save to the card).
