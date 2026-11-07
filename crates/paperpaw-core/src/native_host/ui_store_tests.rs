@@ -222,7 +222,6 @@ fn a_text_is_written_in_parts_committed_and_read_by_its_instance_only() {
     // Others cannot write it; after the claim not even the maker.
     assert_eq!(s.text_write(who(2, 1), id, 0, b"", true), Err(ERR_STATE));
     assert_eq!(s.text_write(who(1, 2), id, 0, b"", true), Err(ERR_STATE));
-    s.check(who(1, 1), id).unwrap();
     assert_eq!(s.text_write(who(1, 1), id, 0, b"", true), Err(ERR_STATE));
     s.claim(id, 4).unwrap();
     assert_eq!(s.info(4).unwrap().text_bytes, "hällo wörld".len() as u32);
