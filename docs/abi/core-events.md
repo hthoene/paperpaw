@@ -39,8 +39,8 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 - [D] **`event.setting_changed`:**
   - `key` is the setting's full id (`<plugin>.<name>`, or `core.*`). `old` is the previous value in
     the settings value encoding (`settings_value`), empty when there was none. A setting value is
-    never empty, so empty means "no previous value". The new value is read with slot 16.
-  - `old` is given only to a subscriber that could read the key with slot 16; any other subscriber
+    never empty, so empty means "no previous value". The new value is read with slot 5 (`settings.read`).
+  - `old` is given only to a subscriber that could read the key with slot 5; any other subscriber
     gets the event with `old` empty. A secret-scoped setting (SEC family) is never announced to
     another plugin.
   - A change the plugin made itself through slot 15 is announced to it too, after its callback
