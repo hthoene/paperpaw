@@ -6,10 +6,11 @@
 //! host's, behind [`MoveHost`]. For one move the host:
 //!
 //! 1. [`Moves::begin`]: refuses a move that cannot succeed (before anything
-//!    is written), writes the synced journal entry, renames, answers. It does
+//!    is written), writes the synced journal entry, drops the data of a file
+//!    the move replaces, renames, answers. It does
 //!    a constant amount of work however many books the folder holds.
-//! 2. [`Moves::step`], from the main loop, one bounded step at a time: drops
-//!    the data of a file the move replaces, carries at most [`STEP_BOOKS`]
+//! 2. [`Moves::step`], from the main loop, one bounded step at a time: carries
+//!    at most [`STEP_BOOKS`]
 //!    books (catalogued or not, a `.bak` sibling too) with position,
 //!    annotations and plugins' book data, then the reader assignments, then
 //!    the folder-valued settings, then sends the book-moved events, then
@@ -63,8 +64,6 @@ pub(crate) const STEP_BOOKS: usize = 16;
 /// from its start gives the same state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
-    /// The file the move replaced loses its data (only a replacing move).
-    Replaced,
     /// Books below `from` (and a `.bak` sibling) to their new key.
     Books(u64),
     /// Reader assignments naming `from` or a folder below it.
@@ -119,11 +118,12 @@ pub(crate) trait MoveHost {
     /// (case beyond ASCII, 8.3 aliases). Required: a host that forgets it
     /// would let an alias past the busy rule.
     fn within(&self, path: &str, folder: &str) -> bool;
-    /// A replacing move: the data kept for the file at `to` (catalog row,
-    /// position, annotations, plugins' book data) is dropped so that the
-    /// moved book does not inherit it. Idempotent, and a no-op once the
-    /// moved book's data has left `from` (a replay must not erase it).
-    fn discard_replaced(&self, from: &str, to: &str) -> Result<(), i32>;
+    /// A replacing move, before the rename: the data kept for the file at `to`
+    /// (catalog row, position, annotations, plugins' book data) is dropped so
+    /// that the moved book does not inherit it, whether or not the moved book
+    /// has data of its own. Idempotent. It runs only here, before the rename:
+    /// a replay later would erase what a reader wrote at `to` since.
+    fn discard_replaced(&self, to: &str) -> Result<(), i32>;
     /// One bounded step of `phase` for the move `from` -> `to`; returns the
     /// next phase. Idempotent: running a step again after a cut gives the
     /// same state.
@@ -213,7 +213,7 @@ impl Moves {
             from: own(from)?,
             to: own(to)?,
             identity,
-            phase: Cell::new(Some(Self::first(replace))),
+            phase: Cell::new(Some(Phase::Books(0))),
             replace,
         };
         host.write_entry(&Entry {
@@ -222,7 +222,16 @@ impl Moves {
             replace,
             identity,
         })?;
-        match host.rename(from, to, replace) {
+        // A replacing move drops the replaced file's data before the rename,
+        // so the moved book never inherits it (a cut between the two leaves
+        // the replaced file without its position; nothing moved).
+        let renamed = if replace {
+            host.discard_replaced(to)
+        } else {
+            Ok(())
+        }
+        .and_then(|()| host.rename(from, to, replace));
+        match renamed {
             Ok(()) => {
                 *slot = Some(job);
                 Ok(())
@@ -240,14 +249,6 @@ impl Moves {
                 }
                 Err(error)
             }
-        }
-    }
-
-    const fn first(replace: bool) -> Phase {
-        if replace {
-            Phase::Replaced
-        } else {
-            Phase::Books(0)
         }
     }
 
@@ -328,17 +329,12 @@ impl Moves {
             match job.phase.get() {
                 None => match Self::decide(host, job)? {
                     Verdict::Finish => {
-                        job.phase.set(Some(Self::first(job.replace)));
+                        job.phase.set(Some(Phase::Books(0)));
                         return Ok(true);
                     }
                     Verdict::Drop => {}
                 },
                 Some(Phase::Done) => host.clear_entry()?,
-                Some(Phase::Replaced) => {
-                    host.discard_replaced(&job.from, &job.to)?;
-                    job.phase.set(Some(Phase::Books(0)));
-                    return Ok(true);
-                }
                 Some(phase) => {
                     job.phase.set(Some(host.carry(&job.from, &job.to, phase)?));
                     return Ok(true);
@@ -381,8 +377,7 @@ impl Moves {
 
     /// A reader opens `book` (a path below `to`) while the job runs: carry it
     /// first, so its position and annotations are there and nothing the
-    /// reader writes is overwritten by the walk later. A replacing move drops
-    /// the replaced file's data first (idempotent).
+    /// reader writes is overwritten by the walk later.
     ///
     /// # Errors
     /// The host's error from carrying the book.
@@ -390,9 +385,6 @@ impl Moves {
         let slot = self.job.try_borrow().map_err(|_| ERR_BUSY)?;
         match slot.as_ref() {
             Some(job) if job.phase.get().is_some() && host.within(book, &job.to) => {
-                if job.replace {
-                    host.discard_replaced(&job.from, &job.to)?;
-                }
                 host.carry_book(&job.from, &job.to, book)
             }
             _ => Ok(()),

@@ -184,17 +184,13 @@ impl MoveHost for World {
         let (path, folder) = (key(path), key(folder));
         path.len() >= folder.len() && path[..folder.len()] == folder[..]
     }
-    fn discard_replaced(&self, from: &str, to: &str) -> Result<(), i32> {
+    fn discard_replaced(&self, to: &str) -> Result<(), i32> {
         self.tick()?;
-        // Only while the moved book's data is still at its old key.
-        if self.catalog.borrow().contains_key(from) {
-            self.catalog.borrow_mut().remove(to);
-        }
+        self.catalog.borrow_mut().remove(to);
         Ok(())
     }
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         match phase {
-            Phase::Replaced => Ok(Phase::Books(0)),
             Phase::Books(n) => {
                 // Keys already spelled with the new prefix are done (a
                 // case-only rename matches both spellings under `within`).
@@ -592,7 +588,11 @@ fn a_replacing_move_does_not_inherit_the_replaced_files_data() {
             )
         };
         match (a, b) {
-            (Some(5), Some(99)) => assert!(w.files.borrow().contains_key("Books/a.epub")),
+            // Not done; a cut between the discard and the rename left the
+            // replaced file without its position (never a's data under b).
+            (Some(5), Some(99) | None) => {
+                assert!(w.files.borrow().contains_key("Books/a.epub"));
+            }
             (None, Some(5)) => assert!(!w.files.borrow().contains_key("Books/a.epub")),
             other => panic!("cut {cut}: {other:?}"),
         }
@@ -802,4 +802,27 @@ fn a_journal_that_fails_leaves_no_job_and_no_change() {
     assert!(!moves.active());
     w.restart();
     assert_unmoved(&w, 2);
+}
+
+#[test]
+fn a_replacing_move_of_a_book_without_data_leaves_the_replaced_data_behind_nowhere() {
+    let w = books();
+    // The moved book has no library data of its own yet.
+    w.catalog.borrow_mut().remove("Books/a.epub");
+    let moves = Moves::default();
+    moves
+        .begin(&w, "Books/a.epub", "Books/b.epub", true)
+        .unwrap();
+    run(&moves, &w);
+    assert_eq!(
+        w.catalog.borrow().get("Books/b.epub"),
+        None,
+        "b's position 99 does not pass to the moved book"
+    );
+    // A restart and a reader's data written since survive a replay.
+    w.catalog.borrow_mut().insert("Books/b.epub".into(), 7);
+    let moves = Moves::default();
+    moves.start(&w).unwrap();
+    run(&moves, &w);
+    assert_eq!(w.catalog.borrow().get("Books/b.epub"), Some(&7));
 }
