@@ -33,7 +33,6 @@ impl<'a> CommandStage<'a> {
                 3 => Some(RefreshMode::Full),
                 _ => None,
             },
-            before: self.redraw_before.unwrap_or(self.staged.len()),
         });
         (self.staged, redraw, self.ui.map_or(0, |ui| ui.hop))
     }

@@ -23,7 +23,6 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 )]
 #[path = "commands_ui.rs"]
 mod ui;
-pub(crate) use ui::Redraw;
 
 /// Host-resolved authority for guarded settings, shared with the drain-time filter.
 #[derive(Clone, Copy, Debug)]

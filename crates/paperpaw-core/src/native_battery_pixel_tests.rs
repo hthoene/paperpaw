@@ -179,6 +179,9 @@ impl Plugin for Catalogs {
 }
 struct AcceptanceShell;
 impl paperpaw_sdk::Screen for AcceptanceShell {
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
 }
 
