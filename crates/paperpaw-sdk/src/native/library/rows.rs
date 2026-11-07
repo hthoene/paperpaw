@@ -90,13 +90,12 @@ fn validate_row(record: Record<'_>) -> Result<(), Error> {
                 return Err(Error::Invalid);
             }
         }
-        Record::ServiceLibBook(row) => {
+        Record::ServiceLibBook(row)
             if row.generation == 0
                 || row.path.is_empty()
-                || row.progress > 100 && row.progress != 255
-            {
-                return Err(Error::Invalid);
-            }
+                || row.progress > 100 && row.progress != 255 =>
+        {
+            return Err(Error::Invalid);
         }
         _ => {}
     }
