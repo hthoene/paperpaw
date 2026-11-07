@@ -233,6 +233,7 @@ pub enum Event<'a> {
         screen: &'a str,
         width: u32,
         height: u32,
+        instance: Option<super::ui::Instance>,
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
@@ -311,6 +312,57 @@ pub enum Event<'a> {
         plugin: &'a str,
         outcome: super::commands::PluginOutcome,
     },
+    /// An instance opened or received a new handover.
+    ScreenOpened {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+        slot: &'a str,
+        handover: Option<super::ui::HandoverId>,
+        params: u32,
+        text_bytes: u32,
+        again: bool,
+        restored: bool,
+    },
+    /// An instance closed after its final draw.
+    ScreenClosed {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+    },
+    /// Read the current stack through core.ui.
+    StackChanged { now_ms: u64 },
+    /// A final answer or committed live update, readable in this callback.
+    Answered { now_ms: u64, answer: Answered },
+    /// The host made a widget instance for its maker.
+    WidgetMade {
+        now_ms: u64,
+        widget: &'a str,
+        instance: super::ui::Instance,
+        place: &'a str,
+    },
+    /// The host dropped a widget instance.
+    WidgetDropped {
+        now_ms: u64,
+        instance: super::ui::Instance,
+    },
+    /// A widget's content or layout changed.
+    WidgetChanged {
+        now_ms: u64,
+        instance: super::ui::Instance,
+    },
+    /// A screen drew its first page and is ready for help.
+    ScreenReady {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+    },
+    /// Speech ended or was refused; the caller's cookie is unchanged.
+    Spoken {
+        now_ms: u64,
+        cookie: u32,
+        status: SpeechStatus,
+    },
 }
 
 impl<'a> Event<'a> {
@@ -380,6 +432,10 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
             screen: r.screen,
             width: r.width,
             height: r.height,
+            instance: r
+                .instance
+                .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
+                .transpose()?,
         },
         Record::EventActionRun(r) => Event::ActionRun {
             now_ms: r.now_ms,
@@ -417,7 +473,7 @@ fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
                 outcome,
             }
         }
-        other => core_events::decode(other)?,
+        other => uix_events::decode(other)?,
     })
 }
 
@@ -428,3 +484,6 @@ mod tests;
 #[cfg(test)]
 #[path = "events/core_events_tests.rs"]
 mod core_tests;
+
+mod uix_events;
+pub use uix_events::{AnswerOutcome, Answered, SpeechStatus};

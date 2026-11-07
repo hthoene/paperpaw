@@ -14,6 +14,8 @@ struct State {
     input: RefCell<Vec<u8>>,
     reply: RefCell<Vec<u8>>,
     result: Cell<i32>,
+    composed: Cell<Option<(u32, u32, paperpaw_platform::Rect)>>,
+    compose_result: Cell<i32>,
 }
 unsafe extern "C" fn open(_: *mut c_void, _: PpBytes, _: u16, _: u16, out: *mut u32) -> i32 {
     // SAFETY: the client supplies aligned exclusive output storage.
@@ -44,6 +46,8 @@ unsafe extern "C" fn call(ctx: *mut c_void, _: u32, _: u32, input: PpBytes, out:
 fn table() -> PpHost {
     let mut table = abi::host_table();
     table.service_open = open;
+    table.ui_compose = compose;
+    table.commands_submit = submit;
     table.service_call = call;
     table
 }
@@ -73,11 +77,17 @@ fn ask_encodes_text_flags_and_validates_request_reply() {
         .ask(
             &host,
             Question::text("Title", "Question")
+                .unwrap()
                 .live()
+                .unwrap()
                 .secret()
+                .unwrap()
                 .multiline()
+                .unwrap()
                 .mode(TextMode::Email)
-                .remote(),
+                .unwrap()
+                .remote()
+                .unwrap(),
             &mut input,
             &mut out,
         )
@@ -99,12 +109,22 @@ fn ask_encodes_text_flags_and_validates_request_reply() {
         wire::Record::ServiceUiRequest(wire::ServiceUiRequest { request: 0 }),
     );
     assert!(matches!(
-        ui.ask(&host, Question::confirm("", ""), &mut input, &mut out),
+        ui.ask(
+            &host,
+            Question::confirm("", "").unwrap(),
+            &mut input,
+            &mut out
+        ),
         Err(Error::Invalid)
     ));
     state.result.set(abi::ERR_DENIED);
     assert!(matches!(
-        ui.ask(&host, Question::confirm("", ""), &mut input, &mut out),
+        ui.ask(
+            &host,
+            Question::confirm("", "").unwrap(),
+            &mut input,
+            &mut out
+        ),
         Err(Error::Denied)
     ));
 }
@@ -121,25 +141,17 @@ fn question_caps_and_kind_flags_refuse_before_host_calls() {
     let mut input = [0; 4096];
     let mut out = [0; 4096];
     for question in [
-        Question::confirm("", "").live(),
-        Question::folder("", "").remote(),
+        Question::confirm("", "").unwrap().live(),
+        Question::folder("", "").unwrap().remote(),
         Question::choice("", "", ""),
         Question::choice("", "", "a\n"),
         Question::choice("", "", "a\n\nb"),
     ] {
-        assert!(matches!(
-            ui.ask(&host, question, &mut input, &mut out),
-            Err(Error::Invalid)
-        ));
+        assert!(matches!(question, Err(Error::Invalid)));
     }
     let long_choice = "x".repeat(129);
     assert!(matches!(
-        ui.ask(
-            &host,
-            Question::choice("", "", &long_choice),
-            &mut input,
-            &mut out
-        ),
+        Question::choice("", "", &long_choice),
         Err(Error::NoSpace)
     ));
     assert_eq!(state.calls.get(), 0);
@@ -149,8 +161,13 @@ fn question_caps_and_kind_flags_refuse_before_host_calls() {
         &state,
         wire::Record::ServiceUiRequest(wire::ServiceUiRequest { request: 1 }),
     );
-    ui.ask(&host, Question::text(&title, &text), &mut input, &mut out)
-        .unwrap();
+    ui.ask(
+        &host,
+        Question::text(&title, &text).unwrap(),
+        &mut input,
+        &mut out,
+    )
+    .unwrap();
     assert_eq!(state.calls.get(), 1);
 }
 
@@ -165,7 +182,7 @@ fn text_parts_check_identity_offsets_total_and_progress() {
     let ui = Ui::open(&host).unwrap();
     let mut input = [0; 4096];
     let mut out = [0; 4096];
-    let id = TextId::new(4).unwrap();
+    let id = RequestId::new(4).unwrap().text();
     let text = "界".repeat(1024);
     set_reply(
         &state,
@@ -196,12 +213,57 @@ fn text_parts_check_identity_offsets_total_and_progress() {
                 data,
             }),
         );
-        assert!(matches!(
-            ui.text_read(&host, id, 0, &mut input, &mut out),
-            Err(Error::Invalid)
-        ));
+        let expected = if actual != 4 || offset != 0 {
+            Error::State
+        } else {
+            Error::Invalid
+        };
+        assert_eq!(
+            ui.text_read(&host, id, 0, &mut input, &mut out)
+                .unwrap_err(),
+            expected
+        );
     }
     state.reply.borrow_mut().clear();
     ui.text_write(&host, id, 0, &text, TextWrite::Last, &mut input, &mut out)
         .unwrap();
 }
+
+unsafe extern "C" fn compose(
+    ctx: *mut c_void,
+    kind: u32,
+    handle: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> i32 {
+    // SAFETY: this fixture keeps State alive for the callback.
+    let state = unsafe { &*ctx.cast::<State>() };
+    state.composed.set(Some((
+        kind,
+        handle,
+        paperpaw_platform::Rect::new(x, y, width, height),
+    )));
+    state.compose_result.get()
+}
+unsafe extern "C" fn submit(ctx: *mut c_void, bytes: PpBytes) -> i32 {
+    // SAFETY: this fixture keeps State and the encoded input slice alive.
+    let state = unsafe { &*ctx.cast::<State>() };
+    // SAFETY: the command sender supplies its initialized exclusive scratch prefix.
+    state
+        .input
+        .replace(unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) }.to_vec());
+    state.result.get()
+}
+fn set_stream(state: &State, records: &[wire::Record<'_>]) {
+    let mut bytes = vec![0; 4096];
+    let mut used = 0;
+    for record in records {
+        used += wire::record_encode_one(record, &mut bytes[used..]).unwrap();
+    }
+    bytes.truncate(used);
+    state.reply.replace(bytes);
+}
+mod params;
+mod widgets;

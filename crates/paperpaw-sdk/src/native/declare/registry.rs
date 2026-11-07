@@ -205,7 +205,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 flags: u32::from(step.applies) | (u32::from(step.need.is_some()) << 1),
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Declare a screen slot.
@@ -221,7 +221,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 title: slot.title,
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Offer a declared screen for a slot. The host resolves ownership and priority.
@@ -242,7 +242,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 priority: offer.priority,
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Declare a key binding. The host protects its fixed escape input.
@@ -285,7 +285,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 when_value: binding.when_value,
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Extend another plugin's default. The host applies extension precedence.
@@ -300,7 +300,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         self.check_sink()?;
         let mut bytes = [MaybeUninit::uninit(); wire::SETTING_DEFAULT_VALUE_MAX_BYTES];
         let record = default_record(key, value, &mut bytes);
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Add a translated choice to another plugin's setting.
@@ -323,7 +323,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 title,
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Declare a preset and its category.
@@ -342,7 +342,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 help: preset.help,
             }))
         })();
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
     /// Declare one value of a preset, or reset it to its default with Absent.
@@ -353,10 +353,10 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         self.check_sink()?;
         let mut bytes = [MaybeUninit::uninit(); wire::PRESET_VALUE_VALUE_MAX_BYTES];
         let record = preset_record(value, &mut bytes);
-        self.accept_registry(record)
+        self.accept_record(record)
     }
 
-    fn accept_registry(
+    pub(super) fn accept_record(
         &mut self,
         record: Result<wire::Record<'_>, DeclareError>,
     ) -> Result<&mut Self, DeclareError> {

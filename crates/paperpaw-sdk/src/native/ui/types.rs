@@ -9,7 +9,7 @@ macro_rules! identifier {
         impl $name {
             /// Validate a nonzero identifier received from the host.
             #[must_use]
-            pub const fn new(value: u32) -> Option<Self> {
+            pub(crate) const fn new(value: u32) -> Option<Self> {
                 match core::num::NonZeroU32::new(value) {
                     Some(value) => Some(Self(value)),
                     None => None,
@@ -35,7 +35,16 @@ identifier!(
     HandoverId,
     "A handover assigned by the host, also its text identifier."
 );
-identifier!(TextId, "A request or handover text assigned by the host.");
+/// A request or handover text obtained from a decoded host identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextId(core::num::NonZeroU32);
+impl TextId {
+    /// The host-issued identifier.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
 impl RequestId {
     /// The request's host text, readable only during the permitted callbacks.
     #[must_use]
@@ -73,7 +82,7 @@ impl QuestionKind {
             Self::Folder => 3,
         }
     }
-    pub(super) fn decode(value: u32) -> Result<Self, Error> {
+    pub(crate) fn decode(value: u32) -> Result<Self, Error> {
         match value {
             0 => Ok(Self::Text),
             1 => Ok(Self::Choice),
@@ -134,57 +143,80 @@ impl<'a> Question<'a> {
         }
     }
     /// Ask for text with the system keyboard.
-    #[must_use]
-    pub const fn text(title: &'a str, question: &'a str) -> Self {
-        Self::new(QuestionKind::Text, title, question)
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn text(title: &'a str, question: &'a str) -> Result<Self, Error> {
+        Self::new(QuestionKind::Text, title, question).checked()
     }
     /// Ask for one of the newline-separated choices. Empty lines are refused.
-    #[must_use]
-    pub const fn choice(title: &'a str, question: &'a str, choices: &'a str) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn choice(title: &'a str, question: &'a str, choices: &'a str) -> Result<Self, Error> {
         Self {
             choices,
             ..Self::new(QuestionKind::Choice, title, question)
         }
+        .checked()
     }
     /// Ask a yes-or-no question.
-    #[must_use]
-    pub const fn confirm(title: &'a str, question: &'a str) -> Self {
-        Self::new(QuestionKind::Confirm, title, question)
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn confirm(title: &'a str, question: &'a str) -> Result<Self, Error> {
+        Self::new(QuestionKind::Confirm, title, question).checked()
     }
     /// Ask for a root-1 folder. Write the initial folder to the request text.
-    #[must_use]
-    pub const fn folder(title: &'a str, question: &'a str) -> Self {
-        Self::new(QuestionKind::Folder, title, question)
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn folder(title: &'a str, question: &'a str) -> Result<Self, Error> {
+        Self::new(QuestionKind::Folder, title, question).checked()
     }
     /// Receive typing updates. Valid for text questions only.
-    #[must_use]
-    pub const fn live(mut self) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn live(mut self) -> Result<Self, Error> {
         self.flags |= 1;
-        self
+        self.checked()
     }
     /// Allow multiple lines. Valid for text questions only.
-    #[must_use]
-    pub const fn multiline(mut self) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn multiline(mut self) -> Result<Self, Error> {
         self.flags |= 2;
-        self
+        self.checked()
     }
     /// Mask text and keep its host storage off the card. Text questions only.
-    #[must_use]
-    pub const fn secret(mut self) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn secret(mut self) -> Result<Self, Error> {
         self.flags |= 4;
-        self
+        self.checked()
     }
     /// Supply a keyboard mode. Valid for text questions only.
-    #[must_use]
-    pub const fn mode(mut self, mode: TextMode) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn mode(mut self, mode: TextMode) -> Result<Self, Error> {
         self.flags = (self.flags & !0xf0) | mode.bits() << 4;
-        self
+        self.checked()
     }
     /// Use the remote keyboard. Valid for text questions only.
-    #[must_use]
-    pub const fn remote(mut self) -> Self {
+    ///
+    /// # Errors
+    /// Invalid for an incompatible question kind; NoSpace above a field cap.
+    pub fn remote(mut self) -> Result<Self, Error> {
         self.slot = "core.remote-keyboard";
-        self
+        self.checked()
+    }
+    fn checked(self) -> Result<Self, Error> {
+        self.record()?;
+        Ok(self)
     }
     pub(super) fn record(self) -> Result<wire::Record<'a>, Error> {
         if self.kind != QuestionKind::Text && (self.flags != 0 || !self.slot.is_empty()) {
@@ -207,14 +239,16 @@ impl<'a> Question<'a> {
                 return Err(Error::NoSpace);
             }
         }
-        Ok(wire::Record::ServiceUiAsk(wire::ServiceUiAsk {
+        let record = wire::Record::ServiceUiAsk(wire::ServiceUiAsk {
             kind: self.kind.encode(),
             flags: self.flags,
             slot: self.slot,
             title: self.title,
             text: self.text,
             choices: self.choices,
-        }))
+        });
+        wire::record_framed_len(&record).map_err(Error::from_status)?;
+        Ok(record)
     }
 }
 

@@ -163,10 +163,12 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         screen,
         width,
         height,
+        instance,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
+    assert_eq!(instance, None);
     assert_eq!(
         (got_ms, screen, width, height),
         (now_ms, "demo.main", 0x1234_5678, 0x9abc_def0)

@@ -5,7 +5,22 @@ use super::wire::services_wire::core_ui_v1 as schema;
 use super::{Error, Host, services::Service};
 
 pub(crate) mod navigation;
-pub use navigation::Open;
+pub use navigation::{Notify, Open, ScreenPolicy, SpeechRequest};
+pub mod stages;
+mod status;
+pub use status::{StatusLine, StatusValue};
+mod queries;
+pub use queries::{HintInput, UiHint, UiScreen};
+mod handover;
+mod widgets;
+pub use widgets::{
+    Compose, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,
+    WidgetTarget,
+};
+mod params;
+pub use params::Param;
+mod paging;
+pub use paging::{UiCursor, UiPage, UiPageEnd};
 mod types;
 pub use types::{
     Answer, HandoverId, Instance, Question, QuestionInfo, QuestionKind, RequestId, TextId,
@@ -53,7 +68,7 @@ impl Ui {
             wire::Record::ServiceUiRequest(row) => {
                 RequestId::new(row.request).ok_or(Error::Invalid)
             }
-            _ => Err(Error::Invalid),
+            _ => Err(Error::State),
         }
     }
 
@@ -204,11 +219,10 @@ impl Ui {
             .offset
             .checked_add(u32::try_from(row.data.len()).map_err(|_| Error::Invalid)?)
             .ok_or(Error::Invalid)?;
-        if row.text != text
-            || row.offset != offset
-            || end > row.total
-            || row.data.is_empty() && end != row.total
-        {
+        if row.text != text || row.offset != offset {
+            return Err(Error::State);
+        }
+        if end > row.total || row.data.is_empty() && end != row.total {
             return Err(Error::Invalid);
         }
         Ok(TextPart {
@@ -247,6 +261,11 @@ impl Ui {
             return Err(Error::Invalid);
         }
         Ok(())
+    }
+    fn operation(&self, op: u32) -> Result<&'static super::wire::services_wire::ServiceOp, Error> {
+        super::wire::services_wire::service_schema(schema::KEY, schema::MAJOR)
+            .and_then(|schema| schema.op(op))
+            .ok_or(Error::Unsupported)
     }
     fn call(
         &self,

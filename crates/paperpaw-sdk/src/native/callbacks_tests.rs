@@ -148,7 +148,8 @@ fn frames_preserve_every_field_and_unknown_purposes() {
         DrawPurpose::InsertedBlock,
         DrawPurpose::StatusItem,
         DrawPurpose::Widget,
-        DrawPurpose::Other(5),
+        DrawPurpose::StatusLine,
+        DrawPurpose::Other(6),
     ]
     .into_iter()
     .enumerate()

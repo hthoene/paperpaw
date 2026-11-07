@@ -1,8 +1,37 @@
 //! Typed screen navigation and messages.
 use super::{CommandSender, Error, wire};
-use crate::native::ui::{Instance, Open, navigation::full_id};
+use crate::native::ui::{Instance, Notify, Open, ScreenPolicy, SpeechRequest, navigation::full_id};
 
 impl CommandSender<'_, '_> {
+    /// Set runtime policies for a decoded own instance, or None for own top.
+    ///
+    /// # Errors
+    /// Returns encoding limits or the host's ownership/top/guard refusal.
+    pub fn screen_policy(
+        &mut self,
+        instance: Option<Instance>,
+        policy: ScreenPolicy,
+    ) -> Result<(), Error> {
+        self.submit(wire::Command::ScreenPolicy {
+            instance: instance.map_or(0, Instance::get),
+            flags: policy.flags(),
+        })
+    }
+    /// Queue typed speech with an unchanged caller-chosen cookie.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal; completion is event.spoken.
+    pub fn speak(&mut self, request: SpeechRequest<'_>) -> Result<(), Error> {
+        self.submit(request.command())
+    }
+    /// Stop only the submitting plugin's speech.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal.
+    pub fn stop_speaking(&mut self) -> Result<(), Error> {
+        self.submit(wire::Command::StopSpeaking {})
+    }
+
     /// Stage full-id navigation, optionally carrying a host-owned handover.
     ///
     /// # Errors
@@ -74,21 +103,8 @@ impl CommandSender<'_, '_> {
     ///
     /// # Errors
     /// Returns buffer limits or the host's refusal.
-    pub fn notify(&mut self, text: impl AsRef<str>) -> Result<(), Error> {
-        self.submit(wire::Command::Notify {
-            text: text.as_ref(),
-            flags: 0,
-        })
-    }
-    /// Show a reader-requested or device message also from background work.
-    ///
-    /// # Errors
-    /// Returns buffer limits or the host's refusal.
-    pub fn announce(&mut self, text: impl AsRef<str>) -> Result<(), Error> {
-        self.submit(wire::Command::Notify {
-            text: text.as_ref(),
-            flags: 1,
-        })
+    pub fn notify(&mut self, message: Notify<'_>) -> Result<(), Error> {
+        self.submit(message.command())
     }
     /// Notify the maker that a widget instance needs new layout or drawing.
     ///
