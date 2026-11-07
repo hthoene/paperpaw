@@ -139,10 +139,10 @@ impl<'a> HelpHintDecl<'a> {
     /// # Errors
     /// Invalid for a zone outside the screen.
     pub fn zone(mut self, zone: paperpaw_platform::Rect) -> Result<Self, Error> {
-        self.0.x = u32::try_from(zone.x).map_err(|_| Error::Invalid)?;
-        self.0.y = u32::try_from(zone.y).map_err(|_| Error::Invalid)?;
-        self.0.width = zone.width;
-        self.0.height = zone.height;
+        self.0.x = u32::from(zone.x);
+        self.0.y = u32::from(zone.y);
+        self.0.width = u32::from(zone.width);
+        self.0.height = u32::from(zone.height);
         Self::checked(self.0)
     }
 }

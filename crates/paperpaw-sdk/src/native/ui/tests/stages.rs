@@ -81,7 +81,7 @@ fn widget_stage_targets_are_whole_and_bounded_by_generated_rows() {
         .map(|index| {
             WidgetTarget::new(
                 index as u32,
-                paperpaw_platform::Rect::new(0, index as i32, 30, 4),
+                crate::native::callbacks::FrameRect::new(0, index as i32, 30, 4),
             )
         })
         .collect();
@@ -93,7 +93,7 @@ fn widget_stage_targets_are_whole_and_bounded_by_generated_rows() {
     let mut over = rows;
     over.push(WidgetTarget::new(
         99,
-        paperpaw_platform::Rect::new(0, 0, 1, 1),
+        crate::native::callbacks::FrameRect::new(0, 0, 1, 1),
     ));
     assert!(matches!(
         call.reply_targets(&over, &mut reply),

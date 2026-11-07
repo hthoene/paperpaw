@@ -1,7 +1,7 @@
 use super::super::{Error, Instance, WidgetTarget};
+use crate::native::callbacks::FrameRect as Rect;
 use crate::native::stage_schemas::core_widget_v1 as schema;
 use alloc::vec::Vec;
-use paperpaw_platform::Rect;
 
 /// An owner-side widget request. Instance ids are decoded from host records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

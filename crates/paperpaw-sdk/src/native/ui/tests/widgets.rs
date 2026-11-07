@@ -1,5 +1,5 @@
 use super::*;
-use paperpaw_platform::Rect;
+use crate::native::callbacks::FrameRect as Rect;
 
 #[test]
 fn own_widgets_and_scalar_composition_preserve_host_markers_and_errors() {

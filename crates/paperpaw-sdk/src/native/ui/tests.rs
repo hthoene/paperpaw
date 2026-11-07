@@ -14,7 +14,7 @@ struct State {
     input: RefCell<Vec<u8>>,
     reply: RefCell<Vec<u8>>,
     result: Cell<i32>,
-    composed: Cell<Option<(u32, u32, paperpaw_platform::Rect)>>,
+    composed: Cell<Option<(u32, u32, crate::native::callbacks::FrameRect)>>,
     compose_result: Cell<i32>,
 }
 unsafe extern "C" fn open(_: *mut c_void, _: PpBytes, _: u16, _: u16, out: *mut u32) -> i32 {
@@ -243,7 +243,7 @@ unsafe extern "C" fn compose(
     state.composed.set(Some((
         kind,
         handle,
-        paperpaw_platform::Rect::new(x, y, width, height),
+        crate::native::callbacks::FrameRect::new(x, y, width, height),
     )));
     state.compose_result.get()
 }

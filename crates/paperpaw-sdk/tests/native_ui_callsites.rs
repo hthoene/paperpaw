@@ -1,5 +1,5 @@
 //! Public-only equivalents of Plugin's batch-2 UI call sites (#1049).
-use paperpaw_platform::Rect;
+use paperpaw_sdk::native::callbacks::FrameRect as Rect;
 use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,

@@ -124,10 +124,10 @@ impl<'a> UiHint<'a> {
         Ok(Self {
             input,
             zone: paperpaw_platform::Rect::new(
-                i32::try_from(row.x).map_err(|_| Error::Invalid)?,
-                i32::try_from(row.y).map_err(|_| Error::Invalid)?,
-                row.width,
-                row.height,
+                u16::try_from(row.x).map_err(|_| Error::Invalid)?,
+                u16::try_from(row.y).map_err(|_| Error::Invalid)?,
+                u16::try_from(row.width).map_err(|_| Error::Invalid)?,
+                u16::try_from(row.height).map_err(|_| Error::Invalid)?,
             ),
             text: row.text,
             owner: row.owner,

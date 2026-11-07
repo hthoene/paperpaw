@@ -1,6 +1,6 @@
 //! Opaque composition handles and the widget service operations.
 use super::{Error, Host, Instance, Ui, UiPage, one, schema, wire};
-use paperpaw_platform::Rect;
+use crate::native::callbacks::FrameRect as Rect;
 
 /// A widget instance returned by the host, including its own-widget marker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
