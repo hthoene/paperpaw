@@ -1355,3 +1355,6 @@ mod evt_oom;
 mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
+
+#[path = "native_screen_install_tests.rs"]
+mod native_screen_install;
