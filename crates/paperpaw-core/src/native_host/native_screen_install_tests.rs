@@ -747,21 +747,31 @@ fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
 }
 
 #[test]
-fn kernel_main_loop_drains_the_host_services_orphan_retirement_queue() {
+fn kernel_main_loop_drains_more_than_sixteen_orphan_retirements() {
+    use crate::native_host::doc_service::{DocHost, Limits, tests::Fake};
     let mut kernel = kernel(0);
     let pool = POOL.with(|pool| pool.borrow().as_ref().unwrap().try_clone().unwrap());
-    let orphan = pool.try_owner().unwrap();
-    let owner = orphan.owner_id();
-    drop(orphan);
-    assert!(pool.hosts().queue_retirement(owner));
-    assert!(pool.hosts().retirements_pending());
-    assert!(kernel.native_unload_due().is_some());
-    kernel.tick(paperpaw_platform::Instant(10));
+    let documents = Fake::new(Limits::LARGE);
+    pool.hosts().wire_documents(documents.clone()).unwrap();
+    let owners: Vec<_> = (0..40).map(|_| pool.try_owner().unwrap()).collect();
+    let wake;
+    {
+        let _busy = documents.table().hold().unwrap();
+        drop(owners);
+        assert!(pool.hosts().retirements_pending());
+        assert!(kernel.native_unload_due().is_some());
+        wake = kernel
+            .tick(paperpaw_platform::Instant(10))
+            .wake_at()
+            .unwrap();
+        assert!(pool.hosts().retirements_pending());
+    }
+    kernel.tick(wake);
     assert!(!pool.hosts().retirements_pending());
     assert!(kernel.native_unload_due().is_none());
     assert!(
         kernel.shared.native_instances.find("factory").is_some(),
-        "an orphan retry does not unload a different live owner"
+        "orphan retries preserve a different live owner"
     );
 }
 
