@@ -77,8 +77,8 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 | 4 | `remove` | mutate | `sec_name` | (none) | removes a secret, saved before the reply |
 | 5 | `random` | query | `sec_random` | `sec_bytes` | random bytes from the device's source |
 
-`max_input` 1,280 (`keep`) or 256, `max_reply` 4,096 (`list`) or 1,280; `bound: card` for `keep`
-and `remove`, `none` for the others.
+`max_input` 1,280 (`keep`) or 256, `max_reply` 4,096 (`list`) or 1,280; `bound: card` for `get`,
+`list`, `keep` and `remove` (each reads or writes the card file), `none` for `random`.
 
 ### 2.1 `get`
 
