@@ -1835,7 +1835,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-native-kit"
+name = "paperpaw-ui-kit"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sdk",
@@ -2231,7 +2231,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-native-kit",
+ "paperpaw-ui-kit",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
@@ -2313,7 +2313,7 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-native-kit",
+ "paperpaw-ui-kit",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
@@ -2414,7 +2414,7 @@ version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-native-kit",
+ "paperpaw-ui-kit",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",

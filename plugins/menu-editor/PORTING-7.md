@@ -5,7 +5,7 @@ built-in descriptor `NATIVE_ENTRY` (feature `linked`), declarations in
 `declarations.rs` (built into the image by `build.rs`), metadata in `native/`
 (`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
 --bytes native/metadata.bin --json native/metadata.inspected.json`, and the same
-for `metadata.host.*`). Drawing uses `paperpaw-native-kit`.
+for `metadata.host.*`). Drawing uses `paperpaw-ui-kit`.
 
 ## Ported
 

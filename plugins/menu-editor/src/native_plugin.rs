@@ -5,7 +5,7 @@
 //! the old view in place until the registry publishes the new menu.
 use crate::native_menu::{Candidate, ListRenderer, MenuGraph, ScreenState};
 use alloc::{format, string::String, vec::Vec};
-use paperpaw_native_kit::{
+use paperpaw_ui_kit::{
     ListFocus, ListInput, Messages, Style, focus,
     list::row as prepare_row,
     paint::{self, Paint},

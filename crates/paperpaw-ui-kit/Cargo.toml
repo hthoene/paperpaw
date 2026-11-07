@@ -1,5 +1,5 @@
 [package]
-name = "paperpaw-native-kit"
+name = "paperpaw-ui-kit"
 description = "Drawing helpers for interface-7 plugin screens: stock UI style, header, list rows, text fitting and catalog messages over the flat native SDK (no_std)"
 version.workspace = true
 edition.workspace = true

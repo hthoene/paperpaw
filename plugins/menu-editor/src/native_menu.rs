@@ -294,7 +294,7 @@ mod ordering;
 
 pub use candidates::Candidate;
 pub use navigation::ScreenState;
-pub use paperpaw_native_kit::ListRenderer;
+pub use paperpaw_ui_kit::ListRenderer;
 
 #[cfg(test)]
 mod tests;

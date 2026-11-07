@@ -1,7 +1,7 @@
 //! Reads from the registry that the screens need, as owned copies.
 use crate::model::{Bound, GLOBAL, POLICY, Place};
 use alloc::{string::String, vec::Vec};
-use paperpaw_native_kit::{rows, text::copy};
+use paperpaw_ui_kit::{rows, text::copy};
 use paperpaw_sdk::builtin::slots;
 use paperpaw_sdk::native::{
     Error, Host,

@@ -1,7 +1,7 @@
 //! The settings a profile keeps, read from and applied through the host.
 use crate::store::{Kind, Profile, Value};
 use alloc::{string::String, vec::Vec};
-use paperpaw_native_kit::{rows, text::copy};
+use paperpaw_ui_kit::{rows, text::copy};
 use paperpaw_sdk::builtin::{groups, settings};
 use paperpaw_sdk::native::{
     Error, Host,

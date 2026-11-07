@@ -7,7 +7,7 @@ names, tidying, value parsing). `NATIVE_ENTRY` (feature `linked`), declarations 
 `declarations.rs` built into the image by `build.rs`, metadata in `native/`
 (regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
 native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
-likewise `metadata.host.*`). Drawing uses `paperpaw-native-kit` (`ItemList` with a note
+likewise `metadata.host.*`). Drawing uses `paperpaw-ui-kit` (`ItemList` with a note
 footer or the empty message).
 
 ## Ported

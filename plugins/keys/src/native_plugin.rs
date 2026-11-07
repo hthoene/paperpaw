@@ -3,7 +3,7 @@
 use crate::model::{self, POLICY, Place};
 use crate::native_data::{self, Named, Reader};
 use alloc::{format, string::String, vec::Vec};
-use paperpaw_native_kit::{
+use paperpaw_ui_kit::{
     Item, ItemList, ItemStep, Messages, Screens, items::RowItem, text::copy,
 };
 use paperpaw_sdk::{
