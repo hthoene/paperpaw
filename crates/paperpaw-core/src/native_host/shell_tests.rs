@@ -601,6 +601,13 @@ mod instance_tests {
         }
     }
     fn load() -> Result<Instance<Heap, Module>, Error> {
+        load_with(crate::native_host::HostResources::try_new().unwrap())
+    }
+    /// With the device's table made beforehand (a test that fails the nth
+    /// allocation of the load makes it before arming the failure).
+    fn load_with(
+        resources: crate::native_host::HostResources,
+    ) -> Result<Instance<Heap, Module>, Error> {
         // SAFETY: `make` is this file's plugin, always callable; no image.
         unsafe {
             Instance::load(
@@ -611,7 +618,7 @@ mod instance_tests {
                 (0, 0),
                 report,
                 hooks(),
-                crate::native_host::HostResources::try_new().unwrap(),
+                resources,
             )
         }
     }
@@ -916,8 +923,9 @@ mod instance_tests {
         let mut destroyed_in_a_refusal = 0;
         for nth in 1..=12 {
             reset(NORMAL);
+            let resources = crate::native_host::HostResources::try_new().unwrap();
             arm_failure(nth);
-            let result = load();
+            let result = load_with(resources);
             arm_failure(0);
             // Every destructor run of the load, a refused one included, was
             // inside an announced call (attributed, stack checked after it).
