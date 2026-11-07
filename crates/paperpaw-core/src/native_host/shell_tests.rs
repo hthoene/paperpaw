@@ -1318,3 +1318,6 @@ mod service_oom;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
+
+#[path = "shell_command_dispatch_tests.rs"]
+mod command_dispatch;

@@ -1346,6 +1346,9 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
     super::service_slots::release(&context.environment, &context.resources, blob)
 }
 
+#[path = "shell_commands.rs"]
+mod command_dispatch;
+
 #[cfg(test)]
 #[path = "shell_core.rs"]
 mod core_dispatch;
