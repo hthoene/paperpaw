@@ -330,6 +330,14 @@ formats still validate their original emitted sections. This adds no wire draft.
 - `service.call`: `input` and `out` are the caller's; the host decodes in place and allocates only
   what the op documents. The schema table is `static` (flash).
 
+The inactive host-run broker bounds its own allocation payloads to 24 KiB:
+selection and frozen subscriber lists, at most 32 copied plugin ids of 128 bytes,
+the exactly sized encoded call (at most 4096 bytes), and the reply scratch (at most
+3840 bytes). This excludes allocator overhead, retained instances and plugin work.
+Before X4 activation, measure peak heap with the caller's staged target copy,
+reader caches, plugin scratch and retained instances all live. The payload bound
+is not a device heap or stack measurement.
+
 ## 4. Hand-offs
 
 **Core** (host), in this order:

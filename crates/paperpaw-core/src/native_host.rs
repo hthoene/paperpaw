@@ -905,3 +905,10 @@ mod event_hook_tests;
 #[path = "abi7/stages_wire.rs"]
 #[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
 pub mod stages_wire;
+
+#[path = "native_host/stage_broker.rs"]
+#[allow(
+    dead_code,
+    reason = "host stage entry point is wired by the reader port"
+)]
+pub(crate) mod stage_broker;

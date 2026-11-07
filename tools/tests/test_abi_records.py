@@ -433,6 +433,18 @@ class RecordsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rust_records(candidate)
 
+    def test_counted_encoders_share_one_body(self):
+        # Todo 46 (#228): the slice encoder delegates to the iterator one, so
+        # both check caps and capacity in one place, before any write.
+        source = rust_records(self.schema)
+        for line in ['pub fn records_encode_counted_iter<\'r, I>(',
+                     '    I: Iterator<Item = Record<\'r>> + Clone,',
+                     '    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)',
+                     '    let count = records.clone().take(max_records.saturating_add(1)).count();',
+                     '    if written != count || offset != required {']:
+            self.assertIn(line, source)
+        self.assertEqual(source.count('write_varint(count as u32, out, &mut offset);'), 1)
+
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)
         served = ABI.with_services(self.schema, ROOT / 'abi/services')
