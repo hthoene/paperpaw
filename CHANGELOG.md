@@ -19,6 +19,8 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
@@ -27,6 +29,7 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
+
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
@@ -51,6 +54,7 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
+
 - Checked native admission metadata exposes declared service revisions through a
   borrowing iterator, so host query admission uses the validated requirements (#228).
 - Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,

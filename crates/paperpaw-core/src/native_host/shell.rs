@@ -227,6 +227,8 @@ pub fn host_table<S: Services>() -> PpHost {
     table.storage_rename = storage_rename::<S>;
     table.storage_remove = storage_remove::<S>;
     table.storage_sync = storage_sync::<S>;
+    table.service_open = service_open::<S>;
+    table.service_call = service_call::<S>;
     table.services_query = services_query::<S>;
     table.blob_read = blob_read::<S>;
     table.blob_release = blob_release::<S>;
@@ -1245,4 +1247,53 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
         return host_glue::ERR_INVALID;
     };
     super::service_slots::release(&context.environment, &context.resources, blob)
+}
+
+unsafe extern "C" fn service_open<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::open(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn service_call<S>(
+    ctx: *mut c_void,
+    service: u32,
+    op: u32,
+    input: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::call(
+            &context.environment,
+            &context.resources,
+            service,
+            op,
+            input,
+            out,
+        )
+    }
 }
