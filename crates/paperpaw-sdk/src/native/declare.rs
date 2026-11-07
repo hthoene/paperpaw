@@ -431,6 +431,7 @@ pub struct Declarations<F> {
     total: usize,
     failed: Option<Latched>,
     abort_sent: bool,
+    subscriptions: Vec<(String, u32)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -616,6 +617,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             total: 0,
             failed,
             abort_sent: false,
+            subscriptions: Vec::new(),
         }
     }
 
