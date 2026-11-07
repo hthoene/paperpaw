@@ -837,6 +837,10 @@ pub enum SafeModeReason {
     FailedStarts,
     /// The reader held the key for it at power-on.
     KeyHeld,
+    /// The reader held Power for the 8 s escape while a call into a code
+    /// plugin ran past the grace, and the device was reset:
+    /// [`SafeMode::crashed`] names that plugin, which is switched off.
+    PowerEscape,
 }
 
 /// A plugin the shell had to install at this start (one the web flasher

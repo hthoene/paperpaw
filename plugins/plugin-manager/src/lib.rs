@@ -456,6 +456,10 @@ fn safe_mode_notice(env: &Env<'_>, safe_mode: &SafeMode) -> String {
     // Short: a notice has a few lines. The plugin manager says the rest.
     match (safe_mode.reason, &safe_mode.crashed, &safe_mode.last_loaded) {
         (SafeModeReason::KeyHeld, ..) => String::from(i18n.tr("plugin-manager.safe-mode.key")),
+        (SafeModeReason::PowerEscape, Some(id), _) => i18n.format(
+            "plugin-manager.safe-mode.power-escape",
+            &[("name", Arg::Str(&name(id)))],
+        ),
         (_, Some(id), _) => i18n.format(
             "plugin-manager.safe-mode.crashed",
             &[("name", Arg::Str(&name(id)))],

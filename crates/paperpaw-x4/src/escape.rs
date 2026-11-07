@@ -16,9 +16,12 @@
 //!    readings reset the processor ([`Step::Force`]). A request the main
 //!    loop has not taken stands when the key is let go; one it took is
 //!    watched only while the key is down.
-//!    This step blames no plugin: the reset only leaves its place in RTC
-//!    memory (`power::at::ESCAPE`). Which plugin's call was running, if any,
-//!    is the interface-7 loader's record of calls (`safe_mode`).
+//!    The reset leaves its place in RTC memory (`power::at::ESCAPE`) and,
+//!    when [`CallWatch`] says a plugin's call has run past the grace, that
+//!    call's plugin (the interface-7 loader's record of calls,
+//!    `safe_mode`): the next start switches it off and says why. A call that
+//!    began after the grace started is not blamed (a long host step before
+//!    it, a call that has only just begun).
 //!
 //! A button held from before the start, or from before a light sleep ended,
 //! counts only after it was let go once (the caller's `armed`).
@@ -49,6 +52,45 @@ pub enum Step {
     Ask,
     /// The main loop did not take the request in time: reset now.
     Force,
+}
+
+/// Which plugin call has been running, as the readings see it: the call's
+/// token (it is another one whenever a call begins or ends) and since when it
+/// is the same. A reset by the escape blames the plugin only if that call has
+/// run for the whole grace ([`GRACE_MS`]), which a call that began after the
+/// 8 s mark cannot have: not the one a legitimately long host step (a blocking
+/// network call, a 64 KiB erase) only just handed over to.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CallWatch {
+    token: Option<u32>,
+    since: u64,
+}
+
+impl CallWatch {
+    /// No call seen.
+    #[must_use]
+    pub const fn new() -> Self {
+        CallWatch {
+            token: None,
+            since: 0,
+        }
+    }
+
+    /// One reading at `now` (ms, increasing) of the running call's token
+    /// (`None`: no plugin's code runs).
+    pub fn observe(&mut self, now: u64, token: Option<u32>) {
+        if token != self.token {
+            self.token = token;
+            self.since = now;
+        }
+    }
+
+    /// Whether a plugin's call runs at `now` that has run, unchanged, for
+    /// [`GRACE_MS`] or more.
+    #[must_use]
+    pub fn outlived_grace(&self, now: u64) -> bool {
+        self.token.is_some() && now.saturating_sub(self.since) >= GRACE_MS
+    }
 }
 
 /// The hold of Power, fed by the readings.
@@ -241,5 +283,66 @@ mod tests {
         }
         // A clock that steps back (it must not) neither asks nor panics.
         assert_eq!(escape.update(1_000, true, true, false), Step::Idle);
+    }
+
+    /// Feeds readings every 5 ms in `[from, to)` with `token`.
+    fn watch(call: &mut CallWatch, from: u64, to: u64, token: Option<u32>) {
+        for now in (from..to).step_by(5) {
+            call.observe(now, token);
+        }
+    }
+
+    #[test]
+    fn a_call_that_was_running_at_the_mark_is_blamed_at_the_reset() {
+        let mut call = CallWatch::new();
+        // The call began shortly before the 8 s mark and never returned.
+        watch(&mut call, 7_000, HOLD_MS + GRACE_MS, Some(7));
+        let forced = HOLD_MS + GRACE_MS;
+        call.observe(forced, Some(7));
+        assert!(call.outlived_grace(forced));
+    }
+
+    #[test]
+    fn a_call_that_began_after_the_mark_is_not_blamed() {
+        let mut call = CallWatch::new();
+        // A long host step (no plugin call) up to just after the mark; then a
+        // call begins and is the one running when the reset comes.
+        watch(&mut call, 7_000, HOLD_MS + 10, None);
+        watch(&mut call, HOLD_MS + 10, HOLD_MS + GRACE_MS, Some(9));
+        let forced = HOLD_MS + GRACE_MS;
+        call.observe(forced, Some(9));
+        assert!(!call.outlived_grace(forced));
+    }
+
+    #[test]
+    fn a_nested_or_another_call_starts_the_count_anew() {
+        let mut call = CallWatch::new();
+        watch(&mut call, 7_000, 9_000, Some(1));
+        // The first call ends and another begins (even the same plugin): the
+        // token is another one.
+        watch(&mut call, 9_000, HOLD_MS + GRACE_MS, Some(3));
+        let forced = HOLD_MS + GRACE_MS;
+        call.observe(forced, Some(3));
+        assert!(!call.outlived_grace(forced));
+        assert!(call.outlived_grace(9_000 + GRACE_MS));
+    }
+
+    #[test]
+    fn no_call_means_nobody_is_blamed() {
+        let mut call = CallWatch::new();
+        watch(&mut call, 0, 20_000, None);
+        assert!(!call.outlived_grace(20_000));
+        assert!(!CallWatch::new().outlived_grace(100_000));
+    }
+
+    #[test]
+    fn a_call_in_the_clean_way_that_hangs_is_blamed_after_the_grace() {
+        // The main loop took the request; core.suspend then hangs in a plugin:
+        // the reset 6 s after the request finds a call that has run 6 s.
+        let mut call = CallWatch::new();
+        let asked = HOLD_MS;
+        watch(&mut call, asked + 100, asked + CLEAN_MS, Some(11));
+        call.observe(asked + CLEAN_MS, Some(11));
+        assert!(call.outlived_grace(asked + CLEAN_MS));
     }
 }

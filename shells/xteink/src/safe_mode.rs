@@ -32,7 +32,7 @@ const ID_LEN: usize = 48;
 const MAGIC: u32 = 0x5050_5346;
 /// The record has the plugin calls in it (another layout, another magic).
 #[cfg(feature = "ppn5")]
-const MAGIC: u32 = 0x5050_5347;
+const MAGIC: u32 = 0x5050_5348;
 
 /// What safe mode keeps through a reset.
 #[derive(Clone, Copy)]
@@ -43,6 +43,11 @@ struct Record {
     failed: u8,
     /// Not 0: this start loads code plugins (counted once).
     counted: u8,
+    /// Not 0: the Power-hold escape reset the processor while a call into
+    /// `inflight`'s plugin had run past the grace (written by the button
+    /// interrupt just before the reset, see [`escape_reset`]).
+    #[cfg(feature = "ppn5")]
+    escaped: u8,
     /// The code plugin loaded last, and the one a panic was in.
     loaded: [u8; ID_LEN],
     crashed: [u8; ID_LEN],
@@ -62,6 +67,8 @@ const EMPTY: Record = Record {
     magic: MAGIC,
     failed: 0,
     counted: 0,
+    #[cfg(feature = "ppn5")]
+    escaped: 0,
     loaded: [0; ID_LEN],
     crashed: [0; ID_LEN],
     #[cfg(feature = "ppn5")]
@@ -108,6 +115,18 @@ fn running(_: &Record) -> Option<String> {
     None
 }
 
+/// Whether the Power-hold escape blamed the call it reset in (and forgets
+/// it, so that it counts for this start only).
+#[cfg(feature = "ppn5")]
+fn take_escape(record: &mut Record) -> bool {
+    core::mem::take(&mut record.escaped) != 0
+}
+
+#[cfg(not(feature = "ppn5"))]
+fn take_escape(_: &mut Record) -> bool {
+    false
+}
+
 fn set(field: &mut [u8; ID_LEN], id: &str) {
     *field = [0; ID_LEN];
     let len = id.len().min(ID_LEN);
@@ -120,6 +139,7 @@ fn set(field: &mut [u8; ID_LEN], id: &str) {
 pub fn check(key_held: bool) -> Option<SafeMode> {
     let mut record = read();
     record.counted = 0;
+    let escaped = take_escape(&mut record);
     // A reset in the middle of a call into a plugin (cutting the power clears
     // this record, so it was not that): that plugin is switched off now, not
     // only after the starts that did not reach the first frame, because a
@@ -128,6 +148,10 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
     let inflight = running(&record);
     let reason = if key_held {
         SafeModeReason::KeyHeld
+    } else if escaped && inflight.is_some() {
+        // The reset was the Power hold's, and a call had run past the grace:
+        // the plugin manager says so, not that the plugin crashed.
+        SafeModeReason::PowerEscape
     } else if record.failed >= FAILED_STARTS || inflight.is_some() {
         SafeModeReason::FailedStarts
     } else {
@@ -206,4 +230,40 @@ fn with_inflight(change: impl FnOnce(&mut Inflight)) {
 fn reset() {
     // SAFETY: as in `read`.
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
+}
+
+/// Names the plugin call that runs now, `None` if no plugin's code runs: for
+/// the escape's watch in the button interrupt (one volatile word, no copy of
+/// the record). The same number twice is the same call.
+#[cfg(feature = "ppn5")]
+pub fn running_call() -> Option<u32> {
+    // SAFETY: as in `read`; the interrupt only loads one word of a record that
+    // the main loop may be changing, through a raw pointer.
+    unsafe {
+        let record = core::ptr::addr_of!(RECORD);
+        if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
+            return None;
+        }
+        Inflight::token_at(core::ptr::addr_of!((*record).inflight))
+    }
+}
+
+/// The escape resets the processor now (from the button interrupt): with
+/// `blame` the call it found past the grace stays recorded and the next start
+/// switches that plugin off and says why ([`SafeModeReason::PowerEscape`]);
+/// without it, no plugin is blamed and the record of calls is cleared.
+#[cfg(feature = "ppn5")]
+pub fn escape_reset(blame: bool) {
+    if blame {
+        // SAFETY: as in `read`: the main loop is not coming back, the reset
+        // follows at once.
+        unsafe {
+            let record = core::ptr::addr_of_mut!(RECORD);
+            if core::ptr::addr_of!((*record).magic).read_volatile() == MAGIC {
+                core::ptr::addr_of_mut!((*record).escaped).write_volatile(1);
+            }
+        }
+    } else {
+        with_inflight(|inflight| *inflight = Inflight::EMPTY);
+    }
 }
