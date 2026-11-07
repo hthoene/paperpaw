@@ -29,14 +29,15 @@ pub(crate) fn order(books: &[Book], seconds: &[u64]) -> Result<Vec<usize>, Error
 }
 
 /// The rows, in `places`' order: title, reading time, and below them the
-/// authors and when it was last read. `offset` is the zone's seconds east
-/// of UTC.
+/// authors and when it was last read; `day_of` turns Unix seconds into a local
+/// day. A book's last open is taken as a `u32` of Unix seconds, as in interface
+/// 6 (a later time wraps).
 pub(crate) fn items(
     words: &mut impl Words,
     books: &[Book],
     seconds: &[u64],
     places: &[usize],
-    offset: i32,
+    day_of: impl Fn(u32) -> i32,
 ) -> Result<Vec<Item>, Error> {
     let mut items = Vec::new();
     items
@@ -48,7 +49,7 @@ pub(crate) fn items(
         };
         let mut note = authors(&book.authors)?;
         if book.last_open > 0 {
-            let day = texts::day_of(book.last_open as u32, offset);
+            let day = day_of(book.last_open as u32);
             let date = texts::date(words, day)?;
             let last = words.format(
                 "stats.last-read",

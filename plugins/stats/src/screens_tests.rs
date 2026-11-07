@@ -55,6 +55,11 @@ impl Words for Catalogued {
     }
 }
 
+/// Days as in UTC.
+fn utc(unix: u32) -> i32 {
+    (unix / 86_400) as i32
+}
+
 fn book(id: u16, title: &str, authors: &str, last_open: i64, pages: u32) -> Book {
     Book {
         id,
@@ -106,11 +111,21 @@ fn durations_read_as_the_catalog_writes_them() {
 fn days_are_local() {
     // 23:30 UTC on 2025-10-14 is the 15th at +01:00.
     let unix = (NOON + 11 * 3_600 + 1_800) as u32;
-    let utc = texts::day_of(unix, 0);
-    assert_eq!(texts::day_of(unix, 3_600), utc + 1);
-    assert_eq!(texts::day_of(unix, -3_600 * 24), utc - 1);
-    assert_eq!(texts::date(&mut words("en"), utc).unwrap(), "10/14/2025");
-    assert_eq!(texts::date(&mut words("de"), utc).unwrap(), "14.10.2025");
+    let east = |u: u32| ((i64::from(u) + 3_600).div_euclid(86_400)) as i32;
+    let day = utc(unix);
+    assert_eq!(east(unix), day + 1);
+    assert_eq!(texts::date(&mut words("en"), day).unwrap(), "10/14/2025");
+    assert_eq!(texts::date(&mut words("de"), day).unwrap(), "14.10.2025");
+    // The books screen shows the day the caller's function names.
+    let (mut books, seconds) = shelf();
+    books[0].last_open = i64::from(unix);
+    let places = [0];
+    let rows = |day_of: &dyn Fn(u32) -> i32| {
+        let items = book_list::items(&mut words("en"), &books, &seconds, &places, day_of);
+        texts_of(&items.unwrap())[0].2.clone()
+    };
+    assert_eq!(rows(&utc), "last read 10/14/2025");
+    assert_eq!(rows(&east), "last read 10/15/2025");
 }
 
 #[test]
@@ -125,7 +140,7 @@ fn the_books_come_last_read_first_and_only_those_read() {
 fn the_books_screen_rows_in_english_and_german() {
     let (books, seconds) = shelf();
     let places = book_list::order(&books, &seconds).unwrap();
-    let en = book_list::items(&mut words("en"), &books, &seconds, &places, 0).unwrap();
+    let en = book_list::items(&mut words("en"), &books, &seconds, &places, utc).unwrap();
     assert_eq!(
         texts_of(&en),
         [
@@ -146,7 +161,7 @@ fn the_books_screen_rows_in_english_and_german() {
             ),
         ]
     );
-    let de = book_list::items(&mut words("de"), &books, &seconds, &places, 0).unwrap();
+    let de = book_list::items(&mut words("de"), &books, &seconds, &places, utc).unwrap();
     let rows = texts_of(&de);
     assert_eq!(rows[0].2, "A, B · zuletzt 14.10.2025");
     assert_eq!(rows[2].1, "1 h 05 min");
@@ -236,7 +251,7 @@ fn the_books_rows_refuse_cleanly() {
     let catalog = RefCell::new(fixture(|| words("en")));
     sweep(&|| {
         let mut w = QuietWords(&catalog);
-        book_list::items(&mut w, &books, &seconds, &places, 0).map(|i| i.len())
+        book_list::items(&mut w, &books, &seconds, &places, utc).map(|i| i.len())
     });
 }
 

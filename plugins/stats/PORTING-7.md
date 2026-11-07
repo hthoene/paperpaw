@@ -49,9 +49,17 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Host-free: rows are made over `Words` (catalog texts, fallible; `HostWords` is the host's
   `Messages`) and shown by the shell in an `ItemList` (kit). Tests in `screens_tests.rs`
   cover both languages, local days, ordering and refusals of the heap.
-- The time zone is a parameter (`offset` seconds east of UTC); reading the zone the user
-  chose (`core.time-zone`, `core.time-zone-rule`) is the shell's and not built yet. The
-  system zone is not in the snapshot (draft 25 adds `utc_offset_minutes`, per Port A).
+- Local days come from a `day_of: impl Fn(u32) -> i32` the caller gives (as `store::days`
+  takes it), so summer time and the zone plug in. Reading the zone the user chose
+  (`core.time-zone`, `core.time-zone-rule`) is the shell's and not built yet. The system
+  zone is not in the snapshot (draft 25 adds `utc_offset_minutes`, per Port A).
+- A book's last open (Unix seconds, `i64`) is cut to a `u32` for its day, as in interface 6;
+  a time past 2106 wraps.
+- **For the shell:** the host's `Messages::format` with `Arg::Count` must choose the same
+  plural form as the catalog's `plural()` (the tests use `plural()`): check it with the host
+  catalog in both languages before activation.
+- Later, with the shell: an `inert` flag on `RowItem` (not selectable, normal ink) for the
+  book screen's rows, with Port C; not `disabled`.
 - Differences from interface 6: the rows of the book screen can take focus (an `ItemList`
   has no unselectable value rows); the books are ordered by last open, then id (the
   interface-6 sort was stable over the same order).

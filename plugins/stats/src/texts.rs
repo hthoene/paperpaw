@@ -2,8 +2,9 @@
 //! them. Over [`Words`], so the screens' rows are made and tested without a
 //! host; the host's catalog is behind [`HostWords`].
 //!
-//! Local days: the time zone's offset in seconds is given; reading the zone
-//! the user chose is the shell's (see PORTING-7.md).
+//! Local days: the caller gives a `day_of` (Unix seconds to a local day, as
+//! `store::days` takes it), so summer time and the zone the user chose plug in
+//! with the shell (see PORTING-7.md).
 
 use alloc::string::String;
 
@@ -52,12 +53,6 @@ impl Words for HostWords<'_, '_> {
     fn digits(&mut self, text: &str) -> Result<String, Error> {
         self.messages.digits(self.host, text)
     }
-}
-
-/// The local day (days since 1970) of a moment in Unix seconds, `offset`
-/// seconds east of UTC.
-pub(crate) fn day_of(unix: u32, offset: i32) -> i32 {
-    (i64::from(unix) + i64::from(offset)).div_euclid(DAY) as i32
 }
 
 /// The date of a local day.
