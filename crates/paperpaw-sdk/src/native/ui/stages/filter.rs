@@ -29,7 +29,10 @@ impl<'a> FilterCall<'a> {
             return Err(Error::State);
         };
         let input = Input::decode(row.input)?;
-        if matches!(input, Input::Action { .. }) {
+        if !matches!(
+            input,
+            Input::Key { .. } | Input::Pointer { .. } | Input::Gesture { .. }
+        ) {
             return Err(Error::Invalid);
         }
         Ok(Self { input })

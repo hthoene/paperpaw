@@ -1195,3 +1195,6 @@ fn extra_record<'a>(e: &ExtraDecl<'a>) -> SettingExtra<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod uix_tests;

@@ -17,10 +17,8 @@ impl Ui {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<HandoverId, Error> {
-        params::validate(values)?;
-        let op = super::super::wire::services_wire::service_schema(schema::KEY, schema::MAJOR)
-            .and_then(|schema| schema.op(schema::OP_HANDOVER))
-            .ok_or(Error::Unsupported)?;
+        let op = self.operation(schema::OP_HANDOVER)?;
+        params::validate(values, op.input_rows)?;
         let count = {
             let mut records = Vec::new();
             records

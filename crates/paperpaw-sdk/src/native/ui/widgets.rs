@@ -123,8 +123,6 @@ impl Ui {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<WidgetHandle, Error> {
-        super::navigation::full_id(widget)?;
-        super::navigation::full_id(place)?;
         let count = self.call(
             host,
             schema::OP_WIDGET_MAKE,

@@ -266,4 +266,5 @@ fn set_stream(state: &State, records: &[wire::Record<'_>]) {
     state.reply.replace(bytes);
 }
 mod params;
+mod stages;
 mod widgets;

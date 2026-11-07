@@ -487,3 +487,7 @@ mod core_tests;
 
 mod uix_events;
 pub use uix_events::{AnswerOutcome, Answered, SpeechStatus};
+
+#[cfg(test)]
+#[path = "events/uix_tests.rs"]
+mod uix_tests;

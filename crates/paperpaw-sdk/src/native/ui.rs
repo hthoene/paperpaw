@@ -99,8 +99,12 @@ impl Ui {
         if row.flags & !0xf7 != 0
             || row.flags >> 4 & 15 > 4
             || kind != QuestionKind::Text && row.flags != 0
-            || row.max_bytes == 0
         {
+            return Err(Error::Invalid);
+        }
+        if kind == QuestionKind::Choice {
+            Question::choice(row.title, row.text, row.choices)?;
+        } else if !row.choices.is_empty() {
             return Err(Error::Invalid);
         }
         Ok(QuestionInfo {
@@ -173,7 +177,7 @@ impl Ui {
             out,
         )?;
         if length != 0 {
-            return Err(Error::Invalid);
+            return Err(Error::State);
         }
         Ok(())
     }
@@ -213,7 +217,7 @@ impl Ui {
             out,
         )?;
         let wire::Record::ServiceUiText(row) = one(&out[..count])? else {
-            return Err(Error::Invalid);
+            return Err(Error::State);
         };
         let end = row
             .offset
@@ -258,14 +262,12 @@ impl Ui {
             out,
         )?;
         if length != 0 {
-            return Err(Error::Invalid);
+            return Err(Error::State);
         }
         Ok(())
     }
-    fn operation(&self, op: u32) -> Result<&'static super::wire::services_wire::ServiceOp, Error> {
-        super::wire::services_wire::service_schema(schema::KEY, schema::MAJOR)
-            .and_then(|schema| schema.op(op))
-            .ok_or(Error::Unsupported)
+    fn operation(&self, op: u32) -> Result<&super::wire::services_wire::ServiceOp, Error> {
+        self.service.operation(op).ok_or(Error::Unsupported)
     }
     fn call(
         &self,
@@ -275,7 +277,8 @@ impl Ui {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        let count = wire::records_encode(records, input).map_err(Error::from_status)?;
+        let count = super::wire::service_input_encode(self.operation(op)?, records, input)
+            .map_err(Error::from_status)?;
         self.service.call(host, op, &input[..count], out)
     }
 }

@@ -67,30 +67,30 @@ impl<'a> Param<'a> {
     }
 }
 
-pub(super) fn validate(params: &[Param<'_>]) -> Result<(), Error> {
-    if params.iter().any(|param| param.key.starts_with("core.")) {
-        return Err(Error::Invalid);
+pub(super) fn validate(params: &[Param<'_>], max_rows: usize) -> Result<(), Error> {
+    if params.len() > max_rows {
+        return Err(Error::NoSpace);
+    }
+    for (index, param) in params.iter().enumerate() {
+        if param.key.starts_with("core.")
+            || params[..index]
+                .iter()
+                .any(|earlier| earlier.key == param.key)
+        {
+            return Err(Error::Invalid);
+        }
     }
     validate_content(params)
 }
 pub(super) fn validate_content(params: &[Param<'_>]) -> Result<(), Error> {
-    if params.len() > 32 {
-        return Err(Error::NoSpace);
-    }
     let mut bytes = 0usize;
-    for (index, param) in params.iter().enumerate() {
+    for param in params {
         bytes = bytes
             .checked_add(param.key.len())
             .and_then(|n| n.checked_add(param.value.len()))
             .ok_or(Error::NoSpace)?;
         if bytes > 1024 {
             return Err(Error::NoSpace);
-        }
-        if params[..index]
-            .iter()
-            .any(|earlier| earlier.key == param.key)
-        {
-            return Err(Error::Invalid);
         }
     }
     Ok(())

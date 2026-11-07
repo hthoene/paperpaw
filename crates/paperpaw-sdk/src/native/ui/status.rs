@@ -116,6 +116,9 @@ impl Ui {
         let mut rows = 0;
         for row in page.clone() {
             let row = row?;
+            if rows == seen.len() {
+                return Err(Error::Invalid);
+            }
             if !items.split('\n').any(|item| item == row.item) || seen[..rows].contains(&row.item) {
                 return Err(Error::State);
             }

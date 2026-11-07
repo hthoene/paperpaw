@@ -4,7 +4,7 @@ use super::{Error, wire};
 macro_rules! identifier {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(core::num::NonZeroU32);
         impl $name {
             /// Validate a nonzero identifier received from the host.
@@ -36,7 +36,7 @@ identifier!(
     "A handover assigned by the host, also its text identifier."
 );
 /// A request or handover text obtained from a decoded host identifier.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextId(core::num::NonZeroU32);
 impl TextId {
     /// The host-issued identifier.
