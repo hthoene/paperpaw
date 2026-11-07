@@ -56,3 +56,22 @@ fn screen_identity_matches_existing_registration() {
         actual.iter().map(Vec::len).sum::<usize>()
     );
 }
+
+#[path = "../../test-support/native_navigation.rs"]
+mod navigation;
+
+#[test]
+fn actions_menus_and_icons_match_existing_registration() {
+    let mut registrar = Registrar::new(Id::new_static("keys"));
+    paperpaw_plugin_keys::Keys.register(&mut registrar).unwrap();
+    let expected = navigation::encode("keys", registrar.into_contributions());
+    let mut actual = Vec::new();
+    {
+        let mut d = Declarations::new(|bytes: &[u8]| {
+            actual.push(bytes.to_vec());
+            Ok(())
+        });
+        declarations::navigation(&mut d).unwrap();
+    }
+    assert_eq!(actual, expected);
+}
