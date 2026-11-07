@@ -1,4 +1,4 @@
-//! Borrowed interface-7 events: tick (tag 3) and event payloads (tags 32-39).
+//! Borrowed interface-7 host events, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{
@@ -6,31 +6,113 @@ use super::{
     declare::records_wire::{self as wire, Record},
 };
 
-/// A page location borrowed from the event bytes. Counters are absent until
+mod core_events;
+mod states;
+pub use states::{BookKind, ChargeFlags, PowerChange, WifiLinkState};
+
+/// A reading position borrowed from a page turn or book-session event.
+///
+/// The view cannot outlive the callback bytes:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::events::{Event, ReadingView};
+/// fn escape(bytes: &[u8]) -> Option<ReadingView<'static>> {
+///     match Event::decode(bytes).ok()? {
+///         Event::Book { reading, .. } => Some(reading),
+///         _ => None,
+///     }
+/// }
+/// ```
+///
+/// Counters are absent until
 /// counted; a present counter is 1-based. Progress is in millionths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PageTurn<'a> {
+pub struct ReadingView<'a> {
     /// Emission time on the snapshot's monotonic millisecond clock.
-    pub now_ms: u64,
+    now_ms: u64,
     /// Start section.
-    pub section: u32,
+    section: u32,
     /// Offset within the section.
-    pub offset: u32,
+    offset: u32,
     /// Insert ordinal at this text position; zero is source text.
-    pub insert: u32,
+    insert: u32,
     /// Progress from 0 to 1,000,000.
-    pub progress_ppm: u32,
+    progress_ppm: u32,
     /// Book path.
-    pub path: &'a str,
+    path: &'a str,
     /// Book title.
-    pub title: &'a str,
+    title: &'a str,
     /// Chapter title, empty when unknown.
-    pub chapter: &'a str,
+    chapter: &'a str,
     /// Page number, if counted.
-    pub page: Option<u32>,
+    page: Option<u32>,
     /// Page count, if counted.
-    pub pages: Option<u32>,
+    pages: Option<u32>,
+}
+
+impl<'a> ReadingView<'a> {
+    /// Emission time in monotonic milliseconds.
+    #[must_use]
+    pub fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// Start section.
+    #[must_use]
+    pub fn section(&self) -> u32 {
+        self.section
+    }
+    /// Offset within the section.
+    #[must_use]
+    pub fn offset(&self) -> u32 {
+        self.offset
+    }
+    /// Insert ordinal; zero is source text.
+    #[must_use]
+    pub fn insert(&self) -> u32 {
+        self.insert
+    }
+    /// Reading progress in millionths.
+    #[must_use]
+    pub fn progress_ppm(&self) -> u32 {
+        self.progress_ppm
+    }
+    /// Complete root-1 book path.
+    #[must_use]
+    pub fn path(&self) -> &'a str {
+        self.path
+    }
+    /// Book title.
+    #[must_use]
+    pub fn title(&self) -> &'a str {
+        self.title
+    }
+    /// Chapter title, empty when unknown.
+    #[must_use]
+    pub fn chapter(&self) -> &'a str {
+        self.chapter
+    }
+    /// One-based page number, if counted.
+    #[must_use]
+    pub fn page(&self) -> Option<u32> {
+        self.page
+    }
+    /// Page count, if counted.
+    #[must_use]
+    pub fn pages(&self) -> Option<u32> {
+        self.pages
+    }
+    fn validate(self) -> Result<Self, Error> {
+        if self.progress_ppm > 1_000_000
+            || self.page == Some(0)
+            || self.pages == Some(0)
+            || matches!((self.page, self.pages), (Some(p), Some(n)) if p > n)
+        {
+            Err(Error::Invalid)
+        } else {
+            Ok(self)
+        }
+    }
 }
 
 /// One event, borrowing its callback's bytes. The scalar variants carry the
@@ -51,7 +133,7 @@ pub enum Event<'a> {
     /// A fresh battery measurement is available through the snapshot.
     BatteryMeasured { now_ms: u64 },
     /// The displayed page changed.
-    PageTurned(PageTurn<'a>),
+    PageTurned(ReadingView<'a>),
     /// A screen became visible or its pane changed size.
     ScreenShown {
         now_ms: u64,
@@ -61,6 +143,37 @@ pub enum Event<'a> {
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
+    /// A setting changed. An empty key asks the plugin to reread retained settings.
+    /// Empty old bytes mean no previous readable value; the new value is read from the host.
+    SettingChanged {
+        now_ms: u64,
+        key: &'a str,
+        old: Option<super::settings::SettingValue<'a>>,
+    },
+    /// A book session edge with the host-stamped reading position.
+    Book {
+        kind: BookKind,
+        reason: u32,
+        reading: ReadingView<'a>,
+    },
+    /// A root-1 book moved; paths are complete and never truncated.
+    BookMoved {
+        now_ms: u64,
+        from: &'a str,
+        path: &'a str,
+    },
+    /// A root-1 book was removed.
+    BookRemoved { now_ms: u64, path: &'a str },
+    /// Installed plugin state changed; read inventory through its owning service.
+    PluginsChanged { now_ms: u64 },
+    /// The radio connection state changed.
+    WifiChanged { now_ms: u64, state: WifiLinkState },
+    /// The interface-6 power mode or level changed.
+    PowerChanged(PowerChange<'a>),
+    /// Status items changed; read them through the owning stage.
+    StatusChanged { now_ms: u64 },
+    /// Charging, external power or low-battery state changed.
+    ChargeChanged { now_ms: u64, flags: ChargeFlags },
 }
 
 impl<'a> Event<'a> {
@@ -105,15 +218,8 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
         Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
         Record::EventStopping(r) => Event::Stopping { now_ms: r.now_ms },
         Record::EventBatteryMeasured(r) => Event::BatteryMeasured { now_ms: r.now_ms },
-        Record::EventPageTurned(r) => {
-            if r.progress_ppm > 1_000_000
-                || r.page == Some(0)
-                || r.pages == Some(0)
-                || matches!((r.page, r.pages), (Some(p), Some(n)) if p > n)
-            {
-                return Err(Error::Invalid);
-            }
-            Event::PageTurned(PageTurn {
+        Record::EventPageTurned(r) => Event::PageTurned(
+            ReadingView {
                 now_ms: r.now_ms,
                 section: r.section,
                 offset: r.offset,
@@ -124,8 +230,9 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
                 chapter: r.chapter,
                 page: r.page,
                 pages: r.pages,
-            })
-        }
+            }
+            .validate()?,
+        ),
         Record::EventScreenShown(r) => Event::ScreenShown {
             now_ms: r.now_ms,
             screen: r.screen,
@@ -136,10 +243,14 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
             now_ms: r.now_ms,
             action: r.action,
         },
-        _ => return Err(Error::Unsupported),
+        other => core_events::decode(other)?,
     })
 }
 
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "events/core_events_tests.rs"]
+mod core_tests;
