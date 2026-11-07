@@ -316,6 +316,49 @@ fn leased(asked: u32, free: u32, log: &Log) -> Kernel {
 }
 
 #[test]
+fn exhausted_keys_keep_slot_screen_for_new_screen_or_new_params() {
+    let log = log();
+    let mut kernel = kernel(
+        Kernel::builder(DEVICE).plugin(TestPlugin::new("b", &log)),
+        ScreenMode::new(),
+        &log,
+    );
+    let before: Vec<u32> = kernel.stack.iter().map(|screen| screen.serial).collect();
+    let other = if kernel.stack[0].id.as_str() == "b.screen" {
+        "game.page"
+    } else {
+        "b.screen"
+    };
+    kernel.next_serial = u32::MAX;
+    kernel.take_warnings();
+    for (screen, params) in [
+        (Some(Id::new_static(other)), Params::new()),
+        (None, Params::new().with("book", "new")),
+    ] {
+        kernel.open_slot_command(slots::HOME, screen, params);
+        assert_eq!(
+            kernel
+                .stack
+                .iter()
+                .map(|screen| screen.serial)
+                .collect::<Vec<_>>(),
+            before
+        );
+        assert_eq!(kernel.next_serial, u32::MAX);
+        assert!(
+            log.borrow().is_empty(),
+            "no close callbacks on refused slot replacement"
+        );
+    }
+    assert_eq!(kernel.take_warnings().len(), 2);
+    // Returning to the existing slot needs no fresh key and remains allowed.
+    kernel.open_slot_command(slots::HOME, None, Params::new());
+    assert_eq!(kernel.stack.len(), 1);
+    assert_eq!(kernel.stack[0].serial, before[0]);
+    assert_eq!(kernel.next_serial, u32::MAX);
+}
+
+#[test]
 fn key_exhaustion_preserves_replace_and_saved_task_state() {
     let log = log();
     let mut kernel = kernel(
