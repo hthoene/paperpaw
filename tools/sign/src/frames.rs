@@ -731,6 +731,11 @@ pub struct Walked {
 /// (a loop that moves `sp` never settles).
 const VISITS: u8 = 64;
 
+/// Most instructions of an outlined sequence the scan reads before it gives up
+/// (the compiler outlines parts of a large `match` decode into sequences of
+/// about eighty; the end must still be a plain `jr t0`).
+const OUTLINED_MAX: usize = 256;
+
 /// The walk of one function.
 struct Walk<'c> {
     code: &'c [u8],
@@ -838,7 +843,7 @@ impl Walk<'_> {
     /// includes). Read from its code, straight to its `jr t0`. `None` for the
     /// move of `sp`, and all the registers (but zero), if it is not
     /// straight-line code in this section, ends otherwise, moves `sp` by more
-    /// than the scan can follow, or is longer than 64 instructions.
+    /// than the scan can follow, or is longer than [`OUTLINED_MAX`] instructions.
     fn outlined_effect(&self, target: u32) -> (u32, Option<i64>) {
         const ALL: (u32, Option<i64>) = (!1, None);
         let Some(mut at) = target
@@ -849,7 +854,7 @@ impl Walk<'_> {
         };
         let mut st = State::entry();
         let done = |st: &State| (st.written.0 & !(1 | 1 << 2), Some(st.sp));
-        for _ in 0..64 {
+        for _ in 0..OUTLINED_MAX {
             let Some(h) = self.code.get(at..at + 2) else {
                 return ALL;
             };
