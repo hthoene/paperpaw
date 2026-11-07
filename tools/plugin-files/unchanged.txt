@@ -21,3 +21,4 @@ a94233faf735d163900faed459cf73decda595e0 literata-large, literata-bold-italic  #
 2ba37332 literata-large, literata-bold-italic  # fonts: Your own fonts, and paperpaw-fontgen --family (#59)
 2796ca5e literata-large, literata-bold-italic  # fontgen: rustfmt
 fc160311 literata-large, literata-bold-italic  # script-korean-extra: fontgen's test and the Hangul set files only
+36a2cc0a0 language-ar, language-es  # sign: heap word only in pack5 (format 5) and show5 output; language packs are built by `paperpaw-sign catalog` (format 4), untouched

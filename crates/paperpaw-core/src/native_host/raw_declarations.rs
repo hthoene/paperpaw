@@ -273,7 +273,7 @@ impl RawDeclarations {
         name_hash(kind, name)
     }
     pub(crate) fn sort_index(&mut self) {
-        self.index.sort_unstable_by_key(|entry| entry.order());
+        super::declaration_index::sort_by_key(&mut self.index, |entry| entry.order());
         self.sorted = true;
     }
     pub(crate) fn record<'a>(
