@@ -25,7 +25,8 @@ from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 from abi_color import validate_color, compatible_color, rust_color
 from abi_commands import validate_commands, compatible_commands, rust_commands
 from abi_i18n import validate_i18n, compatible_i18n, rust_i18n
-from abi_stages import compatible_stages, load_stages, rust_stages, stages_digest, validate_stages
+from abi_stages import (compatible_stages, expand_mirrors, load_stages, rust_stages,
+                        stages_digest, validate_stages)
 from abi_services import compatible_services, load_services, rust_services, validate_services
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
@@ -469,7 +470,9 @@ def with_services(schema, folder):
 def with_stages(schema, folder):
     """`abi.def` plus the independently versioned stage-local schemas."""
     stages = load_stages(folder)
-    return dict(schema, stages=stages) if stages and type(schema) is dict else schema
+    if not stages or type(schema) is not dict:
+        return schema
+    return dict(schema, stages=expand_mirrors(stages, schema.get('records', [])))
 
 
 def run(argv=None):

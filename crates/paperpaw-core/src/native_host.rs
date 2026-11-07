@@ -19,6 +19,9 @@ pub(crate) mod font_removals;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/ui_compose.rs"]
+pub(crate) mod ui_compose;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,

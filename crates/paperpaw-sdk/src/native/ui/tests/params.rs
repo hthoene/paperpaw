@@ -59,6 +59,7 @@ fn thirty_two_params_and_exact_content_cap_round_trip_without_registration_limit
         total: 32,
         generation: 0,
         next: 0,
+        cursor: None,
     }));
     set_stream(&state, &rows);
     let params = ui
