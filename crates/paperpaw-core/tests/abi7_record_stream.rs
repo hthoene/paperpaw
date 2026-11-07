@@ -32,6 +32,7 @@ const END: Record<'static> = Record::ServiceEnd(ServiceEnd {
     total: 3,
     generation: 7,
     next: 3,
+    cursor: None,
 });
 
 /// A table page: three rows (one with a 64-byte id) and the end record.
