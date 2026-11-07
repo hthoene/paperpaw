@@ -364,6 +364,17 @@ fn cj_offset(w: u32) -> i32 {
         >> 20
 }
 
+/// The offset of `c.beqz` and `c.bnez`: imm[8|4:3|7:6|2:1|5].
+fn cb_offset(w: u32) -> i32 {
+    (((w >> 12 & 1) << 8
+        | (w >> 10 & 3) << 3
+        | (w >> 5 & 3) << 6
+        | (w >> 3 & 3) << 1
+        | (w >> 2 & 1) << 5) as i32)
+        << 23
+        >> 23
+}
+
 /// A 16-bit (compressed) instruction.
 fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let w = u32::from(w);
@@ -423,19 +434,9 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         // c.j
         (1, 5) => effect.ctl = Ctl::Jump(i64::from(cj_offset(w))),
         // c.beqz, c.bnez: imm[8|4:3|7:6|2:1|5]
-        (1, 6 | 7) => {
-            let offset = (((w >> 12 & 1) << 8
-                | (w >> 10 & 3) << 3
-                | (w >> 5 & 3) << 6
-                | (w >> 3 & 3) << 1
-                | (w >> 2 & 1) << 5) as i32)
-                << 23
-                >> 23;
-            effect.ctl = Ctl::Branch(i64::from(offset));
-        }
-        // c.slli, c.lwsp
+        (1, 6 | 7) => effect.ctl = Ctl::Branch(i64::from(cb_offset(w))),
+        // c.slli (32 or more is reserved), c.lwsp
         (2, 0 | 2) if rd == 2 => effect.unbounded = true,
-        // c.slli (a shift of 32 or more is reserved: nothing is known then)
         (2, 0) if w >> 12 & 1 == 0 => state.shift_left(rd, rd, w >> 2 & 31),
         (2, 0 | 2) => state.set(rd, None),
         (2, 4) => {
