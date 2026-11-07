@@ -19,6 +19,16 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7, family 4 DOC and LIB (`docs/abi/document.md`, `docs/abi/library.md`): the
+  `core.document` service (21 ops: open with book options, metadata, sections, lossless block
+  fragments, table of contents, XPointers, links, fonts, cover and images by a stable picture
+  index, formats and readers), format, reader and lookup declarations with the `core.lookup`
+  service, and the `core.library` service behind the new feature `uses.library` (26 ops:
+  catalog pages, books, texts, facets, covers, status, journalled delete, move and import,
+  positions, annotations with staged transactions and paged receipts, fields, provided
+  metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
+  the image commands 1559-1560. Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft
+  16 (`native::DRAFT`) (#228).
 - Interface 7, family 2 UIX (`docs/abi/ui.md`): screen instances with lossless hand-overs
   (`core.ui` ops 16-17), navigation commands 1547-1552 and `screen_policy` 1563, plugin
   inputs (`input.spec` 29), questions and answers with paged host texts (ops 8-11, event 82),

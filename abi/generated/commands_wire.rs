@@ -146,6 +146,12 @@ pub const COMMAND_SPEAK_LANGUAGE_MAX_BYTES: usize = 35;
 pub const COMMAND_STOP_SPEAKING_TAG: u32 = 1562;
 /// Wire tag of the `command.screen_policy` command.
 pub const COMMAND_SCREEN_POLICY_TAG: u32 = 1563;
+/// Wire tag of the `command.image_prepare` command.
+pub const COMMAND_IMAGE_PREPARE_TAG: u32 = 1559;
+/// Maximum bytes of `command.image_prepare.path`.
+pub const COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES: usize = 512;
+/// Wire tag of the `command.image_release` command.
+pub const COMMAND_IMAGE_RELEASE_TAG: u32 = 1560;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -341,6 +347,24 @@ pub enum Command<'a> {
         instance: u32,
         /// Little-endian u32.
         flags: u32,
+    },
+    /// The `command.image_prepare` command (`docs/abi/registry.md`).
+    ImagePrepare {
+        /// Little-endian u32.
+        root: u32,
+        /// UTF-8 text of at most 512 bytes.
+        path: &'a str,
+        /// Little-endian u32.
+        side: u32,
+        /// Little-endian u32.
+        cookie: u32,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.image_release` command (`docs/abi/registry.md`).
+    ImageRelease {
+        /// Little-endian u32.
+        image: u32,
     },
 }
 
@@ -783,6 +807,22 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     flags: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_IMAGE_PREPARE_TAG => {
+                body.bitmap()?;
+                Command::ImagePrepare {
+                    root: u32::from_le_bytes(scalar(body.take(4)?)),
+                    path: text(body.bytes()?, COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES)?,
+                    side: u32::from_le_bytes(scalar(body.take(4)?)),
+                    cookie: u32::from_le_bytes(scalar(body.take(4)?)),
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_IMAGE_RELEASE_TAG => {
+                body.bitmap()?;
+                Command::ImageRelease {
+                    image: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -984,6 +1024,12 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::StopSpeaking {} => Ok((COMMAND_STOP_SPEAKING_TAG, 1)),
         Command::ScreenPolicy { .. } => Ok((COMMAND_SCREEN_POLICY_TAG, 1 + 8)),
+        Command::ImagePrepare { path, .. } => {
+            let mut len = 1 + 16;
+            len += blob_len(path.len(), COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES)?;
+            Ok((COMMAND_IMAGE_PREPARE_TAG, len))
+        }
+        Command::ImageRelease { .. } => Ok((COMMAND_IMAGE_RELEASE_TAG, 1 + 4)),
     }
 }
 
@@ -1168,6 +1214,27 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::ImagePrepare {
+                    root,
+                    path,
+                    side,
+                    cookie,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
+                    offset += 4;
+                    write_blob(path.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&side.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&cookie.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::ImageRelease { image } => {
+                    out[offset..offset + 4].copy_from_slice(&image.to_le_bytes());
                     offset += 4;
                 }
                 Command::SetSetting { .. } => {}

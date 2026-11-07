@@ -33,6 +33,9 @@ TAG_RANGES = {
     # beside the `input` family of host-sent inputs.
     'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
     'status': DECLARATIVE,
+    # DOC and LIB declarations (docs/abi/document.md section 1 and 7, library.md section 1).
+    'reader': DECLARATIVE, 'lookup': DECLARATIVE, 'book_field': DECLARATIVE,
+    'book_badge': DECLARATIVE, 'book_data': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),

@@ -106,6 +106,52 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 | 25 | `book_key` | `lib_ref` | `lib_key` | query (section 6) |
 | 26 | `edit_receipt` | `lib_receipt_ask` | `lib_receipt`*, `end` | query: a committed transaction's ids, paged |
 
+Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 1094 | `service.lib_state` | `state: u32`, `books: u32`, `generation: u32`, `walk_ppm: u32` |
+| 1095 | `service.lib_query` | `show: u32`, `sort: u32`, `flags: u32`, `words: str 256`, `author: str 256`, `series: str 256`, `tag: str 128`, `folder: str 512`, `added_since: u32`, `cursor: u32`, `generation: u32`, `facet: u32` |
+| 1096 | `service.lib_entry` | `key: u32`, `title: str 128`, `author: str 96`, `series: str 64`, `number: str 16`, `progress: u32`, `flags: u32`, `added: u32`, `badges: str 64 (list: `\n`, 2 × 64)` |
+| 1097 | `service.lib_ref` | `path: str 512`, `generation: u32`, `key: u32 (optional)` |
+| 1098 | `service.lib_book` | `key: u32`, `generation: u32`, `path: str 512`, `title: str 512`, `author: str 512`, `series: str 256`, `number: str 32`, `progress: u32`, `flags: u32`, `added: u32`, `size: u64`, `format: str 128`, `tags: u32`, `fields: u32`, `title_bytes: u32`, `author_bytes: u32`, `series_bytes: u32` |
+| 1099 | `service.lib_text_at` | `kind: u32`, `index: u32`, `offset: u32` |
+| 1100 | `service.lib_text` | `kind: u32`, `index: u32`, `total: u32`, `text: str 1024` |
+| 1101 | `service.lib_facet` | `text: str 256`, `count: u32`, `first: u32` |
+| 1102 | `service.lib_cover` | `side: u32` |
+| 1103 | `service.lib_status` | `set: u32`, `clear: u32` |
+| 1104 | `service.lib_paths` | `paths: str 3590 (list: `\n`, 7 × 512)`, `flags: u32` |
+| 1105 | `service.lib_result` | `path: str 512`, `status: i32`, `flags: u32` |
+| 1106 | `service.lib_move` | `from: str 512`, `to: str 512`, `flags: u32` |
+| 1107 | `service.lib_import` | `from: str 512`, `folder: str 512`, `name: str 255`, `flags: u32` |
+| 1108 | `service.lib_position` | `section: u32`, `offset: u32`, `insert: u32`, `progress_ppm: u32`, `conversion: u64`, `updated: u64`, `xpointer: str 1024`, `flags: u32` |
+| 1109 | `service.lib_position_set` | `flags: u32` |
+| 1110 | `service.lib_page` | `cursor: u32`, `annotation_generation: u32` |
+| 1111 | `service.lib_annotation` | `id: u32`, `kind: u32`, `start_section: u32`, `start_offset: u32`, `end_section: u32`, `end_offset: u32`, `flags: u32`, `percent: u32`, `conversion: u64`, `created: u64`, `updated: u64`, `client_key: str 64`, `text: str 512`, `note: str 512` |
+| 1112 | `service.lib_anchor` | `id: u32`, `flags: u32`, `conversion: u64`, `start: str 1024`, `end: str 1024` |
+| 1113 | `service.lib_edit_head` | `annotation_generation: u32` |
+| 1114 | `service.lib_transaction` | `transaction: u32` |
+| 1115 | `service.lib_transaction_ref` | `transaction: u32` |
+| 1116 | `service.lib_edit` | `action: u32`, `id: u32`, `kind: u32`, `start_section: u32`, `start_offset: u32`, `end_section: u32`, `end_offset: u32`, `flags: u32`, `percent: u32`, `conversion: u64`, `created: u64`, `updated: u64`, `client_key: str 64`, `text: str 512`, `note: str 512`, `text_bytes: u32`, `note_bytes: u32` |
+| 1117 | `service.lib_edit_text` | `transaction: u32`, `edit: u32`, `field: u32`, `offset: u32`, `flags: u32`, `data: str 3072` |
+| 1118 | `service.lib_committed` | `transaction: u32`, `annotation_generation: u32`, `edits: u32`, `added: u32` |
+| 1119 | `service.lib_field` | `id: str 128`, `title: str 128`, `value: str 1024` |
+| 1120 | `service.lib_field_set` | `field: str 96`, `value: str 1024` |
+| 1121 | `service.lib_provided` | `title: str 512`, `author: str 512`, `series: str 256`, `number: str 32`, `tags: str 2048 (list: `\n`, 32 × 128)`, `flags: u32` |
+| 1122 | `service.lib_key` | `key: str 16`, `fingerprint: str 32`, `size: u64` |
+| 1123 | `service.lib_receipt_ask` | `transaction: u32`, `cursor: u32` |
+| 1124 | `service.lib_receipt` | `edit: u32`, `id: u32`, `action: u32` |
+
+- [D] **Wire shapes** (records round): an op that names a book takes `lib_ref` as its **first
+  record**, followed by the op's own record (ops 4, 7, 8, 14-17, 23, 24; ops 3, 6, 13, 22, 25 take
+  `lib_ref` alone), so no record repeats the reference. `lib_ref.key` is optional: present names
+  the book by catalog handle (with `path` empty), absent by `path`; both or neither `ERR_INVALID`.
+  `set_position` takes `lib_ref`, `lib_position` (the position, its own `flags`) and
+  `lib_position_set` (`flags` bit 0 `sync`, bit 1 `confirmed`). Times (`updated`, `created`) are
+  `u64` seconds since 1970, 0 unknown (the wire has no `i64`; no stored time precedes 1970).
+  `lib_edit.text_bytes` and `note_bytes` give the whole length of a text or note sent in
+  `edit_text` parts (0 when inline), so a commit checks that every part arrived. `lib_paths.paths`
+  holds the paths one per line (at most 7). `lib_import.name` is at most 255 bytes.
 - [D] `lib_ref` names a book by `path` (root 1, at most 512 bytes) or by `key`: exactly one of them,
   else `ERR_INVALID`; an unknown book `ERR_NOT_FOUND`. `key` here is the **catalog handle**
   (`lib_entry.key`, a `u32`, interface 6's catalog offset that "fits 32 bits") with the catalog
@@ -154,7 +200,7 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   reader's session event, not this).
 - [D] **Positions** (interface 6 `Position`): `lib_position` (`section`, `offset`, `insert`,
   `progress_ppm`, `conversion: u64` with `flags` bit 1 `has_conversion` (interface 6
-  `Option<u64>`: absent and 0 differ), `updated: i64` seconds since 1970, 0 for an unknown clock,
+  `Option<u64>`: absent and 0 differ), `updated: u64` seconds since 1970, 0 for an unknown clock,
   `xpointer: str 1024` with `flags` bit 0 `has_xpointer`, `flags` bit 2 `from_sync`).
   `set_position` (`lib_position_set`: `lib_ref`, the position, `flags` bit 0 `sync`, bit 1
   `confirmed`) writes atomically and answers `lib_result.status`:
@@ -170,7 +216,7 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   `cursor`, `annotation_generation`) rows `lib_annotation` (`id`, `kind` 0 bookmark, 1 highlight,
   2+n other(n), `start_section`, `start_offset`, `end_section`, `end_offset`, `flags` bit 0 noted, 1
   text cut, 2 note cut, 3 has a conversion, 4 has XPointers, `conversion: u64`, `percent`, `created:
-  i64`, `updated: i64`, `client_key: str 64`, `text: str 512`, `note: str 512`), in reading order;
+  u64`, `updated: u64`, `client_key: str 64`, `text: str 512`, `note: str 512`), in reading order;
   `end.generation` is the book's annotation generation. A cut text or note is read whole with op 4
   (kinds 5, 6, `index` the id).
 - [D] **Anchors** (interface 6 `annotations.rs:134` conversion and start/end XPointers, needed by

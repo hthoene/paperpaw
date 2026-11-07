@@ -46,7 +46,8 @@ class ServiceTests(unittest.TestCase):
 
     def test_the_repository_schemas_load_and_emit(self):
         self.assertEqual([s['key'] for s in self.schema['services']],
-                         ['core.registry', 'core.test-echo', 'core.ui'])
+                         ['core.document', 'core.library', 'core.lookup', 'core.registry',
+                          'core.test-echo', 'core.ui'])
         source = rust_services(self.schema)
         for line in ['pub mod core_test_echo_v1 {', 'pub const KEY: &str = "core.test-echo";',
                      'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,',

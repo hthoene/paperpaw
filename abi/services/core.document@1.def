@@ -1,0 +1,360 @@
+{
+  "key": "core.document",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 64,
+  "ops": [
+    {
+      "id": 1,
+      "name": "open",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.doc_open",
+        "service.doc_option"
+      ],
+      "reply": [
+        "service.doc_state"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 2,
+      "name": "state",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_ref"
+      ],
+      "reply": [
+        "service.doc_state"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 3,
+      "name": "meta",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_ref"
+      ],
+      "reply": [
+        "service.doc_meta"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 4,
+      "name": "meta_text",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_text_at"
+      ],
+      "reply": [
+        "service.doc_text"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 5,
+      "name": "sections",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_page"
+      ],
+      "reply": [
+        "service.doc_section",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 6,
+      "name": "block",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_at"
+      ],
+      "reply": [
+        "service.doc_block",
+        "service.doc_text_part",
+        "service.doc_run",
+        "service.doc_map",
+        "service.doc_image",
+        "service.doc_columns",
+        "service.doc_cell",
+        "service.doc_ruby",
+        "service.doc_inline_lang",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 7,
+      "name": "toc",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_page"
+      ],
+      "reply": [
+        "service.doc_toc",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 8,
+      "name": "toc_target",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_index"
+      ],
+      "reply": [
+        "service.doc_at"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 9,
+      "name": "page_label",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_at"
+      ],
+      "reply": [
+        "service.doc_label"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 10,
+      "name": "xpointer",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_at"
+      ],
+      "reply": [
+        "service.doc_xpointer"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 11,
+      "name": "locate",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_xpointer"
+      ],
+      "reply": [
+        "service.doc_at"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 12,
+      "name": "links",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_span"
+      ],
+      "reply": [
+        "service.doc_link",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 13,
+      "name": "link_target",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_href"
+      ],
+      "reply": [
+        "service.doc_at"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 14,
+      "name": "fonts",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_page"
+      ],
+      "reply": [
+        "service.doc_font",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 15,
+      "name": "cover",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_ref"
+      ],
+      "reply": [
+        "service.doc_image"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 16,
+      "name": "image",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_image_ask"
+      ],
+      "reply": [
+        "service.doc_image"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 17,
+      "name": "progress",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_at"
+      ],
+      "reply": [
+        "service.doc_progress"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 18,
+      "name": "close",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.doc_ref"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 19,
+      "name": "formats",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_page"
+      ],
+      "reply": [
+        "service.doc_format",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 20,
+      "name": "format_for",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_path"
+      ],
+      "reply": [
+        "service.doc_format"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 21,
+      "name": "readers",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.doc_page"
+      ],
+      "reply": [
+        "service.doc_reader",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    }
+  ]
+}
