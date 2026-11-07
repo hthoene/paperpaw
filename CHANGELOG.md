@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- `paperpaw-sqlite` writes, column names and schema reads allocate fallibly (`Error::OutOfMemory`,
+  `try_encode_record`, `columns` returns a `Result`); `Md5::hex_into` and `md5::partial_into`
+  write hex digits without allocating (#228).
 - Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
