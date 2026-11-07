@@ -8,6 +8,7 @@ pub(super) struct UiContext<'a> {
     env: &'a Env<'a>,
     screen: Option<ScreenKey>,
     hop: u8,
+    open_budget: u32,
 }
 
 /// Deferred redraw retains the original screen instance, never a later top one.
@@ -17,9 +18,39 @@ pub(crate) struct Redraw {
 }
 
 impl<'a> CommandStage<'a> {
-    pub(crate) fn with_ui(mut self, env: &'a Env<'a>, screen: Option<ScreenKey>, hop: u8) -> Self {
-        self.ui = Some(UiContext { env, screen, hop });
+    pub(crate) fn with_ui(
+        mut self,
+        env: &'a Env<'a>,
+        screen: Option<ScreenKey>,
+        hop: u8,
+        open_budget: u32,
+    ) -> Self {
+        self.ui = Some(UiContext {
+            env,
+            screen,
+            hop,
+            open_budget,
+        });
         self
+    }
+
+    pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        let queued = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Command::OpenScreen(..)))
+            .count();
+        let incoming = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::OpenScreen { .. }))
+            .count();
+        if queued.saturating_add(incoming) > ui.open_budget as usize {
+            return Err(ERR_NO_SPACE);
+        }
+        Ok(())
     }
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
@@ -211,6 +242,45 @@ mod tests {
     }
 
     #[test]
+    fn exhausted_screen_key_budget_returns_slot_status_without_mutating_stage() {
+        let kernel = screens_kernel();
+        let env = kernel.shared.env(Instant(0));
+        let owner = Id::new_static("probe");
+        for remaining in [0, 1] {
+            let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
+                .with_ui(&env, None, 0, remaining);
+            let scope = core::pin::pin!(CommandScope::new());
+            let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
+                let mut bytes = [0; 192];
+                let len = commands_encode(commands, &mut bytes).unwrap();
+                scope
+                    .as_ref()
+                    .scope(stage, || {
+                        // SAFETY: this initialized encoded input remains readable
+                        // and disjoint from stage until the synchronous call ends.
+                        unsafe { scope.submit(bytes.as_ptr(), len) }
+                    })
+                    .unwrap()
+            };
+            let open = WireCommand::OpenScreen {
+                screen: "probe.new",
+            };
+            assert_eq!(submit(&mut stage, &[open, open]), ERR_NO_SPACE);
+            assert!(stage.staged.is_empty());
+            if remaining == 1 {
+                assert_eq!(submit(&mut stage, &[open]), OK);
+            }
+            for _ in 0..2 {
+                assert_eq!(submit(&mut stage, &[open]), ERR_NO_SPACE);
+                assert_eq!(stage.staged.len(), remaining as usize);
+                assert_eq!(stage.accepted, remaining as usize);
+            }
+            assert!(kernel.shared.stack.is_empty());
+            assert!(kernel.output.commands.is_empty());
+        }
+    }
+
+    #[test]
     fn open_then_close_uses_original_target_or_warns_when_already_closed() {
         for already_closed in [false, true] {
             let mut kernel = screens_kernel();
@@ -223,7 +293,7 @@ mod tests {
                 {
                     let env = kernel.shared.env(Instant(0));
                     let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
-                        .with_ui(&env, Some(original), 0);
+                        .with_ui(&env, Some(original), 0, u32::MAX - kernel.next_serial);
                     let mut bytes = [0; 192];
                     let len = commands_encode(
                         &[
@@ -277,8 +347,12 @@ mod tests {
         ));
         let env = kernel.shared.env(Instant(0));
         let owner = Id::new_static("probe");
-        let mut stage =
-            CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 0);
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            0,
+            u32::MAX - kernel.next_serial,
+        );
         let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
             let mut bytes = [0; 512];
             let len = commands_encode(commands, &mut bytes).unwrap();
@@ -322,15 +396,23 @@ mod tests {
         assert_eq!(hop, 0);
 
         let foreign = Id::new_static("other");
-        let mut stage =
-            CommandStage::new(&foreign, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 0);
+        let mut stage = CommandStage::new(&foreign, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            0,
+            u32::MAX - kernel.next_serial,
+        );
         assert_eq!(
             submit(&mut stage, &[WireCommand::Redraw { mode: 2 }]),
             ERR_STATE
         );
         assert_eq!(submit(&mut stage, &[WireCommand::CloseScreen]), ERR_STATE);
-        let mut stage =
-            CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 8);
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            8,
+            u32::MAX - kernel.next_serial,
+        );
         assert_eq!(
             submit(
                 &mut stage,
