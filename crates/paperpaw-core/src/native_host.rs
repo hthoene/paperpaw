@@ -1064,3 +1064,7 @@ mod registry_page;
 #[cfg(test)]
 #[path = "native_host/declaration_reg_index_tests.rs"]
 mod declaration_reg_index_tests;
+
+#[cfg(test)]
+#[path = "native_host/native_ui_cleanup_tests.rs"]
+mod native_ui_cleanup_tests;

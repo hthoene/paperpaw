@@ -21,6 +21,16 @@ struct Inner<T> {
     value: ManuallyDrop<T>,
 }
 
+impl<T> Drop for Inner<T> {
+    fn drop(&mut self) {
+        if self.count.get() != 0 {
+            // SAFETY: only failed header allocation drops an Inner with a
+            // positive strong count. Its value has not been destroyed yet.
+            unsafe { ManuallyDrop::drop(&mut self.value) };
+        }
+    }
+}
+
 pub(crate) struct Shared<T> {
     pointer: NonNull<Inner<T>>,
     // Explicitly single-threaded even if T itself is Send and Sync.

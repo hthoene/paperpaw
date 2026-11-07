@@ -94,6 +94,9 @@ impl Kernel {
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
+        if self.shared.stack_rows.cleanup_pending() {
+            return self.warn_runtime("UI instance cleanup is still pending");
+        }
         if self.stack.len() >= native_host::stack_rows::STACK_MAX {
             return self.warn_runtime("screen stack is full");
         }
@@ -406,9 +409,7 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
-            if self.native_instance_closed(self.stack[i].serial).is_err() {
-                self.warn_runtime("UI instance cleanup failed");
-            }
+            self.cleanup_ui_instance(self.stack[i].serial);
             self.stack.truncate(i);
             self.screens_changed = true;
         }
@@ -487,12 +488,7 @@ impl Kernel {
             screen.on_close(cx);
             Handled::Yes
         });
-        if self
-            .native_instance_closed(self.stack[index].serial)
-            .is_err()
-        {
-            self.warn_runtime("UI instance cleanup failed");
-        }
+        self.cleanup_ui_instance(self.stack[index].serial);
         self.stack.remove(index);
         self.screens_changed = true;
         self.sync_stack();
@@ -508,34 +504,51 @@ impl Kernel {
         }
     }
 
+    fn cleanup_ui_instance(&mut self, instance: u32) {
+        if let Err(status) = self.native_instance_closed(instance) {
+            if status == paperpaw_native::host_glue::ERR_BUSY {
+                if let Err(error) = self.shared.stack_rows.retry_cleanup(instance) {
+                    self.shared.stack_rows.note_close_error(error);
+                }
+            } else {
+                self.warn_runtime("UI instance cleanup failed");
+            }
+        }
+    }
+
     pub(crate) fn drain_deferred_ui_closes(&mut self) {
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
         if self.shared.stack_rows.take_close_error() != 0 {
-            self.warn_runtime("deferred UI dialog close queue is full");
+            self.warn_runtime("deferred UI cleanup queue is full");
         }
-        for _ in 0..native_host::stack_rows::STACK_MAX {
-            let Some(instance) = self.shared.stack_rows.take_close() else {
-                break;
-            };
-            let Some(index) = self
-                .stack
-                .iter()
-                .position(|screen| screen.serial == instance)
-            else {
+        // Snapshot the work first. Busy entries are retried next main-loop pass.
+        for action in self.shared.stack_rows.take_pending() {
+            let instance = action.instance;
+            if instance == 0 {
                 continue;
-            };
-            self.with_screen(index, |screen, cx| {
-                screen.on_close(cx);
-                Handled::Yes
-            });
-            if self.native_instance_closed(instance).is_err() {
-                self.warn_runtime("UI dialog cleanup failed");
             }
-            self.stack.remove(index);
-            self.screens_changed = true;
-            self.sync_stack();
-            self.stop_for_closed_screens();
-            self.screen_changed(self.content(), false);
+            if action.close {
+                if let Some(index) = self
+                    .stack
+                    .iter()
+                    .position(|screen| screen.serial == instance)
+                {
+                    self.with_screen(index, |screen, cx| {
+                        screen.on_close(cx);
+                        Handled::Yes
+                    });
+                    self.cleanup_ui_instance(instance);
+                    self.stack.remove(index);
+                    self.screens_changed = true;
+                    self.sync_stack();
+                    self.stop_for_closed_screens();
+                    self.screen_changed(self.content(), false);
+                } else {
+                    self.cleanup_ui_instance(instance);
+                }
+            } else if action.cleanup {
+                self.cleanup_ui_instance(instance);
+            }
         }
     }
 
@@ -546,12 +559,7 @@ impl Kernel {
             if self.stack[index].id.namespace() == owner.as_str() {
                 // The owner is revoked already. Dropping its private wrapper
                 // releases the lease without calling retired plugin code.
-                if self
-                    .native_instance_closed(self.stack[index].serial)
-                    .is_err()
-                {
-                    self.warn_runtime("UI instance cleanup failed");
-                }
+                self.cleanup_ui_instance(self.stack[index].serial);
                 self.stack.remove(index);
                 removed = true;
             }

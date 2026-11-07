@@ -21,11 +21,23 @@ const EMPTY: StackRow = StackRow {
     flags: 0,
 };
 
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PendingUi {
+    pub(crate) instance: u32,
+    pub(crate) close: bool,
+    pub(crate) cleanup: bool,
+}
+const NO_PENDING: PendingUi = PendingUi {
+    instance: 0,
+    close: false,
+    cleanup: false,
+};
+
 pub(crate) struct StackRows {
     rows: [Cell<StackRow>; STACK_MAX],
     len: Cell<u8>,
     generation: Cell<u64>,
-    closes: [Cell<u32>; STACK_MAX],
+    closes: [Cell<PendingUi>; STACK_MAX],
     close_error: Cell<i32>,
 }
 impl Default for StackRows {
@@ -34,7 +46,7 @@ impl Default for StackRows {
             rows: [const { Cell::new(EMPTY) }; STACK_MAX],
             len: Cell::new(0),
             generation: Cell::new(1),
-            closes: [const { Cell::new(0) }; STACK_MAX],
+            closes: [const { Cell::new(NO_PENDING) }; STACK_MAX],
             close_error: Cell::new(0),
         }
     }
@@ -56,18 +68,48 @@ impl StackRows {
             && usize::from(self.len.get()) <= STACK_MAX
     }
     pub(crate) fn defer_close(&self, instance: u32, generation: u64) -> Result<(), i32> {
-        use paperpaw_native::host_glue::{ERR_FULL, ERR_STATE};
-        self.instance(instance, generation).ok_or(ERR_STATE)?;
-        if self.closes.iter().any(|pending| pending.get() == instance) {
-            return Ok(());
+        self.instance(instance, generation)
+            .ok_or(paperpaw_native::host_glue::ERR_STATE)?;
+        self.enqueue(PendingUi {
+            instance,
+            close: true,
+            cleanup: false,
+        })
+    }
+    pub(crate) fn retry_cleanup(&self, instance: u32) -> Result<(), i32> {
+        if instance == 0 {
+            return Err(paperpaw_native::host_glue::ERR_STATE);
         }
-        let pending = self
+        self.enqueue(PendingUi {
+            instance,
+            close: false,
+            cleanup: true,
+        })
+    }
+    fn enqueue(&self, requested: PendingUi) -> Result<(), i32> {
+        if let Some(slot) = self
             .closes
             .iter()
-            .find(|pending| pending.get() == 0)
-            .ok_or(ERR_FULL)?;
-        pending.set(instance);
+            .find(|slot| slot.get().instance == requested.instance)
+        {
+            let old = slot.get();
+            slot.set(PendingUi {
+                close: old.close || requested.close,
+                cleanup: old.cleanup || requested.cleanup,
+                ..old
+            });
+            return Ok(());
+        }
+        let slot = self
+            .closes
+            .iter()
+            .find(|slot| slot.get().instance == 0)
+            .ok_or(paperpaw_native::host_glue::ERR_FULL)?;
+        slot.set(requested);
         Ok(())
+    }
+    pub(crate) fn cleanup_pending(&self) -> bool {
+        self.closes.iter().any(|slot| slot.get().cleanup)
     }
     pub(crate) fn note_close_error(&self, error: i32) {
         if error != paperpaw_native::host_glue::ERR_STATE && self.close_error.get() == 0 {
@@ -77,14 +119,11 @@ impl StackRows {
     pub(crate) fn take_close_error(&self) -> i32 {
         self.close_error.replace(0)
     }
-    pub(crate) fn take_close(&self) -> Option<u32> {
-        self.closes
-            .iter()
-            .find(|pending| pending.get() != 0)
-            .map(|pending| pending.replace(0))
+    pub(crate) fn take_pending(&self) -> [PendingUi; STACK_MAX] {
+        core::array::from_fn(|index| self.closes[index].replace(NO_PENDING))
     }
     pub(crate) fn closes_pending(&self) -> bool {
-        self.close_error.get() != 0 || self.closes.iter().any(|pending| pending.get() != 0)
+        self.close_error.get() != 0 || self.closes.iter().any(|slot| slot.get().instance != 0)
     }
 
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.
@@ -101,13 +140,15 @@ impl StackRows {
         }
         self.len.set(u8::try_from(count).unwrap_or(u8::MAX));
         for pending in &self.closes {
-            let instance = pending.get();
+            let mut action = pending.get();
+            let instance = action.instance;
             if instance != 0
                 && !self.rows[..count.min(STACK_MAX)]
                     .iter()
                     .any(|row| row.get().instance == instance)
             {
-                pending.set(0);
+                action.close = false;
+                pending.set(if action.cleanup { action } else { NO_PENDING });
             }
         }
         let generation = self.generation.get();
