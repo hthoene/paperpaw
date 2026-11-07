@@ -36,6 +36,9 @@ built into the image by `build.rs`, metadata in `native/` (regenerate with
 - The Wi-Fi tool is always offered; without the Wi-Fi plugin it does nothing.
 - Time goes by `Tick` events (deadlines): the light levels, the 20 s search and the
   10 s sleep wait are as fast as ticks come.
+  **TODO before activation: Kernel's answer on the tick rate a plugin with a screen gets
+  (how often `Tick` arrives, and whether it stops while the screen is off). Fill it in
+  here and check the 20 s search, the 10 s sleep wait and the light levels against it.**
 - No gray view hint: the interface-6 `Screen::grays` (the gray page shown in the panel's
   four grays) has no native counterpart; the ramp is drawn in grays as before.
 - Right-to-left mirroring of the answers row is not in the UI kit; the unit test of it

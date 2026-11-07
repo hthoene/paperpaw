@@ -17,7 +17,7 @@ fn a_held_select_resets_the_test_screen() {
 }
 
 #[test]
-#[ignore = "needs core.device ops 1, 2, 7, 8, 9, 15 on the host (PR #311) and Tick delivery to a plugin with a screen"]
+#[ignore = "needs core.device ops 1, 2, 7, 8, 9, 15 on the host (PR #311) and Tick delivery to a plugin with a screen; replaces the CI emulator step removed with the interface-6 plugin (`--profile boox-go-7 --set slots.core.home=diagnostics.screen --script \"page-forward,long-tap:600:800\"`, ci.yml), which opened the screen and walked the check"]
 fn the_check_walks_every_step_and_writes_its_report() {
     unreachable!(
         "answers, suggested focus, light levels restored, card speed, Wi-Fi scan, sleep and wake, memory"
