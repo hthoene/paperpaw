@@ -52,6 +52,8 @@ pub struct NativeWidgets {
     items: Vec<Item>,
     /// The text asked for on the keyboard, and the setting it is for.
     asked: Option<(RequestId, String)>,
+    /// The to-do list as last read.
+    todo: crate::native_todo::Cache,
 }
 
 impl NativeWidgets {
@@ -84,7 +86,12 @@ impl NativeWidgets {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
                 let mut cx = Cx::open(host, &item.widget)?;
-                let height = (behaviour.height)(&mut cx, u16::try_from(width).unwrap_or(u16::MAX))?;
+                let width = u16::try_from(width).unwrap_or(u16::MAX);
+                let height = if item.token == crate::native_todo::TOKEN {
+                    crate::native_todo::height_with(&mut cx, width, &self.todo)?
+                } else {
+                    (behaviour.height)(&mut cx, width)?
+                };
                 call.reply_size(u32::from(height), u32::from(height), &mut out)?
             }
             WidgetCall::Place { instance, .. } => {
@@ -97,7 +104,7 @@ impl NativeWidgets {
                 if tap == Some(Tap::TickItems) {
                     let cx = Cx::open(host, &item.widget)?;
                     let area = frame_to_area(rect);
-                    let targets = crate::native_todo::targets(&cx, area)?;
+                    let targets = crate::native_todo::targets(&cx, area, &self.todo)?;
                     call.reply_targets(&targets, &mut out)?
                 } else if tap.is_some_and(|tap| tap != Tap::None) {
                     call.reply_targets(&[WidgetTarget::new(SETTINGS_TARGET, rect)], &mut out)?
@@ -152,11 +159,12 @@ impl NativeWidgets {
                 continue;
             };
             let instance = item.instance;
-            settle(
-                &mut item.shown,
-                (behaviour.shows)(host, &item.widget),
-                || commands.widget_changed(instance),
-            );
+            let shown = if item.token == crate::native_todo::TOKEN {
+                crate::native_todo::shows_with(host, &item.widget, &self.todo)
+            } else {
+                (behaviour.shows)(host, &item.widget)
+            };
+            settle(&mut item.shown, shown, || commands.widget_changed(instance));
         }
         Ok(())
     }
@@ -241,7 +249,11 @@ impl Plugin for NativeWidgets {
             paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
         );
         let mut out = Vec::new();
-        (behaviour.draw)(&mut cx, &mut out, area)?;
+        if item.token == crate::native_todo::TOKEN {
+            crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
+        } else {
+            (behaviour.draw)(&mut cx, &mut out, area)?;
+        }
         let bold = if out
             .iter()
             .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
@@ -272,7 +284,17 @@ impl Plugin for NativeWidgets {
             if target == crate::native_todo::OPEN_TARGET {
                 return Ok(Handled::No);
             }
-            crate::native_todo::tick(host, target)?;
+            // A tick that fails says so, as before, and the widget is drawn
+            // again either way (it shows what the card holds).
+            if let Err(error) = crate::native_todo::tick(host, target, &self.todo) {
+                let key = if error == Error::Unsupported {
+                    "widgets.todo.unreadable"
+                } else {
+                    "widgets.todo.not-saved"
+                };
+                let _ = notify(host, key);
+            }
+            self.todo.forget();
             CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
             return Ok(Handled::Yes);
         }
@@ -296,6 +318,13 @@ impl Plugin for NativeWidgets {
         }
         Ok(Handled::Yes)
     }
+}
+
+/// Says `key` (a translation key) in a notice.
+fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
+    let text = paperpaw_ui_kit::Messages::new()?.copy(host, key)?;
+    let mut scratch = paperpaw_ui_kit::mem::buffer(1024)?;
+    CommandSender::new(host, &mut scratch).notify(paperpaw_sdk::native::ui::Notify::new(&text)?)
 }
 
 /// The rectangle of a stage call as the plugin's drawing rectangle.
