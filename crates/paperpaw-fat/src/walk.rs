@@ -221,6 +221,10 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             }
             self.unlink_damaged(root)?;
             removed += 1;
+            // A folder that is kept (the data folder) is there again, empty.
+            if keep_root {
+                self.create_dirs(root)?;
+            }
         } else if !keep_root && !root.is_empty() {
             let up = self.dir(parent(root))?;
             if let Some(entry) = lookup(&up, name(root), true)?.entry {
@@ -264,19 +268,26 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     ) -> Result<Option<(Frame<IO>, usize)>, StorageError> {
         for level in 0..depth {
             let mut found = None;
-            for entry in entries(&frame.dir) {
-                let entry = entry?;
-                if reads.descent >= DESCENT {
+            let mut items = entries(&frame.dir);
+            loop {
+                // Both shares are checked before the entry is read.
+                if reads.descent >= DESCENT || reads.work >= MAX_READS {
                     return Ok(None);
                 }
-                reads.descent += 1;
+                let Some(entry) = items.next() else {
+                    break;
+                };
+                let entry = entry?;
                 let name = entry.file_name();
                 if name == "." || name == ".." || is_temp_name(&name) {
+                    reads.descent += 1;
                     continue;
                 }
                 if !entry.is_dir() {
-                    // A file before the subfolder (written since): out, so
-                    // that the subfolder is the third read of its level.
+                    // A file before the subfolder (written since) is work:
+                    // out, so that the subfolder is the third read of its
+                    // level.
+                    reads.work += 1;
                     if damaged::is_damaged(self.fs, &entry, &name, 2, None) {
                         break;
                     }
@@ -287,12 +298,14 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     *removed += 1;
                     continue;
                 }
+                reads.descent += 1;
                 // A damaged folder is worked in, and cut off, not passed.
                 if !damaged::is_damaged(self.fs, &entry, &name, 2, None) {
                     found = Some((entry, name));
                 }
                 break;
             }
+            drop(items);
             let Some((entry, name)) = found else {
                 return Ok(Some((frame, level)));
             };
@@ -335,28 +348,43 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 }
             }
         }
+        // A slot past the folder's end, or one in the middle of an entry,
+        // begins none (an error of the seek is the same): from the start.
         let from = match slot >= 2
             && frame
                 .dir
                 .begins_entry(u64::from(slot) * SLOT)
-                .map_err(error)?
+                .unwrap_or(false)
         {
             true => slot,
             false => 0,
         };
-        let mut items = bounded(
-            frame
-                .dir
-                .iter_from(u64::from(from) * SLOT)
-                .map_err(error)?
-                .map(|entry| entry.map_err(error)),
-        );
-        let mut next = from;
+        let open = |from: u32| -> Result<_, StorageError> {
+            Ok(bounded(
+                frame
+                    .dir
+                    .iter_from(u64::from(from) * SLOT)
+                    .map_err(error)?
+                    .map(|entry| entry.map_err(error)),
+            ))
+        };
+        let (mut pass, mut next, mut again) = (from, from, false);
+        let mut items = open(pass)?;
         loop {
             if *removed >= MAX_REMOVALS || reads.work >= MAX_READS {
-                return Ok(Outcome::Yield(next));
+                // In the second look at a folder (below) it starts over.
+                return Ok(Outcome::Yield(if again { 0 } else { next }));
             }
             let Some(entry) = items.next() else {
+                if pass > 0 {
+                    // Taken out from the place on only: slots before it may
+                    // have been written to since (an entry in a deleted one),
+                    // and a folder freed with an entry in it loses it. Looked
+                    // at once more from its first slot, within the limits.
+                    (pass, next, again) = (0, 0, true);
+                    items = open(0)?;
+                    continue;
+                }
                 return Ok(Outcome::Emptied);
             };
             let entry = entry?;

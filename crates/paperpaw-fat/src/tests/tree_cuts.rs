@@ -66,6 +66,15 @@ fn assert_outside(s: &dyn Storage, context: &str) {
     }
 }
 
+/// Clusters free on `s`, and on a card just made (the baseline).
+fn free_clusters(s: &FatStorage<SharedDisk<Cut>>) -> u32 {
+    s.fs.stats().unwrap().free_clusters()
+}
+
+fn baseline() -> u32 {
+    free_clusters(&Cut::formatted_of(4 << 20, options()).storage())
+}
+
 fn exists_dir(s: &dyn Storage, path: &str) -> bool {
     s.list(path, &mut |_| {}).is_ok()
 }
@@ -87,6 +96,7 @@ fn a_call_reads_a_bounded_part_of_a_big_folder() {
         s.sync().unwrap();
         let (mut place, mut worst_blocks, mut calls) = (0, 0, 0);
         let mut worst = Reads::default();
+        let last_blocks;
         loop {
             let before = card.reads.get();
             let mut reads = Reads::default();
@@ -95,23 +105,29 @@ fn a_call_reads_a_bounded_part_of_a_big_folder() {
             assert!(reads.work <= MAX_READS, "{reads:?}");
             assert!(reads.descent <= DESCENT, "{reads:?}");
             worst.work = worst.work.max(reads.work);
-            worst_blocks = worst_blocks.max(card.reads.get() - before);
+            let blocks = card.reads.get() - before;
             calls += 1;
             if step.done {
+                // The look at the folder from its first slot before it goes
+                // reads the slots the walk freed: the folder once, in blocks.
+                last_blocks = blocks;
                 break;
             }
+            worst_blocks = worst_blocks.max(blocks);
             place = step.next;
         }
         assert!(calls >= files / 64, "{calls} calls");
         assert!(!exists_dir(&s, "Big"));
         assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
-        (worst.work, worst_blocks)
+        (worst.work, worst_blocks, last_blocks)
     };
     let (small, big) = (measure(600), measure(3000));
     eprintln!("entries and blocks per call: {small:?} for 600, {big:?} for 3000");
     // 3,000 files are 9,000 slots of 32 bytes: 563 blocks; a call reads a
     // fraction of that and as much as for 600.
     assert!(big.1 < 100, "{} blocks in a call", big.1);
+    // The last call: the folder's blocks once, no more.
+    assert!(big.2 <= 700, "{} blocks in the last call", big.2);
     assert!(big.1 <= small.1 * 4, "{big:?} for 3000, {small:?} for 600");
 }
 
@@ -172,6 +188,13 @@ fn a_cut_at_any_block_of_any_call_leaves_a_whole_rest() {
     }
     assert!(calls >= 2, "the tree takes several calls");
     assert!(cut_states > 50, "{cut_states} states");
+    // Run to its end without a cut, no cluster stays taken (a cut may leave
+    // the ones of the entry it was removing: taken by no file, see fatfs).
+    for gone in ["Keep", "T2"] {
+        s.remove_dir_all(gone).unwrap();
+    }
+    s.sync().unwrap();
+    assert_eq!(free_clusters(&s), baseline());
 }
 
 /// Every file listed in the folders below `dir` reads in full: no entry
@@ -233,6 +256,12 @@ fn a_stale_place_or_the_place_of_another_tree_removes_nothing_outside() {
         walk(&s, "T", false, place);
         assert!(!exists_dir(&s, "T"), "{place:#x}");
         assert_outside(&s, &format!("{place:#x}"));
+        // No cluster stays taken by what the walk removed.
+        for gone in ["Keep", "T2"] {
+            s.remove_dir_all(gone).unwrap();
+        }
+        s.sync().unwrap();
+        assert_eq!(free_clusters(&s), baseline(), "{place:#x}");
     }
 }
 
@@ -467,4 +496,153 @@ fn a_tree_deeper_than_the_walk_goes_is_an_error_and_touches_nothing_outside() {
     };
     assert_eq!(error, StorageError::InvalidData);
     assert_eq!(whole(&s, "Keep/k.txt").as_deref(), Ok(&b"keep"[..]));
+}
+
+/// An entry written into a folder between two calls, into a slot the walk had
+/// freed before its place, is found by the look at the folder's start: nothing
+/// is lost with the folder, the card's free space is what it was.
+#[test]
+fn a_file_written_behind_the_walk_is_removed_and_no_space_is_lost() {
+    let card = Cut::formatted_of(8 << 20, options());
+    let s = card.storage();
+    for n in 0..300 {
+        s.write(&format!("Big/file-{n:04}.txt"), &[7u8; 700])
+            .unwrap();
+    }
+    s.sync().unwrap();
+    let free = |s: &FatStorage<SharedDisk<Cut>>| s.fs.stats().unwrap().free_clusters();
+    let before = {
+        let empty = Cut::formatted_of(8 << 20, options());
+        free(&empty.storage())
+    };
+    let mut place = 0;
+    // Part of the folder, then a new file into a slot freed at its start.
+    let step = remove_tree_step(&s, "Big", false, place).unwrap();
+    assert!(!step.done);
+    place = step.next;
+    s.write("Big/new.txt", &[9u8; 700]).unwrap();
+    s.sync().unwrap();
+    for _ in 0..200 {
+        let step = remove_tree_step(&s, "Big", false, place).unwrap();
+        if step.done {
+            break;
+        }
+        place = step.next;
+    }
+    assert!(!exists_dir(&s, "Big"));
+    s.sync().unwrap();
+    assert_eq!(free(&s), before, "every cluster is free again");
+}
+
+/// A place that does not follow the walk's own (one past the first entry, one
+/// before an entry written since) never loses an entry with its folder: the
+/// folder is looked at from its start before it goes, nothing is left, and no
+/// cluster stays taken.
+#[test]
+fn any_place_in_a_folder_still_ends_with_nothing_left_and_no_space_lost() {
+    let (free, before) = (free_clusters, baseline());
+    for keep in [false, true] {
+        for place in [0u64, 2, 3, 6, 9, 12, 15, 40, 1 << 31] {
+            let card = Cut::formatted_of(4 << 20, options());
+            let s = card.storage();
+            s.write("T/a/inner.txt", &[1u8; 900]).unwrap();
+            s.write("T/b.txt", &[2u8; 900]).unwrap();
+            s.write("T/c.txt", &[3u8; 900]).unwrap();
+            s.write("Keep/k.txt", b"keep").unwrap();
+            s.sync().unwrap();
+            for _ in 0..50 {
+                if remove_tree_step(&s, "T", keep, place)
+                    .unwrap_or_else(|e| panic!("keep {keep} place {place:#x}: {e:?}"))
+                    .done
+                {
+                    break;
+                }
+            }
+            let mut left = Vec::new();
+            if keep {
+                s.list("T", &mut |e| left.push(e.name.to_string())).unwrap();
+            } else {
+                assert!(!exists_dir(&s, "T"), "keep {keep} place {place:#x}");
+            }
+            assert!(left.is_empty(), "keep {keep} place {place:#x}: {left:?}");
+            s.remove_dir_all("T").ok();
+            s.remove_dir_all("Keep").unwrap();
+            s.sync().unwrap();
+            assert_eq!(free(&s), before, "keep {keep} place {place:#x}");
+        }
+    }
+}
+
+/// Files before the subfolder of each level on the way down are removed as
+/// they are read and charged to the work reads; both shares hold in every call.
+#[test]
+fn files_on_the_way_down_are_work_and_both_shares_hold() {
+    let card = Cut::formatted_of(8 << 20, options());
+    let s = card.storage();
+    let mut dir = s.dir("T").ok();
+    if dir.is_none() {
+        s.write("T/x.txt", b"x").unwrap();
+        dir = Some(s.dir("T").unwrap());
+    }
+    let mut dir = dir.unwrap();
+    for _ in 0..100 {
+        for n in 0..3 {
+            dir.create_file(&format!("f{n}.txt")).unwrap();
+        }
+        dir = dir.create_dir("a").unwrap();
+    }
+    s.sync().unwrap();
+    let (mut place, mut calls) = (0, 0);
+    loop {
+        let mut reads = Reads::default();
+        let step = s.walk_tree("T", false, place, &mut reads).unwrap();
+        assert!(
+            reads.work <= MAX_READS && reads.descent <= DESCENT,
+            "{reads:?}"
+        );
+        calls += 1;
+        assert!(calls < 3000, "never done");
+        if step.done {
+            break;
+        }
+        place = step.next;
+    }
+    assert!(!exists_dir(&s, "T"));
+    // Files written into the chain behind the walk's back, met going down
+    // again: charged to the work reads, both shares held in every call.
+    let mut dir = s.dir("U").ok().unwrap_or_else(|| {
+        s.write("U/x.txt", b"x").unwrap();
+        s.dir("U").unwrap()
+    });
+    for _ in 0..30 {
+        dir = dir.create_dir("a").unwrap();
+    }
+    s.sync().unwrap();
+    let step = s.walk_tree("U", false, 0, &mut Reads::default()).unwrap();
+    let mut dir = s.dir("U").unwrap();
+    while let Some(next) = dir
+        .iter()
+        .filter_map(Result::ok)
+        .find(|e| e.is_dir() && e.file_name() != "." && e.file_name() != "..")
+    {
+        dir.create_file("late.txt").unwrap();
+        dir = next.to_dir();
+    }
+    let mut calls = 0;
+    let mut place = step.next;
+    loop {
+        let mut reads = Reads::default();
+        let step = s.walk_tree("U", false, place, &mut reads).unwrap();
+        assert!(
+            reads.work <= MAX_READS && reads.descent <= DESCENT,
+            "{reads:?}"
+        );
+        calls += 1;
+        assert!(calls < 3000, "never done");
+        if step.done {
+            break;
+        }
+        place = step.next;
+    }
+    assert!(!exists_dir(&s, "U"));
 }

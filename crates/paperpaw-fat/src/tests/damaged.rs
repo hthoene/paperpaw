@@ -348,3 +348,46 @@ fn a_damaged_folder_moved_settles_after_any_cut() {
         assert_eq!(whole(&s, "Other/e.txt").unwrap(), b"d", "{n}");
     }
 }
+
+/// A damaged data folder that is kept (`remove_tree_step` with `keep_root`)
+/// is cut off and made again, empty; one that is not kept is gone. What its
+/// entries point at, another folder's file, stays whole.
+#[test]
+fn a_damaged_kept_folder_is_there_again_empty() {
+    for keep in [true, false] {
+        let card = Cut::formatted(FormatVolumeOptions::new());
+        let s = card.storage();
+        s.write("keep/other.bin", &kept()).unwrap();
+        for name in ["aaaa.bin", "bbbb.bin"] {
+            s.write(&format!("Data/{name}"), b"cached").unwrap();
+        }
+        s.sync().unwrap();
+        let other = first_cluster(&card, short_entry(&card, b"OTHER   BIN"));
+        let mut name = [0xbd; 11];
+        name[9] = b'@';
+        name[10] = 0;
+        garble(
+            &card,
+            short_entry(&card, b"AAAA    BIN"),
+            &name,
+            0,
+            other,
+            2_499_805_184,
+        );
+        let s = card.storage();
+        for _ in 0..10 {
+            if s.remove_tree_step("Data", keep, 0).unwrap().done {
+                break;
+            }
+        }
+        let mut left = Vec::new();
+        let listed = s.list("Data", &mut |e| left.push(e.name.to_string()));
+        assert_eq!(listed.is_ok(), keep, "keep {keep}");
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(
+            whole(&s, "keep/other.bin").as_deref(),
+            Ok(&kept()[..]),
+            "keep {keep}"
+        );
+    }
+}
