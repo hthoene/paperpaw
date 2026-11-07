@@ -24,6 +24,26 @@ events) is still in place. It is removed in the PR that finishes the port.
   fallible variant in `paperpaw-config` (Kernel).
 - Callers that read today's seconds (`read_today`) do not cache a failed read as 0.
 
+## Ported: `extsort`, `merge`, `koreader` (fallible allocation)
+
+- Every allocation of `extsort` (runs, readers, the `Records` iterator), the working-file
+  names, the books of both sides, the pages read per book and the books' names is
+  fallible: a refused one is `StorageError::TooLarge` (`Failure::Here`), the working files
+  are removed as after any error, and the statistics here are as they were.
+- `Records` yields a fixed `[u8; 20]` (no `Vec` per record); `extsort::each` can fail from
+  its visitor; `Appender`, `Reader` and `Records` take all their memory when made.
+- `Key::from_hex` decodes the MD5 without allocation. `totals::mark_read` is fallible; where
+  `totals::of_book` is refused it leaves that stay uncounted (its own pass is still to do).
+- `store::write_log` (the `replace_log` path) reserved its buffer infallibly; fixed.
+- Allocation-refusal sweeps (`merge/alloc_tests.rs`, a refusing global allocator in
+  `testing.rs`): `extsort::sort` (two merge passes), `each`, `Records`, a merge of this
+  device alone, `merge_books` and `take_names`.
+- **Still infallible** (a refusal aborts; swept around, not through): what `paperpaw-sqlite`
+  allocates while it reads or writes a database (`Value::Text`, `encode_record`,
+  `SchemaEntry`, `Database::table` column names; the rows are small and short-lived), and
+  `Md5::hex` (32 bytes) for a book without a usable MD5. Both need fallible variants in
+  their crates (Kernel).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
@@ -34,6 +54,5 @@ events) is still in place. It is removed in the PR that finishes the port.
   and emitting `stats.read-today` as a stage for reading-goal.
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).
-- Allocation hygiene of `merge`, `extsort`, `koreader` (fallible).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
 - The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.

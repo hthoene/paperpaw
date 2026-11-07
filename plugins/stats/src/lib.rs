@@ -21,6 +21,8 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 mod book;
 mod books;
@@ -33,6 +35,7 @@ mod koreader;
 mod left;
 mod merge;
 mod overview;
+mod room;
 mod store;
 mod sync;
 mod totals;
