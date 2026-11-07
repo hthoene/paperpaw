@@ -150,6 +150,27 @@ impl CodeLoader for HostLoader {
             load_bytes(&bytes, &installed)
         })
     }
+
+    /// `text.hyphenate` is served where interface-7 plugins run (the developer
+    /// switch): the data plugins' tables are files on the card.
+    fn hyphenation_sink(
+        &mut self,
+        storage: &std::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::{HostResources, HostWiring};
+        if !dev_switch() {
+            return None;
+        }
+        if self.resources.is_none() {
+            self.resources = HostResources::try_new().ok();
+        }
+        let wired = self
+            .resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+            .ok()?;
+        wired.hyphen().cloned()
+    }
 }
 
 impl HostLoader {

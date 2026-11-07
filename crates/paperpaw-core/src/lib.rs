@@ -55,6 +55,7 @@ mod effects;
 mod free_count;
 mod gestures;
 mod hints;
+mod hyphen_feed;
 mod input;
 mod io;
 mod keymap;
@@ -1235,6 +1236,7 @@ impl Kernel {
         self.woke(now);
         // A computer may have changed the card, or another card is in.
         self.shared.hyphenation.card_changed();
+        self.shared.hyphen_feed.card_changed();
         self.output.commands.push(events::USB_DRIVE_ENDED.emit(()));
         self.output.commands.push(events::LIBRARY_CHANGED.emit(()));
         self.finish()
@@ -1284,6 +1286,7 @@ struct Shared {
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,
+    hyphen_feed: hyphen_feed::HyphenFeed,
     menus: Menus,
     actions: Actions,
     plugins: Plugins,
