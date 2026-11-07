@@ -209,21 +209,23 @@ impl Transactions {
 
     /// The plugin stopped: its transactions end; `ended` gets their ids, after
     /// the table is released (the host's callback may use the table).
-    pub(crate) fn close_owner(&self, owner: u64, mut ended: impl FnMut(u32)) {
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed; nothing ended, a retry does.
+    pub(crate) fn close_owner(&self, owner: u64, mut ended: impl FnMut(u32)) -> Result<(), i32> {
         let mut closed = [0_u32; DEVICE];
         let mut count = 0;
         // The row count is at most `DEVICE`, so `closed` holds every id.
-        if let Ok(mut rows) = self.rows() {
-            rows.retain(|t| {
-                let mine = t.owner == owner;
-                if let (true, Some(slot)) = (mine, closed.get_mut(count)) {
-                    *slot = t.id;
-                    count += 1;
-                }
-                !mine
-            });
-        }
+        self.rows()?.retain(|t| {
+            let mine = t.owner == owner;
+            if let (true, Some(slot)) = (mine, closed.get_mut(count)) {
+                *slot = t.id;
+                count += 1;
+            }
+            !mine
+        });
         closed.iter().take(count).for_each(|id| ended(*id));
+        Ok(())
     }
 
     #[cfg(test)]

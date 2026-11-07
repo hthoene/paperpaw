@@ -50,6 +50,7 @@ pub(crate) mod format_call;
 pub(crate) mod format_index;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+pub(crate) mod host_services;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]

@@ -55,7 +55,7 @@ impl LookupHost for Fake {
 
 struct View<'a> {
     env: &'a Env<'a>,
-    services: LookupServices,
+    hosts: crate::native_host::host_services::HostServices,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
@@ -64,11 +64,16 @@ impl Frame for View<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
-    fn caller(&self) -> Result<u64, i32> {
-        Ok(7)
-    }
-    fn host_service(&self, key: &str) -> Option<&dyn core::any::Any> {
-        (key == "core.lookup").then_some(&self.services as &dyn core::any::Any)
+}
+impl View<'_> {
+    fn run(&self, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let caller = Caller {
+            owner: 7,
+            plugin: "reader",
+            features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+            hosts: &self.hosts,
+        };
+        backend(self, &caller, op, input, out)
     }
 }
 
@@ -96,12 +101,11 @@ fn ask(fake: &Rc<Fake>, record: Ask<'_>) -> Result<Vec<u8>, i32> {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let host: Rc<dyn LookupHost> = fake.clone();
-    let view = View {
-        env: &env,
-        services: LookupServices(host),
-    };
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_lookup(host).unwrap();
+    let view = View { env: &env, hosts };
     let mut out = std::vec![0; op.max_reply];
-    let length = backend(&view, op, &input[..used], &mut out)?;
+    let length = view.run(op, &input[..used], &mut out)?;
     out.truncate(length);
     validate_reply(&out, op)?;
     Ok(out)
@@ -242,22 +246,14 @@ fn a_frame_without_the_host_refuses_the_family() {
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
-    struct Bare<'a>(&'a Env<'a>);
-    impl Frame for Bare<'_> {
-        fn settings(&self) -> &Settings {
-            self.0.settings()
-        }
-        fn translator(&self) -> &Translator {
-            self.0.i18n()
-        }
-    }
+    let view = View {
+        env: &env,
+        hosts: crate::native_host::host_services::HostServices::new(),
+    };
     let op = services_wire::service_schema("core.lookup", 1)
         .unwrap()
         .op(1)
         .unwrap();
     let mut out = std::vec![0; op.max_reply];
-    assert_eq!(
-        backend(&Bare(&env), op, &[0], &mut out),
-        Err(ERR_UNSUPPORTED)
-    );
+    assert_eq!(view.run(op, &[0], &mut out), Err(ERR_UNSUPPORTED));
 }
