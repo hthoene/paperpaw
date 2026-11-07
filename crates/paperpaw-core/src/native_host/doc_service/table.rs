@@ -60,7 +60,30 @@ pub(crate) struct Document {
     /// 0 while open for use, else `event.document_closed.reason`: the host
     /// closed it and every call but `close` is `ERR_CANCELLED`.
     pub(crate) closed_by_host: u32,
+    /// The block whose fragments are being read: what the earlier ones said.
+    pub(crate) block: Option<Pending>,
     strikes: u8,
+}
+
+/// A block stream in progress (`document.md` 4): the address and identity the
+/// next fragment must name, and the checks' running totals (about 60 bytes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Pending {
+    pub(crate) section: u32,
+    pub(crate) offset: u32,
+    pub(crate) generation: u32,
+    pub(crate) next: u32,
+    pub(crate) fragment: super::check::Fragment,
+}
+
+impl Pending {
+    /// Whether a call names the continuation this expects.
+    pub(crate) fn is(&self, section: u32, offset: u32, generation: u32, cursor: u32) -> bool {
+        self.section == section
+            && self.offset == offset
+            && self.generation == generation
+            && self.next == cursor
+    }
 }
 
 #[derive(Debug)]
@@ -121,6 +144,7 @@ impl DocumentTable {
             image_side: 0,
             cover_side: 0,
             closed_by_host: 0,
+            block: None,
             strikes: 0,
         });
         self.next_id.set(next);
@@ -243,6 +267,15 @@ impl DocumentTable {
             return true;
         }
         false
+    }
+
+    /// Remember (or forget) the block stream in progress for `id`.
+    pub(crate) fn keep_block(&self, id: u32, block: Option<Pending>) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.block = block;
+        }
     }
 
     /// A good answer ends a run of bad ones.
