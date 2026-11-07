@@ -44,6 +44,13 @@ impl crate::Kernel {
         depth: &FlatDepth,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        self.shared
+            .native_instances
+            .adopt_pool(
+                host.resource_identity()
+                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
+            )
+            .map_err(shell::Error::Status)?;
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
         let (retained, (owner, owned)) = Retained::make_native(host, map_declarations)?;
         // Callback registrations need their own mapping arm. Never accept an
@@ -78,9 +85,13 @@ impl crate::Kernel {
 
     /// Revoke first; store cleanup, screen closure and factory removal must
     /// precede resource retirement. Busy cleanup retains a pending row.
-    pub(crate) fn begin_native_unload(&mut self, key: u64, owner: &Id) {
+    pub(crate) fn begin_native_unload(
+        &mut self,
+        key: u64,
+        owner: &Id,
+    ) -> Option<alloc::string::String> {
         if self.shared.native_instances.stop(key).is_err() {
-            return;
+            return None;
         }
         self.native_owner_stopped(key);
         self.remove_retired_native_screens(owner);
@@ -89,10 +100,18 @@ impl crate::Kernel {
             .screens
             .remove_native_owner(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
-        if let Err(status) = self.shared.native_instances.retire(key)
-            && status != paperpaw_native::host_glue::ERR_BUSY
-        {
-            self.warn_runtime("native owner cleanup failed; retry scheduled");
+        match self.shared.native_instances.retire(key) {
+            Ok(replacement) => replacement,
+            Err(status) => {
+                if self
+                    .shared
+                    .native_instances
+                    .retirement_failed(key, status, self.now.millis())
+                {
+                    self.warn_runtime("native owner cleanup failed; retry delayed");
+                }
+                None
+            }
         }
     }
 
@@ -106,9 +125,30 @@ impl crate::Kernel {
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
+        // The same driver handles HostServices' orphan queue and the retained
+        // rows whose lifecycle cleanup has not completed. No second queue.
+        if let Err(status) = self
+            .shared
+            .native_instances
+            .retry_orphaned_retirements(self.now.millis())
+            && status != paperpaw_native::host_glue::ERR_BUSY
+        {
+            self.warn_runtime(if status == paperpaw_native::host_glue::ERR_FULL {
+                "native retirement queue full; cleanup could not be queued"
+            } else {
+                "orphaned native owner cleanup failed; retry delayed"
+            });
+        }
         let mut after = None;
         while let Some((key, owner)) = self.shared.native_instances.pending_unload(after) {
             after = Some(key);
+            if !self
+                .shared
+                .native_instances
+                .retirement_ready(key, self.now.millis())
+            {
+                continue;
+            }
             let Some(owner) = owner.try_clone() else {
                 continue;
             };
@@ -119,8 +159,8 @@ impl crate::Kernel {
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         self.shared
             .native_instances
-            .pending_unload(None)
-            .map(|_| paperpaw_platform::Instant(self.now.millis().saturating_add(50)))
+            .retirement_due(self.now.millis())
+            .map(paperpaw_platform::Instant)
     }
 
     fn bind_native<S: Services + 'static, M: 'static>(

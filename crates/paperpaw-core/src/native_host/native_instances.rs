@@ -6,7 +6,7 @@ use super::{
     resources::OwnerResourceView,
     shared::{self, Shared},
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
@@ -104,6 +104,9 @@ struct Entry {
     enabled: bool,
     start: Cell<bool>,
     retiring: bool,
+    replacement: Option<String>,
+    retry_at: u64,
+    failure_reported: bool,
 }
 
 #[derive(Default)]
@@ -111,6 +114,8 @@ pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
     callbacks: CallbackClock,
     pool: Option<OwnerResourceView>,
+    orphan_retry_at: Cell<u64>,
+    orphan_failure_reported: Cell<bool>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -137,6 +142,20 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    /// Retain the device pool before any fallible admission work, including
+    /// the first failed factory. Its orphan cleanup must remain reachable.
+    pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
+        if self
+            .pool
+            .as_ref()
+            .is_some_and(|pool| !pool.same_pool(&identity))
+        {
+            return Err(ERR_STATE);
+        }
+        self.pool.get_or_insert(identity);
+        Ok(())
+    }
+
     /// Keys never repeat; storage rows may move when failed admission is reclaimed.
     pub(crate) fn insert(
         &mut self,
@@ -146,13 +165,7 @@ impl NativeInstances {
         enabled: bool,
     ) -> Result<u64, i32> {
         let key = identity.owner_id();
-        if self
-            .pool
-            .as_ref()
-            .is_some_and(|pool| !pool.same_pool(&identity))
-        {
-            return Err(ERR_STATE);
-        }
+        self.adopt_pool(identity)?;
         if self
             .entries
             .iter()
@@ -161,7 +174,6 @@ impl NativeInstances {
             return Err(ERR_INVALID);
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        self.pool.get_or_insert(identity);
         self.entries.push(Entry {
             key,
             id,
@@ -169,6 +181,9 @@ impl NativeInstances {
             enabled,
             start: Cell::new(false),
             retiring: false,
+            replacement: None,
+            retry_at: 0,
+            failure_reported: false,
         });
         Ok(key)
     }
@@ -266,22 +281,20 @@ impl NativeInstances {
 
     /// Retire a published owner. Cleanup is retryable under the same key;
     /// callbacks and broker lookup are revoked even when cleanup is busy.
-    pub(crate) fn retire(&mut self, key: u64) -> Result<(), i32> {
+    pub(crate) fn retire(&mut self, key: u64) -> Result<Option<String>, i32> {
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
+        entry.retiring = true;
         entry.start.set(false);
         if let Some(instance) = &entry.instance {
-            instance
-                .0
-                .retire(u64::try_from(key).map_err(|_| ERR_FULL)?)?;
+            instance.0.retire(key)?;
         }
         let at = self
             .entries
             .iter()
             .position(|entry| entry.key == key)
             .ok_or(ERR_STATE)?;
-        self.entries.swap_remove(at);
-        Ok(())
+        Ok(self.entries.swap_remove(at).replacement)
     }
 
     /// Reclaim a failed admission without reusing its key or moving any identity.
@@ -296,18 +309,97 @@ impl NativeInstances {
         Ok(())
     }
 
+    pub(crate) fn defer_replacement(&mut self, key: u64, folder: String) -> Result<(), i32> {
+        let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
+        if !entry.retiring || entry.replacement.is_some() {
+            return Err(paperpaw_native::host_glue::ERR_BUSY);
+        }
+        entry.replacement = Some(folder);
+        Ok(())
+    }
+
+    pub(crate) fn replacement_pending(&self, id: &Id) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.id == *id && entry.replacement.is_some())
+    }
+
+    /// Orphaned Drop cleanup uses HostServices' one fixed retry queue. Rows
+    /// retained here still own lifecycle/handle cleanup and replacement state;
+    /// they are never enqueued as orphaned owners.
+    pub(crate) fn retry_orphaned_retirements(&self, now: u64) -> Result<bool, i32> {
+        if now < self.orphan_retry_at.get() {
+            return Ok(true);
+        }
+        let result = self
+            .pool
+            .as_ref()
+            .map_or(Ok(false), OwnerResourceView::retry_retirements);
+        match result {
+            Err(status) if status != paperpaw_native::host_glue::ERR_BUSY => {
+                self.orphan_retry_at.set(now.saturating_add(5_000));
+                if self.orphan_failure_reported.replace(true) {
+                    Ok(true)
+                } else {
+                    Err(status)
+                }
+            }
+            other => {
+                self.orphan_retry_at.set(0);
+                if other == Ok(false) {
+                    self.orphan_failure_reported.set(false);
+                }
+                other
+            }
+        }
+    }
+
+    pub(crate) fn retirement_failed(&mut self, key: u64, status: i32, now: u64) -> bool {
+        let Some(entry) = self.entry_mut(key) else {
+            return false;
+        };
+        if status == paperpaw_native::host_glue::ERR_BUSY {
+            entry.retry_at = 0;
+            return false;
+        }
+        entry.retry_at = now.saturating_add(5_000);
+        !core::mem::replace(&mut entry.failure_reported, true)
+    }
+
+    pub(crate) fn retirement_ready(&self, key: u64, now: u64) -> bool {
+        self.entry(key).is_some_and(|entry| entry.retry_at <= now)
+    }
+
+    pub(crate) fn retirement_due(&self, now: u64) -> Option<u64> {
+        let soon = now.saturating_add(50);
+        let native = self
+            .entries
+            .iter()
+            .filter(|entry| Self::needs_retirement(entry))
+            .map(|entry| entry.retry_at.max(soon))
+            .min();
+        let orphan = self
+            .pool
+            .as_ref()
+            .is_some_and(OwnerResourceView::retirements_pending)
+            .then(|| self.orphan_retry_at.get().max(soon));
+        native.into_iter().chain(orphan).min()
+    }
+
+    fn needs_retirement(entry: &Entry) -> bool {
+        entry.retiring
+            || entry
+                .instance
+                .as_ref()
+                .is_some_and(|instance| !instance.0.running())
+    }
+
     /// Also notices a Hosted::stop request made through a retained owner.
     pub(crate) fn pending_unload(&self, after: Option<u64>) -> Option<(u64, &Id)> {
         self.entries
             .iter()
             .filter(|entry| after.is_none_or(|key| entry.key > key))
-            .filter(|entry| {
-                entry.retiring
-                    || entry
-                        .instance
-                        .as_ref()
-                        .is_some_and(|instance| !instance.0.running())
-            })
+            .filter(|entry| Self::needs_retirement(entry))
             .min_by_key(|entry| entry.key)
             .map(|entry| (entry.key, &entry.id))
     }
@@ -385,6 +477,8 @@ mod tests {
         active: Cell<bool>,
         drops: Rc<Cell<u32>>,
         retired: Rc<Cell<Option<u64>>>,
+        retire_error: Rc<Cell<Option<i32>>>,
+        retire_calls: Rc<Cell<u32>>,
     }
     impl Drop for Fake {
         fn drop(&mut self) {
@@ -401,7 +495,8 @@ mod tests {
         fn retire(&self, owner: u64) -> Result<(), i32> {
             self.stop();
             self.retired.set(Some(owner));
-            Ok(())
+            self.retire_calls.set(self.retire_calls.get() + 1);
+            self.retire_error.get().map_or(Ok(()), Err)
         }
     }
     impl Dispatch for Fake {
@@ -430,6 +525,8 @@ mod tests {
             active: Cell::new(true),
             drops: drops.clone(),
             retired: Rc::new(Cell::new(None)),
+            retire_error: Default::default(),
+            retire_calls: Default::default(),
         })
         .unwrap();
         let mut registry = NativeInstances::default();
@@ -450,7 +547,7 @@ mod tests {
         drop(lease);
         assert_eq!(drops.get(), 0);
         assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(drops.get(), 1);
     }
 
@@ -527,12 +624,14 @@ mod tests {
             active: Cell::new(true),
             drops: drops.clone(),
             retired: retired.clone(),
+            retire_error: Default::default(),
+            retire_calls: Default::default(),
         })
         .unwrap();
         let key = registry
             .test_insert(Id::new_static("probe"), Some(lease), true)
             .unwrap();
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(retired.get(), Some(key));
         assert_eq!(drops.get(), 1);
         assert!(registry.id(key).is_none());
@@ -557,7 +656,7 @@ mod tests {
             .unwrap();
         assert_eq!(key, first.owner_id());
         assert_eq!(registry.identity(key).unwrap().owner(), first.owner_id());
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         let other_pool = super::super::HostResources::try_new().unwrap();
         let other = other_pool.try_owner().unwrap();
         assert_eq!(
@@ -580,5 +679,88 @@ mod tests {
             .unwrap();
         assert!(next > key);
         assert_eq!(next, second.owner_id());
+    }
+    #[test]
+    fn non_busy_cleanup_failure_backs_off_warns_once_and_can_recover() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        kernel.take_warnings();
+        let error = Rc::new(Cell::new(Some(paperpaw_native::host_glue::ERR_IO)));
+        let calls = Rc::new(Cell::new(0));
+        let lease = NativeLease::try_new(Fake {
+            active: Cell::new(true),
+            drops: Default::default(),
+            retired: Default::default(),
+            retire_error: error.clone(),
+            retire_calls: calls.clone(),
+        })
+        .unwrap();
+        let owner = Id::new_static("probe");
+        let key = kernel
+            .shared
+            .native_instances
+            .test_insert(owner.clone(), Some(lease), true)
+            .unwrap();
+        kernel.unload_plugin(&owner);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(kernel.take_warnings().len(), 1);
+        let effects = kernel.tick(paperpaw_platform::Instant(50));
+        assert_eq!(calls.get(), 1, "permanent errors do not retry every 50ms");
+        assert_eq!(effects.wake_at(), Some(paperpaw_platform::Instant(5_000)));
+        kernel.tick(paperpaw_platform::Instant(5_000));
+        assert_eq!(calls.get(), 2);
+        assert!(
+            kernel.take_warnings().is_empty(),
+            "the same failure is reported once"
+        );
+        assert_eq!(
+            kernel.native_unload_due(),
+            Some(paperpaw_platform::Instant(10_000))
+        );
+        error.set(None);
+        kernel.tick(paperpaw_platform::Instant(10_000));
+        assert_eq!(calls.get(), 3);
+        assert!(kernel.shared.native_instances.id(key).is_none());
+        assert!(kernel.native_unload_due().is_none());
+    }
+    #[test]
+    fn lost_orphan_retirement_reports_queue_full_once_and_backs_off() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        kernel.take_warnings();
+        let pool = super::super::HostResources::try_new().unwrap();
+        let owner = pool.try_owner().unwrap();
+        kernel
+            .shared
+            .native_instances
+            .adopt_pool(owner.try_view().unwrap())
+            .unwrap();
+        // Break the admission invariant deliberately: the old fixed queue
+        // could lose an owner. The driver must report even an empty queue.
+        pool.hosts().owner_gone(123, false);
+        pool.hosts().owner_gone(456, false);
+        let effects = kernel.tick(paperpaw_platform::Instant(0));
+        assert_eq!(effects.wake_at(), Some(paperpaw_platform::Instant(5_000)));
+        let warnings = kernel.take_warnings();
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|warning| warning.message.contains("retirement queue full"))
+                .count(),
+            1
+        );
+        assert!(pool.hosts().retirements_pending());
+        kernel.tick(paperpaw_platform::Instant(50));
+        kernel.tick(paperpaw_platform::Instant(5_000));
+        assert!(
+            kernel.take_warnings().is_empty(),
+            "the invariant failure is reported once"
+        );
+        assert_eq!(
+            kernel.native_unload_due(),
+            Some(paperpaw_platform::Instant(10_000))
+        );
     }
 }

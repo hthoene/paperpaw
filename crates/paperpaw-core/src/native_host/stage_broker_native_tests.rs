@@ -205,5 +205,11 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
         }
     );
     assert_eq!(CALLS.with(Cell::get), 2);
+    assert_eq!(
+        DESTROYS.with(Cell::get),
+        0,
+        "the pending row retains cleanup ownership"
+    );
+    assert!(registry.retire(plugin).unwrap().is_none());
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }
