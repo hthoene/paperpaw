@@ -3,7 +3,6 @@
 # and its group in the plugin library (ADR 0023). The firmware leaves them
 # out (crates/paperpaw-app, feature `store-plugins`); keep both in step.
 aids reading
-battery system
 browser news
 calibre library
 diagnostics system
