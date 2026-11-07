@@ -105,6 +105,13 @@ pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
     hash
 }
 
+const _: () = {
+    let mut index = 0;
+    while index < KIND_TABLE.len() {
+        assert!(KIND_TABLE[index].1 < 32);
+        index += 1;
+    }
+};
 const _: () = assert!(core::mem::size_of::<NameEntry>() == 8);
 
 // The low three bits of record_kind hold the record index.
