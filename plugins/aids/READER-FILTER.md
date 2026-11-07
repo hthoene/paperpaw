@@ -9,6 +9,9 @@ Local tags: 1 rules (signature u64, bold 0/1, image policy 0 keep/1 caption/2 dr
 localized caption word); 2 ordered whole-word replacement (from, to, flag 1).
 One rules record first, then at most 32 pairs: 33 records, below STG's 64-record
 ceiling. Each string is at most 96 UTF-8 bytes; whole payload at most 3840 bytes.
+Both limits apply: 32 full-length pairs do not fit (about 17 fit, depending on
+the header). Settings validation must measure the exact encoded payload and
+refuse the whole configuration visibly when either limit is exceeded.
 The generated framing is shared with the approved #224 codec template. Regenerate
 with `python3 tools/reader-filter-gen.py`; `--check` detects drift. ABI global
 records and lock are unchanged.
@@ -44,3 +47,16 @@ allocations for two pairs, asserting unchanged output/block. Allocations inside
 the existing transformations and output expansion remain separate activation
 gates; these tests do not claim to make the legacy transform implementation
 fallible.
+
+## Kernel review gates
+
+Before merge, migrate to Core PR #276's single stage-schema format and generator
+after it lands in integration. Use `key: reader.filter`, major 1, explicit input
+and reply lists and limits, and `since` starting at 0. Keep generated output
+plugin-owned; remove the separate `abi_stage_codec.py` and `reader-filter-gen.py`
+path, preserving its regression coverage in the shared generator.
+
+Before activation, stop trusting the sender-provided signature. Prefer removing
+the field and deriving the cache key at the receiver; if retained, verify FNV-1a
+64 over the canonical encoding with that field zeroed before any mutation. The
+current application does not verify it and must not supply a trusted cache key.
