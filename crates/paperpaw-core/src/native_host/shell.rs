@@ -14,8 +14,10 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
+use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
+use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::pin::Pin;
@@ -198,8 +200,8 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 pub struct Hosted<S, M> {
     owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
-    /// The plugin's read-only data as mapped: address and length.
-    image: (usize, usize),
+    /// The plugin's read-only data as mapped: pointer with provenance and length.
+    image: (*const u8, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
     stopped: Cell<bool>,
 }
@@ -232,6 +234,8 @@ pub fn host_table<S: Services>() -> PpHost {
     table.storage_rename = storage_rename::<S>;
     table.storage_remove = storage_remove::<S>;
     table.storage_sync = storage_sync::<S>;
+    table.service_open = service_open::<S>;
+    table.service_call = service_call::<S>;
     table.services_query = services_query::<S>;
     table.blob_read = blob_read::<S>;
     table.blob_release = blob_release::<S>;
@@ -251,8 +255,8 @@ pub fn host_table<S: Services>() -> PpHost {
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
     /// `report` is the shell's real diagnostic sink, including the X4 sink.
-    /// `image` is the address and length of the plugin's read-only data
-    /// (`(0, 0)` for none).
+    /// `image` is the pointer and length of the plugin's read-only data
+    /// (null and zero for none).
     ///
     /// # Errors
     /// `Allocation` when the id or the owner cannot be placed; `services` and
@@ -263,7 +267,7 @@ impl<S: Services, M> Hosted<S, M> {
     /// - `make` is the validated entry of the code that `module` keeps loaded,
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
-    ///   while `module` lives, or `(0, 0)`.
+    ///   while `module` lives, or a null pointer with zero length.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the owner resources and checked requirements"
@@ -273,7 +277,7 @@ impl<S: Services, M> Hosted<S, M> {
         module: M,
         make: Make,
         id: &str,
-        image: (usize, usize),
+        image: (*const u8, usize),
         report: Report<S>,
         resources: super::HostResources,
         declared_services: DeclaredServices,
@@ -320,7 +324,9 @@ impl<S: Services, M> Hosted<S, M> {
         })
     }
 
-    /// The pinned owner; callers lease, revoke and finish through it.
+    /// The pinned owner; callers lease and finish through it. To stop the
+    /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
+    /// withdraws [`image`](Self::image).
     #[must_use]
     pub fn owner(&self) -> Pin<&Owner<S, M>> {
         self.owner.as_ref()
@@ -332,6 +338,12 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
+    }
+
+    /// Whether [`stop`](Self::stop) was called.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.get()
     }
 
     /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
@@ -349,7 +361,7 @@ impl<S: Services, M> Hosted<S, M> {
         }
         // SAFETY: `new`'s contract: a read-only mapping of `len` bytes at
         // `start`, held by the owner's module for as long as `self` lives.
-        Some(unsafe { core::slice::from_raw_parts(start as *const u8, len) })
+        Some(unsafe { core::slice::from_raw_parts(start, len) })
     }
 
     /// Starts the transaction `make` registers in.
@@ -441,6 +453,29 @@ impl<S: Services, M> Hosted<S, M> {
         // On a refusal the transaction drops before returning. No unvalidated
         // partial output is used; a failed `make` has no live output.
         self.make_registered(transaction)?.commit()
+    }
+}
+
+/// Boxes `value` or says `Allocation`; the host is never aborted by a plugin's
+/// memory use (the X4 has no room to abort).
+///
+/// # Errors
+/// `Allocation` when the heap has no room.
+pub fn try_box<T>(value: T) -> Result<Box<T>, Error> {
+    let layout = Layout::new::<T>();
+    if layout.size() == 0 {
+        return Ok(Box::new(value));
+    }
+    // SAFETY: the layout is nonzero and valid for this exact type.
+    let allocation = unsafe { alloc(layout) }.cast::<T>();
+    if allocation.is_null() {
+        return Err(Error::Allocation);
+    }
+    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
+    // initialized before the `Box` exists.
+    unsafe {
+        allocation.write(value);
+        Ok(Box::from_raw(allocation))
     }
 }
 
@@ -921,9 +956,22 @@ pub fn dispatch_draw<S, M>(
     })?
 }
 
+/// One hosted, made and committed plugin as the kernel's `FlatInstance`.
+#[path = "shell_instance.rs"]
+pub mod instance;
+
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;
+
+/// The services a plugin declares, checked against the host's catalog before
+/// its image is placed.
+#[path = "shell_admission.rs"]
+pub mod admission;
+
+/// Which plugin's code runs now, kept where a reset leaves it.
+#[path = "shell_inflight.rs"]
+pub mod inflight;
 
 unsafe extern "C" fn i18n_copy<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
@@ -1301,4 +1349,53 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
     };
     // SAFETY: the slot contract supplies stable, readable batch bytes.
     unsafe { context.commands.submit(batch.ptr, batch.len) }
+}
+
+unsafe extern "C" fn service_open<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::open(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+
+unsafe extern "C" fn service_call<S>(
+    ctx: *mut c_void,
+    service: u32,
+    op: u32,
+    input: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live and disjoint pairs.
+    unsafe {
+        super::call_services::call(
+            &context.environment,
+            &context.resources,
+            service,
+            op,
+            input,
+            out,
+        )
+    }
 }

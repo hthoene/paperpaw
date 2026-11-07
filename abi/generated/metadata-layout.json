@@ -14,7 +14,13 @@
         "size_source": "entry_bytes"
       }
     ],
-    "features": [],
+    "features": [
+      {
+        "key": "uses.registry",
+        "revision": 1,
+        "since": 1
+      }
+    ],
     "format": 2,
     "magic": "PPAM",
     "max_bytes": 2048,
@@ -191,6 +197,13 @@
       },
       {
         "key": "core.test-echo",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.registry",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,

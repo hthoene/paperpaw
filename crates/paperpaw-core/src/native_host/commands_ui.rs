@@ -8,6 +8,7 @@ pub(super) struct UiContext<'a> {
     env: &'a Env<'a>,
     screen: Option<ScreenKey>,
     hop: u8,
+    open_budget: u32,
 }
 
 /// Deferred redraw retains the original screen instance, never a later top one.
@@ -17,9 +18,39 @@ pub(crate) struct Redraw {
 }
 
 impl<'a> CommandStage<'a> {
-    pub(crate) fn with_ui(mut self, env: &'a Env<'a>, screen: Option<ScreenKey>, hop: u8) -> Self {
-        self.ui = Some(UiContext { env, screen, hop });
+    pub(crate) fn with_ui(
+        mut self,
+        env: &'a Env<'a>,
+        screen: Option<ScreenKey>,
+        hop: u8,
+        open_budget: u32,
+    ) -> Self {
+        self.ui = Some(UiContext {
+            env,
+            screen,
+            hop,
+            open_budget,
+        });
         self
+    }
+
+    pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        let queued = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Command::OpenScreen(..)))
+            .count();
+        let incoming = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::OpenScreen { .. }))
+            .count();
+        if queued.saturating_add(incoming) > ui.open_budget as usize {
+            return Err(ERR_NO_SPACE);
+        }
+        Ok(())
     }
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
@@ -105,9 +136,13 @@ impl crate::Kernel {
     ) {
         for command in commands {
             if let Command::Close(key) = &command
-                && !self.native_top(owner, *key)
+                && !self
+                    .shared
+                    .stack
+                    .iter()
+                    .any(|entry| entry.key == *key && entry.screen.namespace() == owner.as_str())
             {
-                self.warn_runtime("native close dropped: its screen is no longer on top");
+                self.warn_runtime("native close dropped: its screen no longer exists");
                 continue;
             }
             self.apply(command);
@@ -138,6 +173,220 @@ mod tests {
     use super::*;
     use paperpaw_platform::Instant;
 
+    fn screens_kernel() -> crate::Kernel {
+        use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+        struct Empty;
+        impl Screen for Empty {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
+            fn on_action(
+                &mut self,
+                _: &Id,
+                _: &mut paperpaw_sdk::Cx<'_, '_>,
+            ) -> paperpaw_sdk::Handled {
+                paperpaw_sdk::Handled::No
+            }
+        }
+        struct Screens;
+        impl Plugin for Screens {
+            fn manifest(&self) -> Manifest {
+                Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+                    .uses(paperpaw_sdk::Uses::NOTHING)
+            }
+            fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+                for id in ["probe.base", "probe.old", "probe.new"] {
+                    r.add_screen(ScreenSpec::new(
+                        Id::new_static(id),
+                        "probe.title",
+                        alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
+                    ))?;
+                }
+                Ok(())
+            }
+        }
+        crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Screens)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn screen_keys_exhaust_without_wrap_or_reuse() {
+        let mut kernel = screens_kernel();
+        kernel.next_serial = u32::MAX - 1;
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.old"),
+            Params::new(),
+        ));
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().key,
+            ScreenKey::new(u32::MAX - 1)
+        );
+        assert_eq!(kernel.next_serial, u32::MAX);
+        kernel.take_warnings();
+        for _ in 0..2 {
+            kernel.apply(Command::OpenScreen(
+                Id::new_static("probe.new"),
+                Params::new(),
+            ));
+            assert_eq!(kernel.next_serial, u32::MAX);
+            assert_eq!(kernel.shared.stack.len(), 1);
+            assert_eq!(kernel.shared.stack[0].key, ScreenKey::new(u32::MAX - 1));
+        }
+        let warnings = kernel.take_warnings();
+        assert_eq!(warnings.len(), 2);
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.message.contains("screen key space exhausted"))
+        );
+    }
+
+    #[test]
+    fn exhausted_screen_key_budget_returns_slot_status_without_mutating_stage() {
+        let kernel = screens_kernel();
+        let env = kernel.shared.env(Instant(0));
+        let owner = Id::new_static("probe");
+        for remaining in [0, 1] {
+            let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
+                .with_ui(&env, None, 0, remaining);
+            let scope = core::pin::pin!(CommandScope::new());
+            let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
+                let mut bytes = [0; 192];
+                let len = commands_encode(commands, &mut bytes).unwrap();
+                scope
+                    .as_ref()
+                    .scope(stage, || {
+                        // SAFETY: this initialized encoded input remains readable
+                        // and disjoint from stage until the synchronous call ends.
+                        unsafe { scope.submit(bytes.as_ptr(), len) }
+                    })
+                    .unwrap()
+            };
+            let open = WireCommand::OpenScreen {
+                screen: "probe.new",
+            };
+            assert_eq!(submit(&mut stage, &[open, open]), ERR_NO_SPACE);
+            assert!(stage.staged.is_empty());
+            if remaining == 1 {
+                assert_eq!(submit(&mut stage, &[open]), OK);
+            }
+            for _ in 0..2 {
+                assert_eq!(submit(&mut stage, &[open]), ERR_NO_SPACE);
+                assert_eq!(stage.staged.len(), remaining as usize);
+                assert_eq!(stage.accepted, remaining as usize);
+            }
+            assert!(kernel.shared.stack.is_empty());
+            assert!(kernel.output.commands.is_empty());
+        }
+    }
+
+    #[test]
+    fn drain_exhaustion_keeps_key_and_stack_and_warns_for_missing_close() {
+        let mut kernel = screens_kernel();
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.base"),
+            Params::new(),
+        ));
+        kernel.next_serial = u32::MAX - 1;
+        let owner = Id::new_static("probe");
+        let (mut commands, redraw, _) = {
+            let env = kernel.shared.env(Instant(0));
+            let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+                &env,
+                None,
+                0,
+                u32::MAX - kernel.next_serial,
+            );
+            let mut bytes = [0; 192];
+            let len = commands_encode(
+                &[WireCommand::OpenScreen {
+                    screen: "probe.new",
+                }],
+                &mut bytes,
+            )
+            .unwrap();
+            assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+            stage.into_ui_output()
+        };
+        // Another callback consumes the last available key before this drain.
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.old"),
+            Params::new(),
+        ));
+        kernel.take_warnings();
+        // A native close normally stamps an existing screen at submission.
+        // Exercise the drain's defensive refusal for a target that never opened.
+        commands.push(Command::Close(ScreenKey::new(u32::MAX)));
+        kernel.drain_native_ui(&owner, commands, redraw);
+        assert_eq!(kernel.next_serial, u32::MAX);
+        assert_eq!(kernel.shared.stack.len(), 2);
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().screen.as_str(),
+            "probe.old"
+        );
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().key,
+            ScreenKey::new(u32::MAX - 1)
+        );
+        let warnings = kernel.take_warnings();
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].message.contains("screen key space exhausted"));
+        assert!(warnings[1].message.contains("native close dropped"));
+    }
+
+    #[test]
+    fn open_then_close_uses_original_target_or_warns_when_already_closed() {
+        for already_closed in [false, true] {
+            let mut kernel = screens_kernel();
+            for id in ["probe.base", "probe.old"] {
+                kernel.apply(Command::OpenScreen(Id::new_static(id), Params::new()));
+            }
+            let original = kernel.shared.stack.last().unwrap().key;
+            let owner = Id::new_static("probe");
+            let (commands, redraw, _) =
+                {
+                    let env = kernel.shared.env(Instant(0));
+                    let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
+                        .with_ui(&env, Some(original), 0, u32::MAX - kernel.next_serial);
+                    let mut bytes = [0; 192];
+                    let len = commands_encode(
+                        &[
+                            WireCommand::OpenScreen {
+                                screen: "probe.new",
+                            },
+                            WireCommand::CloseScreen,
+                        ],
+                        &mut bytes,
+                    )
+                    .unwrap();
+                    assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+                    stage.into_ui_output()
+                };
+            if already_closed {
+                kernel.apply(Command::Close(original));
+            }
+            kernel.take_warnings();
+            kernel.drain_native_ui(&owner, commands, redraw);
+            let warnings = kernel.take_warnings();
+            assert_eq!(warnings.len(), usize::from(already_closed));
+            if already_closed {
+                assert!(warnings[0].message.contains("native close dropped"));
+            }
+            assert_eq!(kernel.shared.stack.len(), 2);
+            assert_eq!(
+                kernel.shared.stack.last().unwrap().screen.as_str(),
+                "probe.new"
+            );
+            assert!(
+                !kernel
+                    .shared
+                    .stack
+                    .iter()
+                    .any(|entry| entry.key == original)
+            );
+        }
+    }
+
     #[test]
     fn ui_batches_preserve_redraw_only_and_refuse_foreign_screens_and_hop_eight() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -152,8 +401,12 @@ mod tests {
         ));
         let env = kernel.shared.env(Instant(0));
         let owner = Id::new_static("probe");
-        let mut stage =
-            CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 0);
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            0,
+            u32::MAX - kernel.next_serial,
+        );
         let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
             let mut bytes = [0; 512];
             let len = commands_encode(commands, &mut bytes).unwrap();
@@ -197,15 +450,23 @@ mod tests {
         assert_eq!(hop, 0);
 
         let foreign = Id::new_static("other");
-        let mut stage =
-            CommandStage::new(&foreign, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 0);
+        let mut stage = CommandStage::new(&foreign, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            0,
+            u32::MAX - kernel.next_serial,
+        );
         assert_eq!(
             submit(&mut stage, &[WireCommand::Redraw { mode: 2 }]),
             ERR_STATE
         );
         assert_eq!(submit(&mut stage, &[WireCommand::CloseScreen]), ERR_STATE);
-        let mut stage =
-            CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, Some(key), 8);
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+            &env,
+            Some(key),
+            8,
+            u32::MAX - kernel.next_serial,
+        );
         assert_eq!(
             submit(
                 &mut stage,

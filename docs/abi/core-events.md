@@ -40,6 +40,16 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   - `key` is the setting's full id (`<plugin>.<name>`, or `core.*`). `old` is the previous value in
     the settings value encoding (`settings_value`), empty when there was none. A setting value is
     never empty, so empty means "no previous value". The new value is read with slot 5 (`settings.read`).
+  - 64 reports changes of **kept** values only: a set, a reset, a preset applied (one event per
+    key) and a write into a book's scope. `old` is the value kept before, in the store the write
+    goes to (the scope's, else the global one), empty when none was set; never a previewed value,
+    a power mode's or a default. A preview (REG event 76) and a power mode wearing values (event
+    72) change no kept value and raise no 64: they are hints, the consumer reads again.
+  - A **scope switch** (a book's scope on, off or another book's) changes which kept values apply,
+    not the values: the host raises one empty-key event (below) when the old or the new scope
+    holds a value, instead of one event per key.
+  - An `old` over its 512-byte cap is never cut and never sent empty (empty means "none"): that
+    edge is dropped as an overflow and replaced by the empty-key event below.
   - `old` is given only to a subscriber that could read the key with slot 5; any other subscriber
     gets the event with `old` empty. A secret-scoped setting (SEC family) is never announced to
     another plugin.
@@ -77,7 +87,10 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   wait; `mode` the mode's id (a built-in one or a preset's). Other levels are reserved (treated as
   normal), other flag bits 0.
 - [D] **`event.charge_changed.flags`:** bit 0 charging, bit 1 external power present, bit 2 battery
-  low (the host's threshold). Other bits are 0; consumers ignore bits they do not know.
+  low (the host's threshold). Other bits are 0; consumers ignore bits they do not know. Bit 1 is set
+  only where it is known: the shell reports external power, or the battery is charging (which
+  needs it). A device that cannot detect external power may show bit 1 clear on a cable with a
+  full battery; the host never guesses it.
 - [D] **Edges and hints.** 64-69 are edges: each one happened. 70-74 are hints: "this state changed,
   read it again". They carry the new state where it is small (71, 72, 74); everything else is read
   through the owning service (plugin inventory: REG; status items: the reader's status stage).

@@ -17,7 +17,10 @@
 //! relocations show it), no symbol exported besides the two, no writable
 //! data and nothing that would run before `make` (any section but `.rodata`
 //! and `.text` that takes memory is refused), and no relocation kind outside
-//! the short list. The loader sees none of that, only what the file shows.
+//! the short list, and no stack frame of 2 KiB or more nor one of a size the
+//! code does not tell ([`crate::frames`]: the X4 watches the stack's end with a
+//! band a bigger frame could step over). The loader sees none of that, only
+//! what the file shows.
 //!
 //! Before it returns, the packer reads the file as the loader will, at two
 //! places: the header, the digest, every word to relocate and the entry and
@@ -131,6 +134,14 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
             paperpaw_native::TABLE_SYMBOLS[n]
         ));
     }
+    // After what is wrong with the file's identity, before it is made: the
+    // frames the code takes on the stack.
+    let tables = crate::frames::Tables {
+        addr: image.rodata.addr,
+        bytes: &image.bytes[..image.code_at as usize],
+        relocated: Some(&words),
+    };
+    crate::frames::check(&elf, image.text, image.text_index, &symbols, tables)?;
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
     let patches = records(&hot.patches)?;
     patch_count(patches.len())?;

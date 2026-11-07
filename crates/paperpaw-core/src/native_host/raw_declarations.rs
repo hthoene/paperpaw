@@ -288,7 +288,7 @@ impl RawDeclarations {
         let bytes = batch.view(image)?;
         let offset = usize::from(*batch.offsets.get(entry.record()).ok_or(ERR_INVALID)?);
         let (record, _) =
-            super::registrations::record_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
+            super::registrations::host_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
         let (kind, name) = key(record).ok_or(ERR_INVALID)?;
         if kind != entry.kind()
             || self.hash(kind, name) != entry.hash
