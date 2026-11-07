@@ -188,9 +188,21 @@ file's size, 2.1).
   request that answers in memory starts its transfer only while fewer exist; otherwise it waits in
   the queue in start order (its `timeout_ms` counts from its start, so a long wait ends it with
   `timeout`, never holds more). Requests that save to a file need no memory body (a 4 KiB write
-  buffer while they run) and are not counted. So the X4 holds at most 2 x 64 KiB of bodies plus
-  the shell's buffers and one TLS session; Firmware measures that worst case on the X4 heap
-  (section 9), and the profile lowers `MEMORY_BODIES` to 1 if it does not fit.
+  buffer while they run) and are not counted against `MEMORY_BODIES`.
+- [D] **One network pool on the X4.** Devices of the small memory class have one device-wide
+  pool, `NET_POOL` in the profile (**80 KiB on the X4**: one 64 KiB body and two sockets), for
+  every network buffer the host holds for plugins: memory bodies, held `respond` bodies, the
+  4 KiB write buffer of a saving request, and SOCK's send queues, reads and broadcast answers
+  (`sockets.md` section 6). Each is reserved from the pool before it is used, never grown later:
+  a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving) before its
+  transfer starts and waits in the queue while the pool has not that room (its `timeout_ms`
+  counting, as for `MEMORY_BODIES`); everything else (a held `respond` body, SOCK's buffers)
+  that does not fit answers `ERR_NO_MEMORY` at its call and holds nothing. `max_body` is at
+  most the pool. So the X4 holds at most `NET_POOL` of plugin network memory, plus the shell's
+  receive and send buffers and one TLS session (about 40 KiB); Firmware measures that worst case
+  on the X4 heap (section 9) and the profile lowers `NET_POOL` (and with it the default
+  `max_body`) if it does not fit. Other devices have no pool: the caps per item and
+  `MEMORY_BODIES` bound them.
 - [D] A plugin that stops has its requests cancelled (no events: it is not running) and its
   servers stopped; held bodies are freed.
 
@@ -233,6 +245,7 @@ file's size, 2.1).
 | 11 | `offline` | the offline power mode (3.2) |
 | 12 | `saving` | the plugin's network use is on hold (3.2) |
 | 13 | `network_off` | the user turned this plugin's network off (3.2) |
+| 14 | `work_ended` | the work run it belongs to reached its longest time (`work.md` 2.3) |
 
 - [D] A 2xx answer that saved has `reason` 0 and `saved`; a non-2xx answer has `reason` 0, its
   status and its error body in memory: HTTP statuses are the plugin's to judge (interface 6).
@@ -379,7 +392,8 @@ file's size, 2.1).
   platform's HTTP client: admission (2.1 checks, limits, `uses.network`), the request table (ids,
   tokens, same-file replace within a plugin, `ERR_BUSY` across plugins, save paths in the
   paths-in-use table), cancel, ends-exactly-once, routing of 99-102 from the tables, the answer
-  hold, `MEMORY_BODIES` counting arriving and undelivered bodies, `body` pieces, power-saving
+  hold, `MEMORY_BODIES` counting arriving and undelivered bodies, the X4's `NET_POOL` with
+  reservations before use (shared with SOCK), `body` pieces, power-saving
   ends, the server table (serve only from a showing screen, screen ties, `max_body` and 413,
   the free-space reserve and 507 for `.received/`, emptying `.received/` at plugin start and
   `serve`, 120 s answer time), and tests for each status and reason. Interface 6's `io/http.rs`
@@ -388,7 +402,8 @@ file's size, 2.1).
   (`.part` renames, the 20-port probe, the cable server), the emulator and Android shells keep
   theirs, and the shells advertise `uses.network`. The servers keep the 8 KiB head cap, the 30 s
   head and stall times and stop a body at `max_body`. Firmware measures the X4 worst case
-  (`MEMORY_BODIES` 2 x 64 KiB, the receive and send buffers, one TLS session, two server
-  connections) on the X4 heap; the X4 profile's `MEMORY_BODIES` follows that measurement.
+  (a full `NET_POOL`, the receive and send buffers of NET's and SOCK's connections, one TLS
+  session, two server connections) on the X4 heap; the X4 profile's `NET_POOL` follows that
+  measurement.
 - **Services:** `native::net` (builder, token table, body reader), `served` and `web` kept.
 - **Plugin:** ports declare `uses.network` (and `uses.storage` where they save to the card).
