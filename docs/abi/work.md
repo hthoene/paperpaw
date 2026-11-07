@@ -243,8 +243,8 @@ record.
   charging), deadlines and stretch, offline and saving holds, the device-wide 15-minute deadline
   gap, `network_wanted`, runs and their end, the 10-minute run limit ending the run's requests and
   sockets with `work_ended`, quiet scoped to the run's own callbacks, work declared during a pass
-  due at the next one (1 s for any work declared from a run), the device-wide cap, events 103-105 from
-  the table, `state`; tests for each rule and status, one for a callback that declares itself
+  due at the next one (1 s for any work declared from a run), the device-wide cap, events 103-105
+  from the table, `state`; tests for each rule and status, one for a callback that declares itself
   again at once (no loop in one pass) and one for a dialog from the screen during a run. The
   kernel's own catalog and clean-up jobs stay host-internal.
 - **Firmware:** the X4 main loop's naps already wake for the host's earliest time
