@@ -46,6 +46,7 @@ fn pointer_phases_and_gesture_kinds_keep_signed_positions() {
             x: i32::MIN,
             y: i32::MAX,
             phase: phase as u32,
+            contact: None,
         })]);
         assert_eq!(
             Input::decode(&bytes),
@@ -108,6 +109,7 @@ fn action_and_invalid_enum_values_are_decoded_strictly() {
             x: 0,
             y: 0,
             phase: 4,
+            contact: None,
         }),
         Record::InputGesture(wire::InputGesture {
             now_ms: 1,

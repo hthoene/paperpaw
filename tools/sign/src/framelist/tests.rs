@@ -176,3 +176,72 @@ fn a_malformed_family_word_is_refused_when_the_budget_is_read() {
     let p = check(&all, "chain 4294967295 a::f*2").unwrap();
     assert_eq!(p.len(), 1);
 }
+
+#[test]
+fn each_holds_every_function_of_a_family_to_the_bound() {
+    let all = [
+        frame("c::native_host::shell::a", Some(2000)),
+        frame("c::native_host::shell::b::x::X4Services::m", Some(1712)),
+        frame("c::native_host::flat::invoke", Some(80)),
+        frame("c::other::big", Some(9000)),
+    ];
+    // All within 2,047; the function outside the family is not looked at.
+    assert!(
+        check(&all, "each 2047 native_host::shell")
+            .unwrap()
+            .is_empty()
+    );
+    assert!(check(&all, "each 2047 native_host").unwrap().is_empty());
+    // One over: named, with its frame.
+    let p = check(&all, "each 1999 native_host::shell").unwrap();
+    assert_eq!(p.len(), 1);
+    assert!(p[0].contains("shell::a") && p[0].contains("2000"), "{p:?}");
+    // The bound is inclusive.
+    assert!(
+        check(&all, "each 2000 native_host::shell")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn each_fails_on_an_unsized_member_and_on_a_family_that_matches_nothing() {
+    let all = [
+        frame("c::native_host::shell::a", Some(10)),
+        frame("c::native_host::shell::b", None),
+    ];
+    let p = check(&all, "each 2047 native_host::shell").unwrap();
+    assert_eq!(p.len(), 1);
+    assert!(p[0].contains("does not size"), "{p:?}");
+    let p = check(&all, "each 2047 native_host::nothing").unwrap();
+    assert!(p[0].contains("no function matches"), "{p:?}");
+    // `shell_helper` is no part of the family `shell`.
+    let all = [frame("c::native_host::shell_helper", Some(5000))];
+    let p = check(&all, "each 2047 native_host::shell").unwrap();
+    assert!(p[0].contains("no function matches"), "{p:?}");
+    assert!(check(&all, "each x native_host").is_err());
+    assert!(check(&all, "each 10").is_err());
+}
+
+#[test]
+fn each_leaves_out_the_families_after_a_minus() {
+    let all = [
+        frame("c::native_host::a", Some(100)),
+        frame("c::native_host::shell::Error::core::fmt::Debug::fmt", None),
+        frame("c::native_host::big", Some(5000)),
+    ];
+    // The unsized one and the big one both fail the plain rule.
+    assert_eq!(check(&all, "each 2047 native_host").unwrap().len(), 2);
+    // Left out by family, they pass: only what is named is excluded.
+    assert!(
+        check(&all, "each 2047 native_host -core::fmt::Debug::fmt -big")
+            .unwrap()
+            .is_empty()
+    );
+    let p = check(&all, "each 2047 native_host -core::fmt::Debug::fmt").unwrap();
+    assert_eq!(p.len(), 1);
+    assert!(p[0].contains("big"), "{p:?}");
+    // A bare `-`, or no family, is a mistake in the budget.
+    assert!(check(&all, "each 2047 native_host -").is_err());
+    assert!(check(&all, "each 2047 -x").is_err());
+}

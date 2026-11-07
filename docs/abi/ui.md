@@ -44,8 +44,8 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   never 0 and never reused while the host runs (on the X4 until restart; at `u32::MAX` opens are
   `ERR_FULL` until restart). Request and hand-over ids (sections 3 and below) follow the same rule,
   from one counter, so a host text id (op 9, 10) names one request or one hand-over. The same screen
-  may be open more than once with different parameters. An instance is what interface 6 called
-  `ScreenKey`.
+  may be open more than once, as its `instances` policy allows (section 1.2). An instance is what
+  interface 6 called `ScreenKey`.
 - [D] The `draw` and `input` callbacks keep their signatures. The host calls them only for the
   instance on top (and for composed instances, section 5), and it announces which instance is on
   top before the first `draw`: `event.screen_shown` (38) has the field `instance` (38 is not
@@ -107,7 +107,18 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   - bit 3 `waits_ready`: help for this screen waits until the screen says it is ready
     (`command.screen_ready`, section 7);
   - bit 4 `secret`: what the screen shows is secret from its opening on (a PIN, a password);
-  - bit 5 `holds_edges`: edge swipes wait while the screen holds them.
+  - bit 5 `holds_edges`: edge swipes wait while the screen holds them;
+  - bits 6-7 `instances` (interface 6 `Instances`), for `open` mode 0 (section 1.3; modes 1 and 3
+    keep their slot rule, mode 2 always replaces): 0 **one per params** (the default): an open of
+    the screen while an instance of it with equal params is open goes back to that instance
+    instead of opening another; 1 **single**: the same for any open instance of the screen,
+    whatever its params; 2 **many**: every open opens a new instance; 3 `ERR_UNSUPPORTED`. Params
+    compare as in section 1.1 (keys and values, not the text). Going back closes the screens above
+    the instance as `back_to` does, including its guard rule: where that is refused the open is
+    `OK` with no effect (logged), as interface 6. The instance then gets the open's hand-over (none:
+    its params become empty) and `event.screen_opened` again (`flags` bit 0 `again`) before it is
+    shown, so a single screen shows the new params as if opened with them (interface 6
+    `on_reopen`); *back* then leaves it in one press. `screen_policy` cannot change these bits.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
@@ -209,9 +220,16 @@ asker learns its request id at once and long texts move in pages, never cut.
   empty for the kind's slot; for kind 0 also `core.remote-keyboard` (the keyboard's "type on the
   phone" asks it this way, with its own text as the initial text); any other `ERR_INVALID`.
   `title` and `text` (the question) are display text the caller formatted itself (slot 27);
-  `choices` (kind 1 only) at most 32 lines of at most 128 bytes and 2,048 bytes in all,
-  non-empty, no trailing `\n` (`ERR_INVALID`, over the cap `ERR_NO_SPACE`).
-- [D] `flags` (other bits `ERR_INVALID`; bits 0-7 for kind 0 only): bit 0 `live` (the asker hears
+  `choices` (kind 1) at most 32 lines of at most 128 bytes and 2,048 bytes in all,
+  non-empty, no trailing `\n` (`ERR_INVALID`, over the cap `ERR_NO_SPACE`). For kind 2
+  `choices` holds the button words (interface 6 `ConfirmQuestion::yes`/`no`, display text the
+  caller formatted): empty for the dialog's own *Yes* and *No*, else exactly two lines `yes\nno`
+  of at most 128 bytes each, where an empty line keeps the dialog's word for that button (more
+  lines `ERR_INVALID`); kinds 0 and 3 take no `choices` (`ERR_INVALID`).
+- [D] `flags` (other bits `ERR_INVALID`; bits 0-7 for kind 0 only, bits 8-9 for kind 2 only): bit 8
+  `only_yes` (one button, by default *OK*: a text to be read whole; its `no` line must be empty,
+  else `ERR_INVALID`), bit 9 `focus_yes` (the focus starts on yes); the dialog plugin reads them
+  in `ui_question` and must honour them. Bit 0 `live` (the asker hears
   the text while it is typed), bit 1 `multiline`, bit 2 `secret` (shown masked; the dialog instance
   is `secret`, section 1.2; never putting it on the clipboard is the dialog plugin's duty, the host
   cannot tell its text from other text, decision 44), bits 4-7 the text mode (0 plain, 1 number, 2

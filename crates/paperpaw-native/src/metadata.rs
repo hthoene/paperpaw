@@ -222,6 +222,8 @@ fn services<'a>(cursor: &mut Cursor<'a>, count: usize, host: &Host<'_>) -> Resul
 ///
 /// # Errors
 /// Returns the offending required feature/service key, or a framing/version refusal.
+// One copy of the reader, not one per caller: it is not on a hot path.
+#[inline(never)]
 pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusal<'a>> {
     let mut cursor = Cursor { bytes, at: 0 };
     let prefix = prefix(&mut cursor)?;

@@ -2259,6 +2259,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "contact",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     },

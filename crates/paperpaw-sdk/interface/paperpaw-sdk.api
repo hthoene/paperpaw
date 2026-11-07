@@ -4309,6 +4309,7 @@ pub paperpaw_sdk::native::NotInstalledReason::OtherAuthor
 #[non_exhaustive] pub enum paperpaw_sdk::native::SafeModeReason
 pub paperpaw_sdk::native::SafeModeReason::FailedStarts
 pub paperpaw_sdk::native::SafeModeReason::KeyHeld
+pub paperpaw_sdk::native::SafeModeReason::PowerEscape
 #[non_exhaustive] pub struct paperpaw_sdk::native::CodeRoom
 pub paperpaw_sdk::native::CodeRoom::granule: u32
 pub paperpaw_sdk::native::CodeRoom::larger: core::option::Option<u64>
