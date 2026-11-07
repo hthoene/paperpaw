@@ -12,7 +12,10 @@
 //!
 //! Memory: nothing is kept; the call runs in the dispatcher's 4,096-byte
 //! scratch (a `lookup_entry` is at most 2,384 bytes).
-use super::registrations::{self as wire, Record};
+use super::{
+    host_services::Caller,
+    registrations::{self as wire, Record},
+};
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
@@ -39,15 +42,13 @@ pub(crate) struct LookupServices(pub(crate) Rc<dyn LookupHost>);
 
 /// The `core.lookup` backend.
 pub(crate) fn backend(
-    frame: &dyn Frame,
+    _frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = frame
-        .host_service("core.lookup")
-        .and_then(<dyn core::any::Any>::downcast_ref::<LookupServices>)
-        .ok_or(ERR_UNSUPPORTED)?;
+    let services = who.hosts.lookup().ok_or(ERR_UNSUPPORTED)?;
     if op.id != 1 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -58,7 +59,7 @@ pub(crate) fn backend(
     if ask.text.is_empty() || !language_ok(ask.language) {
         return Err(ERR_INVALID);
     }
-    let length = services.0.ask(frame.caller()?, &ask, out)?;
+    let length = services.0.ask(who.owner, &ask, out)?;
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
     check(reply)?;
     Ok(length)
