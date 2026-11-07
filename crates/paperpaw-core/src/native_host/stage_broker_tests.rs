@@ -441,3 +441,22 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
         }
     );
 }
+
+#[test]
+fn prepared_call_is_exactly_one_complete_record_without_padding() {
+    let h = Harness::new();
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(&schema, &h.depth, &input, &h.registry, []).unwrap();
+    // A single-record decoder rejects padding and trailing records. This also
+    // covers a short request whose allocation used to reserve the whole cap.
+    let Record::StageCall(call) = wire::records_decode_single(&run.call).unwrap() else {
+        panic!("stage.call");
+    };
+    assert_eq!(
+        (call.stage, call.schema, call.payload),
+        (schema.key, schema.major, input.as_slice())
+    );
+    assert_eq!(run.call.len(), run.call.capacity());
+    assert!(run.call.capacity() < CALL_BYTES);
+}

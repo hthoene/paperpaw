@@ -149,7 +149,9 @@ impl<'a> Run<'a> {
             .filter(|length| *length <= CALL_BYTES)
             .ok_or(ERR_NO_SPACE)?;
         let mut call = scratch(capacity)?;
-        wire::records_encode(&[record], &mut call)?;
+        if wire::records_encode(&[record], &mut call)? != capacity {
+            return Err(ERR_INVALID);
+        }
         let reply = scratch(schema.max_reply)?;
         // Publish deduplicated lazy starts only after every allocation succeeded.
         // The retained callback epoch prevents flushing before the run drops.

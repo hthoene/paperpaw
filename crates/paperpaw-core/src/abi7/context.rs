@@ -45,6 +45,8 @@ pub(crate) trait Frame {
         _input: &[u8],
         _out: &mut [MaybeUninit<u8>],
     ) -> Result<usize, i32> {
+        // TODO(#228): once the production broker is wired, a frame without
+        // stage authority must return ERR_STATE (stages-services.md frame checks).
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
