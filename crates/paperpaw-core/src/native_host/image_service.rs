@@ -46,6 +46,16 @@ pub(crate) const MAX_SIDE: u32 = 4096;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
+/// A cache path of root 2 (`document.md` 5): relative, no `..`, `\`, NUL,
+/// empty segments or leading `/`, and not the host's `.complete` or `.host/`.
+fn cache_path_ok(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains(['\\', '\0'])
+        && path.split('/').all(|part| !part.is_empty() && part != "..")
+        && path != ".complete"
+        && path.split('/').next() != Some(".host")
+}
+
 /// `canvas.draw_image` flags.
 const FILL: u32 = 1;
 /// Flags bit 1: a small picture, no ghost full refresh for it.
@@ -228,6 +238,65 @@ impl ImageTable {
             None => inner.entries.push(entry),
         }
         Ok(id)
+    }
+
+    /// A format's picture (`fmt.image`, whose `path` is below the cache
+    /// root `cache`) as an image id of `owner` for `document` (`document.md`
+    /// 5): the id the picture already has, else a new one.
+    ///
+    /// `Ok(None)`: the picture fails the check (a path outside the root-2
+    /// rules or host-reserved, a cache file the card does not give or whose
+    /// header does not say `width` x `height`), so it is left out of the
+    /// stream, never failing it. `Ok(Some(0))`: all eight ids are handed
+    /// out and none drawn, in a block stream (`in_block`) only.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the same, outside a block stream, or the table is
+    /// borrowed), `ERR_NO_MEMORY`, `ERR_NO_SPACE` (the id counter is spent).
+    #[allow(clippy::too_many_arguments, reason = "what the translation needs")]
+    pub(crate) fn map_document(
+        &self,
+        storage: &dyn Storage,
+        owner: u64,
+        document: u32,
+        cache: &str,
+        path: &str,
+        image: &wire::ServiceDocImage,
+        in_block: bool,
+    ) -> Result<Option<u32>, i32> {
+        if !cache_path_ok(path) || cache.len().saturating_add(1 + path.len()) > PATH_MAX {
+            return Ok(None);
+        }
+        let mut full = String::new();
+        full.try_reserve_exact(cache.len() + 1 + path.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        full.push_str(cache);
+        full.push('/');
+        full.push_str(path);
+        // Downloaded input: the header must say what the format says.
+        let Some(decoded) = paperpaw_sdk::image::Decoded::peek(storage, &full) else {
+            return Ok(None);
+        };
+        if decoded.size() != (image.width, image.height) {
+            return Ok(None);
+        }
+        let origin = Origin::Document {
+            document,
+            index: image.index,
+        };
+        match self.add(
+            owner,
+            origin,
+            &full,
+            image.width,
+            image.height,
+            image.flags & 1 != 0,
+        ) {
+            Ok(id) => Ok(Some(id)),
+            Err(ERR_INVALID) => Ok(None),
+            Err(ERR_BUSY) if in_block => Ok(Some(0)),
+            Err(error) => Err(error),
+        }
     }
 
     /// `image_release`, or a reader giving a document image up.

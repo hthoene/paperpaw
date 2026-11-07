@@ -420,3 +420,89 @@ fn info_is_one_doc_image_record_that_must_fit() {
     assert_eq!(encode_info(info, &mut small), Err(ERR_NO_SPACE));
     assert_eq!(small, [0; 4]);
 }
+
+fn fmt_image(index: u32, width: u32, height: u32) -> wire::ServiceDocImage {
+    wire::ServiceDocImage {
+        image: 0,
+        index,
+        width,
+        height,
+        flags: 0,
+    }
+}
+
+const CACHE: &str = ".paperpaw/cache/k/f/c";
+
+#[test]
+fn a_format_picture_becomes_an_image_id_after_the_cache_check() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let map = |path: &str, image: &wire::ServiceDocImage, in_block| {
+        t.map_document(&storage, A, 7, CACHE, path, image, in_block)
+    };
+    let id = map("a.gray", &fmt_image(3, 8, 4), true).unwrap().unwrap();
+    assert_ne!(id, 0);
+    // The same path in the same document is the same id.
+    assert_eq!(map("a.gray", &fmt_image(3, 8, 4), true), Ok(Some(id)));
+    assert_eq!(t.info(A, id).unwrap().index, 3);
+    // Left out of the stream, never failing it: wrong size, missing file,
+    // and every path the root-2 rules refuse or reserve.
+    assert_eq!(map("a.gray", &fmt_image(3, 9, 4), true), Ok(None));
+    assert_eq!(map("none.gray", &fmt_image(4, 8, 4), true), Ok(None));
+    for bad in [
+        "",
+        "/a.gray",
+        "../a.gray",
+        "x/../a.gray",
+        "x//a.gray",
+        "a\\b",
+        "a\0b",
+        ".complete",
+        ".host/a.gray",
+    ] {
+        assert_eq!(map(bad, &fmt_image(5, 8, 4), true), Ok(None), "{bad:?}");
+    }
+    // A cover (`u32::MAX`) is a document image like the others.
+    gray_file(&storage, ".paperpaw/cache/k/f/c/cover.gray", 6, 6, 9);
+    assert!(map("cover.gray", &fmt_image(u32::MAX, 6, 6), false).is_ok());
+}
+
+#[test]
+fn the_ninth_unseen_picture_is_busy_or_a_zero_id_in_a_block() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    for n in 0..9 {
+        gray_file(&storage, &std::format!("{CACHE}/{n}.gray"), 8, 4, 40);
+    }
+    for n in 0..8 {
+        let r = t.map_document(
+            &storage,
+            A,
+            7,
+            CACHE,
+            &std::format!("{n}.gray"),
+            &fmt_image(n, 8, 4),
+            false,
+        );
+        assert!(matches!(r, Ok(Some(id)) if id != 0));
+    }
+    let ninth = |in_block| {
+        t.map_document(
+            &storage,
+            A,
+            7,
+            CACHE,
+            "8.gray",
+            &fmt_image(8, 8, 4),
+            in_block,
+        )
+    };
+    assert_eq!(ninth(true), Ok(Some(0)), "in a block: image 0, no id yet");
+    assert_eq!(ninth(false), Err(ERR_BUSY), "op 16/17/18: busy");
+    // Another plugin has its own eight.
+    assert!(matches!(
+        t.map_document(&storage, B, 9, CACHE, "8.gray", &fmt_image(8, 8, 4), false),
+        Ok(Some(id)) if id != 0
+    ));
+}
