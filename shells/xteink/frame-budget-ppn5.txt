@@ -23,9 +23,7 @@
 # out of the function (it joins that into every instruction, as it must for a
 # plugin's code), so their jump tables go unread: left out, with their small
 # frames; `?>=` in the listing.
-# Until #312 (`-C jump-tables=no`): the generated `record_decode`'s tag match is a jump
-# table the scan cannot size (draft 20's records). #312 drops its exclusion below.
-each 2047 paperpaw_core::native_host -core::fmt::Debug::fmt -registrations::wire::record_decode
+each 2047 paperpaw_core::native_host -core::fmt::Debug::fmt
 each 2047 native::ppn5::x4
 # Around every call into a plugin the shell keeps its id in RTC memory
 # (`safe_mode::calling` / `returned`); the copies are inlined into these two

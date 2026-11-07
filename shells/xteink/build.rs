@@ -38,6 +38,7 @@ fn main() {
     println!("cargo::rerun-if-changed=memory-x4.x");
     plugins();
     compiler();
+    frame_flags();
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     if std::env::var_os("CARGO_FEATURE_ESP32S3").is_some() {
         println!("cargo::rustc-link-arg=-nostartfiles");
@@ -48,6 +49,31 @@ fn main() {
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+}
+
+/// The X4's frame budgets (`frame-budget*.txt`, `paperpaw-sign frames`) are
+/// measured on a build without jump tables (the scan cannot size a function
+/// that jumps through one inside its frame) and with frame pointers: the
+/// flags of `.cargo/config.toml`. A `RUSTFLAGS` in the environment (CI sets
+/// `-D warnings`) replaces them, and the build would then differ from the one
+/// the budgets were checked on, so it fails here instead.
+fn frame_flags() {
+    println!("cargo::rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("riscv32") {
+        return;
+    }
+    let flags = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+    let flags: Vec<&str> = flags.split('\x1f').collect();
+    let has = |wanted: &str| {
+        flags.windows(2).any(|pair| pair == ["-C", wanted])
+            || flags.contains(&format!("-C{wanted}").as_str())
+    };
+    assert!(
+        has("jump-tables=no") && has("force-frame-pointers"),
+        "the X4 builds with `-C jump-tables=no -C force-frame-pointers` \
+         (shells/xteink/.cargo/config.toml); a RUSTFLAGS in the environment \
+         replaces them. Build with `env -u RUSTFLAGS cargo ...`."
+    );
 }
 
 /// The least main stack the ESP32-S3 devices are linked with. Their IRAM
