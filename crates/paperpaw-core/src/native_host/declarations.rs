@@ -92,16 +92,16 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         }
         // Registry declarations (`docs/abi/registry.md` section 6): refused
         // until the host admits them (Core, REG hand-off).
-        Record::SetupStep(step) => {
-            super::declaration_reg_checks::setup_step(plugin_id, step).and(Err(ERR_UNSUPPORTED))
-        }
-        Record::SlotSpec(_)
+        Record::SetupStep(_)
+        | Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
-        | Record::SettingDefault(_)
-        | Record::SettingChoice(_)
-        | Record::PresetSpec(_)
-        | Record::PresetValue(_) => Err(ERR_UNSUPPORTED),
+        | Record::PresetSpec(_) => {
+            super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::SettingDefault(_) | Record::SettingChoice(_) | Record::PresetValue(_) => {
+            Err(ERR_UNSUPPORTED)
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
