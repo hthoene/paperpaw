@@ -15365,6 +15365,1235 @@
   "stages": [
     {
       "input": [
+        "fmt.call",
+        "fmt.option"
+      ],
+      "key": "core.format",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "op",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "document",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "section",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "offset",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "cursor",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "generation",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "image_side",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "cover_side",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "conversion",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u64"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 512,
+              "name": "arg",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "bytes"
+            }
+          ],
+          "id": 1,
+          "name": "fmt.call",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 64,
+              "name": "key",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "value",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 2,
+          "mirrors": "service.doc_option",
+          "name": "fmt.option",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 3,
+          "name": "fmt.yes",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 256,
+              "name": "path",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 4,
+          "name": "fmt.image",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "document",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "state",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "progress_ppm",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "status",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "conversion",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u64"
+            },
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "format",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 5,
+          "mirrors": "service.doc_state",
+          "name": "fmt.state",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 512,
+              "name": "title",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 35,
+              "name": "language",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 512,
+              "name": "series",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 32,
+              "name": "series_index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "direction",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "writing_mode",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "sections",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "authors",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "subjects",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "description_bytes",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 6,
+          "mirrors": "service.doc_meta",
+          "name": "fmt.meta",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "kind",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "total",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 7,
+          "mirrors": "service.doc_text",
+          "name": "fmt.text",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "length",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 8,
+          "mirrors": "service.doc_section",
+          "name": "fmt.section",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "total",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "generation",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "next",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "cursor",
+              "optional": true,
+              "ordinal": 0,
+              "since": 0,
+              "type": "u64"
+            }
+          ],
+          "id": 9,
+          "mirrors": "service.end",
+          "name": "fmt.end",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "kind",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "level",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "start",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "align",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "indent",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "space",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "size",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "margin_start",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "margin_end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "line_height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "dir",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "writing_mode",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 35,
+              "name": "lang",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "drop_cap",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "text_bytes",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 10,
+          "mirrors": "service.doc_block",
+          "name": "fmt.block",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 3072,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 11,
+          "mirrors": "service.doc_text_part",
+          "name": "fmt.text_part",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "start",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "style",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 12,
+          "mirrors": "service.doc_run",
+          "name": "fmt.run",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "source",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 13,
+          "mirrors": "service.doc_map",
+          "name": "fmt.map",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 32,
+              "name": "weights",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "bytes"
+            }
+          ],
+          "id": 14,
+          "mirrors": "service.doc_columns",
+          "name": "fmt.columns",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "span",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "rows",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "align",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "vertical",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 15,
+          "mirrors": "service.doc_cell",
+          "name": "fmt.cell",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "start",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "kind",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "size",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 16,
+          "mirrors": "service.doc_ruby",
+          "name": "fmt.ruby",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 35,
+              "name": "lang",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 17,
+          "mirrors": "service.doc_inline_lang",
+          "name": "fmt.inline_lang",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "level",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "section",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "offset",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 512,
+              "name": "title",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 18,
+          "mirrors": "service.doc_toc",
+          "name": "fmt.toc",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "document",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "section",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "offset",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "insert",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "cursor",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "generation",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 19,
+          "mirrors": "service.doc_at",
+          "name": "fmt.at",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 32,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 20,
+          "mirrors": "service.doc_label",
+          "name": "fmt.label",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "document",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 21,
+          "mirrors": "service.doc_xpointer",
+          "name": "fmt.xpointer",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "start",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "end",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "kind",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "href",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 22,
+          "mirrors": "service.doc_link",
+          "name": "fmt.link",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "index",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "family",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "bytes",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 23,
+          "mirrors": "service.doc_font",
+          "name": "fmt.font",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "progress_ppm",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 24,
+          "mirrors": "service.doc_progress",
+          "name": "fmt.progress",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "fmt.yes",
+        "fmt.image",
+        "fmt.state",
+        "fmt.meta",
+        "fmt.text",
+        "fmt.section",
+        "fmt.end",
+        "fmt.block",
+        "fmt.text_part",
+        "fmt.run",
+        "fmt.map",
+        "fmt.columns",
+        "fmt.cell",
+        "fmt.ruby",
+        "fmt.inline_lang",
+        "fmt.toc",
+        "fmt.at",
+        "fmt.label",
+        "fmt.xpointer",
+        "fmt.link",
+        "fmt.font",
+        "fmt.progress"
+      ],
+      "reply_rows": 64,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "input": [
         "filter.input"
       ],
       "key": "core.input-filter",
@@ -15444,6 +16673,103 @@
       ],
       "reply": [
         "filter.verdict"
+      ],
+      "reply_rows": 1,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "input": [
+        "lookup.ask"
+      ],
+      "key": "core.lookup",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 35,
+              "name": "language",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "context",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "cursor",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 1,
+          "mirrors": "service.lookup_ask",
+          "name": "lookup.ask",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 256,
+              "name": "title",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 2048,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 2,
+          "name": "lookup.entry",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "lookup.entry"
       ],
       "reply_rows": 1,
       "revision": 0,

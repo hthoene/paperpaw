@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('abi_gen_stages', ROOT / 'tools/abi-gen.py')
 ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
-from abi_stages import (compatible_stages, load_stages, rust_stages, source_stages,
-                        stages_digest, validate_stages)
+from abi_stages import (compatible_stages, expand_mirrors, load_stages, rust_stages,
+                        source_stages, stages_digest, validate_stages)
 
 
 def field(name='extra', kind='u32', since=1, optional=True):
@@ -136,7 +136,9 @@ class StageTests(unittest.TestCase):
         validate_stages(self.schema)
 
     def stage(self, schema):
-        return schema['stages'][0]
+        # The repository's input filter, or a test schema's only stage.
+        return next((s for s in schema['stages'] if s['key'] == 'core.input-filter'),
+                    schema['stages'][0])
 
     def test_lock_pins_stage_codec_and_accepts_format_ten(self):
         schema = ABI.with_services(self.schema, ROOT / 'abi/services')
@@ -189,10 +191,12 @@ class StageTests(unittest.TestCase):
     def test_repository_schemas_are_stage_local_and_copies_match(self):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],
-                         ['core.input-filter', 'core.status', 'core.widget'])
+                         ['core.format', 'core.input-filter', 'core.lookup', 'core.status',
+                          'core.widget'])
         self.assertTrue(all(s['records'][0]['id'] == 1 for s in stages))
         source = rust_stages(self.schema)
-        for module in ['core_input_filter_v1', 'core_status_v1', 'core_widget_v1']:
+        for module in ['core_format_v1', 'core_input_filter_v1', 'core_lookup_v1',
+                       'core_status_v1', 'core_widget_v1']:
             self.assertIn(f'pub mod {module}', source)
         self.assertIn('pub static STAGES:', source)
         self.assertNotIn('unsafe', source)
@@ -382,7 +386,8 @@ mod tests {
                      lambda s: self.stage(s).update(max_subscribers=3),
                      lambda s: self.stage(s).update(max_input=3839),
                      lambda s: self.stage(s).update(max_reply=3839),
-                     lambda s: s['stages'][1].update(reply_rows=7),
+                     lambda s: next(x for x in s['stages']
+                                    if x['key'] == 'core.status').update(reply_rows=7),
                      lambda s: self.stage(s)['records'].pop(),
                      lambda s: self.stage(s)['records'][0].update(id=3),
                      lambda s: self.stage(s)['records'][0].update(name='filter.other'),
@@ -401,12 +406,82 @@ mod tests {
             compatible_stages(prior, self.schema, self.schema['minor'] + 1)
 
     def test_new_schema_must_not_be_backdated(self):
-        prior = dict(self.schema, stages=self.schema['stages'][1:])
+        prior = dict(self.schema, stages=[s for s in self.schema['stages']
+                                          if s['key'] != 'core.input-filter'])
         with self.assertRaises(ValueError):
             compatible_stages(prior, self.schema, self.schema['minor'] + 1)
         grown = copy.deepcopy(self.schema)
         self.stage(grown)['since'] = self.schema['minor'] + 1
         compatible_stages(prior, grown, self.schema['minor'] + 1)
+
+
+
+class MirrorTests(unittest.TestCase):
+    """A stage record that `mirrors` a service row holds exactly that row's fields."""
+
+    def setUp(self):
+        self.schema = ABI.with_stages(ABI.load(ROOT / 'abi/abi.def'), ROOT / 'abi/stages')
+        validate_stages(self.schema)
+        self.kernel = {r['name']: r for r in self.schema['records']}
+
+    def format_stage(self, schema):
+        return next(s for s in schema['stages'] if s['key'] == 'core.format')
+
+    def test_mirrors_take_the_kernel_fields_and_emit_the_tag_table(self):
+        stage = self.format_stage(self.schema)
+        mirrored = [r for r in stage['records'] if 'mirrors' in r]
+        self.assertEqual(len(mirrored), 21)
+        for record in mirrored:
+            source = self.kernel[record['mirrors']]
+            self.assertEqual([f['name'] for f in record['fields']],
+                             [f['name'] for f in source['fields']])
+            self.assertTrue(all(f['since'] == record['since'] for f in record['fields']))
+        source = rust_stages(self.schema)
+        pairs = ', '.join(f"({r['id']}, {self.kernel[r['mirrors']]['id']})" for r in mirrored)
+        flat = ' '.join(source.split())
+        self.assertIn('pub const SERVICE_TAGS: &[(u32, u32)] = &[' + pairs, flat.replace('[ (', '[('))
+        # Stages without mirrors emit no table, so their output is unchanged.
+        status = source[source.index('pub mod core_status_v1'):]
+        status = status[:status.index('\n}\n')]
+        self.assertNotIn('SERVICE_TAGS', status)
+
+    def test_a_mirror_of_a_missing_or_non_service_record_is_refused(self):
+        for target in ['service.no_such', 'event.tick']:
+            stages = [{'key': 'core.test-mirror', 'records': [
+                {'id': 1, 'name': 'x.y', 'since': 0, 'mirrors': target}]}]
+            with self.assertRaisesRegex(ValueError, 'mirrors an abi.def service record'):
+                expand_mirrors(stages, self.schema['records'])
+
+    def test_mirrored_fields_written_by_hand_must_match(self):
+        schema = copy.deepcopy(self.schema)
+        record = next(r for r in self.format_stage(schema)['records'] if 'mirrors' in r)
+        record['fields'][0]['max_bytes'] += 1
+        with self.assertRaisesRegex(ValueError, 'exactly the fields'):
+            validate_stages(schema)
+
+    def test_reply_kinds_are_capped_at_32_and_input_kinds_at_8(self):
+        schema = copy.deepcopy(self.schema)
+        stage = self.format_stage(schema)
+        self.assertEqual(len(stage['reply']), 22)
+        extra = [dict(id=100 + i, name=f'fmt.extra{i}', since=0,
+                      fields=[field(name='n', since=0, optional=False)]) for i in range(11)]
+        stage['records'] += extra
+        stage['reply'] += [r['name'] for r in extra]
+        with self.assertRaisesRegex(ValueError, 'reply needs 1..=32'):
+            validate_stages(schema)
+
+    def test_a_published_mirror_follows_the_kernel_record(self):
+        old = copy.deepcopy(self.schema)
+        new = copy.deepcopy(self.schema)
+        stage = self.format_stage(new)
+        stage['revision'] = 1
+        record = next(r for r in stage['records'] if r['name'] == 'fmt.state')
+        record['fields'].append(dict(name='later', type='u32', since=0, optional=True,
+                                     ordinal=0, default=None, max_bytes=0))
+        compatible_stages(old, new, self.schema['minor'] + 1)
+        record['mirrors'] = 'service.doc_meta'
+        with self.assertRaisesRegex(ValueError, 'changed record'):
+            compatible_stages(old, new, self.schema['minor'] + 1)
 
 
 if __name__ == '__main__':

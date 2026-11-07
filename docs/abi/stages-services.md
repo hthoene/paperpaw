@@ -297,8 +297,14 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   same types, bounds, optional bitmap and list rules as `abi.def` records. Stage tags do not
   reserve or reuse kernel record tags. Plugin-defined stages publish their own payload schemas;
   the host checks their framing only.
-- [D] `input` and `reply` each name 1..=8 distinct records from this schema; no record belongs to
-  both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
+- [D] **Mirrors.** A record may name `"mirrors": "service.<name>"` instead of `fields`: it is
+  the same record as that `abi.def` service row under its stage-local tag, and the generator
+  copies the row's fields (at the record's `since`), so the two never drift apart. The module's
+  `SERVICE_TAGS` lists `(local tag, service tag)` for each mirrored record: the host passes such
+  a reply on as a service row by changing only its tag (DOC's `core.format` rows and block stream,
+  `document.md` section 3). A mirrored record follows its service row's own append-only rule.
+- [D] `input` names 1..=8 and `reply` 1..=32 distinct records from this schema; no record belongs
+  to both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
   `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at
   its field caps exceeds `max_input`, or one framed reply record exceeds `max_reply`.
   Row and byte caps bind independently; the host sizes reply room by `max_reply`.
@@ -317,7 +323,9 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] Stages have no `metadata.services` catalog entry: plugins do not open them as services.
   Stage declarations select the stage by key and major. The initial schemas are
   `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
-  target rows) and `core.status` (32 subscribers, up to 8 value rows).
+  target rows) and `core.status` (32 subscribers, up to 8 value rows); DOC adds `core.format`
+  (the format call, 22 reply kinds, up to 64 rows) and `core.lookup` (one entry per provider
+  call), `document.md` sections 3 and 7.
 
 The stage codec is pinned as `emitted_stages`, the SHA-256 of the unformatted emitter
 output, in ABI lock format 11. Formatting is checked separately, so a rustfmt update

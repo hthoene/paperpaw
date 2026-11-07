@@ -8,6 +8,39 @@ from abi_declarations import SCALAR_BYTES
 SCHEMA_KEYS = set('key major revision since test_only max_subscribers max_input max_reply '
                   'input reply reply_rows records'.split())
 FIELD_KEYS = set('name type since optional ordinal default max_bytes'.split())
+RECORD_KEYS = {'id', 'name', 'since', 'fields'}
+# A stage whose replies are a service's rows (`core.format`: the DOC rows and the
+# block stream) names more reply kinds than a verdict stage.
+MAX_INPUT_TAGS = 8
+MAX_REPLY_TAGS = 32
+
+
+def _mirrored_fields(record, source):
+    """The fields of the `abi.def` record a stage record mirrors, at the stage record's since."""
+    return [dict(field, since=record['since']) for field in source['fields']]
+
+
+def expand_mirrors(stages, records):
+    """Fill in each `mirrors` record's fields from the kernel record it names.
+
+    A mirrored record is the same record as a service row under a stage-local tag:
+    the host passes it on by changing only its tag (`SERVICE_TAGS`). Its fields
+    are never written twice, so the two cannot drift apart.
+    """
+    by_name = {item.get('name'): item for item in records if type(item) is dict}
+    out = []
+    for stage in stages:
+        grown = []
+        for record in stage.get('records', []) if type(stage) is dict else []:
+            if type(record) is dict and 'mirrors' in record and 'fields' not in record:
+                source = by_name.get(record['mirrors'])
+                _require(type(record['mirrors']) is str and record['mirrors'].startswith('service.')
+                         and source is not None,
+                         f'{stage.get("key")}: {record.get("name")} mirrors an abi.def service record')
+                record = dict(record, fields=_mirrored_fields(record, source))
+            grown.append(record)
+        out.append(dict(stage, records=grown) if type(stage) is dict else stage)
+    return out
 
 
 def load_stages(folder):
@@ -56,7 +89,7 @@ def _validate_stage(stage, minor):
     records = stage['records']
     _require(type(records) is list and records, f'{key}: records must be a non-empty list')
     for record in records:
-        _require(type(record) is dict and set(record) == {'id', 'name', 'since', 'fields'},
+        _require(type(record) is dict and set(record) in (RECORD_KEYS, RECORD_KEYS | {'mirrors'}),
                  f'{key}: record keys')
         _integer(record['id'], 1, 511, f'{key}: record id 1..=511')
         _require(type(record['name']) is str, f'{key}: record name must be text')
@@ -69,11 +102,12 @@ def _validate_stage(stage, minor):
     _require(ids == sorted(set(ids)), f'{key}: unique records in ascending id order')
     _require(len(set(names)) == len(names), f'{key}: duplicate record name')
     declared = local_records(records, stage['revision'])
-    for side in ('input', 'reply'):
+    for side, most in (('input', MAX_INPUT_TAGS), ('reply', MAX_REPLY_TAGS)):
         tags = stage[side]
-        _require(type(tags) is list and 1 <= len(tags) <= 8 and
+        _require(type(tags) is list and 1 <= len(tags) <= most and
                  all(type(t) is str and t in names for t in tags) and
-                 len(set(tags)) == len(tags), f'{key}: {side} needs 1..=8 distinct local records')
+                 len(set(tags)) == len(tags),
+                 f'{key}: {side} needs 1..={most} distinct local records')
     _require(not set(stage['input']) & set(stage['reply']), f'{key}: record in input and reply')
     _require(set(names) == set(stage['input']) | set(stage['reply']),
              f'{key}: every record belongs to input or reply')
@@ -89,8 +123,16 @@ def validate_stages(schema):
     """Stage tags are local; no metadata.services catalog entry is needed."""
     stages = schema.get('stages', [])
     _require(type(stages) is list, 'stages must be a list')
+    kernel = {item.get('name'): item for item in schema.get('records', []) if type(item) is dict}
     for stage in stages:
         _validate_stage(stage, schema.get('minor', 0))
+        for record in stage['records']:
+            if 'mirrors' in record:
+                source = kernel.get(record['mirrors'])
+                _require(record['mirrors'].startswith('service.') and source is not None and
+                         record['fields'] == _mirrored_fields(record, source),
+                         f'{stage["key"]}: {record["name"]} must hold exactly the fields of '
+                         f'{record["mirrors"]}')
     keys = [(s['key'], s['major']) for s in stages]
     _require(keys == sorted(set(keys)), 'stage schemas sorted by key and major, one per key and major')
     modules = [_module_name(*k) for k in keys]
@@ -118,6 +160,9 @@ def compatible_stages(old, new, minimum_since):
         for prior, current in zip(stage['records'], records):
             _require({k:v for k,v in prior.items() if k != 'fields'} ==
                      {k:v for k,v in current.items() if k != 'fields'}, f'{key}: changed record')
+            if 'mirrors' in prior:
+                # Its fields are the kernel record's, kept append-only by abi.def's own check.
+                continue
             fields = prior['fields']
             _require(current['fields'][:len(fields)] == fields, f'{key}: changed record field')
             for field in current['fields'][len(fields):]:
@@ -142,8 +187,9 @@ def source_stages(schema):
         entries.append('    StageSchema {\n' + ''.join(
             f'        {field}: {module}::{constant},\n' for field, constant in TABLE_FIELDS) + '    },\n')
     source += '\n/// Every host-defined stage schema, sorted by key and major.\npub static STAGES: &[StageSchema] = &[\n' + ''.join(entries) + '];\n'
+    kernel = {item['name']: item['id'] for item in schema.get('records', [])}
     for stage in stages:
-        source += _stage_source(stage)
+        source += _stage_source(stage, kernel)
     return source
 
 
@@ -194,7 +240,7 @@ pub struct StageSchema {
 '''
 
 
-def _stage_source(stage):
+def _stage_source(stage, kernel):
     declared = local_records(stage['records'], stage['revision'])
     consts = ''
     for field, _ in TABLE_FIELDS:
@@ -207,5 +253,11 @@ def _stage_source(stage):
             names = stage[field.removesuffix('_tags')]
             kind, value = '&[u32]', '&[' + ', '.join(str(r['id']) for r in declared if r['name'] in names) + ']'
         consts += f'    /// Schema {field}.\n    pub const {field.upper()}: {kind} = {value};\n'
+    mirrored = [(r['id'], r['mirrors']) for r in stage['records'] if 'mirrors' in r]
+    if mirrored:
+        pairs = ', '.join(f'({local}, {kernel[name]})' for local, name in mirrored)
+        consts += ('    /// Each mirrored record: its local tag and the kernel tag of the service row\n'
+                   '    /// it is the same record as (only the tag changes).\n'
+                   f'    pub const SERVICE_TAGS: &[(u32, u32)] = &[{pairs}];\n')
     source = f'\n/// Local records of `{stage["key"]}` major {stage["major"]}.\npub mod {_module_name(stage["key"], stage["major"])} {{\n' + consts
     return source + local_codec_source(stage) + '}\n'
