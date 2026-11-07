@@ -11,6 +11,12 @@ struct Files {
     files: RefCell<BTreeMap<String, Vec<u8>>>,
     calls: RefCell<Vec<(&'static str, usize)>>,
     full: core::cell::Cell<bool>,
+    /// A status every write and append answers with, when not `OK`.
+    status: core::cell::Cell<i32>,
+    /// The write or append number (from 1) that fails with `ERR_IO`; 0: none.
+    fail_at: core::cell::Cell<usize>,
+    puts: core::cell::Cell<usize>,
+    rename_fails: core::cell::Cell<bool>,
 }
 
 fn name(path: PpBytes) -> String {
@@ -61,6 +67,13 @@ fn put(ctx: *mut c_void, op: &'static str, path: PpBytes, data: PpBytes, replace
     if f.full.get() {
         return abi::ERR_FULL;
     }
+    f.puts.set(f.puts.get() + 1);
+    if f.puts.get() == f.fail_at.get() {
+        return abi::ERR_IO;
+    }
+    if f.status.get() != OK {
+        return f.status.get();
+    }
     // SAFETY: the wrapper passes a live data slice.
     let bytes = unsafe { core::slice::from_raw_parts(data.ptr, data.len) };
     let mut map = f.files.borrow_mut();
@@ -81,6 +94,9 @@ unsafe extern "C" fn append_slot(ctx: *mut c_void, root: u32, path: PpBytes, dat
 }
 unsafe extern "C" fn rename_slot(ctx: *mut c_void, root: u32, from: PpBytes, to: PpBytes) -> i32 {
     assert_eq!(root, 0);
+    if files(ctx).rename_fails.get() {
+        return abi::ERR_IO;
+    }
     let mut map = files(ctx).files.borrow_mut();
     match map.remove(&name(from)) {
         Some(data) => {
@@ -130,11 +146,10 @@ fn pattern(len: usize) -> Vec<u8> {
 }
 
 #[test]
-fn big_writes_appends_and_reads_are_split_into_calls_of_4_kib() {
+fn big_appends_and_reads_are_split_into_calls_of_4_kib() {
     with_storage(|storage, files| {
         let data = pattern(MAX_DATA * 2 + 808);
-        Storage::write(storage, "log.bin", &data).unwrap();
-        assert_eq!(Storage::size(storage, "log.bin"), Ok(data.len() as u64));
+        Storage::append(storage, "log.bin", &data).unwrap();
         Storage::append(storage, "log.bin", &data).unwrap();
         assert_eq!(Storage::size(storage, "log.bin"), Ok(2 * data.len() as u64));
         let mut back = alloc::vec![0; 2 * data.len()];
@@ -144,12 +159,101 @@ fn big_writes_appends_and_reads_are_split_into_calls_of_4_kib() {
         );
         assert_eq!(&back[..data.len()], &data[..]);
         assert_eq!(&back[data.len()..], &data[..]);
-        // The first piece replaced the file, the rest was appended.
         let calls = files.calls.borrow();
-        let writes: Vec<_> = calls.iter().filter(|c| c.0 != "read").collect();
-        assert_eq!(writes[0], &("write", MAX_DATA));
-        assert!(writes[1..].iter().all(|c| c.0 == "append"));
-        assert_eq!(writes.iter().map(|c| c.1).sum::<usize>(), 2 * data.len());
+        assert!(calls.iter().all(|c| c.1 <= MAX_DATA));
+        let appended: usize = calls.iter().filter(|c| c.0 == "append").map(|c| c.1).sum();
+        assert_eq!(appended, 2 * data.len());
+    });
+}
+
+fn has(files: &Files, name: &str) -> bool {
+    files.files.borrow().contains_key(name)
+}
+
+#[test]
+fn a_long_write_is_staged_and_published_whole() {
+    with_storage(|storage, files| {
+        Storage::write(storage, "books.ini", b"old").unwrap();
+        // A stale temporary file of an earlier cut must not leak into the result.
+        Storage::append(storage, "books.ini.tmp", b"STALE").unwrap();
+        files.calls.borrow_mut().clear();
+        let data = pattern(MAX_DATA * 2 + 5);
+        Storage::write(storage, "books.ini", &data).unwrap();
+        assert_eq!(*files.files.borrow().get("books.ini").unwrap(), data);
+        assert!(!has(files, "books.ini.tmp"));
+        // Every call carried at most 4 KiB, the first of them to the temporary file.
+        assert!(files.calls.borrow().iter().all(|c| c.1 <= MAX_DATA));
+        assert_eq!(files.calls.borrow()[0].0, "append");
+        // Exactly 4 KiB is one call, in place.
+        files.calls.borrow_mut().clear();
+        Storage::write(storage, "books.ini", &pattern(MAX_DATA)).unwrap();
+        assert_eq!(*files.calls.borrow(), [("write", MAX_DATA)]);
+    });
+}
+
+#[test]
+fn a_failure_on_a_later_piece_keeps_the_old_file_and_removes_the_temporary_one() {
+    for fail_at in 1..=3 {
+        with_storage(|storage, files| {
+            Storage::write(storage, "books.ini", b"old").unwrap();
+            files.puts.set(0);
+            files.fail_at.set(fail_at);
+            assert_eq!(
+                Storage::write(storage, "books.ini", &pattern(MAX_DATA * 2 + 5)),
+                Err(StorageError::Io)
+            );
+            assert_eq!(*files.files.borrow().get("books.ini").unwrap(), b"old");
+            assert!(!has(files, "books.ini.tmp"), "{fail_at}");
+            // The next attempt works.
+            files.fail_at.set(0);
+            Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).unwrap();
+            assert_eq!(
+                files.files.borrow().get("books.ini").unwrap().len(),
+                MAX_DATA + 1
+            );
+        });
+    }
+}
+
+#[test]
+fn a_failed_replacement_keeps_the_old_file_and_cleans_up() {
+    with_storage(|storage, files| {
+        Storage::write(storage, "books.ini", b"old").unwrap();
+        files.rename_fails.set(true);
+        assert_eq!(
+            Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)),
+            Err(StorageError::Io)
+        );
+        assert_eq!(*files.files.borrow().get("books.ini").unwrap(), b"old");
+        assert!(!has(files, "books.ini.tmp"));
+    });
+}
+
+#[test]
+fn a_name_that_leaves_no_room_for_the_temporary_one_is_refused_untouched() {
+    with_storage(|storage, files| {
+        let long = alloc::format!(
+            "{}/{}/{}",
+            "a".repeat(200),
+            "b".repeat(200),
+            "c".repeat(110)
+        );
+        assert_eq!(long.len(), MAX_PATH);
+        assert_eq!(
+            Storage::write(storage, &long, &pattern(MAX_DATA + 1)),
+            Err(StorageError::InvalidPath)
+        );
+        assert!(files.calls.borrow().is_empty());
+    });
+}
+
+#[test]
+fn running_out_of_memory_is_not_taken_for_the_card_taken_out() {
+    with_storage(|storage, files| {
+        files.status.set(abi::ERR_NO_MEMORY);
+        let refused = Storage::append(storage, "a", b"x").unwrap_err();
+        assert_eq!(refused, StorageError::Io);
+        assert_ne!(refused, StorageError::CARD_GONE);
     });
 }
 
@@ -197,10 +301,6 @@ fn a_full_card_and_a_bad_path_come_back_as_storage_errors() {
     with_storage(|storage, files| {
         files.full.set(true);
         assert_eq!(Storage::append(storage, "a", b"x"), Err(StorageError::Full));
-        assert_eq!(
-            Storage::write(storage, "a", &pattern(MAX_DATA + 1)),
-            Err(StorageError::Full)
-        );
         assert_eq!(
             Storage::size(storage, "../x"),
             Err(StorageError::InvalidPath)

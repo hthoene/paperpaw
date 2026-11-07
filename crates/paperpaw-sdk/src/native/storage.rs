@@ -175,12 +175,23 @@ pub fn sync(host: &Host<'_>) -> Result<(), Error> {
 }
 
 /// The plugin's data folder (root 0) as a [`Storage`](crate::Storage), for the
-/// code that takes one (a database over a file, a record store). Bigger reads,
-/// writes and appends are split into calls of at most [`MAX_DATA`] bytes: a
-/// write of more replaces the file with its first piece and appends the rest,
-/// so a caller that needs all or nothing writes beside the place and renames.
-/// Removing a missing file is not an error. Folders are `core.files`:
+/// code that takes one (a database over a file, a record store). Bigger reads
+/// and appends are split into calls of at most [`MAX_DATA`] bytes. A write of
+/// at most [`MAX_DATA`] is one call; a longer one is staged: `remove(name.tmp)`,
+/// `append` the pieces to `name.tmp`, `sync`, `rename(name.tmp, name)`
+/// (binding amendment S1), so the file is the old one or the new, whole, and
+/// a failed attempt removes its temporary file (best effort; the next attempt
+/// removes a stale one first). `name.tmp` is reserved for this. Removing a missing file is not an error. Folders are `core.files`:
 /// [`list`](crate::Storage::list) says `Unsupported`. Nothing allocates.
+///
+/// It borrows the host of the callback it was made in:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Host, storage::DataStorage};
+/// fn escape<'a, 'cb>(host: &'a Host<'cb>) -> DataStorage<'static, 'cb> {
+///     DataStorage::new(host)
+/// }
+/// ```
 #[derive(Clone, Copy)]
 pub struct DataStorage<'h, 'cb> {
     host: &'h Host<'cb>,
@@ -192,11 +203,27 @@ impl core::fmt::Debug for DataStorage<'_, '_> {
     }
 }
 
+/// The suffix of the file a long write is staged in.
+const TEMP: &str = ".tmp";
+
 impl<'h, 'cb> DataStorage<'h, 'cb> {
     /// The data folder through `host`.
     #[must_use]
     pub const fn new(host: &'h Host<'cb>) -> Self {
         Self { host }
+    }
+
+    /// Writes `data` to `temporary`, then puts it in the place of `path`.
+    fn stage(&self, temporary: &str, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        // A leftover of a cut or failure would receive the pieces after its
+        // stale bytes, and the rename would publish them.
+        match remove(self.host, Root::Data, temporary) {
+            Ok(()) | Err(Error::NotFound) => {}
+            Err(error) => return Err(storage_error(error)),
+        }
+        self.append_pieces(temporary, data)?;
+        sync(self.host).map_err(storage_error)?;
+        rename(self.host, Root::Data, temporary, path).map_err(storage_error)
     }
 
     fn append_pieces(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
@@ -207,15 +234,15 @@ impl<'h, 'cb> DataStorage<'h, 'cb> {
     }
 }
 
-/// The host's refusal as a storage error; a refused allocation is
-/// `Other(1)`.
+/// The host's refusal as a storage error. A refused allocation is `Io`
+/// (`Other(1)` is the card taken out, which it must never be taken for).
 fn storage_error(error: Error) -> StorageError {
     match error {
         Error::NotFound => StorageError::NotFound,
         Error::Full | Error::NoSpace => StorageError::Full,
         Error::Unsupported => StorageError::Unsupported,
         Error::Invalid => StorageError::InvalidPath,
-        Error::NoMemory => StorageError::Other(1),
+        Error::NoMemory => StorageError::Io,
         _ => StorageError::Io,
     }
 }
@@ -244,9 +271,34 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        let (first, rest) = data.split_at(data.len().min(MAX_DATA));
-        write(self.host, Root::Data, path, first).map_err(storage_error)?;
-        self.append_pieces(path, rest)
+        if data.len() <= MAX_DATA {
+            return write(self.host, Root::Data, path, data).map_err(storage_error);
+        }
+        // Staged beside the file: the old file stays until the new one is whole.
+        let mut name = [0u8; MAX_PATH + TEMP.len()];
+        let end = path.len() + TEMP.len();
+        if end > MAX_PATH {
+            return Err(StorageError::InvalidPath);
+        }
+        let temporary = name
+            .get_mut(..end)
+            .and_then(|room| {
+                let (head, tail) = room.split_at_mut(path.len());
+                head.copy_from_slice(path.as_bytes());
+                tail.copy_from_slice(TEMP.as_bytes());
+                core::str::from_utf8(room).ok()
+            })
+            .ok_or(StorageError::InvalidPath)?;
+        let staged = self.stage(temporary, path, data);
+        if staged.is_err() {
+            // Best effort: a stale file is removed again by the next attempt.
+            #[expect(
+                clippy::let_underscore_must_use,
+                reason = "best effort: the next attempt removes a stale temporary file first"
+            )]
+            let _ = remove(self.host, Root::Data, temporary);
+        }
+        staged
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
