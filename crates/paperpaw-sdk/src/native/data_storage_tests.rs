@@ -175,7 +175,10 @@ fn a_long_write_is_staged_and_published_whole() {
     with_storage(|storage, files| {
         Storage::write(storage, "books.ini", b"old").unwrap();
         // A stale temporary file of an earlier cut must not leak into the result.
-        Storage::append(storage, "books.ini.tmp", b"STALE").unwrap();
+        files
+            .files
+            .borrow_mut()
+            .insert("books.ini.tmp".into(), b"STALE".to_vec());
         files.calls.borrow_mut().clear();
         let data = pattern(MAX_DATA * 2 + 5);
         Storage::write(storage, "books.ini", &data).unwrap();
@@ -309,5 +312,46 @@ fn a_full_card_and_a_bad_path_come_back_as_storage_errors() {
             Storage::size(storage, &"a".repeat(MAX_PATH + 1)),
             Err(StorageError::Full)
         );
+    });
+}
+
+#[test]
+fn the_staging_suffix_is_reserved_so_no_unrelated_file_can_be_in_the_way() {
+    with_storage(|storage, files| {
+        // Nothing can be put at, taken from or moved to a staging name.
+        for name in ["a.tmp", "a.TMP", "dir/b.Tmp"] {
+            assert_eq!(
+                Storage::write(storage, name, b"x"),
+                Err(StorageError::InvalidPath)
+            );
+            assert_eq!(
+                Storage::append(storage, name, b"x"),
+                Err(StorageError::InvalidPath)
+            );
+            assert_eq!(
+                Storage::remove(storage, name),
+                Err(StorageError::InvalidPath)
+            );
+            assert_eq!(
+                Storage::rename(storage, name, "z"),
+                Err(StorageError::InvalidPath)
+            );
+            assert_eq!(
+                Storage::rename(storage, "z", name),
+                Err(StorageError::InvalidPath)
+            );
+        }
+        assert!(files.calls.borrow().is_empty());
+        // Names that merely contain it are ordinary.
+        Storage::write(storage, "tmp", b"x").unwrap();
+        Storage::write(storage, "a.tmp.bak", b"x").unwrap();
+        Storage::write(storage, "tmpfile", b"x").unwrap();
+        // Another file that sits beside a staged write is left alone by it.
+        Storage::write(storage, "books.ini.bak", b"keep").unwrap();
+        Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).unwrap();
+        assert_eq!(*files.files.borrow().get("books.ini.bak").unwrap(), b"keep");
+        files.rename_fails.set(true);
+        assert!(Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).is_err());
+        assert_eq!(*files.files.borrow().get("books.ini.bak").unwrap(), b"keep");
     });
 }

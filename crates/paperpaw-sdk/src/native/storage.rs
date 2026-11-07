@@ -181,7 +181,11 @@ pub fn sync(host: &Host<'_>) -> Result<(), Error> {
 /// `append` the pieces to `name.tmp`, `sync`, `rename(name.tmp, name)`
 /// (binding amendment S1), so the file is the old one or the new, whole, and
 /// a failed attempt removes its temporary file (best effort; the next attempt
-/// removes a stale one first). `name.tmp` is reserved for this. Removing a missing file is not an error. Folders are `core.files`:
+/// removes a stale one first). The suffix `.tmp` is reserved for this: through
+/// a `DataStorage` no name ending in it (in any case, as FAT ignores case) can
+/// be written, appended to, removed or renamed from or to (`InvalidPath`), so a
+/// file at `name.tmp` is a leftover of a staged write and never someone's data.
+/// Removing a missing file is not an error. Folders are `core.files`:
 /// [`list`](crate::Storage::list) says `Unsupported`. Nothing allocates.
 ///
 /// It borrows the host of the callback it was made in:
@@ -205,6 +209,18 @@ impl core::fmt::Debug for DataStorage<'_, '_> {
 
 /// The suffix of the file a long write is staged in.
 const TEMP: &str = ".tmp";
+
+/// Names ending in the staging suffix belong to staged writes alone.
+fn refuse_reserved(path: &str) -> Result<(), StorageError> {
+    let suffix = path
+        .len()
+        .checked_sub(TEMP.len())
+        .and_then(|at| path.get(at..));
+    if suffix.is_some_and(|tail| tail.eq_ignore_ascii_case(TEMP)) {
+        return Err(StorageError::InvalidPath);
+    }
+    Ok(())
+}
 
 impl<'h, 'cb> DataStorage<'h, 'cb> {
     /// The data folder through `host`.
@@ -271,6 +287,7 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        refuse_reserved(path)?;
         if data.len() <= MAX_DATA {
             return write(self.host, Root::Data, path, data).map_err(storage_error);
         }
@@ -302,6 +319,7 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        refuse_reserved(path)?;
         if data.is_empty() {
             // Creates the file where there is none.
             return append(self.host, Root::Data, path, data).map_err(storage_error);
@@ -314,6 +332,7 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
+        refuse_reserved(path)?;
         match remove(self.host, Root::Data, path) {
             Ok(()) | Err(Error::NotFound) => Ok(()),
             Err(error) => Err(storage_error(error)),
@@ -321,6 +340,8 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        refuse_reserved(from)?;
+        refuse_reserved(to)?;
         rename(self.host, Root::Data, from, to).map_err(storage_error)
     }
 
