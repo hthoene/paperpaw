@@ -234,6 +234,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' }}
+      - name: Check reader-owned stage codecs
+        run: python3 tools/stage-codec.py crates/paperpaw-reader-api/schemas crates/paperpaw-reader-api/src/wire.rs --check
       - name: Build kernel and first-party plugins
         # The standard app pulls in every first-party plugin, so a new
         # one is built here without being listed.
@@ -241,7 +243,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
-          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat -p paperpaw-reader-api
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh

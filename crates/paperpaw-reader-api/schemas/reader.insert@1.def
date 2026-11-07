@@ -1,0 +1,141 @@
+{
+  "key": "reader.insert",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "insert.query"
+  ],
+  "reply": [
+    "insert.item"
+  ],
+  "reply_rows": 4,
+  "records": [
+    {
+      "name": "insert.query",
+      "id": 16,
+      "since": 0,
+      "fields": [
+        {
+          "name": "section",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "page_height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "font_size",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "language",
+          "type": "str",
+          "max_bytes": 16,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "insert.item",
+      "id": 17,
+      "since": 0,
+      "fields": [
+        {
+          "name": "side",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,213 @@
+{
+  "key": "reader.decor",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input_rows": 64,
+  "input": [
+    "decor.query",
+    "page.word"
+  ],
+  "reply": [
+    "decor.range"
+  ],
+  "reply_rows": 8,
+  "records": [
+    {
+      "name": "decor.query",
+      "id": 48,
+      "since": 0,
+      "fields": [
+        {
+          "name": "section",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "max_bytes": 1024,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "final_chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "decor.range",
+      "id": 49,
+      "since": 0,
+      "fields": [
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "role",
+          "type": "str",
+          "max_bytes": 96,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "id",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "page.word",
+      "id": 99,
+      "since": 0,
+      "fields": [
+        {
+          "name": "index",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "x",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "max_bytes": 256,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    }
+  ]
+}

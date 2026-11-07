@@ -1,0 +1,418 @@
+{
+  "key": "reader.style",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input_rows": 8,
+  "input": [
+    "style.query",
+    "style.now_block",
+    "style.now_run"
+  ],
+  "reply": [
+    "style.block",
+    "style.run"
+  ],
+  "reply_rows": 8,
+  "records": [
+    {
+      "name": "style.query",
+      "id": 32,
+      "since": 0,
+      "fields": [
+        {
+          "name": "section",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "max_bytes": 1024,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "final_chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "style.block",
+      "id": 33,
+      "since": 0,
+      "fields": [
+        {
+          "name": "align",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 0,
+          "default": null
+        },
+        {
+          "name": "indent",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 1,
+          "default": null
+        },
+        {
+          "name": "space",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 2,
+          "default": null
+        },
+        {
+          "name": "size",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 3,
+          "default": null
+        },
+        {
+          "name": "line_height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 4,
+          "default": null
+        },
+        {
+          "name": "margin_start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 5,
+          "default": null
+        },
+        {
+          "name": "margin_end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 6,
+          "default": null
+        },
+        {
+          "name": "drop_cap",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 7,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "style.run",
+      "id": 34,
+      "since": 0,
+      "fields": [
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "set",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "clear",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "color",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 0,
+          "default": null
+        },
+        {
+          "name": "weight",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 1,
+          "default": null
+        },
+        {
+          "name": "family",
+          "type": "str",
+          "max_bytes": 64,
+          "since": 0,
+          "optional": true,
+          "ordinal": 2,
+          "default": ""
+        },
+        {
+          "name": "letter_spacing",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 3,
+          "default": null
+        },
+        {
+          "name": "word_spacing",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 4,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "style.now_block",
+      "id": 35,
+      "since": 0,
+      "fields": [
+        {
+          "name": "align",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 0,
+          "default": null
+        },
+        {
+          "name": "indent",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 1,
+          "default": null
+        },
+        {
+          "name": "space",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 2,
+          "default": null
+        },
+        {
+          "name": "size",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 3,
+          "default": null
+        },
+        {
+          "name": "line_height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 4,
+          "default": null
+        },
+        {
+          "name": "margin_start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 5,
+          "default": null
+        },
+        {
+          "name": "margin_end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 6,
+          "default": null
+        },
+        {
+          "name": "drop_cap",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 7,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "style.now_run",
+      "id": 36,
+      "since": 0,
+      "fields": [
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "set",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "clear",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "color",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 0,
+          "default": null
+        },
+        {
+          "name": "weight",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 1,
+          "default": null
+        },
+        {
+          "name": "family",
+          "type": "str",
+          "max_bytes": 64,
+          "since": 0,
+          "optional": true,
+          "ordinal": 2,
+          "default": ""
+        },
+        {
+          "name": "letter_spacing",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 3,
+          "default": null
+        },
+        {
+          "name": "word_spacing",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": true,
+          "ordinal": 4,
+          "default": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,284 @@
+{
+  "key": "reader.layer",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input_rows": 64,
+  "input": [
+    "layer.query",
+    "page.line",
+    "page.word"
+  ],
+  "reply": [
+    "layer.item"
+  ],
+  "reply_rows": 8,
+  "records": [
+    {
+      "name": "layer.query",
+      "id": 64,
+      "since": 0,
+      "fields": [
+        {
+          "name": "section",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "offset",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "insert",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "final_chunk",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "layer.item",
+      "id": 65,
+      "since": 0,
+      "fields": [
+        {
+          "name": "id",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "side",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "room",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "page.line",
+      "id": 98,
+      "since": 0,
+      "fields": [
+        {
+          "name": "index",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "x",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "page.word",
+      "id": 99,
+      "since": 0,
+      "fields": [
+        {
+          "name": "index",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "end",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "x",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "max_bytes": 0,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "max_bytes": 256,
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null
+        }
+      ]
+    }
+  ]
+}
