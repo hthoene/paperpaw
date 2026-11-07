@@ -24,8 +24,11 @@ pub enum SettingValueRef<'a> {
 
 /// Encode a canonical value, returning its full required length.
 ///
-/// Only the prefix fitting in `out` is written. An oversized value returns
-/// ERR_NO_SPACE before writing any bytes. This function never allocates.
+/// Only the prefix fitting in `out` is written. On success, exactly the first
+/// `min(required, out.len())` slots of `out` are initialized, each with an
+/// initialized byte; no other slot is touched, so a caller may treat that
+/// prefix as initialized. An oversized value returns ERR_NO_SPACE before
+/// writing any bytes. This function never allocates.
 pub fn settings_encode(
     value: SettingValueRef<'_>,
     out: &mut [core::mem::MaybeUninit<u8>],
