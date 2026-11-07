@@ -108,6 +108,10 @@ pub(crate) trait WorkEnv {
 pub(crate) struct Limits {
     pub(crate) per_plugin: usize,
     pub(crate) device: usize,
+    /// Runs one plugin may have open at once (a cancelled work's run goes on
+    /// to its end, so this is not the same as `per_plugin`): no plugin holds
+    /// every run slot for the 10 minutes a run may last.
+    pub(crate) runs_per_plugin: usize,
 }
 
 impl Limits {
@@ -115,10 +119,12 @@ impl Limits {
     pub(crate) const X4: Self = Self {
         per_plugin: 8,
         device: 32,
+        runs_per_plugin: 2,
     };
     pub(crate) const OTHER: Self = Self {
         per_plugin: 32,
         device: 256,
+        runs_per_plugin: 8,
     };
 }
 
@@ -171,6 +177,10 @@ struct Entry {
     /// Declared again while its run was open.
     rearm: bool,
     held: Option<u32>,
+    /// The user turned the plugin's network off while this network work was
+    /// not running: it is taken out for good with `work_refused`, whatever the
+    /// setting says by the time the plugin can take the event.
+    refused: bool,
 }
 
 impl Entry {
@@ -406,6 +416,7 @@ impl WorkSched {
             phase: Phase::Waiting,
             rearm: false,
             held: None,
+            refused: false,
         };
         match existing {
             Some(at) => {
@@ -482,6 +493,52 @@ impl WorkSched {
         Ok(())
     }
 
+    /// Why network work waits for the device (offline, saving held to manual).
+    fn hold_reason(e: &Entry, power: Power, env: &dyn WorkEnv) -> Option<u32> {
+        if !e.network {
+            None
+        } else if power.level == 2 {
+            Some(REASON_OFFLINE)
+        } else if power.level == 1 && env.saving_manual(e.owner) {
+            Some(REASON_SAVING)
+        } else {
+            None
+        }
+    }
+
+    /// Network work of a plugin whose network is off (and that is not running)
+    /// is refused for good: the mark stays whatever the setting says later.
+    fn latch_refusals(state: &mut State, env: &dyn WorkEnv) {
+        for e in &mut state.entries {
+            if e.network && !matches!(e.phase, Phase::Running(_)) && !env.network_allowed(e.owner) {
+                e.refused = true;
+            }
+        }
+    }
+
+    /// Work marked pending by the last pass goes back to waiting when the
+    /// device state no longer allows it, so a pending row never outlives its
+    /// hold, and `state` shows the hold.
+    fn recheck_pending(state: &mut State, env: &dyn WorkEnv) {
+        let power = env.power();
+        let screen = env.screen_hold();
+        let up = env.network_up();
+        for e in &mut state.entries {
+            if !matches!(e.phase, Phase::Pending(_)) {
+                continue;
+            }
+            let held = Self::hold_reason(e, power, env);
+            let blocked = held.is_some()
+                || (screen && e.at_ms.is_none())
+                || (e.network && !up)
+                || (e.optional && e.network && power.level == 1 && !power.radio_on);
+            e.held = held;
+            if blocked {
+                e.phase = Phase::Waiting;
+            }
+        }
+    }
+
     /// A moment came (the shell feeds them). Waiting work whose `after_ms`
     /// has passed and which asked for it is triggered; an optional work waits
     /// for a moment with the radio on anyway while saving.
@@ -521,21 +578,14 @@ impl WorkSched {
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
         let mut pass = Pass::default();
         let mut wants = false;
+        Self::latch_refusals(&mut state, env);
         // Phase 1: triggers, holds and the entries that are due by themselves.
         for e in &mut state.entries {
-            if e.phase != Phase::Waiting || (e.network && !env.network_allowed(e.owner)) {
+            if e.phase != Phase::Waiting || e.refused {
                 continue;
             }
             let was_held = e.held.take();
-            if e.network {
-                e.held = if power.level == 2 {
-                    Some(REASON_OFFLINE)
-                } else if power.level == 1 && env.saving_manual(e.owner) {
-                    Some(REASON_SAVING)
-                } else {
-                    None
-                };
-            }
+            e.held = Self::hold_reason(e, power, env);
             if was_held.is_some() && e.held.is_none() {
                 pass.allowed = true;
             }
@@ -584,7 +634,7 @@ impl WorkSched {
                     && e.at_ms.is_none()
                     && !screen
                     && now >= e.ready_ms()
-                    && env.network_allowed(e.owner)
+                    && !e.refused
                     && !(e.optional && power.level == 1 && !power.radio_on)
                 {
                     e.phase = Phase::Pending(why::ONLINE);
@@ -617,13 +667,15 @@ impl WorkSched {
             .state
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
-        // A work whose plugin's network was turned off is taken out for good.
-        if let Some(at) = state.entries.iter().position(|e| {
-            e.network
-                && matches!(e.phase, Phase::Waiting | Phase::Pending(_))
-                && accepts(e.owner)
-                && !env.network_allowed(e.owner)
-        }) {
+        // A work whose plugin's network was turned off is taken out for good,
+        // also when the setting is on again by the time the plugin can take
+        // the event.
+        Self::latch_refusals(&mut state, env);
+        if let Some(at) = state
+            .entries
+            .iter()
+            .position(|e| e.refused && !matches!(e.phase, Phase::Running(_)) && accepts(e.owner))
+        {
             let e = state.entries.remove(at);
             return Ok(Some(Event::Refused(Refused {
                 owner: e.owner,
@@ -632,14 +684,24 @@ impl WorkSched {
                 key: KeyBuf::new(&e.key),
             })));
         }
+        // What was due when the pass ran may not be allowed now (offline, the
+        // plugin's saving held to manual, the screen, no network up): it goes
+        // back to waiting and is looked at by the next pass.
+        Self::recheck_pending(&mut state, env);
         if state.runs.len() >= self.limits.device {
             return Ok(None);
         }
+        let runs = &state.runs;
         let Some(at) = state
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| matches!(e.phase, Phase::Pending(_)) && accepts(e.owner))
+            .filter(|(_, e)| {
+                matches!(e.phase, Phase::Pending(_))
+                    && accepts(e.owner)
+                    && runs.iter().filter(|r| r.owner == e.owner).count()
+                        < self.limits.runs_per_plugin
+            })
             .min_by_key(|(_, e)| (e.due_at, e.seq))
             .map(|(at, _)| at)
         else {
@@ -675,21 +737,29 @@ impl WorkSched {
         })))
     }
 
-    /// The earliest time something can come due by time (for the main loop's
-    /// nap), `None` when no work waits on a clock.
+    /// The earliest time in the future something can come due by time (for
+    /// the main loop's nap), `None` when nothing waits on a clock. Work that is
+    /// held, refused, or already past its time and still waiting is blocked by
+    /// the device state, which a moment, a setting or a network change ends:
+    /// none of them is a wake time, or the loop would never sleep. Call it
+    /// after the pass.
     pub(crate) fn next_wake(&self, env: &dyn WorkEnv) -> Option<u64> {
         let power = env.power();
+        let now = env.now_ms();
         let state = self.state.try_borrow().ok()?;
         let runs = state
             .runs
             .iter()
+            .filter(|r| !r.ending)
             .map(|r| r.started_ms.saturating_add(RUN_MAX_MS));
-        let timers = state.entries.iter().filter_map(|e| match e.phase {
-            Phase::Waiting => match e.due_ms(power) {
-                0 => None,
-                due => Some(due),
-            },
-            _ => None,
+        let timers = state.entries.iter().filter_map(|e| {
+            if e.phase != Phase::Waiting || e.refused || e.held.is_some() {
+                return None;
+            }
+            match e.due_ms(power) {
+                due if due > now => Some(due),
+                _ => None,
+            }
         });
         runs.chain(timers).min()
     }
@@ -809,11 +879,18 @@ impl WorkSched {
     }
 
     /// The plugin stopped: its work and its runs are gone (no events).
-    pub(crate) fn owner_stopped(&self, owner: u64) {
-        if let Ok(mut state) = self.state.try_borrow_mut() {
-            state.entries.retain(|e| e.owner != owner);
-            state.runs.retain(|r| r.owner != owner);
-        }
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the table is borrowed: nothing was removed and the
+    /// caller retries (the plugin's retirement waits).
+    pub(crate) fn owner_stopped(&self, owner: u64) -> Result<(), i32> {
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        state.entries.retain(|e| e.owner != owner);
+        state.runs.retain(|r| r.owner != owner);
+        Ok(())
     }
 
     #[cfg(test)]

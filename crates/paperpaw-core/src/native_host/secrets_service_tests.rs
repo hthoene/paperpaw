@@ -516,10 +516,10 @@ fn the_limits_are_32_per_plugin_names_of_64_values_of_1024_and_a_64_kib_file() {
         let tabs = "\t".repeat(64);
         v.keep("wifi", &tabs, &tabs, &big).unwrap();
         assert_eq!(v.get("wifi", &tabs).unwrap(), (big, tabs, 0));
-        // Unknown flag bits are refused.
+        // Unknown flag bits are unsupported (a later host may know them).
         assert_eq!(
             v.keep_flags("wifi", "", "x", "", "v", 2).err(),
-            Some(ERR_INVALID)
+            Some(ERR_UNSUPPORTED)
         );
     });
 }
@@ -568,7 +568,16 @@ fn names_and_labels_with_tabs_breaks_and_backslashes_come_back() {
 #[test]
 fn lines_the_host_does_not_read_are_kept_byte_for_byte_by_every_rewrite() {
     let long = std::format!("mail.long\t\t\t{}\n", "ab".repeat(3_000));
+    // Labels of 65 to 128 bytes and control characters in a name or label are
+    // lines the API would refuse: kept, never listed (they must not wedge a
+    // listing as a row that cannot be encoded).
+    let wide = std::format!("mail.wide\t{}\t\t00\n", "L".repeat(65));
+    let wider = std::format!("mail.wider\t{}\t\t00\n", "L".repeat(128));
     let odd: Vec<&[u8]> = std::vec![
+        wide.as_bytes(),
+        wider.as_bytes(),
+        b"mail.a\x07b\t\t\t00\n",
+        b"mail.ok\tla\x7fbel\t\t00\n",
         b"just words\n",
         b"mail.x\tlabel\tz\t00\n",
         b"mail.nohex\t\t\tnothex\n",
@@ -1181,4 +1190,23 @@ fn values_never_show_in_a_debug_print() {
 #[test]
 fn the_file_name_is_the_sdks() {
     assert_eq!(file::FILE, paperpaw_sdk::secrets::FILE);
+}
+
+#[test]
+fn an_unknown_list_flag_bit_is_unsupported() {
+    with_view(|v| {
+        for flags in [2, 0x8000_0000, 3] {
+            assert_eq!(
+                v.call(
+                    "mail",
+                    NONE,
+                    2,
+                    Record::ServiceSecList(wire::ServiceSecList { flags, cursor: 0 })
+                )
+                .err(),
+                Some(ERR_UNSUPPORTED),
+                "{flags:#x}"
+            );
+        }
+    });
 }

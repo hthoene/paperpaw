@@ -74,9 +74,10 @@ impl Buf {
         &self.data[..self.len]
     }
 
+    /// Forgets the content and wipes the whole buffer: a failed `open` of a
+    /// sealer may have written plaintext past `len`.
     pub(super) fn clear(&mut self) {
-        let len = self.len;
-        wipe(&mut self.data[..len]);
+        wipe(&mut self.data);
         self.len = 0;
     }
 
@@ -154,6 +155,15 @@ fn veil(bytes: &mut [u8]) {
 /// `aad` is the line's owner, a zero byte and its name: a value copied to
 /// another line does not open there. Nothing here allocates, logs or keeps the
 /// value past the call.
+///
+/// Duties of an implementation that seals: every `seal` draws a **fresh
+/// 12-byte nonce from a strong random source**, never a counter that restarts
+/// and never one reused under the device key (a repeated nonce under AES-GCM
+/// leaks the key stream and the authentication key). On the ESP32-C3 the
+/// hardware RNG is only truly random while the radio or the bootloader's
+/// entropy source is on; a sealer that cannot get such a nonce answers an
+/// error from `seal` (the `keep` then fails with nothing changed) and never
+/// falls back to a weak source.
 pub(crate) trait Sealer {
     /// Whether new values are written sealed (`s1:`) and veiled ones found are
     /// rewritten sealed at the next save.
@@ -346,6 +356,14 @@ fn unescape_into(text: &[u8], out: &mut Buf) -> Result<(), i32> {
     Ok(())
 }
 
+/// No control character except tab, line break and carriage return (the file
+/// escapes those): the rule for names and labels at the API.
+pub(super) fn text_fine(text: &str) -> bool {
+    !text
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+}
+
 /// Reads a line, or `None` for one this host does not understand (and keeps).
 pub(super) fn parse<'a>(line: &'a [u8], scratch: &'a mut Scratch) -> Option<Row<'a>> {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
@@ -375,14 +393,23 @@ pub(super) fn parse<'a>(line: &'a [u8], scratch: &'a mut Scratch) -> Option<Row<
     let id = core::str::from_utf8(scratch.id.as_bytes()).ok()?;
     let label = core::str::from_utf8(scratch.label.as_bytes()).ok()?;
     let (owner, name) = id.split_once('.')?;
-    (!owner.is_empty() && !name.is_empty() && owner.len() <= NAME_MAX && name.len() <= NAME_MAX)
-        .then_some(Row {
-            owner,
-            name,
-            label,
-            changeable,
-            field,
-        })
+    // A line the API would refuse (too long, control characters) is one this
+    // host does not understand: it is kept as it is and never listed.
+    (!owner.is_empty()
+        && !name.is_empty()
+        && owner.len() <= NAME_MAX
+        && name.len() <= NAME_MAX
+        && label.len() <= NAME_MAX
+        && !owner.chars().any(char::is_control)
+        && text_fine(name)
+        && text_fine(label))
+    .then_some(Row {
+        owner,
+        name,
+        label,
+        changeable,
+        field,
+    })
 }
 
 /// What opening a value needs.

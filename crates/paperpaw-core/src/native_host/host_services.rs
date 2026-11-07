@@ -135,7 +135,7 @@ impl HostServices {
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {
-            work.sched.owner_stopped(owner);
+            result = result.and(work.sched.owner_stopped(owner));
         }
         result
     }

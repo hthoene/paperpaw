@@ -741,7 +741,7 @@ fn a_stopped_plugin_loses_its_work_and_runs_and_no_event_follows() {
         panic!("a")
     };
     s.resource_opened(a.run).unwrap();
-    s.owner_stopped(A);
+    s.owner_stopped(A).unwrap();
     assert_eq!(s.counts(), (1, 0));
     assert!(s.next_event(&env, &|o| o == A).unwrap().is_none());
     assert!(s.next_event(&env, &|o| o == B).unwrap().is_some());
@@ -840,11 +840,12 @@ fn a_busy_table_is_busy_not_a_panic_and_the_run_table_is_bounded() {
         s.resource_opened(due.run).unwrap();
         open += 1;
     }
-    assert_eq!(open, 12, "within the device's 32");
+    assert_eq!(open, 4, "two runs for each of the two plugins");
     // A runs table at the device cap delivers nothing more.
     let s = WorkSched::new(Limits {
         per_plugin: 2,
         device: 2,
+        runs_per_plugin: 2,
     });
     s.declare(A, &spec("a"), 1_000).unwrap();
     s.declare(A, &spec("b"), 1_000).unwrap();
@@ -869,4 +870,165 @@ fn a_run_cannot_start_when_the_heap_refuses_and_the_work_stays_due() {
         panic!("released work is due")
     };
     s.callback_returned(due.run, env.now_ms());
+}
+
+#[test]
+fn a_network_refusal_is_latched_and_survives_the_setting_coming_back() {
+    let s = sched();
+    let env = Fake::new();
+    let mut sp = net("n");
+    sp.moments = 2;
+    s.declare(A, &sp, 1_000).unwrap();
+    // The user turns the network off; a pass sees it, but the plugin is busy
+    // (it cannot take the event yet).
+    env.denied.borrow_mut().push(A);
+    s.begin_pass(&env).unwrap();
+    assert!(s.next_event(&env, &|_| false).unwrap().is_none());
+    // The setting is on again before the plugin can accept: still refused.
+    env.denied.borrow_mut().clear();
+    s.begin_pass(&env).unwrap();
+    let Some(Event::Refused(r)) = s.next_event(&env, &|_| true).unwrap() else {
+        panic!("refused")
+    };
+    assert_eq!(
+        (r.owner, r.reason, r.key.as_str()),
+        (A, REFUSED_NETWORK_OFF, "n")
+    );
+    assert_eq!(s.counts(), (0, 0));
+}
+
+#[test]
+fn a_refusal_between_pass_and_event_is_latched_by_the_event_call_itself() {
+    let s = sched();
+    let env = Fake::new();
+    s.declare(A, &net("n"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    env.denied.borrow_mut().push(A);
+    assert!(s.next_event(&env, &|_| false).unwrap().is_none());
+    env.denied.borrow_mut().clear();
+    assert!(matches!(
+        s.next_event(&env, &|_| true).unwrap(),
+        Some(Event::Refused(_))
+    ));
+}
+
+#[test]
+fn pending_work_is_checked_again_when_the_device_state_changes() {
+    let s = sched();
+    let env = Fake::new();
+    s.declare(A, &net("n"), 1_000).unwrap();
+    s.declare(B, &spec("local"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    // Offline, saving held to manual, no network up: the network work waits
+    // again instead of being delivered from the old pass.
+    for change in 0..3 {
+        match change {
+            0 => env.level.set(2),
+            1 => {
+                env.level.set(1);
+                env.manual.borrow_mut().push(A);
+            }
+            _ => {
+                env.level.set(0);
+                env.manual.borrow_mut().clear();
+                env.up.set(false);
+            }
+        }
+        let got = s.next_event(&env, &|o| o == A).unwrap();
+        assert!(got.is_none(), "change {change}");
+        env.up.set(true);
+        env.level.set(0);
+        env.manual.borrow_mut().clear();
+        s.begin_pass(&env).unwrap();
+    }
+    // The device state is fine again: it runs.
+    assert!(matches!(
+        s.next_event(&env, &|o| o == A).unwrap(),
+        Some(Event::Due(_))
+    ));
+    // Local work is not held by the network.
+    env.level.set(2);
+    assert!(s.next_event(&env, &|o| o == B).unwrap().is_some());
+}
+
+#[test]
+fn the_screen_hold_also_takes_pending_work_back() {
+    let s = sched();
+    let env = Fake::new();
+    s.declare(A, &spec("a"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    env.screen.set(true);
+    assert!(s.next_event(&env, &|_| true).unwrap().is_none());
+    env.screen.set(false);
+    s.begin_pass(&env).unwrap();
+    assert!(s.next_event(&env, &|_| true).unwrap().is_some());
+}
+
+#[test]
+fn the_nap_ignores_held_and_elapsed_blocked_work() {
+    let s = sched();
+    let env = Fake::new();
+    let mut held = net("held");
+    held.at_ms = 1_500;
+    s.declare(A, &held, 1_000).unwrap();
+    let mut blocked = spec("blocked");
+    blocked.moments = 2;
+    blocked.within_ms = 200;
+    s.declare(A, &blocked, 1_000).unwrap();
+    let mut later = spec("later");
+    later.at_ms = 9_000;
+    s.declare(A, &later, 1_000).unwrap();
+    env.level.set(2);
+    env.screen.set(true);
+    env.at(2_000);
+    s.begin_pass(&env).unwrap();
+    // The held network work and the deadline held back by the screen are in
+    // the past: no wake for them, only for the work still in the future.
+    assert_eq!(s.next_wake(&env), Some(9_000));
+    env.at(10_000);
+    s.begin_pass(&env).unwrap();
+    assert_eq!(s.next_wake(&env), None, "nothing left that a clock ends");
+}
+
+#[test]
+fn one_plugin_cannot_hold_all_the_run_slots() {
+    let s = WorkSched::new(Limits::X4);
+    let env = Fake::new();
+    for n in 0..8 {
+        s.declare(A, &spec(&alloc::format!("a{n}")), 1_000).unwrap();
+    }
+    s.declare(B, &spec("b"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    let mut mine = 0;
+    let mut b = false;
+    while let Some(Event::Due(due)) = s.next_event(&env, &|_| true).unwrap() {
+        s.resource_opened(due.run).unwrap();
+        mine += usize::from(due.owner == A);
+        b |= due.owner == B;
+    }
+    assert_eq!(mine, Limits::X4.runs_per_plugin);
+    assert!(b, "another plugin still gets a run");
+    // A cancelled work's run goes on: declaring again does not get past the cap.
+    s.cancel(A, "").unwrap();
+    s.declare(A, &spec("again"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    assert!(s.next_event(&env, &|o| o == A).unwrap().is_none());
+}
+
+#[test]
+fn a_busy_table_makes_retirement_busy_not_silent() {
+    let s = sched();
+    let env = Fake::new();
+    s.declare(A, &spec("a"), 1_000).unwrap();
+    {
+        let _held = s.state.borrow_mut();
+        assert_eq!(
+            s.owner_stopped(A),
+            Err(paperpaw_native::host_glue::ERR_BUSY)
+        );
+    }
+    assert_eq!(s.counts(), (1, 0), "nothing removed");
+    assert_eq!(s.owner_stopped(A), Ok(()));
+    assert_eq!(s.counts(), (0, 0));
+    let _ = env;
 }

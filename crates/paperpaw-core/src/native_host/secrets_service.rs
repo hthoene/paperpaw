@@ -56,6 +56,12 @@ const STRONG: u32 = 1;
 const RANDOM_MAX: usize = 256;
 
 /// The device's random source.
+///
+/// Duties: `strong` is true only when the bytes come from a source that is
+/// truly random now. On the ESP32-C3 the hardware RNG is only truly random
+/// while the radio or the bootloader's entropy source is on, so a shell
+/// reports `strong == false` (or fails) at other times; nothing that makes a
+/// key, a token or a nonce may rely on weak bytes.
 pub(crate) trait Rng {
     /// Fills `out` and says whether the source is fully random now (`strong`).
     /// A device without a source is not wired; there is no weaker stand-in.
@@ -256,7 +262,7 @@ fn list(
         return Err(ERR_INVALID);
     };
     if ask.flags & !ALL != 0 {
-        return Err(ERR_INVALID);
+        return Err(ERR_UNSUPPORTED);
     }
     let all = ask.flags & ALL != 0;
     if all {
@@ -343,7 +349,10 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     let Record::ServiceSecKeep(ask) = wire::records_decode_single(input)? else {
         return Err(ERR_INVALID);
     };
-    if ask.flags & !CHANGEABLE != 0 || ask.value.len() > VALUE_MAX || ask.label.len() > NAME_MAX {
+    if ask.flags & !CHANGEABLE != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    if ask.value.len() > VALUE_MAX || ask.label.len() > NAME_MAX {
         return Err(ERR_INVALID);
     }
     check_name(ask.name)?;
