@@ -19,6 +19,7 @@ use paperpaw_sdk::Id;
 /// The bridge holds the module guard and excludes image release during a visit.
 /// Methods must not invoke plugin callbacks or reenter the store.
 pub(crate) trait ImageOwner {
+    fn plugin_id(&self) -> &str;
     fn generation(&self) -> u32;
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>));
     fn invalid_declaration(&self, error: i32);
@@ -96,7 +97,7 @@ pub(crate) struct Allocations {
     pub(crate) fail_after: Option<usize>,
 }
 impl Allocations {
-    fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
+    pub(crate) fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
         if count == 0 {
             return Ok(());
         }

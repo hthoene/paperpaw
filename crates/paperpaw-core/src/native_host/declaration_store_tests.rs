@@ -25,6 +25,9 @@ struct Image {
     denied: Cell<usize>,
 }
 impl ImageOwner for Image {
+    fn plugin_id(&self) -> &str {
+        "fixture"
+    }
     fn generation(&self) -> u32 {
         self.generation.get()
     }
