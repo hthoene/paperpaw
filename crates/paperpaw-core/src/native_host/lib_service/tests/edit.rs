@@ -562,11 +562,13 @@ fn a_book_with_an_open_transaction_is_busy_for_delete_and_move() {
             &[Record::ServiceLibPaths(Paths { paths, flags: 0 })],
         )
     };
-    // The fake resolves every path but a gone one to the book in use.
+    // Only the book of the transaction is busy; other books and a gone one
+    // are not (each path resolves to its own book).
     assert_eq!(
-        results(&del("Books/a.epub\nBooks/gone.epub").unwrap()),
+        results(&del("Books/a.epub\nBooks/b.epub\nBooks/gone.epub").unwrap()),
         [
             ("Books/a.epub".into(), ERR_BUSY, 0),
+            ("Books/b.epub".into(), 0, 0),
             ("Books/gone.epub".into(), 0, 0)
         ]
     );
@@ -577,16 +579,17 @@ fn a_book_with_an_open_transaction_is_busy_for_delete_and_move() {
             &[Record::ServiceLibMove(Move { from, to, flags: 1 })],
         )
     };
-    assert_eq!(mv("Books/a.epub", "Books/b.epub"), Err(ERR_BUSY));
+    assert_eq!(mv("Books/a.epub", "Books/b.epub"), Err(ERR_BUSY), "source");
     assert_eq!(
         mv("Books/b.epub", "Books/a.epub"),
         Err(ERR_BUSY),
         "the replaced one too"
     );
     assert!(!fake.log.borrow().iter().any(|l| l.starts_with("move")));
-    // Once it ends, they go through.
+    // An unrelated move goes through, and the busy book once it ends.
+    assert!(mv("Books/b.epub", "Books/c.epub").is_ok());
     commit(&fake, t).unwrap();
-    assert!(mv("Books/a.epub", "Books/b.epub").is_ok());
+    assert!(mv("Books/a.epub", "Books/d.epub").is_ok());
 }
 
 #[test]

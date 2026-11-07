@@ -71,6 +71,9 @@ impl LibWrite for Fake {
     fn resolve_book(&self, book: BookRef<'_>) -> Result<w::BookId, i32> {
         match book {
             BookRef::Path("Books/gone.epub") => Err(ERR_NOT_FOUND),
+            // The book of `book()`; any other path is a book of its own.
+            BookRef::Path("Books/a.epub") => Ok(w::BookId(77)),
+            BookRef::Path(path) => Ok(w::BookId(1000 + path.len() as u64)),
             _ => Ok(w::BookId(77)),
         }
     }
