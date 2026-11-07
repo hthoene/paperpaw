@@ -2270,7 +2270,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-plugin-about",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -2422,13 +2421,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-bluetooth"
 version = "1.0.2"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
 ]

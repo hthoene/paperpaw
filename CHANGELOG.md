@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Diagnostics is a native interface-7 plugin only (1.0.9): the test screen and the guided
+  device check run on `paperpaw-ui-kit` and the device reads; the report is kept in the
+  plugin's data folder (`.paperpaw/plugins/diagnostics/device-check.txt`); the snapshot
+  reports the panel's gray levels and colour (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).

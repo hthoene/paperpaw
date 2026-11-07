@@ -66,7 +66,10 @@ store-plugins = [
     "dep:paperpaw-plugin-hyphenation-uk",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
-diagnostics = ["dep:paperpaw-plugin-diagnostics"]
+# Kept so builds that name it still work: the diagnostics plugin is a native
+# interface-7 plugin now and is not registered here until Core publishes
+# native plugins (#228).
+diagnostics = []
 # Scalable default fonts (needs atomics: not on the ESP32-C3).
 outline = ["paperpaw-plugin-fonts-default/outline"]
 # Bitmap font packs next to the scalable fonts.
@@ -78,7 +81,6 @@ paperpaw-i18n.workspace = true
 [dependencies]
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
-paperpaw-plugin-diagnostics = { workspace = true, optional = true }
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }

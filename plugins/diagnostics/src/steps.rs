@@ -13,11 +13,45 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
-use paperpaw_sdk::memory::MemoryUse;
-use paperpaw_sdk::{Battery, Capabilities, DeviceInfo};
+/// Where the report is written, in the plugin's data folder.
+pub const REPORT: &str = "device-check.txt";
 
-/// Where the report is written.
-pub const REPORT: &str = paperpaw_sdk::data_path!("device-check.txt");
+/// What the device has, as far as the steps care.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Facts {
+    /// The device has buttons.
+    pub buttons: bool,
+    /// The device has a touch screen.
+    pub touch: bool,
+    /// The device has a front light.
+    pub frontlight: bool,
+    /// PaperPaw manages the Wi-Fi.
+    pub wifi: bool,
+    /// PaperPaw puts the device to sleep.
+    pub sleep: bool,
+}
+
+/// The battery as read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatteryReading {
+    /// Charge in percent.
+    pub percent: u8,
+    /// Voltage, where known.
+    pub millivolts: Option<u16>,
+}
+
+/// The heap and stack as read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryReading {
+    /// Free heap in bytes.
+    pub heap_free: u32,
+    /// Heap size in bytes.
+    pub heap_size: u32,
+    /// Stack never used, where known.
+    pub stack_free: Option<u32>,
+    /// Stack size, where known.
+    pub stack_size: Option<u32>,
+}
 
 /// The parts of a device the check goes through, in its order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,13 +118,13 @@ impl Step {
 
     /// Why the step does not apply to a device, which has no such part:
     /// the note of the skip. `None` where it applies.
-    pub fn missing(self, device: &DeviceInfo, caps: &Capabilities) -> Option<&'static str> {
+    pub fn missing(self, facts: &Facts) -> Option<&'static str> {
         match self {
-            Step::Buttons if device.input.keys.is_empty() => Some("no buttons"),
-            Step::Touch if !device.input.touch => Some("no touch screen"),
-            Step::Light if !caps.frontlight => Some("no front light"),
-            Step::Wifi if !caps.wifi => Some("Wi-Fi not managed by PaperPaw"),
-            Step::Sleep if !caps.sleep => Some("sleep not managed by PaperPaw"),
+            Step::Buttons if !facts.buttons => Some("no buttons"),
+            Step::Touch if !facts.touch => Some("no touch screen"),
+            Step::Light if !facts.frontlight => Some("no front light"),
+            Step::Wifi if !facts.wifi => Some("Wi-Fi not managed by PaperPaw"),
+            Step::Sleep if !facts.sleep => Some("sleep not managed by PaperPaw"),
             _ => None,
         }
     }
@@ -143,7 +177,14 @@ pub struct Results {
 /// What the report says about the device, above the steps.
 #[derive(Debug, Clone, Copy)]
 pub struct About<'a> {
-    pub device: &'a DeviceInfo,
+    /// The device's name.
+    pub name: &'a str,
+    /// The device's id.
+    pub id: &'a str,
+    /// Pixels per inch.
+    pub dpi: u16,
+    /// The panel's pixel format, as the report names it.
+    pub format: &'a str,
     pub version: &'a str,
     /// When, as `2026-10-23 14:02 UTC`, where the time is known.
     pub when: Option<&'a str>,
@@ -194,13 +235,11 @@ impl Results {
 
     /// The report as written to the card.
     pub fn report(&self, about: &About<'_>) -> String {
-        let d = about.device;
         let mut out = String::from("PaperPaw device check\n");
-        let display = &d.display;
         let _ = writeln!(
             out,
-            "Device: {} ({}), {} dpi, {:?}",
-            d.name, d.id, display.dpi, display.format
+            "Device: {} ({}), {} dpi, {}",
+            about.name, about.id, about.dpi, about.format
         );
         let _ = writeln!(out, "PaperPaw: {}", about.version);
         if let Some(when) = about.when {
@@ -258,27 +297,27 @@ impl Results {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Buttons {
     /// The buttons to press, the device's.
-    pub names: Vec<&'static str>,
+    pub names: Vec<String>,
     /// Those pressed when asked.
-    pub pressed: Vec<&'static str>,
+    pub pressed: Vec<String>,
     /// Those given up on: another one was held instead.
-    pub failed: Vec<&'static str>,
+    pub failed: Vec<String>,
 }
 
 impl Buttons {
-    pub fn new(names: &[&'static str]) -> Self {
+    pub fn new(names: Vec<String>) -> Self {
         Self {
-            names: names.to_vec(),
+            names,
             ..Self::default()
         }
     }
 
     /// The button asked for now; `None` once all were.
-    pub fn asked(&self) -> Option<&'static str> {
+    pub fn asked(&self) -> Option<&str> {
         self.names
             .iter()
-            .copied()
             .find(|n| !self.pressed.contains(n) && !self.failed.contains(n))
+            .map(String::as_str)
     }
 
     /// Takes button `name` pressed (`long`: held). The one asked for
@@ -286,7 +325,7 @@ impl Buttons {
     /// another pressed briefly is a slip and changes nothing. Whether it
     /// changed anything.
     pub fn press(&mut self, name: &str, long: bool) -> bool {
-        let Some(asked) = self.asked() else {
+        let Some(asked) = self.asked().map(String::from) else {
             return false;
         };
         if name == asked {
@@ -327,7 +366,7 @@ pub const TOUCH_TARGETS: [(u8, u8); 8] = [
 ];
 
 /// The battery's verdict: values a battery can have pass.
-pub fn battery(battery: Option<Battery>, charging_seen: [bool; 2]) -> (Outcome, String) {
+pub fn battery(battery: Option<BatteryReading>, charging_seen: [bool; 2]) -> (Outcome, String) {
     let Some(b) = battery else {
         return (Outcome::Skip, String::from("no battery reported"));
     };
@@ -391,7 +430,7 @@ impl CardTest {
 /// is near running over.
 pub const STACK_SPARE: u32 = 1024;
 
-pub fn memory(memory: Option<MemoryUse>) -> (Outcome, String) {
+pub fn memory(memory: Option<MemoryReading>) -> (Outcome, String) {
     let Some(m) = memory else {
         return (Outcome::Skip, String::from("not reported"));
     };
@@ -414,20 +453,13 @@ pub fn memory(memory: Option<MemoryUse>) -> (Outcome, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paperpaw_platform::Rotation;
-    use paperpaw_sdk::{DisplayInfo, InputCaps, MemoryClass, PixelFormat};
-
-    const DEVICE: DeviceInfo = DeviceInfo::new(
-        "x",
-        "X",
-        DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
-        InputCaps::new(true, false, false, &["confirm"]),
-        MemoryClass::Small,
-    );
 
     fn about(when: Option<&str>) -> About<'_> {
         About {
-            device: &DEVICE,
+            name: "X",
+            id: "x",
+            dpi: 220,
+            format: "Mono1",
             version: "1.2.3",
             when,
         }
@@ -481,25 +513,34 @@ mod tests {
 
     #[test]
     fn steps_for_parts_a_device_lacks_are_skipped() {
-        let caps = Capabilities::default();
+        let device = Facts {
+            buttons: true,
+            ..Facts::default()
+        };
         let missing: Vec<Step> = Step::ALL
             .into_iter()
-            .filter(|s| s.missing(&DEVICE, &caps).is_some())
+            .filter(|s| s.missing(&device).is_some())
             .collect();
         assert_eq!(missing, [Step::Touch, Step::Light, Step::Wifi, Step::Sleep]);
-        let mut all = caps;
-        all.frontlight = true;
-        all.wifi = true;
-        all.sleep = true;
-        let mut no_keys = DEVICE;
-        no_keys.input.keys = &[];
-        assert_eq!(Step::Buttons.missing(&no_keys, &all), Some("no buttons"));
-        assert_eq!(Step::Light.missing(&DEVICE, &all), None);
+        let all = Facts {
+            buttons: true,
+            touch: true,
+            frontlight: true,
+            wifi: true,
+            sleep: true,
+        };
+        let no_keys = Facts {
+            buttons: false,
+            ..all
+        };
+        assert_eq!(Step::Buttons.missing(&no_keys), Some("no buttons"));
+        assert_eq!(Step::Light.missing(&all), None);
     }
 
     #[test]
     fn buttons_are_asked_in_turn_and_a_held_one_gives_up_the_asked() {
-        let mut b = Buttons::new(&["back", "confirm", "power"]);
+        let names = |list: &[&str]| list.iter().map(|n| String::from(*n)).collect::<Vec<_>>();
+        let mut b = Buttons::new(names(&["back", "confirm", "power"]));
         assert_eq!(b.asked(), Some("back"));
         assert!(!b.press("confirm", false), "a slip changes nothing");
         assert!(b.press("back", false));
@@ -512,7 +553,7 @@ mod tests {
             b.verdict(),
             (Outcome::Fail, String::from("not working: confirm"))
         );
-        let mut good = Buttons::new(&["up", "down"]);
+        let mut good = Buttons::new(names(&["up", "down"]));
         good.press("up", false);
         good.press("down", false);
         assert_eq!(good.verdict(), (Outcome::Pass, String::from("up, down")));
@@ -520,7 +561,10 @@ mod tests {
 
     #[test]
     fn a_battery_passes_with_values_a_battery_can_have() {
-        let b = |percent, millivolts| Battery::new(percent, false, millivolts);
+        let b = |percent, millivolts| BatteryReading {
+            percent,
+            millivolts,
+        };
         assert_eq!(
             battery(Some(b(85, Some(4012))), [true, true]),
             (
@@ -564,12 +608,11 @@ mod tests {
 
     #[test]
     fn memory_fails_with_a_stack_near_running_over() {
-        let m = |stack_free: Option<u32>| {
-            let heap = MemoryUse::new(100 * 1024, 256 * 1024);
-            match stack_free {
-                Some(free) => heap.with_stack(free, 16 * 1024),
-                None => heap,
-            }
+        let m = |stack_free: Option<u32>| MemoryReading {
+            heap_free: 100 * 1024,
+            heap_size: 256 * 1024,
+            stack_free,
+            stack_size: stack_free.map(|_| 16 * 1024),
         };
         assert_eq!(
             memory(Some(m(Some(4096)))),

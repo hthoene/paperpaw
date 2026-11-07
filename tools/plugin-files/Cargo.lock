@@ -136,13 +136,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-end-of-book"
 version = "1.0.3"
 dependencies = [
@@ -157,7 +150,6 @@ dependencies = [
  "paperpaw-plugin-battery",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
