@@ -129,7 +129,7 @@ fn query_is_typed_borrowed_and_continues_without_losing_filters() {
     );
 }
 #[test]
-fn fields_require_unpaged_end_and_status_uses_two_records() {
+fn status_uses_two_records_and_checks_the_empty_reply() {
     let table = table();
     let mut state = State::default();
     let host = Host {
@@ -140,19 +140,6 @@ fn fields_require_unpaged_end_and_status_uses_two_records() {
     let mut input = [0; 2048];
     let mut out = [0; 4096];
     let book = BookRef::path("books/a.epub").unwrap();
-    reply(
-        &state,
-        &[
-            Record::ServiceLibField(wire::ServiceLibField {
-                id: "demo.rating",
-                title: "Rating",
-                value: "5",
-            }),
-            end(0, 1, 0, 0),
-        ],
-    );
-    let page = lib.fields(&host, book, &mut input, &mut out).unwrap();
-    assert_eq!(page.rows().next().unwrap().unwrap().value(), "5");
     reply(&state, &[]);
     for finished in [false, true] {
         lib.set_finished(&host, book, finished, &mut input, &mut out)
@@ -242,33 +229,6 @@ fn malformed_streams_caps_generations_and_progress_are_refused() {
         lib.query(&host, &Query::new(), &mut input, &mut out)
             .is_err()
     );
-    for terminal in [
-        end(1, 1, 0, 0),
-        end(0, 1, 1, 0),
-        end(0, 1, 0, 1),
-        end(0, 2, 0, 0),
-    ] {
-        reply(
-            &state,
-            &[
-                Record::ServiceLibField(wire::ServiceLibField {
-                    id: "demo.x",
-                    title: "X",
-                    value: "1",
-                }),
-                terminal,
-            ],
-        );
-        assert!(
-            lib.fields(
-                &host,
-                BookRef::path("a.epub").unwrap(),
-                &mut input,
-                &mut out
-            )
-            .is_err()
-        );
-    }
 }
 #[test]
 fn overlong_filters_and_invalid_references_never_reach_the_host() {
@@ -281,4 +241,61 @@ fn overlong_filters_and_invalid_references_never_reach_the_host() {
     assert!(matches!(BookRef::path("a\nb"), Err(Error::Invalid)));
     assert!(matches!(BookRef::catalog(0, 0), Err(Error::Invalid)));
     assert!(BookRef::catalog(0, 1).is_ok());
+}
+
+#[test]
+fn scalar_state_and_field_update_use_checked_schema_calls() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let lib = Library::open(&host).unwrap();
+    let mut input = [0; 2048];
+    let mut out = [0; 4096];
+    reply(
+        &state,
+        &[Record::ServiceLibState(wire::ServiceLibState {
+            state: 2,
+            books: 17,
+            generation: 9,
+            walk_ppm: 1_000_000,
+        })],
+    );
+    let catalog = lib.state(&host, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (catalog.phase(), catalog.books(), catalog.generation()),
+        (CatalogPhase::Ready, 17, 9)
+    );
+    assert!(
+        wire::records_decode(&state.input.borrow())
+            .unwrap()
+            .is_empty()
+    );
+    reply(&state, &[end(0, 0, 0, 0)]);
+    assert!(matches!(
+        lib.state(&host, &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    reply(&state, &[]);
+    lib.set_field(
+        &host,
+        BookRef::catalog(0, 9).unwrap(),
+        "rating",
+        "5",
+        &mut input,
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(state.op.get(), schema::OP_SET_FIELD);
+    let bytes = state.input.borrow();
+    let records = wire::records_decode(&bytes).unwrap();
+    let mut records = records.iter();
+    assert!(
+        matches!(records.next(),Some(Record::ServiceLibRef(r)) if r.path.is_empty() && r.key==Some(0) && r.generation==9)
+    );
+    assert!(
+        matches!(records.next(),Some(Record::ServiceLibFieldSet(r)) if r.field=="rating" && r.value=="5")
+    );
 }

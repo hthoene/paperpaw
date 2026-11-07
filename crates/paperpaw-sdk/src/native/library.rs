@@ -9,7 +9,7 @@ use super::{
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};
-pub use rows::{Book, CatalogPhase, CatalogState, Entry, Field, LibraryPage, LibraryPageEnd};
+pub use rows::{Book, CatalogPhase, CatalogState, Entry, LibraryPage, LibraryPageEnd};
 
 /// A path or a generation-bound catalog handle identifying one book.
 #[derive(Clone, Copy, Debug)]
@@ -161,25 +161,6 @@ impl Library {
             out,
         )?;
         Entry::decode(one(&out[..n])?)
-    }
-    /// Read every plugin field for this book. This is one bounded unpaged reply.
-    ///
-    /// # Errors
-    /// Returns host refusals or Invalid for bad rows or terminal metadata.
-    pub fn fields<'a>(
-        &self,
-        host: &Host<'_>,
-        book: BookRef<'_>,
-        input: &mut [u8],
-        out: &'a mut [u8],
-    ) -> Result<LibraryPage<'a, Field<'a>>, Error> {
-        let n = self.call(host, schema::OP_FIELDS, &[book.record()], input, out)?;
-        let cap = self
-            .service
-            .operation(schema::OP_FIELDS)
-            .ok_or(Error::Unsupported)?
-            .reply_rows;
-        rows::page(&out[..n], None, usize::from(cap), Field::decode)
     }
     /// Set or remove one field owned by the caller; empty value removes it.
     ///

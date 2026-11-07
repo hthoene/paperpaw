@@ -79,11 +79,6 @@ row!(
     ServiceLibBook,
     "Borrowed book metadata; long text is available separately."
 );
-row!(
-    Field,
-    ServiceLibField,
-    "One plugin-owned book field, with its translated title."
-);
 fn validate_row(record: Record<'_>) -> Result<(), Error> {
     match record {
         Record::ServiceLibEntry(row) => {
@@ -103,7 +98,6 @@ fn validate_row(record: Record<'_>) -> Result<(), Error> {
                 return Err(Error::Invalid);
             }
         }
-        Record::ServiceLibField(row) if row.id.is_empty() => return Err(Error::Invalid),
         _ => {}
     }
     Ok(())
@@ -184,9 +178,6 @@ getter!(
     "Number of tags, available through text queries."
 );
 getter!(Book, fields, u32, "Number of plugin fields.");
-getter!(Field, id, &'a str, "Full namespaced field identity.");
-getter!(Field, title, &'a str, "Translated field title.");
-getter!(Field, value, &'a str, "Stored field value.");
 impl<'a> Entry<'a> {
     /// Up to two badge texts supplied by the host.
     pub fn badges(self) -> impl Iterator<Item = &'a str> {
