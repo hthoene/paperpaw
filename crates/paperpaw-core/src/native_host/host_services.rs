@@ -13,6 +13,7 @@ use super::{
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
+    ui_service::UiServices,
     work_service::WorkServices,
 };
 use alloc::rc::Rc;
@@ -38,6 +39,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
     net: OnceCell<NetServices>,
     work: OnceCell<WorkServices>,
@@ -62,6 +64,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
             .field("net", &self.net.get().is_some())
             .field("work", &self.work.get().is_some())
@@ -76,6 +79,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            ui: OnceCell::new(),
             device: OnceCell::new(),
             net: OnceCell::new(),
             work: OnceCell::new(),
@@ -197,6 +201,16 @@ impl HostServices {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
     }
 
+    #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
+    /// Wire `core.ui` once.
+    pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
+        self.ui.set(ui).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn ui(&self) -> Option<&UiServices> {
+        self.ui.get()
+    }
+
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
@@ -274,6 +288,10 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        // What the owner made for the screen stack is freed; no plugin is called.
+        if let Some(ui) = self.ui.get() {
+            result = result.and(ui.store.owner_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));

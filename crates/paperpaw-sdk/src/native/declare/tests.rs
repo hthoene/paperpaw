@@ -792,3 +792,6 @@ fn screen_and_action_field_refusals_abort_pending_construction() {
         }
     }
 }
+
+#[path = "tests/library.rs"]
+mod library;
