@@ -86,7 +86,11 @@ impl Kernel {
             None
         };
         let on_open = spec.refresh_on_open();
-        let serial = self.next_serial;
+        let serial = if spec.is_native() {
+            self.next_serial.max(1)
+        } else {
+            self.next_serial
+        };
         let Some(next_serial) = serial.checked_add(1) else {
             return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };

@@ -4,6 +4,7 @@ use crate::native_host::{flat::FlatDepth, registrations as wire};
 use paperpaw_sdk::{Command, Handled, Id, Params};
 
 std::thread_local! {
+    static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
@@ -20,16 +21,22 @@ unsafe extern "C" fn screen_make(
     out: *mut *const PpPlugin,
 ) -> i32 {
     let mut bytes = [0; 128];
-    let len = wire::records_encode(
-        &[wire::Record::ScreenSpec(wire::ScreenSpec {
+    let records = [
+        wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
             title: "factory.title",
             token: 91,
             flags: FLAGS.with(Cell::get),
-        })],
-        &mut bytes,
-    )
-    .unwrap();
+        }),
+        wire::Record::ActionSpec(wire::ActionSpec {
+            name: "action",
+            title: "factory.action",
+            token: 92,
+            flags: 0,
+        }),
+    ];
+    let count = if UNSUPPORTED.with(Cell::get) { 2 } else { 1 };
+    let len = wire::records_encode(&records[..count], &mut bytes).unwrap();
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
@@ -95,7 +102,7 @@ fn host(flags: u32) -> Hosted<Heap, ()> {
     .unwrap()
 }
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
-    kernel.register_native_screens(host(flags), FlatDepth::try_new().unwrap(), |_, _, _| {
+    kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
@@ -200,8 +207,9 @@ fn each_native_factory_allocation_failure_preserves_current_screen_and_layout() 
 #[test]
 fn duplicate_native_screen_install_is_atomic_and_reserved_policy_is_refused() {
     let mut kernel = kernel(0);
+    let before = kernel.shared.registry.screens.list().iter().count();
     assert!(install(&mut kernel, 0).is_err());
-    assert_eq!(kernel.shared.registry.screens.list().iter().count(), 1);
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
     assert_eq!(
         DESTROYED.with(Cell::get),
         1,
@@ -213,5 +221,24 @@ fn duplicate_native_screen_install_is_atomic_and_reserved_policy_is_refused() {
         install(&mut kernel, 3 << 6),
         Err(Error::Status(ERR_INVALID))
     ));
-    assert_eq!(kernel.shared.registry.screens.list().iter().count(), 1);
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+}
+
+#[test]
+fn unsupported_native_family_discards_every_staged_screen() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    UNSUPPORTED.with(|value| value.set(true));
+    let result = install(&mut kernel, 0);
+    UNSUPPORTED.with(|value| value.set(false));
+    assert!(matches!(
+        result,
+        Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+    ));
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
 }
