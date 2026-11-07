@@ -6,7 +6,11 @@
 //! outside the instance, so teardown removes subscriptions to release them.
 //! Self-referential handle cycles would leak and must not be introduced.
 
-use alloc::{alloc::alloc, boxed::Box, rc::Rc};
+use alloc::{
+    alloc::{alloc, dealloc},
+    boxed::Box,
+    rc::Rc,
+};
 use core::{
     alloc::Layout, cell::Cell, fmt, marker::PhantomData, mem::ManuallyDrop, ops::Deref,
     ptr::NonNull,
@@ -50,8 +54,8 @@ impl<T> fmt::Debug for Weak<T> {
 impl<T> Weak<T> {
     pub(crate) fn try_clone(&self) -> Option<Self> {
         // SAFETY: this weak handle retains the header allocation.
-        let inner = unsafe { self.pointer.as_ref() };
-        inner.weak.set(inner.weak.get().checked_add(1)?);
+        let weak = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).weak) };
+        weak.set(weak.get().checked_add(1)?);
         Some(Self {
             pointer: self.pointer,
             _local: PhantomData,
@@ -59,13 +63,11 @@ impl<T> Weak<T> {
     }
     pub(crate) fn upgrade(&self) -> Result<Option<Shared<T>>, Allocation> {
         // SAFETY: this weak handle retains the header, even after T drops.
-        let inner = unsafe { self.pointer.as_ref() };
-        if inner.count.get() == 0 {
+        let count = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).count) };
+        if count.get() == 0 {
             return Ok(None);
         }
-        inner
-            .count
-            .set(inner.count.get().checked_add(1).ok_or(Allocation)?);
+        count.set(count.get().checked_add(1).ok_or(Allocation)?);
         Ok(Some(Shared {
             pointer: self.pointer,
             _local: PhantomData,
@@ -77,11 +79,13 @@ impl<T> Drop for Weak<T> {
     fn drop(&mut self) {
         // SAFETY: every weak handle owns one header reference. The last one
         // frees only a header whose value was already destroyed.
-        let inner = unsafe { self.pointer.as_ref() };
-        let remaining = inner.weak.get() - 1;
-        inner.weak.set(remaining);
+        let weak = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).weak) };
+        let remaining = weak.get() - 1;
+        weak.set(remaining);
         if remaining == 0 {
-            unsafe { drop(Box::from_raw(self.pointer.as_ptr())) };
+            // SAFETY: the implicit weak count ends after value destruction.
+            // Deallocate directly: constructing a Box would reference dead T.
+            unsafe { dealloc(self.pointer.as_ptr().cast(), Layout::new::<Inner<T>>()) };
         }
     }
 }
@@ -109,8 +113,8 @@ impl<T> Shared<T> {
 
     pub(crate) fn downgrade(&self) -> Option<Weak<T>> {
         // SAFETY: this strong handle retains both the value and header.
-        let inner = unsafe { self.pointer.as_ref() };
-        inner.weak.set(inner.weak.get().checked_add(1)?);
+        let weak = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).weak) };
+        weak.set(weak.get().checked_add(1)?);
         Some(Weak {
             pointer: self.pointer,
             _local: PhantomData,
@@ -120,13 +124,13 @@ impl<T> Shared<T> {
     #[cfg(test)]
     pub(crate) fn strong_count(&self) -> u32 {
         // SAFETY: this handle retains the initialized allocation.
-        unsafe { self.pointer.as_ref() }.count.get()
+        unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).count) }.get()
     }
 
     pub(crate) fn try_clone(&self) -> Option<Self> {
         // SAFETY: this shared owner keeps the initialized allocation live.
-        let inner = unsafe { self.pointer.as_ref() };
-        inner.count.set(inner.count.get().checked_add(1)?);
+        let count = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).count) };
+        count.set(count.get().checked_add(1)?);
         Some(Self {
             pointer: self.pointer,
             _local: PhantomData,
@@ -139,16 +143,16 @@ impl<T> Deref for Shared<T> {
     type Target = T;
     fn deref(&self) -> &T {
         // SAFETY: a live owner retains value; no API exposes a mutable reference.
-        &unsafe { self.pointer.as_ref() }.value
+        unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).value).cast::<T>() }
     }
 }
 
 impl<T> Drop for Shared<T> {
     fn drop(&mut self) {
         // SAFETY: the allocation remains live until its last counted owner drops.
-        let inner = unsafe { self.pointer.as_ref() };
-        let remaining = inner.count.get() - 1;
-        inner.count.set(remaining);
+        let count = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).count) };
+        let remaining = count.get() - 1;
+        count.set(remaining);
         if remaining != 0 {
             return;
         }
@@ -270,6 +274,11 @@ mod tests {
                         .unwrap()
                         .is_none()
                 );
+                let weak = self.weak.get_mut().take().unwrap();
+                let copy = weak.try_clone().unwrap();
+                assert!(copy.upgrade().unwrap().is_none());
+                drop(weak);
+                drop(copy);
                 self.dropped.set(true);
             }
         }

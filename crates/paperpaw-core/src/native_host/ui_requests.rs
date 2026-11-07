@@ -204,6 +204,10 @@ fn lines(choices: &str) -> usize {
 }
 
 impl Request {
+    pub(super) fn instances(&self) -> [Option<u32>; 2] {
+        [self.tie, self.dialog]
+    }
+
     fn open(&self) -> bool {
         self.phase != Phase::Done
     }

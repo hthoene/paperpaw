@@ -25,12 +25,10 @@ const EMPTY: StackRow = StackRow {
 pub(crate) struct PendingUi {
     pub(crate) instance: u32,
     pub(crate) close: bool,
-    pub(crate) cleanup: bool,
 }
 const NO_PENDING: PendingUi = PendingUi {
     instance: 0,
     close: false,
-    cleanup: false,
 };
 
 pub(crate) struct StackRows {
@@ -39,6 +37,7 @@ pub(crate) struct StackRows {
     generation: Cell<u64>,
     closes: [Cell<PendingUi>; STACK_MAX],
     close_error: Cell<i32>,
+    cleanup_sweep: Cell<bool>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -48,6 +47,7 @@ impl Default for StackRows {
             generation: Cell::new(1),
             closes: [const { Cell::new(NO_PENDING) }; STACK_MAX],
             close_error: Cell::new(0),
+            cleanup_sweep: Cell::new(false),
         }
     }
 }
@@ -73,19 +73,18 @@ impl StackRows {
         self.enqueue(PendingUi {
             instance,
             close: true,
-            cleanup: false,
         })
     }
     pub(crate) fn retry_cleanup(&self, instance: u32) -> Result<(), i32> {
         if instance == 0 {
             return Err(paperpaw_native::host_glue::ERR_STATE);
         }
-        self.enqueue(PendingUi {
-            instance,
-            close: false,
-            cleanup: true,
-        })
+        // Sweep the retained store instead of keeping closed ids in the
+        // bounded dialog-close queue. Closures can outnumber the live stack.
+        self.cleanup_sweep.set(true);
+        Ok(())
     }
+
     fn enqueue(&self, requested: PendingUi) -> Result<(), i32> {
         if let Some(slot) = self
             .closes
@@ -95,7 +94,6 @@ impl StackRows {
             let old = slot.get();
             slot.set(PendingUi {
                 close: old.close || requested.close,
-                cleanup: old.cleanup || requested.cleanup,
                 ..old
             });
             return Ok(());
@@ -109,7 +107,13 @@ impl StackRows {
         Ok(())
     }
     pub(crate) fn cleanup_pending(&self) -> bool {
-        self.closes.iter().any(|slot| slot.get().cleanup)
+        self.cleanup_sweep.get()
+    }
+    pub(crate) fn take_cleanup_sweep(&self) -> bool {
+        self.cleanup_sweep.replace(false)
+    }
+    pub(crate) fn request_cleanup_sweep(&self) {
+        self.cleanup_sweep.set(true);
     }
     pub(crate) fn note_close_error(&self, error: i32) {
         if error != paperpaw_native::host_glue::ERR_STATE && self.close_error.get() == 0 {
@@ -123,7 +127,9 @@ impl StackRows {
         core::array::from_fn(|index| self.closes[index].replace(NO_PENDING))
     }
     pub(crate) fn closes_pending(&self) -> bool {
-        self.close_error.get() != 0 || self.closes.iter().any(|slot| slot.get().instance != 0)
+        self.cleanup_sweep.get()
+            || self.close_error.get() != 0
+            || self.closes.iter().any(|slot| slot.get().instance != 0)
     }
 
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.
@@ -140,15 +146,14 @@ impl StackRows {
         }
         self.len.set(u8::try_from(count).unwrap_or(u8::MAX));
         for pending in &self.closes {
-            let mut action = pending.get();
+            let action = pending.get();
             let instance = action.instance;
             if instance != 0
                 && !self.rows[..count.min(STACK_MAX)]
                     .iter()
                     .any(|row| row.get().instance == instance)
             {
-                action.close = false;
-                pending.set(if action.cleanup { action } else { NO_PENDING });
+                pending.set(NO_PENDING);
             }
         }
         let generation = self.generation.get();

@@ -430,6 +430,8 @@ g_miri() {
     for model in stacked tree; do
         flags="-Zmiri-strict-provenance"
         [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        run "miri: $model shared ownership and weak teardown" \
+            "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shared::tests::"
         for test_name in token_tests tests; do
             run "miri: $model $test_name" \
                 "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"

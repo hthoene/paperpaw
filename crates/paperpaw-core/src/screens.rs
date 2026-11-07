@@ -552,8 +552,34 @@ impl Kernel {
                 } else {
                     self.cleanup_ui_instance(instance);
                 }
-            } else if action.cleanup {
-                self.cleanup_ui_instance(instance);
+            }
+        }
+        self.sweep_closed_ui_instances();
+    }
+
+    /// Recover closed instances not kept in the fixed cleanup queue. UiStore
+    /// is authoritative for retained resources; the real stack protects live ones.
+    fn sweep_closed_ui_instances(&mut self) {
+        if !self.shared.stack_rows.take_cleanup_sweep() {
+            return;
+        }
+        let result: Result<(), i32> = (|| {
+            let Some(store) = self.shared.native_instances.ui_store() else {
+                return Ok(());
+            };
+            let mut after = 0;
+            while let Some(instance) = store.next_retained_instance(after)? {
+                after = instance;
+                if !self.stack.iter().any(|screen| screen.serial == instance) {
+                    self.native_instance_closed(instance)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(status) = result {
+            self.shared.stack_rows.request_cleanup_sweep();
+            if status != paperpaw_native::host_glue::ERR_BUSY {
+                self.warn_runtime("UI instance cleanup sweep failed; retry pending");
             }
         }
     }
