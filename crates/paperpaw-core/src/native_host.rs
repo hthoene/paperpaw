@@ -903,3 +903,14 @@ mod pinned_owner_tests {
 #[cfg(test)]
 #[path = "native_host/event_hook_tests.rs"]
 mod event_hook_tests;
+/// Generated stage-local payload records, shared byte for byte with the SDK.
+#[path = "abi7/stages_wire.rs"]
+#[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
+pub mod stages_wire;
+
+#[path = "native_host/stage_broker.rs"]
+#[allow(
+    dead_code,
+    reason = "host stage entry point is wired by the reader port"
+)]
+pub(crate) mod stage_broker;

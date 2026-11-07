@@ -8,6 +8,9 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+#[cfg(test)]
+#[path = "commands/menu_alloc_tests.rs"]
+mod menu_alloc_tests;
 mod registry;
 mod uix;
 pub use registry::{
@@ -39,7 +42,8 @@ impl RedrawMode {
     }
 }
 
-/// Submit typed commands during one callback without allocating.
+/// Submit typed commands using caller-owned transport scratch. Menu replacement
+/// temporarily allocates its joined list fallibly and releases it before submit.
 /// Each method stages its batch immediately. Dropping sends nothing, and an
 /// error does not prevent later calls. The host applies accepted commands after
 /// the callback returns, in submission order.
@@ -143,7 +147,15 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     }
 
     fn submit_batch(&mut self, commands: &[wire::Command<'_>]) -> Result<(), Error> {
-        let length = wire::commands_encode(commands, self.scratch).map_err(Error::from_status)?;
+        let length = self.encode_batch(commands)?;
+        self.submit_encoded(length)
+    }
+
+    fn encode_batch(&mut self, commands: &[wire::Command<'_>]) -> Result<usize, Error> {
+        wire::commands_encode(commands, self.scratch).map_err(Error::from_status)
+    }
+
+    fn submit_encoded(&mut self, length: usize) -> Result<(), Error> {
         // SAFETY: the host binding and initialized scratch prefix live for this
         // synchronous call; the host copies any command data it retains.
         status(unsafe {
