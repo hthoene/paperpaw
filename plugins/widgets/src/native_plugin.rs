@@ -192,8 +192,16 @@ impl Plugin for NativeWidgets {
     ) -> Result<(), Error> {
         match event {
             Event::WidgetMade {
-                widget, instance, ..
-            } => self.made(widget, instance),
+                widget,
+                instance,
+                now_ms,
+                ..
+            } => {
+                if paperpaw_ui_kit::widget::settings::base(widget) == "widgets.quote" {
+                    crate::native_quote::made(now_ms);
+                }
+                self.made(widget, instance)
+            }
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
                 Ok(())
@@ -254,6 +262,10 @@ impl Plugin for NativeWidgets {
         let base = paperpaw_ui_kit::widget::settings::base(&item.widget);
         match behaviour(item.token).map(|b| b.tap) {
             Some(Tap::Settings) => open_settings(host, base)?,
+            Some(Tap::TurnQuote) => {
+                crate::native_quote::turn(host, base)?;
+                CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
+            }
             Some(Tap::Text { key, title }) => {
                 let asked = ask_text(host, base, key, title)?;
                 self.asked = Some(asked);

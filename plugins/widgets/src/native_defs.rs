@@ -15,6 +15,8 @@ pub enum Tap {
     /// It opens the widget's settings: for widgets that show what the reader
     /// chose (a date, places).
     Settings,
+    /// It turns the quote on to the next.
+    TurnQuote,
     /// It asks for the text of the setting `key` on the keyboard.
     Text {
         key: &'static str,
@@ -108,7 +110,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
             title: "widgets.note.setting.text",
         },
     };
+    static QUOTE: Behaviour = Behaviour {
+        height: crate::native_quote::height,
+        draw: crate::native_quote::draw,
+        shows: crate::native_quote::shows,
+        tap: Tap::TurnQuote,
+    };
     match token {
+        111 => Some(&QUOTE),
         110 => Some(&NOTE),
         109 => Some(&GREETING),
         108 => Some(&WORD_CLOCK),

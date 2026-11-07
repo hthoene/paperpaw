@@ -13,6 +13,7 @@ pub const TICK: u32 = 1;
 pub mod category {
     pub const TIME: &str = "core.widgets.time";
     pub const PERSONAL: &str = "core.widgets.personal";
+    pub const WORDS: &str = "core.widgets.words";
 }
 
 /// A widget of the pack.
@@ -415,6 +416,39 @@ const NOTE_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const QUOTE_OPTIONS: &[Opt] = &[
+    Opt::Choice(
+        "source",
+        "widgets.quote.setting.source",
+        &[
+            "widgets.quote.source.shipped",
+            "widgets.quote.source.own",
+            "widgets.quote.source.both",
+        ],
+        "widgets.quote.source.both",
+        "widgets.quote.setting.source.help",
+    ),
+    Opt::Choice(
+        "change",
+        "widgets.setting.change",
+        &["widgets.change.daily", "widgets.change.shown"],
+        "widgets.change.daily",
+        "widgets.setting.change.help",
+    ),
+    Opt::Part("author", "widgets.quote.setting.author", true),
+    Opt::Part("marks", "widgets.quote.setting.marks", true),
+    Opt::Part("mark", "widgets.quote.setting.mark", false),
+    Opt::Part("caption", "widgets.quote.setting.caption", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.italic",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -515,6 +549,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: NOTE_OPTIONS,
+    },
+    Def {
+        name: "quote",
+        token: 111,
+        category: category::WORDS,
+        live: true,
+        align: "core.align.center",
+        look_last: true,
+        options: QUOTE_OPTIONS,
     },
 ];
 
