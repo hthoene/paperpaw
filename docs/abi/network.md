@@ -105,7 +105,11 @@ file's size, 2.1).
   plugin waits for a `net.http_done`). Interface 6 queued without limit.
 - [D] **Same save file:** a request that saves to a file (same root, path compared by identity, as
   root-1 exclusions) another of the plugin's unfinished requests saves to ends that older one at
-  once with reason `replaced`; the new one goes on (interface 6).
+  once with reason `replaced`; the new one goes on (interface 6). If **another plugin's** unfinished
+  request saves to it (only possible on root 1), the new request is `ERR_BUSY`: a plugin never ends
+  another's download. While a request saves, its target and its `.part` file are in the host's
+  paths-in-use table (`files.md` section 3): a `core.files` `move` or `remove_tree` and the file
+  slots' `write`, `append`, `rename`, `remove` over them are `ERR_BUSY`.
 
 ### 2.2 `cancel`
 
@@ -177,8 +181,16 @@ file's size, 2.1).
   with SOCK) and queues the rest in the order they were started, up to the limits of 2.1.
 - [D] A memory body is held by the host in one fallible allocation of at most `max_body`; a failed
   allocation ends the request with reason `too_large` ("too large for the memory of this
-  device"). At most one memory body per running request is held, and each is freed when its
-  `net.http_done` callback returns; the X4 so holds at most 2 x 64 KiB.
+  device"). It is freed when its `net.http_done` callback returns (or when its plugin stops).
+- [D] **Memory bodies are counted device-wide.** A profile sets `MEMORY_BODIES`, the most memory
+  bodies that exist at once, counting those still arriving **and** those finished but not yet
+  delivered (their plugin busy or its callback not yet run): **2 on the X4** (8 on others). A
+  request that answers in memory starts its transfer only while fewer exist; otherwise it waits in
+  the queue in start order (its `timeout_ms` counts from its start, so a long wait ends it with
+  `timeout`, never holds more). Requests that save to a file need no memory body (a 4 KiB write
+  buffer while they run) and are not counted. So the X4 holds at most 2 x 64 KiB of bodies plus
+  the shell's buffers and one TLS session; Firmware measures that worst case on the X4 heap
+  (section 9), and the profile lowers `MEMORY_BODIES` to 1 if it does not fit.
 - [D] A plugin that stops has its requests cancelled (no events: it is not running) and its
   servers stopped; held bodies are freed.
 
@@ -240,17 +252,20 @@ file's size, 2.1).
 
 - [D] `net_serve`: `token` (the plugin's server number), `port` 1-65535, or 0 for the **cable**
   (served over USB to a computer, without a network, `CABLE_PORT` of interface 6; the X4 only),
-  `flags` none (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
+  `max_body` the largest request body the server takes (0 for 4 MiB, vocabulary's import cap; at
+  most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
+  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
   with a token in use stops the old server first (interface 6).
 - [D] The outcome is `event.server`: `state` 0 `started` with `address` (`192.168.1.20:8080`, or
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
   newer `serve`, or because the network went away, `reason` then `no_network`). When the port is
   taken, the host tries the next 20 ports (the address says which it got).
-- [D] **A server ends with the screen that started it** (interface 6): serving from a screen's
-  callback ties the server to that screen instance; when it closes, the server stops
-  (`stopped`). Serving from another callback ties it to the plugin's run. transfer, vocabulary and
-  wifi all serve from the screen that shows the address.
+- [D] **A server lives on a screen** (interface 6 tied servers to the screen that started them):
+  `serve` is only allowed from a callback of one of the plugin's own screen instances that is
+  showing (`ERR_STATE` elsewhere: no background server the user cannot see, and none that keeps
+  the device awake unseen). The server is tied to that instance and stops (`stopped`) when it
+  closes. transfer, vocabulary and wifi all serve from the screen that shows the address.
 - [D] Anyone on the network can reach a server: guarding it is the plugin's work. The SDK's
   `served::key` and `Guard` (section 6) give the shown address a key; the host does not check it.
 
@@ -260,12 +275,22 @@ file's size, 2.1).
   it (unique while the device runs), `method`, `target` (path and query, at most 1,024 bytes;
   longer is answered 414 by the host and not told), `flags` bit 0 `body`, `body_len`. Request
   headers are not given (no first-party plugin reads them).
+- [D] **The request head** is at most 8 KiB (431 above) and must arrive within 30 s of the
+  connection (408 and closed otherwise); the host never holds more of a head than that.
 - [D] **A request body** is written by the host as it comes to the plugin's data folder (root 0) at
   `.received/<request>`, before the event; `body` is set once it is whole. The plugin reads it,
-  moves it (`core.files` `move`, an upload to the card) or leaves it; the host removes what is left
-  when the request is answered or ends. `.received` is the host's in root 0: a plugin's own
-  `make_dir`, writes and moves into it are `ERR_DENIED`, reads and moves out are allowed. Chunked
-  request bodies are answered 411 by the host; a full card 507.
+  moves it (`core.files` `move`, an upload to the card), removes it or leaves it; the host removes
+  what is left when the request is answered or ends. `.received` is the host's in root 0: a
+  plugin's own `make_dir`, writes and moves into it are `ERR_DENIED` (`files.md` 1.1). Chunked
+  request bodies are answered 411 by the host.
+- [D] **Bodies are bounded.** A `Content-Length` over the server's `max_body` is answered 413 before
+  a byte is written; a body is also stopped at `max_body` while it streams (413, the part removed).
+  The host's writes into `.received/` keep the storage's free-space reserve (the storage contract's
+  D2.6): reaching it answers 507 and removes the part, so a client on the network can never fill
+  the card past the room the kernel keeps for its own saves. A body that stalls for 30 s is
+  dropped (408).
+- [D] **Nothing stays behind.** The host empties a plugin's `.received/` when the plugin starts
+  and at each `serve`, so a body a power cut left is removed then; no body outlives its server.
 - [D] At most 2 requests per server are open at once (the X4; more wait in the connection queue);
   one the plugin does not answer within 120 s is answered 503 by the host and ends (a later
   `respond` is `ERR_NOT_FOUND`).
@@ -303,7 +328,7 @@ file's size, 2.1).
 | 1155 | `service.net_answer` | `status: u32`, `flags: u32`, `body_len: u32`, `etag: str 256`, `content_type: str 128`, `final_url: str 1024` |
 | 1156 | `service.net_read` | `id: u32`, `offset: u32` |
 | 1157 | `service.net_bytes` | `data: bytes 3840` |
-| 1158 | `service.net_serve` | `token: u32`, `port: u32`, `flags: u32` |
+| 1158 | `service.net_serve` | `token: u32`, `port: u32`, `flags: u32`, `max_body: u64` |
 | 1159 | `service.net_response` | `request: u32`, `status: u32`, `content_type: str 128` |
 
 - [D] `net_header.value` carries `"secret": true`; the generator gains the attribute for service
@@ -347,15 +372,19 @@ file's size, 2.1).
 ## 9. Hand-offs (after approval)
 
 - **Host Engineer (after the H9 wiring):** the `core.net` host in `paperpaw-core` over the
-  platform's HTTP client: admission
-  (2.1 checks, limits, `uses.network`), the request table (ids, tokens, same-file replace,
-  cancel, ends-exactly-once), routing of 99-102 from the tables, the answer hold and `body`
-  pieces, power-saving ends, the server table (screen ties, `.received/` bodies, 120 s answer
-  time), and tests for each status and reason. Interface 6's `io/http.rs` and `io/servers.rs`
-  logic moves over; the shells' `HttpCall` / `ServerCall` stay.
+  platform's HTTP client: admission (2.1 checks, limits, `uses.network`), the request table (ids,
+  tokens, same-file replace within a plugin, `ERR_BUSY` across plugins, save paths in the
+  paths-in-use table), cancel, ends-exactly-once, routing of 99-102 from the tables, the answer
+  hold, `MEMORY_BODIES` counting arriving and undelivered bodies, `body` pieces, power-saving
+  ends, the server table (serve only from a showing screen, screen ties, `max_body` and 413,
+  the free-space reserve and 507 for `.received/`, emptying `.received/` at plugin start and
+  `serve`, 120 s answer time), and tests for each status and reason. Interface 6's `io/http.rs`
+  and `io/servers.rs` logic moves over; the shells' `HttpCall` / `ServerCall` stay.
 - **Firmware (with H10):** the shell transport. The X4 shell keeps its HTTP client and server
   (`.part` renames, the 20-port probe, the cable server), the emulator and Android shells keep
-  theirs, and the shells advertise `uses.network`; Firmware measures the X4 heap for 2 held
-  bodies plus one TLS session.
+  theirs, and the shells advertise `uses.network`. The servers keep the 8 KiB head cap, the 30 s
+  head and stall times and stop a body at `max_body`. Firmware measures the X4 worst case
+  (`MEMORY_BODIES` 2 x 64 KiB, the receive and send buffers, one TLS session, two server
+  connections) on the X4 heap; the X4 profile's `MEMORY_BODIES` follows that measurement.
 - **Services:** `native::net` (builder, token table, body reader), `served` and `web` kept.
 - **Plugin:** ports declare `uses.network` (and `uses.storage` where they save to the card).

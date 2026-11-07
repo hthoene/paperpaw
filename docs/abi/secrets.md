@@ -21,9 +21,17 @@ first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets),
 - [D] **Values never go to another plugin.** Only the owner reads a value. The settings editor
   (the plugin with `uses.secrets`, 1.1) may list every plugin's secrets (names and labels, never
   values) and change or remove them for the user; it cannot read them, as in interface 6.
-- [D] **Honest about storage.** Secrets are kept apart from settings and logs, and veiled on the
-  card, not encrypted: whoever has the card can read them (interface 6's wording, kept in the
-  user's help). Android keeps them in the app's private folder.
+- [D] **Honest about storage.** Secrets are kept apart from settings and logs. Android keeps them
+  in the app's private folder. On the X4 and the emulator they are on the card, today veiled, not
+  encrypted: whoever has the card (also a computer in USB drive mode) can read them (interface 6's
+  wording, kept in the user's help).
+- [Q-owner, decision 138] Senior recommends **encrypting the values on the X4** with a device key
+  kept in the chip's internal flash. Then a card read elsewhere shows no secret, and the cost is
+  that secrets no longer move with the card (a card moved to another device, or a device whose
+  flash is erased, reads as no secrets; the user enters them again). The contract does not change
+  either way: ops, records and statuses are the same; only the file's value encoding, the help text
+  and section 3's "unreadable" rule (a value that does not decrypt counts as absent, never as an
+  unreadable file) follow the decision.
 - Out of SEC: TLS trust and pinning (NET, SOCK), the server key guard (the SDK's `served`, over
   `random`), Wi-Fi joining (DEV: `join` with `remember` keeps the password as the Wi-Fi plugin's
   secret, 4), hashing (plugin code, e.g. lock's salted hash).
@@ -114,7 +122,9 @@ and `remove`, `none` for the others.
   a weaker stand-in (interface 6). Not cached, not shared between callers.
 - [D] **`strong`** is set when the source is fully random at that moment. On the X4 the chip's
   generator is fully random while the radio is on and pseudo-random before (interface 6's
-  wording), so `strong` follows the radio. Plugins that make a long-lived key (the served key,
+  wording), so `strong` follows the radio, until Firmware has checked whether the chip's ADC
+  entropy source can keep the generator fully random with the radio off (then the X4 is always
+  `strong`, section 7). Plugins that make a long-lived key (the served key,
   a Wi-Fi access-point password, lock's salt) draw it when `strong` is set, as interface 6
   advised; desktop and Android are always `strong`.
 - Settled with Plugin: **lock** keeps setting its code offline. It takes the salt from `random`
@@ -124,9 +134,13 @@ and `remove`, `none` for the others.
 ## 3. Saving and the card
 
 - [D] Secrets live in one host file, `.paperpaw/secrets.txt` (interface 6's format: one line per
-  secret, owner and name, label, flags, veiled value), loaded at start and **written whole by the
-  storage's replace** after each `keep` and `remove`, so a power cut leaves the old file or the new
-  one, never half of either.
+  secret, owner and name, label, flags, veiled value). **The host never holds the file whole**
+  (interface 6 loaded it and doubled it while writing, up to 2 x 64 KiB on the X4): `get` and
+  `list` read it line by line through one 4 KiB buffer; `keep` and `remove` stream the old lines
+  through to a new file with the one change and then **replace the old file by rename**, so a
+  power cut leaves the old file or the new one, never half of either. Memory per call: the 4 KiB
+  buffer and one line (at most about 2.4 KiB: the names, the label and a 1,024-byte value veiled
+  as hex), no allocation per secret.
 - [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
   error; lines the host does not understand are kept as they are and do not count), `keep` and
   `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
@@ -187,14 +201,16 @@ and `remove`, `none` for the others.
 ## 7. Hand-offs (after approval)
 
 - **Host Engineer (after the H9 wiring):** the `core.secrets` host in `paperpaw-core` over
-  interface 6's `Secrets` store: owner
-  stamping, `uses.secrets` checks, the limits, saving by replace, the unreadable-file refusal,
+  interface 6's `Secrets` file format: owner stamping, `uses.secrets` checks, the limits, streamed
+  reading and saving by replace (never the whole file in memory), the unreadable-file refusal,
   secret settings (key = name, reset removes), uninstall removal with decision 124's data choice,
   `random` over the device source with `strong`; tests for each status. Generator: `secret` on
   service record fields (Kernel, at the records step).
 - **Firmware (with H10):** the device-side secret store (the card file on the X4 and the
-  emulator, the private folder on Android), the random sources with the X4's `strong` signal
-  (radio on), and the shells advertising `uses.secrets` where the settings editor runs.
+  emulator, the private folder on Android; the device key in internal flash if decision 138
+  says so), the random sources with the X4's `strong` signal (radio on), a check whether the
+  ESP32-C3's SAR ADC entropy source makes draws fully random with the radio off, and the shells
+  advertising `uses.secrets` where the settings editor runs.
 - **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
   interface 6's `token`, `readable` and `grouped` helpers over it; `served::key` on top.
 - **Plugin:** settings declares `uses.secrets`; ports use their own names without the prefix.
