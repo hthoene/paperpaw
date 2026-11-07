@@ -26,6 +26,7 @@ use esp_hal::time::Duration;
 use esp_hal::timer::PeriodicTimer;
 use paperpaw_x4::buttons::Debouncer;
 use paperpaw_x4::changes::{Finger, Queue, Reading};
+use paperpaw_x4::escape::{CallWatch, Escape, Step};
 
 use crate::board::Keys;
 
@@ -75,6 +76,12 @@ pub struct Sampler {
     debouncer: Debouncer,
     /// Woken by the power button, it is still down: it counts once let go.
     power_armed: bool,
+    /// Power held long enough to get out (timed here, in the interrupt, never
+    /// from the main loop).
+    escape: Escape,
+    /// Which plugin call has run unchanged for how long, for the escape's
+    /// reset to blame a call that outlived the grace and no other.
+    call: CallWatch,
     queue: Queue<Change, QUEUE>,
 }
 
@@ -95,6 +102,17 @@ static BATTERY: Mutex<Cell<Option<(u64, u8, u16)>>> = Mutex::new(Cell::new(None)
 static STARTED: AtomicU32 = AtomicU32::new(0);
 /// The power button is down now (not debounced).
 static POWER_DOWN: AtomicBool = AtomicBool::new(false);
+/// The escape (G12, `paperpaw_x4::escape`): Power held 8 s asked the main
+/// loop to switch off (`ESCAPE_ASKED`); the main loop took it
+/// (`ESCAPE_TAKEN`); `ESCAPE_ON` false while the device switches off by
+/// itself. Plain loads and stores: the chip has no atomic swaps, and each
+/// has one writer (the interrupt sets the first, the main loop the second
+/// and the third), only ever from false to true: letting go of the key
+/// withdraws nothing. A taken request ends in the power-off or a reset, and
+/// a reset starts them all anew.
+static ESCAPE_ASKED: AtomicBool = AtomicBool::new(false);
+static ESCAPE_TAKEN: AtomicBool = AtomicBool::new(false);
+static ESCAPE_ON: AtomicBool = AtomicBool::new(true);
 /// Readings so far, and the last ones of the two ladders, to look into.
 static SAMPLES: AtomicU32 = AtomicU32::new(0);
 static LEVELS: AtomicU32 = AtomicU32::new(0);
@@ -118,6 +136,8 @@ impl Sampler {
             power,
             debouncer: Debouncer::new(),
             power_armed: false,
+            escape: Escape::new(),
+            call: CallWatch::new(),
             queue: Queue::new(),
         }
     }
@@ -131,6 +151,19 @@ impl Sampler {
         let power_down = self.power.is_low();
         POWER_DOWN.store(power_down, Ordering::Relaxed);
         self.power_armed |= !power_down;
+        let held = power_down && self.power_armed;
+        #[cfg(feature = "ppn5")]
+        self.call.observe(now, crate::safe_mode::running_call());
+        match self.escape.update(
+            now,
+            held,
+            ESCAPE_ON.load(Ordering::Relaxed),
+            ESCAPE_TAKEN.load(Ordering::Relaxed),
+        ) {
+            Step::Idle => {}
+            Step::Ask => ESCAPE_ASKED.store(true, Ordering::Relaxed),
+            Step::Force => escape_reset(self.call.blame(now)),
+        }
         let (reading, levels) = keys.read(self.power_armed && power_down);
         #[cfg(feature = "remote")]
         let reading = paperpaw_x4::buttons::State(reading.0 | clicked(now).0);
@@ -306,6 +339,38 @@ fn sample() {
             sampler.read();
         }
     });
+}
+
+/// The escape's last resort: the main loop did not answer, the processor
+/// starts again. RTC memory survives, so the next start knows the place
+/// (`power::at::ESCAPE`) and, with `blame` (a plugin's call has run past the
+/// grace), which plugin's call was running (`safe_mode`): it is switched off
+/// and the plugin manager says why. Without it no plugin is blamed.
+fn escape_reset(
+    #[cfg_attr(not(feature = "ppn5"), allow(unused_variables))] blame: paperpaw_x4::escape::Blame,
+) -> ! {
+    #[cfg(feature = "ppn5")]
+    crate::safe_mode::escape_reset(blame);
+    crate::power::mark(crate::power::at::ESCAPE);
+    esp_hal::system::software_reset()
+}
+
+/// Whether Power was held long enough to get out and the main loop has not
+/// taken it yet: it switches off the way it does when it sleeps for good.
+pub fn escape_requested() -> bool {
+    ESCAPE_ASKED.load(Ordering::Relaxed) && !ESCAPE_TAKEN.load(Ordering::Relaxed)
+}
+
+/// The main loop takes the request: the reset stays off, the clean way goes
+/// on (a hang in it is the watchdogs').
+pub fn escape_take() {
+    ESCAPE_TAKEN.store(true, Ordering::Relaxed);
+}
+
+/// The device is switching off by itself: holding Power meanwhile (a sleeve
+/// pressing it) must not start it again.
+pub fn escape_off() {
+    ESCAPE_ON.store(false, Ordering::Relaxed);
 }
 
 /// Starts reading in the timer's interrupt.

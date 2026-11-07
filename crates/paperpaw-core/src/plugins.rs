@@ -880,7 +880,7 @@ impl Kernel {
         self.works.runs.end_plugin(id.as_str());
         self.close_ended_runs();
         self.shared.data_folders.retain(|(p, _)| p != id);
-        self.shared.fonts.remove_plugin(id.as_str());
+        self.remove_plugin_fonts(id);
         self.shared.hyphenation.remove_tables(id.as_str());
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
@@ -910,6 +910,13 @@ impl Kernel {
                 self.shared.plugins.remove(id.as_str());
             }
         }
+    }
+
+    /// All font removal and replacement paths invalidate named handles here.
+    pub(crate) fn remove_plugin_fonts(&mut self, id: &Id) -> usize {
+        let removed = self.shared.fonts.remove_plugin(id.as_str());
+        self.shared.font_removals.removed(id, removed);
+        removed
     }
 
     /// A font chosen that is no longer offered gives way to the default.
@@ -1100,6 +1107,7 @@ impl Kernel {
         self.apply_ui_text_curve();
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
     }
 
     /// Releases memory reserved while plugins registered: on small devices

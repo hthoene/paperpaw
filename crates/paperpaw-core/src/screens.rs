@@ -49,17 +49,46 @@ const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 
 /// How many tasks not shown are kept ([`Command::SwitchTask`]).
 const TASKS_KEPT: usize = 8;
+const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
 impl Kernel {
+    /// Closed room screens keep enough of the unused key space to reopen.
+    pub(crate) fn screen_keys_remaining(&self) -> u32 {
+        (u32::MAX - self.next_serial)
+            .saturating_sub(u32::try_from(self.room_screen_keys_reserved()).unwrap_or(u32::MAX))
+    }
+
+    pub(crate) fn require_screen_keys(&mut self, count: usize) -> bool {
+        if u32::try_from(count).is_ok_and(|count| count <= self.screen_keys_remaining()) {
+            return true;
+        }
+        self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
+        false
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
+        if !self.require_screen_keys(1) {
+            return;
+        }
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
+        // Native allocation finishes before changing the serial, layout or screen.
+        let Ok(native_screen) = spec.prepare_native(params) else {
+            return;
+        };
         let on_open = spec.refresh_on_open();
-        let serial = self.next_serial;
-        self.next_serial = serial.wrapping_add(1);
+        let serial = if spec.is_native() {
+            self.next_serial.max(1)
+        } else {
+            self.next_serial
+        };
+        let Some(next_serial) = serial.checked_add(1) else {
+            return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
+        };
+        self.next_serial = next_serial;
         let key = paperpaw_sdk::ScreenKey::new(serial);
         let entry = paperpaw_sdk::StackEntry::new(id.clone(), slot.clone(), false, key);
         // Made once, at the size it asked for: above the row of hints, or
@@ -68,7 +97,16 @@ impl Kernel {
         let mut area = self.layout(hinted, Some(&entry), None);
         set_area(&mut self.shared.device, &mut self.shared.content, area);
         let running = self.shared.meter.enter(id.namespace());
-        let mut screen = spec.make(&self.shared.env(self.now), params);
+        let mut screen = match native_screen {
+            Some(screen) => screen,
+            None => {
+                // Legacy factories are infallible; this also keeps their sizing order.
+                let Ok(screen) = spec.make(&self.shared.env(self.now), params) else {
+                    return;
+                };
+                screen
+            }
+        };
         // It says otherwise of the row of hints: made again for the part
         // of the screen it then has.
         let own = match screen.mode().is_full_screen() {
@@ -82,7 +120,7 @@ impl Kernel {
             hinted = !hinted;
             area = self.layout(hinted, Some(&entry), None);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            screen = spec.make(&self.shared.env(self.now), params);
+            spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
         // An overlay shares its full screen's part, a guard has no bars:
         // made again for that part.
@@ -90,7 +128,7 @@ impl Kernel {
         if place != area {
             area = place;
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            screen = spec.make(&self.shared.env(self.now), params);
+            spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
         let pane = paperpaw_sdk::call_since(screen.as_mut(), 2, Pane::FULL, |s| s.pane()).known();
         drop(running);
@@ -107,8 +145,10 @@ impl Kernel {
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             let _running = self.shared.meter.enter(id.namespace());
             // The one made for all of it goes first (see `Gone`).
-            drop(mem::replace(&mut screen, Box::new(Gone)));
-            screen = spec.make(&self.shared.env(self.now), params);
+            if !spec.is_native() {
+                drop(mem::replace(&mut screen, Box::new(Gone)));
+                spec.remake(&mut screen, &self.shared.env(self.now), params);
+            }
         }
         let active = ActiveScreen {
             id,
@@ -128,8 +168,7 @@ impl Kernel {
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
             self.stack.insert(guard, active);
             self.sync_stack();
-            let _running = self.shared.meter.enter(self.stack[guard].id.namespace());
-            self.stack[guard].screen.on_hide();
+            self.hidden_screen_opened(guard, params);
             return;
         }
         // The list a detail shows beside stays shown.
@@ -140,11 +179,36 @@ impl Kernel {
         self.stack.push(active);
         self.sync_stack();
         let top = self.stack.len() - 1;
+        self.native_screen_opened(top, params);
         let overlay = self.overlay(top);
         self.screen_changed(self.changed_region(top), overlay.is_some());
         // As the screen asks, where it does.
         if let Some(mode) = on_open {
             self.output.refresh_set = Some(mode);
+        }
+    }
+
+    fn hidden_screen_opened(&mut self, index: usize, params: &Params) {
+        {
+            let _running = self.shared.meter.enter(self.stack[index].id.namespace());
+            self.stack[index].screen.on_hide();
+        }
+        self.native_screen_opened(index, params);
+    }
+
+    fn native_screen_opened(&mut self, index: usize, params: &Params) {
+        let native = self
+            .stack
+            .get(index)
+            .and_then(|active| self.shared.registry.screens.get(&active.id))
+            .is_some_and(|maker| maker.is_native());
+        if native {
+            // The private wrapper uses this hook to announce an instance before
+            // it is shown, including instances hidden below a guarding screen.
+            self.with_screen(index, |screen, cx| {
+                screen.on_reopen(params, cx);
+                Handled::Yes
+            });
         }
     }
 
@@ -253,7 +317,9 @@ impl Kernel {
         let env = self.shared.env(self.now);
         let params = Params::new().with(builtin_params::TEXT, text);
         let running = self.shared.meter.enter(id.namespace());
-        let screen = spec.make(&env, &params);
+        let Ok(screen) = spec.make(&env, &params) else {
+            return;
+        };
         drop(running);
         let seconds = self
             .shared
@@ -408,6 +474,9 @@ impl Kernel {
 
     /// Opens screen `id` in place of the one on top ([`Command::Replace`]).
     pub(crate) fn replace(&mut self, id: Id, params: &Params) {
+        if !self.require_screen_keys(1) {
+            return;
+        }
         // Not in place of a screen guarding the device: below it.
         if self.held_by_guard() {
             return self.open(id, None, params);
@@ -461,6 +530,14 @@ impl Kernel {
             || self.shared.registry.screens.contains_key(&id);
         if !known {
             return self.warn_runtime(format!("no task `{id}` to switch to"));
+        }
+        let needed = self
+            .tasks
+            .iter()
+            .find(|(task, _)| *task == id)
+            .map_or(1, |(_, screens)| screens.len().max(1));
+        if !self.require_screen_keys(needed) {
+            return;
         }
         let kept = self
             .stack
@@ -669,8 +746,10 @@ impl Kernel {
         };
         let _running = self.shared.meter.enter(active.id.namespace());
         // `Gone` has no size: nothing is allocated for it.
-        active.screen = Box::new(Gone);
-        active.screen = spec.make(&env, &active.params);
+        if !spec.is_native() {
+            active.screen = Box::new(Gone);
+            spec.remake(&mut active.screen, &env, &active.params);
+        }
         let made = active.screen.as_mut();
         active.pane = paperpaw_sdk::call_since(made, 2, Pane::FULL, |s| s.pane()).known();
         false

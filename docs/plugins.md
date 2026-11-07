@@ -1834,6 +1834,18 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
+The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
+for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
+`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
+call; parameter text and transport buffers remain borrowed. This type-layout
+measurement does not replace the runtime X4 heap gate.
+
+Menu replacement temporarily allocates only its joined item bytes, at most
+2,048 bytes, and frees them after encoding into the caller's command buffer,
+before host submission. Empty and reset lists allocate nothing. The menu and
+handover temporaries are released before their host calls, so they do not
+overlap, including when both operations run in one callback.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run
@@ -2622,3 +2634,162 @@ has the steps.
 [`Screen`]: ../crates/paperpaw-sdk/src/screen.rs
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
+
+### Extension stages and call services
+
+Declare an extension point with `native::declare::StageDecl` and subscribe with
+`SubscribeDecl`, passing it to `Declarations::stage` or `subscribe`. Grammar and payload ranges are
+checked locally. Stage ownership, self-subscription, duplicate stage/token pairs
+and the eight-per-plugin subscription limit are checked by the host at commit.
+A subscription's `order` controls its position and its `signature` contributes to
+layout invalidation when the stage changes layout.
+
+A subscriber receives `native::events::Event::StageCall { stage, schema, payload }`
+at its declared token. Check the stage and schema, decode `payload` with the
+stage owner's schema crate, and write the encoded reply using the existing
+`native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
+does not understand. The SDK leaves stage payloads opaque.
+
+`native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
+The host refuses another plugin running it with `Error::Denied`.
+`native::stages::StageRun::next` lends one `StageReply` at a time from the owner's
+reply buffer. Inspect `status()` before using `payload()`; cancellation, busy and
+invalid subscriber replies still advance the cursor. Only `style_granted()`
+permits an override of a user-protected style value. Size the buffer with
+`Stage::out_len(max_reply)`. End-of-stage and host refusals finish the cursor.
+
+`native::services::Service::open(host, key, major, minor)` opens a generated call
+service schema. Keep the handle across callbacks and pass each callback's current
+host to `call`. Use `max_reply(op)` to size the output buffer. The SDK checks the
+operation version and buffer limits before calling the host. Explicitly consume
+the handle with `release(host)` when done; teardown also releases it. There is
+no automatic Drop release because the handle retains no callback host. Per-family
+typed wrappers define the input and output records.
+### Core event subscriptions
+
+`native::declare::EventKind` includes setting changes, book opened/closed/finished,
+book moves/removals, plugin changes, Wi-Fi, power mode, status and charge changes.
+Subscribe with `Declarations::subscribe_event(kind, token)`. A host returns
+`Error::Unsupported` until the relevant producer is implemented; these declarations
+never start a stopped plugin.
+
+The matching `native::events::Event` variants borrow callback bytes. Book session
+edges use `Event::Book { kind, reason, reading }`; page turns and book edges share
+`ReadingView`, whose accessors expose the complete path, reading position, titles
+and optional page counters. Reason 1 denotes a restored open or a sleep/shutdown
+close; reserved reasons become 0. Book-finished reason is always 0.
+
+`Event::SettingChanged` provides an optional typed previous value. A missing or
+unreadable previous value is `None`; malformed nonempty settings values are refused.
+An empty key is an overflow signal: reread settings retained by the plugin. Read
+new values with `native::settings::read_setting`.
+
+Wi-Fi state 4 becomes `WifiLinkState::AccessPoint`; reserved states become `On`
+without a connection. `PowerChange` describes the power mode and energy level,
+including automatic selection and work stretch. It borrows the mode id and
+normalizes reserved energy levels to Normal. `ChargeFlags` separately describes
+charging, external power and low battery; unknown flag bits are ignored.
+
+Unknown appended optional fields are accepted, while malformed framing, strings,
+reading counters and setting values are refused. `event_dropped` is a host-shell
+reporting path, logged by the host; it is not an event delivered to plugin code.
+
+### Flat callbacks in interface 7 draft 5
+
+The flat `native::Plugin` facade borrows all callback input from the host.
+`event` receives a decoded `native::events::Event` and a `native::reply::Reply` writer: append the family's encoded
+reply with `write`, and return `Ok(())`. The glue returns only the written length.
+A full writer returns `Error::NoSpace` without appending a partial write.
+Events without replies receive an empty writer.
+
+`draw` receives a decoded `native::callbacks::DrawFrame` with its target rectangle,
+clip rows and borrowed payload. `input` receives a typed `Input` and returns
+`Handled::Yes` or `Handled::No`. Neither input nor reply storage can escape the
+callback. Decoders reject unknown exact tags and invalid input enum values.
+
+Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
+Choose repeated-open behavior with `ScreenDecl::instances(native::declare::Instances::Single)`;
+`PerParams` is the default and `Many` creates an instance for each open.
+Use `Question::confirm(...)?` with `.confirm_labels("Keep\nDiscard")?` for custom
+button words. Empty labels retain the dialog defaults. `.only_yes()?` requires an
+empty no label; `.focus_yes()?` selects initial yes focus. Dialog plugins read
+`QuestionInfo::{yes_label, no_label, only_yes, focus_yes}`.
+For menu discovery, `RegistryItem::user_defined()` reads the host's explicit user
+definition flag, including empty definitions and definitions equal to defaults.
+Decode their shown/run events with `native::events::Event::decode`. Format catalog strings
+with `native::formatting::format_message(host, key, args, &mut buffers)`.
+Create `FormatBuffers::new(scratch, out)` to name the temporary argument encoding
+storage and translated output separately; neither buffer is allocated by the SDK.
+`digits` maps ASCII digits. Both functions return the full required byte length,
+so retry when the result exceeds the output capacity.
+
+### Native host wrappers for the Battery pilot
+
+Menu declarations use `native::declare::{MenuEntryDecl, EntryPlacement, MenuSectionDecl}`.
+Construct a `MenuEntryDecl::new("core.tools", "battery.open")`, set `order = 37`,
+then add it through `Declarations::menu_entry` and assign the icon through
+`icon("battery.open", "battery")`. Entry and section order are typed `i16` values.
+`EntryPlacement` carries an anchor only for after, before and section placement.
+Entry items, icon items and device-need items are full ids; foreign items are allowed.
+`menu_need(item, MenuNeed)` uses the existing SDK need enum. `menu_section` takes
+a `MenuSectionDecl`; `hide_menu_entry(menu, item)` uses full ids, while
+`describe_item(item, key)` names an owned item relatively. The builder checks
+syntax and generated field limits; the host resolves ids and checks duplicates.
+Hosts without menu wiring return `Unsupported` rather than dropping declarations.
+These methods also work in build scripts that emit static batches. Card catalogs
+remain at `plugins/<id>/i18n/<language>.ini`, with language fallback ending in English.
+
+`native::declare::Declarations::subscribe_event(EventKind::Started, token)`
+registers a typed event subscription; `register_draw(token)` registers a draw
+callback. `EventKind` lives in `native::declare` and covers tick, lifecycle,
+battery, page, screen and action events. These methods use the same ordered,
+bounded batches and failure latching as settings, screen and action declarations.
+They also work in build scripts that emit static registration batches; a plugin
+never needs to write callback record bytes or import private generated codecs.
+
+`native::snapshot::capture_snapshot(host)` returns an owned snapshot with battery,
+display and time getters. `native::settings::read_setting(host, key, scratch)`
+returns a borrowed `SettingValue`; `Absent`, false, zero and empty text remain
+distinct. Grant reads use only `settings::own_grant(host, GrantKind)` and the host
+checks the caller. Generic grant reads and typed grant writes are refused.
+
+`native::formatting::copy_message(host, key, out)` returns complete borrowed UTF-8
+or `NoSpace`. `MAX_MESSAGE_BYTES` sizes one reusable output buffer. Number labels
+can look up `core.decimal` (falling back to "." when missing), format fixed-point
+ASCII text, then use the digit conversion slot.
+
+A draw callback obtains its canvas with `frame.draw_canvas()`. A frame decoded outside
+entry glue has no canvas access and returns `State`. The non-copyable frame is borrowed mutably for the canvas lifetime;
+dropping the canvas allows another borrow. Canvas primitives preserve
+the host's frame clipping and colour conversion. `Font::acquire_role` borrows the
+callback host, `measure_text` returns advance, and `render_text` takes that canvas
+and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
+font cannot be drawn through a different host binding.
+
+REG declarations use `SetupStepDecl`, `SlotDecl`, `SlotOfferDecl`, `KeyBindingDecl`,
+`PresetDecl` and `PresetValueDecl` through `native::declare::Declarations`.
+`setting_default` and `setting_choice` extend another plugin's settings; the host
+checks authority and resolves extensions in plugin load order. Setup conditions
+are declared values and device requirements, with no callback during a query.
+
+Registry commands preserve the difference between a default and an empty user
+configuration: `set_menu(menu, None)` restores declared rows, while
+`set_menu(menu, Some(&[]))` clears the custom menu. Menu and plugin request lists
+are checked against the generated limits and never truncated. A preview set is
+submitted as one batch with caller-owned value scratch; oversized previews fail
+before submission. Use a preset preview for larger sets. The host checks preview
+ownership and obtains any required user consent for mass resets.
+
+`native::commands::CommandSender::new(host, scratch)` stages typed setting changes
+with the generated encoder. Each accepted call is one atomic batch, applied by
+the host after the callback. Dropping the sender submits nothing.
+
+`Font::read_line_metrics` returns the SDK's `LineMetrics`; `Font::ink` returns
+optional `InkBounds`, preserving empty text and whitespace as no ink.
+`canvas.clip_region(rect)` returns a nested guard: its clip intersects the parent,
+and dropping it restores the previous clip. Explicit `restore` can report a
+host refusal. The draw-frame clip remains the outer bound.
+
+`CommandSender` also opens screens, runs actions, queues a redraw with typed
+`RedrawMode`, and closes the submitting plugin's top screen. Screen and action
+ids are validated before encoding; each call stages one complete batch or none.

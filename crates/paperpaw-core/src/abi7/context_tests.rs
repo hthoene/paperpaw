@@ -11,6 +11,7 @@ fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
     CoreFrame {
         env,
         meter: &kernel.shared.meter,
+        font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,

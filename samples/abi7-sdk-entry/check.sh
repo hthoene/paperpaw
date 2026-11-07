@@ -25,4 +25,4 @@ if (cd "$packer_root" && env -u RUSTFLAGS cargo run -q -j4 -p paperpaw-sign -- \
     echo 'packer accepted an entry deliberately misaligned by four bytes' >&2
     exit 1
 fi
-rg 'not 8-aligned' "$scratch/refusal.txt"
+grep -q 'not 8-aligned' "$scratch/refusal.txt"

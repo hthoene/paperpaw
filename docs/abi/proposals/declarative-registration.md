@@ -267,7 +267,7 @@ question Q1.
   (`ADR34:257-264`); batches at most 4 KiB, "larger records require a bounded chunk/stream protocol"
   (`ADR34:312-321`); proposed X4 profile of 4,096 B total additional boundary storage with "one
   384-byte inline batch", eight dynamic tokens and four persistent handles per plugin
-  (`ADR34:924-945`). The 384 B inline figure is a proposal in the ADR and conflicts with the 4096 cap in
+  (`ADR34:924-945`). *(Superseded: handle caps are per family, fonts 8; `screens-input.md` sections 4 and 7.)* The 384 B inline figure is a proposal in the ADR and conflicts with the 4096 cap in
   `abi.def`; see Q6.
 - G0 classification: 14 data plugins (12 hyphenation languages, hyphenation base, fonts-default), "blocked
   only by R-DECL and R-DATA"; none of the 14 registers settings (`notes:` Result table; `grep add_settings`

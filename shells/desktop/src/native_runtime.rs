@@ -15,6 +15,7 @@ use paperpaw_native::preflight::{
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
+use paperpaw_core::native_host;
 
 #[allow(
     dead_code,
@@ -37,6 +38,10 @@ pub enum RuntimeError {
     Import,
     /// The interface, profile, requirements or metadata structure is unsupported.
     Metadata,
+    /// Memory for checked admission requirements could not be allocated.
+    NoMemory,
+    /// A required semantic feature is absent or needs a newer revision.
+    RequiredFeature { key: String, revision: u16 },
     /// The system loader could not load the checked file.
     Load,
     /// Loaded entry and locator disagree with the bytes checked before loading.
@@ -57,42 +62,47 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
     Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
 }
 
-/// M1 has no qualified service or feature catalogs. Reject every requirement
-/// rather than treating a present but unsupported table slot as implemented.
+/// This shell advertises only capabilities it implements, never slot presence.
+#[cfg(test)]
 fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
-    use wire::*;
-    if bytes.len() > MAX_BYTES
-        || bytes.get(..MAGIC_BYTES.len()) != Some(MAGIC_BYTES)
-        || u16_at(bytes, LAYOUT)? != FORMAT
-        || usize::from(u16_at(bytes, PREFIX_BYTES)?) != PREFIX_SIZE
-        || u32_at(bytes, TOTAL_BYTES)? as usize != bytes.len()
-        || u16_at(bytes, ABI_MAJOR)? != host.major
-        || u16_at(bytes, NEEDS_MINOR)? == 0
-        || u16_at(bytes, NEEDS_MINOR)? > host.minor
-        || usize::from(u16_at(bytes, ENTRY_LAYOUT)?) != PROFILE_ENTRY_LAYOUT
-        || usize::from(u16_at(bytes, ENTRY_BYTES)?) != PROFILE_ENTRY_BYTES
-        || u32_at(bytes, FLAGS)? != 0
-        || u16_at(bytes, SERVICES)? != 0
-        || u16_at(bytes, FEATURES)? != 0
-        || u16_at(bytes, EXPORTS)? != 1
-    {
-        return Err(RuntimeError::Metadata);
+    checked_metadata(bytes, host, &[]).map(|checked| checked.needs_minor)
+}
+
+// Only implemented semantic features belong here. Slot presence is insufficient.
+const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
+
+fn checked_metadata<'a>(
+    bytes: &'a [u8],
+    host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
+) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
+    use paperpaw_native::metadata::{self, Host, Profile, Refusal};
+    let capabilities = Host {
+        abi_major: host.major,
+        minor: host.minor,
+        profile: Profile {
+            target: core::str::from_utf8(wire::PROFILE).map_err(|_| RuntimeError::Metadata)?,
+            entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
+            entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
+        },
+        services,
+        features: WIRED_FEATURES,
+    };
+    match metadata::check(bytes, &capabilities) {
+        Ok(checked) => Ok(checked),
+        Err(Refusal::RequiredFeature { key, revision }) => {
+            let mut owned = String::new();
+            owned
+                .try_reserve_exact(key.len())
+                .map_err(|_| RuntimeError::Metadata)?;
+            owned.push_str(key);
+            Err(RuntimeError::RequiredFeature {
+                key: owned,
+                revision,
+            })
+        }
+        Err(_) => Err(RuntimeError::Metadata),
     }
-    let target_end = PREFIX_SIZE + usize::from(u16_at(bytes, TARGET_BYTES)?);
-    if bytes.get(PREFIX_SIZE..target_end) != Some(PROFILE) {
-        return Err(RuntimeError::Metadata);
-    }
-    let record = bytes.get(target_end..).ok_or(RuntimeError::Metadata)?;
-    if usize::from(u16_at(record, EXPORT_RECORD_BYTES)?) != record.len()
-        || record.get(EXPORT_KIND) != Some(&1)
-        || record.get(EXPORT_RESERVED) != Some(&0)
-        || u32_at(record, EXPORT_EXPECTED_BYTES)? as usize != PROFILE_ENTRY_BYTES
-        || usize::from(u16_at(record, EXPORT_NAME_BYTES)?) != ENTRY_SYMBOL.len()
-        || record.get(EXPORT_SIZE..) != Some(ENTRY_SYMBOL.as_bytes())
-    {
-        return Err(RuntimeError::Metadata);
-    }
-    u16_at(bytes, NEEDS_MINOR)
 }
 
 /// A live plugin. Its factory output and code remain owned until destruction.
@@ -134,7 +144,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table()) }?;
+        unsafe { checked_library(path, digest, host.table(), &[]) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -156,6 +166,7 @@ pub unsafe fn load(
 type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 
 struct CheckedLibrary {
+    declared_services: native_host::shell::DeclaredServices,
     library: HeldLibrary,
     make: Make,
     /// The library's read-only data as mapped: its address and length
@@ -168,12 +179,21 @@ fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_le_bytes(raw.try_into().ok()?))
 }
 
-/// The first loadable segment of the 64-bit little-endian ELF `bytes` that is
-/// neither writable nor executable (the library's read-only data), as
-/// `(address, length)` once the library is mapped at `base`; `(0, 0)` where
-/// there is none. Only the file's program headers are read; every offset is
-/// checked, so a hostile table gives `(0, 0)`, never a panic.
-fn read_only_segment(bytes: &[u8], base: usize) -> (usize, usize) {
+/// The library's read-only data, as the registration step's image: the
+/// loadable segment of the 64-bit little-endian ELF `bytes` that holds
+/// `anchor` (the address of `PAPERPAW_METADATA`, a read-only record), as
+/// `(address, length)` once the library is mapped at `base`. Offsets of
+/// `DeclRef::Image` are relative to its start.
+///
+/// The segment must be readable and neither writable nor executable, and its
+/// file bytes must lie wholly inside the file (`bytes`, the file as checked),
+/// so no mapped page of it reaches past the end of the file (a read there
+/// would be a bus error). `(0, 0)` where there is none: a batch is then kept
+/// in the plugin's own budget, not as offsets. The segment holding the
+/// headers and the dynamic symbols is not taken for it: with GNU ld the
+/// `.rodata` lies in a later one. Only the program headers are read and every
+/// offset is checked, so a hostile table gives `(0, 0)`, never a panic.
+fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
     const PT_LOAD: u32 = 1;
     const PF_X: u32 = 1;
     const PF_W: u32 = 2;
@@ -188,14 +208,29 @@ fn read_only_segment(bytes: &[u8], base: usize) -> (usize, usize) {
         for i in 0..count.min(64) {
             let at = phoff.checked_add(i.checked_mul(entry)?)?;
             let flags = u32_at(bytes, at.checked_add(4)?).ok()?;
-            if u32_at(bytes, at).ok()? != PT_LOAD || flags & (PF_X | PF_W) != 0 || flags & PF_R == 0
-            {
+            if u32_at(bytes, at).ok()? != PT_LOAD {
                 continue;
             }
-            let vaddr = usize::try_from(u64_at(bytes, at.checked_add(16)?)?).ok()?;
-            let filesz = usize::try_from(u64_at(bytes, at.checked_add(32)?)?).ok()?;
-            let memsz = usize::try_from(u64_at(bytes, at.checked_add(40)?)?).ok()?;
-            let len = filesz.min(memsz);
+            let offset = u64_at(bytes, at.checked_add(8)?)?;
+            let vaddr = u64_at(bytes, at.checked_add(16)?)?;
+            let filesz = u64_at(bytes, at.checked_add(32)?)?;
+            let memsz = u64_at(bytes, at.checked_add(40)?)?;
+            // The segment that holds the anchor, whatever its flags.
+            if anchor < vaddr || anchor - vaddr >= filesz {
+                continue;
+            }
+            if flags & (PF_X | PF_W) != 0 || flags & PF_R == 0 {
+                return None;
+            }
+            // `p_filesz` bytes come from the file, the rest up to `p_memsz` is
+            // zeros: more file than memory is no segment, and the file bytes
+            // must lie wholly inside the file.
+            if filesz > memsz || offset.checked_add(filesz)? > u64::try_from(bytes.len()).ok()? {
+                return None;
+            }
+            let len = filesz;
+            let vaddr = usize::try_from(vaddr).ok()?;
+            let len = usize::try_from(len).ok()?;
             base.checked_add(vaddr)?.checked_add(len)?;
             return Some((base + vaddr, len));
         }
@@ -209,6 +244,7 @@ unsafe fn checked_library(
     path: &Path,
     digest: &[u8; 32],
     host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -231,7 +267,15 @@ unsafe fn checked_library(
     })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let minor = metadata(locator.bytes, host)?;
+    let checked = checked_metadata(locator.bytes, host, services)?;
+    let minor = checked.needs_minor;
+    let declared_services =
+        native_host::shell::DeclaredServices::try_from_metadata(&checked, WIRED_FEATURES).map_err(
+            |error| match error {
+                native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
+                native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
+            },
+        )?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
@@ -277,8 +321,10 @@ unsafe fn checked_library(
     let image = read_only_segment(
         &bytes,
         (loaded_meta as usize).wrapping_sub(locator.address as usize),
+        locator.address,
     );
     Ok(CheckedLibrary {
+        declared_services,
         library,
         make,
         image,
@@ -294,7 +340,7 @@ mod plugin_output;
 )]
 mod owned;
 
-pub(crate) use owned::dev::load_flat;
+pub(crate) use owned::dev::load_flat_with_resources;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};

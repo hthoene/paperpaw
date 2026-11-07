@@ -42,11 +42,11 @@ use alloc::boxed::Box;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::install::{Installer, Progress, Received};
-use paperpaw_sdk::replies::HttpReply;
+use paperpaw_sdk::replies::{Confirmed, HttpReply};
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{
     Arg, Command, Commands, Env, FixedAction, FixedScreen, Id, Manifest, MenuEntry, Params, Plugin,
-    RegisterError, Registrar, SettingSpec,
+    PluginInfo, PluginProblem, PluginState, RegisterError, Registrar, SettingSpec,
 };
 use trust::Verdict;
 
@@ -66,6 +66,11 @@ pub(crate) const FONTS: Id = Id::new_static("fonts-browser.open");
 /// or its page here where it is not installed (a store plugin on lean
 /// firmware).
 pub const DISCOVER_FONTS: Id = Id::new_static("store.discover-fonts");
+/// The fonts browser's id.
+const FONTS_PLUGIN: &str = "fonts-browser";
+/// The answer to what *Discover fonts* asks where the fonts browser does
+/// not run; the question's `then` says what a yes does.
+const FONTS_ANSWER: Event<Confirmed> = Event::new("store.fonts-answered");
 /// The plugin manager's list of other places to get plugins.
 const MANAGER_MORE: Id = Id::new_static("plugin-manager.more");
 
@@ -121,15 +126,145 @@ static HOW: [(&str, &str); 2] = [
 static ACTIONS: [FixedAction; 2] = [
     FixedAction::new(OPEN, "store.title")
         .handler(|_, _, out| out.push(Command::OpenScreen(LIST_SCREEN, Params::new()))),
-    FixedAction::new(DISCOVER_FONTS, "store.discover-fonts").handler(|env, _, out| {
-        if env.actions().contains(FONTS.as_str()) {
-            out.push(Command::run(FONTS));
-        } else {
-            let page = Params::new().with(params::ID, "fonts-browser");
-            out.push(Command::OpenScreen(PAGE_SCREEN, page));
-        }
-    }),
+    FixedAction::new(DISCOVER_FONTS, "store.discover-fonts").handler(discover_fonts),
 ];
+
+/// Whether a plugin that is to run did not start (or was held back for
+/// good): what its start recorded, as *Manage plugins* says it. Held back
+/// for this start only (safe mode, switched on) it waits for a restart.
+fn failed_to_start(info: &PluginInfo) -> bool {
+    info.state == PluginState::Failed
+        || info
+            .problem
+            .is_some_and(|problem| !(problem == PluginProblem::SafeMode && info.enabled))
+}
+
+/// Why `info` did not start, as the plugin manager says it, with where to
+/// read more and what can be done.
+fn why_not(env: &Env<'_>, info: &PluginInfo) -> alloc::string::String {
+    let i18n = env.i18n();
+    let key = match info.problem {
+        Some(PluginProblem::OtherBuild) => "plugin-manager.code.other-build",
+        Some(PluginProblem::Damaged) => "plugin-manager.code.damaged",
+        Some(PluginProblem::Mismatch) => "plugin-manager.code.mismatch",
+        // As the plugin manager says it: a smaller layout (the X4 after an
+        // SD install) gets the web flasher's much larger one named.
+        Some(PluginProblem::NoRoom)
+            if env.native().is_some_and(|_| {
+                paperpaw_sdk::native::code_room(env.storage()).is_some_and(|r| r.larger.is_some())
+            }) =>
+        {
+            "plugin-manager.code.no-room-flash"
+        }
+        Some(PluginProblem::NoRoom) => "plugin-manager.code.no-room",
+        Some(PluginProblem::Unsupported) => "plugin-manager.code.unsupported",
+        Some(PluginProblem::SafeMode) => "plugin-manager.code.safe-mode",
+        Some(PluginProblem::Crashed) => "plugin-manager.code.crashed",
+        Some(PluginProblem::NotInstalled) => "plugin-manager.code.not-installed",
+        Some(PluginProblem::Changed) => "plugin-manager.code.changed",
+        Some(PluginProblem::OlderInterface { .. }) => "plugin-manager.code.older",
+        Some(PluginProblem::NeedsNewerPaperPaw) => "plugin-manager.code.needs-newer",
+        Some(PluginProblem::Revoked) => "plugin-manager.code.revoked",
+        _ => "plugin-manager.failed",
+    };
+    // The plugin manager is always here; its words are the same ones the
+    // reader finds there.
+    let reason = i18n
+        .get(key)
+        .unwrap_or_else(|| i18n.tr("store.fonts.failed.reason"));
+    alloc::format!("{reason}\n{}", i18n.tr("store.fonts.failed.help"))
+}
+
+/// *Discover fonts*: the fonts browser's list where it runs. Otherwise
+/// the reader is told why not (it is not installed, it did not start, it
+/// is switched off, or it waits for a restart), with the one thing to do
+/// about it; the store's page of it is not the answer to a wish for fonts,
+/// and a plugin that failed never falls back to it unsaid.
+fn discover_fonts(env: &Env<'_>, _: &Params, out: &mut Commands) {
+    if env.actions().contains(FONTS.as_str()) {
+        out.push(Command::run(FONTS));
+        return;
+    }
+    // The question, what it adds, the word for yes and for no, and what yes does.
+    let (question, help, yes, no, then) = match env.plugins().get(FONTS_PLUGIN) {
+        None => (
+            "store.fonts.missing",
+            "store.fonts.missing.help",
+            "store.fonts.show",
+            "store.fonts.not-now",
+            "page",
+        ),
+        Some(info) if failed_to_start(info) => {
+            let i18n = env.i18n();
+            out.push(
+                paperpaw_sdk::ask::confirm(i18n.tr("store.fonts.failed"), &FONTS_ANSWER)
+                    .text(why_not(env, info))
+                    .yes(i18n.tr("store.fonts.show"))
+                    .no(i18n.tr("store.fonts.not-now"))
+                    .focus_yes()
+                    .with("then", "page")
+                    .command(),
+            );
+            return;
+        }
+        Some(info) if !info.enabled => (
+            "store.fonts.off",
+            "store.fonts.off.help",
+            "store.fonts.switch-on",
+            "store.fonts.not-now",
+            "on",
+        ),
+        Some(info) if info.restart_needed() => (
+            "store.fonts.restart",
+            "store.fonts.restart.help",
+            "store.restart",
+            "store.fonts.later",
+            "restart",
+        ),
+        // Switched on and not running, or failed: its page offers what
+        // can be done (remove it, install it over).
+        Some(_) => {
+            out.push(fonts_page(env));
+            return;
+        }
+    };
+    let i18n = env.i18n();
+    out.push(
+        paperpaw_sdk::ask::confirm(i18n.tr(question), &FONTS_ANSWER)
+            .text(i18n.tr(help))
+            .yes(i18n.tr(yes))
+            .no(i18n.tr(no))
+            .focus_yes()
+            .with("then", then)
+            .command(),
+    );
+}
+
+/// The store's page of the fonts browser, titled while it is fetched.
+fn fonts_page(env: &Env<'_>) -> Command {
+    let page = Params::new()
+        .with(params::ID, FONTS_PLUGIN)
+        .with(params::TITLE, env.i18n().tr("store.fonts.name"));
+    Command::OpenScreen(PAGE_SCREEN, page)
+}
+
+/// What the reader chose to do about the fonts browser.
+fn fonts_answered(env: &Env<'_>, answer: &Confirmed, out: &mut Commands) {
+    if !answer.yes {
+        return;
+    }
+    match answer.context.get("then") {
+        Some("on") => {
+            if let Ok(id) = Id::parse(FONTS_PLUGIN) {
+                out.push(Command::SetPluginEnabled(id, true));
+                out.push(Command::Restart);
+            }
+        }
+        Some("restart") => out.push(Command::Restart),
+        _ => out.push(fonts_page(env)),
+    }
+}
+
 static ENTRIES: [MenuEntry; 3] = [
     // With the tools, and in the plugin manager.
     MenuEntry::new(menus::TOOLS, OPEN).order(90),
@@ -183,6 +318,7 @@ impl Plugin for Store {
         // Downloads go on while no screen of the store is open; one cut
         // off by a restart is begun anew from the plugin's page.
         r.on(DOWNLOADED, received)?;
+        r.on(FONTS_ANSWER, fonts_answered)?;
         r.on(queue::FETCHED, queue::fetched)?;
         // The first-run setup's offer of the plugins most readers add.
         setup::register(r)?;

@@ -242,6 +242,15 @@ jobs:
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
           -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat -p paperpaw-reader-api
+      - name: SDK interface-7 entry packs and rejects misalignment
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
+      - name: The smallest interface-7 sample packs to its committed file
+        # Built and packed by the real packer and compared with the file the
+        # tests read (crates/paperpaw-native/tests/data); it had stopped
+        # compiling unseen when only ci-local.sh built it.
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        run: CARGO_TARGET_DIR="$PWD/target/abi7-x4-min" samples/abi7-x4-min/build.sh --check
       - name: Lint the web emulator
         # The emulator's device model and paperpaw-dev's checks, with std,
         # in a browser (shells/web); its exports exist on wasm32 only.
@@ -273,6 +282,8 @@ jobs:
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
+          # A slow Ubuntu mirror must not fail a source check (#876); a release does not do this.
+          clang-fallback: "true"
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' }}
@@ -314,6 +325,14 @@ jobs:
       - name: The sample code plugin fits the firmware
         id: native
         uses: ./.github/actions/native-sample
+      # The panic handler's frames stay within what the stack band keeps
+      # for it (`shells/xteink/frame-budget.txt`).
+      - name: The panic path's stack frames fit the reserve
+        if: matrix.device == 'x4' || matrix.device == 'x3'
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget.txt
       # A code plugin's file is the same wherever it is built, as the
       # plugin library's rebuild needs: the sample, as its author's
       # repository has it (the SDK from a registry), built in two folders
@@ -668,3 +687,38 @@ jobs:
         run: cargo deny --manifest-path shells/xteink/Cargo.toml --all-features check
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
+
+  # What a plugin's code can call into on the X4 (the interface-7 host entries,
+  # the dispatch, the loader's x4 module) exists in the firmware built with
+  # `ppn5`, which is off by default and so not in the `firmware` jobs' builds.
+  # Its own job, beside them, builds the X4 with it and holds those functions'
+  # stack frames under the 2 KiB band at the main stack's end
+  # (`shells/xteink/frame-budget-ppn5.txt`).
+  firmware-host-frames:
+    name: Firmware interface-7 host frames (x4, ppn5)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEVICE: x4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: x4
+          clang-fallback: "true"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+          workspaces: |
+            shells/xteink
+            .
+          key: x4-ppn5
+      - name: Build the X4 with interface-7 plugins
+        working-directory: shells/xteink
+        run: cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
+      - name: The plugins' host frames fit under the band
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget-ppn5.txt

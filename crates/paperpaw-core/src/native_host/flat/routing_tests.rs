@@ -22,7 +22,13 @@ impl FlatInstance for Instance {
     fn environment(&self) -> Pin<&EnvironmentScope> {
         self.scope.as_ref()
     }
-    fn dispatch_event(&self, _: usize, _: &[u8], _: &DispatchDepth) -> Result<i32, Error> {
+    fn dispatch_event(
+        &self,
+        _: usize,
+        _: &[u8],
+        _: &mut [u8],
+        _: &DispatchDepth,
+    ) -> Result<i32, Error> {
         self.calls.set(self.calls.get() + 1);
         Ok(0)
     }
@@ -37,7 +43,7 @@ fn flat(calls: &Rc<Cell<usize>>, host: &FlatHost) -> FlatPlugin {
             scope: Box::pin(EnvironmentScope::new()),
             calls: Rc::clone(calls),
         }),
-        Rc::new(DispatchDepth::new()),
+        crate::native_host::flat::FlatDepth::try_new().unwrap(),
         host,
     )
     .unwrap()
@@ -153,7 +159,13 @@ impl FlatInstance for Reentrant<'_, '_> {
     fn environment(&self) -> Pin<&EnvironmentScope> {
         self.scope.as_ref()
     }
-    fn dispatch_event(&self, _: usize, _: &[u8], depth: &DispatchDepth) -> Result<i32, Error> {
+    fn dispatch_event(
+        &self,
+        _: usize,
+        _: &[u8],
+        _: &mut [u8],
+        depth: &DispatchDepth,
+    ) -> Result<i32, Error> {
         self.calls.set(self.calls.get() + 1);
         // Re-enter the exact handler used by FlatPlugin while its scope is live.
         // Admission must fail before dispatch_event can see plugin state again.
@@ -178,6 +190,7 @@ impl Plugin for ReentryDriver {
         let calls = Rc::clone(&self.calls);
         let drops = Rc::clone(&self.drops);
         let meter = Rc::clone(&self.host.meter);
+        let font_removals = Rc::clone(&self.host.font_removals);
         r.subscribe(
             builtin::STARTED,
             Box::new(move |env, _, _| {
@@ -188,6 +201,7 @@ impl Plugin for ReentryDriver {
                     drops: Rc::clone(&drops),
                     host: FlatHost {
                         meter: Rc::clone(&meter),
+                        font_removals: Rc::clone(&font_removals),
                     },
                 };
                 deliver(
@@ -218,10 +232,29 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
                 drops: Rc::clone(&observed_drops),
                 host: FlatHost {
                     meter: Rc::clone(&code.host.meter),
+                    font_removals: Rc::clone(&code.host.font_removals),
                 },
             }))
         },
     );
     kernel.start(paperpaw_platform::Instant(1));
     assert_eq!((calls.get(), drops.get()), (1, 1));
+}
+
+#[test]
+fn reply_lengths_are_checked_before_any_reply_can_be_read() {
+    use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
+    assert_eq!(reply_length(0, 0), Ok(0));
+    assert_eq!(reply_length(1, 0), Err(DropReason::Plugin(ERR_INVALID)));
+    assert_eq!(
+        reply_length(i32::MAX, 0),
+        Err(DropReason::Plugin(ERR_INVALID))
+    );
+    assert_eq!(
+        reply_length(ERR_STATE, 8),
+        Err(DropReason::Plugin(ERR_STATE))
+    );
+    assert_eq!(reply_length(0, 8), Ok(0));
+    assert_eq!(reply_length(8, 8), Ok(8));
+    assert_eq!(reply_length(9, 8), Err(DropReason::Plugin(ERR_INVALID)));
 }

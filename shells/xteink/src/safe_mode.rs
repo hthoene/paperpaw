@@ -12,6 +12,8 @@
 
 use alloc::string::String;
 
+#[cfg(feature = "ppn5")]
+use paperpaw_core::native_host::shell::inflight::Inflight;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 
 /// Failed starts with code plugins before one goes without them.
@@ -26,7 +28,11 @@ pub const KEY: &str = paperpaw_platform::buttons::HOME;
 /// The longest plugin id kept (the catalogue's ids have at most 48 bytes).
 const ID_LEN: usize = 48;
 /// Says the record was written by this firmware, not left by chance.
+#[cfg(not(feature = "ppn5"))]
 const MAGIC: u32 = 0x5050_5346;
+/// The record has the plugin calls in it (another layout, another magic).
+#[cfg(feature = "ppn5")]
+const MAGIC: u32 = 0x5050_5349;
 
 /// What safe mode keeps through a reset.
 #[derive(Clone, Copy)]
@@ -40,6 +46,12 @@ struct Record {
     /// The code plugin loaded last, and the one a panic was in.
     loaded: [u8; ID_LEN],
     crashed: [u8; ID_LEN],
+    /// The interface-7 plugins whose code is running now, one per nested
+    /// call (set before each call into one, given back after): left set by a
+    /// reset, the innermost is the plugin the reset happened in, a panic, a
+    /// watchdog or a fault, whenever in the session it was.
+    #[cfg(feature = "ppn5")]
+    inflight: Inflight,
 }
 
 // SAFETY: numbers and bytes only, any pattern of bits one of them (a
@@ -52,11 +64,15 @@ const EMPTY: Record = Record {
     counted: 0,
     loaded: [0; ID_LEN],
     crashed: [0; ID_LEN],
+    #[cfg(feature = "ppn5")]
+    inflight: Inflight::EMPTY,
 };
 
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut RECORD: Record = EMPTY;
 
+// The record is copied whole; one copy of that code, not one per caller.
+#[cfg_attr(feature = "ppn5", inline(never))]
 fn read() -> Record {
     // SAFETY: one core; written only by this module, at start, by the
     // loader and in the panic handler, never at once.
@@ -69,6 +85,7 @@ fn read() -> Record {
     }
 }
 
+#[cfg_attr(feature = "ppn5", inline(never))]
 fn write(record: Record) {
     // SAFETY: as in `read`.
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(record) };
@@ -78,6 +95,17 @@ fn text(bytes: &[u8; ID_LEN]) -> Option<String> {
     let len = bytes.iter().position(|&b| b == 0).unwrap_or(ID_LEN);
     let id = core::str::from_utf8(&bytes[..len]).ok()?;
     (!id.is_empty()).then(|| String::from(id))
+}
+
+/// The plugin a reset happened in, when it did in one.
+#[cfg(feature = "ppn5")]
+fn running(record: &Record) -> Option<String> {
+    record.inflight.current().map(String::from)
+}
+
+#[cfg(not(feature = "ppn5"))]
+fn running(_: &Record) -> Option<String> {
+    None
 }
 
 fn set(field: &mut [u8; ID_LEN], id: &str) {
@@ -92,9 +120,15 @@ fn set(field: &mut [u8; ID_LEN], id: &str) {
 pub fn check(key_held: bool) -> Option<SafeMode> {
     let mut record = read();
     record.counted = 0;
+    // A reset in the middle of a call into a plugin (cutting the power clears
+    // this record, so it was not that): that plugin is switched off now, not
+    // only after the starts that did not reach the first frame, because a
+    // plugin that crashes on its first event after the first frame is shown
+    // would otherwise crash every start.
+    let inflight = running(&record);
     let reason = if key_held {
         SafeModeReason::KeyHeld
-    } else if record.failed >= FAILED_STARTS {
+    } else if record.failed >= FAILED_STARTS || inflight.is_some() {
         SafeModeReason::FailedStarts
     } else {
         write(record);
@@ -102,7 +136,7 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
     };
     let mut safe_mode = SafeMode::new(reason);
     safe_mode.last_loaded = text(&record.loaded);
-    safe_mode.crashed = text(&record.crashed);
+    safe_mode.crashed = text(&record.crashed).or(inflight);
     write(EMPTY);
     Some(safe_mode)
 }
@@ -131,4 +165,91 @@ pub fn crashed_in(id: &str) {
     let mut record = read();
     set(&mut record.crashed, id);
     write(record);
+}
+
+/// Plugin `id`'s code is about to run (`make`, a callback, its destructor):
+/// the id is kept where a reset leaves it until [`returned`]. A call inside
+/// another plugin's call is kept apart from it.
+#[cfg(feature = "ppn5")]
+pub fn calling(id: &str) {
+    with_inflight(|inflight| inflight.enter(id));
+}
+
+/// The innermost call returned: the plugin around it, if any, is the running
+/// one again.
+#[cfg(feature = "ppn5")]
+pub fn returned() {
+    with_inflight(Inflight::leave);
+}
+
+/// Changes the calls in place: this runs around every call into a plugin,
+/// including the nested ones, so it must not copy the whole record (about
+/// 300 B of stack each) the way `read`/`write` do.
+#[cfg(feature = "ppn5")]
+fn with_inflight(change: impl FnOnce(&mut Inflight)) {
+    // SAFETY: as in `read`: one core, written only by this module, at start,
+    // by the loader and in the panic handler, never at once. The reference
+    // lives only through `change`, which touches nothing else.
+    unsafe {
+        let record = core::ptr::addr_of_mut!(RECORD);
+        if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
+            // Power was cut: RTC memory holds noise.
+            reset();
+        }
+        change(&mut *core::ptr::addr_of_mut!((*record).inflight));
+    }
+}
+
+/// Writes the empty record (a constant, no copy on the caller's stack).
+#[cfg(feature = "ppn5")]
+#[inline(never)]
+fn reset() {
+    // SAFETY: as in `read`.
+    unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
+}
+
+/// What the escape's watch reads in the button interrupt: `(call, calls, outermost,
+/// host)` while a call is open (`host`: it waits for a host slot), `None`
+/// otherwise. One volatile word each, no copy of the record. The same
+/// numbers twice are the same call.
+#[cfg(feature = "ppn5")]
+pub fn running_call() -> Option<(u32, u32, u32, bool)> {
+    // SAFETY: as in `read`; the interrupt only loads three words of a record that
+    // the main loop may be changing, through a raw pointer, and the main loop
+    // stores them with matching volatile stores.
+    unsafe {
+        let record = core::ptr::addr_of!(RECORD);
+        if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
+            return None;
+        }
+        Inflight::watch_at(core::ptr::addr_of!((*record).inflight))
+    }
+}
+
+/// A plugin's call into the host's code begins (a host slot): the plugin
+/// waits for the host, so the escape does not blame it meanwhile.
+#[cfg(feature = "ppn5")]
+pub fn host_begin() {
+    with_inflight(Inflight::host_enter);
+}
+
+/// The host slot returned.
+#[cfg(feature = "ppn5")]
+pub fn host_end() {
+    with_inflight(Inflight::host_leave);
+}
+
+/// The escape resets the processor now (from the button interrupt): with a
+/// plugin to blame, its call stays recorded and the next start switches that
+/// plugin off (`check`): the innermost call as it is, or, for the outermost
+/// one, only that call is kept. Without it no plugin is blamed and the record
+/// of calls is cleared.
+#[cfg(feature = "ppn5")]
+pub fn escape_reset(blame: paperpaw_x4::escape::Blame) {
+    use paperpaw_x4::escape::Blame;
+    match blame {
+        Blame::Innermost => {}
+        Blame::Outermost => with_inflight(Inflight::keep_outermost),
+        Blame::Nobody => with_inflight(|inflight| *inflight = Inflight::EMPTY),
+    }
 }

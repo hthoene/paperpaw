@@ -785,6 +785,12 @@ impl Kernel {
         let shown = |s: &SystemStatus| s.battery.map(|b| (b.percent, b.charging));
         if shown(&old) != shown(&status) || offset(&old) != offset(&status) || jumped {
             self.output.commands.push(events::STATUS_CHANGED.emit(()));
+            self.native_hint(native_host::registrations::EVENT_STATUS_CHANGED_TAG);
+        }
+        // Without a shell external-power fact, charging is the only known source.
+        let charge = native_host::event_producers::ChargeState::from_status;
+        if charge(&old, None) != charge(&status, None) {
+            self.native_hint(native_host::registrations::EVENT_CHARGE_CHANGED_TAG);
         }
         if status.battery.is_some() {
             self.output.commands.push(events::BATTERY_MEASURED.emit(()));
@@ -1252,6 +1258,8 @@ impl Kernel {
 
 /// Everything plugins can read through [`Env`].
 struct Shared {
+    /// The native runtime's producer endpoint; absent before runtime installation.
+    native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
@@ -1259,6 +1267,7 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,
     menus: Menus,
@@ -1467,3 +1476,6 @@ fn clipped(text: &str) -> String {
 fn paperpaw_text_outlines() -> bool {
     paperpaw_sdk::text::OUTLINES
 }
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+mod native_battery_pixel_tests;

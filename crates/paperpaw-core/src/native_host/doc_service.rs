@@ -1,0 +1,1030 @@
+//! Host side of the service `core.document` (`docs/abi/document.md` 2).
+//!
+//! The backend is the generic [`Backend`](super::resources) function: it holds
+//! no state. Everything it needs comes from the frame's [`DocHost`]: the
+//! caller, the [`DocumentTable`] and the broker that calls the format plugin's
+//! `core.format` stage. This file and its parts own the contract: record
+//! order and values of every input, the lease of a document (only its opener),
+//! the state rules (preparing is `ERR_BUSY`), the paging rules and the
+//! checks of a format's answer before it is passed on.
+//!
+//! Memory (X4): the table is allocated once at its device limit (about 40
+//! bytes a document, 2 documents), open and close allocate nothing. A call
+//! runs in the 4,096-byte scratch the generic dispatcher lends: the format's
+//! answer is written into it, checked there and, for pictures, rewritten in
+//! place. No call keeps anything. The peak of the DOC host side beyond the
+//! scratch is the table: 80 bytes.
+use super::{
+    host_services::Caller,
+    registrations::{self as wire, Record},
+};
+use crate::abi7::{
+    context::{Frame, RowsEnd},
+    services_wire::ServiceOp,
+};
+use core::ops::ControlFlow;
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
+
+mod args;
+mod check;
+mod table;
+#[allow(unused_imports, reason = "the shell builds the table with its limits")]
+pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING};
+
+/// Operations of `core.format` the host calls (`document.md` 3).
+pub(crate) mod fmt {
+    pub(crate) const OPEN: u32 = 2;
+    pub(crate) const META: u32 = 5;
+    pub(crate) const META_TEXT: u32 = 6;
+    pub(crate) const SECTIONS: u32 = 7;
+    pub(crate) const BLOCK: u32 = 8;
+    pub(crate) const TOC: u32 = 9;
+    pub(crate) const TOC_TARGET: u32 = 10;
+    pub(crate) const PAGE_LABEL: u32 = 11;
+    pub(crate) const XPOINTER: u32 = 12;
+    pub(crate) const LOCATE: u32 = 13;
+    pub(crate) const LINKS: u32 = 14;
+    pub(crate) const LINK_TARGET: u32 = 15;
+    pub(crate) const FONTS: u32 = 16;
+    pub(crate) const COVER: u32 = 17;
+    pub(crate) const IMAGE: u32 = 18;
+    pub(crate) const PROGRESS: u32 = 19;
+}
+
+/// The `doc_option` rows of an `open`, still in the caller's batch.
+#[derive(Clone, Copy)]
+pub(crate) struct Options<'a> {
+    batch: &'a [u8],
+}
+impl<'a> Options<'a> {
+    pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
+    /// Each option in order, `key` a full setting id. The host forwards the
+    /// ones of the format's own plugin whole; none is cut, none is dropped.
+    pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
+        args::each_option(self.batch, visit);
+    }
+}
+
+/// One call of the format plugin: the typed `fmt.call` of `document.md` 3.
+/// The reply is the op's records in the **service** tags, a bare stream; the
+/// adapter translates the format's stage-local tags to them. For a `siblings`
+/// format the adapter adds the opened file's name as `text`.
+pub(crate) struct FormatCall<'a> {
+    pub(crate) format: FormatRef,
+    pub(crate) op: u32,
+    pub(crate) document: u32,
+    pub(crate) section: u32,
+    pub(crate) offset: u32,
+    pub(crate) index: u32,
+    pub(crate) cursor: u32,
+    pub(crate) generation: u32,
+    pub(crate) flags: u32,
+    pub(crate) image_side: u32,
+    pub(crate) cover_side: u32,
+    pub(crate) conversion: u64,
+    /// Op 13 and 15: the XPointer or href.
+    pub(crate) text: &'a str,
+    /// Op 2 only.
+    pub(crate) options: Options<'a>,
+}
+impl FormatCall<'_> {
+    fn new(format: FormatRef, op: u32, document: u32) -> Self {
+        Self {
+            format,
+            op,
+            document,
+            section: 0,
+            offset: 0,
+            index: 0,
+            cursor: 0,
+            generation: 0,
+            flags: 0,
+            image_side: 0,
+            cover_side: 0,
+            conversion: 0,
+            text: "",
+            options: Options::NONE,
+        }
+    }
+}
+
+/// Everything the document service needs from the host. The shell implements
+/// it over its declarations, storage and stage broker; tests over fakes.
+pub(crate) trait DocHost {
+    /// The calling plugin: a never-reused host owner id. The shell's host
+    /// does not know it; the backend wraps it in the call's owner.
+    fn owner(&self) -> u64 {
+        0
+    }
+    fn table(&self) -> &DocumentTable;
+    /// The screen's long side in pixels.
+    fn screen_long_side(&self) -> u32;
+    /// Root 0 is the caller's Data; root 1 needs `uses.storage`
+    /// (`ERR_DENIED` without).
+    fn root_access(&self, root: u32) -> Result<(), i32>;
+    /// Section 1: the format that reads `path` (the longest extension, the
+    /// user's choice, priority). `requested` is a format id or empty.
+    /// `ERR_NOT_FOUND` when none reads it.
+    fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32>;
+    fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32>;
+    /// The conversion key of an open: the book, the format and what changes
+    /// the output (`document.md` 2.1).
+    fn conversion_key(
+        &self,
+        open: &wire::ServiceDocOpen<'_>,
+        format: FormatRef,
+        options: Options<'_>,
+    ) -> Result<u64, i32>;
+    /// Call the format plugin. On success the answer (service-tag records)
+    /// is at the start of `out`; the count is at most `out.len()`.
+    fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
+    /// Tell the format plugin to close a document (op 4 `close`). Best
+    /// effort; nothing the format says can fail it. The service never calls
+    /// it for a document whose format stopped (`format_gone`). The host
+    /// refuses it itself for a plugin that is retired (its instance is
+    /// revoked), whatever it is asked.
+    fn close_format(&self, document: &Document);
+    /// Every image id of the document ends now. It may be called twice for the
+    /// same document (ids are generation-checked); the second call does
+    /// nothing.
+    fn end_images(&self, document: &Document);
+    /// The host closed a document on its own (three malformed answers, the
+    /// format plugin stopped): the opener gets `event.document_closed`. Only
+    /// the event; the service ends the image ids (`end_images`) first and
+    /// never calls the format here.
+    fn document_closed(&self, document: &Document, reason: u32);
+    /// Turn a format's picture into the opener's image id (`document.md`
+    /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
+    /// (`in_block` only; else `ERR_BUSY`), or `None` for a picture that fails
+    /// the cache-image check.
+    fn map_image(
+        &self,
+        document: &Document,
+        image: &wire::ServiceDocImage,
+        in_block: bool,
+    ) -> Result<Option<u32>, i32>;
+    /// The owner is a format plugin that stopped: it is removed from the
+    /// format index and `visit` gets each format reference it had. Nothing
+    /// is called on the plugin.
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
+    /// Section 1's formats in a stable order; `ERR_STATE` for a stale
+    /// generation (never 0, as REG's).
+    fn formats(
+        &self,
+        cursor: u32,
+        generation: u32,
+        visit: &mut dyn FnMut(Record<'_>) -> ControlFlow<()>,
+    ) -> Result<RowsEnd, i32>;
+    /// Reading apps, of one format id or of all (`scope` empty).
+    fn readers(
+        &self,
+        scope: &str,
+        cursor: u32,
+        generation: u32,
+        visit: &mut dyn FnMut(Record<'_>) -> ControlFlow<()>,
+    ) -> Result<RowsEnd, i32>;
+    /// Op 20: the format that reads a file; `sniff` reads its first 512
+    /// bytes when no extension matches. Calls `visit` once, `ERR_NOT_FOUND`
+    /// when none.
+    fn format_for(
+        &self,
+        root: u32,
+        path: &str,
+        sniff: bool,
+        visit: &mut dyn FnMut(Record<'_>),
+    ) -> Result<(), i32>;
+}
+
+/// The opener stopped: its documents end, and each format gets op 4 `close`
+/// and the document's image ids end (`document.md` 2.1). The shell calls it
+/// when a plugin stops.
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry ends the rest.
+pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> Result<usize, i32> {
+    host.table()
+        .close_owner(owner, |document| end(host, document))
+}
+
+/// A document leaves the table (its opener closed it or stopped, or a `open`
+/// failed): its image ids end (again, if the host's own close ended them; the
+/// host makes that idempotent) and the format is told to close it unless the
+/// format is gone. One place for every path, so no path calls a stopped format.
+fn end(host: &dyn DocHost, document: &Document) {
+    host.end_images(document);
+    if !document.format_gone {
+        host.close_format(document);
+    }
+}
+
+/// The host closes a document on its own: image ids end, the opener hears it.
+fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
+    host.end_images(document);
+    host.document_closed(document, reason);
+}
+
+/// A format plugin stopped or was uninstalled: its documents are closed by the
+/// host (reason 1), their image ids end, each opener hears
+/// `event.document_closed`, and the format is not called again (not even by
+/// the opener's later `close`). The shell calls it when a format plugin stops.
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; a retry finishes the rest.
+pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> Result<usize, i32> {
+    format_retired(host, format, None)
+}
+
+/// As [`format_stopped`], for a format plugin that is retiring: `owner`, if it
+/// is also an opener, hears nothing and its documents are marked gone, so its
+/// own opener cleanup (`opener_stopped`, right after) never calls the format.
+///
+/// # Errors
+/// As [`format_stopped`].
+pub(crate) fn format_retired(
+    host: &dyn DocHost,
+    format: FormatRef,
+    owner: Option<u64>,
+) -> Result<usize, i32> {
+    host.table()
+        .cancel_format(format, 1, owner, |document| host_closed(host, document, 1))
+}
+
+/// What the shell hands the frame under the key `core.document`.
+pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
+
+/// The host of this call with its caller: forwards everything but `owner`.
+struct Cx<'a> {
+    host: &'a dyn DocHost,
+    owner: u64,
+}
+impl DocHost for Cx<'_> {
+    fn owner(&self) -> u64 {
+        self.owner
+    }
+    fn table(&self) -> &DocumentTable {
+        self.host.table()
+    }
+    fn screen_long_side(&self) -> u32 {
+        self.host.screen_long_side()
+    }
+    fn root_access(&self, root: u32) -> Result<(), i32> {
+        self.host.root_access(root)
+    }
+    fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
+        self.host.select_format(root, path, requested)
+    }
+    fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
+        self.host.format_id(format, visit)
+    }
+    fn conversion_key(
+        &self,
+        open: &wire::ServiceDocOpen<'_>,
+        format: FormatRef,
+        options: Options<'_>,
+    ) -> Result<u64, i32> {
+        self.host.conversion_key(open, format, options)
+    }
+    fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
+        self.host.call_format(call, out)
+    }
+    fn close_format(&self, document: &Document) {
+        self.host.close_format(document);
+    }
+    fn end_images(&self, document: &Document) {
+        self.host.end_images(document);
+    }
+    fn document_closed(&self, document: &Document, reason: u32) {
+        self.host.document_closed(document, reason);
+    }
+    fn map_image(
+        &self,
+        document: &Document,
+        image: &wire::ServiceDocImage,
+        in_block: bool,
+    ) -> Result<Option<u32>, i32> {
+        self.host.map_image(document, image, in_block)
+    }
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.host.formats_of_owner(owner, visit);
+    }
+    fn formats(
+        &self,
+        cursor: u32,
+        generation: u32,
+        visit: &mut dyn FnMut(Record<'_>) -> ControlFlow<()>,
+    ) -> Result<RowsEnd, i32> {
+        self.host.formats(cursor, generation, visit)
+    }
+    fn readers(
+        &self,
+        scope: &str,
+        cursor: u32,
+        generation: u32,
+        visit: &mut dyn FnMut(Record<'_>) -> ControlFlow<()>,
+    ) -> Result<RowsEnd, i32> {
+        self.host.readers(scope, cursor, generation, visit)
+    }
+    fn format_for(
+        &self,
+        root: u32,
+        path: &str,
+        sniff: bool,
+        visit: &mut dyn FnMut(Record<'_>),
+    ) -> Result<(), i32> {
+        self.host.format_for(root, path, sniff, visit)
+    }
+}
+
+mod op {
+    pub(super) const OPEN: u32 = 1;
+    pub(super) const STATE: u32 = 2;
+    pub(super) const META: u32 = 3;
+    pub(super) const META_TEXT: u32 = 4;
+    pub(super) const SECTIONS: u32 = 5;
+    pub(super) const BLOCK: u32 = 6;
+    pub(super) const TOC: u32 = 7;
+    pub(super) const TOC_TARGET: u32 = 8;
+    pub(super) const PAGE_LABEL: u32 = 9;
+    pub(super) const XPOINTER: u32 = 10;
+    pub(super) const LOCATE: u32 = 11;
+    pub(super) const LINKS: u32 = 12;
+    pub(super) const LINK_TARGET: u32 = 13;
+    pub(super) const FONTS: u32 = 14;
+    pub(super) const COVER: u32 = 15;
+    pub(super) const IMAGE: u32 = 16;
+    pub(super) const PROGRESS: u32 = 17;
+    pub(super) const CLOSE: u32 = 18;
+    pub(super) const FORMATS: u32 = 19;
+    pub(super) const FORMAT_FOR: u32 = 20;
+    pub(super) const READERS: u32 = 21;
+}
+
+/// The `core.document` backend.
+pub(crate) fn backend(
+    _frame: &dyn Frame,
+    who: &Caller<'_>,
+    op: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
+    let host = &Cx {
+        host: &*services.0,
+        owner: who.owner,
+    };
+    let host: &dyn DocHost = host;
+    match op.id {
+        op::OPEN => open(host, input, out),
+        op::STATE => state(host, input, out),
+        op::CLOSE => close(host, input),
+        op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
+        op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
+        op::FORMAT_FOR => format_for(host, input, out),
+        op::META..=op::PROGRESS => read(host, op, input, out),
+        _ => Err(ERR_UNSUPPORTED),
+    }
+}
+
+fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    wire::record_encode_one(record, out)
+}
+
+/// `doc_state` of a document, from the table.
+fn state_reply(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Result<usize, i32> {
+    let mut written = Err(ERR_NOT_FOUND);
+    host.format_id(document.format, &mut |format| {
+        written = encode(
+            &Record::ServiceDocState(wire::ServiceDocState {
+                document: document.id,
+                state: document.state,
+                progress_ppm: document.progress_ppm,
+                status: document.status,
+                flags: document.flags,
+                conversion: document.conversion,
+                format,
+            }),
+            out,
+        );
+    })?;
+    written
+}
+
+fn state(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    let document = host.table().lease(host.owner(), reference.document)?;
+    state_reply(host, &document, out)
+}
+
+fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
+    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    let document = host.table().close(host.owner(), reference.document)?;
+    end(host, &document);
+    Ok(0)
+}
+
+/// Op 1. The format's answer becomes `doc_state`; a failed open still has an
+/// id until closed, a callback that fails has none.
+fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let parsed = args::parse_open(input)?;
+    let request = parsed.open;
+    let long_side = host.screen_long_side();
+    args::check_open(&request, long_side)?;
+    host.root_access(request.root)?;
+    if !request.css_path.is_empty() {
+        host.root_access(request.css_root)?;
+    }
+    let format = host.select_format(request.root, request.path, request.format)?;
+    let options = Options { batch: input };
+    let conversion = host.conversion_key(&request, format, options)?;
+    let image_side = match request.image_side {
+        0 => args::IMAGE_FIT,
+        side => side,
+    };
+    let cover_side = match request.cover_side {
+        0 => args::default_cover_side(long_side).min(long_side),
+        side => side,
+    };
+
+    let table = host.table();
+    let id = table.open(host.owner(), format, PREPARING, request.flags)?;
+    table.set_sides(id, image_side, cover_side)?;
+    let answered = (|| {
+        let mut call = FormatCall::new(format, fmt::OPEN, id);
+        call.flags = request.flags;
+        call.image_side = image_side;
+        call.cover_side = cover_side;
+        call.conversion = conversion;
+        call.options = options;
+        let length = run(host, &call, out)?;
+        let Record::ServiceDocState(answer) = check::only(&out[..length])? else {
+            return Err(ERR_INVALID);
+        };
+        check::state(&answer)?;
+        table.set_state(
+            id,
+            answer.state,
+            answer.progress_ppm,
+            answer.status,
+            answer.flags,
+            conversion,
+        )
+    })();
+    if let Err(error) = answered {
+        // The id never reached the opener; the format may hold state for it.
+        if let Ok(document) = table.close(host.owner(), id) {
+            end(host, &document);
+        }
+        return Err(error);
+    }
+    let document = table.lease(host.owner(), id)?;
+    state_reply(host, &document, out)
+}
+
+/// Call the format; its answer is at the start of `out`.
+fn run(host: &dyn DocHost, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    let length = host.call_format(call, out)?;
+    if length > out.len() {
+        // The adapter wrote more than it was lent: never trust the count.
+        return Err(ERR_INVALID);
+    }
+    Ok(length)
+}
+
+/// What a call found: counts a malformed answer against the document.
+fn settle(host: &dyn DocHost, document: &Document, verdict: Result<(), i32>) -> Result<(), i32> {
+    match verdict {
+        Ok(()) => {
+            host.table().pardon(document.id);
+            Ok(())
+        }
+        Err(ERR_INVALID) => {
+            if host.table().strike(document.id) {
+                host_closed(host, document, 1);
+            }
+            Err(ERR_INVALID)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// Where a block call reads: the address, the cursor and identity named, and
+/// what the earlier fragments said.
+#[derive(Clone, Copy)]
+struct BlockAt {
+    section: u32,
+    offset: u32,
+    cursor: u32,
+    generation: u32,
+    resume: Option<check::Fragment>,
+}
+
+/// What the host checks of a format's answer.
+enum Check {
+    Meta,
+    Text { kind: u32, index: u32, offset: u32 },
+    Sections { cursor: u32, generation: u32 },
+    Toc { cursor: u32, generation: u32 },
+    Fonts { cursor: u32, generation: u32 },
+    Links { cursor: u32, generation: u32 },
+    Block(BlockAt),
+    At,
+    Label,
+    Xpointer,
+    Image,
+    Progress,
+}
+
+fn document_of(record: &Record<'_>) -> Option<u32> {
+    Some(match record {
+        Record::ServiceDocRef(r) => r.document,
+        Record::ServiceDocTextAt(r) => r.document,
+        Record::ServiceDocPage(r) => r.document,
+        Record::ServiceDocAt(r) => r.document,
+        Record::ServiceDocIndex(r) => r.document,
+        Record::ServiceDocXpointer(r) => r.document,
+        Record::ServiceDocSpan(r) => r.document,
+        Record::ServiceDocHref(r) => r.document,
+        Record::ServiceDocImageAsk(r) => r.document,
+        _ => return None,
+    })
+}
+
+/// A continuation the host did not begin (or that changed) is `ERR_STATE`.
+fn require_state(ok: bool) -> Result<(), i32> {
+    if ok { Ok(()) } else { Err(ERR_STATE) }
+}
+
+fn require(ok: bool) -> Result<(), i32> {
+    if ok { Ok(()) } else { Err(ERR_INVALID) }
+}
+
+/// A page of ops 5, 7, 14: `scope` is op 21's alone.
+fn page<'a>(record: &Record<'a>) -> Result<(u32, u32), i32> {
+    let Record::ServiceDocPage(page) = record else {
+        return Err(ERR_INVALID);
+    };
+    require(page.scope.is_empty())?;
+    args::page_state(page.cursor, page.generation)?;
+    Ok((page.cursor, page.generation))
+}
+
+/// A plain position (ops 9, 10, 17): no insert, no paging.
+fn position(at: &wire::ServiceDocAt) -> Result<(), i32> {
+    require(at.insert == 0 && at.cursor == 0 && at.generation == 0)
+}
+
+/// Ops 5, 7, 14: the format op and what to check of its page.
+fn listing(id: u32, cursor: u32, generation: u32) -> (u32, Check) {
+    match id {
+        op::SECTIONS => (fmt::SECTIONS, Check::Sections { cursor, generation }),
+        op::TOC => (fmt::TOC, Check::Toc { cursor, generation }),
+        _ => (fmt::FONTS, Check::Fonts { cursor, generation }),
+    }
+}
+
+/// Ops 9, 10, 17: the format op and what to check of its answer.
+fn locating(id: u32) -> (u32, Check) {
+    match id {
+        op::PAGE_LABEL => (fmt::PAGE_LABEL, Check::Label),
+        op::XPOINTER => (fmt::XPOINTER, Check::Xpointer),
+        _ => (fmt::PROGRESS, Check::Progress),
+    }
+}
+
+/// Check the arguments of op `id` and make the format's call for it.
+fn prepare<'a>(
+    id: u32,
+    document: &Document,
+    record: &Record<'a>,
+) -> Result<(FormatCall<'a>, Check), i32> {
+    let mut call = FormatCall::new(document.format, 0, document.id);
+    call.conversion = document.conversion;
+    let check = match (id, record) {
+        (op::META, Record::ServiceDocRef(_)) => {
+            call.op = fmt::META;
+            Check::Meta
+        }
+        (op::COVER, Record::ServiceDocRef(_)) => {
+            call.op = fmt::COVER;
+            call.cover_side = document.cover_side;
+            Check::Image
+        }
+        (op::META_TEXT, Record::ServiceDocTextAt(r)) => {
+            // 0 title, 1 author, 2 subject, 3 description, 4 series; only
+            // authors and subjects are lists.
+            require(r.kind <= 4)?;
+            if !matches!(r.kind, 1 | 2) && r.index != 0 {
+                return Err(ERR_NOT_FOUND);
+            }
+            call.op = fmt::META_TEXT;
+            call.index = r.index;
+            call.flags = r.kind;
+            call.offset = r.offset;
+            Check::Text {
+                kind: r.kind,
+                index: r.index,
+                offset: r.offset,
+            }
+        }
+        (op::SECTIONS | op::TOC | op::FONTS, page_record) => {
+            let (cursor, generation) = page(page_record)?;
+            call.cursor = cursor;
+            call.generation = generation;
+            let (format_op, check) = listing(id, cursor, generation);
+            call.op = format_op;
+            check
+        }
+        (op::BLOCK, Record::ServiceDocAt(r)) => block_ask(r, document, &mut call)?,
+        (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, Record::ServiceDocAt(r)) => {
+            position(r)?;
+            call.section = r.section;
+            call.offset = r.offset;
+            let (format_op, check) = locating(id);
+            call.op = format_op;
+            check
+        }
+        (op::TOC_TARGET, Record::ServiceDocIndex(r)) => {
+            call.op = fmt::TOC_TARGET;
+            call.index = r.index;
+            Check::At
+        }
+        (op::LOCATE, Record::ServiceDocXpointer(r)) => {
+            require(!r.text.is_empty())?;
+            call.op = fmt::LOCATE;
+            call.text = r.text;
+            Check::At
+        }
+        (op::LINKS, Record::ServiceDocSpan(r)) => {
+            require(r.from <= r.to)?;
+            args::page_state(r.cursor, r.generation)?;
+            call.op = fmt::LINKS;
+            call.section = r.section;
+            call.offset = r.from;
+            call.index = r.to;
+            call.cursor = r.cursor;
+            call.generation = r.generation;
+            Check::Links {
+                cursor: r.cursor,
+                generation: r.generation,
+            }
+        }
+        (op::LINK_TARGET, Record::ServiceDocHref(r)) => {
+            require(!r.href.is_empty())?;
+            call.op = fmt::LINK_TARGET;
+            call.text = r.href;
+            Check::At
+        }
+        (op::IMAGE, Record::ServiceDocImageAsk(r)) => {
+            if r.index == u32::MAX {
+                // The cover is index `u32::MAX` (`document.md` 5): its own
+                // size, larger when asked.
+                call.op = fmt::COVER;
+                call.cover_side = args::image_side(r.side, document.cover_side)?;
+            } else {
+                call.op = fmt::IMAGE;
+                call.index = r.index;
+                call.image_side = args::image_side(r.side, document.image_side)?;
+            }
+            Check::Image
+        }
+        _ => return Err(ERR_INVALID),
+    };
+    Ok((call, check))
+}
+
+/// Ops 3-17: ask the format, check its answer, pass it on.
+fn read(host: &dyn DocHost, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let record = wire::records_decode_single(input)?;
+    let id = document_of(&record).ok_or(ERR_INVALID)?;
+    let document = host.table().ready(host.owner(), id)?;
+    let (call, check) = prepare(op.id, &document, &record)?;
+    let length = run(host, &call, out)?;
+    let verdict = verify(host, &document, &check, out, length);
+    let kept = verdict.as_ref().map_or(0, |kept| *kept);
+    settle(host, &document, verdict.map(|_| ()))?;
+    Ok(kept)
+}
+
+/// Paging rows must move forward from the cursor.
+struct Forward(Option<u32>, u32);
+impl Forward {
+    fn row(&mut self, index: u32) -> Result<(), i32> {
+        require(self.0.map_or(index >= self.1, |last| index > last))?;
+        self.0 = Some(index);
+        Ok(())
+    }
+}
+
+/// Check the answer in `out[..length]`; pictures are rewritten in place.
+/// Returns the length to pass on.
+fn verify(
+    host: &dyn DocHost,
+    document: &Document,
+    check: &Check,
+    out: &mut [u8],
+    length: usize,
+) -> Result<usize, i32> {
+    let bytes = &out[..length];
+    match *check {
+        Check::Meta => {
+            let Record::ServiceDocMeta(meta) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+            check::meta(&meta)?;
+        }
+        Check::Text {
+            kind,
+            index,
+            offset,
+        } => {
+            let Record::ServiceDocText(text) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+            check::text(&text, kind, index, offset)?;
+        }
+        Check::Sections { cursor, generation } => {
+            let mut forward = Forward(None, cursor);
+            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
+                Record::ServiceDocSection(row) => {
+                    forward.row(row.index)?;
+                    check::section(row, cursor)
+                }
+                _ => Err(ERR_INVALID),
+            })?;
+            check::page_end(&end, cursor, generation)?;
+        }
+        Check::Toc { cursor, generation } => {
+            let mut forward = Forward(None, cursor);
+            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
+                Record::ServiceDocToc(row) => {
+                    forward.row(row.index)?;
+                    check::toc(row, cursor)
+                }
+                _ => Err(ERR_INVALID),
+            })?;
+            check::page_end(&end, cursor, generation)?;
+        }
+        Check::Fonts { cursor, generation } => {
+            let mut forward = Forward(None, cursor);
+            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
+                Record::ServiceDocFont(row) => {
+                    forward.row(row.index)?;
+                    check::font(row)
+                }
+                _ => Err(ERR_INVALID),
+            })?;
+            check::page_end(&end, cursor, generation)?;
+        }
+        Check::Links { cursor, generation } => {
+            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
+                Record::ServiceDocLink(row) => check::link(row),
+                _ => Err(ERR_INVALID),
+            })?;
+            check::page_end(&end, cursor, generation)?;
+        }
+        Check::Block(at) => return block_verify(host, document, at, out, length),
+        Check::At => {
+            let Record::ServiceDocAt(at) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+            check::at(&at, document.id)?;
+        }
+        Check::Label => {
+            let Record::ServiceDocLabel(_) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+        }
+        Check::Xpointer => {
+            let Record::ServiceDocXpointer(pointer) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+            require(pointer.document == document.id && !pointer.text.is_empty())?;
+        }
+        Check::Image => {
+            if !matches!(check::only(bytes)?, Record::ServiceDocImage(_)) {
+                return Err(ERR_INVALID);
+            }
+            let kept = images(host, document, out, length, false)?;
+            // A picture that fails its check is not a picture at all.
+            require(kept != 0)?;
+            return Ok(kept);
+        }
+        Check::Progress => {
+            let Record::ServiceDocProgress(progress) = check::only(bytes)? else {
+                return Err(ERR_INVALID);
+            };
+            check::progress(&progress)?;
+        }
+    }
+    Ok(length)
+}
+
+/// Op 6: the block at `at`, or the next fragment of the one in progress.
+fn block_ask(
+    r: &wire::ServiceDocAt,
+    document: &Document,
+    call: &mut FormatCall<'_>,
+) -> Result<Check, i32> {
+    // `insert` is the reader's own (inserted content); never here.
+    require(r.insert == 0)?;
+    args::page_state(r.cursor, r.generation)?;
+    // A later fragment continues the block the last call began: the table
+    // keeps what the earlier fragments said (`document.md` 4).
+    let resume = if r.cursor == 0 {
+        None
+    } else {
+        let pending = document.block.ok_or(ERR_STATE)?;
+        require_state(pending.is(r.section, r.offset, r.generation, r.cursor))?;
+        Some(pending.fragment)
+    };
+    call.op = fmt::BLOCK;
+    call.section = r.section;
+    call.offset = r.offset;
+    call.cursor = r.cursor;
+    call.generation = r.generation;
+    Ok(Check::Block(BlockAt {
+        section: r.section,
+        offset: r.offset,
+        cursor: r.cursor,
+        generation: r.generation,
+        resume,
+    }))
+}
+
+/// Op 6's answer: checked as the next fragment, then remembered when the block
+/// goes on and forgotten when it ends. Only a fragment that passed moves it.
+fn block_verify(
+    host: &dyn DocHost,
+    document: &Document,
+    at: BlockAt,
+    out: &mut [u8],
+    length: usize,
+) -> Result<usize, i32> {
+    let (end, fragment) = check::block(
+        &out[..length],
+        at.cursor,
+        at.generation,
+        at.resume,
+        |_, _| Ok(()),
+    )?;
+    let kept = images(host, document, out, length, true)?;
+    let pending = (end.flags & 2 != 0).then_some(table::Pending {
+        section: at.section,
+        offset: at.offset,
+        generation: end.generation,
+        next: end.next,
+        fragment,
+    });
+    host.table().keep_block(document.id, pending);
+    Ok(kept)
+}
+
+/// Rows per page of the document service's lists (`page_rows` 64).
+const PAGE_ROWS: usize = 64;
+
+/// Replace each format picture by the opener's image id, in place. A picture
+/// the host cannot vouch for is left out of the stream (its block keeps its
+/// alt text), never failing the stream. Returns the new length.
+fn images(
+    host: &dyn DocHost,
+    document: &Document,
+    out: &mut [u8],
+    mut length: usize,
+    in_block: bool,
+) -> Result<usize, i32> {
+    let mut at = 0;
+    while at < length {
+        let (record, used) = wire::record_decode_prefix(&out[at..length])?;
+        let Record::ServiceDocImage(image) = record else {
+            at += used;
+            continue;
+        };
+        match host.map_image(document, &image, in_block)? {
+            Some(id) => {
+                // The same fixed-width record: it fits where the old one was.
+                let mut scratch = [0_u8; 32];
+                let size = encode(
+                    &Record::ServiceDocImage(wire::ServiceDocImage { image: id, ..image }),
+                    &mut scratch,
+                )?;
+                require(size == used)?;
+                out[at..at + used].copy_from_slice(&scratch[..size]);
+                at += used;
+            }
+            None => {
+                out.copy_within(at + used..length, at);
+                length -= used;
+            }
+        }
+    }
+    Ok(length)
+}
+
+/// Rows and the closing `end` of a host-owned list, whole rows only.
+fn list(
+    out: &mut [u8],
+    rows_cap: usize,
+    run: impl FnOnce(&mut dyn FnMut(Record<'_>) -> ControlFlow<()>) -> Result<RowsEnd, i32>,
+) -> Result<usize, i32> {
+    let mut end = wire::ServiceEnd {
+        flags: 0,
+        total: 0,
+        generation: 0,
+        next: 0,
+        cursor: None,
+    };
+    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
+    let mut used = 0;
+    let mut rows = 0;
+    let mut failure = None;
+    let position = run(&mut |record| {
+        if rows == rows_cap {
+            return ControlFlow::Break(());
+        }
+        match wire::record_framed_len(&record) {
+            Ok(length) if length <= available - used => {
+                match wire::record_encode_one(&record, &mut out[used..available]) {
+                    Ok(written) => {
+                        used += written;
+                        rows += 1;
+                        ControlFlow::Continue(())
+                    }
+                    Err(error) => {
+                        failure = Some(error);
+                        ControlFlow::Break(())
+                    }
+                }
+            }
+            Ok(_) => ControlFlow::Break(()),
+            Err(error) => {
+                failure = Some(error);
+                ControlFlow::Break(())
+            }
+        }
+    })?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    // The generation is never 0; the last page says so.
+    require(position.generation != 0)?;
+    end.total = position.total;
+    end.generation = position.generation;
+    end.next = position.next;
+    if position.next >= position.total {
+        end.flags = 1;
+    } else if rows == 0 {
+        // A row that fits no page would loop its reader for ever.
+        return Err(ERR_NO_SPACE);
+    }
+    Ok(used + wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
+}
+
+fn paged(input: &[u8], scope_allowed: bool) -> Result<wire::ServiceDocPage<'_>, i32> {
+    let Record::ServiceDocPage(page) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    // No document here, and `scope` is op 21's format filter alone.
+    require(page.document == 0 && (scope_allowed || page.scope.is_empty()))?;
+    args::page_state(page.cursor, page.generation)?;
+    Ok(page)
+}
+
+fn formats(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Result<usize, i32> {
+    let page = paged(input, false)?;
+    list(out, rows, |visit| {
+        host.formats(page.cursor, page.generation, visit)
+    })
+}
+
+fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Result<usize, i32> {
+    let page = paged(input, true)?;
+    require(page.scope.is_empty() || args::id_valid(page.scope))?;
+    list(out, rows, |visit| {
+        host.readers(page.scope, page.cursor, page.generation, visit)
+    })
+}
+
+fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let Record::ServiceDocPath(path) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    // Bit 0: sniff when no extension matches.
+    require(path.root <= 1 && path.flags & !1 == 0 && args::path_valid(path.path))?;
+    host.root_access(path.root)?;
+    let mut written = Err(ERR_NOT_FOUND);
+    host.format_for(path.root, path.path, path.flags & 1 != 0, &mut |record| {
+        written = encode(&record, out);
+    })?;
+    written
+}
+
+#[cfg(test)]
+#[path = "doc_service/tests.rs"]
+pub(crate) mod tests;

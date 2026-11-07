@@ -100,13 +100,13 @@ impl RawDeclarations {
         let mut len = 0;
         for (record, value) in batch.iter().enumerate() {
             if let Some((kind, name)) = key(value) {
-                index[len] = NameEntry {
-                    hash: self.hash(kind, name),
-                    batch: u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
-                    record_kind: (u16::from(kind) << 3)
-                        | (u16::from(matches!(value, Record::ResourceFontExtension(_))) << 6)
-                        | u16::try_from(record).map_err(|_| ERR_INVALID)?,
-                };
+                index[len] = NameEntry::new(
+                    self.hash(kind, name),
+                    u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
+                    kind,
+                    record,
+                    matches!(value, Record::ResourceFontExtension(_)),
+                )?;
                 len += 1;
             }
         }
@@ -273,7 +273,7 @@ impl RawDeclarations {
         name_hash(kind, name)
     }
     pub(crate) fn sort_index(&mut self) {
-        self.index.sort_unstable_by_key(|entry| entry.order());
+        super::declaration_index::sort_by_key(&mut self.index, |entry| entry.order());
         self.sorted = true;
     }
     pub(crate) fn record<'a>(
@@ -288,7 +288,7 @@ impl RawDeclarations {
         let bytes = batch.view(image)?;
         let offset = usize::from(*batch.offsets.get(entry.record()).ok_or(ERR_INVALID)?);
         let (record, _) =
-            super::registrations::record_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
+            super::registrations::host_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
         let (kind, name) = key(record).ok_or(ERR_INVALID)?;
         if kind != entry.kind()
             || self.hash(kind, name) != entry.hash
@@ -389,6 +389,8 @@ fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usi
         base[i] + (desired[i] - base[i]) * spare / expansion
     }))
 }
+// Only these six kinds have individual count caps. Screen/action entries
+// share the aggregate index_cost budget and use no per-kind raw vectors.
 fn counts(batch: &RecordBatch<'_>) -> [usize; 6] {
     let mut counts = [0; 6];
     for record in batch.iter() {

@@ -190,6 +190,7 @@ impl Kernel {
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
         let host = crate::native_host::FlatHost {
             meter: alloc::rc::Rc::clone(&self.shared.meter),
+            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
         };
         for plugin in found {
             let manifest = plugin.manifest();

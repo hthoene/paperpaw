@@ -22,6 +22,7 @@
 //! Counting (S7) is the `Metered` storage the adapter is given: bytes read,
 //! bytes written and `sync` calls of the plugin whose code runs.
 
+use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
     ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED, ERR_UTF8,
 };
@@ -38,15 +39,17 @@ pub const MAX_SEGMENT: usize = 255;
 pub const MAX_DATA: usize = 4096;
 /// Longest joined path, in bytes.
 const MAX_JOINED: usize = 640;
+/// Longest plugin folder that leaves room for every permitted path.
+pub(super) const MAX_FOLDER: usize = MAX_JOINED - MAX_PATH;
 /// The smallest free-space reserve: 256 KiB.
 pub const MIN_RESERVE: u64 = 256 * 1024;
-const PREFIX: &str = ".paperpaw/plugins/";
+pub(super) const PREFIX: &str = ".paperpaw/plugins/";
 
 /// Storage slots 20-26 for one plugin.
 pub struct StorageAdapter<'a> {
     storage: &'a dyn Storage,
-    /// `.paperpaw/plugins/<id>/`, kept; the one allocation of the adapter.
-    folder: alloc::string::String,
+    /// Owned for the public constructor, borrowed for a scoped raw callback.
+    folder: Cow<'a, str>,
 }
 
 impl core::fmt::Debug for StorageAdapter<'_> {
@@ -67,7 +70,26 @@ impl<'a> StorageAdapter<'a> {
         folder.push_str(PREFIX);
         folder.push_str(id);
         folder.push('/');
-        (folder.len() + MAX_PATH <= MAX_JOINED).then_some(Self { storage, folder })
+        (folder.len() <= MAX_FOLDER).then_some(Self {
+            storage,
+            folder: Cow::Owned(folder),
+        })
+    }
+
+    /// Borrow a stack-built plugin folder for one synchronous host callback.
+    /// Validate the route without parsing an allocating SDK Id.
+    pub(crate) fn borrowed_folder(storage: &'a dyn Storage, folder: &'a str) -> Option<Self> {
+        let owner = folder.strip_prefix(PREFIX)?.strip_suffix('/')?;
+        if folder.len() > MAX_FOLDER
+            || owner.contains('/')
+            || relative_path(owner.as_bytes()).is_err()
+        {
+            return None;
+        }
+        Some(Self {
+            storage,
+            folder: Cow::Borrowed(folder),
+        })
     }
 
     /// The reserve to keep free: the larger of 256 KiB and 1 % of the card.
@@ -104,7 +126,7 @@ impl<'a> StorageAdapter<'a> {
         let joined = &buf[..self.folder.len() + relative.len()];
         let joined = core::str::from_utf8(joined).map_err(|_| ERR_UTF8)?;
         // The joined path is checked again (S5): it stays below the folder.
-        if !joined.starts_with(self.folder.as_str())
+        if !joined.starts_with(self.folder.as_ref())
             || !paperpaw_platform::storage::is_valid_path(joined)
         {
             return Err(ERR_INVALID);
@@ -249,7 +271,7 @@ impl<'a> StorageAdapter<'a> {
 }
 
 /// `path` as a relative path: sizes, UTF-8 and grammar, nothing joined.
-fn relative_path(path: &[u8]) -> Result<&str, i32> {
+pub(super) fn relative_path(path: &[u8]) -> Result<&str, i32> {
     if path.len() > MAX_PATH {
         return Err(ERR_NO_SPACE);
     }

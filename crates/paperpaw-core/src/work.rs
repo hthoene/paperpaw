@@ -680,6 +680,7 @@ impl Kernel {
         }
         if self.shared.power != before {
             self.output.commands.push(events::POWER_CHANGED.emit(()));
+            self.native_hint(crate::native_host::registrations::EVENT_POWER_CHANGED_TAG);
         }
         if before.level == PowerLevel::Offline && level != PowerLevel::Offline {
             self.output.commands.push(events::WORK_ALLOWED.emit(()));

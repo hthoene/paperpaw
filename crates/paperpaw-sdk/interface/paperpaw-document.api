@@ -40,6 +40,12 @@ pub fn paperpaw_document::DocumentError::from(paperpaw_platform::storage::Storag
 impl core::error::Error for paperpaw_document::DocumentError
 impl core::fmt::Display for paperpaw_document::DocumentError
 pub fn paperpaw_document::DocumentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum paperpaw_document::EditError
+pub paperpaw_document::EditError::Limit
+pub paperpaw_document::EditError::NoMemory
+pub paperpaw_document::EditError::Range
+impl core::fmt::Display for paperpaw_document::EditError
+pub fn paperpaw_document::EditError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum paperpaw_document::LineStyle
 pub paperpaw_document::LineStyle::Dotted
 pub paperpaw_document::LineStyle::Double
@@ -118,6 +124,8 @@ pub fn paperpaw_document::Block::replace(&mut self, core::ops::range::Range<usiz
 pub fn paperpaw_document::Block::source_offset(&self, usize) -> u32
 pub fn paperpaw_document::Block::style_at(&self, usize) -> paperpaw_document::TextStyle
 pub fn paperpaw_document::Block::text_index(&self, u32) -> usize
+impl paperpaw_document::Block
+pub fn paperpaw_document::Block::try_transform<T, E: core::convert::From<paperpaw_document::EditError>>(&mut self, usize, impl core::ops::function::FnOnce(&mut paperpaw_document::TextEdit) -> core::result::Result<T, E>) -> core::result::Result<T, E>
 pub struct paperpaw_document::EmbeddedFont
 pub paperpaw_document::EmbeddedFont::bold: bool
 pub paperpaw_document::EmbeddedFont::family: u8
@@ -192,6 +200,24 @@ impl paperpaw_document::TableRow
 pub fn paperpaw_document::TableRow::new(alloc::boxed::Box<[paperpaw_document::TableCell]>) -> Self
 pub fn paperpaw_document::TableRow::ranges(&self, usize) -> impl core::iter::traits::iterator::Iterator<Item = core::ops::range::Range<usize>> + '_
 pub fn paperpaw_document::TableRow::weights(&self) -> impl core::iter::traits::iterator::Iterator<Item = u32> + '_
+pub struct paperpaw_document::TextEdit
+impl paperpaw_document::TextEdit
+pub fn paperpaw_document::TextEdit::align(&self) -> paperpaw_document::Align
+pub fn paperpaw_document::TextEdit::drop_image(&mut self)
+pub fn paperpaw_document::TextEdit::drops_image(&self) -> bool
+pub fn paperpaw_document::TextEdit::heap_bytes(&self) -> usize
+pub fn paperpaw_document::TextEdit::kind(&self) -> paperpaw_document::BlockKind
+pub fn paperpaw_document::TextEdit::limit(&self) -> usize
+pub fn paperpaw_document::TextEdit::runs(&self) -> &[paperpaw_document::Run]
+pub fn paperpaw_document::TextEdit::set_align(&mut self, paperpaw_document::Align)
+pub fn paperpaw_document::TextEdit::set_kind(&mut self, paperpaw_document::BlockKind)
+pub fn paperpaw_document::TextEdit::source_offset(&self, usize) -> u32
+pub fn paperpaw_document::TextEdit::style_at(&self, usize) -> paperpaw_document::TextStyle
+pub fn paperpaw_document::TextEdit::text(&self) -> &str
+pub fn paperpaw_document::TextEdit::try_push_run(&mut self, paperpaw_document::Run) -> core::result::Result<(), paperpaw_document::EditError>
+pub fn paperpaw_document::TextEdit::try_replace(&mut self, core::ops::range::Range<usize>, &str) -> core::result::Result<(), paperpaw_document::EditError>
+pub fn paperpaw_document::TextEdit::try_set_runs(&mut self, &[paperpaw_document::Run]) -> core::result::Result<(), paperpaw_document::EditError>
+pub fn paperpaw_document::TextEdit::try_set_text(&mut self, &str) -> core::result::Result<(), paperpaw_document::EditError>
 pub struct paperpaw_document::TextStyle(_)
 impl paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::BOLD: paperpaw_document::TextStyle

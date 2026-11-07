@@ -1427,6 +1427,7 @@ impl<'a> FontHandle<'a> {
     }
 }
 
+mod ink;
 mod missing;
 use missing::Drawing;
 mod runs;

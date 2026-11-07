@@ -107,6 +107,39 @@ impl Drop for Text {
     }
 }
 
+impl Text {
+    /// A copy that refuses where the heap does: kept text copies its two
+    /// words, owned text takes one allocation of exactly its length.
+    fn try_clone(&self) -> Option<Self> {
+        if !self.is_owned() {
+            return Some(Self {
+                start: self.start,
+                len: self.len,
+            });
+        }
+        Self::try_copy(self.as_str())
+    }
+
+    /// Owned text copied from `text`, refusing where the heap does: one
+    /// allocation of exactly its length (none for empty text).
+    fn try_copy(text: &str) -> Option<Self> {
+        if text.is_empty() {
+            return Some(Self::owned(String::new()));
+        }
+        let layout = core::alloc::Layout::for_value(text.as_bytes());
+        // SAFETY: a nonzero layout (`text` is not empty).
+        let start = NonNull::new(unsafe { alloc::alloc::alloc(layout) })?;
+        // SAFETY: a fresh allocation of `text.len()` bytes, disjoint from
+        // `text`; the copy is UTF-8 as `text` is.
+        unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), start.as_ptr(), text.len()) };
+        // The layout a `Box<str>` of this length frees with (`Drop`).
+        Some(Self {
+            start,
+            len: text.len() | OWNED,
+        })
+    }
+}
+
 impl Clone for Text {
     fn clone(&self) -> Self {
         if self.is_owned() {
@@ -163,6 +196,27 @@ impl fmt::Display for InvalidId {
 
 impl core::error::Error for InvalidId {}
 
+/// Why [`Id::try_parse`] made no id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IdError {
+    /// Not an id ([`InvalidId`]).
+    Invalid,
+    /// A valid id, but the heap could not hold its copy.
+    NoMemory,
+}
+
+impl fmt::Display for IdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Invalid => InvalidId.fmt(f),
+            Self::NoMemory => f.write_str("no memory for the id"),
+        }
+    }
+}
+
+impl core::error::Error for IdError {}
+
 impl Id {
     /// Creates an id from a string literal.
     ///
@@ -184,8 +238,29 @@ impl Id {
         }
     }
 
+    /// [`Id::parse`] that never aborts on a full heap, for hosts that must
+    /// not abort when memory runs out (the X4's plugin admission): checks
+    /// the id first ([`IdError::Invalid`]), then copies it in one allocation
+    /// of its length, [`IdError::NoMemory`] where the heap refuses it.
+    pub fn try_parse(id: &str) -> Result<Id, IdError> {
+        if !is_valid(id) {
+            return Err(IdError::Invalid);
+        }
+        Text::try_copy(id).map(Id).ok_or(IdError::NoMemory)
+    }
+
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// A copy that never aborts on a full heap: `None` where the heap
+    /// cannot hold it, for hosts that must not abort when memory runs out
+    /// (the X4's plugin loader). An id made with [`Id::new_static`] copies
+    /// without allocating; a parsed one takes one allocation of its length.
+    /// [`Clone`] gives the same copy and aborts instead.
+    #[must_use]
+    pub fn try_clone(&self) -> Option<Id> {
+        self.0.try_clone().map(Id)
     }
 
     /// The id as text kept in the program, for specs kept there too

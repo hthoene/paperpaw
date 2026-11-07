@@ -294,7 +294,8 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
                     && at.is_multiple_of(4)
                     && at.checked_add(4).is_some_and(|end| end <= header.image_len)
                     && !header.in_hot(at);
-                if !fits {
+                // The heap word is written by the loader, never relocated.
+                if !fits || header.heap_at == Some(at) {
                     return Err(Problem::Relocation);
                 }
                 next = at + 4;
@@ -475,6 +476,7 @@ pub struct Relocator5<'a, S: Source + ?Sized> {
     base: u32,
     delta: u32,
     hot: u32,
+    heap: Option<u32>,
 }
 
 impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
@@ -498,7 +500,18 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
             base,
             delta: base.wrapping_sub(header.base),
             hot: base + CODE_OFFSET + header.hot_at,
+            heap: None,
         })
+    }
+
+    /// Writes `table`, the address of the host's `PpHeap` table, into the
+    /// plugin's heap word (`abi/heap-word.md`) in the piece that holds it,
+    /// after relocating that piece: the same flash pass as the rest of the
+    /// sector, since NOR flash only clears bits. A plugin without the word
+    /// is unchanged. Without this call the word stays 0 ("no heap").
+    pub fn heap_word(mut self, table: u32) -> Self {
+        self.heap = Some(table);
+        self
     }
 
     /// Runs the hot code at instruction address `hot` (a multiple of 4), not
@@ -697,6 +710,7 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
             bytes.copy_from_slice(&moved.to_le_bytes());
             walk.words.used += 1;
         }
+        self.write_heap_word(at, piece)?;
         if let Some(patch) = walk.carry.take() {
             self.write_patch(&patch, at, piece);
         }
@@ -713,6 +727,30 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
                 walk.carry = Some(patch);
             }
             walk.patches.used += 1;
+        }
+        Ok(())
+    }
+
+    /// The heap word, if it lies in `piece` (the bytes from `at` on): it
+    /// must be 0 in the file (a plugin that ships a value is refused), and
+    /// gets the table address if one was given.
+    fn write_heap_word(&self, at: u32, piece: &mut [u8]) -> Result<(), Problem> {
+        let Some(word) = self.header.heap_at else {
+            return Ok(());
+        };
+        let Some(bytes) = word
+            .checked_sub(at)
+            .and_then(|from| piece.get_mut(from as usize..from as usize + 4))
+        else {
+            return Ok(());
+        };
+        // Whatever the relocation did to it, it was no relocation word
+        // (`Tail::check`): a nonzero word is the file's own value.
+        if bytes != [0; 4] {
+            return Err(Problem::Malformed);
+        }
+        if let Some(table) = self.heap {
+            bytes.copy_from_slice(&table.to_le_bytes());
         }
         Ok(())
     }

@@ -4,8 +4,29 @@ Every existing check still runs. Setup reuses tools already present on
 GitHub's Ubuntu runner instead of reinstalling duplicate apt packages.
 Missing CMake, Ninja or the release's named clang still goes through apt;
 their versions are printed and the firmware builds remain the checks of
-their suitability. `CLANG_PATH`, Ninja and the firmware compiler settings
+their suitability. Each apt call has retries, a timeout per request and a ceiling per
+attempt (three attempts; a process that ignores the stop signal is killed
+10 s later): at most about 17 minutes if every attempt stalls, instead of
+the job's whole timeout. The `.deb` files are kept between runs
+(`~/apt-debs`, about 150 MB, saved by pushes to `main` and `abi7/integration`
+only, one entry for each, never by a manual workflow run), and a kept file is handed to apt only if its SHA-256 is the one the
+authenticated package list (`apt-cache show`) names; apt itself trusts a
+file already in its archive folder by its size alone. A stalled Ubuntu
+mirror once held a firmware job for 30–49 minutes (#876). `CLANG_PATH`, Ninja and the firmware compiler settings
 are unchanged.
+
+Where the mirror is too slow to install `clang-18` (two attempts of 60 s for
+the package lists and 120 s for the install, 8 min 6 s at most (plus local processing); the
+partial files are kept between the attempts), the firmware jobs of the source
+checks (`clang-fallback: "true"` of the `xteink-tools` action, `ci.yml` only)
+go on with the newest `clang-NN` of at least version 18 that the runner image
+brings, and say so as a warning of the job. mbedTLS is then built by that
+compiler, not by `clang-18`: its bytes may differ slightly, so a size check
+that fails by a few bytes only after such a warning is a rerun, not a finding.
+Releases and store packages (`release.yml`, `store-plugin.yml`) never fall back:
+they keep to the named compiler or fail. A pull request restores the `.deb`
+cache of its base branch only; no entry exists before a push to `main` or
+`abi7/integration` has saved one.
 
 `tools/ci/espflash.py` first checks the actual cached executable's exact
 version. A cache miss downloads the official static Linux x86-64 archive,

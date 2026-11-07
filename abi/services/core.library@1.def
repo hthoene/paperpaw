@@ -1,0 +1,445 @@
+{
+  "key": "core.library",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 32,
+  "ops": [
+    {
+      "id": 1,
+      "name": "state",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [],
+      "reply": [
+        "service.lib_state"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "query",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_query"
+      ],
+      "reply": [
+        "service.lib_entry",
+        "service.end"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 3,
+      "name": "book",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref"
+      ],
+      "reply": [
+        "service.lib_book"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 4,
+      "name": "text",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_text_at"
+      ],
+      "input_rows": 2,
+      "reply": [
+        "service.lib_text"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 5,
+      "name": "facets",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_query"
+      ],
+      "reply": [
+        "service.lib_facet",
+        "service.end"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 6,
+      "name": "next_in_series",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref"
+      ],
+      "reply": [
+        "service.lib_entry"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 7,
+      "name": "cover",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_cover"
+      ],
+      "input_rows": 2,
+      "reply": [
+        "service.doc_image"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 8,
+      "name": "set_status",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_status"
+      ],
+      "input_rows": 2,
+      "reply": [],
+      "max_input": 1024,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 9,
+      "name": "can_delete",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_paths"
+      ],
+      "reply": [
+        "service.lib_result",
+        "service.end"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "card",
+      "paged": false,
+      "reply_rows": 7
+    },
+    {
+      "id": 10,
+      "name": "delete",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_paths"
+      ],
+      "reply": [
+        "service.lib_result",
+        "service.end"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "card",
+      "paged": false,
+      "reply_rows": 7
+    },
+    {
+      "id": 11,
+      "name": "move",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_move"
+      ],
+      "reply": [
+        "service.lib_result"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 12,
+      "name": "import",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_import"
+      ],
+      "reply": [
+        "service.lib_result"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 13,
+      "name": "position",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref"
+      ],
+      "reply": [
+        "service.lib_position"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 14,
+      "name": "set_position",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_position",
+        "service.lib_position_set"
+      ],
+      "input_rows": 3,
+      "reply": [
+        "service.lib_result"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 15,
+      "name": "annotations",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_page"
+      ],
+      "input_rows": 2,
+      "reply": [
+        "service.lib_annotation",
+        "service.end"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 16,
+      "name": "anchors",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_page"
+      ],
+      "input_rows": 2,
+      "reply": [
+        "service.lib_anchor",
+        "service.end"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 17,
+      "name": "edit_begin",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_edit_head"
+      ],
+      "input_rows": 2,
+      "reply": [
+        "service.lib_transaction"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 18,
+      "name": "edit_add",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_transaction_ref",
+        "service.lib_edit"
+      ],
+      "input_rows": 4,
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 19,
+      "name": "edit_text",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_edit_text"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 20,
+      "name": "edit_commit",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_transaction_ref"
+      ],
+      "reply": [
+        "service.lib_committed"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 21,
+      "name": "edit_abort",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_transaction_ref"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 22,
+      "name": "fields",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref"
+      ],
+      "reply": [
+        "service.lib_field",
+        "service.end"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 23,
+      "name": "set_field",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_field_set"
+      ],
+      "input_rows": 2,
+      "reply": [],
+      "max_input": 2048,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 24,
+      "name": "provide",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref",
+        "service.lib_provided"
+      ],
+      "input_rows": 2,
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 25,
+      "name": "book_key",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_ref"
+      ],
+      "reply": [
+        "service.lib_key"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 26,
+      "name": "edit_receipt",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.library",
+      "input": [
+        "service.lib_receipt_ask"
+      ],
+      "reply": [
+        "service.lib_receipt",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    }
+  ]
+}

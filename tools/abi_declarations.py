@@ -8,7 +8,8 @@ import re
 
 # Records with their own hand-written codec; every other record is generated.
 INITIAL_RECORDS = ('registration.event', 'registration.draw', 'event.tick')
-COMMAND_RECORDS = ('command.set_setting',)
+COMMAND_RECORDS = ('command.set_setting', 'command.open_screen', 'command.run_action',
+                   'command.redraw', 'command.close_screen', 'command.set_item_state')
 
 # Tag allocation (interface-7 contract, shared rule 1). Tags are never reused.
 # A name is matched exactly first, then by its first segment; 63 is reserved.
@@ -25,7 +26,16 @@ TAG_RANGES = {
     # then actions, menus, screens and icons (Part 5).
     'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
     'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
-    'format': DECLARATIVE, 'stage': ((512, 1023),),
+    'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
+    # Registry declarations (REG, docs/abi/registry.md section 6).
+    'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
+    # UIX declarations (docs/abi/ui.md sections 2, 5, 7); `input.spec` by its full name,
+    # beside the `input` family of host-sent inputs.
+    'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
+    'status': DECLARATIVE,
+    # DOC and LIB declarations (docs/abi/document.md section 1 and 7, library.md section 1).
+    'reader': DECLARATIVE, 'lookup': DECLARATIVE, 'book_field': DECLARATIVE,
+    'book_badge': DECLARATIVE, 'book_data': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -75,11 +85,32 @@ def check_tags(records):
         seen[tag] = name
 
 
+# Commands of the growth block (REG, #228) are generated from their fields into the
+# slot-15 command codec only (abi_commands.py): commands never travel in a record batch.
+GROWTH_COMMANDS = (1536, 2047)
+
+
+def is_growth_command(item):
+    """A `command.*` record in the slot-15 growth block."""
+    return (type(item) is dict and str(item.get('name', '')).startswith('command.')
+            and type(item.get('id')) is int
+            and GROWTH_COMMANDS[0] <= item['id'] <= GROWTH_COMMANDS[1])
+
+
+def growth_fields(record):
+    """The checked fields of a growth-block command, as for a generated record; a
+    command that asks for one thing only (`command.show_hints`) has none."""
+    if record.get('fields') == []:
+        return []
+    return _fields(record)
+
+
 def wire_records(schema):
     """The generated records, in schema order, with checked fields."""
     out = []
     for item in schema.get('records', []):
-        if type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS:
+        if (type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS
+                and not is_growth_command(item)):
             out.append(dict(name=item['name'], id=item['id'], since=item['since'],
                             fields=_fields(item)))
     return out
@@ -144,7 +175,13 @@ def _fields(record):
                      and type(items['item_max_bytes']) is int
                      and 1 <= items['item_max_bytes'] <= cap,
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        secret = 'secret' in field
+        _require(not secret or (field['secret'] is True and kind == 'str' and items is None
+                                and (is_growth_command(record) or name.startswith('service.'))),
+                 f'{name}.{label}: secret must be true, on a str field of a command or a '
+                 'service record, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        secret=secret,
                         since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
@@ -155,12 +192,18 @@ def validate_wire_records(schema, descriptor):
     """Generated records have checked tags, names and fields."""
     declared = wire_records(schema)
     check_tags(schema['records'])
+    validate_record_shapes(declared, descriptor['since'], schema.get('minor', 0))
+    return declared
+
+
+def validate_record_shapes(declared, minimum_since, maximum_since):
+    """Shared generated-name and revision checks for kernel and local tags."""
     titles, consts = set(), set()
     for record in declared:
         _require(RECORD_NAME.fullmatch(record['name']) is not None,
                  f'record name {record["name"]!r} is not dotted lowercase')
         _require(type(record['since']) is int and
-                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 minimum_since <= record['since'] <= maximum_since,
                  'record since outside codec/schema minor')
         title, const = _camel(record['name']), _const(record['name'])
         _require(title not in titles and const not in consts and title != 'Registration',
@@ -168,7 +211,7 @@ def validate_wire_records(schema, descriptor):
         titles.add(title)
         consts.add(const)
         for field in record['fields']:
-            _require(field['since'] <= schema.get('minor', 0),
+            _require(field['since'] <= maximum_since,
                      f'{record["name"]}.{field["name"]}: since outside schema minor')
     return declared
 
@@ -212,7 +255,7 @@ def _lifetime(record):
     return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
-def _record_source(record):
+def _record_source(record, decode_name="decode", record_type="Record<'a>", extensible=False):
     """One borrowed record struct with decode, length and write steps."""
     name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
@@ -233,8 +276,15 @@ def _record_source(record):
                     f'pub const {constant}_MAX_ITEMS: usize = {items["max_items"]};',
                     f'/// Longest item of `{name}.{field["name"]}` in bytes.',
                     f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
+    # A record with a secret field (`"secret": true`) gets its own `Debug`, which
+    # shows neither that text nor its length; every other record derives it.
+    hidden = [f['name'] for f in fields if f.get('secret')]
+    derive = '#[derive(Clone, Copy, PartialEq, Eq)]' if hidden else \
+        '#[derive(Clone, Copy, Debug, PartialEq, Eq)]'
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
-            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
+            derive, f"pub struct {title}{_lifetime(record)} {{"]
+    if extensible:
+        out.insert(len(out) - 1, '#[non_exhaustive]')
     for field in fields:
         kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
@@ -248,9 +298,18 @@ def _record_source(record):
             text += f' Appended and optional; {absent} when absent.'
         out += [f'    /// {text}', f'    pub {field["name"]}: {rust},']
     borrows = _lifetime(record)
+    if hidden:
+        life = "<'_>" if borrows else ''
+        out += ['}', '', f'impl core::fmt::Debug for {title}{life} {{',
+                "    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {",
+                f'        f.debug_struct("{title}")']
+        for field in fields:
+            shown = '&".."' if field['name'] in hidden else f'&self.{field["name"]}'
+            out.append(f'            .field("{field["name"]}", {shown})')
+        out += ['            .finish()', '    }']
     out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
-            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {" if borrows
-            else "    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
+            f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{" if borrows
+            else f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",
             '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
             f'        Ok(Record::{title}(Self {{']
     for field in fields:
@@ -303,6 +362,14 @@ def _record_source(record):
         else:
             out.append(_write_line(field, '        '))
     out += ['    }', '}', '']
+    if extensible:
+        params = ', '.join(f"{f['name']}: " + (f"Option<{RUST_TYPES[f['kind']]}>"
+                           if f['maybe'] else RUST_TYPES[f['kind']]) for f in fields)
+        values = ', '.join(f['name'] for f in fields)
+        out += [f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+                '    /// Build a record; encoding validates its bounds.',
+                f'    pub const fn new({params}) -> Self {{',
+                f'        Self {{ {values} }}', '    }', '}', '']
     return '\n'.join(out)
 
 
@@ -399,7 +466,7 @@ def _record_extra(declared):
 ''' if arms else ''
 
 
-def declaration_source(declared, statuses, *, registrations=True):
+def declaration_source(declared, statuses):
     """Mixed-batch API: registrations plus capped, borrowed wire records."""
     arms = lambda text: ''.join(text.replace('@T@', _camel(r['name']))
                                 .replace('@L@', _lifetime(r)).replace('@C@', _const(r['name']))
@@ -419,11 +486,6 @@ def declaration_source(declared, statuses, *, registrations=True):
                         .rstrip('\n'))
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
-    for key, text in REGISTRATION_ARMS.items():
-        source = source.replace('@REG_' + key + '@', text if registrations else '')
-    prefix = 'REGISTRATION' if registrations else 'RECORD'
-    source = source.replace('@MAX_BYTES_NAME@', prefix + '_MAX_BYTES')
-    source = source.replace('@MAX_RECORDS_NAME@', prefix + '_MAX_RECORDS')
     if any(r['name'].startswith('service.') for r in declared):
         source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
                                         if has_optional else 'write_varint(0, out, &mut offset);')
@@ -438,7 +500,9 @@ DECL_TEMPLATE = '''
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Record<'a> {
-@REG_VARIANT@@VARIANTS@
+    /// A callback registration.
+    Registration(Registration),
+@VARIANTS@
 }
 
 impl<'a> Reader<'a> {
@@ -457,7 +521,20 @@ impl<'a> Reader<'a> {
 
 fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
     Ok(match tag {
-@REG_DECODE@@DECODE@
+        REGISTRATION_EVENT_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Event {
+                event_tag: u32::from_le_bytes(body.scalar()?),
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+        REGISTRATION_DRAW_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Draw {
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+@DECODE@
         _ => return Err(@UNSUPPORTED@),
     })
 }
@@ -468,7 +545,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
 /// what is staged is exactly what was validated, and iteration cannot fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecordBatch<'a> {
-    records: [Option<Record<'a>>; @MAX_RECORDS_NAME@],
+    records: [Option<Record<'a>>; REGISTRATION_MAX_RECORDS],
     len: usize,
 }
 
@@ -514,15 +591,15 @@ impl<'a> Iterator for RecordIter<'_, 'a> {
 /// ERR_UTF8; byte, count and per-field cap violations return ERR_NO_SPACE.
 /// Unknown trailing fields and extended presence bitmaps are accepted.
 pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
-    if bytes.len() > @MAX_BYTES_NAME@ {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
         return Err(@NO_SPACE@);
     }
     let mut reader = Reader { remaining: bytes };
     let len = reader.varint()? as usize;
-    if len > @MAX_RECORDS_NAME@ {
+    if len > REGISTRATION_MAX_RECORDS {
         return Err(@NO_SPACE@);
     }
-    let mut records = [None; @MAX_RECORDS_NAME@];
+    let mut records = [None; REGISTRATION_MAX_RECORDS];
     for place in records.iter_mut().take(len) {
         let (tag, mut body) = reader.record()?;
         *place = Some(record_decode(tag, &mut body)?);
@@ -547,19 +624,30 @@ fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
 impl Record<'_> {
     fn tag(&self) -> u32 {
         match self {
-@REG_TAGS@@TAGS@
+            Record::Registration(Registration::Event { .. }) => REGISTRATION_EVENT_TAG,
+            Record::Registration(Registration::Draw { .. }) => REGISTRATION_DRAW_TAG,
+@TAGS@
         }
     }
 
     fn body_len(&self) -> Result<usize, i32> {
         match self {
-@REG_LENS@@LENS@
+            Record::Registration(Registration::Event { .. }) => Ok(9),
+            Record::Registration(Registration::Draw { .. }) => Ok(5),
+@LENS@
         }
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         match self {
-@REG_WRITES@@WRITES@
+            Record::Registration(Registration::Event { event_tag, token }) => {
+                write_bytes(&event_tag.to_le_bytes(), out, offset);
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Record::Registration(Registration::Draw { token }) => {
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+@WRITES@
         }
     }
 @RECORD_EXTRA@}
@@ -570,14 +658,14 @@ impl Record<'_> {
 /// are checked before any write. Failure returns ERR_NO_SPACE and leaves the
 /// entire output unchanged.
 pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
-    if records.len() > @MAX_RECORDS_NAME@ {
+    if records.len() > REGISTRATION_MAX_RECORDS {
         return Err(@NO_SPACE@);
     }
     let mut required = varint_len(records.len() as u32);
     for record in records {
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
-        if required > @MAX_BYTES_NAME@ {
+        if required > REGISTRATION_MAX_BYTES {
             return Err(@NO_SPACE@);
         }
     }
@@ -646,6 +734,66 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = record_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)
+}
+
+/// [`records_encode_counted`] over records made on the fly: no slice of
+/// them is ever collected. The iterator is cloned and walked three times
+/// (count, size, write), so it must yield the same records each time, as a
+/// clone of an iterator over borrowed data does. Every cap and the output
+/// capacity are checked before any write, in the order and with the statuses
+/// of [`records_encode_counted`]. An iterator that yields other records on
+/// the writing walk is refused with ERR_INVALID; the output is then
+/// unspecified, and it is never written past `out`.
+pub fn records_encode_counted_iter<'r, I>(
+    records: I,
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32>
+where
+    I: Iterator<Item = Record<'r>> + Clone,
+{
+    let count = records.clone().take(max_records.saturating_add(1)).count();
+    if count > max_records || count > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(count as u32);
+    for record in records.clone() {
+        required += record_framed_len(&record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(count as u32, out, &mut offset);
+    let mut written = 0;
+    for record in records {
+        written += 1;
+        let rest = out.get_mut(offset..required).ok_or(@INVALID@)?;
+        offset += record_encode_one(&record, rest).map_err(|_| @INVALID@)?;
+    }
+    if written != count || offset != required {
+        return Err(@INVALID@);
+    }
+    Ok(offset)
 }
 '''
 
@@ -812,38 +960,3 @@ impl RecordStream {
     }
 }
 '''
-
-
-REGISTRATION_ARMS = {
-'VARIANT': '''    /// A callback registration.
-    Registration(Registration),
-''',
-'DECODE': '''        REGISTRATION_EVENT_TAG => {
-            body.bitmap()?;
-            Record::Registration(Registration::Event {
-                event_tag: u32::from_le_bytes(body.scalar()?),
-                token: u32::from_le_bytes(body.scalar()?),
-            })
-        }
-        REGISTRATION_DRAW_TAG => {
-            body.bitmap()?;
-            Record::Registration(Registration::Draw {
-                token: u32::from_le_bytes(body.scalar()?),
-            })
-        }
-''',
-'TAGS': '''            Record::Registration(Registration::Event { .. }) => REGISTRATION_EVENT_TAG,
-            Record::Registration(Registration::Draw { .. }) => REGISTRATION_DRAW_TAG,
-''',
-'LENS': '''            Record::Registration(Registration::Event { .. }) => Ok(9),
-            Record::Registration(Registration::Draw { .. }) => Ok(5),
-''',
-'WRITES': '''            Record::Registration(Registration::Event { event_tag, token }) => {
-                write_bytes(&event_tag.to_le_bytes(), out, offset);
-                write_bytes(&token.to_le_bytes(), out, offset);
-            }
-            Record::Registration(Registration::Draw { token }) => {
-                write_bytes(&token.to_le_bytes(), out, offset);
-            }
-''',
-}

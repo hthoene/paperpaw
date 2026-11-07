@@ -1,0 +1,135 @@
+{
+  "key": "core.sockets",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "ops": [
+    {
+      "id": 1,
+      "name": "connect",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_connect",
+        "service.sock_pin"
+      ],
+      "input_rows": 5,
+      "reply": [
+        "service.sock_started"
+      ],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "send",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_send"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 3,
+      "name": "read",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_read"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 4,
+      "name": "data",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_at"
+      ],
+      "reply": [
+        "service.sock_bytes"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 5,
+      "name": "start_tls",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_tls",
+        "service.sock_pin"
+      ],
+      "input_rows": 5,
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 6,
+      "name": "peer",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_ref"
+      ],
+      "reply": [
+        "service.sock_peer"
+      ],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 7,
+      "name": "close",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_ref"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    },
+    {
+      "id": 8,
+      "name": "broadcast",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.sock_broadcast",
+        "service.sock_port"
+      ],
+      "input_rows": 9,
+      "reply": [
+        "service.sock_started"
+      ],
+      "max_input": 4096,
+      "max_reply": 256,
+      "bound": "none"
+    }
+  ]
+}

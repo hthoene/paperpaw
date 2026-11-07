@@ -39,6 +39,13 @@ typedef struct {
     int32_t (*storage_sync)(void * ctx);
     int32_t (*i18n_format)(void * ctx, PpBytes key, PpBytes args, PpBuffer out);
     int32_t (*i18n_digits)(void * ctx, PpBytes text, PpBuffer out);
+    int32_t (*text_metrics)(void * ctx, uint32_t font, float size, float * ascent, float * descent, float * line_height);
+    int32_t (*text_ink)(void * ctx, uint32_t font, float size, PpBytes text, int32_t * top, int32_t * bottom, int32_t * left, int32_t * right);
+    int32_t (*canvas_clip)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height);
+    int32_t (*stage_run)(void * ctx, PpBytes stage, uint32_t cursor, PpBytes input, PpBuffer out);
+    int32_t (*service_open)(void * ctx, PpBytes key, uint16_t major, uint16_t minor, uint32_t * out);
+    int32_t (*service_call)(void * ctx, uint32_t service, uint32_t op, PpBytes input, PpBuffer out);
+    int32_t (*ui_compose)(void * ctx, uint32_t kind, uint32_t handle, int32_t x, int32_t y, uint32_t width, uint32_t height);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1
@@ -59,10 +66,17 @@ typedef struct {
 /* Raw plugin tables. Check accessible bytes before reading fields. */
 typedef struct PpPlugin PpPlugin;
 typedef struct PpEntry PpEntry;
+typedef struct PpHeap PpHeap;
 /* Generated metadata_symbol export name. */
 #define PP_METADATA_SYMBOL "PAPERPAW_METADATA"
 /* Generated entry_symbol export name. */
 #define PP_ENTRY_SYMBOL "PAPERPAW_ENTRY"
+/* Generated heap_symbol export name. */
+#define PP_HEAP_SYMBOL "PAPERPAW_HEAP"
+/* Generated heap_alias export name. */
+#define PP_HEAP_ALIAS "paperpaw_heap_local"
+/* Generated heap_section export name. */
+#define PP_HEAP_SECTION ".rodata.paperpaw_heap"
 /* PpPlugin: raw table since minor 1. */
 struct PpPlugin {
     /* size: since minor 1. */
@@ -91,5 +105,55 @@ struct PpEntry {
     /* make: since minor 1. */
     int32_t (*make)(const PpHost * host, void * host_ctx, const PpPlugin ** out);
 };
+/* PpHeap: raw table since minor 1. */
+struct PpHeap {
+    /* size: since minor 1. */
+    uint32_t size;
+    /* major: since minor 1. */
+    uint16_t major;
+    /* minor: since minor 1. */
+    uint16_t minor;
+    /* alloc: since minor 1. */
+    void * (*alloc)(size_t size, size_t align);
+    /* dealloc: since minor 1. */
+    void (*dealloc)(void * ptr, size_t size, size_t align);
+    /* realloc: since minor 1. */
+    void * (*realloc)(void * ptr, size_t old_size, size_t align, size_t new_size);
+    /* abort: since minor 1. */
+    /* Does not return. */
+    void (*abort)(int32_t code, const uint8_t * msg, size_t msg_len);
+};
+/* Defines the heap word once per plugin: zero in the file, filled by the
+   loader before make. Code reads only the hidden alias (no interposition). */
+#define PP_HEAP_STR_(x) #x
+#define PP_HEAP_STR(x) PP_HEAP_STR_(x)
+#if __SIZEOF_POINTER__ == 8
+#define PP_HEAP_WORD_ZERO ".8byte 0"
+#else
+#define PP_HEAP_WORD_ZERO ".4byte 0"
+#endif
+#define PP_DEFINE_HEAP_WORD() __asm__( \
+    ".pushsection .rodata.paperpaw_heap,\"a\",@progbits\n" \
+    ".globl PAPERPAW_HEAP\n.type PAPERPAW_HEAP,@object\n" \
+    ".size PAPERPAW_HEAP," PP_HEAP_STR(__SIZEOF_POINTER__) "\n" \
+    ".globl paperpaw_heap_local\n.hidden paperpaw_heap_local\n" \
+    ".balign " PP_HEAP_STR(__SIZEOF_POINTER__) "\n" \
+    "PAPERPAW_HEAP:\npaperpaw_heap_local:\n" PP_HEAP_WORD_ZERO "\n.popsection\n")
+extern const PpHeap *const paperpaw_heap_local __attribute__((visibility("hidden")));
+/* The heap table, or null where the loader gave none, it is misaligned,
+   of another major, or too short for the entries up to `abort` (the same
+   checks as the Rust readers, in this order). */
+static inline const PpHeap *pp_heap_checked(const PpHeap *heap) {
+    if (heap == (const PpHeap *)0 ||
+        (uintptr_t)heap % _Alignof(PpHeap) != 0 ||
+        heap->major != PP_ABI_MAJOR ||
+        heap->size < offsetof(PpHeap, abort) + sizeof(heap->abort)) {
+        return (const PpHeap *)0;
+    }
+    return heap;
+}
+static inline const PpHeap *pp_heap(void) {
+    return pp_heap_checked(paperpaw_heap_local);
+}
 
 #endif
