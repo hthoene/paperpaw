@@ -429,27 +429,35 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `index`, `side` 0 for the page's size, else the longest side for a zoom, at most 1,600) has the
   format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
-- [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
-  frame) or BMP of the caller's root 0 or
-  root 1 (`uses.storage`) into the host's image cache at most `side` pixels on the longest side (0:
-  the screen's), in the background (bounded work per main-loop turn, as preparing);
-  `event.image_ready` (to the caller only) tells `status` 0 ready, 1 unsupported (also interlaced
-  PNG and WebP: the image crate has no decoder for them; WebP joins the list once one exists, with
-  its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and decoder caps), 4 card
-  failure (`ERR_IO`, no card or full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later).
-  Unknown values read as 2. At
-  most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour (where
-  the screen has it).
+- [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
+  (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
+  most `side` pixels on the longest side (0: the screen's), in the background (bounded work per
+  main-loop turn, as preparing). `event.image_ready` (to the
+  caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
+  prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
+  once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
+  decoder caps; `paperpaw_image::ImageError::TooLarge`), 4 card failure (`ERR_IO`, no card or
+  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
+  most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
+  (where the screen has it).
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
-  `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape, centred;
-  `flags` bit 0 fill and crop, bit 1 no dithering, bit 2 inverted for night mode), clipped by the
-  canvas, only inside a `draw` callback (`ERR_STATE`); an unknown or ended id `ERR_NOT_FOUND`; a
-  card read failure `ERR_IO` (nothing drawn). The host reads the file in bands of at most 2 KiB (the
-  X4 frame band), so drawing costs no heap.
+  `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
+  centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
+  `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
+  the e-paper ghosting full refresh, interface 6 `small_pictures`), bits 8-15 transparency (255
+  minus the opacity: 0 opaque, the default; 255 draws nothing), blended over what is below. Other
+  bits are `ERR_UNSUPPORTED` (nothing drawn); a scaled picture over 65,535 pixels on a side is
+  `ERR_INVALID`, the only size refusal (a large rectangle is clipped, not refused). An unknown or
+  ended id is `ERR_NOT_FOUND`; a card read failure or a cache file shorter than its header says is
+  `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
+  nothing drawn when found before the first band, else the bands drawn so far kept and the error
+  returned (never a silent partial draw). The host reads the file in bands of at most 2 KiB (the
+  X4 frame band) and allocates nothing while drawing. Dithering and night-mode inversion are the
+  host's own, by the screen and the user's settings, not flags.
 - [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
   format wrote (`fmt.image`) before using it: header against its file size and the stated
   `width`/`height`, a short read `ERR_IO`, a mismatch `ERR_INVALID`; nothing panics and nothing
-  reads past the file. Each decoder (JPEG baseline, progressive JPEG, PNG, GIF, BMP) and the
+  reads past the file. Each decoder (JPEG baseline, progressive JPEG, PNG, GIF) and the
   cache-image reader keep a fuzz target (`fuzz/fuzz_targets`, today one `image.rs` for all), a gate
   for this family.
 
