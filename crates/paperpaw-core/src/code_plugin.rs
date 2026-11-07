@@ -270,8 +270,9 @@ impl Kernel {
         }
         drop(installed);
         loader.finish(storage.as_ref());
-        let sink = loader.hyphenation_sink(&storage);
-        self.shared.hyphen_feed.attach(sink);
+        self.shared
+            .hyphen_feed
+            .attach(loader.hyphenation_sink(&storage));
         self.shared.native = Some(native);
     }
 

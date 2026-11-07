@@ -524,7 +524,7 @@ fn same_tag(tag: &str, wanted: &str) -> bool {
 
 /// Whether plugin `a` has a language over plugin `b` (D4): the greater id,
 /// compared byte-wise in lowercase.
-fn wins(a: &str, b: &str) -> bool {
+pub fn wins(a: &str, b: &str) -> bool {
     a.bytes()
         .map(|c| c.to_ascii_lowercase())
         .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))

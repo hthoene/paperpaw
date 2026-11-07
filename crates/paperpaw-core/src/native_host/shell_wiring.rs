@@ -93,8 +93,8 @@ impl HyphenTables {
     }
 
     /// As [`declare`](Self::declare), with the plugin named by its id: the
-    /// plugin whose id is greater (compared without regard to case) wins a
-    /// tag several declare, as the kernel's own tables decide it (D4). The
+    /// plugin whose id wins ([`paperpaw_sdk::plugin_wins`], D4) gets a tag
+    /// several declare, as the kernel's own tables decide it. The
     /// iterator is walked twice.
     ///
     /// # Errors
@@ -103,10 +103,15 @@ impl HyphenTables {
         &self,
         declared: impl Iterator<Item = (&'a str, &'a str, &'a str)> + Clone,
     ) -> Result<(), i32> {
+        // The SDK's own rule (D4), so the host and the SDK cannot diverge.
         let order = |a: &str, b: &str| {
-            a.bytes()
-                .map(|c| c.to_ascii_lowercase())
-                .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+            if paperpaw_sdk::plugin_wins(a, b) {
+                core::cmp::Ordering::Greater
+            } else if paperpaw_sdk::plugin_wins(b, a) {
+                core::cmp::Ordering::Less
+            } else {
+                core::cmp::Ordering::Equal
+            }
         };
         let mut plugins: Vec<&str> = Vec::new();
         for (_, _, plugin) in declared.clone() {

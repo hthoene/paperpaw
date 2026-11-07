@@ -13,9 +13,9 @@ use crate::plugin::RegisterError;
 
 mod card;
 
-#[cfg(feature = "kernel")]
-pub use card::CardTable;
 use card::CardTables;
+#[cfg(feature = "kernel")]
+pub use card::{CardTable, wins as plugin_wins};
 
 /// Hyphenation patterns for a language, compiled with
 /// [`hyphen::compile`](crate::hyphen::compile).
