@@ -301,6 +301,17 @@ impl FlatHost {
     }
 }
 
+impl crate::Kernel {
+    pub(crate) fn flat_host(&self) -> FlatHost {
+        FlatHost {
+            meter: alloc::rc::Rc::clone(&self.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
+            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
+        }
+    }
+}
+
 /// Host admission or construction failure.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

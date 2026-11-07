@@ -1,6 +1,5 @@
 //! One native declaration entry, with owned mapping before binding and publication.
 use super::{
-    FlatHost,
     flat::FlatDepth,
     native_dispatch::NativeDispatch,
     native_instances::NativeLease,
@@ -10,7 +9,7 @@ use super::{
     retained::Retained,
     shell,
 };
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
 use paperpaw_sdk::{Id, IdError, RegisterError};
 
@@ -222,18 +221,14 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
         let (owned, raw) = mapped;
-        let flat_host = FlatHost {
-            meter: Rc::clone(&self.shared.meter),
-            directory: self
-                .shared
-                .registry
-                .native_declarations
-                .as_ref()
-                .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
-                .transpose()?,
-            stack_rows: Rc::clone(&self.shared.stack_rows),
-            font_removals: Rc::clone(&self.shared.font_removals),
-        };
+        let mut flat_host = self.flat_host();
+        flat_host.directory = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+            .transpose()?;
         let instance = NativeLease::try_new(NativeDispatch::new(
             retained,
             depth,

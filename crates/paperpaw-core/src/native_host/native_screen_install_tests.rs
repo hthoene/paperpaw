@@ -840,3 +840,35 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     assert!(kernel.native_unload_due().is_none());
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
+
+#[test]
+fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
+    use crate::native_host::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+    };
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let directory = crate::native_host::shared::Shared::try_new(
+        crate::native_host::native_declarations::NativeDeclarations::default(),
+    )
+    .unwrap();
+    let mut flat_host = kernel.flat_host();
+    flat_host.directory = directory.downgrade();
+    let (retained, ()) = Retained::make_native(host(0), |_| Ok(())).unwrap();
+    let dispatch = NativeDispatch::new(
+        retained,
+        FlatDepth::try_new().unwrap(),
+        flat_host,
+        |_, _, _| {},
+        crate::native_host::native_instances::test_identity("factory"),
+    );
+    drop(directory);
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    assert_eq!(dispatch.event(91, &[0], &env), Err(host_glue::ERR_STATE));
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    drop(dispatch);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}

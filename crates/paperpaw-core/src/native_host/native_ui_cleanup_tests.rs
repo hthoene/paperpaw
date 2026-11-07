@@ -99,3 +99,38 @@ fn busy_owner_cleanup_leaves_the_stopped_owner_for_ordered_unload_retry() {
     kernel.begin_native_unload(key, &plugin);
     assert!(kernel.shared.native_instances.find("probe").is_none());
 }
+
+#[test]
+fn nested_frame_directory_upgrades_have_independent_scoped_strong_counts() {
+    use crate::abi7::calls::Instance;
+    use crate::native_host::{
+        DispatchDepth, native_declarations::NativeDeclarations, shared::Shared,
+    };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
+    let mut host = kernel.flat_host();
+    host.directory = directory.downgrade();
+    let depth = DispatchDepth::new();
+    let first = Instance::new();
+    let second = Instance::new();
+    let _outer_call = first.enter(&depth.0).unwrap();
+    let outer = host.upgrade_directory().unwrap().unwrap();
+    assert_eq!(directory.strong_count(), 2);
+    {
+        let _inner_call = second.enter(&depth.0).unwrap();
+        assert_eq!(depth.current(), 2);
+        let inner = host.upgrade_directory().unwrap().unwrap();
+        assert_eq!(directory.strong_count(), 3);
+        drop(inner);
+    }
+    assert_eq!(directory.strong_count(), 2);
+    drop(outer);
+    assert_eq!(directory.strong_count(), 1);
+    drop(directory);
+    assert!(matches!(
+        host.upgrade_directory(),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    ));
+}

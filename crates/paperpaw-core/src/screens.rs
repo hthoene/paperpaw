@@ -91,14 +91,23 @@ impl Kernel {
         });
     }
 
+    fn screen_stack_has_room(&mut self) -> bool {
+        if self.shared.stack_rows.cleanup_pending() {
+            self.warn_runtime("UI instance cleanup is still pending");
+            return false;
+        }
+        if self.stack.len() >= native_host::stack_rows::STACK_MAX {
+            self.warn_runtime("screen stack is full");
+            return false;
+        }
+        true
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
-        if self.shared.stack_rows.cleanup_pending() {
-            return self.warn_runtime("UI instance cleanup is still pending");
-        }
-        if self.stack.len() >= native_host::stack_rows::STACK_MAX {
-            return self.warn_runtime("screen stack is full");
+        if !self.screen_stack_has_room() {
+            return;
         }
         if !self.require_screen_keys(1) {
             return;
@@ -450,11 +459,11 @@ impl Kernel {
                 StackRow {
                     instance: active.serial,
                     owner,
-                    flags: u8::from(entry.overlay) * OVERLAY
-                        | u8::from(entry.guards) * GUARDS
-                        | u8::from(active.screen.secret()) * SECRET
-                        | u8::from(host) * HOST
-                        | u8::from(active.guard_dialog) * GUARD_DIALOG,
+                    flags: (u8::from(entry.overlay) * OVERLAY)
+                        | (u8::from(entry.guards) * GUARDS)
+                        | (u8::from(active.screen.secret()) * SECRET)
+                        | (u8::from(host) * HOST)
+                        | (u8::from(active.guard_dialog) * GUARD_DIALOG),
                 }
             }));
         self.shared.stack.clear();
