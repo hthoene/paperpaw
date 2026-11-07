@@ -260,3 +260,7 @@ fn select<'s>(
     }
     Ok(selected)
 }
+
+#[cfg(test)]
+#[path = "stage_broker_tests.rs"]
+pub(crate) mod tests;

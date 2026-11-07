@@ -888,3 +888,6 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
         })
         .unwrap();
 }
+
+#[path = "stage_broker_oom_tests.rs"]
+mod stage_broker_oom;
