@@ -2318,6 +2318,7 @@ struct paperpaw_sdk::native::declare::FontFaceDecl<'a> { name: &'a str, path: &'
 struct paperpaw_sdk::native::declare::GroupDecl<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
 struct paperpaw_sdk::native::declare::ScreenDecl<'a> { name: &'a str, title: &'a str, token: u32, full_refresh_on_open: bool, policy_flags: u32 }
 struct paperpaw_sdk::native::declare::SpecDecl<'a> { name: &'a str, kind: paperpaw_sdk::native::declare::Kind<'a>, group: &'a str, title: &'a str, help: &'a str, scoped: bool, guarded: bool, kept_on_reset: bool, secret: bool, advanced: bool }
+struct paperpaw_sdk::native::declare::library::BookFieldDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::BookFieldSpec<'a>)
 struct paperpaw_sdk::native::declare::menus::MenuEntryDecl<'a> { menu: &'a str, item: &'a str, order: i16, place: paperpaw_sdk::native::declare::menus::EntryPlacement<'a> }
 struct paperpaw_sdk::native::declare::menus::MenuSectionDecl<'a> { name: &'a str, title: &'a str, menu: &'a str, order: i16 }
 struct paperpaw_sdk::native::declare::records_wire::ActionSpec<'a> { name: &'a str, title: &'a str, token: u32, flags: u32 }
@@ -2637,6 +2638,10 @@ struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
 struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::library::fields::Field<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibField<'a>)
+struct paperpaw_sdk::native::library::fields::FieldCursor(0: paperpaw_sdk::native::library::query::CatalogCursor)
+struct paperpaw_sdk::native::library::fields::FieldPage<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::fields::Field<'a>>)
+struct paperpaw_sdk::native::library::fields::FieldPageEnd(0: paperpaw_sdk::native::library::rows::LibraryPageEnd)
 struct paperpaw_sdk::native::library::query::CatalogCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceLibQuery<'a>, cursor: paperpaw_sdk::native::library::query::CatalogCursor }
 struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)

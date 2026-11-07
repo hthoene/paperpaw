@@ -3258,6 +3258,10 @@ pub paperpaw_sdk::native::declare::ActionDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ActionDecl::token: u32
 impl<'a> paperpaw_sdk::native::declare::ActionDecl<'a>
 pub fn paperpaw_sdk::native::declare::ActionDecl<'a>::new(&'a str, &'a str, u32) -> Self
+pub struct paperpaw_sdk::native::declare::BookFieldDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::BookFieldDecl<'a>
+pub const fn paperpaw_sdk::native::declare::BookFieldDecl<'a>::in_catalog(self) -> Self
+pub fn paperpaw_sdk::native::declare::BookFieldDecl<'a>::new(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::declare::DeclareError>
 pub struct paperpaw_sdk::native::declare::Declarations<F>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::action(&mut self, paperpaw_sdk::native::declare::ActionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -3272,6 +3276,9 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::new(F) -> Self
 pub fn paperpaw_sdk::native::declare::Declarations<F>::screen(&mut self, paperpaw_sdk::native::declare::ScreenDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_sdk::native::declare::SpecDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::book_badge(&mut self, &str, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::book_field(&mut self, paperpaw_sdk::native::declare::BookFieldDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::describe_item(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::hide_menu_entry(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -4103,6 +4110,25 @@ impl<'a> paperpaw_sdk::native::library::Entry<'a>
 pub const fn paperpaw_sdk::native::library::Entry<'a>::series(self) -> &'a str
 impl<'a> paperpaw_sdk::native::library::Entry<'a>
 pub const fn paperpaw_sdk::native::library::Entry<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::library::Field<'a>(_)
+impl<'a> paperpaw_sdk::native::library::Field<'a>
+pub const fn paperpaw_sdk::native::library::Field<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::library::Field<'a>::title(self) -> &'a str
+pub const fn paperpaw_sdk::native::library::Field<'a>::value(self) -> &'a str
+pub struct paperpaw_sdk::native::library::FieldCursor(_)
+impl paperpaw_sdk::native::library::FieldCursor
+pub const fn paperpaw_sdk::native::library::FieldCursor::start() -> Self
+pub struct paperpaw_sdk::native::library::FieldPage<'a>(_)
+impl<'a> paperpaw_sdk::native::library::FieldPage<'a>
+pub const fn paperpaw_sdk::native::library::FieldPage<'a>::end(&self) -> paperpaw_sdk::native::library::FieldPageEnd
+pub const fn paperpaw_sdk::native::library::FieldPage<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::FieldPage<'a>::len(&self) -> usize
+pub fn paperpaw_sdk::native::library::FieldPage<'a>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<paperpaw_sdk::native::library::Field<'a>, paperpaw_sdk::native::Error>> + 'a
+pub struct paperpaw_sdk::native::library::FieldPageEnd(_)
+impl paperpaw_sdk::native::library::FieldPageEnd
+pub const fn paperpaw_sdk::native::library::FieldPageEnd::generation(self) -> u32
+pub fn paperpaw_sdk::native::library::FieldPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::library::FieldCursor>
+pub const fn paperpaw_sdk::native::library::FieldPageEnd::total(self) -> u32
 pub struct paperpaw_sdk::native::library::Library
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::book<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Book<'a>, paperpaw_sdk::native::Error>
@@ -4113,6 +4139,8 @@ pub fn paperpaw_sdk::native::library::Library::release(self, &paperpaw_sdk::nati
 pub fn paperpaw_sdk::native::library::Library::set_field(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &str, &str, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::set_finished(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, bool, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::state(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::CatalogState, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::fields<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::FieldCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FieldPage<'a>, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::library::LibraryPage<'a, T>
 impl<'a, T: 'a> paperpaw_sdk::native::library::LibraryPage<'a, T>
 pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::end(&self) -> paperpaw_sdk::native::library::LibraryPageEnd
