@@ -313,7 +313,7 @@ impl NativeEndOfBook {
                 Rating::Unknown => {
                     let text = messages.copy(host, "end-of-book.rate.unknown")?;
                     let mut scratch = [0; 256];
-                    CommandSender::new(host, &mut scratch).notify(Notify::new(text)?)
+                    CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
                 }
                 Rating::Stars(stars) => {
                     let stars = native_model::next_stars(stars);
