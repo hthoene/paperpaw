@@ -49,6 +49,9 @@ pub(crate) const PREPARED_IMAGES: usize = 8;
 /// The longest side of a picture the host keeps (cache images are at most
 /// 1,600 pixels; the bound keeps the band drawer's rows small).
 pub(crate) const MAX_SIDE: u32 = 4096;
+/// The longest side of a document image (what the band drawer's one transient
+/// block takes: a colour row of 1,600 pixels is 4.7 KiB).
+pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
@@ -58,17 +61,14 @@ fn is_reserved(name: &str, reserved: &str) -> bool {
     if name.eq_ignore_ascii_case(reserved) {
         return true;
     }
-    let stem: alloc::string::String = reserved
-        .trim_start_matches('.')
-        .chars()
-        .take(6)
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
-    let upper = name.to_ascii_uppercase();
-    upper
-        .strip_prefix(&stem)
-        .and_then(|rest| rest.strip_prefix('~'))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    // The names are the host's own, ASCII; nothing here allocates.
+    let stem = reserved.trim_start_matches('.').as_bytes();
+    let stem = &stem[..stem.len().min(6)];
+    let name = name.as_bytes();
+    name.len() > stem.len() + 1
+        && name[..stem.len()].eq_ignore_ascii_case(stem)
+        && name[stem.len()] == b'~'
+        && name[stem.len() + 1..].iter().all(u8::is_ascii_digit)
 }
 
 /// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
@@ -268,8 +268,9 @@ impl ImageTable {
         colour: bool,
     ) -> Result<u32, i32> {
         let prepared = origin == Origin::Prepared;
-        if !(1..=MAX_SIDE).contains(&width)
-            || !(1..=MAX_SIDE).contains(&height)
+        let side_max = if prepared { MAX_SIDE } else { DOC_SIDE_MAX };
+        if !(1..=side_max).contains(&width)
+            || !(1..=side_max).contains(&height)
             || (path.is_empty() && !prepared)
             || path.len() > PATH_MAX
         {
@@ -395,7 +396,7 @@ impl ImageTable {
         full.push('/');
         full.push_str(path);
         // Downloaded input: the header must say what the format says.
-        let Some((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
+        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
             return Ok(None);
         };
         if (width, height) != (image.width, image.height) {
@@ -578,7 +579,10 @@ impl ImageTable {
         };
         // The file is the card's, downloaded input: its header must say what
         // the id says, and it must be readable now.
-        let (kind, fw, fh) = paperpaw_sdk::ui::probe_picture(storage, &path).ok_or(ERR_IO)?;
+        // A short file or a card that fails is ERR_IO, a header that is not
+        // what it should be ERR_INVALID.
+        let (kind, fw, fh) =
+            paperpaw_sdk::ui::probe_picture(storage, &path).map_err(draw_status)?;
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
