@@ -90,6 +90,16 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::RegistrationStage(registration) => {
             stage_registration_check(registration).and(Err(ERR_UNSUPPORTED))
         }
+        // Registry declarations (`docs/abi/registry.md` section 6): refused
+        // until the host admits them (Core, REG hand-off).
+        Record::SetupStep(_)
+        | Record::SlotSpec(_)
+        | Record::SlotOffer(_)
+        | Record::KeyBind(_)
+        | Record::SettingDefault(_)
+        | Record::SettingChoice(_)
+        | Record::PresetSpec(_)
+        | Record::PresetValue(_) => Err(ERR_UNSUPPORTED),
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -99,7 +109,22 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => Err(ERR_INVALID),
+        | Record::EventActionRun(_)
+        | Record::EventSettingChanged(_)
+        | Record::EventBookOpened(_)
+        | Record::EventBookClosed(_)
+        | Record::EventBookFinished(_)
+        | Record::EventBookMoved(_)
+        | Record::EventBookRemoved(_)
+        | Record::EventPluginsChanged(_)
+        | Record::EventWifiChanged(_)
+        | Record::EventPowerChanged(_)
+        | Record::EventStatusChanged(_)
+        | Record::EventChargeChanged(_)
+        | Record::EventRegistryChanged(_)
+        | Record::EventPreviewChanged(_)
+        | Record::EventPluginsRequested(_)
+        | Record::EventPluginAnswered(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
@@ -116,7 +141,23 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServicePlugin(_)
         | Record::ServiceWorkNote(_)
         | Record::ServiceEnd(_)
-        | Record::ServiceEcho(_) => Err(ERR_INVALID),
+        | Record::ServiceEcho(_)
+        | Record::ServiceRegQuery(_)
+        | Record::ServiceRegKey(_)
+        | Record::ServiceRegSetting(_)
+        | Record::ServiceRegSettingExtra(_)
+        | Record::ServiceRegChoice(_)
+        | Record::ServiceRegText(_)
+        | Record::ServiceRegGroup(_)
+        | Record::ServiceRegPlugin(_)
+        | Record::ServiceRegNeed(_)
+        | Record::ServiceRegItem(_)
+        | Record::ServiceRegSlot(_)
+        | Record::ServiceRegMenuRow(_)
+        | Record::ServiceRegBinding(_)
+        | Record::ServiceRegSetupStep(_)
+        | Record::ServiceRegValue(_)
+        | Record::ServiceRegWidget(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),

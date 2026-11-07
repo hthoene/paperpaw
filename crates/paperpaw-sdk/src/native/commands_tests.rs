@@ -23,7 +23,7 @@ unsafe extern "C" fn submit(ctx: *mut c_void, batch: PpBytes) -> i32 {
         )
     };
     let commands = wire::commands_decode(bytes).unwrap();
-    assert_eq!(commands.len(), 1);
+    assert!(!commands.is_empty());
     ctx.batches.borrow_mut().push(bytes.to_vec());
     ctx.result.get()
 }
@@ -392,4 +392,273 @@ fn full_length_screen_and_action_ids_remain_accepted() {
             .collect::<Vec<_>>(),
         [wire::Command::RunAction { action: &id }]
     );
+}
+
+#[test]
+fn registry_list_limits_preserve_every_id_and_refuse_excess_before_submit() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let menu = ["keys.open"; wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS];
+    sender.set_menu("core.main", Some(&menu)).unwrap();
+    let plugins = ["dictionary"; wire::COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS];
+    sender.request_plugins(&plugins).unwrap();
+    assert_eq!(
+        sender.set_menu(
+            "core.main",
+            Some(&["keys.open"; wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS + 1])
+        ),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        sender
+            .request_plugins(&["dictionary"; wire::COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS + 1]),
+        Err(Error::NoSpace)
+    );
+    for invalid in ["", "keys.open\nother.open"] {
+        assert_eq!(
+            sender.set_menu("core.main", Some(&[invalid])),
+            Err(Error::Invalid)
+        );
+        assert_eq!(sender.request_plugins(&[invalid]), Err(Error::Invalid));
+    }
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 2);
+    let decoded = wire::commands_decode(&batches[0]).unwrap();
+    let Some(wire::Command::SetMenu {
+        items, flags: 0, ..
+    }) = decoded.iter().next()
+    else {
+        panic!("expected menu");
+    };
+    assert_eq!(items.split('\n').collect::<Vec<_>>(), menu);
+    let decoded = wire::commands_decode(&batches[1]).unwrap();
+    let Some(wire::Command::RequestPlugins { plugins: actual }) = decoded.iter().next() else {
+        panic!("expected requests");
+    };
+    assert_eq!(actual.split('\n').collect::<Vec<_>>(), plugins);
+}
+
+#[test]
+fn registry_defaults_and_empty_customization_remain_distinct() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.set_menu("core.main", None).unwrap();
+    sender.set_menu("core.main", Some(&[])).unwrap();
+    sender
+        .bind_key("global", "button.menu", KeyBinding::None)
+        .unwrap();
+    sender
+        .bind_key("global", "button.menu", KeyBinding::Default)
+        .unwrap();
+    sender.bind_slot("core.home", None).unwrap();
+    sender
+        .reset_setting(ResetTarget::Placement("widgets.clock@2"))
+        .unwrap();
+    sender.reset_setting(ResetTarget::All).unwrap();
+    sender
+        .apply_preset("power.day", PresetMode::Preview)
+        .unwrap();
+    sender
+        .set_plugin_enabled("dictionary", PluginEnabled::Off)
+        .unwrap();
+    sender.set_scope(None).unwrap();
+    sender.end_preview().unwrap();
+    let expected = [
+        wire::Command::SetMenu {
+            menu: "core.main",
+            items: "",
+            flags: 1,
+        },
+        wire::Command::SetMenu {
+            menu: "core.main",
+            items: "",
+            flags: 0,
+        },
+        wire::Command::BindKey {
+            layer: "global",
+            input: "button.menu",
+            action: "",
+            flags: 0,
+        },
+        wire::Command::BindKey {
+            layer: "global",
+            input: "button.menu",
+            action: "",
+            flags: 1,
+        },
+        wire::Command::BindSlot {
+            slot: "core.home",
+            screen: "",
+        },
+        wire::Command::ResetSetting {
+            key: "widgets.clock@2",
+            flags: 8,
+        },
+        wire::Command::ResetSetting { key: "", flags: 4 },
+        wire::Command::ApplyPreset {
+            preset: "power.day",
+            flags: 1,
+        },
+        wire::Command::SetPluginEnabled {
+            plugin: "dictionary",
+            enabled: 0,
+        },
+        wire::Command::SetScope { path: "" },
+        wire::Command::PreviewEnd { flags: 0 },
+    ];
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), expected.len());
+    for (bytes, expected) in batches.iter().zip(expected) {
+        let decoded = wire::commands_decode(bytes).unwrap();
+        assert_eq!(decoded.iter().next(), Some(expected));
+    }
+}
+
+#[test]
+fn plugin_answer_is_submitted_and_host_denial_is_reported() {
+    let table = table();
+    let mut ctx = Context::default();
+    ctx.result.set(abi::ERR_DENIED);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    assert_eq!(
+        CommandSender::new(&host, &mut scratch).answer_plugin(
+            7,
+            "dictionary",
+            PluginOutcome::Installed
+        ),
+        Err(Error::Denied)
+    );
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        wire::commands_decode(&batches[0]).unwrap().iter().next(),
+        Some(wire::Command::AnswerPlugin {
+            request: 7,
+            plugin: "dictionary",
+            outcome: 0
+        })
+    );
+}
+
+#[test]
+fn preview_sets_are_one_batch_and_reject_overflow_without_submission() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut value_scratch = [0; 2048];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let values =
+        [PreviewSetting::new("profiles.size", SettingValue::Int(4)); wire::COMMAND_MAX_RECORDS];
+    sender
+        .preview_settings(&values, &mut value_scratch)
+        .unwrap();
+    assert_eq!(
+        sender.preview_settings(
+            &[PreviewSetting::new("profiles.size", SettingValue::Int(4));
+                wire::COMMAND_MAX_RECORDS + 1],
+            &mut value_scratch
+        ),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        sender.preview_settings(&values, &mut [0; 1]),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        sender.preview_settings(&[], &mut value_scratch),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.preview_settings(
+            &[PreviewSetting::new(
+                "core.grant.style",
+                SettingValue::Bool(true)
+            )],
+            &mut value_scratch
+        ),
+        Err(Error::Unsupported)
+    );
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    let batch = wire::commands_decode(&batches[0]).unwrap();
+    assert_eq!(batch.len(), wire::COMMAND_MAX_RECORDS);
+    for command in batch.iter() {
+        let wire::Command::PreviewSetting { key, value, flags } = command else {
+            panic!("expected preview");
+        };
+        assert_eq!(key, "profiles.size");
+        assert_eq!(flags, 0);
+        assert_eq!(
+            super::super::wire::settings_wire::settings_decode(value).unwrap(),
+            SettingValueRef::Int(4)
+        );
+    }
+}
+
+#[test]
+fn plugin_commands_use_loader_identity_rules_before_submit() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let long = "a".repeat(41);
+    for id in ["", "Upper", "bad.id", long.as_str()] {
+        assert_eq!(sender.request_plugins(&[id]), Err(Error::Invalid));
+        assert_eq!(
+            sender.set_plugin_enabled(id, PluginEnabled::On),
+            Err(Error::Invalid)
+        );
+        assert_eq!(
+            sender.answer_plugin(1, id, PluginOutcome::Failed),
+            Err(Error::Invalid)
+        );
+    }
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn preview_key_value_budget_is_checked_before_host_submission() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut value_scratch = [0; 4096];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let text = "x".repeat(470);
+    let row = PreviewSetting::new("profiles.name", SettingValue::Text(&text));
+    sender
+        .preview_settings(&[row; 4], &mut value_scratch)
+        .unwrap();
+    assert_eq!(
+        sender.preview_settings(&[row; 5], &mut value_scratch),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(ctx.batches.borrow().len(), 1);
 }

@@ -67,6 +67,254 @@ pub fn service_schema(key: &str, major: u16) -> Option<&'static ServiceSchema> {
 /// Every call service schema, sorted by key and major.
 pub static SERVICES: &[ServiceSchema] = &[
     ServiceSchema {
+        key: "core.registry",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "settings",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1027, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 2,
+                name: "setting",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1026],
+                reply: &[1027, 1028, 1030],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 3,
+                name: "choices",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1029, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 4,
+                name: "groups",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1031, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 5,
+                name: "plugins",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1032, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 6,
+                name: "plugin",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1026],
+                reply: &[1032, 1030],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 7,
+                name: "actions",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 8,
+                name: "screens",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 9,
+                name: "slots",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1035, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 10,
+                name: "slot_offers",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 11,
+                name: "menus",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 12,
+                name: "menu",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1036, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 13,
+                name: "bindings",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1037, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 14,
+                name: "inputs",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 15,
+                name: "setup",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1038, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 16,
+                name: "presets",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1034, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 17,
+                name: "preset",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1026],
+                reply: &[1034, 1030],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 18,
+                name: "values",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1039, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 19,
+                name: "widgets",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1040, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+            ServiceOp {
+                id: 20,
+                name: "needs",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1033, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.test-echo",
         major: 1,
         revision: 0,
@@ -87,6 +335,58 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
 ];
+
+/// Constants of `core.registry` major 1.
+pub mod core_registry_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.registry";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
+    /// Operation `settings`.
+    pub const OP_SETTINGS: u32 = 1;
+    /// Operation `setting`.
+    pub const OP_SETTING: u32 = 2;
+    /// Operation `choices`.
+    pub const OP_CHOICES: u32 = 3;
+    /// Operation `groups`.
+    pub const OP_GROUPS: u32 = 4;
+    /// Operation `plugins`.
+    pub const OP_PLUGINS: u32 = 5;
+    /// Operation `plugin`.
+    pub const OP_PLUGIN: u32 = 6;
+    /// Operation `actions`.
+    pub const OP_ACTIONS: u32 = 7;
+    /// Operation `screens`.
+    pub const OP_SCREENS: u32 = 8;
+    /// Operation `slots`.
+    pub const OP_SLOTS: u32 = 9;
+    /// Operation `slot_offers`.
+    pub const OP_SLOT_OFFERS: u32 = 10;
+    /// Operation `menus`.
+    pub const OP_MENUS: u32 = 11;
+    /// Operation `menu`.
+    pub const OP_MENU: u32 = 12;
+    /// Operation `bindings`.
+    pub const OP_BINDINGS: u32 = 13;
+    /// Operation `inputs`.
+    pub const OP_INPUTS: u32 = 14;
+    /// Operation `setup`.
+    pub const OP_SETUP: u32 = 15;
+    /// Operation `presets`.
+    pub const OP_PRESETS: u32 = 16;
+    /// Operation `preset`.
+    pub const OP_PRESET: u32 = 17;
+    /// Operation `values`.
+    pub const OP_VALUES: u32 = 18;
+    /// Operation `widgets`.
+    pub const OP_WIDGETS: u32 = 19;
+    /// Operation `needs`.
+    pub const OP_NEEDS: u32 = 20;
+}
 
 /// Constants of `core.test-echo` major 1.
 pub mod core_test_echo_v1 {

@@ -12,6 +12,10 @@ import re
 KEY = re.compile(r'[a-z][a-z0-9]*(-[a-z0-9]+)*(\.[a-z][a-z0-9]*(-[a-z0-9]+)*)+')
 OP_NAME = re.compile(r'[a-z][a-z0-9]*(_[a-z0-9]+)*')
 SCHEMA_KEYS = {'key', 'major', 'revision', 'since', 'test_only', 'ops'}
+# `page_rows`: the most rows one page of a paged list op holds (rows, then
+# `service.end`), for services with paged ops; fixed for the major.
+OPTIONAL_SCHEMA_KEYS = {'page_rows'}
+MAX_PAGE_ROWS = 64
 OP_KEYS = {'id', 'name', 'since', 'effect', 'feature', 'input', 'reply', 'max_input',
            'max_reply', 'bound'}
 EFFECTS = ('query', 'mutate')
@@ -88,7 +92,9 @@ def validate_services(schema):
              'service schemas sorted by key and major, one per key and major')
     modules = set()
     for service in services:
-        _require(type(service) is dict and set(service) == SCHEMA_KEYS, 'service schema keys')
+        _require(type(service) is dict and
+                 SCHEMA_KEYS <= set(service) <= SCHEMA_KEYS | OPTIONAL_SCHEMA_KEYS,
+                 'service schema keys')
         key = service['key']
         _require(type(key) is str and len(key.encode()) <= MAX_KEY_BYTES and KEY.fullmatch(key),
                  f'service key {key!r}')
@@ -96,6 +102,9 @@ def validate_services(schema):
         _integer(service['revision'], 0, 65535, f'{key}: revision 0..=65535')
         _integer(service['since'], 1, schema.get('minor', 0), f'{key}: since within schema minor')
         _require(type(service['test_only']) is bool, f'{key}: test_only is true or false')
+        if 'page_rows' in service:
+            _integer(service['page_rows'], 1, MAX_PAGE_ROWS,
+                     f'{key}: page_rows 1..={MAX_PAGE_ROWS}')
         module = _module_name(key, service['major'])
         _require(module not in modules, f'{key}: module name {module} taken by another schema')
         modules.add(module)
@@ -130,6 +139,7 @@ def compatible_services(old, new, minimum_since):
         grown = after[(service['key'], major)]
         _require(grown['since'] == service['since'], f'{key}: since changed')
         _require(grown.get('test_only') == service.get('test_only'), f'{key}: test_only changed')
+        _require(grown.get('page_rows') == service.get('page_rows'), f'{key}: page_rows changed')
         _require(grown['revision'] >= service['revision'], f'{key}: revision went back')
         ops = {op['id']: op for op in grown['ops']}
         for op in service['ops']:
@@ -260,6 +270,9 @@ def rust_services(schema):
         consts = ''.join(f'    /// Operation `{op["name"]}`.\n'
                          f'    pub const OP_{_const_name(op["name"])}: u32 = {op["id"]};\n'
                          for op in service['ops'])
+        rows = (f'    /// Most rows one page of a paged list op holds.\n'
+                f'    pub const PAGE_MAX_ROWS: usize = {service["page_rows"]};\n'
+                if 'page_rows' in service else '')
         modules.append(f'\n/// Constants of `{service["key"]}` major {service["major"]}.\n'
                        f'pub mod {_module_name(service["key"], service["major"])} {{\n'
                        f'    /// Service key.\n'
@@ -268,5 +281,5 @@ def rust_services(schema):
                        f'    pub const MAJOR: u16 = {service["major"]};\n'
                        f'    /// Highest revision.\n'
                        f'    pub const REVISION: u16 = {service["revision"]};\n'
-                       f'{consts}}}\n')
+                       f'{rows}{consts}}}\n')
     return TEMPLATE.replace('@SCHEMAS@', ''.join(schemas)).replace('@MODULES@', ''.join(modules))

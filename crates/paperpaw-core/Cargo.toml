@@ -26,11 +26,11 @@ color = ["paperpaw-graphics/color"]
 outline = ["paperpaw-sdk/outline"]
 
 [dependencies]
-paperpaw-native.workspace = true
+paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-platform.workspace = true
 paperpaw-config.workspace = true
 paperpaw-graphics.workspace = true
-paperpaw-i18n.workspace = true
+paperpaw-i18n = { workspace = true, features = ["kernel"] }
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-hid.workspace = true
 

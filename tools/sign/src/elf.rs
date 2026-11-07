@@ -16,6 +16,8 @@ pub const SHT_NOBITS: u32 = 8;
 pub const SHT_REL: u32 = 9;
 pub const SHF_WRITE: u32 = 1;
 pub const SHF_ALLOC: u32 = 2;
+/// A section with machine instructions.
+pub const SHF_EXECINSTR: u32 = 4;
 pub const SHN_UNDEF: u16 = 0;
 /// The first of the section indices with a meaning of their own.
 pub const SHN_LORESERVE: u16 = 0xff00;
@@ -348,6 +350,22 @@ pub mod build {
                 shndx,
             });
             self.symbols.len() as u32
+        }
+
+        /// Adds a function symbol (`STT_FUNC`, global unless `local`) of
+        /// `size` bytes; its index.
+        pub fn function(
+            &mut self,
+            name: &str,
+            value: u32,
+            size: u32,
+            shndx: u16,
+            local: bool,
+        ) -> u32 {
+            let index = self.symbol(name, value, size, shndx, local);
+            let last = self.symbols.last_mut().expect("just pushed");
+            last.info |= 2;
+            index
         }
 
         /// Adds a relocation of `kind` against `symbol` at `offset` in

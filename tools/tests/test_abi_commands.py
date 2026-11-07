@@ -346,6 +346,53 @@ class CommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'command codec contract'):
             ABI.compatible(self.schema, candidate)
 
+    def growth(self, schema):
+        return [item for item in schema['records'] if item['name'].startswith('command.')
+                and 1536 <= item['id'] <= 2047]
+
+    def test_growth_block_commands_are_generated_from_their_fields(self):
+        # REG (#228): commands 1536-2047 come from their abi.def fields, into
+        # the command codec only, never into the record codec.
+        from abi_declarations import wire_records
+        self.assertEqual([item['id'] for item in self.growth(self.schema)],
+                         list(range(1536, 1547)))
+        self.assertFalse([r for r in wire_records(self.schema) if r['name'].startswith('command.')])
+        source = rust_commands(self.schema)
+        for line in ['pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;',
+                     'pub const COMMAND_SET_MENU_ITEMS_MAX_BYTES: usize = 2048;',
+                     "pub const COMMAND_SET_MENU_ITEMS_SEPARATOR: char = '\\n';",
+                     'pub const COMMAND_SET_MENU_ITEMS_MAX_ITEMS: usize = 64;',
+                     'pub const COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS: usize = 16;',
+                     '    SetPluginEnabled {', '    PreviewEnd {',
+                     '            COMMAND_APPLY_PRESET_TAG => {', 'fn write_blob(']:
+            self.assertIn(line, source)
+        # Without growth commands the codec is the locked one, byte for byte.
+        bare = copy.deepcopy(self.schema)
+        bare['records'] = [r for r in bare['records'] if r not in self.growth(bare)]
+        self.assertNotIn('fn write_blob(', rust_commands(bare))
+        mutations = [
+            # An optional field (the growth codec has no presence bits yet).
+            lambda s: self.growth(s)[0]['fields'][-1].update(optional=True, ordinal=0, default=0),
+            # A cap outside the record rules, a field type outside them.
+            lambda s: self.growth(s)[0]['fields'][0].update(max_bytes=0),
+            lambda s: self.growth(s)[0]['fields'][0].update(type='f32'),
+            # A command outside both blocks, a tag taken twice, a variant taken twice.
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=2100,
+                                               name='command.later')),
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=60,
+                                               name='command.again')),
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=1600,
+                                               name='command.open_screen_x')) or
+                      s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=1601,
+                                               name='command.open.screen_x')),
+            lambda s: self.growth(s)[0].update(since=2),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                ABI.validate(candidate)
+
     def item_state(self, schema):
         return next(item for item in schema['records']
                     if item['name'] == 'command.set_item_state')
