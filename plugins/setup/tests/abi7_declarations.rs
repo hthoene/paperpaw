@@ -70,3 +70,14 @@ fn the_host_admits_the_screens_and_refuses_the_rest_as_unsupported() {
         }
     }
 }
+
+/// The first run and the first book opened are the two subscriptions the
+/// plugin declares, and nothing else (no library, no other event).
+#[test]
+fn the_events_are_the_first_start_and_the_first_book_opened() {
+    let batches = batches!(declarations::events);
+    assert_eq!(batches.len(), 1);
+    let records = records_decode(&batches[0]).unwrap();
+    assert_eq!(records.iter().count(), 2);
+    assert_ne!(declarations::BOOK_OPENED, declarations::STARTED);
+}

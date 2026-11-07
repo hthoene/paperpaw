@@ -82,7 +82,10 @@ impl Plugin for NativeSetup {
                 kind: BookKind::Opened,
                 reason: 0,
                 ..
-            } if token == BOOK_OPENED => native_state::note_book_opened(host),
+            } if token == BOOK_OPENED => {
+                native_state::note_book_opened(host);
+                Ok(())
+            }
             Event::ScreenOpened {
                 screen: "setup.guide",
                 instance,

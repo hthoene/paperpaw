@@ -50,10 +50,11 @@ pub fn has_opened_book(host: &Host<'_>) -> Result<bool, Error> {
     exists(host, OPENED)
 }
 
-/// Notes the first book opened, once.
-pub fn note_book_opened(host: &Host<'_>) -> Result<(), Error> {
-    if exists(host, OPENED)? {
-        return Ok(());
+/// Notes the first book opened, once. Best effort: on read-only storage the
+/// flag cannot be kept, and a failed note must not fail the book being opened
+/// (the guide then offers the open-a-book step, which can be skipped).
+pub fn note_book_opened(host: &Host<'_>) {
+    if matches!(exists(host, OPENED), Ok(false)) {
+        let _ = storage::write(host, Root::Data, OPENED, b"");
     }
-    storage::write(host, Root::Data, OPENED, b"")
 }
