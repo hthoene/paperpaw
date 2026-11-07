@@ -50,7 +50,11 @@ fn entry(bytes: &'static [u8], change: impl FnOnce(&mut PpEntry)) -> &'static Pp
     Box::leak(Box::new(entry))
 }
 
-fn refused(entry: &'static PpEntry, bytes: &'static [u8], host: &metadata::Host<'_>) -> Refusal {
+fn refused(
+    entry: &'static PpEntry,
+    bytes: &'static [u8],
+    host: &metadata::Host<'static>,
+) -> Refusal {
     MAKES.with(|count| count.set(0));
     let refusal = check(entry, bytes, host).unwrap_err();
     assert_eq!(MAKES.with(Cell::get), 0, "admission never calls make");

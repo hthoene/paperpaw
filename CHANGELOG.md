@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
+
 - Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
   book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
   turns and book edges share `ReadingView` accessors; malformed values are
