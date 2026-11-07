@@ -222,6 +222,10 @@ pub struct Loader {
     /// made with the first one (a fallible allocation: `NoRoom`).
     #[cfg(feature = "ppn5")]
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
+    /// The device-wide table of handles the plugins' owners share (made with
+    /// the first plugin; each plugin holds a counted share of it).
+    #[cfg(feature = "ppn5")]
+    resources: Option<paperpaw_core::native_host::HostResources>,
 }
 
 impl Loader {
@@ -230,6 +234,8 @@ impl Loader {
             place,
             #[cfg(feature = "ppn5")]
             depth: None,
+            #[cfg(feature = "ppn5")]
+            resources: None,
         }
     }
 
@@ -253,7 +259,13 @@ impl Loader {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
             }
-            let loaded = ppn5::load(&mut self.place, &mut self.depth, storage, code);
+            let loaded = ppn5::load(
+                &mut self.place,
+                &mut self.depth,
+                &mut self.resources,
+                storage,
+                code,
+            );
             if loaded.is_ok() {
                 crate::stack::native_loaded();
             }

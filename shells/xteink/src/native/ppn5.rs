@@ -46,6 +46,7 @@
 use alloc::boxed::Box;
 use log::warn;
 use paperpaw_core::CodeFile;
+use paperpaw_core::native_host::HostResources;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
@@ -90,6 +91,7 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 pub fn load(
     place: &mut super::Place,
     depth: &mut Option<FlatDepth>,
+    resources: &mut Option<HostResources>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -109,13 +111,13 @@ pub fn load(
     #[cfg(feature = "esp32c3")]
     {
         let (placed, make) = x4::verified(place, storage, code, &header, started)?;
-        x4::run(code, &header, &placed, make, depth, started)
+        x4::run(code, &header, &placed, make, depth, resources, started)
     }
     #[cfg(not(feature = "esp32c3"))]
     {
         // Unreachable in practice: the X4 Pro's files are target 9, refused
         // by the header; any other chip is refused as another build.
-        let _ = (place, depth, started);
+        let _ = (place, depth, resources, started);
         Err(PluginProblem::OtherBuild)
     }
 }
@@ -132,6 +134,7 @@ mod x4 {
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
+    use paperpaw_core::native_host::HostResources;
     use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
     use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
     use paperpaw_core::native_host::shell::{self, Make};
@@ -367,6 +370,7 @@ mod x4 {
         placed: &crate::native::flash::Placed5,
         make: u32,
         depth: &mut Option<FlatDepth>,
+        resources: &mut Option<HostResources>,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
@@ -407,6 +411,19 @@ mod x4 {
             call_begin,
             call_end,
         };
+        // The device-wide table of handles, made with the first plugin (a
+        // full heap is `NoRoom`, never an abort); each plugin owns a counted
+        // share of it.
+        if resources.is_none() {
+            *resources = Some(HostResources::try_new().map_err(|_| {
+                warn!("native: {id}: no room for the host's table of handles");
+                PluginProblem::NoRoom
+            })?);
+        }
+        let Some(share) = resources.as_ref().and_then(HostResources::try_clone) else {
+            warn!("native: {id}: no room for a share of the host's table of handles");
+            return Err(PluginProblem::NoRoom);
+        };
         // SAFETY: as above; the read-only data [0, code_at) of the image is
         // mapped at `placed.base` for the session (nothing erases the region
         // before a restart: it is only written by `put5` into free room).
@@ -419,6 +436,7 @@ mod x4 {
                 (placed.base as usize, header.code_at as usize),
                 report,
                 hooks,
+                share,
             )
         };
         let instance = loaded.map_err(|why| {
