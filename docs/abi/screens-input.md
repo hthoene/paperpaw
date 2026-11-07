@@ -131,8 +131,13 @@ input(state: pointer, token: u32, input: bytes) -> i32
   `registration.event`: they go to the token of the screen or action declaration they name. A
   registration naming 38 or 39 refuses the batch (`ERR_UNSUPPORTED`, like every event tag the
   host has no encoder for).
-- [D] Key names are the kernel's keymap names (`docs/keymaps.md`); an unknown name is passed
-  through, plugins ignore keys they do not know. Coordinates are screen pixels of the
+- [D] **Key names are logical** (Senior #1225, #241): the standard set of
+  `paperpaw_platform::input::buttons`, `page-forward`, `page-back`, `up`, `down`, `left`, `right`,
+  `confirm`, `back`, `menu`, `home`, `power`, which every shell maps its device's buttons onto
+  where the device has an equivalent; key maps and remapping bind these names, never a device's
+  own. A button with no equivalent gets a device-specific name of lowercase ASCII letters, digits
+  and `-` (at most 32 bytes); an unknown name is passed through, plugins ignore keys they do not
+  know. The standard set only grows (a new name is additive). Coordinates are screen pixels of the
   screen's own pane, origin top left.
 - [D] `input.pointer.contact` (interface 6 `PointerEvent::id`) tells simultaneous contacts apart:
   the host's number for one finger or pen, the same from its down to its up or cancel, and

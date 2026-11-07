@@ -410,11 +410,18 @@ asker learns its request id at once and long texts move in pages, never cut.
   filter, screen, gesture or key map) sees it. The capturer's verdict on the rest: 2 run and 5
   raise act (a recognizer raises its gesture at the up), 4 replace is ignored, the others just end
   it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
-  filter keeps and logs nothing of it. Other bits 0.
+  filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
+  them.
+- [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
+  down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
+  it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
+  got the down always gets its up and never stays pressed.
 - [D] **A replaced input** (verdict 4) is checked as plugin input: one `input.key`,
   `input.pointer` or `input.gesture` record, whole, else the verdict counts as pass (logged). Key
   names are not checked against a table (`screens-input.md` 2.2: unknown names pass through):
-  `key` is 1 to 32 bytes of UTF-8 without control characters.
+  `key` is 1 to 32 bytes of UTF-8 without control characters. A replace may not make `power`
+  (it counts as pass): the Power key's escape and power actions come from the physical button
+  only. The router clamps a replaced pointer's `x` and `y` to the screen's pane.
 - [D] Cost: one callback per filter per input; on the X4 key presses only (no touch). Counts
   against the input-latency timing gate of the lock port.
 
