@@ -3177,6 +3177,9 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::stage(&mut self, paperpaw_sdk::native::declare::StageDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe(&mut self, paperpaw_sdk::native::declare::SubscribeDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<F> core::ops::drop::Drop for paperpaw_sdk::native::declare::Declarations<F>
@@ -3238,6 +3241,17 @@ pub paperpaw_sdk::native::declare::SpecDecl::secret: bool
 pub paperpaw_sdk::native::declare::SpecDecl::title: &'a str
 impl<'a> paperpaw_sdk::native::declare::SpecDecl<'a>
 pub fn paperpaw_sdk::native::declare::SpecDecl<'a>::new(&'a str, paperpaw_sdk::native::declare::Kind<'a>, &'a str, &'a str) -> Self
+pub struct paperpaw_sdk::native::declare::StageDecl<'a>
+impl<'a> paperpaw_sdk::native::declare::StageDecl<'a>
+pub fn paperpaw_sdk::native::declare::StageDecl<'a>::changes_layout(self) -> Self
+pub fn paperpaw_sdk::native::declare::StageDecl<'a>::draws(self) -> Self
+pub fn paperpaw_sdk::native::declare::StageDecl<'a>::new(&'a str, u32, u32, u32, u32) -> Self
+pub fn paperpaw_sdk::native::declare::StageDecl<'a>::takes_taps(self) -> Self
+pub struct paperpaw_sdk::native::declare::SubscribeDecl<'a>
+impl<'a> paperpaw_sdk::native::declare::SubscribeDecl<'a>
+pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::new(&'a str, u32) -> Self
+pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::order(self, i16) -> Self
+pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::signature(self, u64) -> Self
 pub const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize
 pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
 pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
@@ -3257,6 +3271,10 @@ pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
+pub paperpaw_sdk::native::events::Event::StageCall
+pub paperpaw_sdk::native::events::Event::StageCall::payload: &'a [u8]
+pub paperpaw_sdk::native::events::Event::StageCall::schema: u32
+pub paperpaw_sdk::native::events::Event::StageCall::stage: &'a str
 pub paperpaw_sdk::native::events::Event::Started
 pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Stopping
@@ -3378,6 +3396,12 @@ pub paperpaw_sdk::native::services::PageEnd::left_out: bool
 pub paperpaw_sdk::native::services::PageEnd::next: u32
 pub paperpaw_sdk::native::services::PageEnd::total: u32
 pub paperpaw_sdk::native::services::PageEnd::truncated: bool
+pub struct paperpaw_sdk::native::services::Service
+impl paperpaw_sdk::native::services::Service
+pub fn paperpaw_sdk::native::services::Service::call(&self, &paperpaw_sdk::native::Host<'_>, u32, &[u8], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::Service::max_reply(&self, u32) -> core::option::Option<usize>
+pub fn paperpaw_sdk::native::services::Service::open(&paperpaw_sdk::native::Host<'_>, &str, u16, u16) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::Service::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 #[non_exhaustive] pub struct paperpaw_sdk::native::services::ServicePluginUsage<'a>
 pub paperpaw_sdk::native::services::ServicePluginUsage::awake_ms: u64
 pub paperpaw_sdk::native::services::ServicePluginUsage::awake_reason: &'a str
@@ -3434,6 +3458,23 @@ pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_charging(&self) -> boo
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_power_saving(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::unix_seconds(&self) -> core::option::Option<i64>
 pub fn paperpaw_sdk::native::snapshot::capture_snapshot(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<paperpaw_sdk::native::snapshot::Snapshot, paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::stages
+pub struct paperpaw_sdk::native::stages::Stage<'cb>
+impl<'cb> paperpaw_sdk::native::stages::Stage<'cb>
+pub fn paperpaw_sdk::native::stages::Stage<'cb>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'cb str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::stages::Stage<'cb>::out_len(u32) -> usize
+pub fn paperpaw_sdk::native::stages::Stage<'cb>::run<'r>(&'r self, &'r [u8], &'r mut [u8]) -> paperpaw_sdk::native::stages::StageRun<'r>
+pub struct paperpaw_sdk::native::stages::StageReply<'o>
+impl<'o> paperpaw_sdk::native::stages::StageReply<'o>
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::index(&self) -> u32
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::payload(&self) -> &'o [u8]
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::signature(&self) -> u64
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::status(&self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::style_granted(&self) -> bool
+pub fn paperpaw_sdk::native::stages::StageReply<'o>::subscriber(&self) -> &'o str
+pub struct paperpaw_sdk::native::stages::StageRun<'r>
+impl paperpaw_sdk::native::stages::StageRun<'_>
+pub fn paperpaw_sdk::native::stages::StageRun<'_>::next(&mut self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::stages::StageReply<'_>>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage
 #[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
 pub paperpaw_sdk::native::storage::Root::Data
