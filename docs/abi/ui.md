@@ -110,17 +110,23 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
      been checked and every fallible copy and reservation of the stage is done: **made** →
      **claimed**, allocation-free; an id claimed twice, in the batch or by an earlier accepted
      submit, is `ERR_STATE` and claims nothing. The `Claims` go into the command stage.
-  4. `rollback(claims)`: frees them, for a refused submit and for a callback whose result drops
-     its staged commands (screens-input section 2.1). `release(id)` frees one claim whose `open`
+  4. `rollback(claims)`: frees exactly the claims it is given, never others. A refused submit
+     rolls back its own `Claims`, not those of earlier accepted submits; a callback whose result
+     drops its staged commands (screens-input section 2.1) rolls back the claims of that
+     callback's submits, never those of an earlier callback still waiting to drain.
+     `release(id)` frees one claim whose `open`
      applies as a no-op (a guard refused, section 1.3), names a stale target or fails: the old
      instance keeps its hand-over.
-  5. `attach(id, instance)` when the `open` applies: **claimed** → **owned** by the new or reused
-     instance, allocation-free; the instance's previous hand-over is freed only after that, so a
-     failure before it leaves the old params and text in place.
+  5. `attach(Option<id>, instance)` when the `open` applies: **claimed** → **owned** by the new
+     or reused instance, allocation-free; the instance's previous hand-over is freed only after
+     that, so a failure before it leaves the old params and text in place. `None` (an `open` with
+     hand-over 0 that reuses an instance) clears its params and text at that same point only.
   6. `end_callback(stamp)` when the callback returns: every hand-over still **made** in that epoch
      is freed. Claimed ones stay alive in the stage until its deferred `open` drains (5 or 4).
-  7. `instance_closed(instance)` and `owner_stopped(owner)`: free what they own without calling
-     any plugin.
+  7. `instance_closed(instance)` frees the instance's **owned** hand-over.
+     `owner_stopped(owner)` frees the stopped plugin's requests, texts and the hand-overs it made
+     that are still **made** or **claimed**; an **owned** hand-over belongs to its instance, not
+     its maker, and stays until that instance closes or is reopened. Neither calls any plugin.
   8. Op 17 and the text (op 10) answer only the owning instance; a restart reopen (#275) makes a
      new **owned** entry from the kept params, without the text.
 
