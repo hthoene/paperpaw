@@ -312,6 +312,12 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
         let result = install(&mut kernel, 0);
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
+        // Public lookup hides overrides of sealed actions. Unseal the fixture
+        // after the fault window to observe whether publication removed it.
+        kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
+            Id::new_static("legacy.action"),
+            "legacy.action",
+        ));
         assert!(kernel.shared.actions.override_of("legacy.action").is_some());
         if result.is_ok() {
             reached_success = true;
