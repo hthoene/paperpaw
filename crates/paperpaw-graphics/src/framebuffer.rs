@@ -57,9 +57,10 @@ pub struct Framebuffer {
     diffusions: Vec<(u64, u16, Atkinson)>,
 }
 
-/// Pictures a band leaves diffused for the next one, at most; more start
-/// from their first row again.
-const DIFFUSIONS: usize = 8;
+/// Bytes of error rows the bands of a frame leave diffused for the next
+/// band, all pictures together (a 480-pixel row of two is 1.9 KiB); more
+/// start from their first row again.
+const DIFFUSION_BYTES: usize = 6 * 1024;
 
 impl Framebuffer {
     /// Allocates a white framebuffer. Fails instead of aborting when memory
@@ -246,7 +247,13 @@ impl Framebuffer {
             return;
         }
         self.diffusions.retain(|(k, _, _)| *k != key);
-        if self.diffusions.len() < DIFFUSIONS && self.diffusions.try_reserve(1).is_ok() {
+        let kept: usize = self
+            .diffusions
+            .iter()
+            .map(|(_, _, a)| a.width() * 2 * core::mem::size_of::<i16>())
+            .sum();
+        let new = atkinson.width() * 2 * core::mem::size_of::<i16>();
+        if kept + new <= DIFFUSION_BYTES && self.diffusions.try_reserve(1).is_ok() {
             self.diffusions.push((key, row, atkinson));
         }
     }
@@ -865,6 +872,25 @@ fn saturate(rgb: [u8; 3], percent: u16) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diffusion_kept_for_the_next_band_is_capped_in_bytes() {
+        let mut fb = Framebuffer::banded(800, 100, 10, PixelFormat::Mono1).unwrap();
+        // An 800-pixel picture keeps 3.2 KiB: one fits, a second does not.
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        fb.keep_diffusion(2, 10, Atkinson::new(800).unwrap());
+        assert!(fb.take_diffusion(2, 10).is_none());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        // The same picture again replaces itself rather than counting twice.
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        // Narrow ones: several fit.
+        for key in 0..3 {
+            fb.keep_diffusion(key, 10, Atkinson::new(480).unwrap());
+        }
+        assert!(fb.take_diffusion(2, 10).is_some());
+    }
 
     #[test]
     fn fills_whole_bytes_and_the_pixels_at_either_end() {

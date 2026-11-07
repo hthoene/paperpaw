@@ -456,12 +456,25 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
   nothing drawn when found before the first band, else the bands drawn so far kept and the error
   returned (never a silent partial draw). The host reads the file in bands of at most 2 KiB (the
-  X4 frame band). **Draw memory:** besides that band the drawer takes one bounded, transient heap
-  block per call (its source row chunk of 8 KiB plus a few bytes per source row and per drawn
-  column: at most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before
-  the first band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing
-  drawn. Nothing is kept between calls. Dithering and night-mode inversion are the
-  host's own, by the screen and the user's settings, not flags.
+  X4 frame band; a stack band, not a read size). **Draw memory:** besides that band the drawer
+  takes one bounded, transient heap block per call (its source row chunk of 8 KiB, filled by
+  `read_at` requests of up to that size, plus a few bytes per source row and per drawn column:
+  about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before the first band and freed
+  before the call returns. It is at most 32 KiB on the X4 and at most 1 MiB on Android, the
+  desktop and the emulator (the shell's `scratch_max`); a draw that needs more, or whose block is
+  refused, is `ERR_NO_MEMORY` with nothing drawn. The
+  one thing a host **may** keep between calls is a **dithering carry**: the error rows of the
+  picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
+  when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
+  or another picture holds it), dithers each call on its own (Atkinson within the call), never an
+  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  spends its own heap under its own budget.
+  Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
+  not flags.
+- [D] **Cache sweeps** (prepared images and document caches left by a stopped plugin or a cut
+  power, at start or when idle) are stepwise: at most 64 entries read per main-loop turn through
+  the storage's resumable listing, in turns with no input waiting; never a whole-folder scan in
+  one turn, so a large cache cannot lengthen the start.
 - [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
   format wrote (`fmt.image`) before using it: header against its file size and the stated
   `width`/`height`, a short read `ERR_IO`, a mismatch `ERR_INVALID`; nothing panics and nothing
@@ -592,8 +605,9 @@ reply 4,096 bytes, stage payload 3,840.
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
   with the reader port at a 1,600-pixel PNG.
-- Drawing a picture (slot 37): at most 32 KiB transient per call (section 5), fallible, freed
-  before the call returns; never at the same time as a decode (both run on the main loop).
+- Drawing a picture (slot 37): at most 32 KiB transient per call on the X4 (section 5),
+  fallible, freed before the call returns; never at the same time as a decode (both run on the
+  main loop).
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
 - Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
