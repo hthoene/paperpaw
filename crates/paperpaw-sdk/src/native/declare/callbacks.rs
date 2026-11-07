@@ -54,6 +54,10 @@ pub enum EventKind {
     PluginsRequested,
     /// One requested plugin received an outcome.
     PluginAnswered,
+    /// The visible screen stack changed.
+    StackChanged,
+    /// A screen drew its first page and is ready for help.
+    ScreenReady,
 }
 
 impl EventKind {
@@ -83,6 +87,8 @@ impl EventKind {
             Self::PreviewChanged => records_wire::EVENT_PREVIEW_CHANGED_TAG,
             Self::PluginsRequested => records_wire::EVENT_PLUGINS_REQUESTED_TAG,
             Self::PluginAnswered => records_wire::EVENT_PLUGIN_ANSWERED_TAG,
+            Self::StackChanged => records_wire::EVENT_STACK_CHANGED_TAG,
+            Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
         }
     }
 }

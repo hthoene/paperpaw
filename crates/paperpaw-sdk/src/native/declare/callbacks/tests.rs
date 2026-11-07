@@ -10,6 +10,11 @@ use records_wire::{Record, records_decode, records_encode, registrations_encode}
 #[test]
 fn every_event_kind_matches_its_generated_registration_bytes() {
     let kinds = [
+        (
+            EventKind::StackChanged,
+            records_wire::EVENT_STACK_CHANGED_TAG,
+        ),
+        (EventKind::ScreenReady, records_wire::EVENT_SCREEN_READY_TAG),
         (EventKind::Tick, records_wire::EVENT_TICK_TAG),
         (EventKind::Started, records_wire::EVENT_STARTED_TAG),
         (EventKind::Resume, records_wire::EVENT_RESUME_TAG),
