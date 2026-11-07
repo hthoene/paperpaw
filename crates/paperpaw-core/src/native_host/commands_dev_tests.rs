@@ -814,7 +814,7 @@ fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reser
         };
         // An undefined bit is reported before the unknown mode.
         assert_eq!(
-            submit(&mut stage, &[WireCommand::Sleep {}, wear]),
+            submit(&mut stage, &[WireCommand::WifiScan {}, wear]),
             ERR_UNSUPPORTED,
             "wear flags {flags:#x}"
         );
