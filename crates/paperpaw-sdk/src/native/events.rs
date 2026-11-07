@@ -1,4 +1,4 @@
-//! Borrowed interface-7 events: tick (tag 3) and event payloads (tags 32-39).
+//! Borrowed interface-7 events, including stage subscriber calls.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{
@@ -61,6 +61,29 @@ pub enum Event<'a> {
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
+    /// An extension stage calls this subscription's token. Answer through
+    /// [`super::reply::Reply`] using the stage owner's payload schema.
+    ///
+    /// ```
+    /// use paperpaw_sdk::native::{Error, events::Event, reply::Reply};
+    /// fn answer(event: Event<'_>, reply: &mut Reply<'_>, encoded: &[u8])
+    ///     -> Result<(), Error>
+    /// {
+    ///     match event {
+    ///         Event::StageCall { stage: "reader.insert", schema: 1, .. } => {
+    ///             // Encode with the stage owner's schema before writing.
+    ///             reply.write(encoded)
+    ///         }
+    ///         Event::StageCall { .. } => Err(Error::Unsupported),
+    ///         _ => Ok(()),
+    ///     }
+    /// }
+    /// ```
+    StageCall {
+        stage: &'a str,
+        schema: u32,
+        payload: &'a [u8],
+    },
 }
 
 impl<'a> Event<'a> {
@@ -100,6 +123,11 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
         Err(status) => return Err(Error::from_status(status)),
     };
     Ok(match record {
+        Record::StageCall(r) => Event::StageCall {
+            stage: r.stage,
+            schema: r.schema,
+            payload: r.payload,
+        },
         Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
         Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
         Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },

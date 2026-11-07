@@ -58,6 +58,9 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod stages;
+pub use stages::{StageDecl, SubscribeDecl};
+
 mod callbacks;
 pub use callbacks::EventKind;
 
@@ -414,6 +417,8 @@ enum Item<'a> {
     FontExtension(FontExtensionDecl<'a>),
     Screen(ScreenDecl<'a>),
     Action(ActionDecl<'a>),
+    Stage(StageDecl<'a>),
+    Subscribe(SubscribeDecl<'a>),
 }
 
 /// The items a plugin declares, in the order it declares them.
@@ -1053,6 +1058,8 @@ impl<'a> Item<'a> {
                 token: s.token,
                 flags: u32::from(s.full_refresh_on_open),
             }),
+            Item::Stage(stage) => Record::StageSpec(stage.record()),
+            Item::Subscribe(to) => Record::RegistrationStage(to.record()),
             Item::Action(a) => Record::ActionSpec(ActionSpec {
                 name: a.name,
                 title: a.title,
