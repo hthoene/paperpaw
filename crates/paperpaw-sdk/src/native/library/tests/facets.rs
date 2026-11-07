@@ -121,8 +121,6 @@ fn malformed_facet_pages_are_refused_whole() {
     let lib = Library::open(&host).unwrap();
     let (mut input, mut out) = ([0; 1280], [0; 4096]);
     let cases = [
-        // A value without books.
-        vec![facet("A", 0, 0), end(1, 1, 5, 1)],
         // A row of another kind.
         vec![entry(), end(1, 1, 5, 1)],
         // No progress, a next beyond the total, a count that does not add up.

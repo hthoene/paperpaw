@@ -37,10 +37,6 @@ impl<'a> FacetRow<'a> {
         let Record::ServiceLibFacet(row) = record else {
             return Err(Error::Invalid);
         };
-        // A value of the list holds at least one book.
-        if row.count == 0 {
-            return Err(Error::Invalid);
-        }
         Ok(Self(row))
     }
     /// The value, whole (at most 256 UTF-8 bytes).
@@ -93,8 +89,7 @@ impl Library {
     /// [`CatalogCursor::start`].
     ///
     /// # Errors
-    /// State for a stale cursor; Invalid for a malformed page or a value without
-    /// books; otherwise local limits or host refusals.
+    /// State for a stale cursor; Invalid for a malformed page; otherwise local limits or host refusals.
     pub fn facets<'a>(
         &self,
         host: &Host<'_>,
