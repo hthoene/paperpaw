@@ -348,3 +348,15 @@ fn revoked_frozen_owner_is_not_called_and_lazy_start_waits_for_run_drop() {
     assert!(h.calls.borrow().is_empty());
     assert_eq!(h.registry.take_start(), Some(lazy));
 }
+
+#[test]
+fn broker_owned_scratch_has_a_fixed_heap_bound() {
+    // Conservatively count the selection and frozen lists together although
+    // selection is freed before callback scratch is allocated. Plugin ids are
+    // the only individually copied variable-length values.
+    let heap = SUBSCRIBERS
+        * (size_of::<Subscriber>() + size_of::<Subscription<'_>>() + PLUGIN_ID_BYTES)
+        + CALL_BYTES
+        + 3840;
+    assert!(heap <= 24 * 1024, "broker allocation payload bound: {heap}");
+}

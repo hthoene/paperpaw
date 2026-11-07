@@ -13,6 +13,7 @@ use paperpaw_sdk::{Env, Id};
 
 const SUBSCRIBERS: usize = 32;
 const CALL_BYTES: usize = 4096;
+const PLUGIN_ID_BYTES: usize = 128;
 
 /// Host-selected payload codec. A plugin never supplies these function pointers.
 pub(crate) struct Schema {
@@ -117,6 +118,9 @@ impl<'a> Run<'a> {
             .map_err(|_| ERR_NO_MEMORY)?;
         for registration in selected {
             let id = registry.id(registration.plugin).ok_or(ERR_STATE)?;
+            if id.as_str().len() > PLUGIN_ID_BYTES {
+                return Err(ERR_INVALID);
+            }
             let (instance, lazy) = match registry.state(registration.plugin)? {
                 InstanceState::Running(lease) => (Some(lease), false),
                 InstanceState::Lazy => (None, true),
