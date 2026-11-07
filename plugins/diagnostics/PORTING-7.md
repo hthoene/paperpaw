@@ -53,9 +53,9 @@ built into the image by `build.rs`, metadata in `native/` (regenerate with
   that these are the only declarations that wait).
 - The app (`paperpaw-app`, feature `diagnostics`) no longer registers the plugin, and the
   central wiring that loads linked native plugins does not list it yet. Until it does, the
-  desktop emulator's Developer settings page has no *Test pages* row and the Tools entry is
-  gone (the `boox-developer-settings` snapshot was blessed without the row). The row, the
-  screens and the report return with the wiring; bless the snapshot again then.
+  desktop emulator's Developer settings page has no *Test pages* row (the
+  `boox-developer-settings` snapshot was blessed without it). The row, the screens and the
+  report return with the wiring; bless the snapshot again then.
 - Peak memory on the X4 and the packed `.ppn` size are not measured.
 
 ## Tests
