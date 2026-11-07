@@ -62,7 +62,6 @@ fn forwards_identity_cursor_and_payload_and_publishes_only_success() {
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     for result in [
         Ok(3),
-        Ok(9),
         Err(abi::ERR_DENIED),
         Err(abi::ERR_NO_SPACE),
         Err(abi::ERR_STATE),
@@ -90,14 +89,7 @@ fn forwards_identity_cursor_and_payload_and_publishes_only_success() {
                 },
             )
         };
-        assert_eq!(
-            got,
-            if result == Ok(9) {
-                Err(ERR_INVALID)
-            } else {
-                result
-            }
-        );
+        assert_eq!(got, result);
         assert_eq!(broker.calls.get(), 1);
         if got == Ok(3) {
             assert_eq!(&out[..3], b"rpc");
@@ -434,4 +426,35 @@ fn broker_can_initialize_exactly_the_output_capacity() {
         out.map(|byte| unsafe { byte.assume_init() }),
         *b"rpc\0\0\0\0\0"
     );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "broker returned a count beyond output capacity")]
+fn oversized_broker_count_triggers_the_internal_debug_assertion() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let broker = Broker {
+        env: &env,
+        calls: Cell::new(0),
+        result: Ok(9),
+        allocates: false,
+    };
+    let mut out = [0xa5; 8];
+    // SAFETY: bounded live buffers are disjoint; the fake broker violates its count contract.
+    let _ = unsafe {
+        in_frame(
+            &broker,
+            "owner",
+            pair(b"owner.insert"),
+            2,
+            pair(b"input"),
+            PpBuffer {
+                ptr: out.as_mut_ptr(),
+                cap: out.len(),
+            },
+        )
+    };
 }

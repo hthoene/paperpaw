@@ -72,6 +72,10 @@ unsafe fn in_frame(
     // The broker validates before publishing, initializes only the returned
     // prefix and leaves output untouched on error. No temporary buffer is needed.
     let count = frame.stage_run(caller, stage, cursor, input, output)?;
+    debug_assert!(
+        count <= output.len(),
+        "broker returned a count beyond output capacity"
+    );
     if count > output.len() {
         return Err(ERR_INVALID);
     }
