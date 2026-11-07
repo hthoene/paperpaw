@@ -107,6 +107,34 @@ impl Drop for Text {
     }
 }
 
+impl Text {
+    /// A copy that refuses where the heap does: kept text copies its two
+    /// words, owned text takes one allocation of exactly its length.
+    fn try_clone(&self) -> Option<Self> {
+        if !self.is_owned() {
+            return Some(Self {
+                start: self.start,
+                len: self.len,
+            });
+        }
+        let text = self.as_str();
+        if text.is_empty() {
+            return Some(Self::owned(String::new()));
+        }
+        let layout = core::alloc::Layout::for_value(text.as_bytes());
+        // SAFETY: a nonzero layout (`text` is not empty).
+        let start = NonNull::new(unsafe { alloc::alloc::alloc(layout) })?;
+        // SAFETY: a fresh allocation of `text.len()` bytes, disjoint from
+        // `text`; the copy is UTF-8 as `text` is.
+        unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), start.as_ptr(), text.len()) };
+        // The layout a `Box<str>` of this length frees with (`Drop`).
+        Some(Self {
+            start,
+            len: text.len() | OWNED,
+        })
+    }
+}
+
 impl Clone for Text {
     fn clone(&self) -> Self {
         if self.is_owned() {
@@ -186,6 +214,16 @@ impl Id {
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// A copy that never aborts on a full heap: `None` where the heap
+    /// cannot hold it, for hosts that must not abort when memory runs out
+    /// (the X4's plugin loader). An id made with [`Id::new_static`] copies
+    /// without allocating; a parsed one takes one allocation of its length.
+    /// [`Clone`] gives the same copy and aborts instead.
+    #[must_use]
+    pub fn try_clone(&self) -> Option<Id> {
+        self.0.try_clone().map(Id)
     }
 
     /// The id as text kept in the program, for specs kept there too

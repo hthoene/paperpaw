@@ -411,4 +411,4 @@ plugin without a translated name gets its id.
 - [Q] Whether later consumers (not Battery) need a blob that outlives its callback (E7 Q15). Not in
   interface 7 unless a port needs it.
 - [Q] The four persistent handles per plugin (ADR 0034 profile) are shared with fonts. Battery needs 1-2
-  fonts plus one blob, which fits. A census across all ports stays open (E7 Q16).
+  fonts plus one blob, which fits. A census across all ports stays open (E7 Q16). *(Superseded: handle caps are per family, fonts 8; `screens-input.md` sections 4 and 7.)*
