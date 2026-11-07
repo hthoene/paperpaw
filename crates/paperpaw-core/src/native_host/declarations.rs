@@ -139,7 +139,7 @@ fn is_name_byte(byte: u8) -> bool {
 }
 
 /// Dot-separated segments of `[a-z0-9-]`, none empty, at most 128 bytes.
-fn full_id(id: &str) -> Check {
+pub(crate) fn full_id(id: &str) -> Check {
     ensure(
         id.len() <= FULL_ID_MAX_BYTES
             && id
