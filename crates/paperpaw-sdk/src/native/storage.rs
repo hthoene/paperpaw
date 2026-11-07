@@ -31,7 +31,7 @@ pub const MAX_PATH: usize = 512;
 /// Maximum path segment length, in UTF-8 bytes.
 pub const MAX_SEGMENT: usize = 255;
 /// The suffix of the file a long [`DataStorage`] write is staged in. It is
-/// reserved across the mutating calls of this module: [`write`], [`append`],
+/// reserved across the mutating calls of this module: [`fn@write`], [`append`],
 /// [`rename`] and [`remove`] refuse (`Invalid`) any name ending in it, in any
 /// case (FAT ignores case), so a file with it is only ever a leftover of a
 /// staged write, and only the staging itself touches such files. Reading them
@@ -214,7 +214,7 @@ pub fn sync(host: &Host<'_>) -> Result<(), Error> {
     status(unsafe { (host.table.storage_sync)(host.ctx) })
 }
 
-/// The plugin's data folder (root 0) as a [`Storage`](crate::Storage), for the
+/// The plugin's data folder (root 0) as a [`Storage`], for the
 /// code that takes one (a database over a file, a record store). Bigger reads
 /// and appends are split into calls of at most [`MAX_DATA`] bytes. A write of
 /// at most [`MAX_DATA`] is one call; a longer one is staged: `remove(name.pp-staged)`,

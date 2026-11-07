@@ -1381,6 +1381,7 @@ const paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets::TAG: u
 const paperpaw_sdk::native::storage::MAX_DATA: usize = 4_096usize
 const paperpaw_sdk::native::storage::MAX_PATH: usize = 512usize
 const paperpaw_sdk::native::storage::MAX_SEGMENT: usize = 255usize
+const paperpaw_sdk::native::storage::STAGED_SUFFIX: &str = ".pp-staged"
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_ANSWER_PLUGIN_TAG: u32 = 1_545u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_APPLY_PRESET_PRESET_MAX_BYTES: usize = 128usize
@@ -2718,6 +2719,7 @@ struct paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets { inst
 struct paperpaw_sdk::native::stages::Stage<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, id: &'cb str }
 struct paperpaw_sdk::native::stages::StageReply<'o> { reply: paperpaw_sdk::native::declare::records_wire::StageReply<'o> }
 struct paperpaw_sdk::native::stages::StageRun<'r> { host: &'r paperpaw_sdk::native::binding::Host<'r>, id: &'r str, input: &'r [u8], out: &'r mut [u8], cursor: u32, finished: bool }
+struct paperpaw_sdk::native::storage::DataStorage<'h, 'cb> { host: &'h paperpaw_sdk::native::binding::Host<'cb> }
 struct paperpaw_sdk::native::ui::Ui { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::ui::navigation::Notify<'a> { text: &'a str, flags: u32 }
 struct paperpaw_sdk::native::ui::navigation::Open<'a> { target: &'a str, slot: &'a str, mode: u32, handover: core::option::Option<paperpaw_sdk::native::ui::types::HandoverId> }
