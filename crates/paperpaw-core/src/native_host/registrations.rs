@@ -71,6 +71,16 @@ pub use wire::{
     STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
     StageCall, StageReply, StageSpec,
 };
+// Core events of family 1b (64-74, `docs/abi/core-events.md`); hosts admit
+// their registrations once a producer is wired.
+pub use wire::{
+    EVENT_BOOK_CLOSED_TAG, EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_MOVED_TAG, EVENT_BOOK_OPENED_TAG,
+    EVENT_BOOK_REMOVED_TAG, EVENT_CHARGE_CHANGED_TAG, EVENT_PLUGINS_CHANGED_TAG,
+    EVENT_POWER_CHANGED_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_STATUS_CHANGED_TAG,
+    EVENT_WIFI_CHANGED_TAG, EventBookClosed, EventBookFinished, EventBookMoved, EventBookOpened,
+    EventBookRemoved, EventChargeChanged, EventPluginsChanged, EventPowerChanged,
+    EventSettingChanged, EventStatusChanged, EventWifiChanged,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 // The host's decoders (lock format 10, #985): only records a plugin sends. The
