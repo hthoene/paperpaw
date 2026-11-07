@@ -58,6 +58,15 @@ registration, linked entry, construction in the kernel's registered scope (refus
 - A switch that is off: `reg_menu_row.flags` carry "checked" only, so a switch off looks like a
   plain action (shown with no value). Needs a flag for "is a switch" (REG).
 - Icons in rows, row sliders, switches as On/Off text: the kit draws none yet.
+- New limit: submenus stop at a depth of 8 menus (`MAX_DEPTH`); interface 6 had no cap, so a
+  loop of submenus ended only at the stack. Choosing a submenu at the cap does nothing.
+- `draw_sheet` (kit) and `send_open` / `Reader::open` (plugin) have no allocation-refusal sweep:
+  they call the host (fonts, snapshot, `core.ui`, registry), which the unit tests do not have. The
+  model, the sheet geometry and the copies are swept; the host paths wait for the production
+  loader (H1/H4).
+- Open gate: peak heap on the X4 is not measured. Per open the menu holds two `SERVICE_BUFFER`s
+  for the hand-over, a registry reader (512 + 4,096 bytes) and the rows of the menu; to be
+  measured at activation.
 - Peak memory on the X4 is not measured: device gate open. The menu is built into the firmware,
   so there is no store-file size to record.
 
