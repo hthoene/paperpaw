@@ -19,9 +19,10 @@ change the plugin SDK.
 
 ### Added
 
-- Native SDK storage roots `DocumentCache`, `Book` and `UserCss` expose the
-  callback-scoped format namespaces 2-4. Empty paths identify the book/CSS
-  files; the host enforces permissions, lifetime and cache limits (#228).
+- Native SDK storage roots `Install` (root 2, the plugin's own install folder, read only)
+  and the callback-scoped format roots `Book` (3), `UserCss` (4) and `DocumentCache` (6).
+  Empty paths identify the book/CSS files; the host enforces permissions, lifetime and
+  cache limits (#228).
 
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with

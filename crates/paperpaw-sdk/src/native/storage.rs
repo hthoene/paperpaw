@@ -1,7 +1,8 @@
 //! Path-based storage with caller-owned buffers. Root 0 is the plugin's data
 //! folder. Root 1 reads the user's files only with signed `uses.storage` metadata;
-//! the host enforces permissions. Roots 2-4 are document-scoped and valid only
-//! during the relevant format callback. Root selection is passed through unchanged.
+//! the host enforces permissions. Root 2 is the plugin's own install folder, read
+//! only. Roots 3, 4 and 6 are document-scoped and valid only during the relevant
+//! format callback. Root selection is passed through unchanged.
 //! FAT paths ignore case. An append is durable only after [`sync`]; a failed
 //! append may leave a partial tail, which the plugin's record format must handle.
 use super::{Error, Host, binding::status};
@@ -16,7 +17,11 @@ pub enum Root {
     Data,
     /// User files on the card (wire root 1).
     Files,
-    /// The current format document's conversion cache (wire root 2).
+    /// This plugin's own install folder (wire root 2), read only: data files
+    /// shipped next to its code. Empty where the plugin is linked into the
+    /// firmware.
+    Install,
+    /// The current format document's conversion cache (wire root 6).
     /// Valid only during its format callback; the host reserves `.complete`
     /// and `.host/` and enforces the cache quota.
     DocumentCache,
@@ -25,7 +30,8 @@ pub enum Root {
     /// read relative paths below this root during their format callback.
     Book,
     /// The current format document's user CSS file (wire root 4), read only.
-    /// An empty path names the file; available only during open/prepare.
+    /// An empty path names the file; available only during `core.format`
+    /// ops 2 (open) and 3 (prepare).
     UserCss,
 }
 impl Root {
@@ -33,9 +39,10 @@ impl Root {
         match self {
             Self::Data => 0,
             Self::Files => 1,
-            Self::DocumentCache => 2,
+            Self::Install => 2,
             Self::Book => 3,
             Self::UserCss => 4,
+            Self::DocumentCache => 6,
         }
     }
 }
