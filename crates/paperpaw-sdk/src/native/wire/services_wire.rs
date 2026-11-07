@@ -74,6 +74,239 @@ pub fn service_schema(key: &str, major: u16) -> Option<&'static ServiceSchema> {
 /// Every call service schema, sorted by key and major.
 pub static SERVICES: &[ServiceSchema] = &[
     ServiceSchema {
+        key: "core.device",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "device",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1125],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 2,
+                name: "values",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1126, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 8,
+            },
+            ServiceOp {
+                id: 3,
+                name: "firmware",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1127],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "builtin",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1128, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 5,
+                name: "native",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1129],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "check",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1138],
+                reply: &[1130],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 7,
+                name: "memory",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1131],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 8,
+                name: "wifi",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1132],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 9,
+                name: "networks",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1133, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 10,
+                name: "bluetooth",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1134],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 11,
+                name: "bonded",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1135, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 12,
+                name: "power",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1136],
+                reply: &[1137],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 13,
+                name: "install",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1138],
+                reply: &[1139],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 14,
+                name: "not_installed",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1140, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 15,
+                name: "keys",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[],
+                reply: &[1141, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.document",
         major: 1,
         revision: 0,
@@ -1457,6 +1690,48 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
 ];
+
+/// Constants of `core.device` major 1.
+pub mod core_device_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.device";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
+    /// Operation `device`.
+    pub const OP_DEVICE: u32 = 1;
+    /// Operation `values`.
+    pub const OP_VALUES: u32 = 2;
+    /// Operation `firmware`.
+    pub const OP_FIRMWARE: u32 = 3;
+    /// Operation `builtin`.
+    pub const OP_BUILTIN: u32 = 4;
+    /// Operation `native`.
+    pub const OP_NATIVE: u32 = 5;
+    /// Operation `check`.
+    pub const OP_CHECK: u32 = 6;
+    /// Operation `memory`.
+    pub const OP_MEMORY: u32 = 7;
+    /// Operation `wifi`.
+    pub const OP_WIFI: u32 = 8;
+    /// Operation `networks`.
+    pub const OP_NETWORKS: u32 = 9;
+    /// Operation `bluetooth`.
+    pub const OP_BLUETOOTH: u32 = 10;
+    /// Operation `bonded`.
+    pub const OP_BONDED: u32 = 11;
+    /// Operation `power`.
+    pub const OP_POWER: u32 = 12;
+    /// Operation `install`.
+    pub const OP_INSTALL: u32 = 13;
+    /// Operation `not_installed`.
+    pub const OP_NOT_INSTALLED: u32 = 14;
+    /// Operation `keys`.
+    pub const OP_KEYS: u32 = 15;
+}
 
 /// Constants of `core.document` major 1.
 pub mod core_document_v1 {

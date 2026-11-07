@@ -9593,6 +9593,1190 @@ impl ServiceLibReceipt {
         write_bytes(&self.action.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `service.dev_device` record.
+pub const SERVICE_DEV_DEVICE_TAG: u32 = 1125;
+/// Maximum bytes of `service.dev_device.id`.
+pub const SERVICE_DEV_DEVICE_ID_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_device.model`.
+pub const SERVICE_DEV_DEVICE_MODEL_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_device.catalog`.
+pub const SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES: usize = 32;
+
+/// The `service.dev_device` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevDevice<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub id: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub model: &'a str,
+    /// UTF-8 text of at most 32 bytes.
+    pub catalog: &'a str,
+    /// Little-endian u32.
+    pub class: u32,
+    /// Little-endian u64.
+    pub caps: u64,
+    /// Little-endian u32.
+    pub controls: u32,
+    /// Little-endian u32.
+    pub tls_sessions: u32,
+    /// Little-endian u32.
+    pub start: u32,
+    /// Little-endian u64.
+    pub slept_ms: u64,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceDevDevice<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevDevice(Self {
+            id: body.string(SERVICE_DEV_DEVICE_ID_MAX_BYTES)?,
+            model: body.string(SERVICE_DEV_DEVICE_MODEL_MAX_BYTES)?,
+            catalog: body.string(SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES)?,
+            class: u32::from_le_bytes(body.scalar()?),
+            caps: u64::from_le_bytes(body.scalar()?),
+            controls: u32::from_le_bytes(body.scalar()?),
+            tls_sessions: u32::from_le_bytes(body.scalar()?),
+            start: u32::from_le_bytes(body.scalar()?),
+            slept_ms: u64::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.id.len(), SERVICE_DEV_DEVICE_ID_MAX_BYTES)?;
+        len += blob_len(self.model.len(), SERVICE_DEV_DEVICE_MODEL_MAX_BYTES)?;
+        len += blob_len(self.catalog.len(), SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES)?;
+        len += 4;
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.id.as_bytes(), out, offset);
+        write_blob(self.model.as_bytes(), out, offset);
+        write_blob(self.catalog.as_bytes(), out, offset);
+        write_bytes(&self.class.to_le_bytes(), out, offset);
+        write_bytes(&self.caps.to_le_bytes(), out, offset);
+        write_bytes(&self.controls.to_le_bytes(), out, offset);
+        write_bytes(&self.tls_sessions.to_le_bytes(), out, offset);
+        write_bytes(&self.start.to_le_bytes(), out, offset);
+        write_bytes(&self.slept_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_value` record.
+pub const SERVICE_DEV_VALUE_TAG: u32 = 1126;
+/// Maximum bytes of `service.dev_value.name`.
+pub const SERVICE_DEV_VALUE_NAME_MAX_BYTES: usize = 32;
+
+/// The `service.dev_value` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevValue<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub name: &'a str,
+    /// Little-endian i32.
+    pub value: i32,
+}
+
+impl<'a> ServiceDevValue<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevValue(Self {
+            name: body.string(SERVICE_DEV_VALUE_NAME_MAX_BYTES)?,
+            value: i32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SERVICE_DEV_VALUE_NAME_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.value.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_firmware` record.
+pub const SERVICE_DEV_FIRMWARE_TAG: u32 = 1127;
+/// Maximum bytes of `service.dev_firmware.version`.
+pub const SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_firmware.project`.
+pub const SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES: usize = 32;
+
+/// The `service.dev_firmware` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevFirmware<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub version: &'a str,
+    /// UTF-8 text of at most 32 bytes.
+    pub project: &'a str,
+    /// Little-endian u32.
+    pub chip: u32,
+    /// Little-endian u64.
+    pub room: u64,
+    /// Little-endian u32.
+    pub undone: u32,
+    /// Little-endian u32.
+    pub state: u32,
+    /// Little-endian u64.
+    pub done: u64,
+    /// Little-endian u64.
+    pub total: u64,
+    /// Little-endian u32.
+    pub reason: u32,
+    /// Little-endian u32.
+    pub request: u32,
+}
+
+impl<'a> ServiceDevFirmware<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevFirmware(Self {
+            version: body.string(SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?,
+            project: body.string(SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?,
+            chip: u32::from_le_bytes(body.scalar()?),
+            room: u64::from_le_bytes(body.scalar()?),
+            undone: u32::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+            done: u64::from_le_bytes(body.scalar()?),
+            total: u64::from_le_bytes(body.scalar()?),
+            reason: u32::from_le_bytes(body.scalar()?),
+            request: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.version.len(), SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?;
+        len += blob_len(self.project.len(), SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?;
+        len += 4;
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 8;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.version.as_bytes(), out, offset);
+        write_blob(self.project.as_bytes(), out, offset);
+        write_bytes(&self.chip.to_le_bytes(), out, offset);
+        write_bytes(&self.room.to_le_bytes(), out, offset);
+        write_bytes(&self.undone.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+        write_bytes(&self.done.to_le_bytes(), out, offset);
+        write_bytes(&self.total.to_le_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_builtin` record.
+pub const SERVICE_DEV_BUILTIN_TAG: u32 = 1128;
+/// Maximum bytes of `service.dev_builtin.id`.
+pub const SERVICE_DEV_BUILTIN_ID_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_builtin.version`.
+pub const SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES: usize = 32;
+
+/// The `service.dev_builtin` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevBuiltin<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub id: &'a str,
+    /// UTF-8 text of at most 32 bytes.
+    pub version: &'a str,
+}
+
+impl<'a> ServiceDevBuiltin<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevBuiltin(Self {
+            id: body.string(SERVICE_DEV_BUILTIN_ID_MAX_BYTES)?,
+            version: body.string(SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.id.len(), SERVICE_DEV_BUILTIN_ID_MAX_BYTES)?;
+        len += blob_len(self.version.len(), SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.id.as_bytes(), out, offset);
+        write_blob(self.version.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_native` record.
+pub const SERVICE_DEV_NATIVE_TAG: u32 = 1129;
+/// Maximum bytes of `service.dev_native.code_file`.
+pub const SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES: usize = 32;
+/// Maximum bytes of `service.dev_native.crashed`.
+pub const SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_native.last_loaded`.
+pub const SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES: usize = 64;
+
+/// The `service.dev_native` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevNative<'a> {
+    /// Little-endian u32.
+    pub abi_major: u32,
+    /// Little-endian u32.
+    pub abi_draft: u32,
+    /// Little-endian u32.
+    pub target: u32,
+    /// UTF-8 text of at most 32 bytes.
+    pub code_file: &'a str,
+    /// Little-endian u32.
+    pub safe_mode: u32,
+    /// UTF-8 text of at most 64 bytes.
+    pub crashed: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub last_loaded: &'a str,
+    /// Little-endian u32.
+    pub pending: u32,
+    /// Little-endian u32.
+    pub not_installed: u32,
+    /// Little-endian u64.
+    pub room_free: u64,
+    /// Little-endian u64.
+    pub room_largest: u64,
+}
+
+impl<'a> ServiceDevNative<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevNative(Self {
+            abi_major: u32::from_le_bytes(body.scalar()?),
+            abi_draft: u32::from_le_bytes(body.scalar()?),
+            target: u32::from_le_bytes(body.scalar()?),
+            code_file: body.string(SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES)?,
+            safe_mode: u32::from_le_bytes(body.scalar()?),
+            crashed: body.string(SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES)?,
+            last_loaded: body.string(SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES)?,
+            pending: u32::from_le_bytes(body.scalar()?),
+            not_installed: u32::from_le_bytes(body.scalar()?),
+            room_free: u64::from_le_bytes(body.scalar()?),
+            room_largest: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.code_file.len(), SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.crashed.len(), SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES)?;
+        len += blob_len(
+            self.last_loaded.len(),
+            SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES,
+        )?;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.abi_major.to_le_bytes(), out, offset);
+        write_bytes(&self.abi_draft.to_le_bytes(), out, offset);
+        write_bytes(&self.target.to_le_bytes(), out, offset);
+        write_blob(self.code_file.as_bytes(), out, offset);
+        write_bytes(&self.safe_mode.to_le_bytes(), out, offset);
+        write_blob(self.crashed.as_bytes(), out, offset);
+        write_blob(self.last_loaded.as_bytes(), out, offset);
+        write_bytes(&self.pending.to_le_bytes(), out, offset);
+        write_bytes(&self.not_installed.to_le_bytes(), out, offset);
+        write_bytes(&self.room_free.to_le_bytes(), out, offset);
+        write_bytes(&self.room_largest.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_check` record.
+pub const SERVICE_DEV_CHECK_TAG: u32 = 1130;
+/// Maximum bytes of `service.dev_check.signer`.
+pub const SERVICE_DEV_CHECK_SIGNER_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_check.key`.
+pub const SERVICE_DEV_CHECK_KEY_MAX_BYTES: usize = 32;
+/// Maximum bytes of `service.dev_check.id`.
+pub const SERVICE_DEV_CHECK_ID_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_check.version`.
+pub const SERVICE_DEV_CHECK_VERSION_MAX_BYTES: usize = 64;
+
+/// The `service.dev_check` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevCheck<'a> {
+    /// Little-endian u32.
+    pub reason: u32,
+    /// Little-endian u32.
+    pub needs_draft: u32,
+    /// Little-endian u64.
+    pub bytes: u64,
+    /// UTF-8 text of at most 64 bytes.
+    pub signer: &'a str,
+    /// Opaque bytes, at most 32.
+    pub key: &'a [u8],
+    /// UTF-8 text of at most 64 bytes.
+    pub id: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub version: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceDevCheck<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevCheck(Self {
+            reason: u32::from_le_bytes(body.scalar()?),
+            needs_draft: u32::from_le_bytes(body.scalar()?),
+            bytes: u64::from_le_bytes(body.scalar()?),
+            signer: body.string(SERVICE_DEV_CHECK_SIGNER_MAX_BYTES)?,
+            key: body.blob(SERVICE_DEV_CHECK_KEY_MAX_BYTES)?,
+            id: body.string(SERVICE_DEV_CHECK_ID_MAX_BYTES)?,
+            version: body.string(SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 8;
+        len += blob_len(self.signer.len(), SERVICE_DEV_CHECK_SIGNER_MAX_BYTES)?;
+        len += blob_len(self.key.len(), SERVICE_DEV_CHECK_KEY_MAX_BYTES)?;
+        len += blob_len(self.id.len(), SERVICE_DEV_CHECK_ID_MAX_BYTES)?;
+        len += blob_len(self.version.len(), SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        write_bytes(&self.needs_draft.to_le_bytes(), out, offset);
+        write_bytes(&self.bytes.to_le_bytes(), out, offset);
+        write_blob(self.signer.as_bytes(), out, offset);
+        write_blob(self.key, out, offset);
+        write_blob(self.id.as_bytes(), out, offset);
+        write_blob(self.version.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_memory` record.
+pub const SERVICE_DEV_MEMORY_TAG: u32 = 1131;
+
+/// The `service.dev_memory` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevMemory {
+    /// Little-endian u32.
+    pub heap_free: u32,
+    /// Little-endian u32.
+    pub heap_size: u32,
+    /// Little-endian u32.
+    pub largest: u32,
+    /// Little-endian u32.
+    pub stack_free: u32,
+    /// Little-endian u32.
+    pub stack_size: u32,
+    /// Little-endian u32.
+    pub external_free: u32,
+    /// Little-endian u32.
+    pub external_size: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl ServiceDevMemory {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevMemory(Self {
+            heap_free: u32::from_le_bytes(body.scalar()?),
+            heap_size: u32::from_le_bytes(body.scalar()?),
+            largest: u32::from_le_bytes(body.scalar()?),
+            stack_free: u32::from_le_bytes(body.scalar()?),
+            stack_size: u32::from_le_bytes(body.scalar()?),
+            external_free: u32::from_le_bytes(body.scalar()?),
+            external_size: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.heap_free.to_le_bytes(), out, offset);
+        write_bytes(&self.heap_size.to_le_bytes(), out, offset);
+        write_bytes(&self.largest.to_le_bytes(), out, offset);
+        write_bytes(&self.stack_free.to_le_bytes(), out, offset);
+        write_bytes(&self.stack_size.to_le_bytes(), out, offset);
+        write_bytes(&self.external_free.to_le_bytes(), out, offset);
+        write_bytes(&self.external_size.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_wifi` record.
+pub const SERVICE_DEV_WIFI_TAG: u32 = 1132;
+/// Maximum bytes of `service.dev_wifi.ssid`.
+pub const SERVICE_DEV_WIFI_SSID_MAX_BYTES: usize = 32;
+/// Maximum bytes of `service.dev_wifi.address`.
+pub const SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES: usize = 45;
+/// Maximum bytes of `service.dev_wifi.host_name`.
+pub const SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES: usize = 63;
+
+/// The `service.dev_wifi` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevWifi<'a> {
+    /// Little-endian u32.
+    pub state: u32,
+    /// UTF-8 text of at most 32 bytes.
+    pub ssid: &'a str,
+    /// UTF-8 text of at most 45 bytes.
+    pub address: &'a str,
+    /// UTF-8 text of at most 63 bytes.
+    pub host_name: &'a str,
+    /// Little-endian u32.
+    pub guests: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceDevWifi<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevWifi(Self {
+            state: u32::from_le_bytes(body.scalar()?),
+            ssid: body.string(SERVICE_DEV_WIFI_SSID_MAX_BYTES)?,
+            address: body.string(SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES)?,
+            host_name: body.string(SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES)?,
+            guests: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.ssid.len(), SERVICE_DEV_WIFI_SSID_MAX_BYTES)?;
+        len += blob_len(self.address.len(), SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES)?;
+        len += blob_len(self.host_name.len(), SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+        write_blob(self.ssid.as_bytes(), out, offset);
+        write_blob(self.address.as_bytes(), out, offset);
+        write_blob(self.host_name.as_bytes(), out, offset);
+        write_bytes(&self.guests.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_network` record.
+pub const SERVICE_DEV_NETWORK_TAG: u32 = 1133;
+/// Maximum bytes of `service.dev_network.ssid`.
+pub const SERVICE_DEV_NETWORK_SSID_MAX_BYTES: usize = 32;
+
+/// The `service.dev_network` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevNetwork<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub ssid: &'a str,
+    /// Little-endian i32.
+    pub signal: i32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceDevNetwork<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevNetwork(Self {
+            ssid: body.string(SERVICE_DEV_NETWORK_SSID_MAX_BYTES)?,
+            signal: i32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.ssid.len(), SERVICE_DEV_NETWORK_SSID_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.ssid.as_bytes(), out, offset);
+        write_bytes(&self.signal.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_bluetooth` record.
+pub const SERVICE_DEV_BLUETOOTH_TAG: u32 = 1134;
+
+/// The `service.dev_bluetooth` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevBluetooth {
+    /// Little-endian u32.
+    pub radio: u32,
+    /// Little-endian u32.
+    pub max_links: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl ServiceDevBluetooth {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevBluetooth(Self {
+            radio: u32::from_le_bytes(body.scalar()?),
+            max_links: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.radio.to_le_bytes(), out, offset);
+        write_bytes(&self.max_links.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_bonded` record.
+pub const SERVICE_DEV_BONDED_TAG: u32 = 1135;
+/// Maximum bytes of `service.dev_bonded.name`.
+pub const SERVICE_DEV_BONDED_NAME_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_bonded.given`.
+pub const SERVICE_DEV_BONDED_GIVEN_MAX_BYTES: usize = 64;
+
+/// The `service.dev_bonded` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevBonded<'a> {
+    /// Little-endian u32.
+    pub device: u32,
+    /// UTF-8 text of at most 64 bytes.
+    pub name: &'a str,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 64 bytes.
+    pub given: &'a str,
+}
+
+impl<'a> ServiceDevBonded<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevBonded(Self {
+            device: u32::from_le_bytes(body.scalar()?),
+            name: body.string(SERVICE_DEV_BONDED_NAME_MAX_BYTES)?,
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            given: body.string(SERVICE_DEV_BONDED_GIVEN_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.name.len(), SERVICE_DEV_BONDED_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.given.len(), SERVICE_DEV_BONDED_GIVEN_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.device.to_le_bytes(), out, offset);
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.given.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_interval` record.
+pub const SERVICE_DEV_INTERVAL_TAG: u32 = 1136;
+
+/// The `service.dev_interval` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevInterval {
+    /// Little-endian u32.
+    pub base_ms: u32,
+}
+
+impl ServiceDevInterval {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevInterval(Self {
+            base_ms: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.base_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_power` record.
+pub const SERVICE_DEV_POWER_TAG: u32 = 1137;
+/// Maximum bytes of `service.dev_power.mode`.
+pub const SERVICE_DEV_POWER_MODE_MAX_BYTES: usize = 128;
+
+/// The `service.dev_power` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevPower<'a> {
+    /// Little-endian u32.
+    pub level: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub mode: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub stretch: u32,
+    /// Little-endian u32.
+    pub every_ms: u32,
+}
+
+impl<'a> ServiceDevPower<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevPower(Self {
+            level: u32::from_le_bytes(body.scalar()?),
+            mode: body.string(SERVICE_DEV_POWER_MODE_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+            stretch: u32::from_le_bytes(body.scalar()?),
+            every_ms: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.mode.len(), SERVICE_DEV_POWER_MODE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.level.to_le_bytes(), out, offset);
+        write_blob(self.mode.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.stretch.to_le_bytes(), out, offset);
+        write_bytes(&self.every_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_request` record.
+pub const SERVICE_DEV_REQUEST_TAG: u32 = 1138;
+
+/// The `service.dev_request` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevRequest {
+    /// Little-endian u32.
+    pub request: u32,
+}
+
+impl ServiceDevRequest {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevRequest(Self {
+            request: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_install` record.
+pub const SERVICE_DEV_INSTALL_TAG: u32 = 1139;
+/// Maximum bytes of `service.dev_install.id`.
+pub const SERVICE_DEV_INSTALL_ID_MAX_BYTES: usize = 64;
+
+/// The `service.dev_install` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevInstall<'a> {
+    /// Little-endian u32.
+    pub request: u32,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub state: u32,
+    /// Little-endian i32.
+    pub status: i32,
+    /// Little-endian u32.
+    pub reason: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u64.
+    pub done: u64,
+    /// Little-endian u64.
+    pub total: u64,
+    /// UTF-8 text of at most 64 bytes.
+    pub id: &'a str,
+}
+
+impl<'a> ServiceDevInstall<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevInstall(Self {
+            request: u32::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+            status: i32::from_le_bytes(body.scalar()?),
+            reason: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            done: u64::from_le_bytes(body.scalar()?),
+            total: u64::from_le_bytes(body.scalar()?),
+            id: body.string(SERVICE_DEV_INSTALL_ID_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 8;
+        len += blob_len(self.id.len(), SERVICE_DEV_INSTALL_ID_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+        write_bytes(&self.status.to_le_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.done.to_le_bytes(), out, offset);
+        write_bytes(&self.total.to_le_bytes(), out, offset);
+        write_blob(self.id.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_not_installed` record.
+pub const SERVICE_DEV_NOT_INSTALLED_TAG: u32 = 1140;
+/// Maximum bytes of `service.dev_not_installed.plugin`.
+pub const SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES: usize = 64;
+
+/// The `service.dev_not_installed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevNotInstalled<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub plugin: &'a str,
+    /// Little-endian u32.
+    pub reason: u32,
+}
+
+impl<'a> ServiceDevNotInstalled<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevNotInstalled(Self {
+            plugin: body.string(SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES)?,
+            reason: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(
+            self.plugin.len(),
+            SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES,
+        )?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.plugin.as_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.dev_key` record.
+pub const SERVICE_DEV_KEY_TAG: u32 = 1141;
+/// Maximum bytes of `service.dev_key.name`.
+pub const SERVICE_DEV_KEY_NAME_MAX_BYTES: usize = 32;
+
+/// The `service.dev_key` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDevKey<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub name: &'a str,
+}
+
+impl<'a> ServiceDevKey<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceDevKey(Self {
+            name: body.string(SERVICE_DEV_KEY_NAME_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SERVICE_DEV_KEY_NAME_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.wifi_scanned` record.
+pub const EVENT_WIFI_SCANNED_TAG: u32 = 92;
+
+/// The `event.wifi_scanned` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWifiScanned {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub networks: u32,
+}
+
+impl EventWifiScanned {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWifiScanned(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            networks: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.networks.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.wifi_done` record.
+pub const EVENT_WIFI_DONE_TAG: u32 = 93;
+/// Maximum bytes of `event.wifi_done.ssid`.
+pub const EVENT_WIFI_DONE_SSID_MAX_BYTES: usize = 32;
+
+/// The `event.wifi_done` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWifiDone<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub request: u32,
+    /// UTF-8 text of at most 32 bytes.
+    pub ssid: &'a str,
+    /// Little-endian i32.
+    pub status: i32,
+    /// Little-endian u32.
+    pub reason: u32,
+    /// Little-endian u32.
+    pub state: u32,
+}
+
+impl<'a> EventWifiDone<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWifiDone(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            request: u32::from_le_bytes(body.scalar()?),
+            ssid: body.string(EVENT_WIFI_DONE_SSID_MAX_BYTES)?,
+            status: i32::from_le_bytes(body.scalar()?),
+            reason: u32::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += blob_len(self.ssid.len(), EVENT_WIFI_DONE_SSID_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_blob(self.ssid.as_bytes(), out, offset);
+        write_bytes(&self.status.to_le_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.network_wanted` record.
+pub const EVENT_NETWORK_WANTED_TAG: u32 = 94;
+
+/// The `event.network_wanted` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventNetworkWanted {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventNetworkWanted {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventNetworkWanted(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.network_idle` record.
+pub const EVENT_NETWORK_IDLE_TAG: u32 = 95;
+
+/// The `event.network_idle` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventNetworkIdle {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventNetworkIdle {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventNetworkIdle(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.firmware_changed` record.
+pub const EVENT_FIRMWARE_CHANGED_TAG: u32 = 96;
+
+/// The `event.firmware_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventFirmwareChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub request: u32,
+    /// Little-endian u32.
+    pub state: u32,
+}
+
+impl EventFirmwareChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventFirmwareChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            request: u32::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.install_done` record.
+pub const EVENT_INSTALL_DONE_TAG: u32 = 97;
+/// Maximum bytes of `event.install_done.id`.
+pub const EVENT_INSTALL_DONE_ID_MAX_BYTES: usize = 64;
+
+/// The `event.install_done` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventInstallDone<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub request: u32,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian i32.
+    pub status: i32,
+    /// Little-endian u32.
+    pub reason: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 64 bytes.
+    pub id: &'a str,
+}
+
+impl<'a> EventInstallDone<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventInstallDone(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            request: u32::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+            status: i32::from_le_bytes(body.scalar()?),
+            reason: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            id: body.string(EVENT_INSTALL_DONE_ID_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.id.len(), EVENT_INSTALL_DONE_ID_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.status.to_le_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.id.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.bluetooth` record.
+pub const EVENT_BLUETOOTH_TAG: u32 = 98;
+/// Maximum bytes of `event.bluetooth.name`.
+pub const EVENT_BLUETOOTH_NAME_MAX_BYTES: usize = 64;
+
+/// The `event.bluetooth` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBluetooth<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub device: u32,
+    /// UTF-8 text of at most 64 bytes.
+    pub name: &'a str,
+    /// Little-endian u32.
+    pub device_kind: u32,
+    /// Little-endian i32.
+    pub signal: i32,
+    /// Little-endian u32.
+    pub reason: u32,
+}
+
+impl<'a> EventBluetooth<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventBluetooth(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+            device: u32::from_le_bytes(body.scalar()?),
+            name: body.string(EVENT_BLUETOOTH_NAME_MAX_BYTES)?,
+            device_kind: u32::from_le_bytes(body.scalar()?),
+            signal: i32::from_le_bytes(body.scalar()?),
+            reason: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += blob_len(self.name.len(), EVENT_BLUETOOTH_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.device.to_le_bytes(), out, offset);
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.device_kind.to_le_bytes(), out, offset);
+        write_bytes(&self.signal.to_le_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9976,6 +11160,54 @@ pub enum Record<'a> {
     ServiceLibReceiptAsk(ServiceLibReceiptAsk),
     /// A `ServiceLibReceipt` record.
     ServiceLibReceipt(ServiceLibReceipt),
+    /// A `ServiceDevDevice` record.
+    ServiceDevDevice(ServiceDevDevice<'a>),
+    /// A `ServiceDevValue` record.
+    ServiceDevValue(ServiceDevValue<'a>),
+    /// A `ServiceDevFirmware` record.
+    ServiceDevFirmware(ServiceDevFirmware<'a>),
+    /// A `ServiceDevBuiltin` record.
+    ServiceDevBuiltin(ServiceDevBuiltin<'a>),
+    /// A `ServiceDevNative` record.
+    ServiceDevNative(ServiceDevNative<'a>),
+    /// A `ServiceDevCheck` record.
+    ServiceDevCheck(ServiceDevCheck<'a>),
+    /// A `ServiceDevMemory` record.
+    ServiceDevMemory(ServiceDevMemory),
+    /// A `ServiceDevWifi` record.
+    ServiceDevWifi(ServiceDevWifi<'a>),
+    /// A `ServiceDevNetwork` record.
+    ServiceDevNetwork(ServiceDevNetwork<'a>),
+    /// A `ServiceDevBluetooth` record.
+    ServiceDevBluetooth(ServiceDevBluetooth),
+    /// A `ServiceDevBonded` record.
+    ServiceDevBonded(ServiceDevBonded<'a>),
+    /// A `ServiceDevInterval` record.
+    ServiceDevInterval(ServiceDevInterval),
+    /// A `ServiceDevPower` record.
+    ServiceDevPower(ServiceDevPower<'a>),
+    /// A `ServiceDevRequest` record.
+    ServiceDevRequest(ServiceDevRequest),
+    /// A `ServiceDevInstall` record.
+    ServiceDevInstall(ServiceDevInstall<'a>),
+    /// A `ServiceDevNotInstalled` record.
+    ServiceDevNotInstalled(ServiceDevNotInstalled<'a>),
+    /// A `ServiceDevKey` record.
+    ServiceDevKey(ServiceDevKey<'a>),
+    /// A `EventWifiScanned` record.
+    EventWifiScanned(EventWifiScanned),
+    /// A `EventWifiDone` record.
+    EventWifiDone(EventWifiDone<'a>),
+    /// A `EventNetworkWanted` record.
+    EventNetworkWanted(EventNetworkWanted),
+    /// A `EventNetworkIdle` record.
+    EventNetworkIdle(EventNetworkIdle),
+    /// A `EventFirmwareChanged` record.
+    EventFirmwareChanged(EventFirmwareChanged),
+    /// A `EventInstallDone` record.
+    EventInstallDone(EventInstallDone<'a>),
+    /// A `EventBluetooth` record.
+    EventBluetooth(EventBluetooth<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -10208,6 +11440,30 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_LIB_KEY_TAG => ServiceLibKey::decode(body)?,
         SERVICE_LIB_RECEIPT_ASK_TAG => ServiceLibReceiptAsk::decode(body)?,
         SERVICE_LIB_RECEIPT_TAG => ServiceLibReceipt::decode(body)?,
+        SERVICE_DEV_DEVICE_TAG => ServiceDevDevice::decode(body)?,
+        SERVICE_DEV_VALUE_TAG => ServiceDevValue::decode(body)?,
+        SERVICE_DEV_FIRMWARE_TAG => ServiceDevFirmware::decode(body)?,
+        SERVICE_DEV_BUILTIN_TAG => ServiceDevBuiltin::decode(body)?,
+        SERVICE_DEV_NATIVE_TAG => ServiceDevNative::decode(body)?,
+        SERVICE_DEV_CHECK_TAG => ServiceDevCheck::decode(body)?,
+        SERVICE_DEV_MEMORY_TAG => ServiceDevMemory::decode(body)?,
+        SERVICE_DEV_WIFI_TAG => ServiceDevWifi::decode(body)?,
+        SERVICE_DEV_NETWORK_TAG => ServiceDevNetwork::decode(body)?,
+        SERVICE_DEV_BLUETOOTH_TAG => ServiceDevBluetooth::decode(body)?,
+        SERVICE_DEV_BONDED_TAG => ServiceDevBonded::decode(body)?,
+        SERVICE_DEV_INTERVAL_TAG => ServiceDevInterval::decode(body)?,
+        SERVICE_DEV_POWER_TAG => ServiceDevPower::decode(body)?,
+        SERVICE_DEV_REQUEST_TAG => ServiceDevRequest::decode(body)?,
+        SERVICE_DEV_INSTALL_TAG => ServiceDevInstall::decode(body)?,
+        SERVICE_DEV_NOT_INSTALLED_TAG => ServiceDevNotInstalled::decode(body)?,
+        SERVICE_DEV_KEY_TAG => ServiceDevKey::decode(body)?,
+        EVENT_WIFI_SCANNED_TAG => EventWifiScanned::decode(body)?,
+        EVENT_WIFI_DONE_TAG => EventWifiDone::decode(body)?,
+        EVENT_NETWORK_WANTED_TAG => EventNetworkWanted::decode(body)?,
+        EVENT_NETWORK_IDLE_TAG => EventNetworkIdle::decode(body)?,
+        EVENT_FIRMWARE_CHANGED_TAG => EventFirmwareChanged::decode(body)?,
+        EVENT_INSTALL_DONE_TAG => EventInstallDone::decode(body)?,
+        EVENT_BLUETOOTH_TAG => EventBluetooth::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -10487,6 +11743,30 @@ impl Record<'_> {
             Record::ServiceLibKey(_) => SERVICE_LIB_KEY_TAG,
             Record::ServiceLibReceiptAsk(_) => SERVICE_LIB_RECEIPT_ASK_TAG,
             Record::ServiceLibReceipt(_) => SERVICE_LIB_RECEIPT_TAG,
+            Record::ServiceDevDevice(_) => SERVICE_DEV_DEVICE_TAG,
+            Record::ServiceDevValue(_) => SERVICE_DEV_VALUE_TAG,
+            Record::ServiceDevFirmware(_) => SERVICE_DEV_FIRMWARE_TAG,
+            Record::ServiceDevBuiltin(_) => SERVICE_DEV_BUILTIN_TAG,
+            Record::ServiceDevNative(_) => SERVICE_DEV_NATIVE_TAG,
+            Record::ServiceDevCheck(_) => SERVICE_DEV_CHECK_TAG,
+            Record::ServiceDevMemory(_) => SERVICE_DEV_MEMORY_TAG,
+            Record::ServiceDevWifi(_) => SERVICE_DEV_WIFI_TAG,
+            Record::ServiceDevNetwork(_) => SERVICE_DEV_NETWORK_TAG,
+            Record::ServiceDevBluetooth(_) => SERVICE_DEV_BLUETOOTH_TAG,
+            Record::ServiceDevBonded(_) => SERVICE_DEV_BONDED_TAG,
+            Record::ServiceDevInterval(_) => SERVICE_DEV_INTERVAL_TAG,
+            Record::ServiceDevPower(_) => SERVICE_DEV_POWER_TAG,
+            Record::ServiceDevRequest(_) => SERVICE_DEV_REQUEST_TAG,
+            Record::ServiceDevInstall(_) => SERVICE_DEV_INSTALL_TAG,
+            Record::ServiceDevNotInstalled(_) => SERVICE_DEV_NOT_INSTALLED_TAG,
+            Record::ServiceDevKey(_) => SERVICE_DEV_KEY_TAG,
+            Record::EventWifiScanned(_) => EVENT_WIFI_SCANNED_TAG,
+            Record::EventWifiDone(_) => EVENT_WIFI_DONE_TAG,
+            Record::EventNetworkWanted(_) => EVENT_NETWORK_WANTED_TAG,
+            Record::EventNetworkIdle(_) => EVENT_NETWORK_IDLE_TAG,
+            Record::EventFirmwareChanged(_) => EVENT_FIRMWARE_CHANGED_TAG,
+            Record::EventInstallDone(_) => EVENT_INSTALL_DONE_TAG,
+            Record::EventBluetooth(_) => EVENT_BLUETOOTH_TAG,
         }
     }
 
@@ -10682,6 +11962,30 @@ impl Record<'_> {
             Record::ServiceLibKey(record) => record.body_len(),
             Record::ServiceLibReceiptAsk(record) => record.body_len(),
             Record::ServiceLibReceipt(record) => record.body_len(),
+            Record::ServiceDevDevice(record) => record.body_len(),
+            Record::ServiceDevValue(record) => record.body_len(),
+            Record::ServiceDevFirmware(record) => record.body_len(),
+            Record::ServiceDevBuiltin(record) => record.body_len(),
+            Record::ServiceDevNative(record) => record.body_len(),
+            Record::ServiceDevCheck(record) => record.body_len(),
+            Record::ServiceDevMemory(record) => record.body_len(),
+            Record::ServiceDevWifi(record) => record.body_len(),
+            Record::ServiceDevNetwork(record) => record.body_len(),
+            Record::ServiceDevBluetooth(record) => record.body_len(),
+            Record::ServiceDevBonded(record) => record.body_len(),
+            Record::ServiceDevInterval(record) => record.body_len(),
+            Record::ServiceDevPower(record) => record.body_len(),
+            Record::ServiceDevRequest(record) => record.body_len(),
+            Record::ServiceDevInstall(record) => record.body_len(),
+            Record::ServiceDevNotInstalled(record) => record.body_len(),
+            Record::ServiceDevKey(record) => record.body_len(),
+            Record::EventWifiScanned(record) => record.body_len(),
+            Record::EventWifiDone(record) => record.body_len(),
+            Record::EventNetworkWanted(record) => record.body_len(),
+            Record::EventNetworkIdle(record) => record.body_len(),
+            Record::EventFirmwareChanged(record) => record.body_len(),
+            Record::EventInstallDone(record) => record.body_len(),
+            Record::EventBluetooth(record) => record.body_len(),
         }
     }
 
@@ -10882,6 +12186,30 @@ impl Record<'_> {
             Record::ServiceLibKey(record) => record.write(out, offset),
             Record::ServiceLibReceiptAsk(record) => record.write(out, offset),
             Record::ServiceLibReceipt(record) => record.write(out, offset),
+            Record::ServiceDevDevice(record) => record.write(out, offset),
+            Record::ServiceDevValue(record) => record.write(out, offset),
+            Record::ServiceDevFirmware(record) => record.write(out, offset),
+            Record::ServiceDevBuiltin(record) => record.write(out, offset),
+            Record::ServiceDevNative(record) => record.write(out, offset),
+            Record::ServiceDevCheck(record) => record.write(out, offset),
+            Record::ServiceDevMemory(record) => record.write(out, offset),
+            Record::ServiceDevWifi(record) => record.write(out, offset),
+            Record::ServiceDevNetwork(record) => record.write(out, offset),
+            Record::ServiceDevBluetooth(record) => record.write(out, offset),
+            Record::ServiceDevBonded(record) => record.write(out, offset),
+            Record::ServiceDevInterval(record) => record.write(out, offset),
+            Record::ServiceDevPower(record) => record.write(out, offset),
+            Record::ServiceDevRequest(record) => record.write(out, offset),
+            Record::ServiceDevInstall(record) => record.write(out, offset),
+            Record::ServiceDevNotInstalled(record) => record.write(out, offset),
+            Record::ServiceDevKey(record) => record.write(out, offset),
+            Record::EventWifiScanned(record) => record.write(out, offset),
+            Record::EventWifiDone(record) => record.write(out, offset),
+            Record::EventNetworkWanted(record) => record.write(out, offset),
+            Record::EventNetworkIdle(record) => record.write(out, offset),
+            Record::EventFirmwareChanged(record) => record.write(out, offset),
+            Record::EventInstallDone(record) => record.write(out, offset),
+            Record::EventBluetooth(record) => record.write(out, offset),
         }
     }
 
@@ -11281,6 +12609,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         SERVICE_LIB_FIELD_SET_TAG => ServiceLibFieldSet::decode(body)?,
         SERVICE_LIB_PROVIDED_TAG => ServiceLibProvided::decode(body)?,
         SERVICE_LIB_RECEIPT_ASK_TAG => ServiceLibReceiptAsk::decode(body)?,
+        SERVICE_DEV_INTERVAL_TAG => ServiceDevInterval::decode(body)?,
+        SERVICE_DEV_REQUEST_TAG => ServiceDevRequest::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
@@ -11383,7 +12713,29 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_LIB_COMMITTED_TAG
         | SERVICE_LIB_FIELD_TAG
         | SERVICE_LIB_KEY_TAG
-        | SERVICE_LIB_RECEIPT_TAG => return Err(-2),
+        | SERVICE_LIB_RECEIPT_TAG
+        | SERVICE_DEV_DEVICE_TAG
+        | SERVICE_DEV_VALUE_TAG
+        | SERVICE_DEV_FIRMWARE_TAG
+        | SERVICE_DEV_BUILTIN_TAG
+        | SERVICE_DEV_NATIVE_TAG
+        | SERVICE_DEV_CHECK_TAG
+        | SERVICE_DEV_MEMORY_TAG
+        | SERVICE_DEV_WIFI_TAG
+        | SERVICE_DEV_NETWORK_TAG
+        | SERVICE_DEV_BLUETOOTH_TAG
+        | SERVICE_DEV_BONDED_TAG
+        | SERVICE_DEV_POWER_TAG
+        | SERVICE_DEV_INSTALL_TAG
+        | SERVICE_DEV_NOT_INSTALLED_TAG
+        | SERVICE_DEV_KEY_TAG
+        | EVENT_WIFI_SCANNED_TAG
+        | EVENT_WIFI_DONE_TAG
+        | EVENT_NETWORK_WANTED_TAG
+        | EVENT_NETWORK_IDLE_TAG
+        | EVENT_FIRMWARE_CHANGED_TAG
+        | EVENT_INSTALL_DONE_TAG
+        | EVENT_BLUETOOTH_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

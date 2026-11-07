@@ -156,7 +156,14 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventScreenReady(_)
         | Record::EventSpoken(_)
         | Record::EventImageReady(_)
-        | Record::EventLibraryChanged(_) => Err(ERR_INVALID),
+        | Record::EventLibraryChanged(_)
+        | Record::EventWifiScanned(_)
+        | Record::EventWifiDone(_)
+        | Record::EventNetworkWanted(_)
+        | Record::EventNetworkIdle(_)
+        | Record::EventFirmwareChanged(_)
+        | Record::EventInstallDone(_)
+        | Record::EventBluetooth(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
@@ -274,7 +281,24 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceLibProvided(_)
         | Record::ServiceLibKey(_)
         | Record::ServiceLibReceiptAsk(_)
-        | Record::ServiceLibReceipt(_) => Err(ERR_INVALID),
+        | Record::ServiceLibReceipt(_)
+        | Record::ServiceDevDevice(_)
+        | Record::ServiceDevValue(_)
+        | Record::ServiceDevFirmware(_)
+        | Record::ServiceDevBuiltin(_)
+        | Record::ServiceDevNative(_)
+        | Record::ServiceDevCheck(_)
+        | Record::ServiceDevMemory(_)
+        | Record::ServiceDevWifi(_)
+        | Record::ServiceDevNetwork(_)
+        | Record::ServiceDevBluetooth(_)
+        | Record::ServiceDevBonded(_)
+        | Record::ServiceDevInterval(_)
+        | Record::ServiceDevPower(_)
+        | Record::ServiceDevRequest(_)
+        | Record::ServiceDevInstall(_)
+        | Record::ServiceDevNotInstalled(_)
+        | Record::ServiceDevKey(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),
