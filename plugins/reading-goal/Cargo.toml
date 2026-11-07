@@ -25,6 +25,7 @@ embedded-pictures = []
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
