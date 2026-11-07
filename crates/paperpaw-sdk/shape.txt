@@ -495,7 +495,7 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 13u16
+const paperpaw_sdk::native::DRAFT: u16 = 14u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 10_767_245_838_627_109_407u64
