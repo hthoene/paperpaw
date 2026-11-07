@@ -1,9 +1,10 @@
 //! One hosted plugin, made and committed, as the kernel's [`FlatInstance`](crate::native_host::flat::FlatInstance):
 //! what the desktop and the X4 both need around [`Hosted`], once.
 //!
-//! The instance owns the pinned [`Hosted`] and the batch that borrows it
-//! (self-referential, so the borrow is extended with one documented
-//! `unsafe`). Release order, in `Drop`: the batch (its lease on the owner),
+//! The instance owns the pinned [`Hosted`] and the batch that leases it
+//! (self-referential: the lease is a raw pointer with a lifetime marker,
+//! made so by one documented `unsafe`, never a reference into the owner).
+//! Release order, in `Drop`: the batch (its lease on the owner),
 //! then admission is stopped and the owner finished, then the owner drops:
 //! the plugin's destructor, then the services, then the module. If `finish`
 //! sees a lease the owner is kept, never freed, and the shell is told.
@@ -137,15 +138,12 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
             .try_reserve_exact(id.len())
             .map_err(|_| Error::Allocation)?;
         owned_id.push_str(id);
-        // SAFETY: the batch borrows the owner, which lives on the heap inside
-        // `hosted` (a `Box` never moved out of nor dropped before the batch:
-        // `Drop` releases the batch first and field order does the rest).
-        // Nothing else holds the extended lifetime.
-        let batch = unsafe {
-            core::mem::transmute::<Batch<'_, S, M, Registration>, Batch<'static, S, M, Registration>>(
-                batch,
-            )
-        };
+        // SAFETY: `hosted` keeps the pinned owner on the heap for as long as
+        // this instance lives, and `Drop` (and every failure path before it)
+        // releases the batch before the owner can be freed. The batch keeps
+        // only a raw pointer and a lifetime marker, no reference into the
+        // owner (the same design as the retained holder in `Retained`).
+        let batch = unsafe { batch.into_retained() };
         Ok(Self {
             id: owned_id.into_boxed_str(),
             records,

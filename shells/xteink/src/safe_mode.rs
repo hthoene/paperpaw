@@ -172,16 +172,38 @@ pub fn crashed_in(id: &str) {
 /// another plugin's call is kept apart from it.
 #[cfg(feature = "ppn5")]
 pub fn calling(id: &str) {
-    let mut record = read();
-    record.inflight.enter(id);
-    write(record);
+    with_inflight(|inflight| inflight.enter(id));
 }
 
 /// The innermost call returned: the plugin around it, if any, is the running
 /// one again.
 #[cfg(feature = "ppn5")]
 pub fn returned() {
-    let mut record = read();
-    record.inflight.leave();
-    write(record);
+    with_inflight(Inflight::leave);
+}
+
+/// Changes the calls in place: this runs around every call into a plugin,
+/// including the nested ones, so it must not copy the whole record (about
+/// 300 B of stack each) the way `read`/`write` do.
+#[cfg(feature = "ppn5")]
+fn with_inflight(change: impl FnOnce(&mut Inflight)) {
+    // SAFETY: as in `read`: one core, written only by this module, at start,
+    // by the loader and in the panic handler, never at once. The reference
+    // lives only through `change`, which touches nothing else.
+    unsafe {
+        let record = core::ptr::addr_of_mut!(RECORD);
+        if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
+            // Power was cut: RTC memory holds noise.
+            reset();
+        }
+        change(&mut *core::ptr::addr_of_mut!((*record).inflight));
+    }
+}
+
+/// Writes the empty record (a constant, no copy on the caller's stack).
+#[cfg(feature = "ppn5")]
+#[inline(never)]
+fn reset() {
+    // SAFETY: as in `read`.
+    unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
 }

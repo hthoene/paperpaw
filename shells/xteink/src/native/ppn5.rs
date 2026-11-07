@@ -445,6 +445,10 @@ mod x4 {
     /// Makes the plugin of the placed image and returns it as the core's
     /// flat plugin. Called after `make` is read from the written flash and
     /// checked: from here the layout is never rewound.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the loader's one entry: the flash layout, the image, the device's tables and the start time"
+    )]
     pub(super) fn run(
         place: &mut crate::native::Place,
         code: &CodeFile<'_>,

@@ -68,7 +68,7 @@ fi
 
 all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz release-versions)
+opt_groups=(firmware-build fuzz release-versions miri)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -411,6 +411,18 @@ g_release-versions() {
     fi
     run "release-versions: commits and built store files against the last release" \
         "python3 tools/plugin-files/versions.py --release --bytes"
+}
+
+g_miri() {
+    local model flags test_name
+    for model in stacked tree; do
+        flags="-Zmiri-strict-provenance"
+        [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        for test_name in token_tests tests; do
+            run "miri: $model $test_name" \
+                "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"
+        done
+    done
 }
 
 g_fuzz() {
