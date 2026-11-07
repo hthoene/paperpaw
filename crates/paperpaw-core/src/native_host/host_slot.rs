@@ -50,7 +50,10 @@ impl Drop for Slot {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 mod tests {
+    extern crate std;
+    use alloc::{borrow::ToOwned, format, string::String, vec, vec::Vec};
     use std::fs;
     use std::path::Path;
 
@@ -78,9 +81,7 @@ mod tests {
         let mut missing = Vec::new();
         for path in files {
             let source = fs::read_to_string(&path).unwrap();
-            // Only the code before the file's test module.
-            let source = source.split("\n#[cfg(test)]").next().unwrap();
-            let mut rest = source;
+            let mut rest = source.as_str();
             while let Some(at) = rest.find("extern \"C\" fn ") {
                 let after = &rest[at + "extern \"C\" fn ".len()..];
                 let name: String = after
