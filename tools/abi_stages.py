@@ -33,8 +33,11 @@ def _varint_len(value):
 
 
 def _framed_cap(record):
-    optional = any(f['optional'] for f in record['fields'])
-    body = 1 + int(optional)
+    optional = sum(f['optional'] for f in record['fields'])
+    # The shared field validator currently permits eight bits. Keep the size
+    # calculation expressed in bytes instead of assuming a one-byte bitmap.
+    bitmap_bytes = (optional + 7) // 8
+    body = _varint_len(bitmap_bytes) + bitmap_bytes
     for field in record['fields']:
         body += SCALAR_BYTES.get(field['kind'], _varint_len(field['cap']) + field['cap'])
     return _varint_len(record['id']) + _varint_len(body) + body
