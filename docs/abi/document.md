@@ -188,8 +188,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   again).
 - [D] Limits: at most 2 open documents per opener and 2 on the X4 device-wide (the shown book and a
   background index), 8 elsewhere; over that `ERR_FULL`. On the X4 the cap is in effect 1 per
-  opener: the host keeps one of the two places for the book the reader shows, so opening it never
-  fails with `ERR_FULL` because another plugin holds documents.
+  opener, so no one plugin can take both places: the reader's shown book always has one beside
+  another opener's document. This is a cap per opener, not a place kept for the reader.
 
 ### 2.2 Metadata
 
