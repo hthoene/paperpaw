@@ -17,11 +17,7 @@
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
-use core::cell::Cell;
-use core::ffi::c_void;
-use core::pin::Pin;
-use core::ptr;
+use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
 
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
@@ -255,10 +251,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
-    table.text_hyphenate = text_hyphenate::<S>;
-    table.icon_glyph = icon_glyph::<S>;
-    table.image_info = image_info::<S>;
-    table.canvas_draw_image = canvas_draw_image::<S>;
+    doc_slots::install::<S>(&mut table);
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
     {
@@ -899,6 +892,8 @@ fn invoke_registration<S>(
     }
 }
 
+#[path = "shell_doc_slots.rs"]
+mod doc_slots;
 #[path = "shell_tokens.rs"]
 mod tokens;
 #[allow(
@@ -1270,74 +1265,6 @@ unsafe extern "C" fn text_measure<S>(
             out,
         )
     }
-}
-
-unsafe extern "C" fn image_info<S>(ctx: *mut c_void, image: u32, out: PpBuffer) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: the generated slot contract supplies a live output pair.
-    unsafe { super::image_service::info_slot(&context.resources, image, out) }
-}
-
-unsafe extern "C" fn canvas_draw_image<S>(
-    ctx: *mut c_void,
-    image: u32,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    flags: u32,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    super::image_service::draw_slot(
-        &context.canvas,
-        &context.environment,
-        &context.resources,
-        image,
-        x,
-        y,
-        width,
-        height,
-        flags,
-    )
-}
-
-unsafe extern "C" fn icon_glyph<S>(ctx: *mut c_void, name: PpBytes, out: PpBuffer) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: slot contracts supply live, disjoint input and output storage.
-    unsafe { super::fonts::icon_glyph(&context.environment, name, out) }
-}
-
-unsafe extern "C" fn text_hyphenate<S>(
-    ctx: *mut c_void,
-    language: PpBytes,
-    word: PpBytes,
-    left: u32,
-    right: u32,
-    out: PpBuffer,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input and output pairs.
-    unsafe { super::hyphen_service::slot(&context.resources, language, word, left, right, out) }
 }
 
 unsafe extern "C" fn text_metrics<S>(

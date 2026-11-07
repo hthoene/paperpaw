@@ -98,7 +98,7 @@ pub fn draw_image_over(
         _ => (PictureKind::Gray, image.width, image.height),
     };
     // This drawer has always drawn what it could and said nothing.
-    let _ = try_draw_picture(
+    let _ = draw_picture(
         canvas,
         storage,
         &Picture {
@@ -106,9 +106,11 @@ pub fn draw_image_over(
             kind,
             width,
             height,
+            scratch_max: usize::MAX,
         },
         area,
         opacity,
+        true,
     );
 }
 
@@ -134,17 +136,32 @@ pub struct Picture<'a> {
     pub width: u32,
     /// Height in pixels, as its header says.
     pub height: u32,
+    /// The most heap the draw may take for its one transient block, the
+    /// device's (32 KiB on the X4, more where there is memory): a draw that
+    /// needs more is `OutOfMemory` with nothing drawn.
+    pub scratch_max: usize,
 }
 
 /// The kind and size of the decoded picture file at `path`, only if its size
 /// is what its header says: one header read, no allocation. The cache
 /// image formats are `PPGI` (gray), `PPCI` (colour, 3 bytes a pixel) and
 /// `PPGA` (gray and opacity, 2), after the 12-byte header.
-#[must_use]
-pub fn probe_picture(storage: &dyn Storage, path: &str) -> Option<(PictureKind, u32, u32)> {
+///
+/// # Errors
+/// `Io` where the file cannot be read, is shorter than its header or than
+/// its header says it is; `Invalid` where the header is not one of those,
+/// has no size, or the file is longer than it says.
+pub fn probe_picture(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<(PictureKind, u32, u32), crate::image::ImageError> {
+    use crate::image::ImageError;
     let mut header = [0_u8; 12];
-    if storage.read_at(path, 0, &mut header).ok()? != header.len() {
-        return None;
+    let read = storage
+        .read_at(path, 0, &mut header)
+        .map_err(|_| ImageError::Io)?;
+    if read != header.len() {
+        return Err(ImageError::Io);
     }
     let width = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let height = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
@@ -152,15 +169,23 @@ pub fn probe_picture(storage: &dyn Storage, path: &str) -> Option<(PictureKind, 
         b"PPGI" => (PictureKind::Gray, 1_u64),
         b"PPCI" => (PictureKind::Color, 3),
         b"PPGA" => (PictureKind::Alpha, 2),
-        _ => return None,
+        _ => return Err(ImageError::Invalid("not a decoded picture")),
     };
     if width == 0 || height == 0 {
-        return None;
+        return Err(ImageError::Invalid("a picture with no size"));
     }
     let expected = (u64::from(width) * u64::from(height))
-        .checked_mul(bytes)?
-        .checked_add(12)?;
-    (storage.size(path).ok()? == expected).then_some((kind, width, height))
+        .checked_mul(bytes)
+        .and_then(|n| n.checked_add(HEADER))
+        .ok_or(ImageError::Invalid("a picture too large"))?;
+    let size = storage.size(path).map_err(|_| ImageError::Io)?;
+    match size.cmp(&expected) {
+        core::cmp::Ordering::Equal => Ok((kind, width, height)),
+        core::cmp::Ordering::Less => Err(ImageError::Io),
+        core::cmp::Ordering::Greater => {
+            Err(ImageError::Invalid("a picture longer than its header"))
+        }
+    }
 }
 
 /// A zeroed buffer, `ImageError::OutOfMemory` where there is no room.
@@ -186,6 +211,20 @@ pub fn try_draw_picture(
     area: Rect,
     opacity: u8,
 ) -> Result<(), crate::image::ImageError> {
+    draw_picture(canvas, storage, picture, area, opacity, false)
+}
+
+/// [`try_draw_picture`], where `retain` lets the frame keep the dithering
+/// error from band to band ([`Canvas::keep_diffusion`], freed with the
+/// frame); the host's draw keeps nothing between calls.
+fn draw_picture(
+    canvas: &mut Canvas<'_>,
+    storage: &dyn Storage,
+    picture: &Picture<'_>,
+    area: Rect,
+    opacity: u8,
+    retain: bool,
+) -> Result<(), crate::image::ImageError> {
     if area.intersection(&canvas.clip()).is_none() || opacity == 0 {
         return Ok(());
     }
@@ -202,9 +241,16 @@ pub fn try_draw_picture(
     // On gray frames an opaque colour picture is drawn as colour rows the
     // frame turns to gray.
     if picture.kind == PictureKind::Color && opacity == 255 && canvas.picture_levels().is_none() {
-        return draw_color_image(canvas, storage, &source, area);
+        return draw_color_image(canvas, storage, &source, area, picture.scratch_max);
     }
-    draw_source(canvas, storage, &source, area, opacity)
+    draw_source(
+        canvas,
+        storage,
+        &source,
+        area,
+        opacity,
+        (retain, picture.scratch_max),
+    )
 }
 
 /// Where the rows of a picture drawn as gray come from: a checked decoded
@@ -294,6 +340,7 @@ fn draw_source(
     source: &ImageSource<'_>,
     area: Rect,
     opacity: u8,
+    (retain, budget): (bool, usize),
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (usize::from(area.width), usize::from(area.height));
@@ -304,9 +351,16 @@ fn draw_source(
     let clip = canvas.clip();
     let shown = top.max(i32::from(clip.y));
     let last = (top + h as i32).min(clip.bottom() as i32);
-    if shown >= last {
+    // Only the columns the clip shows are made: the rest of a rectangle
+    // many times the screen costs nothing.
+    let (vx0, vx1) = (
+        left.max(i32::from(clip.x)),
+        (left + w as i32).min(i32::from(clip.x) + i32::from(clip.width)),
+    );
+    if shown >= last || vx0 >= vx1 {
         return Ok(());
     }
+    let (skip, vw) = ((vx0 - left) as usize, (vx1 - vx0) as usize);
     // An axis made larger interpolates, one made smaller averages.
     let (wider, taller) = (w > sw, h > sh);
     let blended = opacity < 255 || source.kind == PictureKind::Alpha;
@@ -316,19 +370,30 @@ fn draw_source(
     // for it is short.
     let levels = canvas.picture_levels().filter(|_| !blended);
     let key = levels.map_or(0, |levels| {
-        picture_key(source, canvas.origin(), area, levels)
+        picture_key(source, canvas.origin(), area, (vx0, vw), levels)
     });
+    // Every buffer of this call, summed before any is taken: the call's one
+    // transient block is at most the device's `scratch_max`.
+    let wanted = scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
+    // The device's limit (the plugins' `draw_image_over` has always taken what
+    // a picture needs, wherever there is memory for it: no limit).
+    if wanted > budget {
+        return Err(crate::image::ImageError::OutOfMemory);
+    }
     let (first, mut diffusion) = match levels {
         None => (shown, None),
-        Some(levels) => match canvas.take_diffusion(key, shown) {
-            Some(atkinson) if atkinson.width() == w => (shown, Some((atkinson, levels))),
-            _ => match paperpaw_graphics::diffuse::Atkinson::new(w) {
+        Some(levels) => match retain.then(|| canvas.take_diffusion(key, shown)).flatten() {
+            Some(atkinson) if atkinson.width() == vw => (shown, Some((atkinson, levels))),
+            _ => match paperpaw_graphics::diffuse::Atkinson::new(vw) {
                 Some(atkinson) => (top, Some((atkinson, levels))),
-                None => (shown, None),
+                // A frame dithers in place where memory for it is short;
+                // a call that keeps nothing says so.
+                None if retain => (shown, None),
+                None => return Err(crate::image::ImageError::OutOfMemory),
             },
         },
     };
-    let mut diffused = grab(if diffusion.is_some() { w } else { 0 })?;
+    let mut diffused = grab(if diffusion.is_some() { vw } else { 0 })?;
     let mut rows = RowChunk::new(sw * source.bytes())?;
     // The source row a screen row comes from, as gray and opacity; made
     // taller, the one below it too, and the two mixed.
@@ -336,8 +401,8 @@ fn draw_source(
     let mut lower = grab(if taller { sw * 2 } else { 0 })?;
     let mut mixed = grab(if taller { sw * 2 } else { 0 })?;
     let (mut held_upper, mut held_lower) = (None, None);
-    let mut row = grab(w * if blended { 2 } else { 1 })?;
-    let columns = Columns::new(w, sw, wider)?;
+    let mut row = grab(vw * if blended { 2 } else { 1 })?;
+    let columns = Columns::new(vw, skip, w, sw, wider)?;
     let mut made = None;
     for y in first..last {
         let oy = (y - top) as usize;
@@ -376,13 +441,14 @@ fn draw_source(
             Some((atkinson, levels)) => {
                 atkinson.row(&row, *levels, |x, gray| diffused[x] = gray);
                 if y >= shown {
-                    canvas.draw_gray_row(left, y, &diffused);
+                    canvas.draw_gray_row(vx0, y, &diffused);
                 }
             }
-            None => draw_row(canvas, left, y, &row, blended, opacity),
+            None => draw_row(canvas, vx0, y, &row, blended, opacity),
         }
     }
     if let Some((atkinson, _)) = diffusion
+        && retain
         && last < top + h as i32
     {
         canvas.keep_diffusion(key, last, atkinson);
@@ -390,12 +456,42 @@ fn draw_source(
     Ok(())
 }
 
+/// The heap [`draw_source`] takes for a picture `sw` wide in `vw` visible
+/// columns: the row chunk, the source rows made, the screen row, the column
+/// table and, where it dithers, its error rows and gray row.
+fn scratch_bytes(
+    source: &ImageSource<'_>,
+    (sw, vw): (usize, usize),
+    (wider, taller): (bool, bool),
+    blended: bool,
+    dithered: bool,
+) -> usize {
+    // Saturating: the sizes come from a picture's own header.
+    let part = |n: usize, each: usize| n.saturating_mul(each);
+    ROWS_BYTES
+        .max(part(sw, source.bytes()))
+        .saturating_add(part(sw, 2 * if taller { 3 } else { 1 }))
+        .saturating_add(part(vw, if blended { 2 } else { 1 }))
+        .saturating_add(if wider {
+            part(vw, 6)
+        } else {
+            part(vw.saturating_add(1), 2)
+        })
+        .saturating_add(if dithered { part(vw, 5) } else { 0 })
+}
+
 /// Which picture is diffused where (see [`Canvas::take_diffusion`]): the
 /// same file in the same place on the screen, as large and in as many
 /// grays.
-fn picture_key(source: &ImageSource<'_>, origin: Point, area: Rect, levels: u8) -> u64 {
+fn picture_key(
+    source: &ImageSource<'_>,
+    origin: Point,
+    area: Rect,
+    visible: (i32, usize),
+    levels: u8,
+) -> u64 {
     let path = source.path;
-    let mut bytes = [0u8; 17];
+    let mut bytes = [0u8; 25];
     bytes[..2].copy_from_slice(&area.x.to_le_bytes());
     bytes[2..4].copy_from_slice(&area.y.to_le_bytes());
     bytes[4..6].copy_from_slice(&area.width.to_le_bytes());
@@ -403,6 +499,8 @@ fn picture_key(source: &ImageSource<'_>, origin: Point, area: Rect, levels: u8) 
     bytes[8..12].copy_from_slice(&origin.x.to_le_bytes());
     bytes[12..16].copy_from_slice(&origin.y.to_le_bytes());
     bytes[16] = levels;
+    bytes[17..21].copy_from_slice(&visible.0.to_le_bytes());
+    bytes[21..25].copy_from_slice(&(visible.1 as u32).to_le_bytes());
     paperpaw_digest::fnv1a64(path.as_bytes()) ^ paperpaw_digest::fnv1a64(bytes).rotate_left(1)
 }
 
@@ -457,20 +555,27 @@ enum Columns {
 }
 
 impl Columns {
-    fn new(w: usize, sw: usize, wider: bool) -> Result<Self, crate::image::ImageError> {
+    /// For the `vw` columns from column `skip` of a picture `w` wide.
+    fn new(
+        vw: usize,
+        skip: usize,
+        w: usize,
+        sw: usize,
+        wider: bool,
+    ) -> Result<Self, crate::image::ImageError> {
         let no_room = || crate::image::ImageError::OutOfMemory;
         if wider {
             let mut at = Vec::new();
-            at.try_reserve_exact(w).map_err(|_| no_room())?;
-            at.extend((0..w).map(|x| {
+            at.try_reserve_exact(vw).map_err(|_| no_room())?;
+            at.extend((skip..skip + vw).map(|x| {
                 let (x0, x1, t) = between(x, w, sw);
                 (x0 as u16, x1 as u16, t as u16)
             }));
             Ok(Columns::Between(at))
         } else {
             let mut starts = Vec::new();
-            starts.try_reserve_exact(w + 1).map_err(|_| no_room())?;
-            starts.extend((0..=w).map(|x| (x * sw / w).min(sw) as u16));
+            starts.try_reserve_exact(vw + 1).map_err(|_| no_room())?;
+            starts.extend((skip..=skip + vw).map(|x| (x * sw / w).min(sw) as u16));
             Ok(Columns::Covers(starts))
         }
     }
@@ -572,6 +677,7 @@ fn draw_color_image(
     storage: &dyn Storage,
     file: &ImageSource<'_>,
     area: Rect,
+    budget: usize,
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (i32::from(area.width), i32::from(area.height));
@@ -584,9 +690,21 @@ fn draw_color_image(
     if first >= last {
         return Ok(());
     }
+    // Only the columns the clip shows are made.
+    let (vx0, vx1) = (
+        left.max(i32::from(clip.x)),
+        (left + w).min(i32::from(clip.x) + i32::from(clip.width)),
+    );
+    if vx0 >= vx1 {
+        return Ok(());
+    }
+    let (skip, vw) = ((vx0 - left) as usize, (vx1 - vx0) as usize);
     let sw = file.width as usize;
+    if ROWS_BYTES.max(sw.saturating_mul(3)).saturating_add(vw * 3) > budget {
+        return Err(crate::image::ImageError::OutOfMemory);
+    }
     let mut rows = RowChunk::new(sw * 3)?;
-    let mut row = grab(w as usize * 3)?;
+    let mut row = grab(vw * 3)?;
     let mut loaded = None;
     for y in first..last {
         let sy = ((y - top) as u64 * u64::from(file.height) / h as u64) as u32;
@@ -595,16 +713,17 @@ fn draw_color_image(
                 return Err(crate::image::ImageError::Io);
             };
             loaded = Some(sy);
-            for x in 0..w as usize {
-                let from = x * sw / w as usize;
-                let to = ((x + 1) * sw / w as usize).max(from + 1).min(sw);
+            for x in 0..vw {
+                let at = x + skip;
+                let from = at * sw / w as usize;
+                let to = ((at + 1) * sw / w as usize).max(from + 1).min(sw);
                 for c in 0..3 {
                     let sum: u32 = (from..to).map(|i| u32::from(source[i * 3 + c])).sum();
                     row[x * 3 + c] = (sum / (to - from) as u32) as u8;
                 }
             }
         }
-        canvas.draw_rgb_row(left, y, &row);
+        canvas.draw_rgb_row(vx0, y, &row);
     }
     Ok(())
 }

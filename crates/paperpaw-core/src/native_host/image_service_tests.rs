@@ -82,13 +82,22 @@ fn ids_are_per_plugin_checked_and_never_zero() {
 #[test]
 fn a_hostile_picture_is_refused_before_it_is_kept() {
     let t = ImageTable::new();
-    for (w, h) in [(0, 4), (4, 0), (MAX_SIDE + 1, 4), (4, MAX_SIDE + 1)] {
+    for (w, h) in [(0, 4), (4, 0), (DOC_SIDE_MAX + 1, 4), (4, DOC_SIDE_MAX + 1)] {
         assert_eq!(t.add(A, doc(1, 0), "p", w, h, false), Err(ERR_INVALID));
     }
     assert_eq!(t.add(A, doc(1, 0), "", 4, 4, false), Err(ERR_INVALID));
     let long = "p".repeat(PATH_MAX + 1);
     assert_eq!(t.add(A, doc(1, 0), &long, 4, 4, false), Err(ERR_INVALID));
-    assert!(t.add(A, doc(1, 0), "p", MAX_SIDE, MAX_SIDE, false).is_ok());
+    assert!(
+        t.add(A, doc(1, 0), "p", DOC_SIDE_MAX, DOC_SIDE_MAX, false)
+            .is_ok()
+    );
+    // A prepared image may be larger (the device's `max_side` limits it).
+    assert!(t.add_prepared(A, 1, MAX_SIDE, MAX_SIDE, false).is_ok());
+    assert_eq!(
+        t.add_prepared(A, 2, MAX_SIDE + 1, 4, false),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]
@@ -684,4 +693,165 @@ fn every_allocation_of_a_draw_may_fail_and_the_canvas_stays_as_it_was() {
     let mut fb = screen();
     let mut canvas = fb.canvas();
     assert_eq!(t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 8, 0), Ok(()));
+}
+
+#[test]
+fn a_rectangle_many_times_the_screen_costs_only_the_columns_on_it() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    // 60,000 columns wide, nearly all of them off the 40-pixel canvas.
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, -29_980, 0, 60_000, 40, FILL),
+        Ok(())
+    );
+    assert_eq!(gray(&canvas, 20, 20), 40);
+    // Every allocation the draw makes may fail, none is sized by the rectangle.
+    for nth in 1..=30 {
+        let mut fb = screen();
+        let mut canvas = fb.canvas();
+        FAIL_NTH.with(|n| n.set(nth));
+        let r = t.draw(A, id, &mut canvas, &storage, -29_980, 0, 60_000, 40, FILL);
+        FAIL_NTH.with(|n| n.set(0));
+        match r {
+            Ok(()) => assert_eq!(gray(&canvas, 20, 20), 40),
+            Err(e) => {
+                assert_eq!(e, ERR_NO_MEMORY, "nth {nth}");
+                assert_eq!(gray(&canvas, 20, 20), 255);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_file_longer_than_its_header_or_not_a_picture_is_invalid_not_io() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    storage.append("c/p.gray", b"extra").unwrap();
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, 0),
+        Err(ERR_INVALID)
+    );
+    storage.write("c/p.gray", &[b'X'; 44]).unwrap();
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, 0),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(gray(&canvas, 2, 2), 255);
+}
+
+#[test]
+fn a_dithered_draw_keeps_nothing_and_every_allocation_of_it_may_fail() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 40, 100);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 8, 40, false).unwrap();
+    let mono = || {
+        let mut fb = Framebuffer::new(40, 40, PixelFormat::Mono1).unwrap();
+        fb.canvas().clear(paperpaw_platform::Color::WHITE);
+        fb
+    };
+    // Whole, then in two bands: the same picture, as nothing carries over.
+    let mut whole = mono();
+    t.draw(A, id, &mut whole.canvas(), &storage, 0, 0, 40, 40, FILL)
+        .unwrap();
+    let mut banded = mono();
+    for (top, bottom) in [(0_u16, 17_u16), (17, 40)] {
+        let mut canvas = banded.canvas();
+        let mut band = canvas.clipped(Rect::new(0, top, 40, bottom - top));
+        t.draw(A, id, &mut band, &storage, 0, 0, 40, 40, FILL)
+            .unwrap();
+    }
+    let at = |fb: &mut Framebuffer| {
+        let canvas = fb.canvas();
+        let mut v = std::vec::Vec::new();
+        for y in 0..40 {
+            for x in 0..40 {
+                v.push(gray(&canvas, x, y));
+            }
+        }
+        v
+    };
+    assert_eq!(at(&mut whole), at(&mut banded));
+    for nth in 1..=40 {
+        let mut fb = mono();
+        FAIL_NTH.with(|n| n.set(nth));
+        let r = t.draw(A, id, &mut fb.canvas(), &storage, 0, 0, 40, 40, FILL);
+        FAIL_NTH.with(|n| n.set(0));
+        match r {
+            Ok(()) => assert_eq!(at(&mut fb), at(&mut whole), "nth {nth}"),
+            Err(e) => {
+                assert_eq!(e, ERR_NO_MEMORY, "nth {nth}");
+                assert!(at(&mut fb).iter().all(|&g| g == 255), "nth {nth}");
+            }
+        }
+    }
+}
+
+#[test]
+fn every_allocation_of_a_fmt_image_mapping_may_fail_and_keeps_no_id() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let storage = MemoryStorage::new();
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0);
+    let mut failed = 0;
+    for nth in 1..=20 {
+        let t = ImageTable::new();
+        FAIL_NTH.with(|n| n.set(nth));
+        let r = t.map_fmt_image(&storage, A, 7, CACHE, &fmt, true);
+        FAIL_NTH.with(|n| n.set(0));
+        match r {
+            Ok(Some(doc)) => assert_ne!(doc.image, 0, "nth {nth}"),
+            Ok(None) => panic!("nth {nth}: a refused allocation is not a left-out picture"),
+            Err(error) => {
+                failed += 1;
+                assert_eq!(error, ERR_NO_MEMORY, "nth {nth}");
+                assert!(t.lock().unwrap().entries.is_empty(), "nth {nth}");
+            }
+        }
+    }
+    assert!(failed > 0);
+}
+
+#[test]
+fn the_draw_scratch_is_the_devices_32_kib_on_the_x4_and_more_elsewhere() {
+    use paperpaw_sdk::image::ColorWriter;
+    let storage = MemoryStorage::new();
+    // A prepared 4,096 px colour picture, drawn taller and see-through: it
+    // needs about 36 KiB of scratch (the X4 never prepares one that wide).
+    let path = prepare::file_name(A, 1).unwrap();
+    let mut writer = ColorWriter::new(&storage, &path);
+    writer.start(4096, 2).unwrap();
+    for _ in 0..2 {
+        writer.row_rgb(&std::vec![0_u8; 4096 * 3]).unwrap();
+    }
+    writer.finish().unwrap();
+    let flags = FILL | (55 << TRANSPARENCY_SHIFT);
+    let t = ImageTable::new();
+    let id = t.add_prepared(A, 1, 4096, 2, true).unwrap();
+    // The X4's cap (the default): refused before anything is drawn.
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 40, 30, flags),
+        Err(ERR_NO_MEMORY)
+    );
+    assert_eq!(gray(&canvas, 20, 15), 255);
+    // A device with memory to spare draws it.
+    t.set_scratch_max(SCRATCH_LARGE);
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 40, 30, flags),
+        Ok(())
+    );
+    assert!(gray(&canvas, 20, 15) < 255);
 }
