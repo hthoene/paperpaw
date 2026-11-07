@@ -159,10 +159,15 @@ fn reserve(path: &mut PathBuf, extra: usize) -> Result<(), StorageError> {
 /// folders left behind on the way back up. `dir` is the path of the folder
 /// and is the same again on return.
 fn sweep(dir: &mut PathBuf, depth: usize, budget: &mut Budget) -> Result<bool, StorageError> {
-    for entry in fs::read_dir(&*dir).map_err(error)? {
+    let mut entries = fs::read_dir(&*dir).map_err(error)?;
+    loop {
+        // The share is checked before the next entry is fetched.
         if budget.removed >= MAX_REMOVALS || budget.reads >= MAX_READS {
             return Ok(false);
         }
+        let Some(entry) = entries.next() else {
+            break;
+        };
         let entry = entry.map_err(error)?;
         let is_dir = entry.file_type().map_err(error)?.is_dir();
         let name = entry.file_name();
