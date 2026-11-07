@@ -57,11 +57,11 @@ Tags are proposed and numbered without gaps at the records step.
 
 | Key | Allows | Plugins (first-party) |
 | --- | --- | --- |
-| `uses.wifi` | commands 1561-1568 | wifi, transfer, diagnostics |
-| `uses.power` | commands 1569-1572 | power, diagnostics, settings, plugin-manager, reading-goal, store, update |
-| `uses.install` | commands 1573, 1574, 1577-1579, 1589 (kind 0); REG `answer_plugin` | store, fonts-browser, plugin-manager, update |
-| `uses.firmware` | commands 1575, 1576, 1589 (kind 1) | update |
-| `uses.bluetooth` | commands 1580-1588 | bluetooth |
+| `uses.wifi` | commands 1564-1571 | wifi, transfer, diagnostics |
+| `uses.power` | commands 1572-1575 | power, diagnostics, settings, plugin-manager, reading-goal, store, update |
+| `uses.install` | commands 1576, 1577, 1580-1582, 1592 (kind 0); REG `answer_plugin` | store, fonts-browser, plugin-manager, update |
+| `uses.firmware` | commands 1578, 1579, 1592 (kind 1) | update |
+| `uses.bluetooth` | commands 1583-1591 | bluetooth |
 
 - [D] With `uses.install` defined, REG's `answer_plugin` refusal (`registry.md` 4.2: `ERR_DENIED`
   for every plugin until DEV defines it) becomes: allowed for a plugin that declares `uses.install`,
@@ -166,29 +166,31 @@ agree (a host test).
 
 ## 3. Commands (slot 15, growth block)
 
+Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (1559, 1560).
+
 | Tag | Record | Fields | Feature |
 | --- | --- | --- | --- |
-| 1561 | `command.wifi_on` | (none) | `uses.wifi` |
-| 1562 | `command.wifi_off` | (none) | `uses.wifi` |
-| 1563 | `command.wifi_scan` | (none) | `uses.wifi` |
-| 1564 | `command.wifi_join` | `request: u32`, `ssid: str 32`, `password: str 63`, `flags: u32` | `uses.wifi` |
-| 1565 | `command.wifi_leave` | (none) | `uses.wifi` |
-| 1566 | `command.wifi_host` | `request: u32`, `ssid: str 32`, `password: str 63` | `uses.wifi` |
-| 1567 | `command.network_none` | (none) | `uses.wifi` |
-| 1568 | `command.go_online` | `for_ms: u32` | `uses.wifi` |
-| 1569 | `command.sleep` | (none) | `uses.power` |
-| 1570 | `command.power_off` | (none) | `uses.power` |
-| 1571 | `command.restart` | (none) | `uses.power` |
-| 1572 | `command.wear` | `mode: str 128`, `flags: u32` | `uses.power` |
-| 1573 | `command.install_plugin` | `request: u32`, `root: u32`, `path: str 512`, `flags: u32` | `uses.install` |
-| 1574 | `command.remove_plugin` | `request: u32`, `plugin: str 64`, `flags: u32` | `uses.install` |
-| 1575 | `command.install_firmware` | `request: u32`, `root: u32`, `path: str 512`, `key: bytes 32`, `flags: u32` | `uses.firmware` |
-| 1576 | `command.firmware_restart` | (none) | `uses.firmware` |
-| 1577 | `command.install_author` | `request: u32`, `author: bytes 32`, `recovery: bytes 32`, `sha256: bytes 32` | `uses.install` |
-| 1578 | `command.install_rotation` | `request: u32`, `to: bytes 32`, `signature: bytes 64` | `uses.install` |
-| 1579 | `command.trust_revoked` | `plugin: str 64`, `key: bytes 32`, `signature: bytes 64` | `uses.install` |
-| 1589 | `command.check_file` | `request: u32`, `root: u32`, `path: str 512`, `kind: u32` | `uses.install` (kind 0), `uses.firmware` (kind 1) |
-| 1580-1588 | `command.bt_scan` (`lasting_ms`), `bt_stop_scan`, `bt_pair`, `bt_connect`, `bt_disconnect`, `bt_forget` (`device`), `bt_give` (`device`, `plugin: str 64`), `bt_take_back` (`device`), `bt_keys` (`device`, `on`) | as named, `device: u32` | `uses.bluetooth` |
+| 1564 | `command.wifi_on` | (none) | `uses.wifi` |
+| 1565 | `command.wifi_off` | (none) | `uses.wifi` |
+| 1566 | `command.wifi_scan` | (none) | `uses.wifi` |
+| 1567 | `command.wifi_join` | `request: u32`, `ssid: str 32`, `password: str 63`, `flags: u32` | `uses.wifi` |
+| 1568 | `command.wifi_leave` | (none) | `uses.wifi` |
+| 1569 | `command.wifi_host` | `request: u32`, `ssid: str 32`, `password: str 63` | `uses.wifi` |
+| 1570 | `command.network_none` | (none) | `uses.wifi` |
+| 1571 | `command.go_online` | `for_ms: u32` | `uses.wifi` |
+| 1572 | `command.sleep` | (none) | `uses.power` |
+| 1573 | `command.power_off` | (none) | `uses.power` |
+| 1574 | `command.restart` | (none) | `uses.power` |
+| 1575 | `command.wear` | `mode: str 128`, `flags: u32` | `uses.power` |
+| 1576 | `command.install_plugin` | `request: u32`, `root: u32`, `path: str 512`, `flags: u32` | `uses.install` |
+| 1577 | `command.remove_plugin` | `request: u32`, `plugin: str 64`, `flags: u32` | `uses.install` |
+| 1578 | `command.install_firmware` | `request: u32`, `root: u32`, `path: str 512`, `key: bytes 32`, `flags: u32` | `uses.firmware` |
+| 1579 | `command.firmware_restart` | (none) | `uses.firmware` |
+| 1580 | `command.install_author` | `request: u32`, `author: bytes 32`, `recovery: bytes 32`, `sha256: bytes 32` | `uses.install` |
+| 1581 | `command.install_rotation` | `request: u32`, `to: bytes 32`, `signature: bytes 64` | `uses.install` |
+| 1582 | `command.trust_revoked` | `plugin: str 64`, `key: bytes 32`, `signature: bytes 64` | `uses.install` |
+| 1592 | `command.check_file` | `request: u32`, `root: u32`, `path: str 512`, `kind: u32` | `uses.install` (kind 0), `uses.firmware` (kind 1) |
+| 1583-1591 | `command.bt_scan` (`lasting_ms`), `bt_stop_scan`, `bt_pair`, `bt_connect`, `bt_disconnect`, `bt_forget` (`device`), `bt_give` (`device`, `plugin: str 64`), `bt_take_back` (`device`), `bt_keys` (`device`, `on`) | as named, `device: u32` | `uses.bluetooth` |
 
 - [D] One record per action (Firmware's Q2): tags are plentiful in the growth block, each record is
   checked by the generated codec without a per-action table, and a later action is a new record.
@@ -225,7 +227,7 @@ agree (a host test).
   leaves the old slot starting (no switch, the new slot's first word missing); during a plugin swap
   or a card move the journals finish or roll back at the next start (5.4). [Q] Firmware: confirm the
   X4's hold timer is not main-loop polled today, else this is a Firmware fix with DEV.
-- [D] Batch limits: at most one power command (1569-1572) and one firmware command per batch, at
+- [D] Batch limits: at most one power command (1572-1575) and one firmware command per batch, at
   most two Wi-Fi commands, at most one `install_author` and 8 `install_rotation` per request (the
   store's `MAX_STEPS`), both after their `install_plugin` in the same batch, at most 16
   `trust_revoked` per batch (`ERR_INVALID` beyond or out of place).
@@ -512,18 +514,18 @@ unknown values read as 1.
 | `env.status().value(name)` | op 2 |
 | `env.firmware()` (`version`, `project`, `chip`, `room`, `undone`, `state`, `plugins`) | ops 3, 4; event 96 |
 | `env.native()` (`safe_mode`, `not_installed`, code room, `file`), `fingerprint`, `toolchain` | ops 5, 14 (fingerprint and toolchain go, see below) |
-| `store/trust.rs` `check_file`, `native::read_header`, `room.rs`, `verdict` | command 1589, op 6; commands 1577-1578 |
-| `keys::accept_rotation`, `keys::keep_revoked`, `revoked.rs` | commands 1578, 1579 (host-checked, taken at commit) |
+| `store/trust.rs` `check_file`, `native::read_header`, `room.rs`, `verdict` | command 1592, op 6; commands 1580-1581 |
+| `keys::accept_rotation`, `keys::keep_revoked`, `revoked.rs` | commands 1581, 1582 (host-checked, taken at commit) |
 | `env.memory().read()` | op 7 |
-| `env.wifi()`, `Command::Wifi(..)`, `NoNetwork`, `WIFI_*`, `NETWORK_WANTED`/`IDLE` | ops 8, 9; commands 1561-1567; events 71, 92-95 |
-| `Command::GoOnlineFor` | command 1568 (`GoOnline` not carried) |
-| `env.power()` (`level`, `mode`, `automatic`, `stretch`, `online`, `every`), `Command::Wear`, `POWER_CHANGED` | op 12; command 1572; event 72 |
-| `Command::Sleep`, `PowerOff`, `Restart` | commands 1569-1571 |
-| `Command::InstallPlugin`, `LoadPlugin`, `install::adopt`, `Installer` | command 1573, event 97 |
-| `Command::RemovePlugin` | command 1574, event 97 |
+| `env.wifi()`, `Command::Wifi(..)`, `NoNetwork`, `WIFI_*`, `NETWORK_WANTED`/`IDLE` | ops 8, 9; commands 1564-1570; events 71, 92-95 |
+| `Command::GoOnlineFor` | command 1571 (`GoOnline` not carried) |
+| `env.power()` (`level`, `mode`, `automatic`, `stretch`, `online`, `every`), `Command::Wear`, `POWER_CHANGED` | op 12; command 1575; event 72 |
+| `Command::Sleep`, `PowerOff`, `Restart` | commands 1572-1574 |
+| `Command::InstallPlugin`, `LoadPlugin`, `install::adopt`, `Installer` | command 1576, event 97 |
+| `Command::RemovePlugin` | command 1577, event 97 |
 | `Command::SetPluginEnabled`, `env.plugins()`, `PLUGINS_CHANGED` / `REQUESTED` / `ANSWERED` | REG (commands 1543-1545, op 6, events 70, 77, 78) |
-| `Command::Firmware(Install, InstallForeign, Restart)`, `FIRMWARE_CHANGED` | commands 1575, 1576; events 96, 97 |
-| `env.bluetooth()`, `Command::Bluetooth(..)`, `BtEvent`, `BLUETOOTH_CHANGED` | ops 10, 11; commands 1580-1588; event 98 |
+| `Command::Firmware(Install, InstallForeign, Restart)`, `FIRMWARE_CHANGED` | commands 1578, 1579; events 96, 97 |
+| `env.bluetooth()`, `Command::Bluetooth(..)`, `BtEvent`, `BLUETOOTH_CHANGED` | ops 10, 11; commands 1583-1591; event 98 |
 | `env.random()`, `env.secrets()`, `env.work()` | SEC, ASY |
 
 - [D] **Fingerprint and toolchain are a deliberate change, not parity** (about `lib.rs:222-229`, the
