@@ -412,6 +412,21 @@ fn source_offsets_past_u32_are_refused() {
         assert_eq!(&target, original);
         let _ = target.source_offset(1);
     }
+    // Valid offsets that a first step would push past the top: the step
+    // itself is refused, so no later step meets an overflowing map.
+    let mut target = near_top.clone();
+    let result = target.try_transform(4096, |edit| {
+        assert_eq!(edit.try_replace(0..1, "xxxxx"), Err(EditError::Range));
+        edit.try_replace(0..1, "xx")?;
+        assert_eq!(edit.source_offset(1), u32::MAX - 1);
+        // At the end the new text starts at `end` (MAX): one byte fits.
+        assert_eq!(edit.try_replace(3..3, "zz"), Err(EditError::Range));
+        edit.try_replace(3..3, "z")?;
+        assert_eq!(edit.source_offset(3), u32::MAX);
+        Ok::<(), EditError>(())
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(target.text, "xxbz");
     // Up to the top itself is fine.
     let mut target = near_top.clone();
     assert_eq!(
