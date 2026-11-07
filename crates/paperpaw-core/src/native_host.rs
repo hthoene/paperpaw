@@ -1019,3 +1019,9 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+
+#[path = "native_host/shell_images.rs"]
+mod shell_images;
+
+#[path = "native_host/image_work.rs"]
+mod image_work;

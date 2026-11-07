@@ -2,12 +2,9 @@
 //! and the X4 firmware: the owner with its host table, the transactional
 //! `make`, the plugin's output, and the scoped dispatch of its callbacks.
 //!
-//! What differs between shells is only small and stays in the shell: the
-//! [`Services`](paperpaw_native::host_glue::Services) (heap, clock), the *module* `M` the owner keeps alive (a
-//! loaded library on the desktop, the placed image on the X4), the `make`
-//! function, and the read-only range of the image. Everything that touches
-//! the plugin's table and the lifetime rules is here once, so it is reviewed
-//! and tested once.
+//! Shells supply [`Services`](paperpaw_native::host_glue::Services), the module
+//! `M`, the `make` entry and the read-only image range. Table and lifetime rules
+//! are shared here and tested once.
 //!
 //! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives
 //! every batch and lease; `make` runs inside the registration scope and its
@@ -38,6 +35,7 @@ pub use super::device_service::DEVICE_SERVICES;
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
+pub use super::shell_images::{ImageProfile, ImageReadyQueue, ImageSweep};
 use super::{Construction, DispatchDepth, HostOwner, RegistrationBatch};
 use crate::sdk::Env;
 
@@ -83,41 +81,9 @@ struct PluginOutput {
     input: Option<Input>,
 }
 
-fn optional<T>(callback: Result<T, i32>) -> Result<Option<T>, Error> {
-    match callback {
-        Ok(callback) => Ok(Some(callback)),
-        Err(host_glue::ERR_UNSUPPORTED) => Ok(None),
-        Err(_) => Err(Error::Plugin),
-    }
-}
-
-/// Reads the output of a successful `make`.
-///
-/// # Safety
-///
-/// The factory promises an aligned, readable size word and a stable readable
-/// allocation covering its declared size. Numeric checks cannot establish
-/// those memory guarantees.
-unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
-    if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
-        return Err(Error::Plugin);
-    }
-    // SAFETY: the successful factory promises a readable size prefix.
-    let accessible = unsafe { out.cast::<u32>().read() } as usize;
-    let table = out.cast::<u8>();
-    // SAFETY: the factory guarantees this live, initialized span; the
-    // generated readers check numeric bounds before copying single fields.
-    unsafe {
-        read_plugin_size(table, accessible).map_err(|_| Error::Plugin)?;
-        Ok(PluginOutput {
-            state: read_plugin_state(table, accessible).map_err(|_| Error::Plugin)?,
-            destroy: read_plugin_drop(table, accessible).map_err(|_| Error::Plugin)?,
-            event: optional(read_plugin_dispatch_event(table, accessible))?,
-            draw: optional(read_plugin_draw(table, accessible))?,
-            input: optional(read_plugin_input(table, accessible))?,
-        })
-    }
-}
+#[path = "shell_output.rs"]
+mod output;
+use output::read_output;
 
 /// Shell diagnostic sink. It must log owner, step and error without allocating,
 /// panicking or reentering the owner. No default or silent sink is supplied.
@@ -133,12 +99,13 @@ pub struct Context<S> {
     table: PpHost,
     id: Box<str>,
     report: Report<S>,
-    resources: super::resources::OwnerResources,
-    declared_services: DeclaredServices,
+    pub(super) resources: super::resources::OwnerResources,
+    pub(super) declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
     attempted: Cell<bool>,
+    pub(super) stopped: Cell<bool>,
     /// The scope in which `make`'s registrations are staged.
     pub registrations: RegistrationScope<Registration>,
     pub(crate) commands: super::commands::CommandScope,
@@ -211,61 +178,11 @@ pub struct Hosted<S, M> {
     make: Make,
     /// The plugin's read-only data as mapped: pointer with provenance and length.
     image: (*const u8, usize),
-    /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
-    stopped: Cell<bool>,
 }
 
-/// The host table with this shell's entries in it, as a plugin of `S` sees it.
-/// The shell's preflight may read it before anything is hosted.
-#[must_use]
-pub fn host_table<S: Services>() -> PpHost {
-    let mut table = host_glue::host_table();
-    table.heap_alloc = heap_alloc::<S>;
-    table.heap_dealloc = heap_dealloc::<S>;
-    table.heap_realloc = heap_realloc::<S>;
-    table.clock_micros = clock_micros::<S>;
-    table.stage_run = stage_slot::run::<S>;
-    table.ui_compose = super::ui_compose::compose::<S>;
-    table.registrations_submit = registrations_submit::<S>;
-    table.commands_submit = commands_submit::<S>;
-    table.env_snapshot = env_snapshot::<S>;
-    table.settings_read = settings_read::<S>;
-    table.canvas_fill_rect = canvas_fill_rect::<S>;
-    table.i18n_copy = i18n_copy::<S>;
-    table.i18n_format = i18n_format::<S>;
-    table.i18n_digits = i18n_digits::<S>;
-    table.canvas_draw_line = canvas_draw_line::<S>;
-    table.canvas_fill_round = canvas_fill_round::<S>;
-    table.canvas_stroke_round = canvas_stroke_round::<S>;
-    table.canvas_clip = canvas_clip::<S>;
-    table.storage_size = storage_size::<S>;
-    table.storage_read_at = storage_read_at::<S>;
-    table.storage_write = storage_write::<S>;
-    table.storage_append = storage_append::<S>;
-    table.storage_rename = storage_rename::<S>;
-    table.storage_remove = storage_remove::<S>;
-    table.storage_sync = storage_sync::<S>;
-    table.service_open = service_open::<S>;
-    table.service_call = service_call::<S>;
-    table.services_query = services_query::<S>;
-    table.blob_read = blob_read::<S>;
-    table.blob_release = blob_release::<S>;
-    table.font_acquire = font_acquire::<S>;
-    table.handle_release = handle_release::<S>;
-    table.text_measure = text_measure::<S>;
-    table.text_metrics = text_metrics::<S>;
-    table.text_draw = text_draw::<S>;
-    table.text_hyphenate = text_hyphenate::<S>;
-    table.icon_glyph = icon_glyph::<S>;
-    table.image_info = image_info::<S>;
-    table.canvas_draw_image = canvas_draw_image::<S>;
-    // The X4 ink probe is enabled only after device timing qualifies it.
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
-    {
-        table.text_ink = text_ink::<S>;
-    }
-    table
-}
+#[path = "shell_table.rs"]
+mod table;
+pub use table::host_table;
 
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
@@ -316,6 +233,7 @@ impl<S: Services, M> Hosted<S, M> {
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
+            stopped: Cell::new(false),
             registrations: RegistrationScope::new(),
             commands: super::commands::CommandScope::new(),
             environment: EnvironmentScope::with_resources(scoped_resources),
@@ -331,12 +249,7 @@ impl<S: Services, M> Hosted<S, M> {
                 report_blob_cleanup::<S>,
             );
         }
-        Ok(Self {
-            owner,
-            make,
-            image,
-            stopped: Cell::new(false),
-        })
+        Ok(Self { owner, make, image })
     }
 
     /// Per-instance available features retained before make, without metadata.
@@ -363,14 +276,29 @@ impl<S: Services, M> Hosted<S, M> {
     /// until the drop. The kernel observes registered owners and completes
     /// the same ordered unload through its main loop, retrying busy cleanup.
     pub fn stop(&self) {
-        self.stopped.set(true);
+        self.owner.as_ref().context().stopped.set(true);
         self.owner.as_ref().revoke();
+        let context = self.owner.as_ref().context();
+        if context
+            .resources
+            .hosts()
+            .image_work
+            .owner_stopped(context.resources.owner_id())
+            .is_err()
+        {
+            (context.report)(
+                &context.services,
+                &context.id,
+                super::TeardownStep::Release,
+                super::Error::Busy,
+            );
+        }
     }
 
     /// Whether [`stop`](Self::stop) was called.
     #[must_use]
     pub fn is_stopped(&self) -> bool {
-        self.stopped.get()
+        self.owner.as_ref().context().stopped.get()
     }
 
     /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
@@ -379,7 +307,7 @@ impl<S: Services, M> Hosted<S, M> {
     /// they were.
     #[must_use]
     pub fn image(&self) -> Option<&[u8]> {
-        if self.stopped.get() {
+        if self.owner.as_ref().context().stopped.get() {
             return None;
         }
         let (start, len) = self.image;

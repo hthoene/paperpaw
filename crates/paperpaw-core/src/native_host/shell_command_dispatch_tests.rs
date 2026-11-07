@@ -81,3 +81,125 @@ fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() 
 
 #[path = "shell_command_status_tests.rs"]
 mod abi_status;
+
+#[test]
+fn image_commands_use_owner_resources_and_wait_for_successful_callback() {
+    for returned in [0, host_glue::ERR_DENIED] {
+        reset(NORMAL);
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let hosted = fake();
+        let batch = hosted
+            .make_registered(hosted.begin().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        let mut bytes = [0; 128];
+        let len = commands_encode(
+            &[WireCommand::ImagePrepare {
+                root: 0,
+                path: "missing.png",
+                side: 0,
+                cookie: 77,
+                flags: 0,
+            }],
+            &mut bytes,
+        )
+        .unwrap();
+        let context = hosted.owner().context();
+        let images = context.resources.hosts().images();
+        let result = kernel.with_native_commands(
+            &batch,
+            &DispatchDepth::new(),
+            super::super::command_dispatch::CommandTarget {
+                screen: None,
+                hop: 0,
+                result: super::super::command_dispatch::CommandResult::Status,
+            },
+            paperpaw_platform::Instant(0),
+            |context, _| {
+                assert!(!images.prepare_pending());
+                // SAFETY: encoded bytes are live and disjoint from the host state.
+                assert_eq!(unsafe { context.commands.submit(bytes.as_ptr(), len) }, OK);
+                assert!(!images.prepare_pending(), "no side effect inside callback");
+                Ok(returned)
+            },
+        );
+        assert_eq!(result.is_ok(), returned == 0);
+        assert_eq!(images.prepare_pending(), returned == 0);
+        if returned == 0 {
+            images
+                .prepare_step(
+                    kernel.storage(),
+                    crate::native_host::image_service::prepare::Env::x4(480, false),
+                )
+                .unwrap();
+            images
+                .take_ready(&mut |ready| {
+                    assert_eq!(ready.owner, context.resources.owner_id());
+                    assert_eq!(ready.cookie, 77);
+                    Ok(())
+                })
+                .unwrap();
+        }
+        drop(batch);
+        finish(&hosted);
+    }
+}
+
+#[test]
+fn image_root_admission_and_stop_during_callback_leave_no_work() {
+    for stopped in [false, true] {
+        reset(NORMAL);
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let hosted = fake();
+        let batch = hosted
+            .make_registered(hosted.begin().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        let mut bytes = [0; 128];
+        let len = commands_encode(
+            &[WireCommand::ImagePrepare {
+                root: u32::from(!stopped),
+                path: "missing.png",
+                side: 0,
+                cookie: 1,
+                flags: 0,
+            }],
+            &mut bytes,
+        )
+        .unwrap();
+        let result = kernel.with_native_commands(
+            &batch,
+            &DispatchDepth::new(),
+            super::super::command_dispatch::CommandTarget {
+                screen: None,
+                hop: 0,
+                result: super::super::command_dispatch::CommandResult::Status,
+            },
+            paperpaw_platform::Instant(0),
+            |context, _| {
+                // SAFETY: the encoded bytes are live and disjoint from host state.
+                let submitted = unsafe { context.commands.submit(bytes.as_ptr(), len) };
+                if stopped {
+                    assert_eq!(submitted, OK);
+                    hosted.stop();
+                    Ok(0)
+                } else {
+                    assert_eq!(submitted, host_glue::ERR_DENIED);
+                    Err(Error::Status(submitted))
+                }
+            },
+        );
+        assert!(result.is_err());
+        let context = hosted.owner().context();
+        assert!(!context.resources.hosts().image_work.pending());
+        assert!(!context.resources.hosts().images().prepare_pending());
+        drop(batch);
+        finish(&hosted);
+    }
+}
