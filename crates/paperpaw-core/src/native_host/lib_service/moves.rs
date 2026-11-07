@@ -5,30 +5,41 @@
 //! The state machine is here; the card, the catalog and the journal are the
 //! host's, behind [`MoveHost`]. For one move the host:
 //!
-//! 1. [`Moves::begin`]: writes the journal entry (synced), renames, answers.
-//!    It does a constant amount of work however many books the folder holds.
-//! 2. [`Moves::step`], from the main loop, one bounded step at a time:
-//!    carries at most [`STEP_BOOKS`] books (catalogued or not, a `.bak`
-//!    sibling too) with position, annotations and plugins' book data, then
-//!    the reader assignments, then the folder-valued settings, then sends
-//!    the book-moved events, then clears the entry. Every step is idempotent,
-//!    so a half-done job is replayed from the entry alone.
-//! 3. [`Moves::start`], at start after the FAT repair: reads the open entry;
-//!    only `to` exists: finish the job; only `from`: drop the entry (nothing
-//!    moved); both: the repair settles them first and the entry is never
-//!    dropped blind; neither: drop it (the next walk forgets the books).
+//! 1. [`Moves::begin`]: refuses a move that cannot succeed (before anything
+//!    is written), writes the synced journal entry, renames, answers. It does
+//!    a constant amount of work however many books the folder holds.
+//! 2. [`Moves::step`], from the main loop, one bounded step at a time: drops
+//!    the data of a file the move replaces, carries at most [`STEP_BOOKS`]
+//!    books (catalogued or not, a `.bak` sibling too) with position,
+//!    annotations and plugins' book data, then the reader assignments, then
+//!    the folder-valued settings, then sends the book-moved events, then
+//!    clears the entry. Every step is idempotent, so a half-done job is
+//!    replayed from the entry alone.
+//! 3. [`Moves::start`], at start after the FAT repair: reads the open entry
+//!    and decides by the storage's identity of the moved entry, never by
+//!    names: the entry is at `to` (whatever is at `from` now, even a new
+//!    file): finish the job; it is at `from` only: drop the entry (nothing
+//!    moved); it is nowhere: drop it (the next walk forgets the books). An
+//!    entry that is at both names (a cut between FAT's two directory writes)
+//!    is settled first. A case-only rename is one entry, so it is decided by
+//!    the spelling that is stored. The entry is never left undecided: a job
+//!    cannot stay stuck.
 //!
 //! While the job runs, [`Moves::busy`] says which paths the host answers
-//! `ERR_BUSY` for, and [`Moves::open_book`] carries a book a reader opens
-//! before the walk reaches it, so it finds its position and annotations.
+//! `ERR_BUSY` for (`move`, `storage.rename`, `remove_tree`, `storage.remove`,
+//! `make_dir`, any write or create, an import at or below either name, so
+//! not a new file at the old name either), and [`Moves::open_book`] carries a
+//! book a reader opens before the walk reaches it, so it finds its position
+//! and annotations.
 //!
-//! The entry holds `from`, `to` and the `replace` flag. The books below,
-//! the reader assignments and the settings are found from `from` and `to`
-//! (the old key of a moved path is `from` plus the rest of the path), which
-//! keeps the entry, and the call that writes it, bounded.
+//! The entry holds `from`, `to`, the `replace` flag and the identity of the
+//! moved entry. The books below, the reader assignments and the settings are
+//! found from `from` and `to` (the old key of a moved path is `from` plus the
+//! rest of the path), which keeps the entry, and the call that writes it,
+//! bounded.
 use alloc::string::String;
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
 
 /// Books carried by one step.
 pub(crate) const STEP_BOOKS: usize = 16;
@@ -37,6 +48,8 @@ pub(crate) const STEP_BOOKS: usize = 16;
 /// from its start gives the same state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
+    /// The file the move replaced loses its data (only a replacing move).
+    Replaced,
     /// Books below `from` (and a `.bak` sibling) to their new key.
     Books(u64),
     /// Reader assignments naming `from` or a folder below it.
@@ -49,16 +62,38 @@ pub(crate) enum Phase {
     Done,
 }
 
+/// The journal entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Entry<'a> {
+    pub(crate) from: &'a str,
+    pub(crate) to: &'a str,
+    pub(crate) replace: bool,
+    /// The storage's identity of the moved entry, taken before the rename.
+    pub(crate) identity: u64,
+}
+
 /// What the host backs: the journal, the card and the catalog side.
 pub(crate) trait MoveHost {
-    /// The open journal entry, if any: calls `visit(from, to, replace)`.
-    fn open_entry(&self, visit: &mut dyn FnMut(&str, &str, bool)) -> Result<bool, i32>;
+    /// The open journal entry, if any. `Err` when it cannot be read: the
+    /// journal is then not overwritten.
+    fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32>;
     /// Write the entry and sync it. Nothing else changes.
-    fn write_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), i32>;
+    fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32>;
     /// Remove the entry and sync.
     fn clear_entry(&self) -> Result<(), i32>;
-    /// Whether `path` exists on the card (a file or a folder).
-    fn exists(&self, path: &str) -> Result<bool, i32>;
+    /// The storage's identity of the entry `path` names (FAT: its first
+    /// cluster; for an empty file something as stable and as distinct), the
+    /// same before and after a rename and different for another entry;
+    /// `None` when there is none.
+    fn identity(&self, path: &str) -> Result<Option<u64>, i32>;
+    /// Whether `path` names a folder.
+    fn is_folder(&self, path: &str) -> Result<bool, i32>;
+    /// Whether both paths name the same directory entry by the storage's own
+    /// rules (case, Unicode case, 8.3 aliases): a case-only rename.
+    fn same_entry(&self, a: &str, b: &str) -> Result<bool, i32>;
+    /// Whether the stored name of the entry `path` names is spelled exactly
+    /// as `path` (the last segment, case included).
+    fn spelled_as(&self, path: &str) -> Result<bool, i32>;
     /// The storage's rename (`storage.rename`): the new entry is added before
     /// the old one is removed.
     fn rename(&self, from: &str, to: &str, replace: bool) -> Result<(), i32>;
@@ -66,15 +101,14 @@ pub(crate) trait MoveHost {
     /// names.
     fn settle(&self) -> Result<(), i32>;
     /// Whether `path` is `folder` or below it, as the storage names entries
-    /// (FAT ignores case: `Books` is `books`).
-    fn within(&self, path: &str, folder: &str) -> bool {
-        let (path, folder) = (path.trim_matches('/'), folder.trim_matches('/'));
-        let n = folder.len();
-        path.len() >= n
-            && path.is_char_boundary(n)
-            && path[..n].eq_ignore_ascii_case(folder)
-            && (path.len() == n || path.as_bytes()[n] == b'/')
-    }
+    /// (case beyond ASCII, 8.3 aliases). Required: a host that forgets it
+    /// would let an alias past the busy rule.
+    fn within(&self, path: &str, folder: &str) -> bool;
+    /// A replacing move: the data kept for the file at `to` (catalog row,
+    /// position, annotations, plugins' book data) is dropped so that the
+    /// moved book does not inherit it. Idempotent, and a no-op once the
+    /// moved book's data has left `from` (a replay must not erase it).
+    fn discard_replaced(&self, from: &str, to: &str) -> Result<(), i32>;
     /// One bounded step of `phase` for the move `from` -> `to`; returns the
     /// next phase. Idempotent: running a step again after a cut gives the
     /// same state.
@@ -88,6 +122,7 @@ pub(crate) trait MoveHost {
 struct Job {
     from: String,
     to: String,
+    identity: u64,
     /// `None`: the entry is open but the state of the card is not decided yet.
     phase: Cell<Option<Phase>>,
     replace: bool,
@@ -98,6 +133,8 @@ struct Job {
 #[derive(Default)]
 pub(crate) struct Moves {
     job: RefCell<Option<Job>>,
+    /// The journal has been read once; until then no entry is written.
+    read: Cell<bool>,
 }
 
 fn own(text: &str) -> Result<String, i32> {
@@ -111,21 +148,24 @@ fn own(text: &str) -> Result<String, i32> {
 
 /// What the card says about an open entry.
 enum Verdict {
-    /// Only `to` exists: carry the books.
+    /// The moved entry is at `to`: carry the books.
     Finish,
     /// Nothing moved, or nothing is left: the entry is dropped.
     Drop,
-    /// Both names are there and the repair did not settle them.
-    Undecided,
 }
 
 impl Moves {
-    /// Move `from` to `to` and start the job: the journal entry, synced,
-    /// before the rename; the call answers as soon as the rename has.
+    /// Move `from` to `to` and start the job: refuse what cannot work, the
+    /// journal entry, synced, before the rename; the call answers as soon as
+    /// the rename has.
     ///
     /// # Errors
-    /// `ERR_BUSY` while a job runs; the host's own error from the journal or
-    /// the rename (the entry is dropped when nothing moved).
+    /// `ERR_BUSY` while a job runs; `ERR_NOT_FOUND` for a missing `from`;
+    /// `ERR_INVALID` for a move into itself; `ERR_STATE` for an existing `to`
+    /// without `replace`, or a folder at `to`, or a folder replacing a file;
+    /// the host's own error from the journal or the rename (the entry is
+    /// dropped when nothing moved). The journal is not written when the
+    /// refusal can be told before.
     pub(crate) fn begin(
         &self,
         host: &dyn MoveHost,
@@ -133,17 +173,40 @@ impl Moves {
         to: &str,
         replace: bool,
     ) -> Result<(), i32> {
+        // An entry that was never read is never overwritten.
+        if !self.read.get() {
+            self.start(host)?;
+        }
         let mut slot = self.job.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if slot.is_some() {
             return Err(ERR_BUSY);
         }
+        let identity = host.identity(from)?.ok_or(ERR_NOT_FOUND)?;
+        // A case-only rename is the one entry under another spelling.
+        let same = host.same_entry(from, to)?;
+        if !same {
+            if host.within(to, from) {
+                return Err(ERR_INVALID);
+            }
+            if host.identity(to)?.is_some()
+                && (!replace || host.is_folder(to)? || host.is_folder(from)?)
+            {
+                return Err(ERR_STATE);
+            }
+        }
         let job = Job {
             from: own(from)?,
             to: own(to)?,
-            phase: Cell::new(Some(Phase::Books(0))),
+            identity,
+            phase: Cell::new(Some(Self::first(replace))),
             replace,
         };
-        host.write_entry(from, to, replace)?;
+        host.write_entry(&Entry {
+            from,
+            to,
+            replace,
+            identity,
+        })?;
         match host.rename(from, to, replace) {
             Ok(()) => {
                 *slot = Some(job);
@@ -151,11 +214,11 @@ impl Moves {
             }
             Err(error) => {
                 // The rename may have been cut short. Look at the card; an
-                // entry that cannot be settled now is kept for the next step.
+                // entry that cannot be judged now is kept for the next step.
                 match Self::decide(host, &job) {
                     Ok(Verdict::Drop) => {}
                     Ok(Verdict::Finish) => *slot = Some(job),
-                    Ok(Verdict::Undecided) | Err(_) => {
+                    Err(_) => {
                         job.phase.set(None);
                         *slot = Some(job);
                     }
@@ -165,7 +228,17 @@ impl Moves {
         }
     }
 
-    /// At start, after the FAT repair: pick up an open entry.
+    const fn first(replace: bool) -> Phase {
+        if replace {
+            Phase::Replaced
+        } else {
+            Phase::Books(0)
+        }
+    }
+
+    /// At start, after the FAT repair: pick up an open entry. A journal that
+    /// cannot be read leaves the move machinery refusing (`begin` reads it
+    /// again first).
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`, or the host's error reading the journal or the card
@@ -175,55 +248,54 @@ impl Moves {
         if slot.is_some() {
             return Ok(());
         }
-        let mut found = None;
-        let mut failed = Ok(());
-        let open = host.open_entry(&mut |from, to, replace| {
-            found = own(from).and_then(|from| Ok((from, own(to)?))).map_or_else(
-                |error| {
-                    failed = Err(error);
-                    None
-                },
-                |(from, to)| {
-                    Some(Job {
-                        from,
-                        to,
-                        phase: Cell::new(None),
-                        replace,
-                    })
-                },
-            );
+        let mut found = Ok(None);
+        let open = host.open_entry(&mut |entry| {
+            found = own(entry.from).and_then(|from| {
+                Ok(Some(Job {
+                    from,
+                    to: own(entry.to)?,
+                    identity: entry.identity,
+                    phase: Cell::new(None),
+                    replace: entry.replace,
+                }))
+            });
         })?;
-        failed?;
+        let found = found?;
+        self.read.set(true);
         if open && let Some(job) = found {
             *slot = Some(job);
         }
         drop(slot);
-        // Decide at once; an unsettled entry is retried by `step`.
+        // Decide at once; a failure is retried by `step`.
         self.step(host).map(|_| ())
     }
 
+    /// By the storage's identity of the moved entry, never by names.
     fn decide(host: &dyn MoveHost, job: &Job) -> Result<Verdict, i32> {
-        let mut from = host.exists(&job.from)?;
-        let mut to = host.exists(&job.to)?;
-        if from && to {
-            // A cut between FAT's two directory writes: the repair settles
-            // it, and the entry is only judged after.
-            host.settle()?;
-            from = host.exists(&job.from)?;
-            to = host.exists(&job.to)?;
-            if from && to {
-                // A rename that replaces a file never ran when both names are
-                // still there; for anything else the entry stays.
-                return if job.replace {
-                    host.clear_entry().map(|()| Verdict::Drop)
-                } else {
-                    Ok(Verdict::Undecided)
-                };
-            }
+        if host.same_entry(&job.from, &job.to)? {
+            // A case-only rename: one entry; the stored spelling says whether
+            // the rename ran. A cut may have left both spellings; settle.
+            return if host.spelled_as(&job.to)? {
+                host.settle()?;
+                Ok(Verdict::Finish)
+            } else {
+                host.clear_entry().map(|()| Verdict::Drop)
+            };
         }
-        match (from, to) {
-            (false, true) => Ok(Verdict::Finish),
-            _ => host.clear_entry().map(|()| Verdict::Drop),
+        let at_to = host.identity(&job.to)? == Some(job.identity);
+        let at_from = host.identity(&job.from)? == Some(job.identity);
+        if at_to {
+            if at_from {
+                // A cut between FAT's two directory writes: the entry has both
+                // names; the repair settles it.
+                host.settle()?;
+            }
+            // Whatever is at `from` now (even a new file) is not the moved
+            // entry: the rename is done.
+            Ok(Verdict::Finish)
+        } else {
+            // At `from` only (nothing moved) or nowhere (it was removed).
+            host.clear_entry().map(|()| Verdict::Drop)
         }
     }
 
@@ -241,13 +313,17 @@ impl Moves {
             match job.phase.get() {
                 None => match Self::decide(host, job)? {
                     Verdict::Finish => {
-                        job.phase.set(Some(Phase::Books(0)));
+                        job.phase.set(Some(Self::first(job.replace)));
                         return Ok(true);
                     }
                     Verdict::Drop => {}
-                    Verdict::Undecided => return Err(ERR_BUSY),
                 },
                 Some(Phase::Done) => host.clear_entry()?,
+                Some(Phase::Replaced) => {
+                    host.discard_replaced(&job.from, &job.to)?;
+                    job.phase.set(Some(Phase::Books(0)));
+                    return Ok(true);
+                }
                 Some(phase) => {
                     job.phase.set(Some(host.carry(&job.from, &job.to, phase)?));
                     return Ok(true);
@@ -264,8 +340,9 @@ impl Moves {
     }
 
     /// Whether `path` is `from` or `to` or below either while the job runs:
-    /// a `move`, `storage.rename`, `remove_tree`, `storage.remove` or an
-    /// import there answers `ERR_BUSY`.
+    /// a `move`, `storage.rename`, `remove_tree`, `storage.remove`,
+    /// `make_dir`, any write or create, or an import there answers
+    /// `ERR_BUSY` (also a new file at the old name).
     pub(crate) fn busy(&self, host: &dyn MoveHost, path: &str) -> bool {
         self.job.try_borrow().map_or(true, |job| {
             job.as_ref()
@@ -275,7 +352,8 @@ impl Moves {
 
     /// A reader opens `book` (a path below `to`) while the job runs: carry it
     /// first, so its position and annotations are there and nothing the
-    /// reader writes is overwritten by the walk later.
+    /// reader writes is overwritten by the walk later. A replacing move drops
+    /// the replaced file's data first (idempotent).
     ///
     /// # Errors
     /// The host's error from carrying the book.
@@ -283,6 +361,9 @@ impl Moves {
         let slot = self.job.try_borrow().map_err(|_| ERR_BUSY)?;
         match slot.as_ref() {
             Some(job) if job.phase.get().is_some() && host.within(book, &job.to) => {
+                if job.replace {
+                    host.discard_replaced(&job.from, &job.to)?;
+                }
                 host.carry_book(&job.from, &job.to, book)
             }
             _ => Ok(()),

@@ -2,14 +2,15 @@
 //! The move journal and job over a fake card with injected power cuts: the
 //! cases of `files.md` 7 (a cut right after the rename, a cut that leaves
 //! both names, a book opened during the job, a 1,000-book folder, replaying a
-//! half-done job, file-manager's cases) and a sweep that cuts after every
-//! durable write.
+//! half-done job, file-manager's cases), a job that can never stay stuck
+//! (case-only renames, a new file at the old name, replacing moves), and
+//! sweeps that cut after every durable write.
 extern crate std;
 use super::*;
 use paperpaw_native::host_glue::ERR_IO;
-use std::format;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -18,19 +19,33 @@ use std::{
 /// before it is applied, and every later one until `restart`.
 #[derive(Default)]
 struct World {
-    files: RefCell<BTreeSet<String>>,
+    /// Every stored directory entry by its spelling: identity, folder.
+    files: RefCell<BTreeMap<String, (u64, bool)>>,
+    next_id: Cell<u64>,
     catalog: RefCell<BTreeMap<String, u32>>,
     assignments: RefCell<BTreeMap<String, String>>,
     settings: RefCell<BTreeMap<String, String>>,
-    entry: RefCell<Option<(String, String, bool)>>,
+    entry: RefCell<Option<(String, String, bool, u64)>>,
     events: RefCell<Vec<(String, String)>>,
     ticks: Cell<usize>,
     cut: Cell<Option<usize>>,
     dead: Cell<bool>,
     /// The rename added the new names and did not remove the old ones yet.
-    half: Cell<bool>,
-    /// Ticks since the last `mark`.
-    mark: Cell<usize>,
+    half: RefCell<Vec<(String, String)>>,
+    /// The journal cannot be read.
+    unreadable: Cell<bool>,
+}
+
+/// A path as the storage compares it: Unicode case folded, 8.3 aliases
+/// resolved, segment by segment.
+fn key(path: &str) -> Vec<String> {
+    path.trim_matches('/')
+        .split('/')
+        .map(|segment| match segment.to_lowercase().as_str() {
+            "books~1" => "books".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
 }
 
 impl World {
@@ -49,21 +64,34 @@ impl World {
         self.dead.set(false);
         self.cut.set(None);
     }
+    fn entry_of(&self, path: &str) -> Option<(String, u64, bool)> {
+        let wanted = key(path);
+        self.files
+            .borrow()
+            .iter()
+            .find(|(stored, _)| key(stored) == wanted)
+            .map(|(stored, (id, folder))| (stored.clone(), *id, *folder))
+    }
+    fn create(&self, path: &str, folder: bool) -> u64 {
+        let id = self.next_id.get() + 1;
+        self.next_id.set(id);
+        self.files
+            .borrow_mut()
+            .insert(path.to_string(), (id, folder));
+        id
+    }
     fn add_book(&self, path: &str, position: u32) {
-        self.files.borrow_mut().insert(path.to_string());
+        self.create(path, false);
         self.catalog.borrow_mut().insert(path.to_string(), position);
     }
     fn renamed(path: &str, from: &str, to: &str) -> String {
         format!("{to}{}", &path[from.len()..])
     }
-    fn under(&self, path: &str, folder: &str) -> bool {
-        MoveHost::within(self, path, folder)
-    }
     fn books_under(&self, folder: &str) -> Vec<String> {
         self.catalog
             .borrow()
             .keys()
-            .filter(|k| self.under(k, folder) || k.as_str() == format!("{folder}.bak"))
+            .filter(|k| self.within(k, folder) || k.as_str() == format!("{folder}.bak"))
             .cloned()
             .collect()
     }
@@ -80,15 +108,28 @@ impl World {
 }
 
 impl MoveHost for World {
-    fn open_entry(&self, visit: &mut dyn FnMut(&str, &str, bool)) -> Result<bool, i32> {
-        Ok(self.entry.borrow().as_ref().is_some_and(|(f, t, r)| {
-            visit(f, t, *r);
+    fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32> {
+        if self.unreadable.get() {
+            return Err(ERR_IO);
+        }
+        Ok(self.entry.borrow().as_ref().is_some_and(|(f, t, r, i)| {
+            visit(&Entry {
+                from: f,
+                to: t,
+                replace: *r,
+                identity: *i,
+            });
             true
         }))
     }
-    fn write_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
+    fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32> {
         self.tick()?;
-        *self.entry.borrow_mut() = Some((from.into(), to.into(), replace));
+        *self.entry.borrow_mut() = Some((
+            entry.from.into(),
+            entry.to.into(),
+            entry.replace,
+            entry.identity,
+        ));
         Ok(())
     }
     fn clear_entry(&self) -> Result<(), i32> {
@@ -96,42 +137,71 @@ impl MoveHost for World {
         *self.entry.borrow_mut() = None;
         Ok(())
     }
-    fn exists(&self, path: &str) -> Result<bool, i32> {
-        Ok(self.files.borrow().contains(path))
+    fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
+        Ok(self.entry_of(path).map(|(_, id, _)| id))
+    }
+    fn is_folder(&self, path: &str) -> Result<bool, i32> {
+        Ok(self.entry_of(path).is_some_and(|(_, _, folder)| folder))
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Result<bool, i32> {
+        Ok(key(a) == key(b) && self.entry_of(a).is_some())
+    }
+    fn spelled_as(&self, path: &str) -> Result<bool, i32> {
+        Ok(self.files.borrow().contains_key(path))
     }
     fn rename(&self, from: &str, to: &str, _replace: bool) -> Result<(), i32> {
-        let moved: Vec<String> = self
+        let moved: Vec<(String, u64, bool)> = self
             .files
             .borrow()
             .iter()
-            .filter(|f| self.under(f, from))
-            .cloned()
+            .filter(|(f, _)| self.within(f, from))
+            .map(|(f, (id, folder))| (f.clone(), *id, *folder))
             .collect();
         self.tick()?;
-        for old in &moved {
-            self.files.borrow_mut().insert(Self::renamed(old, from, to));
+        let mut pairs = Vec::new();
+        for (old, id, folder) in &moved {
+            let new = Self::renamed(old, from, to);
+            let wanted = key(&new);
+            let mut files = self.files.borrow_mut();
+            // What was at the new name (a replaced file) is gone; the moved
+            // entry itself, under its old spelling, stays until the second write.
+            files.retain(|path, (other, _)| key(path) != wanted || other == id);
+            files.insert(new.clone(), (*id, *folder));
+            pairs.push((old.clone(), new));
         }
-        self.half.set(true);
+        *self.half.borrow_mut() = pairs;
         self.tick()?;
-        for old in &moved {
-            self.files.borrow_mut().remove(old);
-        }
-        self.half.set(false);
+        self.finish_rename();
         Ok(())
     }
     fn settle(&self) -> Result<(), i32> {
         self.tick()?;
-        if self.half.get() {
-            let (from, _, _) = self.entry.borrow().clone().unwrap();
-            self.files.borrow_mut().retain(|f| !self.under(f, &from));
-            self.half.set(false);
+        self.finish_rename();
+        Ok(())
+    }
+    fn within(&self, path: &str, folder: &str) -> bool {
+        let (path, folder) = (key(path), key(folder));
+        path.len() >= folder.len() && path[..folder.len()] == folder[..]
+    }
+    fn discard_replaced(&self, from: &str, to: &str) -> Result<(), i32> {
+        self.tick()?;
+        // Only while the moved book's data is still at its old key.
+        if self.catalog.borrow().contains_key(from) {
+            self.catalog.borrow_mut().remove(to);
         }
         Ok(())
     }
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         match phase {
+            Phase::Replaced => Ok(Phase::Books(0)),
             Phase::Books(n) => {
-                let books = self.books_under(from);
+                // Keys already spelled with the new prefix are done (a
+                // case-only rename matches both spellings under `within`).
+                let books: Vec<String> = self
+                    .books_under(from)
+                    .into_iter()
+                    .filter(|k| from == to || !k.starts_with(to))
+                    .collect();
                 for old in books.iter().take(STEP_BOOKS) {
                     self.move_one(old, from, to)?;
                 }
@@ -146,7 +216,7 @@ impl MoveHost for World {
                 let mut map = self.assignments.borrow_mut();
                 let old: Vec<String> = map
                     .keys()
-                    .filter(|k| self.under(k, from))
+                    .filter(|k| self.within(k, from))
                     .cloned()
                     .collect();
                 for key in old {
@@ -158,7 +228,7 @@ impl MoveHost for World {
             Phase::Settings => {
                 self.tick()?;
                 for value in self.settings.borrow_mut().values_mut() {
-                    if self.under(value, from) {
+                    if self.within(value, from) {
                         *value = Self::renamed(value, from, to);
                     }
                 }
@@ -188,12 +258,25 @@ impl MoveHost for World {
     }
 }
 
-/// A folder `Books/old` with `n` books, `Books` as a reader folder and a
-/// setting that names it.
+impl World {
+    /// The second directory write: the old spellings go.
+    fn finish_rename(&self) {
+        let pairs = core::mem::take(&mut *self.half.borrow_mut());
+        let news: BTreeSet<String> = pairs.iter().map(|(_, new)| new.clone()).collect();
+        for (old, _) in pairs {
+            if !news.contains(&old) {
+                self.files.borrow_mut().remove(&old);
+            }
+        }
+    }
+}
+
+/// A folder `Books/old` with `n` books, a reader folder assignment and a
+/// setting that names a folder in it.
 fn world(n: usize) -> World {
     let w = World::default();
-    w.files.borrow_mut().insert("Books".into());
-    w.files.borrow_mut().insert("Books/old".into());
+    w.create("Books", true);
+    w.create("Books/old", true);
     for i in 0..n {
         w.add_book(&format!("Books/old/b{i:04}.epub"), 100 + i as u32);
     }
@@ -206,6 +289,17 @@ fn world(n: usize) -> World {
     w
 }
 
+/// Single books: `a.epub` (position 5) and its `.bak` (6), and `b.epub`
+/// (position 99, with a data folder of its own).
+fn books() -> World {
+    let w = World::default();
+    w.create("Books", true);
+    w.add_book("Books/a.epub", 5);
+    w.add_book("Books/a.epub.bak", 6);
+    w.add_book("Books/b.epub", 99);
+    w
+}
+
 fn run(moves: &Moves, w: &World) -> usize {
     let mut steps = 0;
     while moves.step(w).unwrap() {
@@ -215,18 +309,28 @@ fn run(moves: &Moves, w: &World) -> usize {
     steps
 }
 
-/// Everything at the new place, nothing at the old, entry cleared.
-fn assert_moved(w: &World, n: usize) {
+/// Everything at the new place `to`, nothing at the old, entry cleared.
+fn assert_moved_to(w: &World, to: &str, n: usize) {
     assert_eq!(*w.entry.borrow(), None);
-    assert!(w.books_under("Books/old").is_empty());
-    let books = w.books_under("Books/new");
+    assert!(
+        w.books_under("Books/old").is_empty() || to.eq_ignore_ascii_case("Books/old"),
+        "{:?}",
+        w.books_under("Books/old")
+    );
+    let books = w.books_under(to);
     assert_eq!(books.len(), n);
     for (i, key) in books.iter().enumerate() {
         assert_eq!(w.catalog.borrow()[key], 100 + i as u32, "{key}");
     }
-    assert_eq!(w.assignments.borrow()["Books/new/sub"], "reader.fast");
-    assert_eq!(w.settings.borrow()["library.folder"], "Books/new/sub");
-    assert!(w.files.borrow().iter().all(|f| !f.starts_with("Books/old")));
+    assert_eq!(w.assignments.borrow()[&format!("{to}/sub")], "reader.fast");
+    assert_eq!(w.settings.borrow()["library.folder"], format!("{to}/sub"));
+}
+fn assert_moved(w: &World, n: usize) {
+    assert_moved_to(w, "Books/new", n);
+    assert!(
+        w.files.borrow().keys().all(|f| !f.starts_with("Books/old")),
+        "the old names are gone"
+    );
 }
 
 /// Nothing happened.
@@ -235,6 +339,11 @@ fn assert_unmoved(w: &World, n: usize) {
     assert_eq!(w.books_under("Books/old").len(), n);
     assert!(w.books_under("Books/new").is_empty());
     assert_eq!(w.settings.borrow()["library.folder"], "books/OLD/sub");
+}
+
+/// The state is one of the two whole ones and no job is left.
+fn whole(w: &World, moves: &Moves) -> bool {
+    !moves.active() && w.entry.borrow().is_none()
 }
 
 #[test]
@@ -255,6 +364,37 @@ fn a_move_carries_books_assignments_settings_and_events() {
 }
 
 #[test]
+fn a_move_that_cannot_work_is_refused_before_anything_is_written() {
+    let w = world(3);
+    w.create("Books/taken", true);
+    w.add_book("Books/a.epub", 1);
+    w.add_book("Books/b.epub", 2);
+    let moves = Moves::default();
+    let refused = |from, to, replace| moves.begin(&w, from, to, replace);
+    // An existing target without `replace`, a folder at the target (even with
+    // `replace`), a folder replacing a file, a missing source, a move into
+    // itself.
+    assert_eq!(
+        refused("Books/a.epub", "Books/b.epub", false),
+        Err(ERR_STATE)
+    );
+    assert_eq!(refused("Books/old", "Books/taken", true), Err(ERR_STATE));
+    assert_eq!(refused("Books/a.epub", "Books/taken", true), Err(ERR_STATE));
+    assert_eq!(refused("Books/old", "Books/b.epub", true), Err(ERR_STATE));
+    assert_eq!(refused("Books/gone", "Books/x", false), Err(ERR_NOT_FOUND));
+    assert_eq!(
+        refused("Books/old", "Books/old/in", false),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(w.ticks.get(), 0, "no durable write for a refusal");
+    assert!(!moves.active() && w.entry.borrow().is_none());
+    // A move that replaces a file is allowed.
+    moves
+        .begin(&w, "Books/a.epub", "Books/b.epub", true)
+        .unwrap();
+}
+
+#[test]
 fn a_cut_right_after_the_rename_is_finished_at_start() {
     let w = world(20);
     // Ticks: 1 entry, 2 add, 3 remove, 4.. the job; cut at the first step.
@@ -263,7 +403,9 @@ fn a_cut_right_after_the_rename_is_finished_at_start() {
     first.begin(&w, "Books/old", "Books/new", false).unwrap();
     assert!(first.step(&w).is_err());
     w.restart();
-    assert!(w.exists("Books/new").unwrap() && !w.exists("Books/old").unwrap());
+    assert!(
+        w.identity("Books/new").unwrap().is_some() && w.identity("Books/old").unwrap().is_none()
+    );
     let second = Moves::default();
     second.start(&w).unwrap();
     run(&second, &w);
@@ -280,7 +422,9 @@ fn a_cut_that_leaves_both_names_is_repaired_before_the_entry_is_judged() {
         Err(ERR_IO)
     );
     w.restart();
-    assert!(w.exists("Books/new").unwrap() && w.exists("Books/old").unwrap());
+    assert!(
+        w.identity("Books/new").unwrap().is_some() && w.identity("Books/old").unwrap().is_some()
+    );
     assert!(
         w.entry.borrow().is_some(),
         "the entry is kept, not dropped blind"
@@ -288,7 +432,7 @@ fn a_cut_that_leaves_both_names_is_repaired_before_the_entry_is_judged() {
     let second = Moves::default();
     second.start(&w).unwrap();
     assert!(
-        !w.exists("Books/old").unwrap(),
+        w.identity("Books/old").unwrap().is_none(),
         "the repair settled the names"
     );
     run(&second, &w);
@@ -296,7 +440,7 @@ fn a_cut_that_leaves_both_names_is_repaired_before_the_entry_is_judged() {
 }
 
 #[test]
-fn only_the_old_name_drops_the_entry_neither_drops_it_too() {
+fn only_the_old_name_drops_the_entry_nothing_at_all_drops_it_too() {
     // A cut after the journal, before the rename.
     let w = world(5);
     w.cut.set(Some(2));
@@ -310,10 +454,13 @@ fn only_the_old_name_drops_the_entry_neither_drops_it_too() {
     moves.start(&w).unwrap();
     assert!(!moves.active());
     assert_unmoved(&w, 5);
-    // The folder was removed on a computer: neither name exists.
+    // The folder was removed on a computer: nothing of it is left.
     let w = world(5);
-    *w.entry.borrow_mut() = Some(("Books/old".into(), "Books/new".into(), false));
-    w.files.borrow_mut().retain(|f| !f.starts_with("Books/old"));
+    let id = w.identity("Books/old").unwrap().unwrap();
+    *w.entry.borrow_mut() = Some(("Books/old".into(), "Books/new".into(), false, id));
+    w.files
+        .borrow_mut()
+        .retain(|f, _| !f.starts_with("Books/old"));
     let moves = Moves::default();
     moves.start(&w).unwrap();
     assert!(!moves.active());
@@ -321,21 +468,134 @@ fn only_the_old_name_drops_the_entry_neither_drops_it_too() {
 }
 
 #[test]
-fn both_names_that_the_repair_cannot_settle_keep_the_entry() {
-    let w = world(3);
-    *w.entry.borrow_mut() = Some(("Books/old".into(), "Books/new".into(), false));
-    w.files.borrow_mut().insert("Books/new".into());
-    let moves = Moves::default();
-    moves.start(&w).unwrap_err();
-    assert!(w.entry.borrow().is_some() && moves.active());
-    // A move that replaces a file and never ran is nothing moved.
-    let w = world(0);
-    w.files.borrow_mut().insert("Books/a.epub".into());
-    w.files.borrow_mut().insert("Books/b.epub".into());
-    *w.entry.borrow_mut() = Some(("Books/a.epub".into(), "Books/b.epub".into(), true));
+fn a_new_file_at_the_old_name_after_the_rename_still_counts_as_done() {
+    let w = world(6);
+    w.cut.set(Some(4));
+    let first = Moves::default();
+    first.begin(&w, "Books/old", "Books/new", false).unwrap();
+    assert!(first.step(&w).is_err());
+    w.restart();
+    // Someone made a new folder at the old name; it is not the moved entry.
+    let fresh = w.create("Books/old", true);
     let moves = Moves::default();
     moves.start(&w).unwrap();
-    assert!(!moves.active() && w.entry.borrow().is_none());
+    assert!(moves.active(), "the job runs, it is not stuck or dropped");
+    run(&moves, &w);
+    assert_eq!(w.identity("Books/old").unwrap(), Some(fresh), "untouched");
+    assert_eq!(w.books_under("Books/new").len(), 6);
+    assert_eq!(*w.entry.borrow(), None);
+}
+
+#[test]
+fn a_case_only_rename_is_decided_by_the_stored_spelling_and_never_stuck() {
+    let w = world(20);
+    let moves = Moves::default();
+    moves.begin(&w, "Books/old", "Books/OLD", false).unwrap();
+    run(&moves, &w);
+    assert!(w.files.borrow().contains_key("Books/OLD"));
+    assert!(!w.files.borrow().contains_key("Books/old"));
+    assert_moved_to(&w, "Books/OLD", 20);
+    // Every cut: the result is whole and no job is left stuck.
+    let total = {
+        let w = world(20);
+        let moves = Moves::default();
+        moves.begin(&w, "Books/old", "Books/OLD", false).unwrap();
+        run(&moves, &w);
+        w.ticks.get()
+    };
+    for cut in 1..=total {
+        let w = world(20);
+        w.cut.set(Some(cut));
+        let moves = Moves::default();
+        if moves.begin(&w, "Books/old", "Books/OLD", false).is_ok() {
+            while moves.step(&w).is_ok_and(|more| more) {}
+        }
+        w.restart();
+        let moves = Moves::default();
+        moves.start(&w).unwrap();
+        run(&moves, &w);
+        assert!(whole(&w, &moves), "cut {cut}: a job is left");
+        assert_eq!(w.files.borrow().len(), 22, "cut {cut}: one entry per name");
+        let spelled_new = w.files.borrow().contains_key("Books/OLD");
+        if spelled_new {
+            assert_moved_to(&w, "Books/OLD", 20);
+        } else {
+            assert_eq!(w.books_under("Books/old").len(), 20, "cut {cut}");
+        }
+    }
+}
+
+#[test]
+fn an_unreadable_journal_is_never_overwritten() {
+    let w = world(3);
+    *w.entry.borrow_mut() = Some(("Books/x".into(), "Books/y".into(), false, 1));
+    w.unreadable.set(true);
+    let moves = Moves::default();
+    assert_eq!(moves.start(&w), Err(ERR_IO));
+    assert_eq!(
+        moves.begin(&w, "Books/old", "Books/new", false),
+        Err(ERR_IO)
+    );
+    assert_eq!(w.ticks.get(), 0, "nothing was written");
+    assert_eq!(
+        w.entry.borrow().as_ref().unwrap().0,
+        "Books/x",
+        "the entry stays"
+    );
+    // Readable again: the old entry is judged first (nothing moved: dropped)
+    // and then the new move may begin.
+    w.unreadable.set(false);
+    assert_eq!(moves.begin(&w, "Books/old", "Books/new", false), Ok(()));
+    run(&moves, &w);
+    assert_moved(&w, 3);
+}
+
+#[test]
+fn a_replacing_move_does_not_inherit_the_replaced_files_data() {
+    let w = books();
+    let moves = Moves::default();
+    moves
+        .begin(&w, "Books/a.epub", "Books/b.epub", true)
+        .unwrap();
+    run(&moves, &w);
+    assert_eq!(
+        w.catalog.borrow().get("Books/b.epub"),
+        Some(&5),
+        "a's data, not b's 99"
+    );
+    assert_eq!(w.catalog.borrow().get("Books/b.epub.bak"), Some(&6));
+    assert!(w.catalog.borrow().keys().all(|k| !k.starts_with("Books/a")));
+    // A cut at every durable write: whole, or not done; never b's data under
+    // the moved book, never a lost position.
+    let total = w.ticks.get();
+    for cut in 1..=total {
+        let w = books();
+        w.cut.set(Some(cut));
+        let moves = Moves::default();
+        if moves
+            .begin(&w, "Books/a.epub", "Books/b.epub", true)
+            .is_ok()
+        {
+            while moves.step(&w).is_ok_and(|more| more) {}
+        }
+        w.restart();
+        let moves = Moves::default();
+        moves.start(&w).unwrap();
+        run(&moves, &w);
+        assert!(whole(&w, &moves), "cut {cut}");
+        let (a, b) = {
+            let c = w.catalog.borrow();
+            (
+                c.get("Books/a.epub").copied(),
+                c.get("Books/b.epub").copied(),
+            )
+        };
+        match (a, b) {
+            (Some(5), Some(99)) => assert!(w.files.borrow().contains_key("Books/a.epub")),
+            (None, Some(5)) => assert!(!w.files.borrow().contains_key("Books/a.epub")),
+            other => panic!("cut {cut}: {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -430,12 +690,13 @@ fn a_cut_after_every_durable_write_leaves_the_move_whole_or_not_done() {
         w.restart();
         // A new process: only the card is left.
         let moves = Moves::default();
-        if moves.start(&w).is_ok() {
-            run(&moves, &w);
-        }
-        let neither = !w.exists("Books/old").unwrap() && !w.exists("Books/new").unwrap();
+        moves.start(&w).unwrap();
+        run(&moves, &w);
+        assert!(whole(&w, &moves), "cut {cut}: a job is left");
+        let neither = w.identity("Books/old").unwrap().is_none()
+            && w.identity("Books/new").unwrap().is_none();
         assert!(!neither, "cut {cut}: found at neither place");
-        if w.exists("Books/new").unwrap() {
+        if w.identity("Books/new").unwrap().is_some() {
             assert_moved(&w, 40);
         } else {
             assert_unmoved(&w, 40);
@@ -454,6 +715,12 @@ fn paths_at_or_below_either_name_are_busy_while_the_job_runs() {
         "books/OLD/b0000.epub",
         "Books/new",
         "Books/new/sub/x.epub",
+        // make_dir and writes at the old name, or below the new one.
+        "Books/old/fresh/",
+        "Books/new/fresh.epub",
+        // Unicode case and 8.3 aliases name the same folders.
+        "BOOKS~1/old",
+        "BOOKS~1/NEW/x",
     ] {
         assert!(moves.busy(&w, busy), "{busy}");
     }
@@ -468,24 +735,26 @@ fn paths_at_or_below_either_name_are_busy_while_the_job_runs() {
 }
 
 #[test]
-fn a_single_book_moves_with_its_bak_sibling_and_a_rename_by_case() {
-    // File-manager's file case: `a.epub.bak` may be named back.
+fn names_match_beyond_ascii_case() {
     let w = World::default();
-    w.files.borrow_mut().insert("Books".into());
-    w.add_book("Books/a.epub", 5);
-    w.add_book("Books/a.epub.bak", 6);
+    assert!(w.within("BÜCHER/neu/x", "Bücher"));
+    assert!(w.within("bücher", "BÜCHER/"));
+    assert!(!w.within("Bücherei", "Bücher"));
+}
+
+#[test]
+fn a_single_book_moves_with_its_bak_sibling_and_its_events() {
+    // File-manager's file case: `a.epub.bak` may be named back.
+    let w = books();
     let moves = Moves::default();
     moves
-        .begin(&w, "Books/a.epub", "Books/b.epub", false)
+        .begin(&w, "Books/a.epub", "Books/c.epub", false)
         .unwrap();
     run(&moves, &w);
-    assert_eq!(w.catalog.borrow().get("Books/b.epub"), Some(&5));
-    assert_eq!(w.catalog.borrow().get("Books/b.epub.bak"), Some(&6));
+    assert_eq!(w.catalog.borrow().get("Books/c.epub"), Some(&5));
+    assert_eq!(w.catalog.borrow().get("Books/c.epub.bak"), Some(&6));
     assert!(w.catalog.borrow().keys().all(|k| !k.starts_with("Books/a")));
     assert_eq!(w.events.borrow().len(), 2);
-    // `Books` is `books` for settings and assignments.
-    assert!(MoveHost::within(&w, "BOOKS/x/y", "books/X"));
-    assert!(!MoveHost::within(&w, "books/xy", "books/x"));
 }
 
 #[test]
