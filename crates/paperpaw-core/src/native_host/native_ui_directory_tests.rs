@@ -25,7 +25,7 @@ impl ImageOwner for Source {
         Ok(self.owner)
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
-        visit(None);
+        visit(Some(&[]));
     }
     fn invalid_declaration(&self, status: i32) {
         panic!("valid owned fixture declaration became invalid: {status}");

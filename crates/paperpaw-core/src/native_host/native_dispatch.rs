@@ -38,6 +38,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         env: &'a Env<'a>,
         epoch: u64,
         instance: Option<paperpaw_sdk::ScreenKey>,
+        directory: Option<&'a super::native_declarations::NativeDeclarations>,
     ) -> CoreFrame<'a> {
         CoreFrame {
             callback: crate::abi7::core_frame::CallbackStamp::new(self.identity.owner(), epoch)
@@ -46,7 +47,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             env,
             meter: &self.host.meter,
             depth: Some(self.depth.as_depth()),
-            directory: self.host.directory.as_deref(),
+            directory,
             stack_generation: self.host.stack_rows.generation(),
             stack_rows: &self.host.stack_rows,
             font_removals: &self.host.font_removals,
@@ -63,13 +64,14 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
         invocation: shell::TokenInvocation<'_>,
     ) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_token(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), instance),
+            &self.frame(env, epoch.epoch(), instance, directory.as_deref()),
             invocation,
         )
         .map_err(status)
@@ -82,13 +84,14 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         canvas: &mut Canvas<'_>,
         instance: Option<paperpaw_sdk::ScreenKey>,
     ) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), instance),
+            &self.frame(env, epoch.epoch(), instance, directory.as_deref()),
             frame,
             canvas,
         )
@@ -141,13 +144,14 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_stage(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), None),
+            &self.frame(env, epoch.epoch(), None, directory.as_deref()),
             bytes,
             out,
         )

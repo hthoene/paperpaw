@@ -275,15 +275,25 @@ use staged::Declarations;
 #[derive(Debug)]
 pub struct FlatHost {
     pub(crate) stack_rows: alloc::rc::Rc<stack_rows::StackRows>,
-    pub(crate) directory: Option<native_declarations::DirectoryHandle>,
+    pub(crate) directory: Option<native_declarations::DirectoryWeak>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
 }
 
 impl FlatHost {
-    pub(crate) fn try_directory(
+    pub(crate) fn upgrade_directory(
         &self,
     ) -> Result<Option<native_declarations::DirectoryHandle>, i32> {
+        match &self.directory {
+            None => Ok(None),
+            Some(directory) => directory
+                .upgrade()
+                .map_err(|_| ERR_NO_MEMORY)?
+                .map(Some)
+                .ok_or(paperpaw_native::host_glue::ERR_STATE),
+        }
+    }
+    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
         self.directory
             .as_ref()
             .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))

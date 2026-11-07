@@ -7,14 +7,18 @@
 //! Self-referential handle cycles would leak and must not be introduced.
 
 use alloc::{alloc::alloc, boxed::Box, rc::Rc};
-use core::{alloc::Layout, cell::Cell, fmt, marker::PhantomData, ops::Deref, ptr::NonNull};
+use core::{
+    alloc::Layout, cell::Cell, fmt, marker::PhantomData, mem::ManuallyDrop, ops::Deref,
+    ptr::NonNull,
+};
 
 #[derive(Debug)]
 pub(crate) struct Allocation;
 
 struct Inner<T> {
     count: Cell<u32>,
-    value: T,
+    weak: Cell<u32>,
+    value: ManuallyDrop<T>,
 }
 
 pub(crate) struct Shared<T> {
@@ -22,6 +26,54 @@ pub(crate) struct Shared<T> {
     // Explicitly single-threaded even if T itself is Send and Sync.
     _local: PhantomData<Rc<()>>,
     _owned: PhantomData<Inner<T>>,
+}
+
+pub(crate) struct Weak<T> {
+    pointer: NonNull<Inner<T>>,
+    _local: PhantomData<Rc<()>>,
+}
+impl<T> fmt::Debug for Weak<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Weak").finish_non_exhaustive()
+    }
+}
+impl<T> Weak<T> {
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        // SAFETY: this weak handle retains the header allocation.
+        let inner = unsafe { self.pointer.as_ref() };
+        inner.weak.set(inner.weak.get().checked_add(1)?);
+        Some(Self {
+            pointer: self.pointer,
+            _local: PhantomData,
+        })
+    }
+    pub(crate) fn upgrade(&self) -> Result<Option<Shared<T>>, Allocation> {
+        // SAFETY: this weak handle retains the header, even after T drops.
+        let inner = unsafe { self.pointer.as_ref() };
+        if inner.count.get() == 0 {
+            return Ok(None);
+        }
+        inner
+            .count
+            .set(inner.count.get().checked_add(1).ok_or(Allocation)?);
+        Ok(Some(Shared {
+            pointer: self.pointer,
+            _local: PhantomData,
+            _owned: PhantomData,
+        }))
+    }
+}
+impl<T> Drop for Weak<T> {
+    fn drop(&mut self) {
+        // SAFETY: every weak handle owns one header reference. The last one
+        // frees only a header whose value was already destroyed.
+        let inner = unsafe { self.pointer.as_ref() };
+        let remaining = inner.weak.get() - 1;
+        inner.weak.set(remaining);
+        if remaining == 0 {
+            unsafe { drop(Box::from_raw(self.pointer.as_ptr())) };
+        }
+    }
 }
 
 impl<T> fmt::Debug for Shared<T> {
@@ -34,13 +86,24 @@ impl<T> Shared<T> {
     pub(crate) fn try_new(value: T) -> Result<Self, Allocation> {
         let inner = try_box(Inner {
             count: Cell::new(1),
-            value,
+            weak: Cell::new(1),
+            value: ManuallyDrop::new(value),
         })
         .ok_or(Allocation)?;
         Ok(Self {
             pointer: NonNull::from(Box::leak(inner)),
             _local: PhantomData,
             _owned: PhantomData,
+        })
+    }
+
+    pub(crate) fn downgrade(&self) -> Option<Weak<T>> {
+        // SAFETY: this strong handle retains both the value and header.
+        let inner = unsafe { self.pointer.as_ref() };
+        inner.weak.set(inner.weak.get().checked_add(1)?);
+        Some(Weak {
+            pointer: self.pointer,
+            _local: PhantomData,
         })
     }
 
@@ -79,9 +142,15 @@ impl<T> Drop for Shared<T> {
         if remaining != 0 {
             return;
         }
-        // SAFETY: this is the last owner. Reconstruct the original Box so its
-        // normal drop glue also frees the allocation if T's destructor unwinds.
-        unsafe { drop(Box::from_raw(self.pointer.as_ptr())) };
+        // The implicit weak reference keeps the header alive while T drops,
+        // including if T drops its own weak back-pointer or unwinds.
+        let _release = Weak {
+            pointer: self.pointer,
+            _local: PhantomData,
+        };
+        // SAFETY: strong count is zero, so no shared handle can access T.
+        // Weak::upgrade refuses zero. The value is destroyed exactly once.
+        unsafe { ManuallyDrop::drop(&mut (*self.pointer.as_ptr()).value) };
     }
 }
 
@@ -138,5 +207,70 @@ mod tests {
         assert_eq!(inner.count.get(), u32::MAX);
         assert_eq!(*value, 17);
         inner.count.set(1);
+    }
+    #[test]
+    fn weak_upgrade_retains_value_and_expiry_never_revives_it() {
+        let dropped = Rc::new(Cell::new(0));
+        let value = Shared::try_new(Probe(Rc::clone(&dropped))).unwrap();
+        let weak = value.downgrade().unwrap();
+        let copy = weak.try_clone().unwrap();
+        let retained = weak.upgrade().unwrap().unwrap();
+        drop(value);
+        assert_eq!(dropped.get(), 0);
+        drop(retained);
+        assert_eq!(dropped.get(), 1);
+        assert!(weak.upgrade().unwrap().is_none());
+        assert!(copy.upgrade().unwrap().is_none());
+        drop(weak);
+        drop(copy);
+        assert_eq!(dropped.get(), 1);
+    }
+
+    #[test]
+    fn weak_count_and_upgrade_exhaustion_have_no_side_effects() {
+        let value = Shared::try_new(17).unwrap();
+        let weak = value.downgrade().unwrap();
+        // SAFETY: test-only counters are restored before any handle drops.
+        let inner = unsafe { value.pointer.as_ref() };
+        inner.weak.set(u32::MAX);
+        assert!(value.downgrade().is_none());
+        assert!(weak.try_clone().is_none());
+        assert_eq!(inner.weak.get(), u32::MAX);
+        inner.weak.set(2);
+        inner.count.set(u32::MAX);
+        assert!(weak.upgrade().is_err());
+        assert_eq!(inner.count.get(), u32::MAX);
+        inner.count.set(1);
+    }
+
+    #[test]
+    fn weak_back_pointer_does_not_keep_its_owner_alive() {
+        struct Back {
+            weak: core::cell::RefCell<Option<Weak<Back>>>,
+            dropped: Rc<Cell<bool>>,
+        }
+        impl Drop for Back {
+            fn drop(&mut self) {
+                assert!(
+                    self.weak
+                        .borrow()
+                        .as_ref()
+                        .unwrap()
+                        .upgrade()
+                        .unwrap()
+                        .is_none()
+                );
+                self.dropped.set(true);
+            }
+        }
+        let dropped = Rc::new(Cell::new(false));
+        let value = Shared::try_new(Back {
+            weak: core::cell::RefCell::new(None),
+            dropped: Rc::clone(&dropped),
+        })
+        .unwrap();
+        *value.weak.borrow_mut() = value.downgrade();
+        drop(value);
+        assert!(dropped.get());
     }
 }

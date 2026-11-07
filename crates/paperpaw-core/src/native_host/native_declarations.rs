@@ -135,3 +135,5 @@ impl NativeDeclarations {
 }
 
 pub(crate) type DirectoryHandle = super::shared::Shared<NativeDeclarations>;
+
+pub(crate) type DirectoryWeak = super::shared::Weak<NativeDeclarations>;

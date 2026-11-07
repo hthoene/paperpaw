@@ -355,13 +355,14 @@ fn invoke(
     env: &Env<'_>,
     bytes: &[u8],
 ) -> Result<(), DropReason> {
+    let directory = host.upgrade_directory().map_err(DropReason::Plugin)?;
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
         instance: None,
         env,
         meter: &host.meter,
         depth: None,
-        directory: host.directory.as_deref(),
+        directory: directory.as_deref(),
         stack_generation: host.stack_rows.generation(),
         stack_rows: &host.stack_rows,
         font_removals: &host.font_removals,

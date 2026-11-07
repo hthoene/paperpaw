@@ -229,7 +229,7 @@ impl crate::Kernel {
                 .registry
                 .native_declarations
                 .as_ref()
-                .map(|directory| directory.try_clone().ok_or(shell::Error::Allocation))
+                .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
                 .transpose()?,
             stack_rows: Rc::clone(&self.shared.stack_rows),
             font_removals: Rc::clone(&self.shared.font_removals),
