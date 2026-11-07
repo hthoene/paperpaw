@@ -133,6 +133,53 @@ fn sorting_refuses_cleanly_and_leaves_no_run() {
     );
 }
 
+/// The output is the input: a refusal anywhere leaves the input whole (the
+/// memory is taken before the file is truncated), and success sorts it.
+#[test]
+fn sorting_in_place_refuses_cleanly_and_keeps_the_input() {
+    for count in [3 * 2048, 2048 * 17] {
+        let input = jumbled(count);
+        sweep(
+            "sort in place",
+            || with_file("in", input.clone()),
+            |s| extsort::sort(s, "in", "in", 8, "tmp"),
+            |s, ok| {
+                let now = fixture(|| s.0.get("in")).unwrap();
+                assert!(
+                    !names(s, "").iter().any(|n| n.starts_with("tmp.")),
+                    "a run is left"
+                );
+                if ok {
+                    assert_eq!(now.len(), input.len());
+                    assert!(now.as_chunks::<8>().0.windows(2).all(|w| w[0] <= w[1]));
+                } else {
+                    assert_eq!(now, input, "the input as it was");
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn a_books_totals_refuse_cleanly_never_partial() {
+    use crate::totals::{BookTotals, of_book};
+    let make = || device_with(300);
+    let storage = fixture(make);
+    let one = fixture(|| book(1, &md5(0xa)));
+    let whole: BookTotals = fixture(|| of_book(&storage, &one, |u| u as i32 / 500)).unwrap();
+    assert!(whole.pages_read > 0 && !whole.days.is_empty());
+    sweep(
+        "of_book",
+        make,
+        |s| {
+            let got = of_book(s, &one, |u| u as i32 / 500)?;
+            assert_eq!(got, whole, "totals that lack stays");
+            Ok(())
+        },
+        |_, _| {},
+    );
+}
+
 #[test]
 fn reading_records_refuses_cleanly() {
     let input = jumbled(300);

@@ -223,7 +223,8 @@ fn merge(
     output: &str,
     size: usize,
 ) -> Result<(), StorageError> {
-    storage.write(output, &[])?;
+    // All memory first: with `output` the input itself, nothing may be
+    // refused after it is truncated.
     let mut readers: Vec<Reader<'_>> = Vec::new();
     room::reserve(&mut readers, group.len())?;
     for run in group {
@@ -235,6 +236,7 @@ fn merge(
     out.try_reserve_exact(AHEAD * 4 + MAX_RECORD)
         .map_err(|_| StorageError::TooLarge)?;
     let mut record: Record = [0; MAX_RECORD];
+    storage.write(output, &[])?;
     loop {
         // The run with the smallest head (few runs: a scan is fine).
         let mut best: Option<usize> = None;
