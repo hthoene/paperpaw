@@ -1,0 +1,121 @@
+{
+  "key": "core.net",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "ops": [
+    {
+      "id": 1,
+      "name": "request",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.net_request",
+        "service.net_header",
+        "service.net_file",
+        "service.net_body"
+      ],
+      "input_rows": 20,
+      "reply": [
+        "service.net_started"
+      ],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "cancel",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.net_token"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    },
+    {
+      "id": 3,
+      "name": "answer",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.network",
+      "input": [
+        "service.net_id"
+      ],
+      "reply": [
+        "service.net_answer"
+      ],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    },
+    {
+      "id": 4,
+      "name": "body",
+      "since": 0,
+      "effect": "query",
+      "feature": "uses.network",
+      "input": [
+        "service.net_read"
+      ],
+      "reply": [
+        "service.net_bytes"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 5,
+      "name": "serve",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.net_serve"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    },
+    {
+      "id": 6,
+      "name": "stop_serving",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.net_token"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    },
+    {
+      "id": 7,
+      "name": "respond",
+      "since": 0,
+      "effect": "mutate",
+      "feature": "uses.network",
+      "input": [
+        "service.net_response",
+        "service.net_header",
+        "service.net_file",
+        "service.net_body"
+      ],
+      "input_rows": 11,
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 1536,
+      "bound": "none"
+    }
+  ]
+}

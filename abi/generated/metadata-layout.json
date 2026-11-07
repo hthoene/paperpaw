@@ -49,6 +49,21 @@
         "key": "uses.bluetooth",
         "revision": 1,
         "since": 1
+      },
+      {
+        "key": "uses.storage",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.network",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.secrets",
+        "revision": 1,
+        "since": 1
       }
     ],
     "format": 2,
@@ -269,6 +284,41 @@
       },
       {
         "key": "core.device",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.files",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.net",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.secrets",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.work",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.sockets",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,
