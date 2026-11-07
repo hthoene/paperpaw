@@ -15,7 +15,11 @@ fn params(count: usize) -> Vec<u8> {
 fn generated_input_row_limit_accepts_exact_and_refuses_one_more() {
     let schema = services_wire::service_schema("core.ui", 1).unwrap();
     let op = schema.op(16).unwrap();
-    let key = ServiceKey { schema, minor: 0 };
+    let key = ServiceKey {
+        schema,
+        minor: 0,
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+    };
     let limit = usize::from(op.input_rows);
     assert_eq!(limit, 32);
     assert!(validate_op(key, op.id, &params(limit), op.max_reply).is_ok());
@@ -422,4 +426,60 @@ fn library_edit_add_accepts_4_records_and_refuses_5() {
             edit
         ],
     );
+}
+
+mod gate {
+    use super::*;
+    use crate::native_host::admitted_features::AdmittedFeatures;
+    use paperpaw_native::host_glue::ERR_DENIED;
+    use paperpaw_native::metadata::Feature;
+
+    const WIRED: &[Feature<'static>] = &[Feature {
+        key: "uses.library",
+        revision: 1,
+    }];
+
+    fn state_key(features: AdmittedFeatures) -> ServiceKey {
+        ServiceKey {
+            schema: services_wire::service_schema("core.library", 1).unwrap(),
+            minor: 0,
+            features,
+        }
+    }
+
+    fn state_input() -> Vec<u8> {
+        let rows = std::vec![Record::ServiceLibRef(registrations::ServiceLibRef {
+            path: "book.epub",
+            generation: 0,
+            key: None,
+        })];
+        let mut out = std::vec![0; 256];
+        let len = registrations::records_encode_counted(&rows, 4, 256, &mut out).unwrap();
+        out.truncate(len);
+        out
+    }
+
+    #[test]
+    fn gated_op_is_unsupported_without_host_denied_without_grant_and_runs_with_it() {
+        let schema = services_wire::service_schema("core.library", 1).unwrap();
+        let op = schema.op(3).unwrap();
+        assert_eq!(op.feature, Some("uses.library"));
+        let input = state_input();
+        let status =
+            |features| validate_op(state_key(features), op.id, &input, op.max_reply).map(|_| ());
+        assert_eq!(status(AdmittedFeatures::NONE), Err(ERR_UNSUPPORTED));
+        assert_eq!(status(AdmittedFeatures::test(0, WIRED)), Err(ERR_DENIED));
+        assert_eq!(status(AdmittedFeatures::test(1, WIRED)), Ok(()));
+        // Features are asked before sizes: a denied caller learns nothing about them.
+        assert_eq!(
+            validate_op(
+                state_key(AdmittedFeatures::test(0, WIRED)),
+                op.id,
+                &input,
+                0
+            )
+            .map(|_| ()),
+            Err(ERR_DENIED)
+        );
+    }
 }

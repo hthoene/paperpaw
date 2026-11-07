@@ -28,7 +28,7 @@ const WIFI_ONLY_HOST: &[Feature<'static>] = &[Feature {
 const PASSWORD: &str = "hunter2-PASSWORD";
 
 fn features(bits: u32) -> AdmittedFeatures {
-    AdmittedFeatures::for_test(HOST, bits)
+    AdmittedFeatures::test(bits, HOST)
 }
 const WIFI: u32 = 1;
 const POWER: u32 = 2;
@@ -147,7 +147,7 @@ fn a_feature_the_host_does_not_advertise_is_unsupported() {
     let kernel = kernel();
     let env = kernel.shared.env(Instant(0));
     let owner = Id::new_static("probe");
-    let admitted = AdmittedFeatures::for_test(WIFI_ONLY_HOST, 1);
+    let admitted = AdmittedFeatures::test(1, WIFI_ONLY_HOST);
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
         .with_dev(DevContext::new(admitted, &kernel.radio_requests));
     assert_eq!(
