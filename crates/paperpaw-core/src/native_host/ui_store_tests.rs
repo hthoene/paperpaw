@@ -13,12 +13,12 @@ fn p<'a>(key: &'a str, value: &'a str) -> Param<'a> {
     Param { key, value }
 }
 
-fn store() -> HandoverStore {
-    HandoverStore::new(Limits::ELSEWHERE)
+fn store() -> UiStore {
+    UiStore::new(Limits::ELSEWHERE)
 }
 
 fn read_params(
-    store: &HandoverStore,
+    store: &UiStore,
     instance: u32,
     handover: u32,
 ) -> Result<Vec<(String, String)>, i32> {
@@ -37,7 +37,7 @@ fn read_params(
     Ok(rows)
 }
 
-fn read_text(store: &HandoverStore, instance: u32, handover: u32) -> Result<String, i32> {
+fn read_text(store: &UiStore, instance: u32, handover: u32) -> Result<String, i32> {
     let mut all = Vec::new();
     let mut offset = 0;
     loop {
@@ -73,11 +73,11 @@ fn no_epoch_is_a_state_error() {
 fn make_claim_attach_params_and_the_old_one_goes_after() {
     let s = store();
     let first = s
-        .make(who(1, 1), &[p("book", "a.epub"), p("page", "3")])
+        .handover_make(who(1, 1), &[p("book", "a.epub"), p("page", "3")])
         .unwrap();
-    s.validate(who(1, 1), first).unwrap();
-    let claim = s.claim(who(1, 1), first).unwrap();
-    s.attach(claim, 7).unwrap();
+    s.handover_check(who(1, 1), first).unwrap();
+    let _claims = s.claim(who(1, 1), &[first]).unwrap();
+    s.attach(first, 7).unwrap();
     assert_eq!(
         s.info(7),
         Some(Info {
@@ -94,10 +94,10 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
         ]
     );
     // A reopen gives the instance a new one: the old is freed at attach only.
-    let second = s.make(who(1, 2), &[p("page", "9")]).unwrap();
-    let claim = s.claim(who(1, 2), second).unwrap();
+    let second = s.handover_make(who(1, 2), &[p("page", "9")]).unwrap();
+    let _claims = s.claim(who(1, 2), &[second]).unwrap();
     assert_eq!(s.len(), 2);
-    s.attach(claim, 7).unwrap();
+    s.attach(second, 7).unwrap();
     assert_eq!(s.len(), 1);
     assert_eq!(read_params(&s, 7, first).err(), Some(ERR_STATE));
     assert_eq!(read_params(&s, 7, second).unwrap().len(), 1);
@@ -112,17 +112,18 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
 #[test]
 fn a_refused_submit_releases_only_its_claims_and_the_old_data_stays() {
     let s = store();
-    let old = s.make(who(1, 1), &[p("k", "old")]).unwrap();
-    s.attach(s.claim(who(1, 1), old).unwrap(), 5).unwrap();
-    let kept = s.make(who(1, 2), &[p("k", "kept")]).unwrap();
-    let kept_claim = s.claim(who(1, 2), kept).unwrap();
-    let refused = s.make(who(1, 2), &[p("k", "refused")]).unwrap();
-    let refused_claim = s.claim(who(1, 2), refused).unwrap();
-    s.release(refused_claim);
+    let old = s.handover_make(who(1, 1), &[p("k", "old")]).unwrap();
+    let _first = s.claim(who(1, 1), &[old]).unwrap();
+    s.attach(old, 5).unwrap();
+    let kept = s.handover_make(who(1, 2), &[p("k", "kept")]).unwrap();
+    let _kept_claims = s.claim(who(1, 2), &[kept]).unwrap();
+    let refused = s.handover_make(who(1, 2), &[p("k", "refused")]).unwrap();
+    let refused_claims = s.claim(who(1, 2), &[refused]).unwrap();
+    s.rollback(refused_claims);
     assert_eq!(s.len(), 2, "the earlier accepted claim stays");
     assert_eq!(read_params(&s, 5, old).unwrap()[0].1, "old");
     // The stale-target open releases too; the old instance is unchanged.
-    s.release(kept_claim);
+    s.release(kept);
     assert_eq!(s.len(), 1);
     assert_eq!(read_params(&s, 5, old).unwrap()[0].1, "old");
 }
@@ -130,40 +131,44 @@ fn a_refused_submit_releases_only_its_claims_and_the_old_data_stays() {
 #[test]
 fn validate_claim_and_the_epoch_rules() {
     let s = store();
-    let id = s.make(who(1, 4), &[p("a", "1")]).unwrap();
+    let id = s.handover_make(who(1, 4), &[p("a", "1")]).unwrap();
     assert_eq!(
-        s.validate(who(2, 4), id),
+        s.handover_check(who(2, 4), id),
         Err(ERR_NOT_FOUND),
         "not its maker"
     );
     assert_eq!(
-        s.validate(who(1, 5), id),
+        s.handover_check(who(1, 5), id),
         Err(ERR_STATE),
         "another callback"
     );
-    assert_eq!(s.validate(who(1, 4), 999), Err(ERR_NOT_FOUND));
-    s.validate(who(1, 4), id).unwrap();
-    s.validate(who(1, 4), id).unwrap(); // changes nothing
-    let claim = s.claim(who(1, 4), id).unwrap();
-    assert_eq!(s.claim(who(1, 4), id).err(), Some(ERR_STATE), "duplicate");
-    assert_eq!(s.validate(who(1, 4), id), Err(ERR_STATE));
+    assert_eq!(s.handover_check(who(1, 4), 999), Err(ERR_NOT_FOUND));
+    s.handover_check(who(1, 4), id).unwrap();
+    s.handover_check(who(1, 4), id).unwrap(); // changes nothing
+    let _claims = s.claim(who(1, 4), &[id]).unwrap();
+    assert_eq!(
+        s.claim(who(1, 4), &[id]).err(),
+        Some(ERR_STATE),
+        "duplicate"
+    );
+    assert_eq!(s.handover_check(who(1, 4), id), Err(ERR_STATE));
     // Expiry frees only the made ones of that epoch; claimed ones stay.
-    let other = s.make(who(1, 4), &[]).unwrap();
-    let later = s.make(who(1, 5), &[]).unwrap();
-    s.expire(who(1, 4));
-    assert_eq!(s.validate(who(1, 5), later), Ok(()));
-    assert_eq!(s.validate(who(1, 4), other), Err(ERR_NOT_FOUND));
-    s.attach(claim, 3).unwrap();
+    let other = s.handover_make(who(1, 4), &[]).unwrap();
+    let later = s.handover_make(who(1, 5), &[]).unwrap();
+    s.end_callback(who(1, 4));
+    assert_eq!(s.handover_check(who(1, 5), later), Ok(()));
+    assert_eq!(s.handover_check(who(1, 4), other), Err(ERR_NOT_FOUND));
+    s.attach(id, 3).unwrap();
     assert_eq!(s.len(), 2);
 }
 
 #[test]
 fn a_claim_that_ended_cannot_attach_again() {
     let s = store();
-    let id = s.make(who(1, 1), &[]).unwrap();
-    let claim = s.claim(who(1, 1), id).unwrap();
-    s.teardown(1);
-    assert_eq!(s.attach(claim, 3).err(), Some(ERR_STATE));
+    let id = s.handover_make(who(1, 1), &[]).unwrap();
+    let _claims = s.claim(who(1, 1), &[id]).unwrap();
+    s.owner_stopped(1);
+    assert_eq!(s.attach(id, 3).err(), Some(ERR_STATE));
     assert_eq!(s.len(), 0);
 }
 
@@ -172,13 +177,14 @@ fn the_param_limits_32_1024_and_the_form() {
     let s = store();
     let keys: Vec<String> = (0..33).map(|n| format!("k{n}")).collect();
     let many: Vec<Param<'_>> = keys.iter().map(|k| p(k, "")).collect();
-    s.make(who(1, 1), &many[..32]).unwrap();
-    assert_eq!(s.make(who(1, 1), &many).err(), Some(ERR_NO_SPACE));
+    s.handover_make(who(1, 1), &many[..32]).unwrap();
+    assert_eq!(s.handover_make(who(1, 1), &many).err(), Some(ERR_NO_SPACE));
     // 1,024 bytes of keys and values in all fit, 1,025 do not.
     let v = "v".repeat(1_020);
-    s.make(who(1, 1), &[p("key1", &v)]).unwrap();
+    s.handover_make(who(1, 1), &[p("key1", &v)]).unwrap();
     assert_eq!(
-        s.make(who(1, 1), &[p("key1", &format!("{v}x"))]).err(),
+        s.handover_make(who(1, 1), &[p("key1", &format!("{v}x"))])
+            .err(),
         Some(ERR_NO_SPACE)
     );
     // Form: empty, long, upper case, duplicate, the host's own prefix.
@@ -190,50 +196,53 @@ fn the_param_limits_32_1024_and_the_form() {
         &[p("a", "1"), p("a", "2")],
         &[p("core.request", "1")],
     ] {
-        assert_eq!(s.make(who(1, 1), bad).err(), Some(ERR_INVALID));
+        assert_eq!(s.handover_make(who(1, 1), bad).err(), Some(ERR_INVALID));
     }
     // A key of 32 and a value with newlines are fine.
-    s.make(who(1, 1), &[p(&"k".repeat(32), "line\nbreak")])
+    s.handover_make(who(1, 1), &[p(&"k".repeat(32), "line\nbreak")])
         .unwrap();
 }
 
 #[test]
 fn the_x4_params_share_1536_bytes() {
-    let s = HandoverStore::new(Limits::X4);
+    let s = UiStore::new(Limits::X4);
     let v = "v".repeat(500);
     for key in ["a", "b", "c"] {
-        s.make(who(1, 1), &[p(key, &v)]).unwrap();
+        s.handover_make(who(1, 1), &[p(key, &v)]).unwrap();
     }
-    assert_eq!(s.make(who(1, 1), &[p("d", &v)]).err(), Some(ERR_FULL));
-    s.expire(who(1, 1));
+    assert_eq!(
+        s.handover_make(who(1, 1), &[p("d", &v)]).err(),
+        Some(ERR_FULL)
+    );
+    s.end_callback(who(1, 1));
     assert_eq!(s.held().0, 0);
-    s.make(who(1, 1), &[p("d", &v)]).unwrap();
+    s.handover_make(who(1, 1), &[p("d", &v)]).unwrap();
 }
 
 #[test]
 fn a_text_is_written_in_parts_committed_and_read_by_its_instance_only() {
     let s = store();
-    let id = s.make(who(1, 1), &[p("t", "x")]).unwrap();
+    let id = s.handover_make(who(1, 1), &[p("t", "x")]).unwrap();
     s.text_write(who(1, 1), id, 0, "häl".as_bytes(), false)
         .unwrap();
     // Uncommitted: the open naming it is ERR_STATE.
-    assert_eq!(s.validate(who(1, 1), id), Err(ERR_STATE));
+    assert_eq!(s.handover_check(who(1, 1), id), Err(ERR_STATE));
     assert_eq!(
         s.text_write(who(1, 1), id, 9, b"x", false),
         Err(ERR_INVALID)
     );
     s.text_write(who(1, 1), id, 4, "lo wörld".as_bytes(), true)
         .unwrap();
-    s.validate(who(1, 1), id).unwrap();
+    s.handover_check(who(1, 1), id).unwrap();
     // Others cannot write it; after the claim not even the maker.
     assert_eq!(
         s.text_write(who(2, 1), id, 0, b"", true),
         Err(ERR_NOT_FOUND)
     );
     assert_eq!(s.text_write(who(1, 2), id, 0, b"", true), Err(ERR_STATE));
-    let claim = s.claim(who(1, 1), id).unwrap();
+    let _claims = s.claim(who(1, 1), &[id]).unwrap();
     assert_eq!(s.text_write(who(1, 1), id, 0, b"", true), Err(ERR_STATE));
-    s.attach(claim, 4).unwrap();
+    s.attach(id, 4).unwrap();
     assert_eq!(s.info(4).unwrap().text_bytes, "hällo wörld".len() as u32);
     assert_eq!(read_text(&s, 4, id).unwrap(), "hällo wörld");
     assert_eq!(s.text_read(5, id, 0, &mut [0; 8]).err(), Some(ERR_STATE));
@@ -243,25 +252,26 @@ fn a_text_is_written_in_parts_committed_and_read_by_its_instance_only() {
     assert_eq!((total, n), ("hällo wörld".len(), 1));
     assert_eq!(s.text_read(4, id, 99, &mut out).err(), Some(ERR_INVALID));
     // Freed with the instance.
-    s.detach(4);
+    s.instance_closed(4);
     assert_eq!(s.held(), (0, 0));
 }
 
 #[test]
 fn a_write_at_zero_starts_over_also_after_last_and_an_empty_text_is_one_last() {
     let s = store();
-    let id = s.make(who(1, 1), &[]).unwrap();
+    let id = s.handover_make(who(1, 1), &[]).unwrap();
     s.text_write(who(1, 1), id, 0, b"first", true).unwrap();
     s.text_write(who(1, 1), id, 0, b"se", false).unwrap();
     assert_eq!(
-        s.validate(who(1, 1), id),
+        s.handover_check(who(1, 1), id),
         Err(ERR_STATE),
         "uncommitted again"
     );
     s.text_write(who(1, 1), id, 2, b"cond", true).unwrap();
     s.text_write(who(1, 1), id, 0, b"", true).unwrap();
-    s.validate(who(1, 1), id).unwrap();
-    s.attach(s.claim(who(1, 1), id).unwrap(), 2).unwrap();
+    s.handover_check(who(1, 1), id).unwrap();
+    let _claims = s.claim(who(1, 1), &[id]).unwrap();
+    s.attach(id, 2).unwrap();
     assert_eq!(read_text(&s, 2, id).unwrap(), "");
     assert_eq!(s.held().1, 0);
 }
@@ -269,7 +279,7 @@ fn a_write_at_zero_starts_over_also_after_last_and_an_empty_text_is_one_last() {
 #[test]
 fn the_text_cap_24576_and_the_part_cap_3072() {
     let s = store();
-    let id = s.make(who(1, 1), &[]).unwrap();
+    let id = s.handover_make(who(1, 1), &[]).unwrap();
     let part = [b'a'; 3_072];
     for n in 0..8 {
         s.text_write(who(1, 1), id, n * 3_072, &part, false)
@@ -290,14 +300,14 @@ fn the_text_cap_24576_and_the_part_cap_3072() {
 
 #[test]
 fn the_x4_has_four_texts_and_2_kib_without_a_card() {
-    let s = HandoverStore::new(Limits::X4);
+    let s = UiStore::new(Limits::X4);
     let mut ids = Vec::new();
     for _ in 0..4 {
-        let id = s.make(who(1, 1), &[]).unwrap();
+        let id = s.handover_make(who(1, 1), &[]).unwrap();
         s.text_write(who(1, 1), id, 0, b"t", true).unwrap();
         ids.push(id);
     }
-    let fifth = s.make(who(1, 1), &[]).unwrap();
+    let fifth = s.handover_make(who(1, 1), &[]).unwrap();
     assert_eq!(s.text_write(who(1, 1), fifth, 0, b"t", true), Err(ERR_FULL));
     s.text_write(who(1, 1), ids[0], 0, &[b'z'; 1_900], true)
         .unwrap();
@@ -306,7 +316,7 @@ fn the_x4_has_four_texts_and_2_kib_without_a_card() {
         Err(ERR_IO)
     );
     assert_eq!(
-        s.validate(who(1, 1), ids[1]),
+        s.handover_check(who(1, 1), ids[1]),
         Ok(()),
         "kept at the text before"
     );
@@ -315,54 +325,81 @@ fn the_x4_has_four_texts_and_2_kib_without_a_card() {
 #[test]
 fn teardown_frees_what_a_plugin_made_and_keeps_what_another_instance_owns() {
     let s = store();
-    let handed = s.make(who(1, 1), &[p("a", "1")]).unwrap();
-    s.attach(s.claim(who(1, 1), handed).unwrap(), 9).unwrap();
-    let made = s.make(who(1, 2), &[p("b", "2")]).unwrap();
-    let claimed = s.make(who(1, 2), &[p("c", "3")]).unwrap();
-    let claim = s.claim(who(1, 2), claimed).unwrap();
-    let other = s.make(who(2, 1), &[]).unwrap();
-    s.teardown(1);
+    let handed = s.handover_make(who(1, 1), &[p("a", "1")]).unwrap();
+    let _claims = s.claim(who(1, 1), &[handed]).unwrap();
+    s.attach(handed, 9).unwrap();
+    let made = s.handover_make(who(1, 2), &[p("b", "2")]).unwrap();
+    let claimed = s.handover_make(who(1, 2), &[p("c", "3")]).unwrap();
+    let _claims = s.claim(who(1, 2), &[claimed]).unwrap();
+    let other = s.handover_make(who(2, 1), &[]).unwrap();
+    s.owner_stopped(1);
     assert_eq!(s.len(), 2, "the owned one and the other plugin's");
     assert_eq!(read_params(&s, 9, handed).unwrap().len(), 1);
-    assert_eq!(s.validate(who(1, 2), made), Err(ERR_NOT_FOUND));
-    assert_eq!(s.attach(claim, 3).err(), Some(ERR_STATE));
-    s.validate(who(2, 1), other).unwrap();
+    assert_eq!(s.handover_check(who(1, 2), made), Err(ERR_NOT_FOUND));
+    assert_eq!(s.attach(claimed, 3).err(), Some(ERR_STATE));
+    s.handover_check(who(2, 1), other).unwrap();
     // The instance closes: the last owner is gone.
-    s.detach(9);
+    s.instance_closed(9);
     assert_eq!(s.len(), 1);
 }
 
 #[test]
 fn nothing_shows_in_a_debug_print() {
     let s = store();
-    let id = s.make(who(1, 1), &[p("k", "hunter2")]).unwrap();
+    let id = s.handover_make(who(1, 1), &[p("k", "hunter2")]).unwrap();
     s.text_write(who(1, 1), id, 0, b"hunter2", true).unwrap();
-    let claim = s.claim(who(1, 1), id).unwrap();
-    assert!(!format!("{s:?} {claim:?}").contains("hunter2"));
+    let claims = s.claim(who(1, 1), &[id]).unwrap();
+    assert!(!format!("{s:?} {claims:?}").contains("hunter2"));
 }
 
 #[test]
 fn every_failed_allocation_leaves_the_store_unchanged() {
     use crate::native_host::shell::tests::FAIL_NTH;
     let s = store();
-    let id = s.make(who(1, 1), &[p("k", "v")]).unwrap();
+    let id = s.handover_make(who(1, 1), &[p("k", "v")]).unwrap();
     for nth in 1..=4 {
         FAIL_NTH.with(|n| n.set(nth));
-        let made = s.make(who(1, 1), &[p("a", "1")]);
+        let made = s.handover_make(who(1, 1), &[p("a", "1")]);
         let wrote = s.text_write(who(1, 1), id, 0, b"text", true);
         FAIL_NTH.with(|n| n.set(0));
         for error in [made.err(), wrote.err()].into_iter().flatten() {
             assert_eq!(error, ERR_NO_MEMORY, "allocation {nth}");
         }
-        s.expire(who(1, 99));
+        s.end_callback(who(1, 99));
     }
     // Unchanged ledger: only what succeeded is held.
     let (params, text) = s.held();
     assert!(params > 0 && text <= 4);
     let count = s.len();
     FAIL_NTH.with(|n| n.set(1));
-    let refused = s.make(who(1, 1), &[p("zz", "1")]);
+    let refused = s.handover_make(who(1, 1), &[p("zz", "1")]);
     FAIL_NTH.with(|n| n.set(0));
     assert_eq!(refused.err(), Some(ERR_NO_MEMORY));
     assert_eq!((s.held().0, s.len()), (params, count));
+}
+
+#[test]
+fn a_batch_claims_all_or_none_and_a_rollback_frees_only_its_own() {
+    let s = store();
+    let a = s.handover_make(who(1, 1), &[]).unwrap();
+    let b = s.handover_make(who(1, 1), &[]).unwrap();
+    let late = s.handover_make(who(1, 1), &[]).unwrap();
+    // A duplicate in the batch claims nothing.
+    assert_eq!(s.claim(who(1, 1), &[a, b, a]).err(), Some(ERR_STATE));
+    s.handover_check(who(1, 1), a).unwrap();
+    // An id that cannot be claimed claims nothing of the batch.
+    assert_eq!(s.claim(who(1, 1), &[a, 999]).err(), Some(ERR_NOT_FOUND));
+    s.handover_check(who(1, 1), a).unwrap();
+    let first = s.claim(who(1, 1), &[a]).unwrap();
+    // The same id in a later submit of the callback: refused, first intact.
+    assert_eq!(s.claim(who(1, 1), &[b, a]).err(), Some(ERR_STATE));
+    let second = s.claim(who(1, 1), &[b]).unwrap();
+    s.rollback(second);
+    assert_eq!(s.handover_check(who(1, 1), b), Err(ERR_NOT_FOUND));
+    s.attach(a, 1).unwrap();
+    s.rollback(first);
+    assert_eq!(s.info(1).unwrap().handover, a, "attached data survives");
+    s.handover_check(who(1, 1), late).unwrap();
+    // An empty batch is a batch.
+    s.rollback(s.claim(who(1, 1), &[]).unwrap());
 }

@@ -19,12 +19,12 @@ pub(crate) mod font_removals;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
-#[path = "native_host/handover_store.rs"]
+#[path = "native_host/ui_store.rs"]
 #[allow(
     dead_code,
     reason = "consumers are Core's command stage and the core.ui ops"
 )]
-pub(crate) mod handover_store;
+pub(crate) mod ui_store;
 
 #[path = "native_host/ui_guard.rs"]
 #[allow(

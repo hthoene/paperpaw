@@ -1,11 +1,12 @@
-//! The host's one store of hand-overs, their texts and the checked id
-//! allocator (`docs/abi/ui.md` 1.1 "The host's hand-over seam", 8.2).
+//! The host's one store (`UiStore`) of hand-overs, their texts and the checked
+//! id allocator (`docs/abi/ui.md` 1.1 "The host's hand-over seam", 8.2).
 //!
 //! The screen stack (H1) owns commands and their staging and only calls the
-//! store: `make` at op 16, `validate` while an `open` is checked, `claim` once
-//! the whole batch is checked, then `release` or `attach` when the deferred
-//! `open` drains, `expire` when the callback returns, `detach` and `teardown`
-//! when an instance closes or a plugin stops. Every call completes or leaves
+//! store: `handover_make` at op 16, `handover_check` while an `open` is checked,
+//! `claim` once the whole batch is checked, then `rollback` (a refused submit),
+//! or `release` and `attach` as each deferred `open` drains, `end_callback`
+//! when the callback returns, `instance_closed` and `owner_stopped` when an
+//! instance closes or a plugin stops. Every call completes or leaves
 //! the store unchanged; no call runs plugin code and no borrow of the store
 //! outlives a call (a [`Claim`] is a move-only token, not a reference).
 //!
@@ -87,21 +88,16 @@ pub(crate) struct Param<'a> {
     pub(crate) value: &'a str,
 }
 
-/// A hand-over named by an accepted `open`: move-only, kept by the command
-/// stage until the deferred `open` drains, then given to [`HandoverStore::attach`]
-/// or [`HandoverStore::release`]. Dropping it leaks nothing for good: the
-/// maker's `teardown` frees what is left claimed.
+/// The hand-overs one accepted submit named: move-only, kept by the command
+/// stage until its deferred `open`s drain. [`UiStore::rollback`] frees all that
+/// are still claimed (a refused submit, a callback whose result drops its
+/// commands); an `open` ends its own with [`UiStore::attach`] or
+/// [`UiStore::release`]. A batch of no ids is fine.
 #[derive(Debug, PartialEq, Eq)]
-#[must_use = "a claim ends in attach or release"]
-pub(crate) struct Claim {
-    id: u32,
+#[must_use = "claims end in attach, release or rollback"]
+pub(crate) struct Claims {
     owner: u64,
-}
-
-impl Claim {
-    pub(crate) fn id(&self) -> u32 {
-        self.id
-    }
+    batch: u64,
 }
 
 /// What the screen opened event says about an instance's hand-over.
@@ -134,7 +130,7 @@ impl Wiped {
 
 enum State {
     Made { owner: u64, epoch: u64 },
-    Claimed { owner: u64 },
+    Claimed { owner: u64, batch: u64 },
     Owned { instance: u32 },
 }
 
@@ -161,16 +157,17 @@ struct Inner {
 }
 
 /// The store.
-pub(crate) struct HandoverStore {
+pub(crate) struct UiStore {
     limits: Limits,
     next: Cell<u32>,
+    batches: Cell<u64>,
     inner: RefCell<Inner>,
 }
 
-impl fmt::Debug for HandoverStore {
+impl fmt::Debug for UiStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Counts only: a text or a param may be secret.
-        f.debug_struct("HandoverStore")
+        f.debug_struct("UiStore")
             .field("limits", &self.limits)
             .finish_non_exhaustive()
     }
@@ -184,11 +181,12 @@ fn key_fine(key: &str) -> bool {
         })
 }
 
-impl HandoverStore {
+impl UiStore {
     pub(crate) fn new(limits: Limits) -> Self {
         Self {
             limits,
             next: Cell::new(1),
+            batches: Cell::new(1),
             inner: RefCell::new(Inner {
                 entries: Vec::new(),
                 params_bytes: 0,
@@ -215,7 +213,7 @@ impl HandoverStore {
     /// Op 16: a hand-over of `params` made by `who`. `ERR_INVALID` for a form
     /// that is not allowed, `ERR_NO_SPACE` over the byte cap, `ERR_FULL` when
     /// the device's params are full, `ERR_NO_MEMORY`.
-    pub(crate) fn make(&self, who: Stamp, params: &[Param<'_>]) -> Result<u32, i32> {
+    pub(crate) fn handover_make(&self, who: Stamp, params: &[Param<'_>]) -> Result<u32, i32> {
         if params.len() > PARAMS_MAX {
             return Err(ERR_NO_SPACE);
         }
@@ -361,7 +359,7 @@ impl HandoverStore {
     /// While `command.open` is checked: the hand-over exists, `who` made it in
     /// this epoch, nothing claimed it and its text, if begun, is committed.
     /// Changes nothing.
-    pub(crate) fn validate(&self, who: Stamp, id: u32) -> Result<(), i32> {
+    pub(crate) fn handover_check(&self, who: Stamp, id: u32) -> Result<(), i32> {
         let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
         let entry = Self::position(&inner, id)
             .map(|at| &inner.entries[at])
@@ -375,36 +373,67 @@ impl HandoverStore {
             }
             State::Made { owner, .. } if owner == who.owner => Err(ERR_STATE),
             State::Made { .. } => Err(ERR_NOT_FOUND),
-            State::Claimed { owner } if owner == who.owner => Err(ERR_STATE),
+            State::Claimed { owner, .. } if owner == who.owner => Err(ERR_STATE),
             State::Claimed { .. } => Err(ERR_NOT_FOUND),
             State::Owned { .. } => Err(ERR_NOT_FOUND),
         }
     }
 
-    /// Once the whole submit batch is checked and every fallible reservation
-    /// is done: **made** to **claimed**, allocation-free and atomic. A second
-    /// claim of the id (in the batch or an earlier accepted submit) is
-    /// `ERR_STATE`.
-    pub(crate) fn claim(&self, who: Stamp, id: u32) -> Result<Claim, i32> {
-        self.validate(who, id)?;
+    /// Once the whole submit batch is checked and every fallible reservation of
+    /// the stage is done: every id **made** to **claimed**, all or none, with
+    /// no allocation. An id twice (in the batch or claimed by an earlier
+    /// accepted submit) is `ERR_STATE` and nothing is claimed.
+    pub(crate) fn claim(&self, who: Stamp, ids: &[u32]) -> Result<Claims, i32> {
+        for (index, id) in ids.iter().enumerate() {
+            if ids[..index].contains(id) {
+                return Err(ERR_STATE);
+            }
+            self.handover_check(who, *id)?;
+        }
         let mut inner = self.inner()?;
-        let at = Self::position(&inner, id).ok_or(ERR_NOT_FOUND)?;
-        inner.entries[at].state = State::Claimed { owner: who.owner };
-        Ok(Claim {
-            id,
+        let batch = self.batches.get();
+        self.batches.set(batch.checked_add(1).ok_or(ERR_FULL)?);
+        for id in ids {
+            let at = Self::position(&inner, *id).ok_or(ERR_NOT_FOUND)?;
+            inner.entries[at].state = State::Claimed {
+                owner: who.owner,
+                batch,
+            };
+        }
+        Ok(Claims {
             owner: who.owner,
+            batch,
         })
     }
 
-    /// **Claimed** to freed: the stage calls it for a refused submit, a dropped
-    /// callback result, and an `open` that applies as a no-op, names a stale
-    /// target or fails. The instance's old hand-over stays.
-    pub(crate) fn release(&self, claim: Claim) {
+    /// A refused submit or a callback whose result drops its staged commands:
+    /// everything of the batch still claimed is freed. Other batches stay.
+    pub(crate) fn rollback(&self, claims: Claims) {
         let Ok(mut inner) = self.inner() else {
             return;
         };
-        if let Some(at) = Self::position(&inner, claim.id)
-            && matches!(inner.entries[at].state, State::Claimed { owner } if owner == claim.owner)
+        let mut at = 0;
+        while at < inner.entries.len() {
+            let ours = matches!(
+                inner.entries[at].state,
+                State::Claimed { owner, batch } if owner == claims.owner && batch == claims.batch
+            );
+            if ours {
+                Self::free(&mut inner, at);
+            } else {
+                at += 1;
+            }
+        }
+    }
+
+    /// An `open` that applies as a no-op, names a stale target or fails:
+    /// **claimed** to freed. The instance's old hand-over stays.
+    pub(crate) fn release(&self, id: u32) {
+        let Ok(mut inner) = self.inner() else {
+            return;
+        };
+        if let Some(at) = Self::position(&inner, id)
+            && matches!(inner.entries[at].state, State::Claimed { .. })
         {
             Self::free(&mut inner, at);
         }
@@ -414,11 +443,11 @@ impl HandoverStore {
     /// free. The instance's previous hand-over is freed only after that.
     ///
     /// # Errors
-    /// `ERR_STATE` when the claim was already ended (nothing changes).
-    pub(crate) fn attach(&self, claim: Claim, instance: u32) -> Result<(), i32> {
+    /// `ERR_STATE` when `id` is not claimed (nothing changes).
+    pub(crate) fn attach(&self, id: u32, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner()?;
-        let at = Self::position(&inner, claim.id).ok_or(ERR_STATE)?;
-        if !matches!(inner.entries[at].state, State::Claimed { owner } if owner == claim.owner) {
+        let at = Self::position(&inner, id).ok_or(ERR_STATE)?;
+        if !matches!(inner.entries[at].state, State::Claimed { .. }) {
             return Err(ERR_STATE);
         }
         let old = inner
@@ -435,12 +464,12 @@ impl HandoverStore {
     /// A successful reopen with hand-over 0: the instance's old params and text
     /// go.
     pub(crate) fn attach_none(&self, instance: u32) {
-        self.detach(instance);
+        self.instance_closed(instance);
     }
 
     /// The callback of `who` returned: what it made and did not name is freed.
     /// Claimed ones stay until their `open` drains.
-    pub(crate) fn expire(&self, who: Stamp) {
+    pub(crate) fn end_callback(&self, who: Stamp) {
         let Ok(mut inner) = self.inner() else {
             return;
         };
@@ -459,7 +488,7 @@ impl HandoverStore {
     }
 
     /// An instance closed: what it owns is freed.
-    pub(crate) fn detach(&self, instance: u32) {
+    pub(crate) fn instance_closed(&self, instance: u32) {
         let Ok(mut inner) = self.inner() else {
             return;
         };
@@ -474,14 +503,14 @@ impl HandoverStore {
 
     /// A plugin stopped: what it made or has claimed is freed; what it handed
     /// to another live instance stays with that instance. No plugin is called.
-    pub(crate) fn teardown(&self, owner: u64) {
+    pub(crate) fn owner_stopped(&self, owner: u64) {
         let Ok(mut inner) = self.inner() else {
             return;
         };
         let mut at = 0;
         while at < inner.entries.len() {
             let theirs = match inner.entries[at].state {
-                State::Made { owner: o, .. } | State::Claimed { owner: o } => o == owner,
+                State::Made { owner: o, .. } | State::Claimed { owner: o, .. } => o == owner,
                 State::Owned { .. } => false,
             };
             if theirs {
@@ -607,5 +636,5 @@ impl HandoverStore {
 }
 
 #[cfg(test)]
-#[path = "handover_store_tests.rs"]
+#[path = "ui_store_tests.rs"]
 mod tests;
