@@ -432,3 +432,56 @@ fn data_service_admission_is_enabled_only_for_the_implemented_host() {
         Err(RuntimeError::Metadata)
     ));
 }
+
+#[test]
+fn desktop_feature_copy_outlives_metadata_and_never_grants_omitted_requests() {
+    use paperpaw_core::native_host::shell::DeclaredServices;
+    use paperpaw_native::metadata::{self, Feature, Host, Profile};
+    const FEATURES: &[Feature<'static>] = &[Feature {
+        key: "uses.registry",
+        revision: 1,
+    }];
+    for requested in [false, true] {
+        let declared = {
+            let mut bytes = metadata_bytes();
+            if requested {
+                let key = FEATURES[0].key;
+                for value in [
+                    u16::try_from(8 + key.len()).unwrap(),
+                    u16::try_from(key.len()).unwrap(),
+                    1,
+                    0,
+                ] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes.extend_from_slice(key.as_bytes());
+                let total = u32::try_from(bytes.len()).unwrap();
+                bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4]
+                    .copy_from_slice(&total.to_le_bytes());
+                bytes[wire::FEATURES..wire::FEATURES + 2].copy_from_slice(&1_u16.to_le_bytes());
+            }
+            // Model a future wired host; production WIRED_FEATURES stays empty.
+            let capabilities = Host {
+                abi_major: 7,
+                minor: 1,
+                profile: Profile {
+                    target: core::str::from_utf8(wire::PROFILE).unwrap(),
+                    entry_layout: u16::try_from(wire::PROFILE_ENTRY_LAYOUT).unwrap(),
+                    entry_bytes: u16::try_from(wire::PROFILE_ENTRY_BYTES).unwrap(),
+                },
+                services: &[],
+                features: FEATURES,
+            };
+            let checked = metadata::check(&bytes, &capabilities).unwrap();
+            DeclaredServices::try_from_metadata(&checked, FEATURES).unwrap()
+        };
+        assert_eq!(
+            declared.features().feature(FEATURES[0].key),
+            if requested {
+                Ok(())
+            } else {
+                Err(paperpaw_native::host_glue::ERR_DENIED)
+            }
+        );
+    }
+}
