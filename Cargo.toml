@@ -187,7 +187,7 @@ paperpaw-plugin-opds = { path = "plugins/opds", version = "1.0.3" }
 paperpaw-plugin-fonts-browser = { path = "plugins/fonts-browser", version = "1.0.5" }
 paperpaw-plugin-store = { path = "plugins/store", version = "1.0.2" }
 paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.8" }
-paperpaw-plugin-lock = { path = "plugins/lock", version = "1.0.3" }
+paperpaw-plugin-lock = { path = "plugins/lock", version = "1.0.4" }
 paperpaw-plugin-mail = { path = "plugins/mail", version = "1.0.0" }
 paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.7" }
 paperpaw-plugin-keys = { path = "plugins/keys", version = "1.0.6" }
