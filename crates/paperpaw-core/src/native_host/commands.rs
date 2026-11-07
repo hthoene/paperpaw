@@ -6,14 +6,14 @@
 use super::Error;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
-    Command as WireCommand, CommandBatch, commands_decode, commands_encode,
+    Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
 };
 use crate::abi7::settings_wire::SettingValueRef;
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
-    buffers,
+    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK,
+    PpBytes, buffers,
 };
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 
@@ -124,6 +124,16 @@ impl<'a> CommandStage<'a> {
     fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
+        }
+        // `answer_plugin` needs the install feature (`uses.install`, DEV,
+        // `docs/abi/device.md` section 1). Until command staging checks
+        // features (DEV host side), it is refused for every plugin, wherever it
+        // sits in the batch.
+        if batch
+            .iter()
+            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
+        {
+            return ERR_DENIED;
         }
         if let Err(status) = self.validate_open_budget(batch) {
             return status;

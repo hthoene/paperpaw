@@ -1,0 +1,244 @@
+{
+  "key": "core.device",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 32,
+  "ops": [
+    {
+      "id": 1,
+      "name": "device",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_device"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "values",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_value",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 8
+    },
+    {
+      "id": 3,
+      "name": "firmware",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_firmware"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 4,
+      "name": "builtin",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.dev_builtin",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 5,
+      "name": "native",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_native"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 6,
+      "name": "check",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.dev_request"
+      ],
+      "reply": [
+        "service.dev_check"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 7,
+      "name": "memory",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_memory"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 8,
+      "name": "wifi",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_wifi"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 9,
+      "name": "networks",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.dev_network",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 10,
+      "name": "bluetooth",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_bluetooth"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 11,
+      "name": "bonded",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.dev_bonded",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 12,
+      "name": "power",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.dev_interval"
+      ],
+      "reply": [
+        "service.dev_power"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 13,
+      "name": "install",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.dev_request"
+      ],
+      "reply": [
+        "service.dev_install"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 14,
+      "name": "not_installed",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.dev_not_installed",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 15,
+      "name": "keys",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.dev_key",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 32
+    }
+  ]
+}

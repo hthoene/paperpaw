@@ -345,7 +345,7 @@ fn framing_count_tag_and_byte_limits_are_enforced() {
     assert_eq!(records_decode(&nine).map(|_| ()), Err(ERR_NO_SPACE));
     assert!(records_decode(&batch(&vec![draw.clone(); REGISTRATION_MAX_RECORDS])).is_ok());
     assert_eq!(
-        records_decode(&batch(&[record(75, &[])])).map(|_| ()),
+        records_decode(&batch(&[record(191, &[])])).map(|_| ()),
         Err(ERR_UNSUPPORTED)
     );
     assert_eq!(
@@ -1248,7 +1248,7 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
             )]),
             ERR_UNSUPPORTED,
         ),
-        (batch(&[record(75, &[])]), ERR_UNSUPPORTED),
+        (batch(&[record(191, &[])]), ERR_UNSUPPORTED),
         (vec![], ERR_INVALID),
         (vec![1], ERR_INVALID),
         (vec![0; REGISTRATION_MAX_BYTES + 1], ERR_NO_SPACE),
@@ -1275,4 +1275,52 @@ fn validate_batch_returns_the_first_failure() {
 #[test]
 fn event_only_wire_batch_remains_committable() {
     assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
+}
+
+/// UIX declarations (`docs/abi/ui.md`: inputs, help hints, widgets, status
+/// items, lines and places) decode but stay refused until the host admits
+/// them, so a batch carrying one is never accepted with it dropped.
+#[test]
+fn uix_declarations_stay_refused_until_admitted() {
+    for tag in [29, 30, 224, 225, 226, 227, 228] {
+        // Sixty-four zero bytes are a valid body of every generated record.
+        let bytes = batch(&[record(tag, &[vec![0; 64]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &first),
+            Err(ERR_UNSUPPORTED),
+            "tag {tag}"
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "tag {tag}: refusal must poison construction"
+        );
+    }
+}
+
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: formats,
+/// readers, lookup providers, book badges and library sources) decode but stay
+/// refused until the host admits them, as the UIX ones.
+#[test]
+fn doc_and_lib_declarations_stay_refused_until_admitted() {
+    for tag in [31, 229, 230, 231, 232, 233] {
+        // 128 zero bytes are a valid body of every generated record.
+        let bytes = batch(&[record(tag, &[vec![0; 128]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &first),
+            Err(ERR_UNSUPPORTED),
+            "tag {tag}"
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "tag {tag}: refusal must poison construction"
+        );
+    }
 }

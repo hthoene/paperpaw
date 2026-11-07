@@ -10,6 +10,11 @@ use records_wire::{Record, records_decode, records_encode, registrations_encode}
 #[test]
 fn every_event_kind_matches_its_generated_registration_bytes() {
     let kinds = [
+        (
+            EventKind::StackChanged,
+            records_wire::EVENT_STACK_CHANGED_TAG,
+        ),
+        (EventKind::ScreenReady, records_wire::EVENT_SCREEN_READY_TAG),
         (EventKind::Tick, records_wire::EVENT_TICK_TAG),
         (EventKind::Started, records_wire::EVENT_STARTED_TAG),
         (EventKind::Resume, records_wire::EVENT_RESUME_TAG),
@@ -22,6 +27,51 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         (EventKind::PageTurned, records_wire::EVENT_PAGE_TURNED_TAG),
         (EventKind::ScreenShown, records_wire::EVENT_SCREEN_SHOWN_TAG),
         (EventKind::ActionRun, records_wire::EVENT_ACTION_RUN_TAG),
+        (
+            EventKind::SettingChanged,
+            records_wire::EVENT_SETTING_CHANGED_TAG,
+        ),
+        (EventKind::BookOpened, records_wire::EVENT_BOOK_OPENED_TAG),
+        (EventKind::BookClosed, records_wire::EVENT_BOOK_CLOSED_TAG),
+        (
+            EventKind::BookFinished,
+            records_wire::EVENT_BOOK_FINISHED_TAG,
+        ),
+        (EventKind::BookMoved, records_wire::EVENT_BOOK_MOVED_TAG),
+        (EventKind::BookRemoved, records_wire::EVENT_BOOK_REMOVED_TAG),
+        (
+            EventKind::PluginsChanged,
+            records_wire::EVENT_PLUGINS_CHANGED_TAG,
+        ),
+        (EventKind::WifiChanged, records_wire::EVENT_WIFI_CHANGED_TAG),
+        (
+            EventKind::PowerChanged,
+            records_wire::EVENT_POWER_CHANGED_TAG,
+        ),
+        (
+            EventKind::StatusChanged,
+            records_wire::EVENT_STATUS_CHANGED_TAG,
+        ),
+        (
+            EventKind::ChargeChanged,
+            records_wire::EVENT_CHARGE_CHANGED_TAG,
+        ),
+        (
+            EventKind::RegistryChanged,
+            records_wire::EVENT_REGISTRY_CHANGED_TAG,
+        ),
+        (
+            EventKind::PreviewChanged,
+            records_wire::EVENT_PREVIEW_CHANGED_TAG,
+        ),
+        (
+            EventKind::PluginsRequested,
+            records_wire::EVENT_PLUGINS_REQUESTED_TAG,
+        ),
+        (
+            EventKind::PluginAnswered,
+            records_wire::EVENT_PLUGIN_ANSWERED_TAG,
+        ),
     ];
     for (kind, event_tag) in kinds {
         let mut batches = Vec::new();

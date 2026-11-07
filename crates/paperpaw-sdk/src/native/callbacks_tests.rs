@@ -46,6 +46,7 @@ fn pointer_phases_and_gesture_kinds_keep_signed_positions() {
             x: i32::MIN,
             y: i32::MAX,
             phase: phase as u32,
+            contact: None,
         })]);
         assert_eq!(
             Input::decode(&bytes),
@@ -53,6 +54,26 @@ fn pointer_phases_and_gesture_kinds_keep_signed_positions() {
                 now_ms: 73,
                 position: Point::new(i32::MIN, i32::MAX),
                 phase: expected,
+                contact: 0,
+            })
+        );
+    }
+    // A sent contact id reaches the plugin as it is, the largest one too.
+    for contact in [1, u32::MAX] {
+        let bytes = encode(&[Record::InputPointer(wire::InputPointer {
+            now_ms: 74,
+            x: 3,
+            y: 4,
+            phase: PointerPhase::Move as u32,
+            contact: Some(contact),
+        })]);
+        assert_eq!(
+            Input::decode(&bytes),
+            Ok(Input::Pointer {
+                now_ms: 74,
+                position: Point::new(3, 4),
+                phase: PointerPhase::Move,
+                contact,
             })
         );
     }
@@ -108,6 +129,7 @@ fn action_and_invalid_enum_values_are_decoded_strictly() {
             x: 0,
             y: 0,
             phase: 4,
+            contact: None,
         }),
         Record::InputGesture(wire::InputGesture {
             now_ms: 1,
@@ -148,7 +170,8 @@ fn frames_preserve_every_field_and_unknown_purposes() {
         DrawPurpose::InsertedBlock,
         DrawPurpose::StatusItem,
         DrawPurpose::Widget,
-        DrawPurpose::Other(5),
+        DrawPurpose::StatusLine,
+        DrawPurpose::Other(6),
     ]
     .into_iter()
     .enumerate()
@@ -197,9 +220,9 @@ fn callback_decoders_require_exact_single_records_and_complete_framing() {
         assert_eq!(DrawFrame::decode(&two), Err(Error::Invalid));
     }
     // An unassigned tag in the input growth block must stay unknown.
-    assert_eq!(Input::decode(&[1, 193, 1, 1, 0]), Err(Error::Unsupported));
+    assert_eq!(Input::decode(&[1, 194, 1, 1, 0]), Err(Error::Unsupported));
     assert_eq!(
-        DrawFrame::decode(&[1, 193, 1, 1, 0]),
+        DrawFrame::decode(&[1, 194, 1, 1, 0]),
         Err(Error::Unsupported)
     );
 }

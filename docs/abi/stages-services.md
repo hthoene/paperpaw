@@ -179,11 +179,16 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   | `input` over the op's `max_input`, or `out` shorter than its `max_reply` | `ERR_NO_SPACE` |
   | `input` not one record batch of the op's input tags, exactly (generated decoder) | the decoder's status |
   | re-entry into the same service from its own callback | `ERR_BUSY` |
-  | otherwise: the service runs and writes its reply batch into `out` | count, or the service's status |
+  | otherwise: the service runs and writes its reply records into `out`, framed as its schema's family document says | count, or the service's status |
 
   "Exactly" is about tags: every record's tag is one of the op's `input` tags, by exact tag. Order
   and multiplicity are the op's own rules (for example "one record"), checked by the service after
-  the generic checks.
+  the generic checks. The count is generic: at most the op's `input_rows` records
+  (`ServiceOp::input_rows`, 1 unless the schema says more), else `ERR_NO_SPACE`; where it is above
+  8, the host decodes with the generated `host_records_visit` (the whole batch is checked before the
+  first visit, but a visitor's own error leaves the earlier visits done: a handler stages and
+  publishes only after the walk returned `OK`) and the SDK encodes with
+  `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
   leaves `out` untouched. A service's own failure after that is its documented status, and `out`
@@ -231,9 +236,15 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Ops, in id order: `id` 1..=65535, unique, never renumbered; `name` unique
   (`[a-z][a-z0-9_]*`); `since` the service revision that introduced the op (at most `revision`); `effect` `query` or `mutate`;
   `feature` a D1 feature key that gates it, or null; `input` and `reply` lists of `service.*`
-  record names (tags taken from `abi.def`), at most 8 each; `max_input` and `max_reply` in
+  record names (tags taken from `abi.def`), at most 16 each; `max_input` and `max_reply` in
   1..=4096; `bound` what the call may wait for: `none`, `card` (one bounded card access) or
   `radio` (never: that is an operation handle).
+- [D] Row counts, each written only where it differs from its default (so other ops keep their
+  exact form and lock): `input_rows` 2..=64, the most records one input batch holds (default 1);
+  `paged: false` on a list op (its reply ends with `service.end`) that answers all its rows in one
+  call, with `reply_rows` 1..=64 its most rows before `end`; a paged list op (the default) holds
+  the schema's `page_rows`. The generated `ServiceOp` carries all three (`input_rows`, `paged`,
+  `reply_rows`, 0 for an op that is no list), so readers check from the table, never by op number.
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
   per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK

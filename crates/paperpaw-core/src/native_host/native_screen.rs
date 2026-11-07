@@ -104,6 +104,8 @@ impl<D: Dispatch> NativeScreen<D> {
             screen: self.id.as_str(),
             width: u32::from(pane.width),
             height: u32::from(pane.height),
+            // Screen instances (`docs/abi/ui.md` section 1.1) are not wired yet.
+            instance: None,
         });
         let mut bytes = [0; 192];
         let result = wire::records_encode(&[record], &mut bytes)
@@ -238,6 +240,8 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
                 x: event.point.x,
                 y: event.point.y,
                 phase,
+                // Tells simultaneous contacts apart (interface 6 `PointerEvent::id`).
+                contact: Some(u32::from(event.id)),
             }),
             cx.env(),
         )

@@ -67,12 +67,12 @@ fn page_turn_fixtures_preserve_unknown_and_known_counters() {
         let Event::PageTurned(event) = Event::decode(&bytes).unwrap() else {
             panic!("expected a page-turn event");
         };
-        assert_eq!((event.page, event.pages), (page, pages));
-        assert_eq!(event.now_ms, 60_000);
-        assert_eq!(event.path, "books/fixture.txt");
+        assert_eq!((event.page(), event.pages()), (page, pages));
+        assert_eq!(event.now_ms(), 60_000);
+        assert_eq!(event.path(), "books/fixture.txt");
         let start = bytes.as_ptr() as usize;
-        let path_start = event.path.as_ptr() as usize;
-        assert!(path_start >= start && path_start + event.path.len() <= start + bytes.len());
+        let path_start = event.path().as_ptr() as usize;
+        assert!(path_start >= start && path_start + event.path().len() <= start + bytes.len());
     }
 }
 

@@ -27,6 +27,15 @@ TAG_RANGES = {
     'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
     'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
     'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
+    # Registry declarations (REG, docs/abi/registry.md section 6).
+    'setup': DECLARATIVE, 'slot': DECLARATIVE, 'key': DECLARATIVE, 'preset': DECLARATIVE,
+    # UIX declarations (docs/abi/ui.md sections 2, 5, 7); `input.spec` by its full name,
+    # beside the `input` family of host-sent inputs.
+    'input.spec': DECLARATIVE, 'help': DECLARATIVE, 'widget': DECLARATIVE,
+    'status': DECLARATIVE,
+    # DOC and LIB declarations (docs/abi/document.md section 1 and 7, library.md section 1).
+    'reader': DECLARATIVE, 'lookup': DECLARATIVE, 'book_field': DECLARATIVE,
+    'book_badge': DECLARATIVE, 'book_data': DECLARATIVE,
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),
@@ -76,11 +85,32 @@ def check_tags(records):
         seen[tag] = name
 
 
+# Commands of the growth block (REG, #228) are generated from their fields into the
+# slot-15 command codec only (abi_commands.py): commands never travel in a record batch.
+GROWTH_COMMANDS = (1536, 2047)
+
+
+def is_growth_command(item):
+    """A `command.*` record in the slot-15 growth block."""
+    return (type(item) is dict and str(item.get('name', '')).startswith('command.')
+            and type(item.get('id')) is int
+            and GROWTH_COMMANDS[0] <= item['id'] <= GROWTH_COMMANDS[1])
+
+
+def growth_fields(record):
+    """The checked fields of a growth-block command, as for a generated record; a
+    command that asks for one thing only (`command.show_hints`) has none."""
+    if record.get('fields') == []:
+        return []
+    return _fields(record)
+
+
 def wire_records(schema):
     """The generated records, in schema order, with checked fields."""
     out = []
     for item in schema.get('records', []):
-        if type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS:
+        if (type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS
+                and not is_growth_command(item)):
             out.append(dict(name=item['name'], id=item['id'], since=item['since'],
                             fields=_fields(item)))
     return out
@@ -145,7 +175,12 @@ def _fields(record):
                      and type(items['item_max_bytes']) is int
                      and 1 <= items['item_max_bytes'] <= cap,
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        secret = 'secret' in field
+        _require(not secret or (field['secret'] is True and kind == 'str' and items is None
+                                and is_growth_command(record)),
+                 f'{name}.{label}: secret must be true, on a str field of a command, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        secret=secret,
                         since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
@@ -684,6 +719,40 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = record_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if records.len() > max_records || records.len() > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        required += record_framed_len(record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let rest = out.get_mut(offset..).ok_or(@NO_SPACE@)?;
+        offset += record_encode_one(record, rest)?;
+    }
+    Ok(offset)
 }
 '''
 

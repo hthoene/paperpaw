@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('abi_gen_services', ROOT / 'tools/abi-gen.py')
 ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
-from abi_services import compatible_services, load_services, rust_services, validate_services
+from abi_services import (compatible_services, load_services, op_rows, rust_services,
+                          validate_services)
 
 RUST_TESTS = r'''
 #[cfg(test)]
@@ -45,10 +46,14 @@ class ServiceTests(unittest.TestCase):
         return next(s for s in schema['services'] if s['key'] == 'core.test-echo')
 
     def test_the_repository_schemas_load_and_emit(self):
-        self.assertEqual([s['key'] for s in self.schema['services']], ['core.test-echo'])
+        self.assertEqual([s['key'] for s in self.schema['services']],
+                         ['core.device', 'core.document', 'core.library', 'core.lookup',
+                          'core.registry',
+                          'core.test-echo', 'core.ui'])
         source = rust_services(self.schema)
         for line in ['pub mod core_test_echo_v1 {', 'pub const KEY: &str = "core.test-echo";',
-                     'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,']:
+                     'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,',
+                     'pub const PAGE_MAX_ROWS: usize = 32;']:
             self.assertIn(line, source)
         for path in ['abi/generated/services_wire.rs',
                      'crates/paperpaw-core/src/abi7/services_wire.rs',
@@ -69,6 +74,9 @@ class ServiceTests(unittest.TestCase):
             lambda s: self.echo(s).update(since=99),
             lambda s: self.echo(s).update(extra=1),
             lambda s: self.echo(s).update(test_only=1),
+            lambda s: self.echo(s).update(page_rows=0),
+            lambda s: self.echo(s).update(page_rows=65),
+            lambda s: self.echo(s).update(page_rows='32'),
             lambda s: self.echo(s).pop('test_only'),
             lambda s: self.echo(s).update(ops=[]),
             lambda s: op(s).update(id=0),
@@ -85,6 +93,60 @@ class ServiceTests(unittest.TestCase):
             lambda s: self.echo(s)['ops'].append(copy.deepcopy(op(s))),
             lambda s: self.echo(s)['ops'].append(dict(copy.deepcopy(op(s)), id=2)),
             lambda s: s['services'].append(copy.deepcopy(self.echo(s))),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                validate_services(candidate)
+
+    def ui(self, schema):
+        return next(s for s in schema['services'] if s['key'] == 'core.ui')
+
+    def test_row_counts_default_and_are_pinned_where_set(self):
+        rows = {(service['key'], op['id']): op_rows(op, service)
+                for service in self.schema['services'] for op in service['ops']}
+        # core.ui (docs/abi/ui.md section 6): 16 takes 32 params, 7/14/17 are
+        # unpaged lists, 1 and 3 page by 8; every other op takes one record.
+        self.assertEqual(rows[('core.ui', 16)], (32, False, 0))
+        self.assertEqual(rows[('core.ui', 7)], (1, False, 32))
+        self.assertEqual(rows[('core.ui', 14)], (1, False, 8))
+        self.assertEqual(rows[('core.ui', 17)], (1, False, 32))
+        self.assertEqual(rows[('core.ui', 1)], (1, True, 8))
+        self.assertEqual(rows[('core.ui', 3)], (1, True, 8))
+        self.assertEqual(rows[('core.ui', 2)], (1, False, 0))
+        self.assertEqual(rows[('core.registry', 1)], (1, True, 32))
+        self.assertEqual(rows[('core.registry', 2)], (1, False, 0))
+        self.assertEqual(rows[('core.test-echo', 1)], (1, False, 0))
+        # DOC open takes 13 records; LIB ops with lib_ref and a record 2,
+        # set_position 3, edit_add 4 (library.md section 1).
+        self.assertEqual(rows[('core.document', 1)][0], 13)
+        self.assertEqual(rows[('core.library', 14)][0], 3)
+        self.assertEqual(rows[('core.library', 18)][0], 4)
+        self.assertEqual(sorted(id for (key, id), row in rows.items()
+                                if key == 'core.library' and row[0] == 2),
+                         [4, 7, 8, 15, 16, 17, 23, 24])
+        self.assertEqual(sum(1 for row in rows.values() if row[0] != 1), 12)
+        source = rust_services(self.schema)
+        for line in ['pub input_rows: u16,', 'pub paged: bool,', 'pub reply_rows: u16,',
+                     'input_rows: 32,', 'reply_rows: 32,']:
+            self.assertIn(line, source)
+
+    def test_row_counts_are_closed(self):
+        op = lambda s, id: next(o for o in self.ui(s)['ops'] if o['id'] == id)
+        mutations = [
+            lambda s: op(s, 16).update(input_rows=1),      # the default is left out
+            lambda s: op(s, 16).update(input_rows=65),
+            lambda s: op(s, 16).update(input_rows='32'),
+            lambda s: op(s, 2).update(paged=False),        # no list op
+            lambda s: op(s, 1).update(paged=True),         # true is the default, left out
+            lambda s: op(s, 1).update(reply_rows=8),       # paged ops hold page_rows
+            lambda s: op(s, 2).update(reply_rows=1),       # no list op
+            lambda s: op(s, 7).pop('reply_rows'),
+            lambda s: op(s, 7).update(reply_rows=0),
+            lambda s: op(s, 7).update(reply_rows=65),
+            lambda s: op(s, 7).update(reply=['service.end', 'service.ui_target']),
+            lambda s: self.ui(s).pop('page_rows'),         # paged ops 1 and 3 need it
         ]
         for index, mutate in enumerate(mutations):
             candidate = copy.deepcopy(self.schema)
@@ -112,6 +174,7 @@ class ServiceTests(unittest.TestCase):
         changes = [
             lambda s: self.echo(s).update(test_only=False),
             lambda s: self.echo(s).update(since=2),
+            lambda s: self.echo(s).update(page_rows=8),
             lambda s: self.echo(s)['ops'][0].update(max_reply=256),
             lambda s: self.echo(s)['ops'][0].update(name='echoes'),
             lambda s: self.echo(s)['ops'].pop(),

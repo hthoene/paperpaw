@@ -95,39 +95,132 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 32] = [
-    3,   // event.tick
-    32,  // event.started
-    33,  // event.resume
-    34,  // event.suspend
-    35,  // event.stopping
-    36,  // event.battery_measured
-    37,  // event.page_turned
-    38,  // event.screen_shown
-    39,  // event.action_run
-    40,  // input.key
-    41,  // input.pointer
-    42,  // input.gesture
-    43,  // input.action
-    48,  // service.usage
-    49,  // service.plugin_usage
-    50,  // service.plugin
-    51,  // service.work_note
-    52,  // service.end
-    64,  // event.setting_changed
-    65,  // event.book_opened
-    66,  // event.book_closed
-    67,  // event.book_finished
-    68,  // event.book_moved
-    69,  // event.book_removed
-    70,  // event.plugins_changed
-    71,  // event.wifi_changed
-    72,  // event.power_changed
-    73,  // event.status_changed
-    74,  // event.charge_changed
-    192, // draw.frame
-    512, // stage.call
-    513, // stage.reply
+const HOST_ONLY: [u32; 125] = [
+    3,    // event.tick
+    32,   // event.started
+    33,   // event.resume
+    34,   // event.suspend
+    35,   // event.stopping
+    36,   // event.battery_measured
+    37,   // event.page_turned
+    38,   // event.screen_shown
+    39,   // event.action_run
+    40,   // input.key
+    41,   // input.pointer
+    42,   // input.gesture
+    43,   // input.action
+    48,   // service.usage
+    49,   // service.plugin_usage
+    50,   // service.plugin
+    51,   // service.work_note
+    52,   // service.end
+    64,   // event.setting_changed
+    65,   // event.book_opened
+    66,   // event.book_closed
+    67,   // event.book_finished
+    68,   // event.book_moved
+    69,   // event.book_removed
+    70,   // event.plugins_changed
+    71,   // event.wifi_changed
+    72,   // event.power_changed
+    73,   // event.status_changed
+    74,   // event.charge_changed
+    75,   // event.registry_changed
+    76,   // event.preview_changed
+    77,   // event.plugins_requested
+    78,   // event.plugin_answered
+    79,   // event.screen_opened
+    80,   // event.screen_closed
+    81,   // event.stack_changed
+    82,   // event.answered
+    84,   // event.widget_made
+    85,   // event.widget_dropped
+    86,   // event.widget_changed
+    87,   // event.screen_ready
+    89,   // event.spoken
+    192,  // draw.frame
+    193,  // input.widget
+    512,  // stage.call
+    513,  // stage.reply
+    1027, // service.reg_setting
+    1028, // service.reg_setting_extra
+    1029, // service.reg_choice
+    1030, // service.reg_text
+    1031, // service.reg_group
+    1032, // service.reg_plugin
+    1033, // service.reg_need
+    1034, // service.reg_item
+    1035, // service.reg_slot
+    1036, // service.reg_menu_row
+    1037, // service.reg_binding
+    1038, // service.reg_setup_step
+    1039, // service.reg_value
+    1040, // service.reg_widget
+    1041, // service.ui_screen
+    1043, // service.ui_question
+    1044, // service.ui_hint
+    1048, // service.ui_target
+    1054, // service.ui_size
+    1056, // service.ui_status_value
+    1059, // service.reg_status
+    1062, // service.doc_state
+    1064, // service.doc_meta
+    1065, // service.doc_text
+    1068, // service.doc_section
+    1070, // service.doc_toc
+    1072, // service.doc_label
+    1075, // service.doc_link
+    1077, // service.doc_font
+    1078, // service.doc_format
+    1080, // service.doc_reader
+    1081, // service.doc_progress
+    1082, // service.doc_block
+    1090, // service.doc_text_part
+    1091, // service.doc_columns
+    1083, // service.doc_run
+    1084, // service.doc_map
+    1085, // service.doc_cell
+    1086, // service.doc_ruby
+    1087, // service.doc_inline_lang
+    1088, // service.doc_image
+    90,   // event.image_ready
+    1093, // service.lookup_entry
+    91,   // event.library_changed
+    1094, // service.lib_state
+    1096, // service.lib_entry
+    1098, // service.lib_book
+    1100, // service.lib_text
+    1101, // service.lib_facet
+    1105, // service.lib_result
+    1111, // service.lib_annotation
+    1112, // service.lib_anchor
+    1114, // service.lib_transaction
+    1118, // service.lib_committed
+    1119, // service.lib_field
+    1122, // service.lib_key
+    1124, // service.lib_receipt
+    1125, // service.dev_device
+    1126, // service.dev_value
+    1127, // service.dev_firmware
+    1128, // service.dev_builtin
+    1129, // service.dev_native
+    1130, // service.dev_check
+    1131, // service.dev_memory
+    1132, // service.dev_wifi
+    1133, // service.dev_network
+    1134, // service.dev_bluetooth
+    1135, // service.dev_bonded
+    1137, // service.dev_power
+    1139, // service.dev_install
+    1140, // service.dev_not_installed
+    1141, // service.dev_key
+    92,   // event.wifi_scanned
+    93,   // event.wifi_done
+    94,   // event.network_wanted
+    95,   // event.network_idle
+    96,   // event.firmware_changed
+    97,   // event.install_done
+    98,   // event.bluetooth
 ];
 
 fn host_only(tag: u32) -> bool {
@@ -136,9 +229,9 @@ fn host_only(tag: u32) -> bool {
 
 #[test]
 fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before() {
-    // Sixty-four zero bytes are a valid body of every generated record: an
+    // 128 zero bytes are a valid body of every generated record: an
     // empty bitmap, zero scalars, empty text, trailing bytes skipped.
-    let zeros = [0; 64];
+    let zeros = [0; 128];
     let (mut refused, mut decoded) = (Vec::new(), Vec::new());
     for tag in 0..2048 {
         let bytes = framed(tag, &zeros);
@@ -164,7 +257,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 22, "{decoded:?}");
+    assert_eq!(decoded.len(), 90, "{decoded:?}");
 }
 
 #[test]
@@ -188,9 +281,9 @@ fn a_tick_is_invalid_bare_as_a_prefix_and_in_a_batch() {
 
 #[test]
 fn unknown_tags_and_limits_keep_their_statuses() {
-    // Tag 75 has no record yet: unsupported, as in `records_decode`.
-    assert_eq!(host_decode_one(&[75, 1, 0]), Err(ERR_UNSUPPORTED));
-    assert_eq!(record_decode_one(&[75, 1, 0]), Err(ERR_UNSUPPORTED));
+    // Tag 83 has no record: unsupported, as in `records_decode`.
+    assert_eq!(host_decode_one(&[83, 1, 0]), Err(ERR_UNSUPPORTED));
+    assert_eq!(record_decode_one(&[83, 1, 0]), Err(ERR_UNSUPPORTED));
     let mut nine = vec![9];
     for _ in 0..9 {
         nine.extend(bare(GROUP));
