@@ -54,6 +54,7 @@ mod clock;
 mod crash;
 mod device;
 mod dual;
+mod entropy;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
@@ -68,6 +69,8 @@ mod native;
 mod net;
 mod network;
 mod ota;
+#[cfg(feature = "ppn5")]
+mod secrets;
 #[cfg(feature = "remote")]
 mod peak;
 mod power;
@@ -771,7 +774,11 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     };
     #[cfg(feature = "esp32c3")]
     let place = native::Place::new(flash.clone());
-    CodePlugins::Load(native::Loader::new(place))
+    CodePlugins::Load(native::Loader::new(
+        place,
+        #[cfg(feature = "ppn5")]
+        flash.clone(),
+    ))
 }
 
 /// The status lines of the X4s by default (see `setting_default_text`):

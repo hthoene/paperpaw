@@ -320,6 +320,7 @@ impl Radio {
         mark(at::RADIO_STARTED);
         log::info!("wifi: on");
         let net = Self::station(self.host_option());
+        crate::entropy::wifi(true);
         self.on = Some(On {
             work: Work::Idle(Box::leak(Box::new(controller))),
             net,
@@ -617,6 +618,8 @@ impl Radio {
 
     /// Switches the radio off: the driver dropped, the radio powered down.
     fn stop(&mut self) {
+        // Before the radio goes: what is drawn from now on is not radio noise.
+        crate::entropy::wifi(false);
         let Some(on) = self.on.take() else {
             return;
         };

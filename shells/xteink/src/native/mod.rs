@@ -226,12 +226,17 @@ pub struct Loader {
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The flash, for the key `core.secrets` seals with.
+    #[cfg(feature = "ppn5")]
+    flash: crate::ota::Flash,
 }
 
 impl Loader {
-    pub fn new(place: Place) -> Self {
+    pub fn new(place: Place, #[cfg(feature = "ppn5")] flash: crate::ota::Flash) -> Self {
         Self {
             place,
+            #[cfg(feature = "ppn5")]
+            flash,
             #[cfg(feature = "ppn5")]
             depth: None,
             #[cfg(feature = "ppn5")]
@@ -416,21 +421,29 @@ impl CodeLoader for Loader {
         self.load_file(storage, code)
     }
 
-    /// `text.hyphenate` is served to interface-7 plugins: the data plugins'
-    /// tables are files on the card.
+    /// `text.hyphenate` (the data plugins' tables are files on the card) and
+    /// `core.secrets` (sealed with the device key, `secrets`) are served to
+    /// interface-7 plugins.
     #[cfg(feature = "ppn5")]
     fn hyphenation_sink(
         &mut self,
         storage: &alloc::rc::Rc<dyn Storage>,
     ) -> Option<paperpaw_core::native_host::HyphenTables> {
-        use paperpaw_core::native_host::{HostResources, HostWiring};
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::{HostResources, HostWiring, SecretsInputs, ShellRandom};
         if self.resources.is_none() {
             self.resources = HostResources::try_new().ok();
         }
+        let random: Rc<dyn ShellRandom> = Rc::new(crate::secrets::ChipRandom);
+        let sealer = Rc::new(crate::secrets::DeviceSealer::new(
+            self.flash.clone(),
+            random.clone(),
+        ));
+        let secrets = SecretsInputs::new(storage.clone(), sealer).random(random);
         let wired = self
             .resources
             .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
+            .wire(HostWiring::new().hyphenation(storage.clone()).secrets(secrets))
             .ok()?;
         wired.hyphen().cloned()
     }

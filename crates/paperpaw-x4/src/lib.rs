@@ -16,7 +16,7 @@
 //! [`updates`]), handles of the network stack made
 //! anew ([`generation`]), waits that never hang ([`bounded`]) and Wi-Fi
 //! given with the firmware
-//! ([`provision`]), the mark of a sleep that ends in a start
+//! ([`provision`]), the device key that seals secrets ([`device_key`]), the mark of a sleep that ends in a start
 //! ([`slept`]), and what the firmware's TLS sessions for plugins' sockets
 //! decide: who holds the few slots ([`tls_gate`]), which certificates are
 //! trusted and what a failed handshake comes to ([`tls_trust`]), and how
@@ -41,6 +41,7 @@ pub mod card;
 pub mod changes;
 pub mod controls;
 pub mod cw2017;
+pub mod device_key;
 pub mod dhcp;
 pub mod display;
 pub mod ds3231;
