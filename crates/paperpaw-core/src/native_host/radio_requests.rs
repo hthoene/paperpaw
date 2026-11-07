@@ -3,7 +3,7 @@
 //!
 //! Every request has one entry from its submit to the delivery of its single
 //! `event.wifi_done`. The entry is fixed-size and carries the room for its
-//! outcome, so reserving it at submit (fallibly, at most [`MAX_REQUESTS`]
+//! outcome, so reserving it at submit (fallibly, at most `MAX_REQUESTS`
 //! device-wide, else `ERR_FULL`) is also reserving the outcome: an accepted
 //! request always ends and is never dropped for lack of room.
 //!
@@ -13,7 +13,7 @@
 //! from the staged command to the radio command and nowhere else, so no
 //! `Debug` output of this table can show one.
 //!
-//! A request ends EXACTLY once ([`Phase::Done`] is entered from `Reserved` or
+//! A request ends EXACTLY once (`Phase::Done` is entered from `Reserved` or
 //! `Waiting` only and never left except by release): success, a failure the
 //! radio reported, superseded by a newer join or host, unsupported here,
 //! needs the user, or the host's backstop timeout. When the sender stops the
