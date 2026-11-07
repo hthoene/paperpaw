@@ -289,6 +289,15 @@ impl DocumentTable {
         mut ended: impl FnMut(&Document),
     ) -> usize {
         let mut count = 0;
+        // Every document of the format, also one the host closed earlier (three
+        // malformed answers), never reaches the stopped format again.
+        match self.documents.try_borrow_mut() {
+            Ok(mut rows) => rows
+                .iter_mut()
+                .filter(|d| d.format == format)
+                .for_each(|d| d.format_gone = true),
+            Err(_) => return 0,
+        }
         loop {
             let document = {
                 let Ok(mut rows) = self.documents.try_borrow_mut() else {

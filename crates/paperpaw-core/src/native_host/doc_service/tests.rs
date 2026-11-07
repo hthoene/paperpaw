@@ -60,6 +60,9 @@ pub(super) struct Fake {
     pub(super) options_seen: Cell<usize>,
     pub(super) roots: Cell<u32>,
     pub(super) ended: RefCell<Vec<u32>>,
+    pub(super) images_ended: RefCell<Vec<u32>>,
+    /// The format plugin stops while the host is calling it (it crashed).
+    pub(super) stops_during_call: Cell<bool>,
     pub(super) closed: RefCell<Vec<(u32, u32)>>,
     pub(super) image: Cell<Option<Option<u32>>>,
     pub(super) rows: RefCell<Vec<Vec<u8>>>,
@@ -77,6 +80,8 @@ impl Fake {
             options_seen: Cell::new(0),
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
+            images_ended: RefCell::new(Vec::new()),
+            stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
             rows: RefCell::new(Vec::new()),
@@ -131,6 +136,9 @@ impl DocHost for Fake {
             call.cover_side,
         ]);
         self.texts.borrow_mut().push(call.text.into());
+        if self.stops_during_call.get() {
+            format_stopped(self, FORMAT);
+        }
         if let Some(error) = self.fails.get() {
             return Err(error);
         }
@@ -140,8 +148,11 @@ impl DocHost for Fake {
             .copy_from_slice(&answer);
         Ok(answer.len())
     }
-    fn document_ended(&self, document: &Document) {
+    fn close_format(&self, document: &Document) {
         self.ended.borrow_mut().push(document.id);
+    }
+    fn end_images(&self, document: &Document) {
+        self.images_ended.borrow_mut().push(document.id);
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));
