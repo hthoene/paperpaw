@@ -42,6 +42,8 @@ pub(crate) mod format_index;
 mod formatting;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+#[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
+pub(crate) mod lookup_service;
 mod service_slots;
 #[allow(
     dead_code,
