@@ -117,8 +117,13 @@ def _validate_stage(stage, minor, plugin=False, payload=False):
     """A host stage (`core.*`, `since` at most the interface minor) or, with `plugin`, a
     plugin-defined one (`<plugin>.<name>`, never `core.*`, `since` its own schema version);
     with `payload`, a plugin's payload made by `payload_stage`."""
-    _require(type(stage) is dict and set(stage) == SCHEMA_KEYS, 'stage schema keys')
+    # A plugin's stage may take an input batch of several records (`input_rows`, 2..=64):
+    # the host checks a plugin stage's framing only.
+    keys = SCHEMA_KEYS | {'input_rows'} if plugin and not payload else SCHEMA_KEYS
+    _require(type(stage) is dict and SCHEMA_KEYS <= set(stage) <= keys, 'stage schema keys')
     _require(plugin or not payload, 'payload schemas are a plugin\'s')
+    if 'input_rows' in stage:
+        _integer(stage['input_rows'], 2, 64, f'{stage["key"]}: input_rows 2..=64')
     key = stage['key']
     owned = type(key) is str and key.startswith('core.') != plugin
     _require(type(key) is str and KEY.fullmatch(key) and owned and len(key.encode()) <= 128,
@@ -344,5 +349,33 @@ def _stage_source(stage, kernel):
         consts += ('    /// Each mirrored record: its local tag and the kernel tag of the service row\n'
                    '    /// it is the same record as (only the tag changes).\n'
                    f'    pub const SERVICE_TAGS: &[(u32, u32)] = &[{pairs}];\n')
+    if 'input_rows' in stage:
+        consts += ('    /// Schema input_rows: the most records of one input batch.\n'
+                   f'    pub const INPUT_ROWS: usize = {stage["input_rows"]};\n')
     source = f'\n/// Local records of `{stage["key"]}` major {stage["major"]}.\npub mod {_module_name(stage["key"], stage["major"])} {{\n' + consts
-    return source + local_codec_source(stage) + '}\n'
+    codec = local_codec_source(stage)
+    if 'input_rows' in stage:
+        for old, new, count in INPUT_ROWS_EDITS:
+            _require(codec.count(old) == count, f'input_rows emitter drift: {old}')
+            codec = codec.replace(old, new)
+    return source + codec + '}\n'
+
+
+# A stage with `input_rows` takes 1..=INPUT_ROWS input records; one-record stages keep the
+# emitted text of the host stages unchanged.
+INPUT_ROWS_EDITS = [
+    ('/// Decode exactly one stage input using only input tags and its byte cap.',
+     '/// Decode one stage input of 1..=`INPUT_ROWS` records of input tags within its byte cap.', 1),
+    ('    let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;\n'
+     '    if records.len() != 1 { return Err(-2); }',
+     '    let records = decode_with(bytes, MAX_INPUT, INPUT_ROWS, INPUT_TAGS)?;\n'
+     '    if records.is_empty() { return Err(-2); }', 1),
+    ('/// Encode exactly one input using its tag and byte bounds.',
+     '/// Encode one input of 1..=`INPUT_ROWS` records using its tag and byte bounds.', 1),
+    ('    if records.len() != 1 { return Err(-2); }\n'
+     '    encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)',
+     '    if records.is_empty() { return Err(-2); }\n'
+     '    encode_with(records, out, MAX_INPUT, INPUT_ROWS, INPUT_TAGS)', 1),
+    # The side-agnostic tooling codec holds either side's batch.
+    ('REPLY_ROWS.max(1)', 'REPLY_ROWS.max(INPUT_ROWS)', 2),
+]
