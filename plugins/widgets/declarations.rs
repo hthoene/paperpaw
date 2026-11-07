@@ -132,14 +132,56 @@ const DAY_OPTIONS: &[Opt] = &[
     Opt::Part("week", "widgets.setting.week-number", false),
 ];
 
+const TILES_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.center"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "tiles",
+        "widgets.setting.tiles",
+        &[
+            "widgets.tiles.dark",
+            "widgets.tiles.light",
+            "widgets.tiles.outline",
+        ],
+        "widgets.tiles.dark",
+        "widgets.tile-clock.tiles.help",
+    ),
+    Opt::Choice(
+        "group",
+        "widgets.setting.tile-group",
+        &["widgets.tiles.digits", "widgets.tiles.pairs"],
+        "widgets.tiles.digits",
+        "widgets.tile-clock.group.help",
+    ),
+    Opt::Part("hinge", "widgets.setting.hinge", true),
+    Opt::Part("colon", "widgets.setting.colon", false),
+    Opt::Part("date", "widgets.setting.show-date", false),
+    Opt::DateFormat("widgets.date-format.weekday"),
+];
+
 /// Every widget of the pack.
-pub const WIDGETS: &[Def] = &[Def {
-    name: "day",
-    token: 100,
-    category: category::TIME,
-    live: true,
-    options: DAY_OPTIONS,
-}];
+pub const WIDGETS: &[Def] = &[
+    Def {
+        name: "day",
+        token: 100,
+        category: category::TIME,
+        live: true,
+        options: DAY_OPTIONS,
+    },
+    Def {
+        name: "tile-clock",
+        token: 101,
+        category: category::TIME,
+        live: true,
+        options: TILES_OPTIONS,
+    },
+];
 
 /// A setting as declared: its key after the widget's, kind, title and help,
 /// and whether the choice keeps values its options lack (colours).

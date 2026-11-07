@@ -23,8 +23,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         draw: crate::native_day::draw,
         shows: crate::native_day::shows,
     };
+    static TILES: Behaviour = Behaviour {
+        height: crate::native_tiles::height,
+        draw: crate::native_tiles::draw,
+        shows: crate::native_tiles::shows,
+    };
     match token {
         100 => Some(&DAY),
+        101 => Some(&TILES),
         _ => None,
     }
 }

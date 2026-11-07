@@ -108,6 +108,51 @@ impl<'a> Cx<'a> {
         self.messages.format(self.host, key, args)
     }
 
+    /// Whether times are shown on a twelve-hour clock (`core.clock-format`).
+    ///
+    /// # Errors
+    /// The host's refusal.
+    pub fn twelve_hours(&self) -> Result<bool, Error> {
+        text_of(self.host, "core.clock-format", |value| {
+            value == paperpaw_sdk::time::CLOCK_12H
+        })
+    }
+
+    /// A time of day as the reader wants to see it: `14:05` or `2:05 PM`, in
+    /// the digits of the language shown.
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    #[allow(dead_code, reason = "the world clock and the word clock use it")]
+    pub fn clock_of(&mut self, hour: u8, minute: u8) -> Result<String, Error> {
+        let mut text = paperpaw_ui_kit::widget::settings::Stack::<16>::new();
+        if !self.twelve_hours()? {
+            core::fmt::Write::write_fmt(&mut text, format_args!("{hour:02}:{minute:02}"))
+                .map_err(|_| Error::NoSpace)?;
+            return self.messages.digits(self.host, text.as_str());
+        }
+        let key = if hour < 12 {
+            "core.clock.am"
+        } else {
+            "core.clock.pm"
+        };
+        let shown = match hour % 12 {
+            0 => 12,
+            h => h,
+        };
+        core::fmt::Write::write_fmt(&mut text, format_args!("{shown}:{minute:02}"))
+            .map_err(|_| Error::NoSpace)?;
+        let time = self.messages.digits(self.host, text.as_str())?;
+        self.messages.format(
+            self.host,
+            key,
+            &[Arg::Text {
+                name: "time",
+                value: &time,
+            }],
+        )
+    }
+
     /// `value` written in the language's digits.
     ///
     /// # Errors

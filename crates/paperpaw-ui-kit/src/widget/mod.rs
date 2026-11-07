@@ -5,6 +5,7 @@
 //! with fallible allocation, and replays them in its draw callback.
 pub mod layout;
 pub mod look;
+pub mod shape;
 pub mod settings;
 pub mod text;
 

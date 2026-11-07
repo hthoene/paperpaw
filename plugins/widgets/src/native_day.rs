@@ -5,7 +5,7 @@ use crate::native_cx::Cx;
 use crate::native_names::{
     chosen_name, date_text, month_name, month_short, weekday_name, weekday_short,
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Rect,
     native::{Error, formatting::Arg},
@@ -39,10 +39,7 @@ pub fn height(cx: &mut Cx<'_>, _width: u16) -> Result<u16, Error> {
 /// # Errors
 /// Host refusals.
 pub fn shows(cx: &Cx<'_>) -> Result<String, Error> {
-    Ok(match cx.local_time()? {
-        Some(t) => format!("{}-{}-{}", t.year, t.month, t.day),
-        None => String::new(),
-    })
+    crate::native_draw::today(cx)
 }
 
 /// The size of what is large: as set, or as fits `room` (height).

@@ -17,6 +17,17 @@ pub enum Paint {
     Fill(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
+    /// A straight line from one point to the other, `width` pixels thick.
+    Line {
+        /// Where it starts.
+        from: Point,
+        /// Where it ends.
+        to: Point,
+        /// Pen width in pixels.
+        width: u32,
+        /// Colour.
+        color: Color,
+    },
     /// A text run, optionally clipped.
     Text {
         /// What to draw.
@@ -107,6 +118,12 @@ pub fn replay<'a>(
                 }
                 None => canvas.fill_rounded_rectangle(frame_rect(*rect), *radius, *color)?,
             },
+            Paint::Line {
+                from,
+                to,
+                width,
+                color,
+            } => canvas.draw_segment(*from, *to, *width, *color)?,
             Paint::Text {
                 text,
                 size,
