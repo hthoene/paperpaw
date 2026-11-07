@@ -37,7 +37,6 @@ store-plugins = [
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-translate",
-    "dep:paperpaw-plugin-battery",
     "dep:paperpaw-plugin-reading-goal",
     "dep:paperpaw-plugin-end-of-book",
     "dep:paperpaw-plugin-notes-overview",
@@ -109,7 +108,6 @@ paperpaw-plugin-menu-editor = { workspace = true, optional = true }
 paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
-paperpaw-plugin-battery = { workspace = true, optional = true }
 paperpaw-plugin-reading-goal = { workspace = true, optional = true }
 paperpaw-plugin-end-of-book = { workspace = true, optional = true }
 paperpaw-plugin-notes-overview = { workspace = true, optional = true }

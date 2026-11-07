@@ -439,3 +439,6 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
         matches!(batch.iter().nth(1),Some(Record::ServiceLibFieldSet(r)) if r.field=="other.rating")
     );
 }
+
+#[path = "tests/fields.rs"]
+mod fields;

@@ -1,4 +1,5 @@
 use super::Paint;
+use crate::mem;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Rect,
@@ -9,12 +10,12 @@ use paperpaw_sdk::{
 };
 pub(super) fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String, Error> {
     if font.measure_text(size, text)? <= width {
-        return Ok(String::from(text));
+        return mem::string(text);
     }
     let mut result = String::new();
     for c in text.chars() {
-        result.push(c);
-        result.push('…');
+        mem::push_char(&mut result, c)?;
+        mem::push_char(&mut result, '…')?;
         if font.measure_text(size, &result)? > width {
             result.pop();
             result.pop();
@@ -22,7 +23,7 @@ pub(super) fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<
         }
         result.pop();
     }
-    result.push('…');
+    mem::push_char(&mut result, '…')?;
     Ok(result)
 }
 #[allow(
@@ -43,18 +44,21 @@ pub(super) fn label(
     let text = if room > 0.0 && font.measure_text(size, text)? > room + 1.0 {
         fit(font, size, text, room)?
     } else {
-        String::from(text)
+        mem::string(text)?
     };
     let metrics = font.read_line_metrics(size)?;
     let baseline = i32::from(area.y)
         + ((f32::from(area.height) + metrics.ascent - metrics.descent) / 2.0) as i32;
-    paint.push(Paint::Text {
-        text,
-        size,
-        origin: TextOrigin::new(x, baseline),
-        color,
-        clip,
-    });
+    mem::push(
+        paint,
+        Paint::Text {
+            text,
+            size,
+            origin: TextOrigin::new(x, baseline),
+            color,
+            clip,
+        },
+    )?;
     Ok(())
 }
 pub(super) fn cap_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32, Error> {
