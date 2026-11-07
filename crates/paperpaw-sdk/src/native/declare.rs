@@ -1106,13 +1106,13 @@ impl<'a> Item<'a> {
         let one = |record: &dyn WireEncode, out: &mut [u8]| records_encode_of(&[record], out);
         match self {
             Item::Registry(record) => one(*record, out),
-            Item::MenuEntry(entry) => one(&*entry, out),
-            Item::Icon(icon) => one(&*icon, out),
-            Item::MenuNeed(need) => one(&*need, out),
-            Item::MenuSection(section) => one(&*section, out),
-            Item::MenuHide(hide) => one(&*hide, out),
-            Item::MenuDescribe(describe) => one(&*describe, out),
-            Item::Registration(registration) => one(&*registration, out),
+            Item::MenuEntry(entry) => one(entry, out),
+            Item::Icon(icon) => one(icon, out),
+            Item::MenuNeed(need) => one(need, out),
+            Item::MenuSection(section) => one(section, out),
+            Item::MenuHide(hide) => one(hide, out),
+            Item::MenuDescribe(describe) => one(describe, out),
+            Item::Registration(registration) => one(registration, out),
             Item::Group(g) => one(
                 &SettingGroup {
                     name: g.name,

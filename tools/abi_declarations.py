@@ -1033,32 +1033,24 @@ pub fn records_encode_counted_iter<'r, I>(
 where
     I: Iterator<Item = Record<'r>> + Clone,
 {
-    let count = records.clone().take(max_records.saturating_add(1)).count();
-    if count > max_records || count > u32::MAX as usize {
-        return Err(@NO_SPACE@);
+    records_encode_counted_of(records, max_records, max_bytes, out)
+}
+
+/// The enum is one more record type of the typed codec: its encoders share one body
+/// ([`records_encode_counted_of`]) with the typed ones.
+impl WireEncode for Record<'_> {
+    fn wire_tag(&self) -> u32 {
+        self.tag()
     }
-    let mut required = varint_len(count as u32);
-    for record in records.clone() {
-        required += record_framed_len(&record)?;
-        if required > max_bytes {
-            return Err(@NO_SPACE@);
-        }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
     }
-    if out.len() < required {
-        return Err(@NO_SPACE@);
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        self.write_bitmap(out, offset);
+        self.write(out, offset);
     }
-    let mut offset = 0;
-    write_varint(count as u32, out, &mut offset);
-    let mut written = 0;
-    for record in records {
-        written += 1;
-        let rest = out.get_mut(offset..required).ok_or(@INVALID@)?;
-        offset += record_encode_one(&record, rest).map_err(|_| @INVALID@)?;
-    }
-    if written != count || offset != required {
-        return Err(@INVALID@);
-    }
-    Ok(offset)
 }
 '''
 
