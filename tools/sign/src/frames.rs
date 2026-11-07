@@ -26,10 +26,15 @@
 //!   `lw` loads it, `jr` jumps. The table is read from the plugin's `.rodata`:
 //!   the run of its relocated words (they move with the plugin) from that
 //!   address, up to the first that does not point into this function. Each
-//!   entry is a target with the frame the jump has, and no register known,
-//!   and the walk goes on from every one. The table's length is the run, not
-//!   the compiler's bound check on the index. A table the scan cannot read
-//!   (no entry, a word not relocated, an entry into the middle of an
+//!   entry is a target with the frame and the registers the jump has, and the
+//!   walk goes on from every one. Where the compiler's bound check on the
+//!   index (`bltu`/`bgeu` against a constant, on every path to the jump) is
+//!   seen, the table is that many words and no more (tables lie one after the
+//!   other in `.rodata`; the run of labels would read the next one as this
+//!   one's cases, with registers that do not hold there); a word inside the
+//!   bound that is no label of the function makes the table unreadable. With
+//!   no bound seen, the table's length is the run. A table the scan cannot
+//!   read (no entry, a word not relocated, an entry into the middle of an
 //!   instruction) is a jump through a register as below;
 //! - with the frame given back (`sp` at the function's start): a tail call
 //!   (`jr a5` after the epilogue), or a jump anywhere in the function; the
@@ -126,8 +131,9 @@ enum Ctl {
     NoReturn,
     /// A jump through a register that is not a return.
     Indirect,
-    /// A jump through the word at this address of `.rodata`: a jump table.
-    Table(u32),
+    /// A jump through the word at this address of `.rodata`: a jump table,
+    /// and how far (in bytes) from its first word the index was bounded.
+    Table(u32, Option<u32>),
     /// `ebreak`, `unimp`: the CPU takes an exception and the firmware's
     /// handler never resumes the code (`shells/xteink/src/crash.rs`).
     Trap,
@@ -142,6 +148,9 @@ struct Effect {
     /// outlined sequences, whose writes are read from its code (the caller
     /// keeps the callee-saved registers it does not write).
     outlined: Option<u32>,
+    /// An unsigned compare a branch makes: `bgeu` if the first is true, and
+    /// the two registers.
+    cond: Option<(bool, usize, usize)>,
 }
 
 fn fall() -> Effect {
@@ -149,6 +158,7 @@ fn fall() -> Effect {
         ctl: Ctl::Fall,
         unbounded: false,
         outlined: None,
+        cond: None,
     }
 }
 
@@ -210,7 +220,7 @@ fn call(effect: &mut Effect, state: &mut State, env: &Env<'_>, rd: usize, target
 fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
     match (rs1, imm_i, state.tab[rs1]) {
         (1, 0, _) => Ctl::Ret,
-        (_, 0, Tab::Entry(at)) => Ctl::Table(at),
+        (_, 0, Tab::Entry(at, lim)) => Ctl::Table(at, lim),
         _ => match state.regs[rs1] {
             // The address as the CPU makes it: the sum wraps in 32 bits and
             // the low bit is cleared (`jalr`).
@@ -257,6 +267,8 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     return effect;
                 }
                 state.add_imm(rd, rs1, imm_i);
+            } else if funct3 == 1 {
+                state.shift_left(rd, rs1, w >> 20 & 31);
             } else {
                 state.set(rd, None);
             }
@@ -288,6 +300,9 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 << 19
                 >> 19) as i64;
             effect.ctl = Ctl::Branch(offset);
+            if funct3 == 6 || funct3 == 7 {
+                effect.cond = Some((funct3 == 7, rs1, rs2));
+            }
         }
         // jal: imm[20|10:1|11|19:12]. A call falls through, a jump does not.
         0x6f => {
@@ -420,6 +435,8 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         }
         // c.slli, c.lwsp
         (2, 0 | 2) if rd == 2 => effect.unbounded = true,
+        // c.slli (a shift of 32 or more is reserved: nothing is known then)
+        (2, 0) if w >> 12 & 1 == 0 => state.shift_left(rd, rd, w >> 2 & 31),
         (2, 0 | 2) => state.set(rd, None),
         (2, 4) => {
             let bit12 = w >> 12 & 1;
@@ -428,7 +445,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 (0, 0) => {
                     effect.ctl = match (rd, state.tab[rd]) {
                         (1, _) => Ctl::Ret,
-                        (_, Tab::Entry(at)) => Ctl::Table(at),
+                        (_, Tab::Entry(at, lim)) => Ctl::Table(at, lim),
                         _ => Ctl::Indirect,
                     }
                 }
@@ -636,14 +653,21 @@ impl Walk<'_> {
     /// function they jump in, so a word that points elsewhere is the start of
     /// other data). `None` if there is none, or one points into the middle of
     /// an instruction.
-    fn table_targets(&self, b: u32) -> Option<Vec<usize>> {
+    fn table_targets(&self, b: u32, lim: Option<u32>) -> Option<Vec<usize>> {
         let tables = self.env.tables;
         let mut at = usize::try_from(b.checked_sub(tables.addr)?).ok()?;
         if !at.is_multiple_of(4) {
             return None;
         }
         let mut out = Vec::new();
-        while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
+        // With the index bounded by a compare, the table is that long and no
+        // longer (the next table may follow it; a word that is no label of the
+        // function inside the bound is no table the scan can read). Else the
+        // run of labels is the table.
+        let words = lim.map(|l| l as usize / 4 + 1);
+        while words.is_none_or(|n| out.len() < n)
+            && let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end))
+        {
             if let Some(relocated) = tables.relocated
                 && !u32::try_from(at).is_ok_and(|o| relocated.contains(&o))
             {
@@ -665,6 +689,9 @@ impl Walk<'_> {
             }
             out.push(self.insns.binary_search_by_key(&offset, |&(a, _)| a).ok()?);
             at += 4;
+        }
+        if words.is_some_and(|n| out.len() < n) {
+            return None;
         }
         out.sort_unstable();
         out.dedup();
@@ -744,6 +771,7 @@ impl Walk<'_> {
             if written >> r & 1 == 1 {
                 state.regs[r] = None;
                 state.tab[r] = Tab::None;
+                state.lim[r] = None;
             }
         }
         if written >> 8 & 1 == 1 {
@@ -793,13 +821,13 @@ impl Walk<'_> {
             self.out.frame = u32::try_from(-state.sp).unwrap_or(u32::MAX);
             self.out.frame_at = at;
         }
-        if let Ctl::Table(b) = effect.ctl {
+        if let Ctl::Table(b, lim) = effect.ctl {
             // Through the table: to each of its entries, with the frame and the
             // registers it has here (every path to an entry through this jump
             // has them; other paths join in). What the jump read is no table
             // entry any more. A table that cannot be read is a jump through a
             // register.
-            if let Some(targets) = self.table_targets(b) {
+            if let Some(targets) = self.table_targets(b, lim) {
                 let mut at_target = state.clone();
                 at_target.tab = [Tab::None; 32];
                 for j in targets {
@@ -823,7 +851,7 @@ impl Walk<'_> {
                 [None, None]
             }
             Ctl::NoReturn | Ctl::Trap => [None, None],
-            Ctl::Indirect | Ctl::Table(_) => {
+            Ctl::Indirect | Ctl::Table(..) => {
                 self.out.returns = true;
                 if state.sp != 0 {
                     // Inside a frame: where it goes is not known (a jump
@@ -858,8 +886,18 @@ impl Walk<'_> {
                 [None, None]
             }
         };
-        for j in goes.into_iter().flatten() {
-            self.join_into(j, &state);
+        for (way, j) in goes.into_iter().enumerate() {
+            let Some(j) = j else { continue };
+            match (effect.ctl, effect.cond) {
+                // A compare says something on each edge (the bound of a
+                // `match`'s index, before its table).
+                (Ctl::Branch(_), Some((ge, a, b))) => {
+                    let mut edge = state.clone();
+                    edge.refine(way == 1, ge, a, b);
+                    self.join_into(j, &edge);
+                }
+                _ => self.join_into(j, &state),
+            }
         }
     }
 }
