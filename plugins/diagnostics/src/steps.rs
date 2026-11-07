@@ -8,10 +8,13 @@
 //! pull requests. Each step is a line `<step>: <outcome>`, with a note in
 //! parentheses where there is one.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt::Write as _;
+use paperpaw_sdk::native::Error;
+use paperpaw_ui_kit::{
+    mem::{join, push},
+    text::{copy, format, write_to},
+};
 
 /// Where the report is written, in the plugin's data folder.
 pub const REPORT: &str = "device-check.txt";
@@ -234,43 +237,57 @@ impl Results {
     }
 
     /// The report as written to the card.
-    pub fn report(&self, about: &About<'_>) -> String {
-        let mut out = String::from("PaperPaw device check\n");
-        let _ = writeln!(
-            out,
-            "Device: {} ({}), {} dpi, {}",
-            about.name, about.id, about.dpi, about.format
-        );
-        let _ = writeln!(out, "PaperPaw: {}", about.version);
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the text cannot grow.
+    pub fn report(&self, about: &About<'_>) -> Result<String, Error> {
+        let mut out = copy("PaperPaw device check\n")?;
+        write_to(
+            &mut out,
+            format_args!(
+                "Device: {} ({}), {} dpi, {}\n",
+                about.name, about.id, about.dpi, about.format
+            ),
+        )?;
+        write_to(&mut out, format_args!("PaperPaw: {}\n", about.version))?;
         if let Some(when) = about.when {
-            let _ = writeln!(out, "Date: {when}");
+            write_to(&mut out, format_args!("Date: {when}\n"))?;
         }
-        out.push('\n');
+        write_to(&mut out, format_args!("\n"))?;
         for step in Step::ALL {
             match self.get(step) {
                 Some(Mark::Done(outcome, note)) if note.is_empty() => {
-                    let _ = writeln!(out, "{}: {}", step.key(), outcome.key());
+                    write_to(
+                        &mut out,
+                        format_args!("{}: {}\n", step.key(), outcome.key()),
+                    )?;
                 }
                 Some(Mark::Done(outcome, note)) => {
-                    let _ = writeln!(out, "{}: {} ({note})", step.key(), outcome.key());
+                    write_to(
+                        &mut out,
+                        format_args!("{}: {} ({note})\n", step.key(), outcome.key()),
+                    )?;
                 }
                 Some(Mark::Asleep) => {
-                    let _ = writeln!(out, "{}: {ASLEEP}", step.key());
+                    write_to(&mut out, format_args!("{}: {ASLEEP}\n", step.key()))?;
                 }
                 None => {}
             }
         }
         let (pass, fail, skip) = self.counts();
-        let _ = writeln!(
-            out,
-            "\nResult: {pass} passed, {fail} failed, {skip} skipped"
-        );
-        out
+        write_to(
+            &mut out,
+            format_args!("\nResult: {pass} passed, {fail} failed, {skip} skipped\n"),
+        )?;
+        Ok(out)
     }
 
     /// The marks of a report written before; lines it does not know are
     /// passed over.
-    pub fn parse(report: &str) -> Results {
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when a note cannot be copied.
+    pub fn parse(report: &str) -> Result<Results, Error> {
         let mut results = Results::default();
         for line in report.lines() {
             let Some((key, rest)) = line.split_once(": ") else {
@@ -286,10 +303,10 @@ impl Results {
             if word == ASLEEP {
                 results.set(step, Mark::Asleep);
             } else if let Some(outcome) = Outcome::from_key(word) {
-                results.set(step, Mark::Done(outcome, String::from(note)));
+                results.set(step, Mark::Done(outcome, copy(note)?));
             }
         }
-        results
+        Ok(results)
     }
 }
 
@@ -324,29 +341,35 @@ impl Buttons {
     /// counts as pressed; another held gives the one asked up as broken;
     /// another pressed briefly is a slip and changes nothing. Whether it
     /// changed anything.
-    pub fn press(&mut self, name: &str, long: bool) -> bool {
-        let Some(asked) = self.asked().map(String::from) else {
-            return false;
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the answer cannot be kept.
+    pub fn press(&mut self, name: &str, long: bool) -> Result<bool, Error> {
+        let Some(asked) = self.asked().map(copy).transpose()? else {
+            return Ok(false);
         };
         if name == asked {
-            self.pressed.push(asked);
+            push(&mut self.pressed, asked)?;
         } else if long {
-            self.failed.push(asked);
+            push(&mut self.failed, asked)?;
         } else {
-            return false;
+            return Ok(false);
         }
-        true
+        Ok(true)
     }
 
     /// The outcome and note once all were asked.
-    pub fn verdict(&self) -> (Outcome, String) {
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the note cannot be made.
+    pub fn verdict(&self) -> Result<(Outcome, String), Error> {
         if self.failed.is_empty() {
-            (Outcome::Pass, self.pressed.join(", "))
+            Ok((Outcome::Pass, join(&self.pressed, ", ")?))
         } else {
-            (
+            Ok((
                 Outcome::Fail,
-                format!("not working: {}", self.failed.join(", ")),
-            )
+                format(format_args!("not working: {}", join(&self.failed, ", ")?))?,
+            ))
         }
     }
 }
@@ -366,14 +389,20 @@ pub const TOUCH_TARGETS: [(u8, u8); 8] = [
 ];
 
 /// The battery's verdict: values a battery can have pass.
-pub fn battery(battery: Option<BatteryReading>, charging_seen: [bool; 2]) -> (Outcome, String) {
+///
+/// # Errors
+/// [`Error::NoMemory`] when the note cannot be made.
+pub fn battery(
+    battery: Option<BatteryReading>,
+    charging_seen: [bool; 2],
+) -> Result<(Outcome, String), Error> {
     let Some(b) = battery else {
-        return (Outcome::Skip, String::from("no battery reported"));
+        return Ok((Outcome::Skip, copy("no battery reported")?));
     };
-    let mut note = format!("{} %", b.percent);
+    let mut note = format(format_args!("{} %", b.percent))?;
     let volts_fit = match b.millivolts {
         Some(mv) => {
-            let _ = write!(note, ", {mv} mV");
+            write_to(&mut note, format_args!(", {mv} mV"))?;
             (2800..=4500).contains(&mv)
         }
         None => true,
@@ -384,13 +413,13 @@ pub fn battery(battery: Option<BatteryReading>, charging_seen: [bool; 2]) -> (Ou
         [false, true] => "charging off only",
         [false, false] => "charging not known",
     };
-    let _ = write!(note, ", {seen}");
+    write_to(&mut note, format_args!(", {seen}"))?;
     let outcome = if b.percent <= 100 && volts_fit {
         Outcome::Pass
     } else {
         Outcome::Fail
     };
-    (outcome, note)
+    Ok((outcome, note))
 }
 
 /// Speed in KiB per second of `bytes` in `micros`.
@@ -409,20 +438,24 @@ pub struct CardTest {
 }
 
 impl CardTest {
-    pub fn verdict(&self) -> (Outcome, String) {
+    /// # Errors
+    /// [`Error::NoMemory`] when the note cannot be made.
+    pub fn verdict(&self) -> Result<(Outcome, String), Error> {
         if let Some(error) = &self.error {
-            return (Outcome::Fail, error.clone());
+            return Ok((Outcome::Fail, copy(error)?));
         }
-        let mut note = format!("{} KiB", self.bytes / 1024);
+        let mut note = format(format_args!("{} KiB", self.bytes / 1024))?;
         if let (Some(w), Some(r)) = (self.write_us, self.read_us) {
-            let _ = write!(
-                note,
-                ", write {} KiB/s, read {} KiB/s",
-                speed(self.bytes, w),
-                speed(self.bytes, r)
-            );
+            write_to(
+                &mut note,
+                format_args!(
+                    ", write {} KiB/s, read {} KiB/s",
+                    speed(self.bytes, w),
+                    speed(self.bytes, r)
+                ),
+            )?;
         }
-        (Outcome::Pass, note)
+        Ok((Outcome::Pass, note))
     }
 }
 
@@ -430,29 +463,43 @@ impl CardTest {
 /// is near running over.
 pub const STACK_SPARE: u32 = 1024;
 
-pub fn memory(memory: Option<MemoryReading>) -> (Outcome, String) {
+///
+/// # Errors
+/// [`Error::NoMemory`] when the note cannot be made.
+pub fn memory(memory: Option<MemoryReading>) -> Result<(Outcome, String), Error> {
     let Some(m) = memory else {
-        return (Outcome::Skip, String::from("not reported"));
+        return Ok((Outcome::Skip, copy("not reported")?));
     };
     let kib = |bytes: u32| bytes / 1024;
-    let mut note = format!(
+    let mut note = format(format_args!(
         "heap {} KiB free of {} KiB",
         kib(m.heap_free),
         kib(m.heap_size)
-    );
+    ))?;
     let mut outcome = Outcome::Pass;
     if let (Some(free), Some(size)) = (m.stack_free, m.stack_size) {
-        let _ = write!(note, ", stack {free} B never used of {size} B");
+        write_to(
+            &mut note,
+            format_args!(", stack {free} B never used of {size} B"),
+        )?;
         if free < STACK_SPARE {
             outcome = Outcome::Fail;
         }
     }
-    (outcome, note)
+    Ok((outcome, note))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn battery(reading: Option<BatteryReading>, seen: [bool; 2]) -> (Outcome, String) {
+        super::battery(reading, seen).unwrap()
+    }
+
+    fn memory(reading: Option<MemoryReading>) -> (Outcome, String) {
+        super::memory(reading).unwrap()
+    }
 
     fn about(when: Option<&str>) -> About<'_> {
         About {
@@ -474,24 +521,26 @@ mod tests {
         );
         results.set(Step::Buttons, Mark::Done(Outcome::Fail, String::new()));
         results.set(Step::Sleep, Mark::Asleep);
-        let report = results.report(&about(Some("2026-10-23T10:00:00.000Z")));
+        let report = results
+            .report(&about(Some("2026-10-23T10:00:00.000Z")))
+            .unwrap();
         assert!(report.starts_with("PaperPaw device check\nDevice: X (x), 220 dpi, Mono1\nPaperPaw: 1.2.3\nDate: 2026-10-23T10:00:00.000Z\n"));
         assert!(report.contains("\nscreen: pass (2 gray levels)\nbuttons: fail\nsleep: asleep\n"));
         assert!(report.ends_with("Result: 1 passed, 1 failed, 0 skipped\n"));
-        assert_eq!(Results::parse(&report), results);
+        assert_eq!(Results::parse(&report).unwrap(), results);
     }
 
     #[test]
     fn what_a_report_does_not_know_is_passed_over() {
         let text = "screen: maybe\nunknown: pass\nbuttons pass\nmemory: skip (a (nested) note)\n";
-        let results = Results::parse(text);
+        let results = Results::parse(text).unwrap();
         assert_eq!(results.get(Step::Screen), None);
         assert_eq!(results.get(Step::Buttons), None);
         assert_eq!(
             results.get(Step::Memory),
             Some(&Mark::Done(Outcome::Skip, String::from("a (nested) note")))
         );
-        assert!(Results::parse("").is_empty());
+        assert!(Results::parse("").unwrap().is_empty());
     }
 
     #[test]
@@ -542,21 +591,27 @@ mod tests {
         let names = |list: &[&str]| list.iter().map(|n| String::from(*n)).collect::<Vec<_>>();
         let mut b = Buttons::new(names(&["back", "confirm", "power"]));
         assert_eq!(b.asked(), Some("back"));
-        assert!(!b.press("confirm", false), "a slip changes nothing");
-        assert!(b.press("back", false));
-        assert!(b.press("back", true), "held instead of confirm");
+        assert!(
+            !b.press("confirm", false).unwrap(),
+            "a slip changes nothing"
+        );
+        assert!(b.press("back", false).unwrap());
+        assert!(b.press("back", true).unwrap(), "held instead of confirm");
         assert_eq!(b.asked(), Some("power"));
-        assert!(b.press("power", true), "the one asked, held");
+        assert!(b.press("power", true).unwrap(), "the one asked, held");
         assert_eq!(b.asked(), None);
-        assert!(!b.press("power", false));
+        assert!(!b.press("power", false).unwrap());
         assert_eq!(
-            b.verdict(),
+            b.verdict().unwrap(),
             (Outcome::Fail, String::from("not working: confirm"))
         );
         let mut good = Buttons::new(names(&["up", "down"]));
-        good.press("up", false);
-        good.press("down", false);
-        assert_eq!(good.verdict(), (Outcome::Pass, String::from("up, down")));
+        good.press("up", false).unwrap();
+        good.press("down", false).unwrap();
+        assert_eq!(
+            good.verdict().unwrap(),
+            (Outcome::Pass, String::from("up, down"))
+        );
     }
 
     #[test]
@@ -593,16 +648,16 @@ mod tests {
             error: None,
         };
         assert_eq!(
-            test.verdict(),
+            test.verdict().unwrap(),
             (
                 Outcome::Pass,
                 String::from("128 KiB, write 256 KiB/s, read 1024 KiB/s")
             )
         );
         test.write_us = None;
-        assert_eq!(test.verdict().1, "128 KiB");
+        assert_eq!(test.verdict().unwrap().1, "128 KiB");
         test.error = Some(String::from("read back differs"));
-        assert_eq!(test.verdict().0, Outcome::Fail);
+        assert_eq!(test.verdict().unwrap().0, Outcome::Fail);
         assert_eq!(speed(1024, 0), 1_000_000, "no division by zero");
     }
 

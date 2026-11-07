@@ -3,7 +3,7 @@
 use super::{LIGHT_LEVELS, LightTest, gray_levels, reads};
 use crate::steps::{self, Buttons, CardTest, Outcome, Results, Step};
 use crate::test_screen::Metrics;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
@@ -142,8 +142,14 @@ pub fn texts(host: &Host<'_>, step: Option<Step>) -> Result<(String, String), Er
     let key = step.map_or("end", Step::key);
     let mut messages = Messages::new()?;
     Ok((
-        messages.copy(host, &format!("diagnostics.check.{key}.title"))?,
-        messages.copy(host, &format!("diagnostics.check.{key}.help"))?,
+        messages.copy(
+            host,
+            &text::format(format_args!("diagnostics.check.{key}.title"))?,
+        )?,
+        messages.copy(
+            host,
+            &text::format(format_args!("diagnostics.check.{key}.help"))?,
+        )?,
     ))
 }
 
@@ -152,12 +158,31 @@ fn fill(ops: &mut Vec<Paint>, rect: Rect, color: Color) -> Result<(), Error> {
 }
 
 /// `count` columns of `row` `gap` apart, the first at the left.
-fn columns(row: Rect, count: usize, gap: u16) -> Vec<Rect> {
+fn columns(row: Rect, count: usize, gap: u16) -> Result<Vec<Rect>, Error> {
     let n = u16::try_from(count).unwrap_or(1).max(1);
     let width = row.width.saturating_sub(gap * (n - 1)) / n;
-    (0..n)
-        .map(|i| Rect::new(row.x + i * (width + gap), row.y, width, row.height))
-        .collect()
+    let mut cells = Vec::new();
+    cells
+        .try_reserve_exact(usize::from(n))
+        .map_err(|_| Error::NoMemory)?;
+    for i in 0..n {
+        cells.push(Rect::new(
+            row.x + i * (width + gap),
+            row.y,
+            width,
+            row.height,
+        ));
+    }
+    Ok(cells)
+}
+
+/// The controls of `items` in a list that grew with fallible allocation.
+fn controls_of(items: &[Control]) -> Result<Vec<Control>, Error> {
+    let mut list = Vec::new();
+    list.try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    list.extend_from_slice(items);
+    Ok(list)
 }
 
 struct Ink<'a> {
@@ -341,7 +366,7 @@ fn lines(
                 } else {
                     "diagnostics.check.button.waiting"
                 };
-                let key = format!("diagnostics.button.{name}");
+                let key = text::format(format_args!("diagnostics.button.{name}"))?;
                 let label = messages.copy(host, &key).or_else(|_| copy(name))?;
                 add!(label, tr(messages, state)?);
             }
@@ -350,11 +375,11 @@ fn lines(
             if let Some((brightness, warmth)) = body.light.and_then(|l| LIGHT_LEVELS.get(l.level)) {
                 add!(
                     tr(messages, "diagnostics.check.brightness")?,
-                    messages.digits(host, &format!("{brightness} %"))?
+                    messages.digits(host, &text::format(format_args!("{brightness} %"))?)?
                 );
                 add!(
                     tr(messages, "diagnostics.check.warmth")?,
-                    messages.digits(host, &format!("{warmth} %"))?
+                    messages.digits(host, &text::format(format_args!("{warmth} %"))?)?
                 );
             }
         }
@@ -375,12 +400,12 @@ fn lines(
             };
             add!(
                 tr(messages, "diagnostics.check.charge")?,
-                format!("{percent} %")
+                text::format(format_args!("{percent} %"))?
             );
             if let Some(mv) = snapshot.battery_millivolts() {
                 add!(
                     tr(messages, "diagnostics.check.voltage")?,
-                    format!("{mv} mV")
+                    text::format(format_args!("{mv} mV"))?
                 );
             }
             add!(
@@ -393,7 +418,10 @@ fn lines(
                 let level = if high != 0 { "usb-high" } else { "usb-low" };
                 add!(
                     tr(messages, "diagnostics.check.usb-pin")?,
-                    tr(messages, &format!("diagnostics.check.{level}"))?
+                    tr(
+                        messages,
+                        &text::format(format_args!("diagnostics.check.{level}"))?
+                    )?
                 );
             }
             if let Some(moving) = reads::value(host, "usb-frames")? {
@@ -404,7 +432,10 @@ fn lines(
                 };
                 add!(
                     tr(messages, "diagnostics.check.usb-frames")?,
-                    tr(messages, &format!("diagnostics.check.{state}"))?
+                    tr(
+                        messages,
+                        &text::format(format_args!("diagnostics.check.{state}"))?
+                    )?
                 );
             }
         }
@@ -416,8 +447,10 @@ fn lines(
                 } else {
                     let speed = |messages: &mut Messages, us: Option<u64>| match us {
                         None => tr(messages, "diagnostics.check.unknown"),
-                        Some(us) => messages
-                            .digits(host, &format!("{} KiB/s", steps::speed(test.bytes, us))),
+                        Some(us) => messages.digits(
+                            host,
+                            &text::format(format_args!("{} KiB/s", steps::speed(test.bytes, us)))?,
+                        ),
                     };
                     add!(
                         tr(messages, "diagnostics.check.write")?,
@@ -439,7 +472,7 @@ fn lines(
                     let time = time.split('.').next().unwrap_or(time);
                     (
                         Some(messages.digits(host, date)?),
-                        Some(messages.digits(host, &format!("{time} UTC"))?),
+                        Some(messages.digits(host, &text::format(format_args!("{time} UTC"))?)?),
                     )
                 }
                 None => (None, None),
@@ -457,7 +490,7 @@ fn lines(
         }
         Some(Step::Wifi) => {
             let found = match body.networks {
-                Some(n) => messages.digits(host, &format!("{n}"))?,
+                Some(n) => messages.digits(host, &text::format(format_args!("{n}"))?)?,
                 None => tr(messages, "diagnostics.check.looking")?,
             };
             add!(tr(messages, "diagnostics.check.networks")?, found);
@@ -499,7 +532,7 @@ fn lines(
                 if let (Some(free), Some(size)) = (m.stack_free, m.stack_size) {
                     add!(
                         tr(messages, "diagnostics.check.stack")?,
-                        format!("{free} B / {size} B")
+                        text::format(format_args!("{free} B / {size} B"))?
                     );
                 }
             }
@@ -662,8 +695,10 @@ fn build_with(
             1,
         )?;
         if let Some(step) = body.step {
-            let note =
-                messages.digits(host, &format!("{} / {}", step.index() + 1, Step::ALL.len()))?;
+            let note = messages.digits(
+                host,
+                &text::format(format_args!("{} / {}", step.index() + 1, Step::ALL.len()))?,
+            )?;
             let size = style.small;
             let w = font.measure_text(size, &note)?;
             text::label(
@@ -688,15 +723,15 @@ fn build_with(
 
     let button = style.row;
     let answers: Vec<Control> = match body.step {
-        None => alloc::vec![Control::StartOver, Control::Done],
-        Some(_) => Outcome::ALL.into_iter().map(Control::Answer).collect(),
+        None => controls_of(&[Control::StartOver, Control::Done])?,
+        Some(_) => controls_of(&Outcome::ALL.map(Control::Answer))?,
     };
     let tools: Vec<Control> = match body.step {
-        Some(Step::Screen) => alloc::vec![Control::Flip, Control::FullRefresh],
-        Some(Step::Buttons) if !body.buttons_on => alloc::vec![Control::StartButtons],
-        Some(Step::Light) if body.light.is_none() => alloc::vec![Control::LightAgain],
-        Some(Step::Wifi) if body.wifi_page => alloc::vec![Control::WifiPage],
-        Some(Step::Sleep) => alloc::vec![Control::SleepNow],
+        Some(Step::Screen) => controls_of(&[Control::Flip, Control::FullRefresh])?,
+        Some(Step::Buttons) if !body.buttons_on => controls_of(&[Control::StartButtons])?,
+        Some(Step::Light) if body.light.is_none() => controls_of(&[Control::LightAgain])?,
+        Some(Step::Wifi) if body.wifi_page => controls_of(&[Control::WifiPage])?,
+        Some(Step::Sleep) => controls_of(&[Control::SleepNow])?,
         _ => Vec::new(),
     };
     // The touch page keeps its edges free for the targets: its answers go
@@ -753,7 +788,7 @@ fn build_with(
         push(&mut controls, (Control::Help, title))?;
     }
     for (row, list) in [(tool_row, &tools), (answer_row, &answers)] {
-        for (control, rect) in list.iter().zip(columns(row, list.len(), gap)) {
+        for (control, rect) in list.iter().zip(columns(row, list.len(), gap)?) {
             push(&mut controls, (*control, rect))?;
         }
     }

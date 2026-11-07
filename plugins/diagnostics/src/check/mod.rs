@@ -19,7 +19,7 @@
 //! a deadline is compared with the time each tick brings.
 
 use crate::steps::{self, About, Buttons, CardTest, Mark, Outcome, Results, Step};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Point,
     native::{
@@ -33,7 +33,10 @@ use paperpaw_sdk::{
         ui::{Question, Ui},
     },
 };
-use paperpaw_ui_kit::{mem::SERVICE_BUFFER, mem::buffer};
+use paperpaw_ui_kit::{
+    mem::{SERVICE_BUFFER, buffer, copy_strings},
+    text::{copy, format},
+};
 
 pub mod reads;
 mod view;
@@ -117,12 +120,37 @@ pub struct Check {
     scan_from: u64,
     /// When the device was asked to sleep, while it has not gone to sleep.
     sleep_asked: Option<u64>,
-    /// The next time something is due (a tick at or after it).
-    deadline: Option<u64>,
+    /// The next time something is due.
+    timer: Timer,
     now: u64,
     page: view::PageView,
     width: u16,
     height: u16,
+}
+
+/// The one place time is judged: a deadline against the time the host's
+/// events bring. Everything that waits (the light levels, the Wi-Fi search,
+/// the sleep wait, the card test) goes through it, so a finer timer from the
+/// host replaces what calls [`Timer::due`] and nothing else.
+#[derive(Debug, Default, Clone, Copy)]
+struct Timer {
+    deadline: Option<u64>,
+}
+
+impl Timer {
+    /// Something is due at `at` (the host's milliseconds).
+    fn arm(&mut self, at: u64) {
+        self.deadline = Some(at);
+    }
+
+    fn clear(&mut self) {
+        self.deadline = None;
+    }
+
+    /// Whether it is due at `now`.
+    fn due(self, now: u64) -> bool {
+        self.deadline.is_some_and(|due| now >= due)
+    }
 }
 
 impl Check {
@@ -135,7 +163,7 @@ impl Check {
         let snapshot = capture_snapshot(host)?;
         let now = snapshot.instant().0;
         let results = read_report(host);
-        let buttons = Buttons::new(machine.keys.clone());
+        let buttons = Buttons::new(copy_strings(&machine.keys)?);
         let mut check = Self {
             results,
             step: None,
@@ -158,7 +186,7 @@ impl Check {
             radio_now: reads::Radio::default(),
             scan_from: now,
             sleep_asked: None,
-            deadline: None,
+            timer: Timer::default(),
             now,
             page: view::PageView::default(),
             width,
@@ -174,7 +202,7 @@ impl Check {
                 StartKind::Restart => (Outcome::Fail, "started again instead of waking"),
                 _ => (Outcome::Skip, "how it started is not known"),
             };
-            check.mark(host, Step::Sleep, outcome, String::from(note));
+            check.mark(host, Step::Sleep, outcome, copy(note)?)?;
         }
         check.step = check.results.next_open();
         Ok(check)
@@ -187,12 +215,18 @@ impl Check {
     }
 
     /// Marks `step` and writes the report.
-    fn mark(&mut self, host: &Host<'_>, step: Step, outcome: Outcome, note: String) {
+    fn mark(
+        &mut self,
+        host: &Host<'_>,
+        step: Step,
+        outcome: Outcome,
+        note: String,
+    ) -> Result<(), Error> {
         self.results.set(step, Mark::Done(outcome, note));
-        self.save(host);
+        self.save(host)
     }
 
-    fn save(&mut self, host: &Host<'_>) {
+    fn save(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let snapshot = capture_snapshot(host).ok();
         let when = snapshot
             .and_then(|s| s.unix_seconds())
@@ -205,10 +239,12 @@ impl Check {
             version: env!("CARGO_PKG_VERSION"),
             when: when.as_deref(),
         };
-        let report = self.results.report(&about);
+        let report = self.results.report(&about)?;
         self.unsaved = storage::write(host, Root::Data, steps::REPORT, report.as_bytes())
             .err()
-            .map(|e| format!("{e:?}"));
+            .map(|e| format(format_args!("{e:?}")))
+            .transpose()?;
+        Ok(())
     }
 
     /// Shows `step`, or the end with `None`, after the steps that do not apply
@@ -219,24 +255,24 @@ impl Check {
         while let Some(s) = step
             && let Some(missing) = s.missing(&self.machine.facts)
         {
-            self.mark(host, s, Outcome::Skip, String::from(missing));
+            self.mark(host, s, Outcome::Skip, copy(missing)?)?;
             step = self.results.next_open();
         }
         self.step = step;
         self.flipped = false;
-        self.buttons = Buttons::new(self.machine.keys.clone());
+        self.buttons = Buttons::new(copy_strings(&self.machine.keys)?);
         self.buttons_on = false;
         self.held = false;
         self.tapped = [false; steps::TOUCH_TARGETS.len()];
         self.charging_seen = [false; 2];
         self.card = None;
         self.networks = None;
-        self.deadline = None;
+        self.timer.clear();
         match step {
-            Some(Step::Light) => self.start_light(host),
+            Some(Step::Light) => self.start_light(host)?,
             Some(Step::Battery) => self.see_charging(host),
             // The card is tried once the page shows it is.
-            Some(Step::Card) => self.deadline = Some(self.now),
+            Some(Step::Card) => self.timer.arm(self.now),
             Some(Step::Wifi) => {
                 // Until the radio is on, then while looking.
                 self.scan_from = self.now;
@@ -254,7 +290,7 @@ impl Check {
                 } else {
                     commands.wifi_on()?;
                 }
-                self.deadline = Some(self.now + SCAN_MS);
+                self.timer.arm(self.now + SCAN_MS);
             }
             _ => {}
         }
@@ -270,65 +306,75 @@ impl Check {
         };
         // What was measured is noted whatever the answer: a part failed or
         // skipped is the better understood for it.
-        let note = self.measured(host).1;
-        self.mark(host, step, outcome, note);
+        let note = self.measured(host)?.1;
+        self.mark(host, step, outcome, note)?;
         let next = self.results.next_open();
         self.enter(host, next)
     }
 
     /// The outcome the step's measurements suggest, and its note; no outcome
     /// while they go on.
-    fn measured(&self, host: &Host<'_>) -> (Option<Outcome>, String) {
+    fn measured(&self, host: &Host<'_>) -> Result<(Option<Outcome>, String), Error> {
         let snapshot = capture_snapshot(host).ok();
         let (outcome, note) = match self.step {
             Some(Step::Screen) => {
                 let levels = snapshot.map_or(16, |s| gray_levels(&s));
-                (Outcome::Pass, format!("{levels} gray levels"))
+                (Outcome::Pass, format(format_args!("{levels} gray levels"))?)
             }
-            Some(Step::Buttons) if self.buttons.asked().is_some() => return (None, String::new()),
-            Some(Step::Buttons) => self.buttons.verdict(),
-            Some(Step::Touch) if self.tapped.contains(&false) => return (None, String::new()),
-            Some(Step::Touch) => (Outcome::Pass, String::from("corners and edges")),
-            Some(Step::Light) if self.light.is_some() => return (None, String::new()),
+            Some(Step::Buttons) if self.buttons.asked().is_some() => {
+                return Ok((None, String::new()));
+            }
+            Some(Step::Buttons) => self.buttons.verdict()?,
+            Some(Step::Touch) if self.tapped.contains(&false) => {
+                return Ok((None, String::new()));
+            }
+            Some(Step::Touch) => (Outcome::Pass, copy("corners and edges")?),
+            Some(Step::Light) if self.light.is_some() => return Ok((None, String::new())),
             Some(Step::Light) => match &self.light_unkept {
-                Some(e) => (Outcome::Skip, format!("own light not kept: {e}")),
-                None => (Outcome::Pass, String::from("brightness and warmth")),
+                Some(e) => (
+                    Outcome::Skip,
+                    format(format_args!("own light not kept: {e}"))?,
+                ),
+                None => (Outcome::Pass, copy("brightness and warmth")?),
             },
             Some(Step::Battery) => steps::battery(
                 snapshot.and_then(|s| reads::battery(&s)),
                 self.charging_seen,
-            ),
+            )?,
             Some(Step::Card) => match &self.card {
-                Some(test) => test.verdict(),
-                None => return (None, String::new()),
+                Some(test) => test.verdict()?,
+                None => return Ok((None, String::new())),
             },
             Some(Step::Clock) => match snapshot.and_then(|s| s.unix_seconds()) {
                 Some(secs) => (
                     Outcome::Pass,
-                    paperpaw_sdk::time::UnixTime::from_secs(secs).iso8601(),
+                    copy(&paperpaw_sdk::time::UnixTime::from_secs(secs).iso8601())?,
                 ),
-                None => (Outcome::Skip, String::from("time of day not known")),
+                None => (Outcome::Skip, copy("time of day not known")?),
             },
             Some(Step::Wifi) => return self.wifi_measured(),
-            Some(Step::Sleep) | None => return (None, String::new()),
-            Some(Step::Memory) => steps::memory(reads::memory(host).ok()),
+            Some(Step::Sleep) | None => return Ok((None, String::new())),
+            Some(Step::Memory) => steps::memory(reads::memory(host).ok())?,
         };
-        (Some(outcome), note)
+        Ok((Some(outcome), note))
     }
 
-    fn wifi_measured(&self) -> (Option<Outcome>, String) {
+    fn wifi_measured(&self) -> Result<(Option<Outcome>, String), Error> {
         let online = self.radio_now.online;
         let timed_out = self.now.saturating_sub(self.scan_from) >= SCAN_MS;
         let scanned = self.radio.is_none_or(|r| r.scanned);
-        let fail = |note: String| (Some(Outcome::Fail), note);
+        let fail = |note: Result<String, Error>| Ok((Some(Outcome::Fail), note?));
         match self.networks {
             // Joined, the network found before it looked or not.
-            Some(n) if online => (Some(Outcome::Pass), format!("{n} networks found, joined")),
-            None if online => (Some(Outcome::Pass), String::from("joined")),
-            None if !timed_out => (None, String::new()),
-            None if !scanned => fail(String::from("the radio did not come on")),
-            None | Some(0) => fail(String::from("no networks found")),
-            Some(n) => fail(format!("{n} networks found, not joined")),
+            Some(n) if online => Ok((
+                Some(Outcome::Pass),
+                format(format_args!("{n} networks found, joined"))?,
+            )),
+            None if online => Ok((Some(Outcome::Pass), copy("joined")?)),
+            None if !timed_out => Ok((None, String::new())),
+            None if !scanned => fail(copy("the radio did not come on")),
+            None | Some(0) => fail(copy("no networks found")),
+            Some(n) => fail(format(format_args!("{n} networks found, not joined"))),
         }
     }
 
@@ -338,7 +384,7 @@ impl Check {
     /// in full), so they come first.
     fn suggested_focus(&self, host: &Host<'_>) -> usize {
         let controls = &self.page.controls;
-        let wanted = match (self.step, self.measured(host).0) {
+        let wanted = match (self.step, self.measured(host).ok().and_then(|m| m.0)) {
             (None, _) => Control::Done,
             (Some(Step::Screen), _) | (_, None) => controls
                 .iter()
@@ -369,7 +415,7 @@ impl Check {
                 self.redraw(host, RedrawMode::Partial)
             }
             Control::LightAgain => {
-                self.start_light(host);
+                self.start_light(host)?;
                 self.redraw_page(host)
             }
             Control::WifiPage => {
@@ -383,13 +429,13 @@ impl Check {
             Control::SleepNow => {
                 // Marked asleep when the device goes to sleep (suspend).
                 self.sleep_asked = Some(self.now);
-                self.deadline = Some(self.now + SLEEP_WAIT_MS);
+                self.timer.arm(self.now + SLEEP_WAIT_MS);
                 let mut scratch = [0; 64];
                 CommandSender::new(host, &mut scratch).sleep()
             }
             Control::StartOver => {
                 self.results = Results::default();
-                self.save(host);
+                self.save(host)?;
                 self.enter(host, Some(Step::ALL[0]))
             }
             Control::Done => {
@@ -421,7 +467,7 @@ impl Check {
         let _ = commands.set_setting(WARMTH, SettingValue::Int(warmth));
     }
 
-    fn start_light(&mut self, host: &Host<'_>) {
+    fn start_light(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let kept = self.own_light.take().unwrap_or_else(|| {
             let mut scratch = [0; 32];
             let mut read = |key| match settings::read_setting(host, key, &mut scratch) {
@@ -431,15 +477,16 @@ impl Check {
             (read(BRIGHTNESS), read(WARMTH))
         });
         // Kept on the card first: nothing is changed unless it is.
-        let line = format!("{} {}\n", kept.0, kept.1);
+        let line = format(format_args!("{} {}\n", kept.0, kept.1))?;
         if let Err(e) = storage::write(host, Root::Data, LIGHT_FILE, line.as_bytes()) {
-            self.light_unkept = Some(format!("{e:?}"));
-            return;
+            self.light_unkept = Some(format(format_args!("{e:?}"))?);
+            return Ok(());
         }
         self.light_unkept = None;
         self.light = Some(LightTest { level: 0, kept });
         Self::set_light(host, LIGHT_LEVELS[0]);
-        self.deadline = Some(self.now + LIGHT_MS);
+        self.timer.arm(self.now + LIGHT_MS);
+        Ok(())
     }
 
     /// Sets the reader's own light again from the card, where a check that
@@ -469,7 +516,7 @@ impl Check {
         match LIGHT_LEVELS.get(light.level) {
             Some(level) => {
                 Self::set_light(host, *level);
-                self.deadline = Some(self.now + LIGHT_MS);
+                self.timer.arm(self.now + LIGHT_MS);
             }
             None => self.end_light(host),
         }
@@ -575,7 +622,7 @@ impl Check {
             unsaved: self.unsaved.as_deref(),
             wifi_page: true,
         };
-        let suggested = self.measured(host).0;
+        let suggested = self.measured(host).ok().and_then(|m| m.0);
         self.page = view::build(
             host,
             &body,
@@ -650,12 +697,12 @@ impl Check {
             }
             _ => (!core::mem::take(&mut self.held), false),
         };
-        if counts && self.buttons.press(key, long) {
+        if counts && self.buttons.press(key, long)? {
             if self.buttons.asked().is_some() {
                 self.prepare(host)?;
                 self.redraw(host, RedrawMode::Fast)?;
             } else {
-                let outcome = self.buttons.verdict().0;
+                let outcome = self.buttons.verdict()?.0;
                 self.answer(host, outcome)?;
             }
         }
@@ -720,9 +767,9 @@ impl Check {
         match *event {
             Event::Tick { now_ms } => {
                 self.now = now_ms;
-                if self.deadline.is_some_and(|due| now_ms >= due) {
-                    self.deadline = None;
-                    self.timer(host)?;
+                if self.timer.due(now_ms) {
+                    self.timer.clear();
+                    self.when_due(host)?;
                 }
                 Ok(())
             }
@@ -748,7 +795,7 @@ impl Check {
                     CommandSender::new(host, &mut scratch).wifi_scan()?;
                     // The search has its time from now.
                     self.scan_from = now_ms;
-                    self.deadline = Some(now_ms + SCAN_MS);
+                    self.timer.arm(now_ms + SCAN_MS);
                 }
                 self.redraw_page(host)
             }
@@ -757,17 +804,16 @@ impl Check {
             {
                 self.now = now_ms;
                 self.sleep_asked = None;
-                self.deadline = None;
+                self.timer.clear();
                 self.results.set(Step::Sleep, Mark::Asleep);
-                self.save(host);
-                Ok(())
+                self.save(host)
             }
             Event::Resume { now_ms }
                 if self.step == Some(Step::Sleep)
                     && self.results.get(Step::Sleep) == Some(&Mark::Asleep) =>
             {
                 self.now = now_ms;
-                self.mark(host, Step::Sleep, Outcome::Pass, String::from("woke"));
+                self.mark(host, Step::Sleep, Outcome::Pass, copy("woke")?)?;
                 let next = self.results.next_open();
                 self.enter(host, next)
             }
@@ -775,7 +821,7 @@ impl Check {
         }
     }
 
-    fn timer(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    fn when_due(&mut self, host: &Host<'_>) -> Result<(), Error> {
         match self.step {
             Some(Step::Card) if self.card.is_none() => {
                 self.run_card_test(host);
@@ -801,8 +847,8 @@ impl Check {
                     host,
                     Step::Sleep,
                     Outcome::Fail,
-                    String::from("did not go to sleep"),
-                );
+                    copy("did not go to sleep")?,
+                )?;
                 let next = self.results.next_open();
                 self.enter(host, next)
             }
@@ -828,8 +874,9 @@ fn read_report(host: &Host<'_>) -> Results {
     bytes.resize(REPORT_CAP.min(storage::MAX_DATA), 0);
     storage::read_at(host, Root::Data, steps::REPORT, 0, &mut bytes)
         .ok()
-        .and_then(|count| core::str::from_utf8(&bytes[..count]).ok())
-        .map_or_else(Results::default, Results::parse)
+        .and_then(|count| core::str::from_utf8(bytes.get(..count)?).ok())
+        .and_then(|text| Results::parse(text).ok())
+        .unwrap_or_default()
 }
 
 /// Writes 128 KiB, reads them back and compares them, timed where the device
@@ -844,7 +891,7 @@ fn card_test(host: &Host<'_>) -> CardTest {
     };
     let mut chunk = Vec::new();
     if chunk.try_reserve_exact(CARD_CHUNK * 2).is_err() {
-        test.error = Some(String::from("no memory"));
+        test.error = copy("no memory").ok();
         return test;
     }
     chunk.extend((0..CARD_CHUNK).map(|i| (i % 251) as u8));
@@ -857,7 +904,7 @@ fn card_test(host: &Host<'_>) -> CardTest {
     });
     let wrote = clock();
     if let Err(e) = written {
-        test.error = Some(format!("write: {e:?}"));
+        test.error = format(format_args!("write: {e:?}")).ok();
         let _ = storage::remove(host, Root::Data, CARD_FILE);
         return test;
     }
@@ -867,17 +914,19 @@ fn card_test(host: &Host<'_>) -> CardTest {
             Ok(n) if n == CARD_CHUNK => same &= back == pattern,
             Ok(_) => same = false,
             Err(e) => {
-                test.error = Some(format!("read: {e:?}"));
+                test.error = format(format_args!("read: {e:?}")).ok();
                 break;
             }
         }
     }
     let read = clock();
-    if let Err(e) = storage::remove(host, Root::Data, CARD_FILE) {
-        test.error.get_or_insert(format!("remove: {e:?}"));
+    if let Err(e) = storage::remove(host, Root::Data, CARD_FILE)
+        && let Ok(note) = format(format_args!("remove: {e:?}"))
+    {
+        test.error.get_or_insert(note);
     }
-    if !same {
-        test.error.get_or_insert(String::from("read back differs"));
+    if !same && let Ok(note) = copy("read back differs") {
+        test.error.get_or_insert(note);
     }
     if let (Some(a), Some(b), Some(c)) = (started, wrote, read) {
         test.write_us = Some(b.saturating_sub(a));

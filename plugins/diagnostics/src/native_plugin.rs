@@ -24,13 +24,17 @@ const CHECK: &str = "diagnostics.check";
 const RESET: &str = "diagnostics.reset";
 const OPEN_CHECK: &str = "diagnostics.open-check";
 
+/// A screen's view. The check is held where it is: a box cannot be made
+/// with fallible allocation, and the screen list grows fallibly instead.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a box allocates infallibly; the list of views reserves each slot fallibly"
+)]
 enum View {
     Test(TestScreen),
-    Check(Box<Check>),
+    Check(Check),
 }
-
-use alloc::boxed::Box;
 
 /// Diagnostics' interface-7 entry state.
 #[derive(Debug, Default)]
@@ -146,7 +150,7 @@ impl NativeDiagnostics {
             let view = if token == SCREEN_TOKEN {
                 View::Test(TestScreen::new(host, width, height)?)
             } else {
-                View::Check(Box::new(Check::new(host, width, height)?))
+                View::Check(Check::new(host, width, height)?)
             };
             self.screens.open(instance, view)?;
             self.screens.shown(token, instance)?;
