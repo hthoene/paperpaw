@@ -268,6 +268,14 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   `role:icons` acquires even while no icon font is bound; a text call through it answers
   `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
   again at each call.
+- [D] **Named icons** (Port Reviewer, #344): host slot 40 `icon.glyph(ctx, name: bytes, out:
+  buffer)`, `query`, writes the UTF-8 of the named icon's character in the bound icon font (at most
+  4 bytes) into `out`, which the plugin draws with `text.draw` through its `role:icons` handle.
+  `name` is one `[a-z0-9-]` segment of at most 64 bytes, the SDK's icon names as in `icon.spec`
+  (`ERR_INVALID` otherwise); a name the host's set lacks, or no icon font bound, is
+  `ERR_NOT_FOUND` (the plugin shows text, as menus do). The name table stays in the host (one
+  copy, interface 6's `icons` table), so no plugin links it. Hosts answer `ERR_UNSUPPORTED` until
+  wired.
 
   A role is resolved again at each text call, so it follows the user's choice and never goes
   stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.

@@ -586,6 +586,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   (at most 128 bytes) or, with `flags` bit 0, drawn: the showing screen composes it with
   `ui.compose` kind 1 and the row's `handle`. A handle is valid only inside the callback that got
   it, so a drawn item is asked for with op 14 inside `draw`, then composed in the same `draw`.
+- [D] **An empty value hides the item** (Port Reviewer, #343): a row with no text and `flags` bit
+  0 clear (an owner answering empty text, or no value at all as above) is not shown; the line
+  gives its room to the other items, as interface 6 did for an item without a value. A provider
+  that wants a blank place answers a space.
 - [D] **Own items are not called back.** The host never re-enters the caller (section 5.1): an
   item of the caller's own plugin (the reader showing its own page number) comes back from op 14
   with `flags` bit 2 `own`, no text and no handle, without a `core.status` call; the caller fills
