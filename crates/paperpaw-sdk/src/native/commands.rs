@@ -9,6 +9,7 @@ use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
 mod registry;
+mod uix;
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };

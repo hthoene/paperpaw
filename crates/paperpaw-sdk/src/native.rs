@@ -343,6 +343,7 @@ pub mod settings;
 pub mod snapshot;
 pub mod stages;
 pub mod storage;
+pub mod ui;
 mod wire;
 
 #[cfg(test)]
