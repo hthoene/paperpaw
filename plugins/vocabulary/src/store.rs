@@ -19,7 +19,7 @@ use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
-use crate::lines::{self, copy, push, push_number};
+use crate::lines::{self, copy, folded, push, push_number};
 
 /// The changes made to the words since PaperPaw started: what the marks
 /// in books depend on, known without reading the file. Shared by the
@@ -92,14 +92,6 @@ fn push_field(out: &mut String, text: &str, limit: usize) -> Result<(), StorageE
         }
     }));
     Ok(())
-}
-
-/// The characters of `text`, lower case, the final sigma as any: what the
-/// same word's spellings share.
-fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
-    text.chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| if c == 'ς' { 'σ' } else { c })
 }
 
 impl Word {

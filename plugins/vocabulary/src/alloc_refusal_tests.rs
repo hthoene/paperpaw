@@ -173,3 +173,268 @@ fn exporting_refuses_cleanly() {
     sweep("export", make, |s| store::export(s, "out.tsv"), |_| {});
     assert_eq!(words(&make()).len(), 40);
 }
+
+// ---- The decks and cards ----------------------------------------------
+
+use crate::cards::{self, Problem, Texts};
+
+const CARDS: &str = ".paperpaw/plugins/vocabulary/cards";
+
+fn texts(i: usize) -> Texts {
+    Texts {
+        front: alloc::format!("front {i}"),
+        back: alloc::format!("back {i} with a\ttab"),
+        example: alloc::format!("an example, {i}"),
+    }
+}
+
+/// The calls report a refusal as `Storage(TooLarge)`; the others pass.
+fn storage_error<T>(result: Result<T, Problem>) -> Result<T, StorageError> {
+    result.map_err(|problem| match problem {
+        Problem::Storage(error) => error,
+        other => panic!("{other:?}"),
+    })
+}
+
+/// Two decks, 60 cards in the first, 5 in the second; some of them answered
+/// (so the index, the answers and the decks all hold something).
+fn decks_of_cards() -> Quiet {
+    let storage = Quiet::default();
+    fixture(|| {
+        let words = cards::add_deck(&storage, "Words").unwrap();
+        let phrases = cards::add_deck(&storage, "Phrases").unwrap();
+        cards::add(&storage, words, (0..60).map(texts)).unwrap();
+        cards::add(&storage, phrases, (0..5).map(texts)).unwrap();
+        let first = cards::due(&storage, 10, 1, 1, Some(words)).unwrap()[0];
+        let state = first.state.answered(
+            crate::fsrs::Grade::Good,
+            100,
+            false,
+            crate::fsrs::Fx::hundredths(90),
+        );
+        cards::record(&storage, words, 0, &state).unwrap();
+    });
+    storage
+}
+
+/// What every call leaves, refused or not: the decks and cards read, the
+/// card ids are each once, and no half-written file is left beside them.
+fn healthy(storage: &Quiet) {
+    fixture(|| {
+        for deck in cards::decks(storage).unwrap() {
+            let mut ids = Vec::new();
+            cards::each_card(storage, deck.id, |_, card| {
+                ids.push(card.state.id);
+                core::ops::ControlFlow::Continue(())
+            })
+            .unwrap();
+            let all = ids.len();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(ids.len(), all, "a card twice in deck {}", deck.id);
+        }
+        let mut left = Vec::new();
+        storage
+            .list(CARDS, &mut |entry| {
+                let name = entry.name;
+                if name.ends_with(".tmp") || name.ends_with(".part") {
+                    left.push(String::from(name));
+                }
+            })
+            .unwrap();
+        assert!(left.is_empty(), "left behind: {left:?}");
+    });
+}
+
+fn cards_in(storage: &Quiet, deck: u32) -> usize {
+    fixture(|| cards::page(storage, deck, 0, 0).1)
+}
+
+#[test]
+fn reading_decks_and_what_is_due_refuses_cleanly() {
+    sweep("decks", decks_of_cards, |s| cards::decks(s), |_| {});
+    sweep("sizes", decks_of_cards, |s| cards::sizes(s), healthy);
+    sweep(
+        "due",
+        decks_of_cards,
+        |s| cards::due(s, 1_000, 20, 10, None),
+        healthy,
+    );
+    sweep(
+        "due_count",
+        decks_of_cards,
+        |s| cards::due_count(s, 1_000, 20),
+        healthy,
+    );
+    sweep(
+        "card_at",
+        decks_of_cards,
+        |s| Ok(cards::card_at(s, 1, 0).map(|c| c.front)),
+        |_| {},
+    );
+    sweep(
+        "visit_page",
+        decks_of_cards,
+        |s| Ok(cards::visit_page(s, 1, 3, |_| true)),
+        |_| {},
+    );
+    sweep(
+        "next_due",
+        decks_of_cards,
+        |s| Ok(cards::next_due(s, 0)),
+        |_| {},
+    );
+}
+
+#[test]
+fn changing_decks_refuses_cleanly_and_keeps_the_cards() {
+    sweep(
+        "add_deck",
+        decks_of_cards,
+        |s| storage_error(cards::add_deck(s, "Verbs")),
+        |s| {
+            healthy(s);
+            assert!(fixture(|| cards::decks(s).unwrap().len()) >= 2);
+        },
+    );
+    sweep(
+        "rename_deck",
+        decks_of_cards,
+        |s| storage_error(cards::rename_deck(s, 2, "Sentences")),
+        healthy,
+    );
+    sweep(
+        "delete_deck",
+        decks_of_cards,
+        |s| storage_error(cards::delete_deck(s, 2)),
+        healthy,
+    );
+    sweep(
+        "add",
+        decks_of_cards,
+        |s| {
+            let more = fixture(|| (100..130).map(texts).collect::<Vec<_>>());
+            storage_error(cards::add(s, 1, more))
+        },
+        |s| {
+            healthy(s);
+            // Whole cards only: the 60, or all 90 (a refusal part way may
+            // have written the parts before it).
+            assert!(cards_in(s, 1) >= 60);
+        },
+    );
+    sweep(
+        "edit",
+        decks_of_cards,
+        |s| {
+            let changed = fixture(|| texts(7));
+            storage_error(cards::edit(s, 1, 8, None, &changed))
+        },
+        |s| {
+            healthy(s);
+            assert_eq!(cards_in(s, 1), 60);
+        },
+    );
+    sweep(
+        "delete",
+        decks_of_cards,
+        |s| storage_error(cards::delete(s, 1, 9, None)),
+        |s| {
+            healthy(s);
+            assert!(cards_in(s, 1) >= 59);
+        },
+    );
+}
+
+#[test]
+fn answers_and_lookups_refuse_cleanly() {
+    let state = crate::cards::State {
+        id: 3,
+        due: 500,
+        last: 100,
+        stability: 200,
+        difficulty: 500,
+        reps: 1,
+        lapses: 0,
+    };
+    sweep(
+        "record",
+        decks_of_cards,
+        |s| cards::record(s, 1, 0, &state),
+        healthy,
+    );
+    sweep(
+        "fold",
+        decks_of_cards,
+        |s| cards::fold(s),
+        |s| {
+            healthy(s);
+            assert_eq!(cards_in(s, 1), 60);
+        },
+    );
+    sweep(
+        "queue_lookup",
+        decks_of_cards,
+        |s| cards::queue_lookup(s, "quire", "A \"quire\" is\tfolded."),
+        |_| {},
+    );
+    // Enough words waiting that the list is taken in more than one part.
+    let waiting = || {
+        let storage = decks_of_cards();
+        fixture(|| {
+            for i in 0..70 {
+                cards::queue_lookup(&storage, &alloc::format!("word{i}"), "a sentence").unwrap();
+            }
+        });
+        storage
+    };
+    sweep(
+        "take_lookups",
+        waiting,
+        |s| storage_error(cards::take_lookups(s, "Looked up")),
+        |s| {
+            healthy(s);
+            // Every word is waiting still or is a card.
+            let waiting = s
+                .get(&alloc::format!("{CARDS}/looked-up.txt"))
+                .map_or(0, |d| d.iter().filter(|b| **b == b'\n').count());
+            let looked_up = fixture(|| {
+                cards::decks(s)
+                    .unwrap()
+                    .iter()
+                    .find(|d| d.name == "Looked up")
+                    .map_or(0, |d| cards::page(s, d.id, 0, 0).1)
+            });
+            assert!(waiting + looked_up >= 70, "{waiting} + {looked_up}");
+        },
+    );
+}
+
+#[test]
+fn recovering_after_a_cut_refuses_cleanly() {
+    let cut = || {
+        let storage = decks_of_cards();
+        fixture(|| {
+            storage
+                .write(&alloc::format!("{CARDS}/adding.txt"), b"1\n")
+                .unwrap();
+            storage
+                .write(&alloc::format!("{CARDS}/deck-2.tmp"), b"half a deck")
+                .unwrap();
+        });
+        storage
+    };
+    sweep(
+        "recover",
+        cut,
+        |s| {
+            cards::recover(s);
+            Ok(())
+        },
+        |s| {
+            // Left behind is allowed where the cleaning was refused: it is
+            // taken at the next start; the decks must still read.
+            fixture(|| assert_eq!(cards::decks(s).unwrap().len(), 2));
+        },
+    );
+}
