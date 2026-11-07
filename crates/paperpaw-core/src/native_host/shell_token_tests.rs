@@ -353,6 +353,20 @@ fn retained_instance_keeps_callbacks_live_and_destroys_state_once() {
 }
 
 #[test]
+fn retained_by_value_early_return_destroys_once() {
+    use super::super::retained::Retained;
+    fn consume(instance: Retained<Heap, ()>) -> Result<(), ()> {
+        if instance.batch().is_ok() {
+            return Err(());
+        }
+        Ok(())
+    }
+    DESTROYS.with(|count| count.set(0));
+    assert_eq!(consume(Retained::make(hosted(false)).unwrap()), Err(()));
+    assert_eq!(DESTROYS.with(Cell::get), 1);
+}
+
+#[test]
 fn native_mapping_refusal_destroys_output_before_it_can_dispatch() {
     use super::super::retained::Retained;
     for status in [host_glue::ERR_UNSUPPORTED, host_glue::ERR_NO_MEMORY] {

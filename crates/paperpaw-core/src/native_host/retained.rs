@@ -14,16 +14,9 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
     pub(crate) fn make(host: shell::Hosted<S, M>) -> Result<Self, shell::Error> {
         let transaction = host.begin()?;
         let batch = host.make_registered(transaction)?.commit()?;
-        // SAFETY: Hosted owns a pinned heap allocation. Moving Hosted moves
-        // only its owning handle, never that allocation. This holder releases
-        // the batch before finishing or freeing the host, including on unwind.
-        // No extended reference escapes the private holder's borrow.
-        let batch = unsafe {
-            core::mem::transmute::<
-                shell::Batch<'_, S, M, Registration>,
-                shell::Batch<'static, S, M, Registration>,
-            >(batch)
-        };
+        // SAFETY: this holder retains the pinned owner and drops the raw
+        // batch lease before freeing it. Only &self exposes borrowed views.
+        let batch = unsafe { batch.into_retained() };
         Ok(Self {
             batch: Some(batch),
             host: ManuallyDrop::new(host),
@@ -36,14 +29,9 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
     ) -> Result<(Self, R), shell::Error> {
         let transaction = host.begin()?;
         let (batch, staging) = host.make_registered(transaction)?.commit_native(map)?;
-        // SAFETY: as in make: the private holder retains the pinned allocation
-        // and releases this lease before freeing it. Staging owns its values.
-        let batch = unsafe {
-            core::mem::transmute::<
-                shell::Batch<'_, S, M, Registration>,
-                shell::Batch<'static, S, M, Registration>,
-            >(batch)
-        };
+        // SAFETY: as in make, only raw pointers and lifetime markers are
+        // retained; no reference into the owned allocation survives the move.
+        let batch = unsafe { batch.into_retained() };
         Ok((
             Self {
                 batch: Some(batch),
