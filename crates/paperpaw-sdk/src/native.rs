@@ -332,6 +332,7 @@ pub mod commands;
 pub mod declare;
 pub mod device;
 pub mod events;
+pub mod files;
 pub mod fonts;
 pub mod formatting;
 pub mod keys;
