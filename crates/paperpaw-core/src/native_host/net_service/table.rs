@@ -339,6 +339,13 @@ impl Inner {
     /// queued one waiting 30 s for a network.
     fn expire(&mut self, host: &dyn NetHost) {
         let now = host.now_ms();
+        if host.network_up() {
+            // A network that came back ends every wait for one, before the
+            // clock is read against it.
+            for r in &mut self.reqs {
+                r.net_wait = None;
+            }
+        }
         for index in 0..self.reqs.len() {
             let r = &self.reqs[index];
             if !Self::live(r) {
@@ -570,16 +577,21 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     }
     let at = host.now_ms();
     let mut done = inner.bare(at, outcome.status, outcome.reason, flags);
-    let parts = [outcome.etag, outcome.content_type, outcome.final_url];
-    let total: usize = parts.iter().map(|p| p.len()).sum();
+    let mut parts = [outcome.etag, outcome.content_type, outcome.final_url];
     if parts[0].len() > 256 || parts[1].len() > 128 || parts[2].len() > 1024 {
-        // A hostile server's overlong head: the request ends now, refused,
-        // and does not wait for its timeout.
-        inner.end_with(host, index, reason::REFUSED, 0);
-        inner.pump(host);
-        inner.sync_demand(host);
-        return Ok(());
+        if !saved {
+            // A hostile server's overlong head: the request ends now,
+            // refused, and does not wait for its timeout.
+            inner.end_with(host, index, reason::REFUSED, 0);
+            inner.pump(host);
+            inner.sync_demand(host);
+            return Ok(());
+        }
+        // The file is committed: the success stays, the oversized metadata
+        // is dropped.
+        parts = ["", "", ""];
     }
+    let total: usize = parts.iter().map(|p| p.len()).sum();
     if overshoot || gate().is_err() || done.head.try_reserve_exact(total).is_err() {
         if overshoot || !saved {
             // No room for the answer's head: the body goes too.

@@ -867,6 +867,60 @@ fn a_memory_requests_error_body_keeps_at_most_min_4096_and_max_body() {
 }
 
 #[test]
+fn a_committed_save_stays_a_success_when_its_head_is_overlong() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &save_to(0, 0, "a.bin")).unwrap();
+    finished(
+        &fake,
+        id,
+        Finished {
+            status: 200,
+            reason: 0,
+            saved: true,
+            truncated: false,
+            etag: &"e".repeat(257),
+            content_type: "application/zip",
+            final_url: "https://example.org/z",
+            body: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert_eq!(drain(&fake, OWNER), [done(id, 0, 200, 0, DONE_SAVED, 0)]);
+}
+
+#[test]
+fn a_device_without_a_pool_keeps_every_answer_within_its_limits() {
+    let fake = Fake::new(NetProfile::OTHER);
+    let (a, b) = (
+        request(&fake, OWNER, &big(1, 1_000)).unwrap(),
+        request(&fake, OWNER, &big(2, 100)).unwrap(),
+    );
+    finish(&fake, a, 200, &[1; 700]);
+    finished(
+        &fake,
+        b,
+        Finished {
+            status: 500,
+            reason: 0,
+            saved: false,
+            truncated: true,
+            etag: "",
+            content_type: "",
+            final_url: "",
+            body: std::vec![2; 100],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [
+            done(a, 1, 200, 0, 0, 700),
+            done(b, 2, 500, 0, DONE_TRUNCATED, 100)
+        ]
+    );
+}
+
+#[test]
 fn ended_requests_the_plugin_has_not_heard_of_count_against_its_limit() {
     // Offline: every request ends at once. A loop in one callback cannot pile
     // up ended requests without bound.
@@ -1019,6 +1073,21 @@ fn no_network_comes_before_the_default_timeout_and_a_recovered_network_resets_th
     finish(&fake, a, 200, b"");
     drain(&fake, OTHER);
     assert!(fake.started.borrow().contains(&b));
+}
+
+#[test]
+fn a_network_back_before_the_first_tick_ends_the_wait_even_at_the_boundary() {
+    let fake = Fake::x4();
+    fake.network.set(false);
+    let mut h = head(1, "http://a.b/");
+    h.timeout_ms = 600_000;
+    let id = request(&fake, OWNER, &batch(&[Record::ServiceNetRequest(h)])).unwrap();
+    // The network is back at exactly the wait's end, before any tick.
+    fake.advance(30_000);
+    fake.network.set(true);
+    tick(&fake).unwrap();
+    assert!(drain(&fake, OWNER).is_empty(), "no NO_NETWORK");
+    assert_eq!(*fake.started.borrow(), [id], "it started on the network");
 }
 
 #[test]
