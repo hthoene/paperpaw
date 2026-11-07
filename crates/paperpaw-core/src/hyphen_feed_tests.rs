@@ -18,7 +18,7 @@ fn what_was_registered_before_the_sink_is_replayed_to_it() {
         .unwrap();
     let sink = sink();
     assert_eq!(sink.card().find("de"), None);
-    feed.attach(Some(sink.clone()));
+    feed.attach(sink.clone());
     assert!(sink.card().find("de").is_some());
 }
 
@@ -26,7 +26,7 @@ fn what_was_registered_before_the_sink_is_replayed_to_it() {
 fn plugins_added_and_removed_after_the_sink_reach_it() {
     let mut feed = HyphenFeed::new();
     let sink = sink();
-    feed.attach(Some(sink.clone()));
+    feed.attach(sink.clone());
     feed.add(
         "a",
         "plugins/a",
@@ -55,7 +55,7 @@ fn the_card_path_is_the_folder_and_the_file() {
 fn a_card_change_reaches_the_sink() {
     let mut feed = HyphenFeed::new();
     let sink = sink();
-    feed.attach(Some(sink.clone()));
+    feed.attach(sink.clone());
     let before = sink.card().card_epoch();
     feed.card_changed();
     assert_ne!(sink.card().card_epoch(), before);
@@ -66,7 +66,6 @@ fn a_card_change_reaches_the_sink() {
 #[test]
 fn no_sink_keeps_only_the_list() {
     let mut feed = HyphenFeed::new();
-    feed.attach(None);
     feed.add("a", "plugins/a", [("de", "de.pphp")].into_iter())
         .unwrap();
     assert_eq!(feed.declared.len(), 1);
