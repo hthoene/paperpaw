@@ -1,0 +1,59 @@
+{
+  "key": "core.lookup",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "lookup.ask"
+  ],
+  "reply": [
+    "lookup.entry"
+  ],
+  "reply_rows": 1,
+  "records": [
+    {
+      "id": 1,
+      "name": "lookup.ask",
+      "since": 0,
+      "mirrors": "service.lookup_ask"
+    },
+    {
+      "id": 2,
+      "name": "lookup.entry",
+      "since": 0,
+      "fields": [
+        {
+          "name": "title",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 2048
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ]
+}

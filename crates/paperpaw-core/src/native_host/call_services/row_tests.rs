@@ -138,6 +138,7 @@ fn end(rows: usize) -> ServiceEnd {
         flags: 0,
         generation: 0,
         next: 0,
+        cursor: None,
     }
 }
 fn targets_op() -> &'static ServiceOp {
@@ -195,6 +196,7 @@ fn paged_reply_uses_generated_row_cap_and_allows_paging_metadata() {
         generation: 1,
         next: 32,
         flags: 1,
+        cursor: None,
     };
     assert_eq!(validate_reply(&targets(limit, tail), &op), Ok(()));
     assert_eq!(

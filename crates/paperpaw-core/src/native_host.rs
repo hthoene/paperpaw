@@ -36,6 +36,16 @@ pub(crate) mod ui_requests;
 )]
 pub(crate) mod ui_store;
 
+#[path = "native_host/ui_compose.rs"]
+pub(crate) mod ui_compose;
+
+#[path = "native_host/ui_handles.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are the core.ui ops 4/14/15 and the compose hook"
+)]
+pub(crate) mod ui_handles;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,

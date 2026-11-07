@@ -98,6 +98,17 @@ change the plugin SDK.
   `uses.wifi`, `uses.power`, `uses.install`, `uses.firmware` and `uses.bluetooth`. Hosts answer
   `ERR_UNSUPPORTED` until wired. Interface draft 19 (`native::DRAFT`) refuses plugins built for
   draft 18 (#228).
+- Interface 7, families FS, NET, SEC, ASY and SOCK (`docs/abi/files.md`, `network.md`,
+  `secrets.md`, `work.md`, `sockets.md`): the services `core.files`, `core.net`, `core.secrets`,
+  `core.work` and `core.sockets` (major 1, rows 1142-1181), events 99-107 (requests, serving,
+  works, sockets) and 108 `event.document_closed`, the features `uses.storage`, `uses.network`
+  and `uses.secrets`, an optional `cursor` on `service.end`, and the stage schemas `core.format`
+  and `core.lookup` that mirror their service rows. Secret-bearing record fields print redacted.
+  `paperpaw_sdk::document` re-exports `TextEdit` and `EditError`; `TextEdit::try_set_text` sets a
+  whole text mapped from the block's own source range.
+  `service.dev_check` gains the optional `sha256` digest `device.md` already named.
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
+  plugins built for draft 19 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

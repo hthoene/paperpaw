@@ -105,6 +105,7 @@ const END: wire::ServiceEnd = wire::ServiceEnd {
     total: 0,
     generation: 0,
     next: 0,
+    cursor: None,
 };
 
 /// A page of a catalog or annotation list. The host's position is checked
@@ -144,6 +145,7 @@ pub(super) fn list(
         total: position.total,
         generation: position.generation,
         next: position.next,
+        cursor: None,
     })
 }
 
@@ -169,5 +171,6 @@ pub(super) fn whole(
         total,
         generation: 0,
         next: total,
+        cursor: None,
     })
 }
