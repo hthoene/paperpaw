@@ -177,7 +177,9 @@ impl DeviceHost for Fake {
         visit: &mut dyn FnMut(&BuiltinRow<'_>) -> ControlFlow<()>,
     ) -> Result<(), i32> {
         let rows = self.builtin.as_ref().ok_or(ERR_NOT_FOUND)?;
-        walk(rows.iter(), |(id, version)| visit(&BuiltinRow { id, version }))
+        walk(rows.iter(), |(id, version)| {
+            visit(&BuiltinRow { id, version })
+        })
     }
     fn native(&self, visit: &mut dyn FnMut(&NativeFacts<'_>)) -> Result<(), i32> {
         if !self.native {
@@ -243,10 +245,7 @@ impl DeviceHost for Fake {
             Err(ERR_NOT_FOUND)
         }
     }
-    fn bonded(
-        &self,
-        visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>,
-    ) -> Result<(), i32> {
+    fn bonded(&self, visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>) -> Result<(), i32> {
         if !self.bluetooth {
             return Err(ERR_NOT_FOUND);
         }
@@ -349,9 +348,9 @@ fn query(cursor: u32, generation: u32) -> Vec<u8> {
 }
 
 fn interval(base_ms: u32) -> Vec<u8> {
-    batch(&[Record::ServiceDevInterval(registrations::ServiceDevInterval {
-        base_ms,
-    })])
+    batch(&[Record::ServiceDevInterval(
+        registrations::ServiceDevInterval { base_ms },
+    )])
 }
 
 /// The valid input of an op.
@@ -359,9 +358,9 @@ fn input_of(id: u32) -> Vec<u8> {
     match id {
         4 | 9 | 11 | 14 => query(0, 0),
         12 => interval(1000),
-        6 | 13 => batch(&[Record::ServiceDevRequest(registrations::ServiceDevRequest {
-            request: 1,
-        })]),
+        6 | 13 => batch(&[Record::ServiceDevRequest(
+            registrations::ServiceDevRequest { request: 1 },
+        )]),
         _ => vec![0],
     }
 }
@@ -421,34 +420,54 @@ fn every_op_decodes_validates_and_carries_the_hosts_facts() {
         let [Record::ServiceDevFirmware(f)] = records(&reply)[..] else {
             panic!("op 3")
         };
-        assert_eq!((f.version, f.project, f.chip, f.room), ("1.2.3", "paperpaw", 5, 1 << 33));
+        assert_eq!(
+            (f.version, f.project, f.chip, f.room),
+            ("1.2.3", "paperpaw", 5, 1 << 33)
+        );
         // An unknown state reads as failed.
-        assert_eq!((f.undone, f.state, f.done, f.total, f.request), (1, 4, 10, 20, 4));
+        assert_eq!(
+            (f.undone, f.state, f.done, f.total, f.request),
+            (1, 4, 10, 20, 4)
+        );
 
         let reply = run(view, 5, &[0]).unwrap();
         let [Record::ServiceDevNative(n)] = records(&reply)[..] else {
             panic!("op 5")
         };
-        assert_eq!((n.abi_major, n.abi_draft, n.target, n.code_file), (7, 19, 5, "code.ppn"));
+        assert_eq!(
+            (n.abi_major, n.abi_draft, n.target, n.code_file),
+            (7, 19, 5, "code.ppn")
+        );
         // An unknown safe mode reads as 1.
-        assert_eq!((n.safe_mode, n.crashed, n.last_loaded), (1, "bad.plugin", ""));
-        assert_eq!((n.pending, n.not_installed, n.room_free, n.room_largest), (1, 1, 5 << 20, 1 << 20));
+        assert_eq!(
+            (n.safe_mode, n.crashed, n.last_loaded),
+            (1, "bad.plugin", "")
+        );
+        assert_eq!(
+            (n.pending, n.not_installed, n.room_free, n.room_largest),
+            (1, 1, 5 << 20, 1 << 20)
+        );
 
         let reply = run(view, 8, &[0]).unwrap();
         let [Record::ServiceDevWifi(w)] = records(&reply)[..] else {
             panic!("op 8")
         };
-        assert_eq!((w.state, w.ssid, w.address, w.host_name), (3, "Home", "192.168.1.2", "paperpaw"));
+        assert_eq!(
+            (w.state, w.ssid, w.address, w.host_name),
+            (3, "Home", "192.168.1.2", "paperpaw")
+        );
         assert_eq!((w.guests, w.flags), (0, 0b101));
 
         let reply = run(view, 10, &[0]).unwrap();
         assert_eq!(
             records(&reply)[..],
-            [Record::ServiceDevBluetooth(registrations::ServiceDevBluetooth {
-                radio: 1,
-                max_links: 2,
-                flags: 0,
-            })]
+            [Record::ServiceDevBluetooth(
+                registrations::ServiceDevBluetooth {
+                    radio: 1,
+                    max_links: 2,
+                    flags: 0,
+                }
+            )]
         );
 
         let reply = run(view, 14, &query(0, 0)).unwrap();
@@ -651,7 +670,10 @@ fn the_device_record_cuts_every_string_at_its_cap_on_a_char_boundary() {
     assert_eq!(d.caps, caps::CAPS_MASK);
     assert_eq!((d.class, d.start), (0, 0));
     assert_eq!((d.slept_ms, d.flags), (1234, 1));
-    assert!(reply.len() <= 211 + 8, "device.md 6.1: 211 bytes at the caps");
+    assert!(
+        reply.len() <= 211 + 8,
+        "device.md 6.1: 211 bytes at the caps"
+    );
 }
 
 #[test]
@@ -715,14 +737,19 @@ fn networks_come_strongest_first_with_ties_in_hosts_order_and_at_most_32() {
     // The unnamed network is left out; `secured` is bit 0, `known` bit 1.
     assert_eq!(
         seen,
-        [("d-strong", -30, 3), ("b-mid", -60, 1), ("c-mid", -60, 2), ("a-weak", -90, 0)]
+        [
+            ("d-strong", -30, 3),
+            ("b-mid", -60, 1),
+            ("c-mid", -60, 2),
+            ("a-weak", -90, 0)
+        ]
     );
     assert_eq!(end_of(&rows).total, 4);
 
     // 40 networks: the strongest 32, in order, whatever order the host has.
     let mut host = Fake::full();
     host.networks = (0..40)
-        .map(|n| (alloc::format!("n{n}"), -(((n * 7) % 40) as i32) - 20, false, false))
+        .map(|n| (alloc::format!("n{n}"), -((n * 7) % 40) - 20, false, false))
         .collect();
     let reply = call(host, 9, &query(0, 0)).unwrap();
     let rows = records(&reply);
@@ -738,7 +765,10 @@ fn networks_come_strongest_first_with_ties_in_hosts_order_and_at_most_32() {
     // The 32 strongest of -20..=-59 (each value once): -20 down to -51.
     assert_eq!((signals[0], signals[31]), (-20, -51));
     let end = end_of(&rows);
-    assert_eq!((end.total, end.next, end.flags, end.generation), (32, 32, 1, 3));
+    assert_eq!(
+        (end.total, end.next, end.flags, end.generation),
+        (32, 32, 1, 3)
+    );
     assert!(reply.len() <= 1566 + 64, "device.md 6.1");
 }
 
@@ -812,30 +842,48 @@ fn row_limits_hold_at_their_boundaries() {
     };
     for (rows, shown) in [(31, 31), (32, 32), (33, 32), (200, 32)] {
         let mut host = Fake::full();
-        host.networks = (0..rows).map(|n| (alloc::format!("n{n}"), -n, false, false)).collect();
+        host.networks = (0..rows)
+            .map(|n| (alloc::format!("n{n}"), -n, false, false))
+            .collect();
         assert_eq!(count(9, host, query(0, 0)).0, shown, "networks {rows}");
         let mut host = Fake::full();
         host.not_installed = Some((0..rows).map(|n| (alloc::format!("p{n}"), 1)).collect());
-        assert_eq!(count(14, host, query(0, 0)).0, shown, "not installed {rows}");
+        assert_eq!(
+            count(14, host, query(0, 0)).0,
+            shown,
+            "not installed {rows}"
+        );
         let mut host = Fake::full();
         host.keys = Some((0..rows).map(|n| alloc::format!("k{n}")).collect());
         assert_eq!(count(15, host, vec![0]).0, shown, "keys {rows}");
     }
     for (rows, shown) in [(15, 15), (16, 16), (17, 16), (99, 16)] {
         let mut host = Fake::full();
-        host.bonded = (0..rows).map(|n| (n, alloc::format!("d{n}"), false, String::new())).collect();
+        host.bonded = (0..rows)
+            .map(|n| (n, alloc::format!("d{n}"), false, String::new()))
+            .collect();
         let (n, end) = count(11, host, query(0, 0));
-        assert_eq!((n, end.total, end.flags), (shown, shown as u32, 1), "bonded {rows}");
+        assert_eq!(
+            (n, end.total, end.flags),
+            (shown, shown as u32, 1),
+            "bonded {rows}"
+        );
     }
     for (rows, shown) in [(7, 7), (8, 8), (9, 8), (50, 8)] {
         let mut host = Fake::full();
-        host.values = Some((0..rows).map(|n| (alloc::format!("v{n}"), Some(i64::from(n)))).collect());
+        host.values = Some(
+            (0..rows)
+                .map(|n| (alloc::format!("v{n}"), Some(i64::from(n))))
+                .collect(),
+        );
         let (n, end) = count(2, host, vec![0]);
         assert_eq!((n, end.total), (shown, shown as u32), "values {rows}");
     }
     // Largest replies stay inside 4,096 bytes, as device.md 6.1 computes.
     let mut host = Fake::full();
-    host.bonded = (0..16).map(|n| (n, "n".repeat(64), true, "g".repeat(64))).collect();
+    host.bonded = (0..16)
+        .map(|n| (n, "n".repeat(64), true, "g".repeat(64)))
+        .collect();
     let reply = call(host, 11, &query(0, 0)).unwrap();
     assert!(reply.len() <= 2430 + 64);
 }
@@ -864,7 +912,10 @@ fn bonded_given_is_shown_only_to_the_bluetooth_manager() {
             let Record::ServiceDevBonded(b) = rows[0] else {
                 panic!()
             };
-            assert_eq!((b.device, b.name, b.kind, b.flags), (7, "Page turner", 2, 0b11));
+            assert_eq!(
+                (b.device, b.name, b.kind, b.flags),
+                (7, "Page turner", 2, 0b11)
+            );
             b.given.to_string()
         })
     };
@@ -891,9 +942,15 @@ fn power_stretches_the_base_by_the_level_as_interface_6_does() {
         (p.level, p.mode.to_string(), p.flags, p.stretch, p.every_ms)
     };
     assert_eq!(level(PowerLevel::Normal, 4, 1000).4, 1000);
-    assert_eq!(level(PowerLevel::Saving, 4, 1000), (1, "core.saving".to_string(), 0b01 | 0b10, 4, 4000));
+    assert_eq!(
+        level(PowerLevel::Saving, 4, 1000),
+        (1, "core.saving".to_string(), 0b01 | 0b10, 4, 4000)
+    );
     // Offline means never: 0, flags without `online`.
-    assert_eq!(level(PowerLevel::Offline, 4, 1000), (2, "core.saving".to_string(), 0b01, 4, 0));
+    assert_eq!(
+        level(PowerLevel::Offline, 4, 1000),
+        (2, "core.saving".to_string(), 0b01, 4, 0)
+    );
     // No base is no interval; an overflowing one is cut at u32::MAX.
     assert_eq!(level(PowerLevel::Saving, 4, 0).4, 0);
     assert_eq!(level(PowerLevel::Saving, 4, u32::MAX).4, u32::MAX);
@@ -926,7 +983,10 @@ fn memory_flags_say_what_is_known_and_unknown_fields_are_zero() {
     };
     let m = flags(base);
     assert_eq!((m.heap_free, m.heap_size, m.flags), (1, 2, 0));
-    assert_eq!((m.largest, m.stack_free, m.stack_size, m.external_free), (0, 0, 0, 0));
+    assert_eq!(
+        (m.largest, m.stack_free, m.stack_size, m.external_free),
+        (0, 0, 0, 0)
+    );
     let m = flags(MemoryFacts {
         largest: Some(9),
         stack: Some((3, 4)),
@@ -1029,9 +1089,8 @@ fn malformed_input_is_refused_and_never_panics() {
             for id in [1, 2, 4, 7, 9, 12, 15] {
                 let result = backend(view, schema_op(id), &input_of(id), &mut small);
                 // Whatever fits is whole: it still validates.
-                match result {
-                    Ok(n) => assert_eq!(validate_reply(&small[..n], schema_op(id)), Ok(())),
-                    Err(_) => {}
+                if let Ok(n) = result {
+                    assert_eq!(validate_reply(&small[..n], schema_op(id)), Ok(()));
                 }
                 assert!(size > 1 || result.is_err());
             }
@@ -1042,8 +1101,7 @@ fn malformed_input_is_refused_and_never_panics() {
 #[test]
 fn the_dispatcher_opens_the_service_and_a_frame_without_the_view_refuses_its_calls() {
     use crate::native_host::{
-        HostResources, call_services, shell::DeclaredServices,
-        environment::EnvironmentScope,
+        HostResources, call_services, environment::EnvironmentScope, shell::DeclaredServices,
     };
     use core::pin::pin;
     use paperpaw_native::{
@@ -1104,6 +1162,16 @@ fn the_dispatcher_opens_the_service_and_a_frame_without_the_view_refuses_its_cal
 fn the_service_catalog_offers_only_core_device() {
     assert_eq!(DEVICE_SERVICES.len(), 1);
     assert_eq!(DEVICE_SERVICES[0].key, "core.device");
-    assert_eq!((DEVICE_SERVICES[0].major, DEVICE_SERVICES[0].semantic_revision), (1, 0));
-    assert!(!crate::native_host::shell::DATA_SERVICES.iter().any(|s| s.key == KEY));
+    assert_eq!(
+        (
+            DEVICE_SERVICES[0].major,
+            DEVICE_SERVICES[0].semantic_revision
+        ),
+        (1, 0)
+    );
+    assert!(
+        !crate::native_host::shell::DATA_SERVICES
+            .iter()
+            .any(|s| s.key == KEY)
+    );
 }

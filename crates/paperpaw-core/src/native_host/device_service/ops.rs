@@ -68,7 +68,11 @@ pub(crate) fn backend(
 
 /// An op without input takes the empty batch (count 0).
 fn no_input(input: &[u8]) -> Result<(), i32> {
-    if input == [0] { Ok(()) } else { Err(ERR_INVALID) }
+    if input == [0] {
+        Ok(())
+    } else {
+        Err(ERR_INVALID)
+    }
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
@@ -158,7 +162,10 @@ fn native_record<'a>(f: &NativeFacts<'a>) -> Record<'a> {
         code_file: clip(f.code_file, wire::SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES),
         safe_mode: known(f.safe_mode, 2, 1),
         crashed: clip(f.crashed, wire::SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES),
-        last_loaded: clip(f.last_loaded, wire::SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES),
+        last_loaded: clip(
+            f.last_loaded,
+            wire::SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES,
+        ),
         pending: f.pending,
         not_installed: f.not_installed,
         room_free: f.room_free,
@@ -397,7 +404,11 @@ fn value_name(name: &str) -> bool {
 
 /// Ops 2 and 15: lists that do not page. A host without them has none.
 fn plain_list(host: &dyn DeviceHost, op: &ServiceOp, out: &mut [u8]) -> Result<usize, i32> {
-    let cap = if op.id == op::VALUES { MAX_VALUES } else { MAX_KEYS };
+    let cap = if op.id == op::VALUES {
+        MAX_VALUES
+    } else {
+        MAX_KEYS
+    };
     let mut rows = Rows::new(out, op, 0, cap)?;
     let status = if op.id == op::VALUES {
         host.values(&mut |reading: &Reading<'_>| {
@@ -480,7 +491,9 @@ fn builtin_rows(host: &dyn DeviceHost, rows: &mut Rows<'_>) -> Result<(), i32> {
 /// Op 11. `given` is shown only to the plugin bound to the host slot
 /// `core.bluetooth`; a frame that cannot name its caller shows it to nobody.
 fn bonded_rows(frame: &dyn Frame, host: &dyn DeviceHost, rows: &mut Rows<'_>) -> Result<(), i32> {
-    let manager = frame.caller().is_ok_and(|caller| host.bluetooth_manager(caller));
+    let manager = frame
+        .caller()
+        .is_ok_and(|caller| host.bluetooth_manager(caller));
     host.bonded(&mut |row: &BondedRow<'_>| {
         rows.push(|| {
             Record::ServiceDevBonded(wire::ServiceDevBonded {

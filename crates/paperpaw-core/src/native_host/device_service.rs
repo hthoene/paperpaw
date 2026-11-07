@@ -387,10 +387,7 @@ pub trait DeviceHost {
     ///
     /// # Errors
     /// `ERR_NOT_FOUND` where there is no Bluetooth radio.
-    fn bonded(
-        &self,
-        visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>,
-    ) -> Result<(), i32> {
+    fn bonded(&self, visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>) -> Result<(), i32> {
         let _ = visit;
         Err(ERR_NOT_FOUND)
     }
