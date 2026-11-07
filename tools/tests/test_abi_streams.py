@@ -33,7 +33,7 @@ class Streams(unittest.TestCase):
 
     def test_the_lock_pins_the_section(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 8)
+        self.assertEqual(trusted['lock_format'], 9)
         self.assertEqual(trusted['emitted_streams'], rust_streams(self.schema))
         ABI.check_lock(trusted, self.schema)
         original = ABI.rust_streams
@@ -43,6 +43,7 @@ class Streams(unittest.TestCase):
         legacy = copy.deepcopy(trusted)
         legacy['lock_format'] = 7
         del legacy['emitted_streams']
+        del legacy['emitted_services']
         with patch.object(ABI, 'rust_streams', lambda s: original(s) + '// drift\n'):
             ABI.check_lock(legacy, self.schema)
 

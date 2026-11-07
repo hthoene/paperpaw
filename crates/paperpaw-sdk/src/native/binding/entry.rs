@@ -325,7 +325,8 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// native::Linked`, with the same entry, `make` and metadata, and no exported
 /// symbol, heap word, allocator or panic handler, so several plugins link
 /// into one program and the program's allocator serves them. A plugin built
-/// both ways chooses the form with a `cfg`.
+/// both ways chooses the form with a `cfg`. Names beginning with
+/// `__PAPERPAW_` are reserved for the macro's own items.
 ///
 /// ```compile_fail
 /// use paperpaw_sdk::native::{Plugin, Host, Error};
@@ -350,12 +351,18 @@ macro_rules! native_plugin {
     ($ty:ty, metadata = $metadata:expr, linked = $name:ident) => {
         /// This plugin, linked into the program (see `native::Linked`).
         pub static $name: $crate::native::Linked = {
-            static METADATA: [u8; ($metadata).len()] = $crate::native_plugin!(@bytes $metadata);
-            const MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
+            // Items are not hygienic: these names would shadow a caller's
+            // constant of the same name in `$metadata`, hence the reserved
+            // `__PAPERPAW_` prefix.
+            static __PAPERPAW_LINKED_METADATA: [u8; ($metadata).len()] =
+                $crate::native_plugin!(@bytes $metadata);
+            const __PAPERPAW_MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
                 Some(minor) => minor,
                 None => panic!("invalid interface-7 metadata prefix"),
             };
-            match $crate::native::__entry::Entry::new::<$ty, MINOR>(&METADATA) {
+            match $crate::native::__entry::Entry::new::<$ty, __PAPERPAW_MINOR>(
+                &__PAPERPAW_LINKED_METADATA,
+            ) {
                 Some(entry) => $crate::native::__entry::linked(entry),
                 None => panic!("invalid interface-7 entry metadata"),
             }
@@ -378,11 +385,11 @@ macro_rules! native_plugin {
         #[unsafe(no_mangle)]
         #[unsafe(link_section = ".rodata.paperpaw_entry")]
         pub static PAPERPAW_ENTRY: $crate::native::__entry::Entry = {
-            const MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
+            const __PAPERPAW_MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
                 Some(minor) => minor,
                 None => panic!("invalid interface-7 metadata prefix"),
             };
-            match $crate::native::__entry::Entry::new::<$ty, MINOR>(&PAPERPAW_METADATA) {
+            match $crate::native::__entry::Entry::new::<$ty, __PAPERPAW_MINOR>(&PAPERPAW_METADATA) {
                 Some(entry) => entry,
                 None => panic!("invalid interface-7 entry metadata"),
             }

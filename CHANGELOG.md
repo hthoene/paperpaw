@@ -22,6 +22,16 @@ change the plugin SDK.
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
+
+- Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
+  `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
+  `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
+  service schemas in `abi/services/<key>@<major>.def`, validated by `tools/abi-gen.py`, which
+  writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
+  new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
+  declarations until they wire them (#228).
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
@@ -64,6 +74,8 @@ change the plugin SDK.
   is not shown), so plugins for a later host still load. Hosts check them and answer
   `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
   `i18n/<language>.ini` files of its folder (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
