@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
+use crate::native::ui::Open;
 use alloc::{string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -706,4 +707,103 @@ fn menu_list_item_and_total_limits_keep_distinct_errors() {
         Err(Error::NoSpace)
     );
     assert!(ctx.batches.borrow().is_empty());
+}
+
+fn decoded(ctx: &Context) -> Vec<Vec<String>> {
+    ctx.batches
+        .borrow()
+        .iter()
+        .map(|bytes| {
+            wire::commands_decode(bytes)
+                .unwrap()
+                .iter()
+                .map(|command| alloc::format!("{command:?}"))
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn device_commands_encode_in_order_and_keep_the_password_secret() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.wifi_on().unwrap();
+    sender.wifi_scan().unwrap();
+    sender.wifi_join(7, "home", "hunter2!", true).unwrap();
+    sender.wifi_host(8, "me", "12345678").unwrap();
+    sender.go_online(600_000).unwrap();
+    sender.wear("power.saving", true).unwrap();
+    sender.sleep().unwrap();
+    sender.power_off().unwrap();
+    sender.restart().unwrap();
+    sender.wifi_leave().unwrap();
+    sender.network_none().unwrap();
+    sender.wifi_off().unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 12);
+    assert_eq!(batches[0], ["WifiOn"]);
+    assert!(batches[2][0].contains("request: 7") && batches[2][0].contains("flags: 1"));
+    assert!(
+        batches
+            .iter()
+            .flatten()
+            .all(|text| !text.contains("hunter2"))
+    );
+    assert!(batches[5][0].contains("power.saving") && batches[5][0].contains("flags: 1"));
+    assert_eq!(batches[6], ["Sleep"]);
+    assert_eq!(batches[7], ["PowerOff"]);
+    assert_eq!(batches[8], ["Restart"]);
+}
+
+#[test]
+fn device_commands_refuse_bad_input_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let long = "x".repeat(200);
+    assert_eq!(sender.wifi_join(0, "home", "", false), Err(Error::Invalid));
+    assert_eq!(sender.wifi_join(1, "", "", false), Err(Error::Invalid));
+    assert_eq!(sender.wifi_host(1, "me", "short"), Err(Error::Invalid));
+    assert_eq!(sender.go_online(0), Err(Error::Invalid));
+    assert_eq!(sender.go_online(600_001), Err(Error::Invalid));
+    assert_eq!(sender.wear("", false), Err(Error::Invalid));
+    assert!(sender.wear(&long, false).is_err());
+    assert!(sender.wifi_join(1, &long, "", false).is_err());
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn a_screen_and_a_power_command_travel_in_one_batch() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender
+        .show_then(Open::slot("core.sleep").unwrap(), PowerAction::PowerOff)
+        .unwrap();
+    assert_eq!(
+        sender.show_then(Open::slot("core.sleep").unwrap(), PowerAction::Sleep),
+        Ok(())
+    );
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 2);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][0].contains("core.sleep"));
+    assert_eq!(batches[0][1], "PowerOff");
+    assert_eq!(batches[1][1], "Sleep");
 }

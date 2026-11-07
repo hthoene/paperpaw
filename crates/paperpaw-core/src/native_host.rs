@@ -53,6 +53,13 @@ pub(crate) mod ui_handles;
 )]
 pub(crate) mod ui_guard;
 
+#[path = "native_host/ui_input.rs"]
+#[allow(
+    dead_code,
+    reason = "the router hook (todo 76) and the core.input-filter registration admission call it"
+)]
+pub(crate) mod ui_input;
+
 #[path = "native_host/shared.rs"]
 mod shared;
 
