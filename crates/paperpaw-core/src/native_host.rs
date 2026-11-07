@@ -185,6 +185,9 @@ mod retained;
 )]
 pub(crate) mod native_declarations;
 
+#[path = "native_host/native_ui_directory.rs"]
+mod native_ui_directory;
+
 #[path = "native_host/native_install.rs"]
 mod native_install;
 

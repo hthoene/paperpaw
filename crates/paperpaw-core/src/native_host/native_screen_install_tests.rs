@@ -367,11 +367,26 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
                 before + 1
             );
             assert_eq!(DESTROYED.with(Cell::get), 0);
+            let declarations = kernel.shared.registry.native_declarations.as_ref().unwrap();
+            let mut metadata = 0;
+            declarations.store.borrow().find(
+                "factory",
+                crate::native_host::declaration_store::Kind::Screen,
+                "screen",
+                &mut |_| metadata += 1,
+            );
+            assert_eq!(metadata, 1);
             drop(kernel);
             assert_eq!(DESTROYED.with(Cell::get), 1);
             break;
         }
         assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        if let Some(declarations) = &kernel.shared.registry.native_declarations {
+            assert_eq!(
+                declarations.store.borrow().host_owner("factory"),
+                Err(host_glue::ERR_NOT_FOUND)
+            );
+        }
         assert_eq!(DESTROYED.with(Cell::get), 1);
     }
     assert!(
