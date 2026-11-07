@@ -291,8 +291,10 @@ file's size, 2.1).
   the card past the room the kernel keeps for its own saves. A body that stalls for 30 s is
   dropped (408).
 - [D] **Nothing stays behind.** The host empties a plugin's whole `.received/` when the plugin
-  starts, and a server's own folder at its `serve` (never another running server's), so a body a
-  power cut left is removed then; no body outlives its server.
+  starts, and a server's own folder at its `serve`. A `serve` never touches the folder of another
+  of the plugin's servers, so bodies that server is still receiving stay whole (a `serve` with a
+  token in use stops that server and ends its requests first). A body a power cut left is so
+  removed then; no body outlives its server.
 - [D] At most 2 requests per server are open at once (the X4; more wait in the connection queue);
   one the plugin does not answer within 120 s is answered 503 by the host and ends (a later
   `respond` is `ERR_NOT_FOUND`).
