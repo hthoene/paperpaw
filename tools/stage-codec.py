@@ -39,26 +39,28 @@ def main(argv=None):
         if args.check and args.output.is_file():
             current = args.output.read_text()
     except (ValueError, KeyError, TypeError) as error:
-        print(f'stage-codec: {error}', file=sys.stderr)
-        return 1
+        return fail(error)
     except OSError as error:
-        print(f'stage-codec: {error.filename or args.schemas}: {error.strerror}', file=sys.stderr)
-        return 1
+        return fail(f'{error.filename or args.schemas}: {error.strerror}')
     except subprocess.CalledProcessError as error:
-        print(f'stage-codec: rustfmt failed: {error.stderr.strip()}', file=sys.stderr)
-        return 1
+        return fail(f'rustfmt failed: {error.stderr or ""}')
     if args.check:
         if current != source:
-            print(f'stage-codec: {args.output} is stale; run tools/stage-codec.py '
-                  f'{args.schemas} {args.output}', file=sys.stderr)
-            return 1
+            return fail(f'{args.output} is stale; run tools/stage-codec.py '
+                        f'{args.schemas} {args.output}')
         return 0
     try:
         args.output.write_text(source)
     except OSError as error:
-        print(f'stage-codec: cannot write {args.output}: {error.strerror}', file=sys.stderr)
-        return 1
+        return fail(f'cannot write {args.output}: {error.strerror}')
     return 0
+
+
+def fail(message):
+    """One `stage-codec:` line on stderr, whatever lines the message holds; exit status 1."""
+    lines = (line.strip() for line in str(message).splitlines())
+    print('stage-codec: ' + ' | '.join(line for line in lines if line), file=sys.stderr)
+    return 1
 
 
 def check_owner(stages, plugin):
