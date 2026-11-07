@@ -3218,6 +3218,7 @@ pub paperpaw_sdk::native::declare::EntryPlacement::Last
 pub paperpaw_sdk::native::declare::EntryPlacement::Order
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
 pub paperpaw_sdk::native::declare::EventKind::ActionRun
+pub paperpaw_sdk::native::declare::EventKind::Answered
 pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
 pub paperpaw_sdk::native::declare::EventKind::BookClosed
 pub paperpaw_sdk::native::declare::EventKind::BookFinished
@@ -4485,7 +4486,9 @@ impl paperpaw_sdk::native::snapshot::Snapshot
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_millivolts(&self) -> core::option::Option<u16>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_percent(&self) -> core::option::Option<u8>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_dpi(&self) -> u16
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_gray_levels(&self) -> core::option::Option<u16>
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_height(&self) -> u16
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_is_colour(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_width(&self) -> u16
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::has_touch(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::instant(&self) -> paperpaw_platform::input::Instant
@@ -5151,8 +5154,12 @@ impl paperpaw_sdk::native::stages::StageRun<'_>
 pub fn paperpaw_sdk::native::stages::StageRun<'_>::next(&mut self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::stages::StageReply<'_>>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage
 #[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
+pub paperpaw_sdk::native::storage::Root::Book
 pub paperpaw_sdk::native::storage::Root::Data
+pub paperpaw_sdk::native::storage::Root::DocumentCache
 pub paperpaw_sdk::native::storage::Root::Files
+pub paperpaw_sdk::native::storage::Root::Install
+pub paperpaw_sdk::native::storage::Root::UserCss
 pub const paperpaw_sdk::native::storage::MAX_DATA: usize
 pub const paperpaw_sdk::native::storage::MAX_PATH: usize
 pub const paperpaw_sdk::native::storage::MAX_SEGMENT: usize
