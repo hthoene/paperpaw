@@ -3,10 +3,13 @@
 //! padding), and the pieces that draw text and shapes in a widget's place.
 //! A widget plugin lays its content out into [`crate::Paint`] operations,
 //! with fallible allocation, and replays them in its draw callback.
+pub mod cx;
 pub mod layout;
 pub mod look;
+pub mod names;
 pub mod settings;
 pub mod text;
 
+pub use cx::Cx;
 pub use look::{Align, Frame, Look, Padding, Shadow, Shape, TextSize};
 pub use settings::{Key, Settings};

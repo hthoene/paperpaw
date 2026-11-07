@@ -1,8 +1,11 @@
 //! What each widget of the pack does, by the token it was declared with.
-use crate::native_cx::Cx;
-use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{Rect, native::Error};
+use alloc::vec::Vec;
+use paperpaw_sdk::{
+    Rect,
+    native::{Error, Host},
+};
 use paperpaw_ui_kit::Paint;
+use paperpaw_ui_kit::widget::Cx;
 
 /// The behaviour of one widget.
 #[derive(Debug, Clone, Copy)]
@@ -11,8 +14,9 @@ pub struct Behaviour {
     pub height: fn(&mut Cx<'_>, u16) -> Result<u16, Error>,
     /// Lays the widget out in a rectangle.
     pub draw: fn(&mut Cx<'_>, &mut Vec<Paint>, Rect) -> Result<(), Error>,
-    /// What it shows now, to tell whether it changed.
-    pub shows: fn(&Cx<'_>) -> Result<String, Error>,
+    /// A number that changes when what it shows changes (0: nothing shown); it
+    /// needs neither font nor look, so no drawing context is opened for it.
+    pub shows: fn(&Host<'_>, &str) -> Result<u64, Error>,
 }
 
 /// The behaviour of the widget declared with `token`.

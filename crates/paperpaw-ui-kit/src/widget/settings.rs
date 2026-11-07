@@ -176,8 +176,8 @@ impl<'a, 'cb> Settings<'a, 'cb> {
     }
 
     fn chosen_in(&self, registry: &Registry, key: &str) -> Result<bool, Error> {
-        let mut input = [0; 192];
-        let mut out = [0; 2048];
+        let mut input = crate::mem::buffer(192)?;
+        let mut out = crate::mem::buffer(2048)?;
         let id = Key::join(base(self.widget), key)?;
         match registry.setting(self.host, id.as_str(), &mut input, &mut out) {
             Ok(detail) => {
@@ -198,10 +198,8 @@ impl<'a, 'cb> Settings<'a, 'cb> {
     fn placed(&self, registry: &Registry, key: &str) -> Result<bool, Error> {
         use paperpaw_sdk::native::registry::{PageCursor, ValuesQuery};
         let id = Key::join(self.widget, key)?;
-        let mut input = [0; 192];
-        let mut out = alloc::vec::Vec::new();
-        out.try_reserve_exact(4096).map_err(|_| Error::NoMemory)?;
-        out.resize(4096, 0);
+        let mut input = crate::mem::buffer(192)?;
+        let mut out = crate::mem::buffer(4096)?;
         let mut cursor = PageCursor::start();
         loop {
             let page = registry.values(

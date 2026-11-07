@@ -1,7 +1,7 @@
 //! Drawing shared by the widgets of the pack.
-use crate::native_cx::Cx;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::Error;
+use paperpaw_ui_kit::widget::Cx;
 use paperpaw_ui_kit::{
     Paint,
     widget::{Align, Look, text::Wrapped},

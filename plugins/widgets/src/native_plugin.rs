@@ -2,7 +2,6 @@
 //! when a screen shows a widget, asks it for its height and where it sits, and
 //! calls the plugin to draw it. Nothing of a callback is kept; an instance is
 //! the widget's id with its placement and the rectangle it was placed in.
-use crate::native_cx::Cx;
 use crate::native_defs::{behaviour, token_of};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -18,6 +17,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::paint;
+use paperpaw_ui_kit::widget::Cx;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/widgets_declarations.rs"));
@@ -35,7 +35,7 @@ struct Item {
     /// The widget's id as the host names it, with its placement.
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
-    shown: Option<String>,
+    shown: Option<u64>,
 }
 
 /// The widget pack.
@@ -68,7 +68,7 @@ impl NativeWidgets {
 
     fn stage(&self, host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
         let call = WidgetCall::decode(payload)?;
-        let mut out = [0; REPLY];
+        let mut out = paperpaw_ui_kit::mem::buffer(REPLY)?;
         let written = match call {
             WidgetCall::Measure { instance, width } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
@@ -94,19 +94,26 @@ impl NativeWidgets {
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
+        // One widget that fails does not stop the rest: the first refusal is
+        // returned after every widget had its turn.
+        let mut first = Ok(());
         for item in &mut self.items {
             let Some(behaviour) = behaviour(item.token) else {
                 continue;
             };
-            let cx = Cx::open(host, &item.widget)?;
-            let now = (behaviour.shows)(&cx)?;
-            let changed = item.shown.as_deref().is_some_and(|before| before != now);
-            item.shown = Some(now);
-            if changed {
-                commands.widget_changed(item.instance)?;
+            let result = (behaviour.shows)(host, &item.widget).and_then(|now| {
+                let changed = item.shown.is_some_and(|before| before != now);
+                item.shown = Some(now);
+                if changed {
+                    commands.widget_changed(item.instance)?;
+                }
+                Ok(())
+            });
+            if first.is_ok() {
+                first = result;
             }
         }
-        Ok(())
+        first
     }
 }
 
