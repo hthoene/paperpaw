@@ -134,7 +134,11 @@ impl ListRenderer {
     clippy::too_many_arguments,
     reason = "one measured row and its target geometry"
 )]
-fn row(
+/// Prepares one list row: focus, separator, title at the left and value at the right.
+///
+/// # Errors
+/// Propagates allocation and font errors.
+pub fn row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
