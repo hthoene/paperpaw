@@ -337,14 +337,17 @@ agree (a host test).
   2 (`ERR_DENIED`), dismissed reason 3 (`ERR_CANCELLED`); the stage is removed. Code plugins load at
   the next start (`install_done.flags` bit 1, `dev_native.pending`). While a guard is up the
   confirmation waits (`ui.md` 4.3).
-- [D] **Trusted-installer grant** (decision 132 as decided: plugins, fonts and data; Senior's
-  should-fix 7): the user may allow one plugin to install and update plugins, fonts and data
-  plugins without asking each time, the host grant `core.grant.install.<asking plugin>` (a host
-  setting, off by default, granted only in a host confirmation of its own, REG-visible and
-  revocable). The grant skips the prompt only; every check and trust rule of this section still
-  applies, and it never covers firmware (decision 134), removals (decision 124), a sideload without
-  catalog evidence (the key fingerprint must be confirmed) or a plugin that would declare a `uses.*`
+- [Q] **Trusted-installer grant: owner decision 137 open, both variants kept until it falls**
+  (Senior's should-fix 7). Common to both: the host grant `core.grant.install.<asking plugin>` (a
+  host setting, off by default, granted only in a host confirmation of its own, REG-visible and
+  revocable) skips the prompt only; every check and trust rule of this section still applies, and
+  it never covers firmware (decision 134), removals (decision 124), a sideload without catalog
+  evidence (the key fingerprint must be confirmed) or a plugin that would declare a `uses.*`
   feature the installed version did not (the user sees the new features).
+  - **Variant A (decision 132 as decided):** the grant covers installing and updating plugins, fonts
+    and data plugins.
+  - **Variant B (stricter, round-2 draft):** the grant covers data plugins only (fonts,
+    hyphenation, translations); code plugins always ask.
 - [D] `remove_plugin` (`RemovePlugin`): removes an installed plugin (not one built into the image:
   reason 15) after **one host confirmation** (5.0) with three answers: remove and keep its data (the
   focus after No), remove with its data, cancel (decision 124, its safety rules: removal only of
