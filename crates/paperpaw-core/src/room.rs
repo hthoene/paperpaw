@@ -43,6 +43,10 @@ enum WifiWas {
 }
 
 impl Kernel {
+    pub(crate) fn room_screen_keys_reserved(&self) -> usize {
+        self.lease.as_ref().map_or(0, |lease| lease.closed.len())
+    }
+
     /// The memory free where `place` says, where the shell can tell:
     /// internal RAM or PSRAM where there are both, else the largest block
     /// the heap could give (all it has free where it does not say).
@@ -221,6 +225,10 @@ impl Kernel {
         if below.is_empty() {
             return None;
         }
+        // Normal opens must leave these keys available until give_back.
+        if !self.require_screen_keys(below.len()) {
+            return None;
+        }
         for (serial, ..) in below.iter().rev() {
             self.close_screen(ScreenKey::new(*serial));
         }
@@ -236,6 +244,14 @@ impl Kernel {
     /// Everything given back: the screens opened again (the lowest first),
     /// the radios as they were, the work going on.
     fn give_back(&mut self) {
+        // Check before taking the lease or changing bands/radios. Normal
+        // opens cannot spend its reserved keys, so this is a defensive refusal.
+        if u32::try_from(self.room_screen_keys_reserved())
+            .map_or(true, |count| count > u32::MAX - self.next_serial)
+        {
+            self.warn_runtime("room restoration refused: screen key space exhausted");
+            return;
+        }
         let Some(lease) = self.lease.take() else {
             return;
         };

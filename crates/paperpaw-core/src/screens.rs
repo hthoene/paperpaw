@@ -49,18 +49,36 @@ const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 
 /// How many tasks not shown are kept ([`Command::SwitchTask`]).
 const TASKS_KEPT: usize = 8;
+const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
 impl Kernel {
+    /// Closed room screens keep enough of the unused key space to reopen.
+    pub(crate) fn screen_keys_remaining(&self) -> u32 {
+        (u32::MAX - self.next_serial)
+            .saturating_sub(u32::try_from(self.room_screen_keys_reserved()).unwrap_or(u32::MAX))
+    }
+
+    pub(crate) fn require_screen_keys(&mut self, count: usize) -> bool {
+        if u32::try_from(count).is_ok_and(|count| count <= self.screen_keys_remaining()) {
+            return true;
+        }
+        self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
+        false
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
+        if !self.require_screen_keys(1) {
+            return;
+        }
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
         let on_open = spec.refresh_on_open();
         let serial = self.next_serial;
         let Some(next_serial) = serial.checked_add(1) else {
-            return self.warn_runtime("screen key space exhausted");
+            return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };
         self.next_serial = next_serial;
         let key = paperpaw_sdk::ScreenKey::new(serial);
@@ -411,6 +429,9 @@ impl Kernel {
 
     /// Opens screen `id` in place of the one on top ([`Command::Replace`]).
     pub(crate) fn replace(&mut self, id: Id, params: &Params) {
+        if !self.require_screen_keys(1) {
+            return;
+        }
         // Not in place of a screen guarding the device: below it.
         if self.held_by_guard() {
             return self.open(id, None, params);
@@ -464,6 +485,14 @@ impl Kernel {
             || self.shared.registry.screens.contains_key(&id);
         if !known {
             return self.warn_runtime(format!("no task `{id}` to switch to"));
+        }
+        let needed = self
+            .tasks
+            .iter()
+            .find(|(task, _)| *task == id)
+            .map_or(1, |(_, screens)| screens.len().max(1));
+        if !self.require_screen_keys(needed) {
+            return;
         }
         let kept = self
             .stack

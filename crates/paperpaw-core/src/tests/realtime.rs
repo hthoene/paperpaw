@@ -315,6 +315,96 @@ fn leased(asked: u32, free: u32, log: &Log) -> Kernel {
     kernel
 }
 
+#[test]
+fn key_exhaustion_preserves_replace_and_saved_task_state() {
+    let log = log();
+    let mut kernel = kernel(
+        Kernel::builder(DEVICE).plugin(TestPlugin::new("b", &log)),
+        ScreenMode::new(),
+        &log,
+    );
+    let original: Vec<u32> = kernel.stack.iter().map(|screen| screen.serial).collect();
+    kernel.next_serial = u32::MAX;
+    kernel.replace(Id::new_static("b.screen"), &Params::new());
+    assert_eq!(
+        kernel
+            .stack
+            .iter()
+            .map(|screen| screen.serial)
+            .collect::<Vec<_>>(),
+        original
+    );
+    assert_eq!(kernel.next_serial, u32::MAX);
+    assert!(
+        log.borrow().is_empty(),
+        "no close or make callback on refusal"
+    );
+
+    // Save a two-screen task, then leave only one key for its restoration.
+    kernel.next_serial = 20;
+    kernel.switch_task(Id::new_static("b.screen"));
+    let shown = kernel.stack[0].serial;
+    assert_eq!(kernel.tasks[0].1.len(), 2);
+    kernel.next_serial = u32::MAX - 1;
+    log.borrow_mut().clear();
+    kernel.switch_task(slots::HOME);
+    assert_eq!(kernel.task, Some(Id::new_static("b.screen")));
+    assert_eq!(kernel.stack.len(), 1);
+    assert_eq!(kernel.stack[0].serial, shown);
+    assert_eq!(
+        kernel.tasks[0].1.len(),
+        2,
+        "saved task is not removed on refusal"
+    );
+    assert_eq!(kernel.next_serial, u32::MAX - 1);
+    assert!(log.borrow().is_empty());
+}
+
+#[test]
+fn room_closures_reserve_restore_keys_and_refuse_when_none_remain() {
+    for available in [1, 2] {
+        let log = log();
+        let mut kernel = Kernel::builder(DEVICE)
+            .memory(|| Some(paperpaw_sdk::memory::MemoryUse::new(1000, 256 * 1024)))
+            .plugin(Game {
+                log: log.clone(),
+                mode: ScreenMode::new().memory(64_000),
+            })
+            .plugin(TestPlugin::new("b", &log))
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        kernel.open_screen(Instant(5), Id::new_static("b.screen"), Params::new());
+        let old = kernel.stack.last().unwrap().serial;
+        kernel.next_serial = u32::MAX - available;
+        kernel.open_screen(Instant(10), Id::new_static("game.play"), Params::new());
+        render(&mut kernel);
+        assert_eq!(
+            kernel.room_screen_keys_reserved(),
+            usize::from(available == 2)
+        );
+        assert_eq!(kernel.screen_keys_remaining(), 0);
+        let shown = kernel.stack.last().unwrap().serial;
+        let count = kernel.stack.len();
+        kernel.open(Id::new_static("b.screen"), None, &Params::new());
+        assert_eq!(
+            kernel.stack.len(),
+            count,
+            "a normal open cannot spend a reserved key"
+        );
+        assert_eq!(kernel.stack.last().unwrap().serial, shown);
+        kernel.close_screen(paperpaw_sdk::ScreenKey::new(shown));
+        kernel.sync_room();
+        assert!(kernel.lease.is_none());
+        assert_eq!(kernel.stack.len(), 2);
+        assert_eq!(kernel.active_screen().map(Id::as_str), Some("b.screen"));
+        let restored = kernel.stack.last().unwrap().serial;
+        assert_eq!(restored, if available == 2 { u32::MAX - 1 } else { old });
+        assert_eq!(kernel.next_serial, u32::MAX);
+        assert!(!kernel.works.is_held());
+    }
+}
+
 /// Room made, and given back, in one test: the probe's number is shared.
 #[test]
 fn room_is_made_only_where_needed_and_given_back() {

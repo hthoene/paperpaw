@@ -116,7 +116,7 @@ impl Kernel {
                     8,
                     4096,
                 )
-                .with_ui(&env, screen, 0, u32::MAX - self.next_serial);
+                .with_ui(&env, screen, 0, self.screen_keys_remaining());
                 // SAFETY: the command scope is structurally pinned by the owner.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || {
