@@ -449,6 +449,51 @@ const WORLD_OPTIONS: &[Opt] = &[
     Opt::Part("offset", "widgets.setting.offset", false),
 ];
 
+const WORD_CLOCK_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "style",
+        "widgets.setting.style",
+        &[
+            "widgets.word-clock.style.text",
+            "widgets.word-clock.style.grid",
+        ],
+        "widgets.word-clock.style.text",
+        "widgets.word-clock.style.help",
+    ),
+    Opt::Size("core.size.fit", true),
+    Opt::Choice(
+        "lead",
+        "widgets.setting.word-clock-lead",
+        &[
+            "widgets.word-clock.lead.none",
+            "widgets.word-clock.lead.same",
+            "widgets.word-clock.lead.caption",
+        ],
+        "widgets.word-clock.lead.same",
+        "widgets.word-clock.lead.help",
+    ),
+    Opt::Choice(
+        "quarters",
+        "widgets.setting.quarters",
+        &[
+            "widgets.word-clock.quarters.past",
+            "widgets.word-clock.quarters.next",
+        ],
+        "widgets.word-clock.quarters.past",
+        "widgets.word-clock.quarters.help",
+    ),
+    Opt::Part("capitals", "widgets.setting.capitals", false),
+    Opt::Part("dots", "widgets.setting.minute-dots", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -506,6 +551,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: WORLD_OPTIONS,
+    },
+    Def {
+        name: "word-clock",
+        token: 108,
+        category: category::TIME,
+        live: true,
+        options: WORD_CLOCK_OPTIONS,
     },
 ];
 

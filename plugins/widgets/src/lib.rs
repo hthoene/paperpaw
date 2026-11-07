@@ -28,6 +28,7 @@ mod native_names;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_tiles;
+mod native_word_clock;
 mod native_world;
 mod native_year;
 mod showings;
