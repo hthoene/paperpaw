@@ -116,7 +116,7 @@ impl RegCatalog {
         }
         let row = data.rows.get(index).ok_or(ERR_STATE)?;
         let store = store.try_borrow().map_err(|_| ERR_BUSY)?;
-        visit_row(store, *row, visit)
+        visit_row(&store, *row, visit)
     }
 }
 

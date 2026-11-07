@@ -122,3 +122,5 @@ impl NativeDeclarations {
         }
     }
 }
+
+pub(crate) type DirectoryHandle = super::shared::Shared<NativeDeclarations>;
