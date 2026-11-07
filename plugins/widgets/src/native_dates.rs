@@ -1,7 +1,6 @@
 //! A month laid out in weeks ([`MonthGrid`]); the calendar's arithmetic
 //! is the SDK's (`paperpaw_sdk::time`), named here for the time widgets.
 
-#[allow(unused_imports, reason = "the year and the countdown use the rest")]
 pub(crate) use paperpaw_sdk::time::{
     civil_from_days, day_of_year, days_from_civil, days_in_month, days_in_year, iso_week, weekday,
 };

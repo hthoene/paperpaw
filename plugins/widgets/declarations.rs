@@ -255,6 +255,33 @@ const COUNTDOWN_OPTIONS: &[Opt] = &[
     Opt::DateFormat("widgets.date-format.weekday"),
 ];
 
+const YEAR_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "style",
+        "widgets.setting.style",
+        &[
+            "widgets.year.bar",
+            "widgets.year.ring",
+            "widgets.year.months",
+        ],
+        "widgets.year.bar",
+        "widgets.year-progress.style.help",
+    ),
+    Opt::Part("year", "widgets.setting.year", true),
+    Opt::Part("percent", "widgets.setting.percent", true),
+    Opt::Part("day", "widgets.setting.day-of-year", true),
+    Opt::Part("week", "widgets.setting.week-number", false),
+    Opt::Part("left", "widgets.setting.days-left", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -284,6 +311,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: COUNTDOWN_OPTIONS,
+    },
+    Def {
+        name: "year-progress",
+        token: 104,
+        category: category::TIME,
+        live: true,
+        options: YEAR_OPTIONS,
     },
 ];
 

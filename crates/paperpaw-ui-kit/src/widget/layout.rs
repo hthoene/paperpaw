@@ -487,3 +487,39 @@ pub fn balanced(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<Ve
     }
     Ok(best)
 }
+
+/// The height a caption takes ([`caption`]), the gap below it included.
+///
+/// # Errors
+/// Font refusals.
+pub fn caption_height(font: &Font<'_>, small: f32, gap: u16) -> Result<u16, Error> {
+    Ok(crate::geometry::line_px(font, small)?.saturating_add(gap / 2))
+}
+
+/// Draws `text` small at the top of `area`, placed by `align`, e.g. "Today"
+/// over the numbers; returns the area left below it.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn caption(
+    out: &mut Vec<Paint>,
+    font: &Font<'_>,
+    (small, gap): (f32, u16),
+    (area, align, color): (Rect, Align, Color),
+    text: &str,
+) -> Result<Rect, Error> {
+    let height = caption_height(font, small, gap)?.min(area.height);
+    let row = Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        crate::geometry::line_px(font, small)?,
+    );
+    label(out, font, (small, align), row, text, color)?;
+    Ok(Rect::new(
+        area.x,
+        area.y.saturating_add(height),
+        area.width,
+        area.height - height,
+    ))
+}

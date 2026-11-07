@@ -132,6 +132,91 @@ pub fn spans(
     Ok(())
 }
 
+/// Whether direction `b` lies less than half a turn clockwise after
+/// direction `a` (both east and north parts).
+const fn clockwise_after(a: (i64, i64), b: (i64, i64)) -> bool {
+    a.1 * b.0 - a.0 * b.1 > 0
+}
+
+/// The east and north parts of the direction `degrees` clockwise from twelve
+/// o'clock.
+fn direction(degrees: i32) -> (i64, i64) {
+    let (sin, cos) = paperpaw_sdk::round::sin_cos(degrees);
+    (i64::from(sin), i64::from(cos))
+}
+
+/// Whether the direction east `x`, north `y` lies on the arc of `sweep`
+/// degrees clockwise from `from`.
+fn on_arc(from: i32, sweep: u32, (x, y): (i64, i64)) -> bool {
+    let sweep = sweep.min(360);
+    if sweep >= 360 {
+        return true;
+    }
+    if sweep == 0 {
+        return false;
+    }
+    let (a, to) = (
+        direction(from),
+        direction(from.rem_euclid(360) + sweep as i32),
+    );
+    let p = (x, y);
+    if sweep == 180 {
+        // The half plane clockwise of `from` and the direction of `from`
+        // itself, so that two halves of a ring share no edge.
+        let along = a.1 * p.0 == a.0 * p.1 && a.0 * p.0 + a.1 * p.1 > 0;
+        return clockwise_after(a, p) || along;
+    }
+    let between = |a, b| !clockwise_after(p, a) && clockwise_after(p, b);
+    if sweep <= 180 {
+        between(a, to)
+    } else {
+        !(!clockwise_after(p, to) && clockwise_after(p, a))
+    }
+}
+
+/// An arc of a ring of `radius` pixels round `centre`, `thickness` wide,
+/// growing inwards: `sweep` degrees clockwise from `from` (degrees clockwise
+/// from twelve o'clock), e.g. a progress ring. Made of spans one pixel high.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn fill_ring(
+    out: &mut Vec<Paint>,
+    centre: Point,
+    radius: u32,
+    thickness: u32,
+    (from, sweep): (i32, u32),
+    color: Color,
+) -> Result<(), Error> {
+    let radius = radius.min(1024);
+    if radius == 0 || thickness == 0 || sweep == 0 {
+        return Ok(());
+    }
+    if sweep >= 360 {
+        return if thickness >= radius {
+            fill_circle(out, centre, radius, color)
+        } else {
+            stroke_circle(out, centre, radius, thickness, color)
+        };
+    }
+    let outer = i64::from(2 * radius);
+    let inner = i64::from(2 * radius.saturating_sub(thickness));
+    let r = i64::from(radius);
+    spans(
+        out,
+        (centre.x - radius as i32, centre.y - radius as i32),
+        (2 * radius, 2 * radius),
+        color,
+        |column, row| {
+            // The pixel's middle against the centre, in half pixels.
+            let dx = 2 * i64::from(column) + 1 - 2 * r;
+            let dy = 2 * i64::from(row) + 1 - 2 * r;
+            let d2 = dx * dx + dy * dy;
+            d2 <= outer * outer && d2 >= inner * inner && on_arc(from, sweep, (dx, -dy))
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +241,49 @@ mod tests {
     fn a_circle_off_the_corner_is_cut_not_wrapped() {
         let rect = square(Point::new(-5, 3), 10);
         assert_eq!((rect.x, rect.y), (0, 0));
+    }
+
+    #[test]
+    fn an_arc_covers_its_quarter_and_not_the_rest() {
+        // A quarter from twelve to three: the upper right, nothing else.
+        let mut out = Vec::new();
+        fill_ring(&mut out, Point::new(30, 30), 20, 20, (0, 90), Color::BLACK).unwrap();
+        assert!(!out.is_empty());
+        for op in &out {
+            let Paint::Fill(rect, _) = op else {
+                panic!("{op:?}")
+            };
+            // Right of the centre column, above the centre row.
+            assert!(rect.x >= 30 && u32::from(rect.y) < 30, "{rect:?}");
+        }
+        // A full sweep is a rounded square, not spans.
+        let mut full = Vec::new();
+        fill_ring(
+            &mut full,
+            Point::new(30, 30),
+            20,
+            20,
+            (0, 360),
+            Color::BLACK,
+        )
+        .unwrap();
+        assert!(matches!(full.as_slice(), [Paint::Focus(..)]));
+        // Nothing for an empty sweep or thickness.
+        let mut none = Vec::new();
+        fill_ring(&mut none, Point::new(30, 30), 20, 5, (0, 0), Color::BLACK).unwrap();
+        fill_ring(&mut none, Point::new(30, 30), 20, 0, (0, 90), Color::BLACK).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn the_two_halves_of_a_ring_leave_no_pixel_out_and_none_twice() {
+        for (a, b) in [(0, 180), (90, 270)] {
+            for (x, y) in [(5, 3), (-4, 7), (0, 9), (0, -9), (9, 0), (-9, 0), (-3, -3)] {
+                let first = on_arc(a, 180, (x, y));
+                let second = on_arc(b, 180, (x, y));
+                assert!(first != second, "{a} {x},{y}");
+            }
+        }
     }
 
     #[test]
