@@ -239,7 +239,7 @@ fn raw_records_and_stream_carry_keep_secrets_out_of_debug() {
     let mut seen = 0;
     stream
         .feed_raw(&out[n - 4..n], &mut |raw| {
-            assert_eq!(raw.decode::<wire::ServiceSecValue>(), Ok(record));
+            assert_eq!(raw.decode::<wire::ServiceSecValue<'_>>(), Ok(record));
             seen += 1;
             Ok(())
         })
