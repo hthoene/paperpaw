@@ -54,3 +54,4 @@ aa96216f89db03578e6cf4b7a50ac9f2233c6120 language-ar, language-es  # paperpaw-si
 059bd6087aa9c7a71e8df652f0541bad36e7f4b3 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): listing/walk fix for the Code Reviewer's probe; catalog byte-identical (job #2917)
 9768754bda18163477be28183534531f3c7a4d9c language-ar, language-es  # paperpaw-sign frames (#228, PR #254): jalr wrap fix, frame budget constant; catalog byte-identical (job #2920)
 d61a6204b2bae9177691957dd42f319dc21532d3 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): jalr wrap fix, frame budget constant; catalog byte-identical (job #2920)
+55a67e203886b58f7884b8ee001db4b8d0f8c7f4 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): chain family word in the frame budget; catalog byte-identical (job #2925)
