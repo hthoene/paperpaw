@@ -3529,6 +3529,9 @@ pub fn paperpaw_sdk::native::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'
 pub struct paperpaw_sdk::native::Host<'cb>
 impl core::fmt::Debug for paperpaw_sdk::native::Host<'_>
 pub fn paperpaw_sdk::native::Host<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(transparent)] pub struct paperpaw_sdk::native::Linked(_)
+impl core::fmt::Debug for paperpaw_sdk::native::Linked
+pub fn paperpaw_sdk::native::Linked::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::native::Native
 pub paperpaw_sdk::native::Native::api_size: u32
 pub paperpaw_sdk::native::Native::compiler: u32
