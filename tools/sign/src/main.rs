@@ -16,6 +16,7 @@ use std::process::ExitCode;
 mod asset;
 mod elf;
 mod firmware;
+mod framelist;
 mod frames;
 mod hot;
 mod image;
@@ -120,6 +121,12 @@ USAGE:
     paperpaw-sign store-rules [file]
         Prints the store's rules this tool checks by; with a file (the
         site's), fails where they differ.
+    paperpaw-sign frames <firmware.elf> [--limit <bytes>] [--budget <file>]
+        Lists the stack frame of every function of a linked firmware, read
+        from the code, largest first (those of --limit bytes or more, 1024 by
+        default). With --budget, checks the functions the file names (the
+        panic handler's and the dispatch path's) against their frames and
+        fails if one is larger or no function matches a name.
     paperpaw-sign statics <crate.rlib>...
         Lists the symbols in writable memory (mutable statics) of the
         objects in rlibs (built without LTO); fails if there is one. A
@@ -156,6 +163,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["plugins", image] => firmware::plugins(image),
         ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
+        ["frames", elf, rest @ ..] => frames_command(elf, rest),
         ["pack", elf, out] => plugin::pack(elf, out, None),
         ["pack", elf, out, "--key", key] => plugin::pack(elf, out, Some(key)),
         ["catalog", source, out] => catalog(source, out),
@@ -261,4 +269,25 @@ fn secret_key(key_file: Option<&str>) -> Result<[u8; 32], String> {
             .map_err(|_| "no --key and no PAPERPAW_SIGNING_KEY".to_string())?,
     };
     Ok(paperpaw_update::parse_key(&text).ok_or("the key is not 64 hexadecimal digits")?)
+}
+
+/// `frames <elf> [--limit N] [--budget FILE]`.
+fn frames_command(elf: &str, mut rest: &[&str]) -> Result<(), String> {
+    let (mut limit, mut budget) = (1024u32, None);
+    while let [flag, value, tail @ ..] = rest {
+        match *flag {
+            "--limit" => {
+                limit = value
+                    .parse()
+                    .map_err(|_| "--limit takes a number of bytes")?
+            }
+            "--budget" => budget = Some(*value),
+            other => return Err(format!("frames: unknown option {other}")),
+        }
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        return Err("usage: frames <elf> [--limit BYTES] [--budget FILE]".into());
+    }
+    framelist::run(elf, limit, budget)
 }

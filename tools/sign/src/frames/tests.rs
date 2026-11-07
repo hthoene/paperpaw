@@ -604,13 +604,21 @@ fn a_jump_through_a_register_inside_a_frame_is_refused() {
         None
     );
     // In a lenient walk (the firmware's own listing) the jump's cases are
-    // read from the state at the jump.
+    // read from the state at the jump, but the function is not sized: the
+    // frame is a lower bound, which the listing says and a budget refuses.
     let f = code(&[W(addi(SP, SP, -1024)), W(jr(A0))]);
     let env = Env {
         lenient: true,
         ..Env::none()
     };
-    assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![Some(1024)]);
+    assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![None]);
+    assert_eq!(
+        sizes_in(&f, &[(0, 8)], env),
+        vec![Sized {
+            bytes: None,
+            at_least: 1024
+        }]
+    );
 }
 
 #[test]
@@ -706,7 +714,7 @@ fn random_code_and_ranges_never_panic_the_scan() {
         let tables = Tables {
             addr: base,
             bytes: &table_bytes,
-            relocated: &relocated,
+            relocated: Some(&relocated),
         };
         let proved = noreturn_functions(&bytes, &ranges, base, tables, false);
         for lenient in [false, true] {
@@ -788,7 +796,7 @@ fn with_table(f: &[u8], words: &[u32], relocated: &[u32]) -> Option<Finding> {
         tables: Tables {
             addr: ROD,
             bytes: &bytes,
-            relocated: &relocated,
+            relocated: Some(&relocated),
         },
         ..Env::none()
     };
@@ -924,6 +932,138 @@ fn a_table_longer_than_the_function_is_refused_not_cut() {
     let g = table_function(&case1);
     let words = vec![TEXT + 24; 8];
     assert_eq!(with_table(&g, &words, &relocated[..8]), None);
+}
+
+/// The firmware's walk: the code is linked in place, so no word is relocated
+/// and `relocated` is `None`.
+fn linked_sizes(f: &[u8], words: &[u32]) -> Sized {
+    let bytes = rodata(words);
+    let env = Env {
+        tables: Tables {
+            addr: ROD,
+            bytes: &bytes,
+            relocated: None,
+        },
+        lenient: true,
+        ..Env::none()
+    };
+    sizes_in(f, &[(0, f.len())], env)[0]
+}
+
+#[test]
+fn a_linked_firmwares_table_is_resolved_and_its_function_is_sized() {
+    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let f = table_function(&big);
+    // Both entries are addresses in the function: every case is walked from
+    // the jump, the frame is the largest one, and it is not a lower bound.
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 32]);
+    assert_eq!(s.bytes, Some(1616));
+    // A table that cannot be read leaves the function not sized, with what
+    // the walk saw as its lower bound.
+    let s = linked_sizes(&f, &[]);
+    assert_eq!(s.bytes, None);
+    let s = linked_sizes(&f, &[0x1234_5678]);
+    assert_eq!(s.bytes, None);
+}
+
+#[test]
+fn a_linked_table_ends_at_the_first_word_that_is_not_in_the_function() {
+    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let f = table_function(&big);
+    // Data after the table (a word out of the function) is not an entry.
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 32, 0x3c00_1234, TEXT + 32]);
+    assert_eq!(s.bytes, Some(1616));
+    // Into the middle of an instruction: the table is refused (not sized).
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 34]);
+    assert_eq!(s.bytes, None);
+}
+
+#[test]
+fn an_unreadable_jump_at_sp_zero_may_enter_code_already_walked_in_the_listing_too() {
+    // Code Reviewer's probe (#254): one path sets t0 = 16 and lowers sp by
+    // it; another jumps through a register that cannot be read, at sp 0, and
+    // may land on the `sub` with any t0. The listing joined that state into
+    // nothing already walked and sized the function 16; it must not.
+    let f = code(&[
+        W(beq_to(A0, 0, 12)),
+        W(jr(A1)),
+        W(RET),
+        W(addi(T0, 0, 16)),
+        W(sub(SP, SP, T0)),
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ]);
+    for lenient in [false, true] {
+        let env = Env {
+            lenient,
+            ..Env::none()
+        };
+        assert_eq!(
+            sizes_in(&f, &[(0, f.len())], env)[0].bytes,
+            None,
+            "lenient {lenient}"
+        );
+    }
+}
+
+#[test]
+fn a_tail_call_by_auipc_and_jr_is_a_known_jump_out_not_an_unreadable_one() {
+    const T1: u32 = 6;
+    // auipc t1, 0x10; jr 0x20(t1): the compilers' `tail`, to a function
+    // elsewhere. Known, so nothing is joined into the rest of the function.
+    let f = code(&[W(auipc(T1, 0x10)), W(jalr(0, T1, 0x20))]);
+    assert_eq!(scan(&f, &[0]), None);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(0)]);
+    // Into the function itself (a jump back to its start with sp lowered once
+    // would be a loop that moves sp: refused as unbounded).
+    let f = code(&[W(addi(SP, SP, -16)), W(auipc(T1, 0)), W(jalr(0, T1, -4))]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![None]);
+}
+
+#[test]
+fn a_jump_table_beside_a_tail_call_is_still_read() {
+    const T1: u32 = 6;
+    // Case 1 gives its frame back and tail-calls out. An unreadable jump at
+    // sp 0 would be joined into every instruction, the table's code included,
+    // and the table could no longer be read; this one is known.
+    let case1 = [W(addi(SP, SP, 16)), W(auipc(T1, 1)), W(jalr(0, T1, 0))];
+    let f = table_function(&case1);
+    assert_eq!(with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]), None);
+    assert_eq!(linked_sizes(&f, &[TEXT + 24, TEXT + 32]).bytes, Some(16));
+}
+
+#[test]
+fn a_tail_call_target_wraps_in_32_bits_and_clears_the_low_bit_as_jalr_does() {
+    // Code Reviewer's probe (#254): `li t1, -16; jalr x0, 16(t1)` goes to
+    // address 0 (the sum wraps), the function's start when it is linked at 0:
+    // a loop that moves sp, not a jump far out of the function.
+    const T1: u32 = 6;
+    let at_zero = |items: &[I]| {
+        let f = code(items);
+        let env = Env {
+            base: 0,
+            ..Env::none()
+        };
+        sizes_in(&f, &[(0, f.len())], env)[0].bytes
+    };
+    assert_eq!(
+        at_zero(&[
+            W(addi(SP, SP, -16)),
+            W(addi(T1, 0, -16)),
+            W(jalr(0, T1, 16)),
+        ]),
+        None
+    );
+    // An odd sum has its low bit cleared: 0 + 1 is address 0, the start.
+    assert_eq!(
+        at_zero(&[W(addi(SP, SP, -16)), W(addi(T1, 0, 0)), W(jalr(0, T1, 1)),]),
+        None
+    );
+    // A target out of the function stays a tail call.
+    assert_eq!(
+        at_zero(&[W(addi(T1, 0, 0x100)), W(jalr(0, T1, 0x20)), W(RET)]),
+        Some(0)
+    );
 }
 
 #[test]
