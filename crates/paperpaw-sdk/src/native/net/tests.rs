@@ -311,6 +311,8 @@ fn headers_refuse_what_the_host_refuses_and_hide_their_value() {
     assert_eq!(Header::new("", "x").unwrap_err(), Error::Invalid);
     assert_eq!(Header::new("X Y", "x").unwrap_err(), Error::Invalid);
     assert_eq!(Header::new("X", "a\r\nb").unwrap_err(), Error::Invalid);
+    // A tab is a control byte too: the host refuses all of them.
+    assert_eq!(Header::new("X", "a\tb").unwrap_err(), Error::Invalid);
     for own in ["Host", "connection", "Content-Length"] {
         assert_eq!(Header::new(own, "x").unwrap_err(), Error::Invalid);
     }
@@ -387,4 +389,69 @@ fn progress_knows_its_total_only_when_the_answer_said() {
     assert_eq!(progress(1).total(), Some(100));
     assert_eq!(progress(0).total(), None);
     assert_eq!(progress(1).received(), 10);
+}
+
+#[test]
+fn a_request_hides_its_address_headers_and_body_in_debug() {
+    let headers = [Header::new("Authorization", "Bearer sekrit-header").unwrap()];
+    let request = Request::new(7, "POST", "https://a.b/v1?key=sekrit-query")
+        .unwrap()
+        .headers(&headers)
+        .unwrap()
+        .body(b"sekrit-body")
+        .unwrap();
+    let debug = alloc::format!("{request:?}");
+    for secret in ["sekrit-query", "sekrit-header", "sekrit-body", "a.b"] {
+        assert!(!debug.contains(secret), "{debug}");
+    }
+    assert!(debug.contains("POST"));
+}
+
+#[test]
+fn a_file_may_be_sent_from_the_install_root_but_never_saved_to_it() {
+    let request = Request::get(1, "https://a.b/").unwrap();
+    assert_eq!(
+        request.save_to(FileRoot::Install, "a").unwrap_err(),
+        Error::Denied
+    );
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let request = request.send_file(FileRoot::Install, "a/b").unwrap();
+        reply(state, &[started(1)]);
+        let (mut input, mut out) = ([0; REQUEST_INPUT], [0; 1536]);
+        net.request(host, &request, &mut input, &mut out).unwrap();
+        let bytes = state.input.borrow();
+        let rows: Vec<_> = wire::records_decode(&bytes).unwrap().iter().collect();
+        assert!(matches!(rows[1], Record::ServiceNetFile(f) if (f.role, f.root) == (0, 2)));
+    });
+}
+
+#[test]
+fn a_request_with_the_most_rows_still_encodes_without_an_array_of_records() {
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let headers = [Header::new("A", "b").unwrap(); MAX_HEADERS];
+        let request = Request::get(1, "https://a.b/")
+            .unwrap()
+            .headers(&headers)
+            .unwrap()
+            .save_to(FileRoot::Data, "x")
+            .unwrap()
+            .body(b"x")
+            .unwrap();
+        reply(state, &[started(1)]);
+        let (mut input, mut out) = ([0; REQUEST_INPUT], [0; 1536]);
+        net.request(host, &request, &mut input, &mut out).unwrap();
+        let bytes = state.input.borrow();
+        // The leading count (a one-byte varint) is every row; the generic
+        // decoder here holds 8 at most, so it is read by hand.
+        assert_eq!(usize::from(bytes[0]), 1 + MAX_HEADERS + 1 + 1);
+        // Too small an input is refused before anything is written.
+        let mut small = [0u8; 8];
+        assert_eq!(
+            net.request(host, &request, &mut small, &mut out)
+                .unwrap_err(),
+            Error::NoSpace
+        );
+    });
 }

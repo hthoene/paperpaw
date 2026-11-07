@@ -7,6 +7,9 @@
 //! request with [`Net::request`] and gets one [`HttpDone`] event for it, in
 //! which [`Net::answer`] and [`Net::body`] read what came. The host frees the
 //! answer after that callback.
+//!
+//! This is the client side only: servers and sockets (SOCK) are not part of it,
+//! and a request is never written to a log, `Debug` included.
 use super::wire::services_wire::core_net_v1 as schema;
 use super::{
     Error, Host,
@@ -26,10 +29,6 @@ pub const BODY_PART: usize = 3840;
 pub const REQUEST_INPUT: usize = 4096;
 /// The buffer the answer and body replies need.
 pub const REPLY: usize = 4096;
-/// The most records one request holds: the request, its headers, a file to
-/// send or save each, and a body.
-const MAX_RECORDS: usize = 20;
-
 /// Where a file the request sends or saves lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -38,6 +37,9 @@ pub enum FileRoot {
     Data,
     /// The user's files on the card (needs `uses.storage`).
     Files,
+    /// The installed plugins' folder: a file may be sent from it, never saved
+    /// to it (`save_to` refuses it with `Denied`).
+    Install,
 }
 
 impl FileRoot {
@@ -45,6 +47,7 @@ impl FileRoot {
         match self {
             Self::Data => 0,
             Self::Files => 1,
+            Self::Install => 2,
         }
     }
 }
@@ -77,7 +80,8 @@ impl<'a> Header<'a> {
     /// A header, checked as the host checks it.
     ///
     /// # Errors
-    /// `Invalid` for a name that is not a token or a value with control bytes,
+    /// `Invalid` for a name that is not a token or a value with control bytes
+    /// (a tab too),
     /// `NoSpace` for a name over 64 or a value over 1,024 bytes. The host's
     /// own headers (`Host`, `Connection`, `Content-Length`) are refused here too.
     pub fn new(name: &'a str, value: &'a str) -> Result<Self, Error> {
@@ -85,7 +89,7 @@ impl<'a> Header<'a> {
             return Err(Error::NoSpace);
         }
         if !is_token(name)
-            || value.bytes().any(|b| b < 0x20 && b != b'\t' || b == 0x7f)
+            || value.bytes().any(|b| b < 0x20 || b == 0x7f)
             || ["host", "connection", "content-length"]
                 .iter()
                 .any(|own| name.eq_ignore_ascii_case(own))
@@ -97,7 +101,7 @@ impl<'a> Header<'a> {
 }
 
 /// One request, built from borrowed parts.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Request<'a> {
     token: u32,
     method: &'a str,
@@ -112,14 +116,30 @@ pub struct Request<'a> {
     max_file: u64,
 }
 
+/// `Debug` shows the method and the sizes only: the address may carry a
+/// credential or an API key, the headers and the body secrets (`network.md` 2.1).
+impl core::fmt::Debug for Request<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Request")
+            .field("token", &self.token)
+            .field("method", &self.method)
+            .field("url_len", &self.url.len())
+            .field("headers", &self.headers.len())
+            .field("body_len", &self.body.len())
+            .field("send", &self.send.is_some())
+            .field("save", &self.save.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> Request<'a> {
     /// A request of `method` to `url`, answered with events carrying `token`
     /// (the plugin's own number; several requests may share one).
     ///
     /// # Errors
-    /// `Invalid` for a method that is not a token of 1 to 16 bytes, an empty
-    /// address, or one that is not `http://` or `https://`; `NoSpace` for an
-    /// address over 1,024 bytes. The host checks the rest (host names, ports).
+    /// `Invalid` for a method that is not a token, an empty address, or one
+    /// that is not `http://` or `https://`; `NoSpace` for a method over 16
+    /// bytes or an address over 1,024 bytes. The host checks the rest (host names, ports).
     pub fn new(token: u32, method: &'a str, url: &'a str) -> Result<Self, Error> {
         if method.len() > 16 || url.len() > MAX_URL {
             return Err(Error::NoSpace);
@@ -202,9 +222,13 @@ impl<'a> Request<'a> {
     /// A file a 2xx answer's body is written to, without limit of memory.
     ///
     /// # Errors
-    /// `Invalid` for an empty path, `NoSpace` for one over 512 bytes.
+    /// `Invalid` for an empty path, `NoSpace` for one over 512 bytes, `Denied`
+    /// for [`FileRoot::Install`].
     pub fn save_to(mut self, root: FileRoot, path: &'a str) -> Result<Self, Error> {
         check_path(path)?;
+        if root == FileRoot::Install {
+            return Err(Error::Denied);
+        }
         self.save = Some((root, path));
         Ok(self)
     }
@@ -417,7 +441,8 @@ impl HttpDone {
         self.flags & 1 != 0
     }
 
-    /// The memory body was cut at `max_body` (or an error body at 4,096).
+    /// The memory body was cut at `max_body`; an error body (status 400 or
+    /// more) is cut at the lesser of 4,096 and `max_body`.
     #[must_use]
     pub const fn truncated(&self) -> bool {
         self.flags & 2 != 0
@@ -560,16 +585,19 @@ impl Net {
         self.service.release(host)
     }
 
-    fn call(
+    fn call<'r, I>(
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: I,
         input: &mut [u8],
         out: &mut [u8],
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, Error>
+    where
+        I: Iterator<Item = Record<'r>> + Clone,
+    {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
-        let len = wire::records_encode_counted(
+        let len = wire::records_encode_counted_iter(
             records,
             usize::from(operation.input_rows),
             operation.max_input,
@@ -597,9 +625,9 @@ impl Net {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<RequestId, Error> {
-        let mut records =
-            [Record::ServiceNetStarted(wire::ServiceNetStarted { id: 0 }); MAX_RECORDS];
-        records[0] = Record::ServiceNetRequest(wire::ServiceNetRequest {
+        // The rows are walked in place, never copied into an array (a record
+        // is over 100 bytes on the device's stack).
+        let head = Record::ServiceNetRequest(wire::ServiceNetRequest {
             token: request.token,
             method: request.method,
             url: request.url,
@@ -608,29 +636,28 @@ impl Net {
             max_body: request.max_body,
             max_file: request.max_file,
         });
-        let mut count = 1;
-        for header in request.headers {
-            records[count] = Record::ServiceNetHeader(wire::ServiceNetHeader {
-                name: header.name,
-                value: header.value,
-            });
-            count += 1;
-        }
-        for (role, file) in [(0, request.send), (1, request.save)] {
-            if let Some((root, path)) = file {
-                records[count] = Record::ServiceNetFile(wire::ServiceNetFile {
+        fn file(role: u32, file: Option<(FileRoot, &str)>) -> Option<Record<'_>> {
+            file.map(|(root, path)| {
+                Record::ServiceNetFile(wire::ServiceNetFile {
                     role,
                     root: root.wire(),
                     path,
-                });
-                count += 1;
-            }
+                })
+            })
         }
-        if !request.body.is_empty() {
-            records[count] = Record::ServiceNetBody(wire::ServiceNetBody { data: request.body });
-            count += 1;
-        }
-        let n = self.call(host, schema::OP_REQUEST, &records[..count], input, out)?;
+        let rows = core::iter::once(head)
+            .chain(request.headers.iter().map(|header| {
+                Record::ServiceNetHeader(wire::ServiceNetHeader {
+                    name: header.name,
+                    value: header.value,
+                })
+            }))
+            .chain(file(0, request.send))
+            .chain(file(1, request.save))
+            .chain((!request.body.is_empty()).then_some(Record::ServiceNetBody(
+                wire::ServiceNetBody { data: request.body },
+            )));
+        let n = self.call(host, schema::OP_REQUEST, rows, input, out)?;
         match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
             Record::ServiceNetStarted(started) => RequestId::new(started.id),
             _ => Err(Error::Invalid),
@@ -650,7 +677,7 @@ impl Net {
         out: &mut [u8],
     ) -> Result<(), Error> {
         let row = Record::ServiceNetToken(wire::ServiceNetToken { token });
-        if self.call(host, schema::OP_CANCEL, &[row], input, out)? != 0 {
+        if self.call(host, schema::OP_CANCEL, core::iter::once(row), input, out)? != 0 {
             return Err(Error::Invalid);
         }
         Ok(())
@@ -669,7 +696,7 @@ impl Net {
         out: &'a mut [u8],
     ) -> Result<Answer<'a>, Error> {
         let row = Record::ServiceNetId(wire::ServiceNetId { id: id.0 });
-        let n = self.call(host, schema::OP_ANSWER, &[row], input, out)?;
+        let n = self.call(host, schema::OP_ANSWER, core::iter::once(row), input, out)?;
         match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
             Record::ServiceNetAnswer(answer) => Ok(Answer(answer)),
             _ => Err(Error::Invalid),
@@ -690,7 +717,7 @@ impl Net {
         out: &'a mut [u8],
     ) -> Result<&'a [u8], Error> {
         let row = Record::ServiceNetRead(wire::ServiceNetRead { id: id.0, offset });
-        let n = self.call(host, schema::OP_BODY, &[row], input, out)?;
+        let n = self.call(host, schema::OP_BODY, core::iter::once(row), input, out)?;
         match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
             Record::ServiceNetBytes(bytes) if bytes.data.len() <= BODY_PART => Ok(bytes.data),
             _ => Err(Error::Invalid),
