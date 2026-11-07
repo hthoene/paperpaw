@@ -1091,3 +1091,109 @@ fn a_change_of_sp_that_is_not_a_multiple_of_16_is_refused() {
     let f = code(&[W(addi(SP, SP, -12)), W(addi(SP, SP, 12)), W(RET)]);
     assert_eq!(frame_sizes(&f, &[0]), vec![None]);
 }
+
+/// A table jump whose base lives in `s8` across a call that links in `link`
+/// (`ra`, a call; `t0`, one of the compiler's outlined sequences). Case 0 at
+/// 32 gives the frame back; case 1 at 40 takes a large one.
+fn table_by_saved_register(link: u32) -> Vec<u8> {
+    const S8: u32 = 24;
+    code(&[
+        W(addi(SP, SP, -16)),
+        W(lui(S8, 0x3c000)),
+        W(auipc(6, 0)),
+        W(jalr(link, 6, 0)),
+        W(slli(A0, A0, 2)),
+        W(add(A0, A0, S8)),
+        W(lw(A0, A0, 0)),
+        W(jr(A0)),
+        // 32
+        W(addi(SP, SP, 16)),
+        W(RET),
+        // 40
+        W(addi(SP, SP, -2032)),
+        W(addi(SP, SP, 1024)),
+        W(addi(SP, SP, 1024)),
+        W(RET),
+    ])
+}
+
+#[test]
+fn a_tables_base_in_a_callee_saved_register_survives_a_call() {
+    // The compilers keep the base of a switch's table in `s8` across the
+    // calls of the arms before it; the calling convention keeps it.
+    let f = table_by_saved_register(1);
+    assert!(matches!(
+        with_table(&f, &[TEXT + 32, TEXT + 40], &[0, 4]),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+    assert_eq!(linked_sizes(&f, &[TEXT + 32, TEXT + 40]).bytes, Some(2048));
+}
+
+/// A function that sets a table's base in `s8`, calls an outlined sequence
+/// (`auipc t0, 0; jalr t0, 48(t0)`, linked in `t0`; the sequence follows the
+/// function at 56 and ends in `jr t0`) and jumps by the table. Case 0 (at 32)
+/// gives the frame back, case 1 (at 40) takes a large one.
+fn table_after_outlined_call(sequence: &[I]) -> Vec<u8> {
+    const T0: u32 = 5;
+    const S8: u32 = 24;
+    let mut items = vec![
+        W(addi(SP, SP, -16)),
+        W(lui(S8, 0x3c000)),
+        W(auipc(T0, 0)),
+        W(jalr(T0, T0, 48)),
+        W(slli(A0, A0, 2)),
+        W(add(A0, A0, S8)),
+        W(lw(A0, A0, 0)),
+        W(jr(A0)),
+        W(addi(SP, SP, 16)),
+        W(RET),
+        W(addi(SP, SP, -2032)),
+        W(addi(SP, SP, 2032)),
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ];
+    items.extend(sequence.iter().map(|i| match i {
+        W(w) => W(*w),
+        N(n) => N(*n),
+    }));
+    code(&items)
+}
+
+/// The listing's frame of [`table_after_outlined_call`]'s function (firmware
+/// mode: linked in place, the tables' words are addresses).
+fn outlined_frame(sequence: &[I]) -> Option<u32> {
+    let f = table_after_outlined_call(sequence);
+    let bytes = rodata(&[TEXT + 32, TEXT + 40]);
+    let env = Env {
+        tables: Tables {
+            addr: ROD,
+            bytes: &bytes,
+            relocated: None,
+        },
+        lenient: true,
+        ..Env::none()
+    };
+    sizes_in(&f, &[(0, 56)], env)[0].bytes
+}
+
+#[test]
+fn an_outlined_call_forgets_only_the_registers_its_sequence_writes() {
+    const T0: u32 = 5;
+    const S9: u32 = 25;
+    // The sequence writes `s9` and returns by `jr t0`: `s8` still holds the
+    // table's base, the table is read and case 1 is found.
+    assert_eq!(outlined_frame(&[W(addi(S9, 0, 1)), W(jr(T0))]), Some(2048));
+}
+
+#[test]
+fn an_outlined_sequence_that_writes_the_base_register_or_is_not_straight_forgets_it() {
+    const T0: u32 = 5;
+    const S8: u32 = 24;
+    // The sequence writes `s8`: the base is lost, the jump cannot be read.
+    assert_eq!(outlined_frame(&[W(addi(S8, 0, 1)), W(jr(T0))]), None);
+    // A sequence with a branch is not read: all registers are forgotten.
+    assert_eq!(outlined_frame(&[W(beq_to(0, 0, 8)), W(jr(T0))]), None);
+    // One that never ends in `jr t0` within 64 instructions, likewise.
+    let long: Vec<I> = (0..70).map(|_| W(addi(25, 0, 1))).collect();
+    assert_eq!(outlined_frame(&long), None);
+}

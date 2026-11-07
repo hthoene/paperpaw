@@ -1,0 +1,34 @@
+# The stack frames of what a plugin's code can call into on the X4 (the
+# interface-7 host entries, the dispatch path and the loader's own x4 module),
+# checked in CI against the firmware built with `ppn5`
+# (`paperpaw-sign frames <elf> --budget shells/xteink/frame-budget-ppn5.txt`).
+# The panic path's budget (`frame-budget.txt`) needs no plugin; this one needs the
+# ppn5 build, where these functions exist, so it has its own job.
+#
+# A plugin's code runs on the main stack, and the band at its end
+# (`paperpaw_x4::stack_band`) is 2 KiB high: a frame of 2,048 bytes or more
+# in a function the plugin can call could step over it without a store, as a
+# frame in the plugin's own code could (`paperpaw-sign pack` refuses those).
+# So the firmware's functions on that path are held to the same bound.
+#
+# each <bytes> <family>    every function of a module or a function and its closures
+# frame <bytes> <name>     the largest frame of a function with that path
+#
+# Every host entry (`shell::registrations_submit`, `storage_*`, `font_*`,
+# `i18n_*`, `text_*`, `canvas_*`), the dispatch (`flat::invoke`, `page::deliver`,
+# `shell::instance`) and the registration pipeline are in `native_host`; the
+# X4's loader and its services in `native::ppn5::x4`.
+# The derived `Debug` impls (logging only, no plugin reaches them) end in a
+# tail call through a vtable at depth zero, which the scan cannot prove stays
+# out of the function (it joins that into every instruction, as it must for a
+# plugin's code), so their jump tables go unread: left out, with their small
+# frames; `?>=` in the listing.
+each 2047 paperpaw_core::native_host -core::fmt::Debug::fmt
+each 2047 native::ppn5::x4
+# Around every call into a plugin the shell keeps its id in RTC memory
+# (`safe_mode::calling` / `returned`); the copies are inlined into these two
+# (each about 300 bytes, also on the nested-call path) and `read` is the
+# start's.
+frame 448 x4::call_begin
+frame 448 x4::call_end
+frame 384 safe_mode::read

@@ -687,3 +687,38 @@ jobs:
         run: cargo deny --manifest-path shells/xteink/Cargo.toml --all-features check
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
+
+  # What a plugin's code can call into on the X4 (the interface-7 host entries,
+  # the dispatch, the loader's x4 module) exists in the firmware built with
+  # `ppn5`, which is off by default and so not in the `firmware` jobs' builds.
+  # Its own job, beside them, builds the X4 with it and holds those functions'
+  # stack frames under the 2 KiB band at the main stack's end
+  # (`shells/xteink/frame-budget-ppn5.txt`).
+  firmware-host-frames:
+    name: Firmware interface-7 host frames (x4, ppn5)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEVICE: x4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: x4
+          clang-fallback: "true"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+          workspaces: |
+            shells/xteink
+            .
+          key: x4-ppn5
+      - name: Build the X4 with interface-7 plugins
+        working-directory: shells/xteink
+        run: cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
+      - name: The plugins' host frames fit under the band
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget-ppn5.txt
