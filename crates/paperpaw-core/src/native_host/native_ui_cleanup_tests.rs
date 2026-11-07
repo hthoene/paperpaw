@@ -1,5 +1,6 @@
 //! Kernel retries a borrowed UI store after the callback scope has ended.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
+extern crate std;
 use super::{
     HostResources,
     ui_guard::UiStackView,
