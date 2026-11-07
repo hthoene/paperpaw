@@ -13,7 +13,7 @@ fn broker_allocation_failure_keeps_callbacks_and_lazy_start_unpublished() {
     let plugin = harness.add("probe", Behavior::Good);
     let lazy = harness
         .registry
-        .insert(paperpaw_sdk::Id::new_static("lazy"), None, true)
+        .test_insert(paperpaw_sdk::Id::new_static("lazy"), None, true)
         .unwrap();
     let schema = schema();
     let input = input();

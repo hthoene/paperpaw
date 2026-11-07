@@ -89,8 +89,57 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
 - [D] **The host keeps each instance's hand-over** (fallibly, `ERR_NO_MEMORY` at op 16) for as
   long as the instance is open, or until a reopen gives it a new one: `open` modes 1 and 3
   compare the params, and reopening screens after a restart (#275) opens them with the same params
-  (not the text). On the X4 the params of all instances share 8 KiB and texts are in the host
-  text pool (section 8.2).
+  (not the text). On the X4 the params of all instances share 1,536 bytes (section 8.1, op 16
+  `ERR_FULL` beyond) and texts are in the host text pool (section 8.2).
+- [D] **Ownership, settled (Manager, 2026-11-07):** Input (H2) owns the hand-over store; Core (H1)
+  only uses it.
+- [D] **The host's hand-over seam** (for the host implementers; no plugin sees it). One store,
+  `UiStore` in `crates/paperpaw-core/src/native_host/ui_store.rs`, owned by Input (H2), held once
+  in the native host state: the one checked id allocator (nonzero, never reused) for requests,
+  hand-overs and host texts, the hand-overs, the requests and the texts. Input writes ops 2, 4,
+  8-11 and 14-17 against it; the screen stack and command staging (Core, H1) only call it. Every
+  call takes the host-stamped `Stamp { owner, epoch }`: `owner` the plugin's logical key in
+  `NativeInstances` (never a slot index; never reused), `epoch` the running callback's
+  `CallbackEpoch`; a call with no callback running is `ERR_STATE`, never epoch 0. No borrow of
+  the store spans plugin code; a claim is a move-only token (`Claims`, no `Clone`), not a reference.
+  One owner id per plugin load: the `NativeInstances` key is the plugin's `OwnerResources` owner
+  (`HostResources::try_owner`), so `Frame::caller`, this store, `HostServices::owner_retired` and
+  the handle table name the same owner; no second counter, no mapping. Unloading retires it in
+  one place (`Kernel::unload_plugin`), in this order: no new callbacks, `owner_stopped` (7), the
+  plugin's instances closed (`instance_closed` each), its screen factories removed, then
+  `OwnerResources::release_all` (handles, then `owner_retired`), last the registry row.
+  1. `handover_make(stamp, staged params) -> Result<u32, i32>` at op 16: published only after the
+     batch walk returned `OK` (section 6), allocated fallibly (`ERR_NO_MEMORY`, X4 cap
+     `ERR_FULL`); state **made**. Its text follows with op 9 on the same id.
+  2. `handover_check(stamp, id) -> Result<(), i32>` while `command.open` is checked: the id
+     exists, is **made** by this owner in this epoch, is unclaimed and its text is committed. It
+     changes nothing.
+  3. `claim(stamp, ids) -> Result<Claims, i32>`, all or none, once the whole submit batch has
+     been checked and every fallible copy and reservation of the stage is done: **made** →
+     **claimed**, allocation-free; an id claimed twice, in the batch or by an earlier accepted
+     submit, is `ERR_STATE` and claims nothing. The `Claims` go into the command stage.
+  4. `rollback(claims)`: frees exactly the claims it is given, never others. A refused submit
+     rolls back its own `Claims`, not those of earlier accepted submits; a callback whose result
+     drops its staged commands (screens-input section 2.1) rolls back the claims of that
+     callback's submits, never those of an earlier callback still waiting to drain.
+     `release(id)` frees one claim whose `open`
+     applies as a no-op (a guard refused, section 1.3), names a stale target or fails: the old
+     instance keeps its hand-over.
+  5. `attach(Option<id>, instance)` when the `open` applies: **claimed** → **owned** by the new
+     or reused instance, allocation-free; the instance's previous hand-over is freed only after
+     that, so a failure before it leaves the old params and text in place. `None` (an `open` with
+     hand-over 0 that reuses an instance) clears its params and text at that same point only.
+  6. `end_callback(stamp)` when the callback returns: every hand-over still **made** in that epoch
+     is freed. Claimed ones stay alive in the stage until its deferred `open` drains (5 or 4).
+  7. `instance_closed(instance)` frees the instance's **owned** hand-over.
+     `owner_stopped(owner)` frees the stopped plugin's requests, texts and the hand-overs it made
+     that are still **made** or **claimed**; an **owned** hand-over belongs to its instance, not
+     its maker, and stays until that instance closes or is reopened. Neither calls any plugin.
+  8. Op 17 and the text (op 10) answer only the owning instance; a restart reopen (#275) makes a
+     new **owned** entry from the kept params, without the text.
+
+  Every call either completes or leaves the store unchanged, so the stack never holds a hand-over
+  the store does not and none outlives its owner. Secret texts are never in `Debug` or logs.
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 
@@ -748,6 +797,7 @@ its caps (hand-off).
 | --- | --- |
 | `Command::OpenScreen(id, params)`, `OpenSlot`, `Replace`, `OpenInSlot` | `command.open` modes 0-3 |
 | `Command::Back`, `Close(key)`, `BackTo` | `command.close` (0 / instance), `command.back_to` |
+| `Command::OpenBook`, `readers::open`, `open_page`, `open_with` | `command.open` mode 1 (slot `core.reader`) or 3 (a `doc_reader.screen` in `core.reader`), params `path`, `page` (`document.md` 1) |
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
