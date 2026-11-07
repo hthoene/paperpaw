@@ -159,6 +159,14 @@ impl SecretList {
 }
 
 /// A secret value borrowed from caller-owned output, with redacted Debug.
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Host, secrets::{Secrets, SecretValue}};
+/// fn escape<'a>(secrets: &Secrets, host: &Host<'_>, input: &mut [u8]) -> SecretValue<'a> {
+///     let mut output = [0; 1280];
+///     secrets.get(host, "token", input, &mut output).unwrap()
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct SecretValue<'a>(pub(super) wire::ServiceSecValue<'a>);
 impl<'a> SecretValue<'a> {

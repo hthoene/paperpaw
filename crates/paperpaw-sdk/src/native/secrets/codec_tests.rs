@@ -1,4 +1,4 @@
-//! Enabled with the typed codec contract and the service-call modules.
+//! Per-record service round trips and complete-page validation.
 use super::paging::SecretPage;
 use super::*;
 use alloc::{vec, vec::Vec};
@@ -268,13 +268,17 @@ fn list_refuses_missing_terminal_trailing_rows_bad_flags_and_nonprogress() {
     let state = State::default();
     let row = entry();
     let terminal = end(1, 1, 1);
+    let early = end(0, 1, 1);
+    let stuck = end(0, 1, 0);
+    let flags = end(2, 1, 1);
+    let cursor = end(1, 1, 2);
     for records in [
         vec![&row as &dyn wire::WireEncode],
         vec![&terminal, &row],
-        vec![&row, &end(0, 1, 1)],
-        vec![&end(0, 1, 0)],
-        vec![&row, &end(2, 1, 1)],
-        vec![&row, &end(1, 1, 2)],
+        vec![&row, &early],
+        vec![&stuck],
+        vec![&row, &flags],
+        vec![&row, &cursor],
     ] {
         reply(&state, &records);
         assert!(SecretPage::decode(&state.reply.borrow(), SecretList::all()).is_err());
@@ -282,4 +286,113 @@ fn list_refuses_missing_terminal_trailing_rows_bad_flags_and_nonprogress() {
     let row = wire::ServiceSecEntry { flags: 2, ..row };
     reply(&state, &[&row, &terminal]);
     assert!(SecretPage::decode(&state.reply.borrow(), SecretList::all()).is_err());
+}
+
+#[test]
+fn list_row_boundaries_truncation_and_cursor_overflow_are_checked_before_exposure() {
+    let state = State::default();
+    let row = entry();
+    let mut rows = vec![&row as &dyn wire::WireEncode; schema::PAGE_MAX_ROWS];
+    let terminal = end(1, 32, 32);
+    rows.push(&terminal);
+    reply(&state, &rows);
+    let bytes = state.reply.borrow();
+    let page = SecretPage::decode(&bytes, SecretList::all()).unwrap();
+    assert_eq!(page.count(), 32);
+    for len in 0..bytes.len() {
+        assert!(SecretPage::decode(&bytes[..len], SecretList::all()).is_err());
+    }
+    drop(bytes);
+    rows.insert(0, &row);
+    reply(&state, &rows);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::all()).is_err());
+    reply(&state, &[&row, &end(1, 1, 0)]);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::all().from(u32::MAX)).is_err());
+    reply(&state, &[&end(1, 0, 0)]);
+    assert_eq!(
+        SecretPage::decode(&state.reply.borrow(), SecretList::own())
+            .unwrap()
+            .end()
+            .total(),
+        0
+    );
+    reply(&state, &[&end(1, 1, 99)]);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::own().from(99)).is_ok());
+}
+#[test]
+fn failures_and_short_buffers_do_not_call_or_publish_success() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let secrets = Secrets::open(&host).unwrap();
+    let mut input = [0xa5; 1280];
+    let mut out = [0xa5; 4096];
+    assert!(matches!(
+        secrets.get(&host, "", &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input[..1], &mut out),
+        Err(Error::NoSpace)
+    ));
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input, &mut out[..1]),
+        Err(Error::NoSpace)
+    ));
+    assert_eq!(state.calls.get(), 0);
+    assert_eq!(out, [0xa5; 4096]);
+    let write = SecretWrite::new(SecretName::new("token").unwrap(), "value").unwrap();
+    assert_eq!(
+        secrets.keep(&host, write, &mut input, &mut out[..1]),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(input, [0; 1280]);
+    assert_eq!(state.calls.get(), 0);
+    state.error.set(abi::ERR_IO);
+    assert_eq!(
+        secrets.remove(&host, write.target(), &mut input, &mut out),
+        Err(Error::Io)
+    );
+    state.error.set(abi::OK);
+    state.reply.replace(vec![0]);
+    assert_eq!(
+        secrets.keep(&host, write, &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    assert_eq!(input, [0; 1280]);
+    assert_eq!(
+        secrets.remove(&host, write.target(), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    reply(
+        &state,
+        &[&wire::ServiceSecValue {
+            flags: 2,
+            label: "Label",
+            value: "secret",
+        }],
+    );
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    reply(
+        &state,
+        &[&wire::ServiceSecBytes {
+            flags: 1,
+            data: &[1],
+        }],
+    );
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input, &mut out),
+        Err(Error::State)
+    ));
+    state.reply.replace(vec![0; 1281]);
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
 }

@@ -11,7 +11,7 @@ use paperpaw_native::host_glue::PpBytes;
 mod device;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]
-mod menu_alloc_tests;
+pub(crate) mod menu_alloc_tests;
 mod registry;
 mod uix;
 pub use device::PowerAction;

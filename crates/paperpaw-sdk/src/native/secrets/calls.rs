@@ -1,4 +1,4 @@
-//! Per-record codec calls, wired in after Kernel's codec contract lands.
+//! Per-record codecs link only the secret request and reply types used here.
 use super::paging::SecretPage;
 use super::{
     Error, Host, RandomBytes, SecretList, SecretName, SecretValue, SecretWrite, Secrets, schema,
@@ -14,8 +14,13 @@ impl Secrets {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
+        let cap = self.service.max_reply(op).ok_or(Error::Unsupported)?;
         let n = wire::records_encode_of(&[record], input).map_err(Error::from_status)?;
-        self.service.call(host, op, &input[..n], out)
+        let n = self.service.call(host, op, &input[..n], out)?;
+        if n > cap {
+            return Err(Error::Invalid);
+        }
+        Ok(n)
     }
     /// Read only the calling plugin's own value. Editor access cannot read values.
     /// Output retains the value while the returned view borrows it.

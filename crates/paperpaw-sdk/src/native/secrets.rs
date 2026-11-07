@@ -2,6 +2,9 @@
 //! and `uses.secrets`; an editor can list/change other owners but never read values.
 use super::wire::services_wire::core_secrets_v1 as schema;
 use super::{Error, Host, declare::records_wire as wire, services::Service};
+mod calls;
+mod paging;
+pub use paging::{SecretEntry, SecretPage, SecretPageEnd};
 mod types;
 pub use types::{RandomBytes, SecretList, SecretName, SecretValue, SecretWrite};
 
@@ -29,3 +32,9 @@ impl Secrets {
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod codec_tests;
+
+#[cfg(test)]
+mod allocation_tests;
