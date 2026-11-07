@@ -324,6 +324,53 @@ fn automatic(env: &Env<'_>, keys: bool) -> Chosen {
     }
 }
 
+/// The layouts chosen in the setting `value` for the native plugin: the same
+/// as [`chosen`], from the language (`core.language`) and the translation's
+/// own rows (`keyboard.letters`, empty for none) instead of an environment.
+/// Layouts other plugins add have no interface-7 extension point yet.
+pub(crate) fn chosen_for(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    let nomem = |_| paperpaw_sdk::native::Error::NoMemory;
+    let mut layouts: Vec<Chosen> = Vec::new();
+    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        let one = if id == AUTO {
+            Some(automatic_for(language, letters, keys))
+        } else {
+            LAYOUTS
+                .iter()
+                .find(|l| l.id == id)
+                .map(|l| builtin(l, l.code.to_string(), keys))
+        };
+        if let Some(one) = one {
+            layouts.try_reserve(1).map_err(nomem)?;
+            layouts.push(one);
+        }
+    }
+    if layouts.is_empty() {
+        layouts.try_reserve(1).map_err(nomem)?;
+        layouts.push(automatic_for(language, letters, keys));
+    }
+    Ok(layouts)
+}
+
+/// [`automatic`] from a language and the translation's rows.
+fn automatic_for(language: &str, letters: &str, keys: bool) -> Chosen {
+    let base = language.split('-').next().unwrap_or(language);
+    let code = base.to_uppercase();
+    let layout = LAYOUTS
+        .iter()
+        .find(|l| l.id.rsplit('.').next() == Some(base));
+    match layout {
+        Some(layout) => builtin(layout, code, keys),
+        None if !letters.is_empty() => (code, Cow::Owned(letters.to_string()), Vec::new()),
+        None => (code, Cow::Borrowed(LAYOUTS[0].letters), Vec::new()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

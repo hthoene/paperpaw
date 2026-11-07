@@ -55,6 +55,13 @@ mod draw;
 mod hangul;
 mod keys;
 mod layouts;
+mod native_entry;
+mod native_model;
+mod native_paint;
+pub mod native_plugin;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use keys::*;
 
