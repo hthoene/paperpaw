@@ -225,10 +225,10 @@ fn event_decoding_uses_exact_tags_for_growth_and_input_records() {
     )
     .unwrap();
     assert_eq!(decode(&bytes[..len]), Err(Error::Unsupported));
-    // Reserved tags stay unsupported even with valid framing.
+    // Reserved tags (64-73 are core events now) stay unsupported even with valid framing.
     for unknown in [
         &[1, 63, 1, 0][..],
-        &[1, 64, 1, 0][..],
+        &[1, 74, 1, 0][..],
         &[1, 127, 1, 0][..],
         &[1, 191, 1, 1, 0][..],
     ] {
@@ -263,7 +263,7 @@ fn tick_optional_extensions_are_generated_decoder_compatible() {
 fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let mut bytes = [0; 12];
     let len = wire::tick_encode(17, &mut bytes).unwrap();
-    for tag in [63, 64, 127] {
+    for tag in [63, 74, 127] {
         bytes[1] = tag;
         assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
     }

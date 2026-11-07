@@ -2161,6 +2161,568 @@ impl<'a> ServiceEcho<'a> {
         write_blob(self.text.as_bytes(), out, offset);
     }
 }
+/// Wire tag of the `event.setting_changed` record.
+pub const EVENT_SETTING_CHANGED_TAG: u32 = 64;
+/// Maximum bytes of `event.setting_changed.key`.
+pub const EVENT_SETTING_CHANGED_KEY_MAX_BYTES: usize = 128;
+/// Maximum bytes of `event.setting_changed.old`.
+pub const EVENT_SETTING_CHANGED_OLD_MAX_BYTES: usize = 512;
+
+/// The `event.setting_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventSettingChanged<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub key: &'a str,
+    /// Opaque bytes, at most 512.
+    pub old: &'a [u8],
+}
+
+impl<'a> EventSettingChanged<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventSettingChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            key: body.string(EVENT_SETTING_CHANGED_KEY_MAX_BYTES)?,
+            old: body.blob(EVENT_SETTING_CHANGED_OLD_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.key.len(), EVENT_SETTING_CHANGED_KEY_MAX_BYTES)?;
+        len += blob_len(self.old.len(), EVENT_SETTING_CHANGED_OLD_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.key.as_bytes(), out, offset);
+        write_blob(self.old, out, offset);
+    }
+}
+/// Wire tag of the `event.book_opened` record.
+pub const EVENT_BOOK_OPENED_TAG: u32 = 65;
+/// Maximum bytes of `event.book_opened.path`.
+pub const EVENT_BOOK_OPENED_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `event.book_opened.title`.
+pub const EVENT_BOOK_OPENED_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `event.book_opened.chapter`.
+pub const EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES: usize = 256;
+
+/// The `event.book_opened` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBookOpened<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub section: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub chapter: &'a str,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub insert: Option<u32>,
+}
+
+impl<'a> EventBookOpened<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Record::EventBookOpened(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            section: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+            path: body.string(EVENT_BOOK_OPENED_PATH_MAX_BYTES)?,
+            title: body.string(EVENT_BOOK_OPENED_TITLE_MAX_BYTES)?,
+            chapter: body.string(EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
+            insert: body.maybe_u32(bits, 0x04)?,
+        }))
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.page.is_some() {
+            bits |= 0x01;
+        }
+        if self.pages.is_some() {
+            bits |= 0x02;
+        }
+        if self.insert.is_some() {
+            bits |= 0x04;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.path.len(), EVENT_BOOK_OPENED_PATH_MAX_BYTES)?;
+        len += blob_len(self.title.len(), EVENT_BOOK_OPENED_TITLE_MAX_BYTES)?;
+        len += blob_len(self.chapter.len(), EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.section.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.chapter.as_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
+/// Wire tag of the `event.book_closed` record.
+pub const EVENT_BOOK_CLOSED_TAG: u32 = 66;
+/// Maximum bytes of `event.book_closed.path`.
+pub const EVENT_BOOK_CLOSED_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `event.book_closed.title`.
+pub const EVENT_BOOK_CLOSED_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `event.book_closed.chapter`.
+pub const EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES: usize = 256;
+
+/// The `event.book_closed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBookClosed<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub section: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub chapter: &'a str,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub insert: Option<u32>,
+}
+
+impl<'a> EventBookClosed<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Record::EventBookClosed(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            section: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+            path: body.string(EVENT_BOOK_CLOSED_PATH_MAX_BYTES)?,
+            title: body.string(EVENT_BOOK_CLOSED_TITLE_MAX_BYTES)?,
+            chapter: body.string(EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
+            insert: body.maybe_u32(bits, 0x04)?,
+        }))
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.page.is_some() {
+            bits |= 0x01;
+        }
+        if self.pages.is_some() {
+            bits |= 0x02;
+        }
+        if self.insert.is_some() {
+            bits |= 0x04;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.path.len(), EVENT_BOOK_CLOSED_PATH_MAX_BYTES)?;
+        len += blob_len(self.title.len(), EVENT_BOOK_CLOSED_TITLE_MAX_BYTES)?;
+        len += blob_len(self.chapter.len(), EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.section.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.chapter.as_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
+/// Wire tag of the `event.book_finished` record.
+pub const EVENT_BOOK_FINISHED_TAG: u32 = 67;
+/// Maximum bytes of `event.book_finished.path`.
+pub const EVENT_BOOK_FINISHED_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `event.book_finished.title`.
+pub const EVENT_BOOK_FINISHED_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `event.book_finished.chapter`.
+pub const EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES: usize = 256;
+
+/// The `event.book_finished` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBookFinished<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub section: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub chapter: &'a str,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub insert: Option<u32>,
+}
+
+impl<'a> EventBookFinished<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Record::EventBookFinished(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            section: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+            path: body.string(EVENT_BOOK_FINISHED_PATH_MAX_BYTES)?,
+            title: body.string(EVENT_BOOK_FINISHED_TITLE_MAX_BYTES)?,
+            chapter: body.string(EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
+            insert: body.maybe_u32(bits, 0x04)?,
+        }))
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.page.is_some() {
+            bits |= 0x01;
+        }
+        if self.pages.is_some() {
+            bits |= 0x02;
+        }
+        if self.insert.is_some() {
+            bits |= 0x04;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.path.len(), EVENT_BOOK_FINISHED_PATH_MAX_BYTES)?;
+        len += blob_len(self.title.len(), EVENT_BOOK_FINISHED_TITLE_MAX_BYTES)?;
+        len += blob_len(self.chapter.len(), EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.section.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.chapter.as_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
+/// Wire tag of the `event.book_moved` record.
+pub const EVENT_BOOK_MOVED_TAG: u32 = 68;
+/// Maximum bytes of `event.book_moved.from`.
+pub const EVENT_BOOK_MOVED_FROM_MAX_BYTES: usize = 512;
+/// Maximum bytes of `event.book_moved.path`.
+pub const EVENT_BOOK_MOVED_PATH_MAX_BYTES: usize = 512;
+
+/// The `event.book_moved` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBookMoved<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 512 bytes.
+    pub from: &'a str,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+}
+
+impl<'a> EventBookMoved<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventBookMoved(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            from: body.string(EVENT_BOOK_MOVED_FROM_MAX_BYTES)?,
+            path: body.string(EVENT_BOOK_MOVED_PATH_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.from.len(), EVENT_BOOK_MOVED_FROM_MAX_BYTES)?;
+        len += blob_len(self.path.len(), EVENT_BOOK_MOVED_PATH_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.from.as_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.book_removed` record.
+pub const EVENT_BOOK_REMOVED_TAG: u32 = 69;
+/// Maximum bytes of `event.book_removed.path`.
+pub const EVENT_BOOK_REMOVED_PATH_MAX_BYTES: usize = 512;
+
+/// The `event.book_removed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBookRemoved<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+}
+
+impl<'a> EventBookRemoved<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventBookRemoved(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            path: body.string(EVENT_BOOK_REMOVED_PATH_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.path.len(), EVENT_BOOK_REMOVED_PATH_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.plugins_changed` record.
+pub const EVENT_PLUGINS_CHANGED_TAG: u32 = 70;
+
+/// The `event.plugins_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventPluginsChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventPluginsChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventPluginsChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.wifi_changed` record.
+pub const EVENT_WIFI_CHANGED_TAG: u32 = 71;
+
+/// The `event.wifi_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWifiChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub state: u32,
+}
+
+impl EventWifiChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWifiChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.power_changed` record.
+pub const EVENT_POWER_CHANGED_TAG: u32 = 72;
+
+/// The `event.power_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventPowerChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl EventPowerChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventPowerChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.status_changed` record.
+pub const EVENT_STATUS_CHANGED_TAG: u32 = 73;
+
+/// The `event.status_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventStatusChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventStatusChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventStatusChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2248,6 +2810,26 @@ pub enum Record<'a> {
     StageReply(StageReply<'a>),
     /// A `ServiceEcho` record.
     ServiceEcho(ServiceEcho<'a>),
+    /// A `EventSettingChanged` record.
+    EventSettingChanged(EventSettingChanged<'a>),
+    /// A `EventBookOpened` record.
+    EventBookOpened(EventBookOpened<'a>),
+    /// A `EventBookClosed` record.
+    EventBookClosed(EventBookClosed<'a>),
+    /// A `EventBookFinished` record.
+    EventBookFinished(EventBookFinished<'a>),
+    /// A `EventBookMoved` record.
+    EventBookMoved(EventBookMoved<'a>),
+    /// A `EventBookRemoved` record.
+    EventBookRemoved(EventBookRemoved<'a>),
+    /// A `EventPluginsChanged` record.
+    EventPluginsChanged(EventPluginsChanged),
+    /// A `EventWifiChanged` record.
+    EventWifiChanged(EventWifiChanged),
+    /// A `EventPowerChanged` record.
+    EventPowerChanged(EventPowerChanged),
+    /// A `EventStatusChanged` record.
+    EventStatusChanged(EventStatusChanged),
 }
 
 impl<'a> Reader<'a> {
@@ -2332,6 +2914,16 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         STAGE_CALL_TAG => StageCall::decode(body)?,
         STAGE_REPLY_TAG => StageReply::decode(body)?,
         SERVICE_ECHO_TAG => ServiceEcho::decode(body)?,
+        EVENT_SETTING_CHANGED_TAG => EventSettingChanged::decode(body)?,
+        EVENT_BOOK_OPENED_TAG => EventBookOpened::decode(body)?,
+        EVENT_BOOK_CLOSED_TAG => EventBookClosed::decode(body)?,
+        EVENT_BOOK_FINISHED_TAG => EventBookFinished::decode(body)?,
+        EVENT_BOOK_MOVED_TAG => EventBookMoved::decode(body)?,
+        EVENT_BOOK_REMOVED_TAG => EventBookRemoved::decode(body)?,
+        EVENT_PLUGINS_CHANGED_TAG => EventPluginsChanged::decode(body)?,
+        EVENT_WIFI_CHANGED_TAG => EventWifiChanged::decode(body)?,
+        EVENT_POWER_CHANGED_TAG => EventPowerChanged::decode(body)?,
+        EVENT_STATUS_CHANGED_TAG => EventStatusChanged::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -2463,6 +3055,16 @@ impl Record<'_> {
             Record::StageCall(_) => STAGE_CALL_TAG,
             Record::StageReply(_) => STAGE_REPLY_TAG,
             Record::ServiceEcho(_) => SERVICE_ECHO_TAG,
+            Record::EventSettingChanged(_) => EVENT_SETTING_CHANGED_TAG,
+            Record::EventBookOpened(_) => EVENT_BOOK_OPENED_TAG,
+            Record::EventBookClosed(_) => EVENT_BOOK_CLOSED_TAG,
+            Record::EventBookFinished(_) => EVENT_BOOK_FINISHED_TAG,
+            Record::EventBookMoved(_) => EVENT_BOOK_MOVED_TAG,
+            Record::EventBookRemoved(_) => EVENT_BOOK_REMOVED_TAG,
+            Record::EventPluginsChanged(_) => EVENT_PLUGINS_CHANGED_TAG,
+            Record::EventWifiChanged(_) => EVENT_WIFI_CHANGED_TAG,
+            Record::EventPowerChanged(_) => EVENT_POWER_CHANGED_TAG,
+            Record::EventStatusChanged(_) => EVENT_STATUS_CHANGED_TAG,
         }
     }
 
@@ -2510,6 +3112,16 @@ impl Record<'_> {
             Record::StageCall(record) => record.body_len(),
             Record::StageReply(record) => record.body_len(),
             Record::ServiceEcho(record) => record.body_len(),
+            Record::EventSettingChanged(record) => record.body_len(),
+            Record::EventBookOpened(record) => record.body_len(),
+            Record::EventBookClosed(record) => record.body_len(),
+            Record::EventBookFinished(record) => record.body_len(),
+            Record::EventBookMoved(record) => record.body_len(),
+            Record::EventBookRemoved(record) => record.body_len(),
+            Record::EventPluginsChanged(record) => record.body_len(),
+            Record::EventWifiChanged(record) => record.body_len(),
+            Record::EventPowerChanged(record) => record.body_len(),
+            Record::EventStatusChanged(record) => record.body_len(),
         }
     }
 
@@ -2562,12 +3174,25 @@ impl Record<'_> {
             Record::StageCall(record) => record.write(out, offset),
             Record::StageReply(record) => record.write(out, offset),
             Record::ServiceEcho(record) => record.write(out, offset),
+            Record::EventSettingChanged(record) => record.write(out, offset),
+            Record::EventBookOpened(record) => record.write(out, offset),
+            Record::EventBookClosed(record) => record.write(out, offset),
+            Record::EventBookFinished(record) => record.write(out, offset),
+            Record::EventBookMoved(record) => record.write(out, offset),
+            Record::EventBookRemoved(record) => record.write(out, offset),
+            Record::EventPluginsChanged(record) => record.write(out, offset),
+            Record::EventWifiChanged(record) => record.write(out, offset),
+            Record::EventPowerChanged(record) => record.write(out, offset),
+            Record::EventStatusChanged(record) => record.write(out, offset),
         }
     }
 
     fn bits(&self) -> u8 {
         match self {
             Record::EventPageTurned(record) => record.bits(),
+            Record::EventBookOpened(record) => record.bits(),
+            Record::EventBookClosed(record) => record.bits(),
+            Record::EventBookFinished(record) => record.bits(),
             _ => 0,
         }
     }

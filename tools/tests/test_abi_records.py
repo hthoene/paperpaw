@@ -234,7 +234,12 @@ class RecordsTests(unittest.TestCase):
                           ('menu.section', 16), ('menu.hide', 17), ('menu.describe', 18),
                           ('command.set_item_state', 60), ('stage.spec', 19),
                           ('registration.stage', 20), ('stage.call', 512), ('stage.reply', 513),
-                          ('service.echo', 1024)])
+                          ('service.echo', 1024),
+                          ('event.setting_changed', 64), ('event.book_opened', 65),
+                          ('event.book_closed', 66), ('event.book_finished', 67),
+                          ('event.book_moved', 68), ('event.book_removed', 69),
+                          ('event.plugins_changed', 70), ('event.wifi_changed', 71),
+                          ('event.power_changed', 72), ('event.status_changed', 73)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

@@ -345,7 +345,7 @@ fn framing_count_tag_and_byte_limits_are_enforced() {
     assert_eq!(records_decode(&nine).map(|_| ()), Err(ERR_NO_SPACE));
     assert!(records_decode(&batch(&vec![draw.clone(); REGISTRATION_MAX_RECORDS])).is_ok());
     assert_eq!(
-        records_decode(&batch(&[record(64, &[])])).map(|_| ()),
+        records_decode(&batch(&[record(74, &[])])).map(|_| ()),
         Err(ERR_UNSUPPORTED)
     );
     assert_eq!(
@@ -1241,7 +1241,7 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
             )]),
             ERR_UNSUPPORTED,
         ),
-        (batch(&[record(64, &[])]), ERR_UNSUPPORTED),
+        (batch(&[record(74, &[])]), ERR_UNSUPPORTED),
         (vec![], ERR_INVALID),
         (vec![1], ERR_INVALID),
         (vec![0; REGISTRATION_MAX_BYTES + 1], ERR_NO_SPACE),
