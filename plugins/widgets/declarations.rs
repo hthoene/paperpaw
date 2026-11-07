@@ -165,6 +165,57 @@ const TILES_OPTIONS: &[Opt] = &[
     Opt::DateFormat("widgets.date-format.weekday"),
 ];
 
+/// The values of the week start setting.
+pub const WEEK_STARTS: &[&str] = &[
+    "widgets.week-start.auto",
+    "widgets.week-start.monday",
+    "widgets.week-start.sunday",
+];
+
+const CALENDAR_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.center"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Choice(
+        "week-start",
+        "widgets.setting.week-start",
+        WEEK_STARTS,
+        "widgets.week-start.auto",
+        "widgets.calendar.week-start.help",
+    ),
+    Opt::Choice(
+        "mark",
+        "widgets.setting.today-mark",
+        &[
+            "widgets.mark.circle",
+            "widgets.mark.square",
+            "widgets.mark.ring",
+            "widgets.mark.underline",
+        ],
+        "widgets.mark.circle",
+        "widgets.calendar.mark.help",
+    ),
+    Opt::Choice(
+        "initials",
+        "widgets.setting.initials",
+        &["widgets.initials.one", "widgets.initials.two"],
+        "widgets.initials.one",
+        "widgets.calendar.initials.help",
+    ),
+    Opt::Part("heading", "widgets.setting.month-name", true),
+    Opt::Part("year", "widgets.setting.year", false),
+    Opt::Part("weekdays", "widgets.setting.weekdays", true),
+    Opt::Part("weeks", "widgets.setting.week-numbers", false),
+    Opt::Part("others", "widgets.setting.other-days", false),
+    Opt::Part("weekends", "widgets.setting.weekends-faint", false),
+    Opt::Part("next", "widgets.setting.next-month", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -180,6 +231,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: TILES_OPTIONS,
+    },
+    Def {
+        name: "calendar",
+        token: 102,
+        category: category::TIME,
+        live: true,
+        options: CALENDAR_OPTIONS,
     },
 ];
 

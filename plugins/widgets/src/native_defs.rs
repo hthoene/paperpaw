@@ -28,7 +28,13 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         draw: crate::native_tiles::draw,
         shows: crate::native_tiles::shows,
     };
+    static CALENDAR: Behaviour = Behaviour {
+        height: crate::native_calendar::height,
+        draw: crate::native_calendar::draw,
+        shows: crate::native_calendar::shows,
+    };
     match token {
+        102 => Some(&CALENDAR),
         100 => Some(&DAY),
         101 => Some(&TILES),
         _ => None,

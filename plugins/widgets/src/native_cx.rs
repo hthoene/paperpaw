@@ -153,6 +153,23 @@ impl<'a> Cx<'a> {
         )
     }
 
+    /// The first day of the week, 0 (Sunday) or 1 (Monday), as set for the
+    /// device, or as the language's habit says.
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    pub fn week_start(&mut self) -> Result<u8, Error> {
+        let set = text_of(self.host, "core.week-start", |value| match value {
+            "core.week.sunday" => Some(0),
+            "core.week.monday" => Some(1),
+            _ => None,
+        })?;
+        match set {
+            Some(day) => Ok(day),
+            None => Ok(u8::from(self.tr("core.week-start-day")? != "0")),
+        }
+    }
+
     /// `value` written in the language's digits.
     ///
     /// # Errors
