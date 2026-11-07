@@ -34,7 +34,7 @@ pub struct ServiceOp {
     pub bound: ServiceBound,
     /// Most records one input batch holds (a counted batch, never cut).
     pub input_rows: u16,
-    /// Whether it is a list op that pages by `service.reg_query` cursor.
+    /// Whether it is a list op that pages by a cursor in its input record.
     pub paged: bool,
     /// Most rows before the reply's `service.end`: the schema's page rows for
     /// a paged op, its own for an unpaged list op, 0 for an op that is no list.
