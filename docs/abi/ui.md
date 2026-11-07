@@ -236,7 +236,9 @@ asker learns its request id at once and long texts move in pages, never cut.
   **Secret texts never touch the card**: a `secret` question's text stays in memory, at most
   8,192 bytes on every device, the 2,000 characters a password field takes in interface 6 in any
   script (`keyboard/src/lib.rs:116`; the lock hashes the whole code, so nothing is ever cut),
-  allocated part by part as written (`ERR_NO_MEMORY` if the heap cannot, `ERR_NO_SPACE` beyond
+  allocated part by part as written, each part its own block, never one buffer grown by
+  realloc (no doubled peak, no 8 KiB block on a fragmented heap), and zeroed before it is freed
+  (`ERR_NO_MEMORY` if the heap cannot, `ERR_NO_SPACE` beyond
   the cap); a real password costs its own length. **Live typing on the X4**: a `typing` answer
   (outcome 2) is accepted only while the text is in memory (at most 512 bytes, a secret text up
   to its cap), so typing never rewrites the card per key. A longer one is `ERR_NO_SPACE` to the
