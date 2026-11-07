@@ -504,3 +504,41 @@ fn real_callback_stamps_use_registered_owner_and_distinct_live_epochs() {
     assert!(stamps.windows(2).all(|pair| pair[0].1 < pair[1].1));
     assert_eq!(kernel.shared.native_instances.depth(), 0);
 }
+
+#[test]
+fn repeated_failed_admissions_reclaim_rows_and_recover_in_the_same_kernel() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    let mut capacity = None;
+    let mut recovered = false;
+    for allocation in 1..64 {
+        INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        let result = install(&mut kernel, 0);
+        arm_failure(0);
+        INSTALL_FAIL_NTH.with(|value| value.set(0));
+        let (rows, reserved) = kernel.shared.native_instances.retained_rows();
+        if result.is_ok() {
+            assert_eq!(rows, 1);
+            let key = kernel.shared.native_instances.find("factory").unwrap();
+            assert!(key > 1, "multiple failed admissions consumed unique keys");
+            open(&mut kernel, Params::new());
+            assert_eq!(kernel.stack.len(), 1);
+            recovered = true;
+            break;
+        }
+        assert_eq!(rows, 0, "failed admission must release its row");
+        if reserved != 0 {
+            assert_eq!(*capacity.get_or_insert(reserved), reserved);
+        }
+        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        assert_eq!(DESTROYED.with(Cell::get), allocation);
+    }
+    assert!(
+        recovered,
+        "a later retry must install and open successfully"
+    );
+}
