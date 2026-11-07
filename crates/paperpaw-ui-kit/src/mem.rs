@@ -148,7 +148,7 @@ mod tests {
         let mut items: alloc::vec::Vec<(u8, u8)> =
             [(2, 0), (1, 1), (2, 2), (1, 3), (0, 4), (2, 5)].into();
         let mut expected = items.clone();
-        expected.sort_by(|a, b| a.0.cmp(&b.0));
+        expected.sort_by_key(|a| a.0);
         stable_sort_by(&mut items, |a, b| a.0.cmp(&b.0));
         assert_eq!(items, expected);
     }

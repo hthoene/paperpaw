@@ -184,7 +184,7 @@ fn each(inputs: &[String], prefix: &str, names: &[&str]) -> Result<Vec<String>, 
     let mut found = Vec::new();
     for name in names {
         let input = concat(&[prefix, ".", name])?;
-        if inputs.iter().any(|i| *i == input) {
+        if inputs.contains(&input) {
             push(&mut found, input)?;
         }
     }
