@@ -100,13 +100,13 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 | 19 | `edit_text` | `lib_edit_text` | (none) | mutate (staged): a long text or note in parts |
 | 20 | `edit_commit` | `lib_transaction_ref` | `lib_committed` | mutate, compare-and-swap |
 | 21 | `edit_abort` | `lib_transaction_ref` | (none) | mutate |
-| 22 | `fields` | `lib_ref` | `lib_field`*, `end` | query |
+| 22 | `fields` | `lib_ref`, `lib_field_page` | `lib_field`*, `end` | query, paged |
 | 23 | `set_field` | `lib_field_set` | (none) | mutate, own fields only |
 | 24 | `provide` | `lib_provided` | (none) | mutate (section 5) |
 | 25 | `book_key` | `lib_ref` | `lib_key` | query (section 6) |
 | 26 | `edit_receipt` | `lib_receipt_ask` | `lib_receipt`*, `end` | query: a committed transaction's ids, paged |
 
-Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
+Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -141,9 +141,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 | 1122 | `service.lib_key` | `key: str 16`, `fingerprint: str 32`, `size: u64` |
 | 1123 | `service.lib_receipt_ask` | `transaction: u32`, `cursor: u32` |
 | 1124 | `service.lib_receipt` | `edit: u32`, `id: u32`, `action: u32` |
+| 1182 | `service.lib_field_page` | `cursor: u32`, `generation: u32` (draft 21; after SOCK's 1181) |
 
 - [D] **Wire shapes** (records round): an op that names a book takes `lib_ref` as its **first
-  record**, followed by the op's own record (ops 4, 7, 8, 14-17, 23, 24; ops 3, 6, 13, 22, 25 take
+  record**, followed by the op's own record (ops 4, 7, 8, 14-17, 22-24; ops 3, 6, 13, 25 take
   `lib_ref` alone), so no record repeats the reference. The schema carries each op's record count
   (`input_rows`): 2 for the ops that take `lib_ref` and one record, 3 for `set_position`, 4 for
   `edit_add` (the transaction and at most 3 edits); more is `ERR_NO_SPACE` before the service runs.
@@ -343,7 +344,14 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   `books/<name>/<key>/`. On a move the host renames them (journalled, section 6), on a delete or an
   uninstall it removes them (an uninstall asks first about the whole Data folder, decision 124).
 - [D] **Fields** (`lib_field`: `id`, `title` translated, `value: str 1024`): op 22 lists a book's
-  fields of every plugin; `set_field` (`lib_field_set`: `lib_ref`, `field` one of the caller's own,
+  fields of every plugin, paged (a book holds up to 64 fields, and only about 3 rows at their caps
+  fit a reply): input `lib_ref` and `lib_field_page` (`cursor` the index of the page's first row,
+  0 to start, then `service.end.next`; `generation` 0 to start, then the `service.end.generation`
+  of the first page). Rows are ordered by owning plugin id, then field name. `end.generation` is
+  the book's field generation, which every `set_field` on the book and every move of its data
+  advances; a later page asked with another generation answers `ERR_STATE` (start again at 0), as
+  annotations do. A page holds as many whole rows as fit in 4,096 bytes; `flags` bit 0 `last` on
+  the last page. `set_field` (`lib_field_set`: `lib_ref`, `field` one of the caller's own,
   `value`, empty removes) changes the caller's only (`ERR_DENIED` for another's). In-catalog fields
   over 64 bytes `ERR_NO_SPACE`.
 - [D] **Fields live on the card.** Every field value, in-catalog ones too, is stored with the
@@ -445,6 +453,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 | `edit_text` input | 1 + 1 + 4×5 + 3,074 + 5 = 3,101 | 4,096 |
 | `lib_committed` | 1 + 4×4 + 5 = 22 | 4,096 |
 | `lib_receipt` page | row 1 + 4×3 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
+| `lib_field` page | row 1,291 framed at its caps (test `abi7_lib_fields`); 3 rows + `end` = 3,892 | 4,096 |
 | `lib_paths` (16 paths) | 16 × 514 = 8,224 | over: at most 7 paths (3,605) |
 | `lib_position` | 1 + 4×4 + 8×2 + 1,026 + 4 + 5 = 1,068 | 4,096 |
 | `badge.value` × 16 | 16 × (1 + 4 + 18 + 66 + 5) = 1,504 | 3,840 |

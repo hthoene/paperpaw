@@ -91,6 +91,30 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   compare the params, and reopening screens after a restart (#275) opens them with the same params
   (not the text). On the X4 the params of all instances share 1,536 bytes (section 8.1, op 16
   `ERR_FULL` beyond) and texts are in the host text pool (section 8.2).
+- [D] **The host's hand-over seam** (for the host implementers; no plugin sees it). One store owns
+  every hand-over (H2: ops 16 and 17 and hand-over texts); the screen stack (H1) only consumes it,
+  through these calls and no copy of its own:
+  1. `make(maker, staged params)` at op 16 → id from the shared request/hand-over counter, state
+     **made**; params staged and published only after the batch walk returned `OK` (section 6),
+     allocated fallibly (`ERR_NO_MEMORY`, X4 cap `ERR_FULL`); the text, if any, follows with op 9
+     on the same id.
+  2. `check(maker, id)` when `command.open` is submitted: the id exists, was made by the submitting
+     plugin in this callback, is not named by another open of the batch and its text is committed
+     (else the submit status of section 1.3); it marks the id **named** in that batch. Nothing
+     moves yet.
+  3. `claim(id, instance)` when the batch applies the open: **named** → **owned** by that instance,
+     atomically and at most once (a second claim of the id is refused and logged; a host bug, never
+     a plugin's). Claiming allocates nothing: the store keeps the entry it made at op 16.
+  4. `release_callback(epoch)` when the maker's callback returns, after its batch applied or was
+     dropped: every hand-over still **made** or **named** in that callback is freed (a refused or
+     dropped batch, screens-input section 2.1, so frees all it named); `release_instance(instance)`
+     when the instance closes or a reopen (modes 1, 3, instance policy) gives it a new one, which is
+     claimed first, then the old one freed.
+  5. `params(instance)` (op 17) and the text (op 10) answer only the owning instance; a restart
+     reopen (#275) makes a new **owned** entry from the kept params, without the text.
+
+  Every call is fallible where it allocates and leaves the store unchanged on refusal, so the stack
+  never holds a hand-over the store does not and no hand-over outlives its owner.
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 

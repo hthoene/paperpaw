@@ -292,6 +292,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceLibKey(_)
         | Record::ServiceLibReceiptAsk(_)
         | Record::ServiceLibReceipt(_)
+        | Record::ServiceLibFieldPage(_)
         | Record::ServiceDevDevice(_)
         | Record::ServiceDevValue(_)
         | Record::ServiceDevFirmware(_)
