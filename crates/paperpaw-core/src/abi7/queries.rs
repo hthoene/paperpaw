@@ -4,7 +4,7 @@
 //! and its catalog borrow remain live. Authorization compares borrowed canonical
 //! identity spans without allocating. Settings value resolution may allocate.
 
-use super::settings_visibility::{Visibility, visibility_for};
+use super::settings_visibility::{Visibility, visibility, visibility_for};
 use super::{
     context::FrameSlot,
     settings_wire::{SettingValueRef, settings_encode},
@@ -79,7 +79,12 @@ fn read_for(
         .specs()
         .find(|spec| identity.matches(spec.id.as_str()))
         .is_some_and(|spec| spec.extra().secret);
-    match visibility_for(caller, grant, secret, frame.settings_editor()) {
+    let visible = if identity.head.len() == key.len() {
+        visibility(caller, key, secret, frame.settings_editor())
+    } else {
+        visibility_for(caller, grant, secret, frame.settings_editor())
+    };
+    match visible {
         Visibility::Hidden => ERR_DENIED,
         Visibility::Redacted if key.split(['.', '@']).next() != Some(caller.as_str()) => ERR_DENIED,
         Visibility::Redacted | Visibility::Readable => copy_value(frame, key, out),
