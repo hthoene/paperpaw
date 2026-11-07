@@ -71,7 +71,15 @@ record.
   network the user turned off gets `ERR_DENIED` too and `event.work_refused` later if the user turns
   it off while the work waits (3.2).
 - [D] **Limits:** at most 8 works per plugin on devices of the small memory class (the X4), 32 on
-  others (`ERR_FULL`; interface 6 refused with `TooOften`). Replacing a key never counts twice.
+  others, and at most 32 on the X4 device-wide (256 on others), so the table stays bounded however
+  many plugins run (`ERR_FULL`; interface 6 refused with `TooOften`). Replacing a key never counts
+  twice.
+- [D] **Declared while work is delivered:** a work declared or replaced during a main-loop pass
+  that delivers due work (in a `work_due` callback or any other callback of that pass) is due at
+  the next pass at the earliest, never in the same one; a key declared again from its own run is
+  due no sooner than 1 s after the declaration, whatever its times say. So a callback that
+  declares with nothing set, or with an `at_ms` in the past, cannot loop inside one pass or keep
+  the main loop from napping.
 
 ### 1.2 `cancel` and `state`
 
@@ -101,7 +109,8 @@ record.
   one ran.
 - [D] **Joined:** all work that comes due in one main-loop pass is delivered in that pass, in due
   order; network work whose `after_ms` passed is delivered together with a network work whose
-  deadline or moment came, so they share one connection.
+  deadline or moment came, so they share one connection. Work declared during the pass waits for
+  the next one (1.1).
 
 ### 2.2 Power and the network
 
@@ -113,8 +122,10 @@ record.
   plugin's own saving setting held to manual holds its network work as offline does (`reason` 12).
 - [D] **A deadline may wake the radio, rarely:** a non-optional network work whose deadline came
   while no network is up makes the host ask the network manager (`event.network_wanted`), **at most
-  once per 15 minutes per plugin** (ADR 0025's `core.work.min-gap`, never implemented in interface
-  6); inside that gap it waits for the `online` moment. Optional work never asks.
+  once per 15 minutes on the device**, whichever plugin's work asks (ADR 0025's
+  `core.work.min-gap`, never implemented in interface 6); inside that gap it waits for the `online`
+  moment, and every plugin's network work rides along when the network comes up. Optional work
+  never asks.
 - [D] **Held by a screen:** while a real-time screen holds the device (ADR 0030), no work comes
   due and nothing wakes for it; it runs once the hold ends.
 
@@ -125,8 +136,16 @@ record.
   input, `network.md` 3.2) and keep the radio on until they end. The run ends when its callback has
   returned and its last request and socket have ended; its sockets must have an idle time
   (`sockets.md` 2.1). A work with `every_ms` is due again only after its run ended.
-- [D] **Background work is quiet:** inside a run, UI calls that would ask the user (`ui.md`
-  dialogs, confirmations) answer `ERR_STATE`; the plugin's notices go to its work note.
+- [D] **A run lasts at most 10 minutes** (`RUN_MAX_MS` 600,000, from its `work_due`): then the host
+  ends what still belongs to it, its requests with reason 14 `work_ended` (`network.md` 4.1) and
+  its sockets with reason 27 `work_ended` (`sockets.md` section 4), and the run is over; nothing
+  keeps the radio on for a background run longer. In power saving the time is not stretched. A
+  longer job splits itself across runs (a feed or an article per run, kept in its data folder).
+- [D] **Background work is quiet:** in the callbacks that belong to a run (its `work_due` and the
+  events of that run's requests and sockets), UI calls that would ask the user (`ui.md` dialogs,
+  confirmations) answer `ERR_STATE` and the plugin's notices go to its work note. The plugin's
+  other callbacks (its screen's input, a user-started request) may ask as always, while the run
+  goes on.
 - [D] A plugin that stops loses its work (no events: it is not running); due work never starts a
   stopped plugin (`core-events.md` 3.3 lazy start: events do not start plugins).
 
@@ -171,14 +190,15 @@ record.
 | Bad `key`, rules of 1.1 | `ERR_INVALID` |
 | An unknown `needs` bit, `moments` bit or `flags` bit | `ERR_UNSUPPORTED` |
 | `network` without `uses.network`, or the user turned the plugin's network off | `ERR_DENIED` |
-| More than 8 (X4) or 32 works | `ERR_FULL` |
-| Called outside a callback; a UI question inside a run | `ERR_STATE` |
+| More than 8 (X4) or 32 works per plugin, or the device's 32 (X4) or 256 | `ERR_FULL` |
+| Called outside a callback; a UI question in a run's callback | `ERR_STATE` |
+| No memory for a new work entry (1.1, section 5) | `ERR_NO_MEMORY` |
 
 ## 5. Memory
 
 - Host: one entry per work (key up to 64 bytes, times, token, bits: about 100 bytes), at most 8
-  per plugin on the X4, held in a fixed table per plugin or allocated fallibly at `declare`
-  (`ERR_NO_MEMORY`); nothing per run beyond NET's and SOCK's own tables.
+  per plugin and 32 device-wide on the X4 (about 3.2 KiB), held in a fixed table or allocated
+  fallibly at `declare` (`ERR_NO_MEMORY`); nothing per run beyond NET's and SOCK's own tables.
 - Plugin: nothing; `state` is one 4 KiB reply.
 
 ## 6. Interface-6 calls and their interface-7 form
@@ -210,18 +230,21 @@ record.
 
 - No first-party plugin needs to wake a sleeping device, work that survives a restart in the host,
   the `bluetooth` or `charging` needs, or host-run jobs.
-- [Q1] (Plugin) **rules** computes its minute timers from wall time and sets them again when the
-  clock becomes known or changes. With `at_ms` on the monotonic clock that stays the plugin's work
-  (`now_ms` and `unix_seconds` of the same snapshot give the offset). Is that fine, or does rules
-  want a wall-clock `at` the host converts?
+- [D] (Plugin, Q1 answered) **rules** keeps converting its local minute times to monotonic `at_ms`
+  and sets them again at start, resume and clock or status changes (`rules/src/lib.rs`), as
+  today: no wall-clock `at` in the host. The port keeps the time zone and daylight-saving handling
+  and the unknown-clock case, and keeps the scheduled minute with the work's token.
 
 ## 8. Hand-offs (after approval)
 
 - **Core:** the `core.work` host in `paperpaw-core` over interface 6's `work::Queue` (minus jobs):
   the table and limits, the rules of 1.1, moments from the host's own state (resume, network up,
-  charging), deadlines and stretch, offline and saving holds, the 15-minute deadline gap,
-  `network_wanted`, runs and their end, events 103-105 from the table, `state`; tests for each
-  rule and status. The kernel's own catalog and clean-up jobs stay host-internal.
+  charging), deadlines and stretch, offline and saving holds, the device-wide 15-minute deadline
+  gap, `network_wanted`, runs and their end, the 10-minute run limit ending the run's requests and
+  sockets with `work_ended`, quiet scoped to the run's own callbacks, work declared during a pass
+  due at the next one (1 s for a key from its own run), the device-wide cap, events 103-105 from
+  the table, `state`; tests for each rule and status, one for a callback that declares itself
+  again at once (no loop in one pass) and one for a dialog from the screen during a run. The kernel's own catalog and clean-up jobs stay host-internal.
 - **Firmware:** the X4 main loop's naps already wake for the host's earliest time
   (`effects.wake_at`); nothing new while asleep.
 - **Services:** `native::work` (a builder like interface 6's `Work`, `retry` backoff, `state`
