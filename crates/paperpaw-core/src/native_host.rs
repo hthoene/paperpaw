@@ -110,6 +110,13 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[allow(
+    dead_code,
+    reason = "production native activation and stage broker follow this registry"
+)]
+#[path = "native_host/native_instances.rs"]
+pub(crate) mod native_instances;
+
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
 #[allow(
     dead_code,

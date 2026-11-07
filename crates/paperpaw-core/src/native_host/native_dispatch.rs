@@ -108,3 +108,14 @@ fn status(error: shell::Error) -> i32 {
         _ => host_glue::ERR_INVALID,
     }
 }
+
+impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
+    for NativeDispatch<S, M>
+{
+    fn active(&self) -> bool {
+        self.instance.host().owner().is_active()
+    }
+    fn stop(&self) {
+        self.instance.host().stop();
+    }
+}
