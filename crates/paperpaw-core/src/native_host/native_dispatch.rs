@@ -88,7 +88,16 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
-        self.invoke(token, env, shell::TokenInvocation::Stage(bytes, out))
+        let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        shell::dispatch_stage(
+            batch,
+            token,
+            self.depth.as_depth(),
+            &self.frame(env),
+            bytes,
+            out,
+        )
+        .map_err(status)
     }
     fn dropped(&self, token: u32, status: i32) {
         (self.report)(
