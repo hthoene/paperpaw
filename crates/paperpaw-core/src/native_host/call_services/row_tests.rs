@@ -298,3 +298,128 @@ fn list_reply_rejects_rows_or_trailing_bytes_after_end() {
     after_end.extend_from_slice(&row[..len]);
     assert_eq!(validate_reply(&after_end, op), Err(ERR_INVALID));
 }
+
+fn schema_limit(schema: &'static str, id: u32, expected: usize, mut records: Vec<Record<'_>>) {
+    let op = services_wire::service_schema(schema, 1)
+        .unwrap()
+        .op(id)
+        .unwrap();
+    assert_eq!(usize::from(op.input_rows), expected);
+    assert_eq!(records.len(), expected);
+    let mut out = std::vec![0; op.max_input];
+    for extra in [false, true] {
+        if extra {
+            records.push(*records.last().unwrap());
+        }
+        let len =
+            registrations::records_encode_counted(&records, expected + 1, op.max_input, &mut out)
+                .unwrap();
+        // LIB remains feature-gated. Exercise the generic input validator with
+        // the real generated schema, without pretending to grant that feature.
+        assert_eq!(
+            validate_batch(&out[..len], op.input, usize::from(op.input_rows)),
+            if extra { Err(ERR_NO_SPACE) } else { Ok(()) }
+        );
+    }
+}
+
+#[test]
+fn document_open_accepts_13_records_and_refuses_14() {
+    let mut records = std::vec![Record::ServiceDocOpen(registrations::ServiceDocOpen {
+        root: 1,
+        path: "book.epub",
+        format: "epub",
+        flags: 0,
+        image_side: 0,
+        cover_side: 0,
+        css_root: 0,
+        css_path: "",
+    })];
+    for _ in 0..12 {
+        records.push(Record::ServiceDocOption(registrations::ServiceDocOption {
+            key: "option",
+            value: "value",
+        }));
+    }
+    schema_limit("core.document", 1, 13, records);
+}
+
+fn library_ref() -> Record<'static> {
+    Record::ServiceLibRef(registrations::ServiceLibRef {
+        path: "book.epub",
+        generation: 0,
+        key: None,
+    })
+}
+
+#[test]
+fn library_generated_2_and_3_record_limits_refuse_one_more() {
+    schema_limit(
+        "core.library",
+        4,
+        2,
+        std::vec![
+            library_ref(),
+            Record::ServiceLibTextAt(registrations::ServiceLibTextAt {
+                kind: 0,
+                index: 0,
+                offset: 0
+            })
+        ],
+    );
+    schema_limit(
+        "core.library",
+        14,
+        3,
+        std::vec![
+            library_ref(),
+            Record::ServiceLibPosition(registrations::ServiceLibPosition {
+                section: 0,
+                offset: 0,
+                insert: 0,
+                progress_ppm: 0,
+                conversion: 0,
+                updated: 0,
+                xpointer: "",
+                flags: 0,
+            }),
+            Record::ServiceLibPositionSet(registrations::ServiceLibPositionSet { flags: 0 })
+        ],
+    );
+}
+
+#[test]
+fn library_edit_add_accepts_4_records_and_refuses_5() {
+    let edit = Record::ServiceLibEdit(registrations::ServiceLibEdit {
+        action: 0,
+        id: 0,
+        kind: 0,
+        start_section: 0,
+        start_offset: 0,
+        end_section: 0,
+        end_offset: 0,
+        flags: 0,
+        percent: 0,
+        conversion: 0,
+        created: 0,
+        updated: 0,
+        client_key: "edit",
+        text: "",
+        note: "",
+        text_bytes: 0,
+        note_bytes: 0,
+    });
+    schema_limit(
+        "core.library",
+        18,
+        4,
+        std::vec![
+            Record::ServiceLibTransactionRef(registrations::ServiceLibTransactionRef {
+                transaction: 1
+            }),
+            edit,
+            edit,
+            edit
+        ],
+    );
+}
