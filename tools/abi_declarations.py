@@ -521,8 +521,11 @@ def declaration_source(declared, statuses):
                         .rstrip('\n')))
     source += TYPED_TEMPLATE
     if any(r['name'].startswith('service.') for r in declared):
-        source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
-                                        if has_optional else 'write_varint(0, out, &mut offset);')
+        source += (BARE_TEMPLATE
+                   .replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
+                            if has_optional else 'write_varint(0, out, &mut offset);')
+                   .replace('@SELF_BITMAP@', 'self.write_bitmap(out, offset);'
+                            if has_optional else 'write_varint(0, out, offset);'))
     for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),
                          ('@NO_SPACE@', 'ERR_NO_SPACE'), ('@UTF8@', 'ERR_UTF8')]:
         source = source.replace(marker, str(statuses[name]))
@@ -1048,7 +1051,7 @@ impl WireEncode for Record<'_> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        self.write_bitmap(out, offset);
+        @SELF_BITMAP@
         self.write(out, offset);
     }
 }
