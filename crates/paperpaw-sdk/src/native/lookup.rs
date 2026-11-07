@@ -3,9 +3,10 @@
 //! **A provider** declares itself with `Declarations::lookup_provider` and is
 //! called as a subscriber of the stage `core.lookup`: the call's payload is one
 //! [`Ask`], the reply one entry written with [`answer`]. A provider answers at
-//! once. Answering later (a network provider) needs the asynchronous stage
-//! reply and Kernel's request-id model, which do not exist yet: there is no
-//! way to answer "pending" from here, and no provider should fetch on this path.
+//! once: this facade is synchronous only. A provider that must fetch (a network
+//! provider) is answered `ERR_UNSUPPORTED` by the host until the request id,
+//! the answer operation and the completion event exist (a later draft, not part
+//! of this API); there is no way to answer "pending" from here.
 //!
 //! **The asker** (the dictionary screen, the reader's selection menu) opens
 //! [`Lookup`] and asks for one provider page at a time with [`Lookup::ask`],
@@ -221,8 +222,10 @@ impl<'a> ProviderEntry<'a> {
         self.0.flags & MORE != 0
     }
 
-    /// The provider set the reserved "answers later" bit. Nothing sets it yet
-    /// (the asynchronous path is not there): do not rely on it.
+    /// The reserved "pending" bit of the entry, which denotes a provider that
+    /// must fetch (a network provider). Such a provider is answered
+    /// `ERR_UNSUPPORTED` today and nothing sets the bit: there is no "ask again"
+    /// flow yet, so do not rely on it.
     #[must_use]
     pub const fn pending(&self) -> bool {
         self.0.flags & PENDING != 0
