@@ -986,6 +986,30 @@ fn a_bounded_table_still_ends_at_the_first_word_that_is_no_label() {
 }
 
 #[test]
+fn a_bound_longer_than_the_table_does_not_read_past_where_the_labels_end() {
+    // The bound allows two entries; the table has one, then the next table's
+    // word, which is the first of a case outside this function, then more
+    // words that point into it: the table ends at the first non-label word
+    // (the assumption of the scan), so the later labels are not cases.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(
+        with_table(&f, &[words[0], TEXT + 4096, words[2]], &[0, 4, 8]),
+        None
+    );
+    // A word that is not relocated ends it too: only the first entry is read.
+    assert_eq!(with_table(&f, &[words[0], words[2]], &[0]), None);
+    // And a table cut short by the end of `.rodata` is the words there are.
+    assert_eq!(with_table(&f, &[words[0]], &[0]), None);
+    // The same bound over a table that has all its words reaches the case
+    // behind the second word.
+    let big = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o)).0;
+    assert!(matches!(
+        with_table(&big, &[words[2], words[2]], &[0, 4]),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+}
+
+#[test]
 fn the_compressed_forms_of_the_table_jump_are_followed_too() {
     // c.slli a0, 2; c.add a0, a1; c.lw a0, 0(a0); c.jr a0
     let c_slli = |rd: u32, shamt: u32| ((rd << 7) | (shamt << 2) | 0b10) as u16;

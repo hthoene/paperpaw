@@ -31,9 +31,13 @@
 //!   index (`bltu`/`bgeu` against a constant, on every path to the jump) is
 //!   seen, the table is that many words and no more (tables lie one after the
 //!   other in `.rodata`; the run of labels would read the next one as this
-//!   one's cases, with registers that do not hold there); the run still ends
-//!   it earlier where it does. With no bound seen, the table's length is the
-//!   run. A table the scan cannot
+//!   one's cases, with registers that do not hold there). The scan assumes a
+//!   table ends at its first word that is no label of this function (the
+//!   compiler's table entries point into their own function, so a word that
+//!   points elsewhere, is not relocated, or lies past `.rodata` is the start
+//!   of other data): the run ends the table earlier than a bound that is
+//!   longer than it. With no bound seen, the table's length is the run. A
+//!   table the scan cannot
 //!   read (no entry, a word not relocated, an entry into the middle of an
 //!   instruction) is a jump through a register as below;
 //! - with the frame given back (`sp` at the function's start): a tail call
