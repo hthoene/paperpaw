@@ -8,11 +8,13 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+mod device;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]
 mod menu_alloc_tests;
 mod registry;
 mod uix;
+pub use device::PowerAction;
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };
