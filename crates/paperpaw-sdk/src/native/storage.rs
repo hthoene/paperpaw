@@ -1,6 +1,7 @@
 //! Path-based storage with caller-owned buffers. Root 0 is the plugin's data
 //! folder. Root 1 reads the user's files only with signed `uses.storage` metadata;
-//! the host enforces permissions. Root selection is passed through unchanged.
+//! the host enforces permissions. Roots 2-4 are document-scoped and valid only
+//! during the relevant format callback. Root selection is passed through unchanged.
 //! FAT paths ignore case. An append is durable only after [`sync`]; a failed
 //! append may leave a partial tail, which the plugin's record format must handle.
 use super::{Error, Host, binding::status};
@@ -15,12 +16,26 @@ pub enum Root {
     Data,
     /// User files on the card (wire root 1).
     Files,
+    /// The current format document's conversion cache (wire root 2).
+    /// Valid only during its format callback; the host reserves `.complete`
+    /// and `.host/` and enforces the cache quota.
+    DocumentCache,
+    /// The current format document's book (wire root 3), read only.
+    /// An empty path names the book file. Folder and siblings formats may
+    /// read relative paths below this root during their format callback.
+    Book,
+    /// The current format document's user CSS file (wire root 4), read only.
+    /// An empty path names the file; available only during open/prepare.
+    UserCss,
 }
 impl Root {
     const fn wire(self) -> u32 {
         match self {
             Self::Data => 0,
             Self::Files => 1,
+            Self::DocumentCache => 2,
+            Self::Book => 3,
+            Self::UserCss => 4,
         }
     }
 }
@@ -32,11 +47,12 @@ pub const MAX_SEGMENT: usize = 255;
 /// Maximum bytes per read, write or append call.
 pub const MAX_DATA: usize = 4096;
 
-fn path(text: &str) -> Result<PpBytes, Error> {
+fn path(root: Root, text: &str) -> Result<PpBytes, Error> {
     if text.len() > MAX_PATH || text.split('/').any(|s| s.len() > MAX_SEGMENT) {
         return Err(Error::NoSpace);
     }
-    if !paperpaw_platform::storage::is_valid_path(text) {
+    let scoped_file = text.is_empty() && matches!(root, Root::Book | Root::UserCss);
+    if !scoped_file && !paperpaw_platform::storage::is_valid_path(text) {
         return Err(Error::Invalid);
     }
     Ok(bytes(text.as_bytes()))
@@ -59,7 +75,7 @@ fn data(input: &[u8]) -> Result<PpBytes, Error> {
 /// # Errors
 /// Returns path validation errors or the host refusal, including missing files.
 pub fn size(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<u64, Error> {
-    let path = path(name.as_ref())?;
+    let path = path(root, name.as_ref())?;
     let mut out = 0;
     // SAFETY: callback binding and input are live; output is local and disjoint.
     status(unsafe { (host.table.storage_size)(host.ctx, root.wire(), path, &mut out) })?;
@@ -79,7 +95,7 @@ pub fn read_at(
     offset: u64,
     out: &mut [u8],
 ) -> Result<usize, Error> {
-    let path = path(name.as_ref())?;
+    let path = path(root, name.as_ref())?;
     if out.len() > MAX_DATA {
         return Err(Error::NoSpace);
     }
@@ -114,7 +130,7 @@ pub fn write(
     name: impl AsRef<str>,
     input: &[u8],
 ) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    let path = path(root, name.as_ref())?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_write)(host.ctx, root.wire(), path, data) })
@@ -132,7 +148,7 @@ pub fn append(
     name: impl AsRef<str>,
     input: &[u8],
 ) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    let path = path(root, name.as_ref())?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_append)(host.ctx, root.wire(), path, data) })
@@ -148,8 +164,8 @@ pub fn rename(
     from: impl AsRef<str>,
     to: impl AsRef<str>,
 ) -> Result<(), Error> {
-    let from = path(from.as_ref())?;
-    let to = path(to.as_ref())?;
+    let from = path(root, from.as_ref())?;
+    let to = path(root, to.as_ref())?;
     // SAFETY: both paths and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_rename)(host.ctx, root.wire(), from, to) })
 }
@@ -159,7 +175,7 @@ pub fn rename(
 /// # Errors
 /// Returns validation or host errors.
 pub fn remove(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    let path = path(root, name.as_ref())?;
     // SAFETY: the path and callback binding remain live for this call.
     status(unsafe { (host.table.storage_remove)(host.ctx, root.wire(), path) })
 }

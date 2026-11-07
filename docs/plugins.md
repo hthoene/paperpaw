@@ -2635,6 +2635,17 @@ has the steps.
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
 
+### Document-scoped storage
+
+During a permitted format callback, `native::storage::Root::DocumentCache`
+selects root 2, `Book` root 3 and `UserCss` root 4. An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats may read
+relative paths inside root 3. Root 3 is read only; root 4 is read only and
+available during open/prepare only. The host enforces the callback scope,
+cache quota and reserved `.complete`/`.host/` cache paths. The host writes
+`.complete`; a format never writes it. Use the current callback's `Host`
+for storage calls and never retain it across callbacks.
+
 ### Extension stages and call services
 
 Declare an extension point with `native::declare::StageDecl` and subscribe with
