@@ -262,15 +262,15 @@ host passes them on after checking them.
 | 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
 | 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
 
-- [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12,
-  11 → 13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service
-  are the host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 9×4 + 8 + 1,026
-  + 514 + 5 = 1,590, with 12 options 4,014: over the 3,840 payload, so op 2 carries `arg` empty
-  and `text` empty except for a `siblings` format, where it names the opened file within the book's
-  folder (at most 255 bytes, a FAT name: 1,590 − 512 − 1,024 + 257 + 2,424 = 2,735, within 3,840).
-  Every later call of that document carries the same name in `text` where the op uses no other
-  `text` (ops 13 and 15 name their XPointer or href instead; the host keeps the name with the
-  document).
+- [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
+  13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
+  host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
+  3 = 1,592 framed (`abi/stages/core.format@1.def`), with 12 options 4,016: over the 3,840 payload,
+  so op 2 carries `arg` empty and `text` empty except for a `siblings` format, where it names the
+  opened file within the book's folder (at most 255 bytes, a FAT name: 1,592 − 512 − 1,024 + 257 +
+  2,424 = 2,737, within 3,840). Every later call of that document carries the same name in `text`
+  where the op uses no other `text` (ops 13 and 15 name their XPointer or href instead; the host
+  keeps the name with the document).
 
 - [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 2 the
   document's cache for its conversion (section 2.1; read and write; the book key is LIB's, so the
@@ -475,8 +475,8 @@ reply 4,096 bytes, stage payload 3,840.
 | `doc_toc` page | row 1 + 5×4 + 514 + 5 = 540; 7 rows + `end` = 3,810 | 4,096 |
 | `doc_link` page | row 1 + 3×4 + 1,026 + 5 = 1,044; 3 rows + `end` | 4,096 |
 | `doc_section` page | row 1 + 12 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
-| `fmt.call` (+ 12 `fmt.option` for op 2) | 1,590 (section 3); op 2: 1,590 − 1,536 + 12 × 202 = 2,478 | 3,840 |
-| `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,590 − 514 = 1,076 | 3,840 |
+| `fmt.call` (+ 12 `fmt.option` for op 2) | 1,592 (section 3); op 2: 1,592 − 1,536 + 12 × 202 = 2,480 | 3,840 |
+| `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,592 − 514 = 1,078 | 3,840 |
 | `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
 | `command.image_prepare` | 1 + 4 + 514 + 12 + 5 = 536 | 4,096 |
 
