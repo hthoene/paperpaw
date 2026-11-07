@@ -1197,3 +1197,84 @@ fn an_outlined_sequence_that_writes_the_base_register_or_is_not_straight_forgets
     let long: Vec<I> = (0..70).map(|_| W(addi(25, 0, 1))).collect();
     assert_eq!(outlined_frame(&long), None);
 }
+
+/// `jal rd, +offset` (offset even, -1 MiB..1 MiB).
+fn jal(rd: u32, offset: i32) -> u32 {
+    let o = offset as u32;
+    ((o >> 20 & 1) << 31)
+        | ((o >> 1 & 0x3ff) << 21)
+        | ((o >> 11 & 1) << 20)
+        | ((o >> 12 & 0xff) << 12)
+        | (rd << 7)
+        | 0x6f
+}
+/// `jalr x0, 0(t0)`: the end of an outlined sequence.
+const JR_T0: u32 = 0x0002_8067;
+
+#[test]
+fn an_outlined_sequence_that_lowers_sp_is_part_of_the_callers_frame() {
+    // `-msave-restore`: `jal t0, __riscv_save_0`, whose code lowers sp by its
+    // save area and goes back through t0. The caller's own frame comes on top.
+    let f = code(&[
+        W(addi(SP, SP, -2000)), // 0
+        W(jal(T0, 16)),         // 4: to the helper at 20
+        W(addi(SP, SP, 2000)),  // 8
+        W(RET),                 // 12
+        W(0),                   // 16: padding
+        W(addi(SP, SP, -64)),   // 20: the helper
+        W(sw(S0, SP)),          // 24
+        W(JR_T0),               // 28
+    ]);
+    let env = Env::none();
+    assert_eq!(
+        frame_sizes_in(&f, &[(0, 16)], env),
+        vec![Some(2064)],
+        "2000 B and the helper's 64 B"
+    );
+    // The two together are over the 2 KiB limit although each part is not.
+    assert!(matches!(
+        scan_ranges(&f, &[(0, 16)], env),
+        Some(Finding::Large { .. })
+    ));
+}
+
+#[test]
+fn an_outlined_sequence_whose_effect_on_sp_cannot_be_followed_is_refused() {
+    // The helper ends in a `ret`, not a `jr t0`: its code is not read to its
+    // end, so how it leaves sp is not known.
+    let f = code(&[
+        W(addi(SP, SP, -16)), // 0
+        W(jal(T0, 16)),       // 4: to the helper at 20
+        W(addi(SP, SP, 16)),  // 8
+        W(RET),               // 12
+        W(0),                 // 16
+        W(addi(SP, SP, -64)), // 20: the helper
+        W(RET),               // 24
+    ]);
+    assert!(matches!(
+        scan_ranges(&f, &[(0, 16)], Env::none()),
+        Some(Finding::Unknown { .. })
+    ));
+}
+
+#[test]
+fn a_register_an_outlined_sequence_writes_is_forgotten_whatever_value_it_gets() {
+    // The helper writes a0 = a1 - 1, which is the very value a0 would hold
+    // if it were untouched in a run that gives each register its number as a
+    // marker (a0 = marker + 10, a1 = marker + 11). The caller's a0 must not
+    // survive: `sub sp, sp, a0` after it is a size nobody knows.
+    let f = code(&[
+        W(addi(A0, 0, 100)),  // 0: a0 = 100
+        W(jal(T0, 20)),       // 4: to the helper at 24
+        W(sub(SP, SP, A0)),   // 8: sp -= a0
+        W(addi(SP, SP, 100)), // 12
+        W(RET),               // 16
+        W(0),                 // 20
+        W(addi(A0, 11, -1)),  // 24: the helper: a0 = a1 - 1
+        W(JR_T0),             // 28
+    ]);
+    assert!(matches!(
+        scan_ranges(&f, &[(0, 20)], Env::none()),
+        Some(Finding::Unknown { .. })
+    ));
+}
