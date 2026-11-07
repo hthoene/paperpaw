@@ -300,6 +300,20 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   same types, bounds, optional bitmap and list rules as `abi.def` records. Stage tags do not
   reserve or reuse kernel record tags. Plugin-defined stages publish their own payload schemas;
   the host checks their framing only.
+- [D] **A plugin's own schemas** (keys `<plugin>.<name>`, never `core.*`, no `mirrors`, `since`
+  the schema's own version) use this format, one `<key>@<major>.def` per file in the owning
+  crate; `tools/stage-codec.py <folder> <file.rs>` emits their codecs and `STAGES` table with
+  the host stages' validators and emitters, and `--check` (in CI) refuses stale output. A
+  plugin's stage may add `input_rows` (2..=64): its input batch is then 1..=`input_rows` records
+  of its input tags (a head record and rows, in the order its owner documents), checked by its
+  `input_decode`/`input_encode` with the same byte cap; the host checks its framing only. Without
+  the key, the input is one record, as for every host stage.
+- [D] **Payload schemas.** Records a plugin carries inside a host frame (a `draw.frame` or
+  input payload: one record each time, one direction, no subscribers, no reply) use the same
+  folder with keys `payload` (`<plugin>.<name>`), `major`, `revision`, `max_bytes` (1-3,840) and
+  `records`. `stage-codec.py` emits the same codec module for them, the records as its
+  one-record input side (`input_encode`, `input_decode`, each record's `encode`/`decode`), the
+  reply side sealed (no tags, no rows, cap 0), and lists no payload in `STAGES`.
 - [D] **Mirrors.** A record may name `"mirrors": "service.<name>"` instead of `fields`: it is
   the same record as that `abi.def` service row under its stage-local tag, and the generator
   copies the row's fields (at the record's `since`), so the two never drift apart. The module's

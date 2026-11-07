@@ -3122,6 +3122,10 @@ pub paperpaw_sdk::native::commands::PluginOutcome::Declined
 pub paperpaw_sdk::native::commands::PluginOutcome::Failed
 pub paperpaw_sdk::native::commands::PluginOutcome::Installed
 pub paperpaw_sdk::native::commands::PluginOutcome::NotFound
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PowerAction
+pub paperpaw_sdk::native::commands::PowerAction::PowerOff
+pub paperpaw_sdk::native::commands::PowerAction::Restart
+pub paperpaw_sdk::native::commands::PowerAction::Sleep
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::PresetMode
 pub paperpaw_sdk::native::commands::PresetMode::Apply
 pub paperpaw_sdk::native::commands::PresetMode::Preview
@@ -3163,6 +3167,20 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut se
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::stop_speaking(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::widget_changed(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_then(&mut self, paperpaw_sdk::native::ui::Open<'_>, paperpaw_sdk::native::commands::PowerAction) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::sleep(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wear(&mut self, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_host(&mut self, u32, &str, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_join(&mut self, u32, &str, &str, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_leave(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_on(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
@@ -3475,6 +3493,287 @@ pub const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize
 pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
 pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
 pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
+pub mod paperpaw_sdk::native::device
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::DeviceCapability
+pub paperpaw_sdk::native::device::DeviceCapability::Bluetooth
+pub paperpaw_sdk::native::device::DeviceCapability::ButtonRow
+pub paperpaw_sdk::native::device::DeviceCapability::Clipboard
+pub paperpaw_sdk::native::device::DeviceCapability::Colours
+pub paperpaw_sdk::native::device::DeviceCapability::Firmware
+pub paperpaw_sdk::native::device::DeviceCapability::Frontlight
+pub paperpaw_sdk::native::device::DeviceCapability::Monochrome
+pub paperpaw_sdk::native::device::DeviceCapability::Network
+pub paperpaw_sdk::native::device::DeviceCapability::Pen
+pub paperpaw_sdk::native::device::DeviceCapability::PowerOff
+pub paperpaw_sdk::native::device::DeviceCapability::Rotation
+pub paperpaw_sdk::native::device::DeviceCapability::Sleep
+pub paperpaw_sdk::native::device::DeviceCapability::Speech
+pub paperpaw_sdk::native::device::DeviceCapability::Touch
+pub paperpaw_sdk::native::device::DeviceCapability::Wifi
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::DeviceClass
+pub paperpaw_sdk::native::device::DeviceClass::Large
+pub paperpaw_sdk::native::device::DeviceClass::Medium
+pub paperpaw_sdk::native::device::DeviceClass::Small
+pub paperpaw_sdk::native::device::DeviceClass::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::DeviceOutcome
+pub paperpaw_sdk::native::device::DeviceOutcome::Cancelled
+pub paperpaw_sdk::native::device::DeviceOutcome::CardError
+pub paperpaw_sdk::native::device::DeviceOutcome::CardFull
+pub paperpaw_sdk::native::device::DeviceOutcome::ContentChanged
+pub paperpaw_sdk::native::device::DeviceOutcome::Damaged
+pub paperpaw_sdk::native::device::DeviceOutcome::Declined
+pub paperpaw_sdk::native::device::DeviceOutcome::Dismissed
+pub paperpaw_sdk::native::device::DeviceOutcome::IdTaken
+pub paperpaw_sdk::native::device::DeviceOutcome::KeyChanged
+pub paperpaw_sdk::native::device::DeviceOutcome::NewerInterface
+pub paperpaw_sdk::native::device::DeviceOutcome::NoRoom
+pub paperpaw_sdk::native::device::DeviceOutcome::NotNewer
+pub paperpaw_sdk::native::device::DeviceOutcome::Ok
+pub paperpaw_sdk::native::device::DeviceOutcome::OlderInterface
+pub paperpaw_sdk::native::device::DeviceOutcome::Other
+pub paperpaw_sdk::native::device::DeviceOutcome::OtherAuthor
+pub paperpaw_sdk::native::device::DeviceOutcome::OtherChip
+pub paperpaw_sdk::native::device::DeviceOutcome::RestartPending
+pub paperpaw_sdk::native::device::DeviceOutcome::Revoked
+pub paperpaw_sdk::native::device::DeviceOutcome::UnknownKey
+pub paperpaw_sdk::native::device::DeviceOutcome::Unsigned
+pub paperpaw_sdk::native::device::DeviceOutcome::Unsupported
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::FirmwareState
+pub paperpaw_sdk::native::device::FirmwareState::Failed
+pub paperpaw_sdk::native::device::FirmwareState::Idle
+pub paperpaw_sdk::native::device::FirmwareState::Installed
+pub paperpaw_sdk::native::device::FirmwareState::Installing
+pub paperpaw_sdk::native::device::FirmwareState::Unknown(u32)
+pub paperpaw_sdk::native::device::FirmwareState::Waiting
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::InstallKind
+pub paperpaw_sdk::native::device::InstallKind::Check
+pub paperpaw_sdk::native::device::InstallKind::Firmware
+pub paperpaw_sdk::native::device::InstallKind::Plugin
+pub paperpaw_sdk::native::device::InstallKind::Removal
+pub paperpaw_sdk::native::device::InstallKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::NativeSafeMode
+pub paperpaw_sdk::native::device::NativeSafeMode::None
+pub paperpaw_sdk::native::device::NativeSafeMode::StartupFailures
+pub paperpaw_sdk::native::device::NativeSafeMode::User
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::NotInstalledReason
+pub paperpaw_sdk::native::device::NotInstalledReason::Damaged
+pub paperpaw_sdk::native::device::NotInstalledReason::OtherAuthor
+pub paperpaw_sdk::native::device::NotInstalledReason::Revoked
+pub paperpaw_sdk::native::device::NotInstalledReason::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::PowerControl
+pub paperpaw_sdk::native::device::PowerControl::Buttons
+pub paperpaw_sdk::native::device::PowerControl::CpuClock
+pub paperpaw_sdk::native::device::PowerControl::Frontlight
+pub paperpaw_sdk::native::device::PowerControl::Radio
+pub paperpaw_sdk::native::device::PowerControl::SystemSaver
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::PowerLevel
+pub paperpaw_sdk::native::device::PowerLevel::Normal
+pub paperpaw_sdk::native::device::PowerLevel::Offline
+pub paperpaw_sdk::native::device::PowerLevel::Saving
+pub paperpaw_sdk::native::device::PowerLevel::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::StartKind
+pub paperpaw_sdk::native::device::StartKind::Fault
+pub paperpaw_sdk::native::device::StartKind::PowerOn
+pub paperpaw_sdk::native::device::StartKind::Restart
+pub paperpaw_sdk::native::device::StartKind::Unknown(u32)
+pub paperpaw_sdk::native::device::StartKind::UnknownStart
+pub paperpaw_sdk::native::device::StartKind::Wake
+#[non_exhaustive] pub enum paperpaw_sdk::native::device::WifiState
+pub paperpaw_sdk::native::device::WifiState::Hosting
+pub paperpaw_sdk::native::device::WifiState::Joining
+pub paperpaw_sdk::native::device::WifiState::Off
+pub paperpaw_sdk::native::device::WifiState::On
+pub paperpaw_sdk::native::device::WifiState::Online
+pub paperpaw_sdk::native::device::WifiState::Unknown(u32)
+pub struct paperpaw_sdk::native::device::BluetoothInfo
+impl paperpaw_sdk::native::device::BluetoothInfo
+pub const fn paperpaw_sdk::native::device::BluetoothInfo::max_links(self) -> u32
+pub const fn paperpaw_sdk::native::device::BluetoothInfo::radio(self) -> u32
+pub struct paperpaw_sdk::native::device::BondedDevice<'a>
+impl paperpaw_sdk::native::device::BondedDevice<'_>
+pub const fn paperpaw_sdk::native::device::BondedDevice<'_>::connected(self) -> bool
+pub const fn paperpaw_sdk::native::device::BondedDevice<'_>::remote_keys(self) -> bool
+impl<'a> paperpaw_sdk::native::device::BondedDevice<'a>
+pub const fn paperpaw_sdk::native::device::BondedDevice<'a>::device(self) -> u32
+pub const fn paperpaw_sdk::native::device::BondedDevice<'a>::given(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::BondedDevice<'a>::kind(self) -> u32
+pub const fn paperpaw_sdk::native::device::BondedDevice<'a>::name(self) -> &'a str
+pub struct paperpaw_sdk::native::device::BuiltinPlugin<'a>
+impl<'a> paperpaw_sdk::native::device::BuiltinPlugin<'a>
+pub const fn paperpaw_sdk::native::device::BuiltinPlugin<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::BuiltinPlugin<'a>::version(self) -> &'a str
+pub struct paperpaw_sdk::native::device::Device
+impl paperpaw_sdk::native::device::Device
+pub fn paperpaw_sdk::native::device::Device::bluetooth(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::BluetoothInfo, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::bonded<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::BondedDevice<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::builtins<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::BuiltinPlugin<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::check<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceRequest, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::FileCheck<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::device<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DeviceIdentity<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::firmware<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::FirmwareInfo<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::install<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceRequest, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::InstallProgress<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::keys<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::PhysicalKey<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::memory(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::MemoryInfo, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::native<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::NativeBuild<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::networks<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::WifiNetwork<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::not_installed<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::NotInstalledPlugin<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::power<'a>(&self, &paperpaw_sdk::native::Host<'_>, u32, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::PowerInfo<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::values<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::HardwareValue<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::wifi<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::WifiInfo<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::device::Device
+pub fn paperpaw_sdk::native::device::Device::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::device::DeviceCursor
+impl paperpaw_sdk::native::device::DeviceCursor
+pub const fn paperpaw_sdk::native::device::DeviceCursor::start() -> Self
+pub struct paperpaw_sdk::native::device::DeviceIdentity<'a>
+impl paperpaw_sdk::native::device::DeviceIdentity<'_>
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'_>::can_control(self, paperpaw_sdk::native::device::PowerControl) -> bool
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'_>::class(self) -> paperpaw_sdk::native::device::DeviceClass
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'_>::slept_ms(self) -> core::option::Option<u64>
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'_>::start(self) -> paperpaw_sdk::native::device::StartKind
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'_>::supports(self, paperpaw_sdk::native::device::DeviceCapability) -> bool
+impl<'a> paperpaw_sdk::native::device::DeviceIdentity<'a>
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'a>::catalog(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'a>::model(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::DeviceIdentity<'a>::tls_sessions(self) -> u32
+pub struct paperpaw_sdk::native::device::DevicePage<'a, T>
+impl<'a, T> paperpaw_sdk::native::device::DevicePage<'a, T>
+pub const fn paperpaw_sdk::native::device::DevicePage<'a, T>::end(&self) -> paperpaw_sdk::native::device::DevicePageEnd
+pub const fn paperpaw_sdk::native::device::DevicePage<'a, T>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::device::DevicePage<'a, T>::len(&self) -> usize
+pub fn paperpaw_sdk::native::device::DevicePage<'a, T>::rows(&self) -> paperpaw_sdk::native::device::DeviceRows<'a, T>
+impl<T> core::fmt::Debug for paperpaw_sdk::native::device::DevicePage<'_, T>
+pub fn paperpaw_sdk::native::device::DevicePage<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::device::DevicePageEnd
+impl paperpaw_sdk::native::device::DevicePageEnd
+pub const fn paperpaw_sdk::native::device::DevicePageEnd::next_cursor(self) -> core::option::Option<paperpaw_sdk::native::device::DeviceCursor>
+pub const fn paperpaw_sdk::native::device::DevicePageEnd::total(self) -> u32
+pub struct paperpaw_sdk::native::device::DeviceRequest(_)
+impl paperpaw_sdk::native::device::DeviceRequest
+pub const fn paperpaw_sdk::native::device::DeviceRequest::get(self) -> u32
+pub const fn paperpaw_sdk::native::device::DeviceRequest::new(u32) -> core::option::Option<Self>
+pub struct paperpaw_sdk::native::device::DeviceRows<'a, T>
+impl<'a, T> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::device::DeviceRows<'a, T>
+pub type paperpaw_sdk::native::device::DeviceRows<'a, T>::Item = T
+pub fn paperpaw_sdk::native::device::DeviceRows<'a, T>::next(&mut self) -> core::option::Option<T>
+pub fn paperpaw_sdk::native::device::DeviceRows<'a, T>::size_hint(&self) -> (usize, core::option::Option<usize>)
+impl<T> core::fmt::Debug for paperpaw_sdk::native::device::DeviceRows<'_, T>
+pub fn paperpaw_sdk::native::device::DeviceRows<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> core::iter::traits::exact_size::ExactSizeIterator for paperpaw_sdk::native::device::DeviceRows<'_, T>
+pub struct paperpaw_sdk::native::device::FileCheck<'a>
+impl paperpaw_sdk::native::device::FileCheck<'_>
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::author_pinned(self) -> bool
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::data_plugin(self) -> bool
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::foreign_firmware(self) -> bool
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::other_author(self) -> bool
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::paperpaw_signed(self) -> bool
+impl paperpaw_sdk::native::device::FileCheck<'_>
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::reason(self) -> paperpaw_sdk::native::device::DeviceOutcome
+impl<'a> paperpaw_sdk::native::device::FileCheck<'a>
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::bytes(self) -> u64
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::needs_draft(self) -> u32
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::signer(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::version(self) -> &'a str
+impl<'a> paperpaw_sdk::native::device::FileCheck<'a>
+pub const fn paperpaw_sdk::native::device::FileCheck<'a>::sha256(self) -> &'a [u8]
+pub fn paperpaw_sdk::native::device::FileCheck<'a>::signing_key(self) -> core::option::Option<&'a [u8; 32]>
+pub struct paperpaw_sdk::native::device::FirmwareInfo<'a>
+impl paperpaw_sdk::native::device::FirmwareInfo<'_>
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'_>::reason(self) -> paperpaw_sdk::native::device::DeviceOutcome
+impl paperpaw_sdk::native::device::FirmwareInfo<'_>
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'_>::request(self) -> core::option::Option<paperpaw_sdk::native::device::DeviceRequest>
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'_>::state(self) -> paperpaw_sdk::native::device::FirmwareState
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'_>::undone(self) -> bool
+impl<'a> paperpaw_sdk::native::device::FirmwareInfo<'a>
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::chip(self) -> u32
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::done(self) -> u64
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::project(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::room(self) -> u64
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::total(self) -> u64
+pub const fn paperpaw_sdk::native::device::FirmwareInfo<'a>::version(self) -> &'a str
+pub struct paperpaw_sdk::native::device::HardwareValue<'a>
+impl<'a> paperpaw_sdk::native::device::HardwareValue<'a>
+pub const fn paperpaw_sdk::native::device::HardwareValue<'a>::name(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::HardwareValue<'a>::value(self) -> i32
+pub struct paperpaw_sdk::native::device::InstallProgress<'a>
+impl paperpaw_sdk::native::device::InstallProgress<'_>
+pub const fn paperpaw_sdk::native::device::InstallProgress<'_>::data_kept(self) -> bool
+pub const fn paperpaw_sdk::native::device::InstallProgress<'_>::restart_required(self) -> bool
+impl paperpaw_sdk::native::device::InstallProgress<'_>
+pub const fn paperpaw_sdk::native::device::InstallProgress<'_>::kind(self) -> paperpaw_sdk::native::device::InstallKind
+pub fn paperpaw_sdk::native::device::InstallProgress<'_>::request(self) -> core::option::Option<paperpaw_sdk::native::device::DeviceRequest>
+pub const fn paperpaw_sdk::native::device::InstallProgress<'_>::state_code(self) -> u32
+impl paperpaw_sdk::native::device::InstallProgress<'_>
+pub const fn paperpaw_sdk::native::device::InstallProgress<'_>::reason(self) -> paperpaw_sdk::native::device::DeviceOutcome
+impl<'a> paperpaw_sdk::native::device::InstallProgress<'a>
+pub const fn paperpaw_sdk::native::device::InstallProgress<'a>::done(self) -> u64
+pub const fn paperpaw_sdk::native::device::InstallProgress<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::InstallProgress<'a>::status(self) -> i32
+pub const fn paperpaw_sdk::native::device::InstallProgress<'a>::total(self) -> u64
+pub struct paperpaw_sdk::native::device::MemoryInfo
+impl paperpaw_sdk::native::device::MemoryInfo
+pub const fn paperpaw_sdk::native::device::MemoryInfo::cached(self) -> bool
+pub const fn paperpaw_sdk::native::device::MemoryInfo::external_free(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::device::MemoryInfo::external_size(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::device::MemoryInfo::largest_block(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::device::MemoryInfo::stack_free(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::device::MemoryInfo::stack_size(self) -> core::option::Option<u32>
+impl paperpaw_sdk::native::device::MemoryInfo
+pub const fn paperpaw_sdk::native::device::MemoryInfo::heap_free(self) -> u32
+pub const fn paperpaw_sdk::native::device::MemoryInfo::heap_size(self) -> u32
+pub struct paperpaw_sdk::native::device::NativeBuild<'a>
+impl paperpaw_sdk::native::device::NativeBuild<'_>
+pub const fn paperpaw_sdk::native::device::NativeBuild<'_>::safe_mode(self) -> paperpaw_sdk::native::device::NativeSafeMode
+impl<'a> paperpaw_sdk::native::device::NativeBuild<'a>
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::abi_draft(self) -> u32
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::abi_major(self) -> u32
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::code_file(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::crashed(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::last_loaded(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::not_installed(self) -> u32
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::pending(self) -> u32
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::room_free(self) -> u64
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::room_largest(self) -> u64
+pub const fn paperpaw_sdk::native::device::NativeBuild<'a>::target(self) -> u32
+pub struct paperpaw_sdk::native::device::NotInstalledPlugin<'a>
+impl paperpaw_sdk::native::device::NotInstalledPlugin<'_>
+pub const fn paperpaw_sdk::native::device::NotInstalledPlugin<'_>::reason(self) -> paperpaw_sdk::native::device::NotInstalledReason
+impl<'a> paperpaw_sdk::native::device::NotInstalledPlugin<'a>
+pub const fn paperpaw_sdk::native::device::NotInstalledPlugin<'a>::plugin(self) -> &'a str
+pub struct paperpaw_sdk::native::device::PhysicalKey<'a>
+impl<'a> paperpaw_sdk::native::device::PhysicalKey<'a>
+pub const fn paperpaw_sdk::native::device::PhysicalKey<'a>::name(self) -> &'a str
+pub struct paperpaw_sdk::native::device::PowerInfo<'a>
+impl paperpaw_sdk::native::device::PowerInfo<'_>
+pub const fn paperpaw_sdk::native::device::PowerInfo<'_>::automatic(self) -> bool
+pub const fn paperpaw_sdk::native::device::PowerInfo<'_>::online(self) -> bool
+impl paperpaw_sdk::native::device::PowerInfo<'_>
+pub const fn paperpaw_sdk::native::device::PowerInfo<'_>::level(self) -> paperpaw_sdk::native::device::PowerLevel
+impl<'a> paperpaw_sdk::native::device::PowerInfo<'a>
+pub const fn paperpaw_sdk::native::device::PowerInfo<'a>::every_ms(self) -> u32
+pub const fn paperpaw_sdk::native::device::PowerInfo<'a>::mode(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::PowerInfo<'a>::stretch(self) -> u32
+pub struct paperpaw_sdk::native::device::WifiInfo<'a>
+impl paperpaw_sdk::native::device::WifiInfo<'_>
+pub const fn paperpaw_sdk::native::device::WifiInfo<'_>::busy(self) -> bool
+pub const fn paperpaw_sdk::native::device::WifiInfo<'_>::scanning(self) -> bool
+pub const fn paperpaw_sdk::native::device::WifiInfo<'_>::wanted(self) -> bool
+impl paperpaw_sdk::native::device::WifiInfo<'_>
+pub const fn paperpaw_sdk::native::device::WifiInfo<'_>::state(self) -> paperpaw_sdk::native::device::WifiState
+impl<'a> paperpaw_sdk::native::device::WifiInfo<'a>
+pub const fn paperpaw_sdk::native::device::WifiInfo<'a>::address(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::WifiInfo<'a>::guests(self) -> u32
+pub const fn paperpaw_sdk::native::device::WifiInfo<'a>::host_name(self) -> &'a str
+pub const fn paperpaw_sdk::native::device::WifiInfo<'a>::ssid(self) -> &'a str
+pub struct paperpaw_sdk::native::device::WifiNetwork<'a>
+impl paperpaw_sdk::native::device::WifiNetwork<'_>
+pub const fn paperpaw_sdk::native::device::WifiNetwork<'_>::known(self) -> bool
+pub const fn paperpaw_sdk::native::device::WifiNetwork<'_>::secured(self) -> bool
+impl<'a> paperpaw_sdk::native::device::WifiNetwork<'a>
+pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::signal(self) -> i32
+pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::ssid(self) -> &'a str
 pub mod paperpaw_sdk::native::events
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::AnswerOutcome
 pub paperpaw_sdk::native::events::AnswerOutcome::Answered
@@ -4865,6 +5164,36 @@ pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, pape
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::ui
+pub mod paperpaw_sdk::native::ui::stages
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::stages::WidgetCall
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Measure::width: u32
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Place::rect: paperpaw_sdk::native::callbacks::FrameRect
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::ui::stages::WidgetCall::Targets::rect: paperpaw_sdk::native::callbacks::FrameRect
+impl paperpaw_sdk::native::ui::stages::WidgetCall
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::decode(&[u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_place(self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_size(self, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::WidgetCall::reply_targets(self, &[paperpaw_sdk::native::ui::WidgetTarget], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::ContextParams<'a>
+impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub type paperpaw_sdk::native::ui::stages::ContextParams<'a>::Item = core::result::Result<paperpaw_sdk::native::ui::Param<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::ContextParams<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusAnswer<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::drawn(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusAnswer<'a>::text(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::stages::StatusCall<'a>
+impl<'a> paperpaw_sdk::native::ui::stages::StatusCall<'a>
+pub const fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::context(self) -> paperpaw_sdk::native::ui::stages::ContextParams<'a>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::items(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+pub fn paperpaw_sdk::native::ui::stages::StatusCall<'a>::reply(self, &[paperpaw_sdk::native::ui::stages::StatusAnswer<'_>], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::Answer
 pub paperpaw_sdk::native::ui::Answer::Accept
 pub paperpaw_sdk::native::ui::Answer::Cancel
