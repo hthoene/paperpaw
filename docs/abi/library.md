@@ -87,8 +87,8 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 | 6 | `next_in_series` | `lib_ref` | `lib_entry` | query, `ERR_NOT_FOUND` for none |
 | 7 | `cover` | `lib_cover` | `doc_image` | query: an image id (`document.md` 5) |
 | 8 | `set_status` | `lib_status` | (none) | mutate |
-| 9 | `can_delete` | `lib_paths` | `lib_result`* | query: the delete preflight |
-| 10 | `delete` | `lib_paths` | `lib_result`* | mutate, card; `uses.storage` |
+| 9 | `can_delete` | `lib_paths` | `lib_result`* (at most 7), `end` | query: the delete preflight |
+| 10 | `delete` | `lib_paths` | `lib_result`* (at most 7), `end` | mutate, card; `uses.storage` |
 | 11 | `move` | `lib_move` | `lib_result` | mutate, card; `uses.storage` |
 | 12 | `import` | `lib_import` | `lib_result` | mutate, card |
 | 13 | `position` | `lib_ref` | `lib_position` | query |
@@ -220,7 +220,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   `Option<u64>`: absent and 0 differ), `updated: u64` seconds since 1970, 0 for an unknown clock,
   `xpointer: str 1024` with `flags` bit 0 `has_xpointer`, `flags` bit 2 `from_sync`).
   `set_position` (`lib_position_set`: `lib_ref`, the position, `flags` bit 0 `sync`, bit 1
-  `confirmed`) writes atomically and answers `lib_result.status`:
+  `confirmed`) writes atomically; a refusal is the call's status (2.3):
   - a **local** write (the reader, any write without `sync`) always wins: it is what the user did
     on this device, whatever the clock says (an X4 without a valid clock writes 0);
   - a **sync** write (kosync, koreader pulling another device's place) wins only over a stored
@@ -281,6 +281,12 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 
 ### 2.3 Files: delete, move, import
 
+- [D] **Reply of `can_delete` and `delete`:** one `lib_result` per input path, in the input's
+  order, then exactly one `service.end` (`flags` bit 0 `last`, the others 0); `reply_rows` 7,
+  not paged (`stages-services.md`), so the generic reply check accepts up to 7 rows.
+- [D] **Single-result ops** (`move`, `import`, `set_position`): an error is the call's status and
+  nothing is written; on success the reply is one `lib_result` with `status` `OK`. Per-path
+  statuses inside `lib_result` belong to ops 9 and 10 only.
 - [D] `can_delete` (`lib_paths`) answers per path `lib_result` (`path`, `status`, `flags`): `OK`
   deletable, `ERR_INVALID` not a book (unknown format by extension or sniffing, DOC op 20),
   `ERR_NOT_FOUND` gone already (a delete only forgets it), `ERR_IO` the card cannot, and `flags` bit
