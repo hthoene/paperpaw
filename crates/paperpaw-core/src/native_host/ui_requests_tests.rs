@@ -733,3 +733,39 @@ fn the_x4_secret_pool_is_8192_bytes_and_their_chunks_no_more() {
         Err(ERR_IO)
     );
 }
+
+#[test]
+fn an_over_cap_ask_is_full_and_allocates_nothing() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    // Request rows: at the cap, the first allocation is armed to fail; the
+    // answer is still `ERR_FULL` because nothing is copied before the check.
+    let s = UiStore::new(Limits::X4);
+    for owner in 1..=Limits::X4.requests_kept as u64 {
+        ask(&s, owner, 1, &q(0, 0, ""));
+    }
+    FAIL_NTH.with(|n| n.set(1));
+    let got = s.ask(who(99, 1), None, &q(0, 0, "a\nb"), false, None, false);
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(got.err(), Some(ERR_FULL));
+    assert_eq!(s.request_count(), Limits::X4.requests_kept);
+
+    // Question pool: a question that does not fit is `ERR_FULL`, not
+    // `ERR_NO_MEMORY`, with the allocator refusing.
+    let s = UiStore::new(Limits::X4);
+    let big = Question {
+        kind: 1,
+        flags: 0,
+        remote: false,
+        title: &"t".repeat(256),
+        text: &"x".repeat(1_024),
+        choices: &std::vec!["c".repeat(63); 32].join("\n"),
+    };
+    s.ask(who(1, 1), None, &big, false, None, false).unwrap();
+    let before = s.inner.borrow().question_memory;
+    FAIL_NTH.with(|n| n.set(1));
+    let got = s.ask(who(2, 1), None, &big, false, None, false);
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(got.err(), Some(ERR_FULL));
+    assert_eq!(s.inner.borrow().question_memory, before);
+    assert_eq!(s.request_count(), 1);
+}
