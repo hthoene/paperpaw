@@ -19,9 +19,10 @@
 //! secret. A line the host cannot open (another device's sealed value) is
 //! absent for every op and written back unchanged by every rewrite.
 //!
-//! Order: `keep` puts a new secret before the first secret that sorts after it
-//! (by owner, then name), so a file this host wrote lists in that order; an
-//! interface-6 file lists in its own order until its lines are rewritten.
+//! Order: the order of the lines in the file, so a page is streamed without
+//! sorting or holding the file: an interface-6 file keeps its order, `keep`
+//! appends a new secret and a changed one keeps its line. The `list` cursor is
+//! a row number among the rows the caller may see.
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -111,7 +112,7 @@ impl SecretsServices {
         if !probe.veiled {
             return Ok(false);
         }
-        file.rewrite(&Change::Upgrade, probe.any)?;
+        file.rewrite(&Change::Upgrade)?;
         Ok(true)
     }
 
@@ -124,7 +125,7 @@ impl SecretsServices {
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
         check_owner(plugin)?;
         let mut file = File::new(&*self.host)?;
-        file.rewrite(&Change::DropOwner(plugin), false)
+        file.rewrite(&Change::DropOwner(plugin))
             .map_err(|e| self.failed(e))
     }
 }
@@ -165,9 +166,17 @@ fn check_owner(owner: &str) -> Result<(), i32> {
 /// carriage return are allowed: an SSID may hold them and the file escapes
 /// them).
 fn check_name(name: &str) -> Result<(), i32> {
-    let fine = !name.is_empty()
-        && name.len() <= NAME_MAX
-        && !name
+    if name.is_empty() {
+        return Err(ERR_INVALID);
+    }
+    check_label(name)
+}
+
+/// A name or a label: at most 64 bytes without control characters (C0 except
+/// tab, line break and carriage return, DEL, C1).
+fn check_label(text: &str) -> Result<(), i32> {
+    let fine = text.len() <= NAME_MAX
+        && !text
             .chars()
             .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'));
     if fine { Ok(()) } else { Err(ERR_INVALID) }
@@ -335,6 +344,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
         return Err(ERR_INVALID);
     }
     check_name(ask.name)?;
+    check_label(ask.label)?;
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;
@@ -366,8 +376,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
         changeable,
         value: ask.value.as_bytes(),
     };
-    file.rewrite(&change, probe.any)
-        .map_err(|e| secrets.failed(e))
+    file.rewrite(&change).map_err(|e| secrets.failed(e))
 }
 
 fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
@@ -382,13 +391,10 @@ fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(
         // None here, or one that does not open (kept as it is).
         return Ok(());
     }
-    file.rewrite(
-        &Change::Remove {
-            owner,
-            name: ask.name,
-        },
-        probe.any,
-    )
+    file.rewrite(&Change::Remove {
+        owner,
+        name: ask.name,
+    })
     .map_err(|e| secrets.failed(e))
 }
 
@@ -525,10 +531,10 @@ impl<'a> File<'a> {
 
     /// Streams the old file with `change` into the new file and replaces the
     /// old by rename. On any failure the new file is removed and the old stays.
-    fn rewrite(&mut self, change: &Change<'_>, exists: bool) -> Result<(), i32> {
+    fn rewrite(&mut self, change: &Change<'_>) -> Result<(), i32> {
         let storage = self.host.storage();
         storage.write(file::TEMP, b"").map_err(file::status)?;
-        let result = self.stream(change, exists).and_then(|written| {
+        let result = self.stream(change).and_then(|written| {
             let old = storage.size(file::FILE).unwrap_or(0);
             if matches!(change, Change::Put { .. }) && written > file::FILE_MAX && written > old {
                 return Err(ERR_FULL);
@@ -545,7 +551,7 @@ impl<'a> File<'a> {
         result
     }
 
-    fn stream(&mut self, change: &Change<'_>, exists: bool) -> Result<u64, i32> {
+    fn stream(&mut self, change: &Change<'_>) -> Result<u64, i32> {
         let Self {
             host,
             read,
@@ -584,7 +590,7 @@ impl<'a> File<'a> {
                 keep_as_is(&mut written)?;
                 return Ok(Flow::Go);
             };
-            let (place_first, drop_row) = decide(change, &row, exists, &mut placed, opener);
+            let (place_first, drop_row) = decide(change, &row, &mut placed, opener);
             if place_first {
                 put_new(change, line, opener, sealer)?;
                 put(line.as_bytes(), &mut written)?;
@@ -622,7 +628,6 @@ impl<'a> File<'a> {
 fn decide(
     change: &Change<'_>,
     row: &file::Row<'_>,
-    exists: bool,
     placed: &mut bool,
     opener: &mut Opener<'_>,
 ) -> (bool, bool) {
@@ -633,10 +638,6 @@ fn decide(
             Ordering::Equal => {
                 *placed = true;
                 (true, true)
-            }
-            Ordering::Greater if !exists && !*placed => {
-                *placed = true;
-                (true, false)
             }
             _ => (false, false),
         },

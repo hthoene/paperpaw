@@ -757,8 +757,8 @@ fn only_the_owner_reads_a_value_the_editor_lists_and_changes_what_the_feature_al
         assert_eq!(
             rows,
             [
-                ("kosync".into(), "key".into(), "".into(), 0),
-                ("mail".into(), "password".into(), "mail.password".into(), 1)
+                ("mail".into(), "password".into(), "mail.password".into(), 1),
+                ("kosync".into(), "key".into(), "".into(), 0)
             ]
         );
         // The own list holds only the caller's.
@@ -847,33 +847,52 @@ fn a_plugin_names_itself_or_nothing_and_a_removal_by_plugin_id_drops_every_line_
 }
 
 #[test]
-fn list_pages_in_owner_then_name_order_with_a_cursor_and_a_last_flag() {
+fn list_pages_in_file_order_with_a_cursor_and_a_last_flag() {
     with_view(|v| {
-        // Written in a scrambled order; kept in order.
         for owner in ["wifi", "mail"] {
             for n in (0..40).rev() {
                 let label = "l".repeat(60);
                 v.keep(owner, &std::format!("n{n:02}"), &label, "v").ok();
             }
         }
-        // 32 per plugin: the first 32 of 40 (n39 down to n08) fit.
+        // 32 per plugin: the first 32 of 40 (n39 down to n08) fit; wifi's lines
+        // were appended first, then mail's, and a page follows the file.
         let (page, next, last) = v.list("settings", editor(), true, 0).unwrap();
         assert_eq!(page.len(), 32);
         assert!(!last);
         assert_eq!(next, 32);
-        let keys: Vec<(String, String)> = page.iter().map(|r| (r.0.clone(), r.1.clone())).collect();
-        let mut sorted = keys.clone();
-        sorted.sort();
-        assert_eq!(keys, sorted, "ordered by owner, then name");
+        assert!(page.iter().all(|r| r.0 == "wifi"));
+        assert_eq!(page[0].1, "n39");
+        assert_eq!(page[31].1, "n08");
         let (rest, next, last) = v.list("settings", editor(), true, next).unwrap();
         assert!(last);
         assert_eq!(rest.len(), 32);
+        assert!(rest.iter().all(|r| r.0 == "mail"));
         assert_eq!(next, 64);
+        // A changed secret keeps its line; the cursor counts rows the caller sees.
+        v.keep("wifi", "n39", "", "again").unwrap();
+        assert_eq!(v.list("settings", editor(), true, 0).unwrap().0[0].1, "n39");
+        assert_eq!(v.list("mail", NONE, false, 30).unwrap().0.len(), 2);
         // Past the end: no rows, last.
         let (none, next, last) = v.list("settings", editor(), true, 99).unwrap();
         assert!((none.is_empty() && last) && next == 99);
-        // Every name once: the own list pages as well.
         assert_eq!(v.names("mail").len(), 32);
+    });
+}
+
+#[test]
+fn a_label_follows_the_name_rule() {
+    with_view(|v| {
+        assert_eq!(
+            v.keep("mail", "a", "bad\u{7}label", "v").err(),
+            Some(ERR_INVALID)
+        );
+        assert_eq!(
+            v.keep("mail", "a", "c1\u{85}", "v").err(),
+            Some(ERR_INVALID)
+        );
+        assert_eq!(v.keep("mail", "a\u{7f}", "", "v").err(), Some(ERR_INVALID));
+        v.keep("mail", "a", "tab\there", "v").unwrap();
     });
 }
 
