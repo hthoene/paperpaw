@@ -58,6 +58,31 @@ impl Storage for DataFolder<'_> {
     }
 }
 
+/// Where a file being written at `path` waits until it is whole.
+pub(crate) fn part_of(path: &str) -> Result<alloc::string::String, StorageError> {
+    let mut out = alloc::string::String::new();
+    crate::lines::push(&mut out, path)?;
+    crate::lines::push(&mut out, ".part")?;
+    Ok(out)
+}
+
+/// Puts the file made at `part` at `path`, replacing what is there: what
+/// was at `path` stays until the new file is whole. Where that fails, the
+/// part is removed, unless the failed move took the old file away (FAT
+/// removes it first): then the part is all there is.
+pub(crate) fn put_in_place(
+    storage: &dyn Storage,
+    part: &str,
+    path: &str,
+) -> Result<(), StorageError> {
+    let had_old = storage.exists(path);
+    let moved = storage.rename(part, path);
+    if moved.is_err() && (!had_old || storage.exists(path)) {
+        let _ = storage.remove(part);
+    }
+    moved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

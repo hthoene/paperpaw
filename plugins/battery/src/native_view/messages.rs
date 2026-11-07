@@ -1,6 +1,7 @@
 //! Catalog and number formatting with reusable, fallibly allocated buffers.
 
-use alloc::{format, string::String, vec::Vec};
+use crate::mem;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
     formatting::{self, Arg, FormatBuffers},
@@ -28,18 +29,14 @@ impl Messages {
         };
         result.decimal = match result.copy(host, paperpaw_sdk::numbers::DECIMAL_MARK) {
             Ok(mark) => mark,
-            Err(Error::NotFound) => String::from("."),
+            Err(Error::NotFound) => mem::string(".")?,
             Err(error) => return Err(error),
         };
         Ok(result)
     }
 
     pub(super) fn copy(&mut self, host: &Host<'_>, key: &str) -> Result<String, Error> {
-        Ok(String::from(formatting::copy_message(
-            host,
-            key,
-            &mut self.out,
-        )?))
+        mem::string(formatting::copy_message(host, key, &mut self.out)?)
     }
 
     pub(super) fn format(
@@ -56,7 +53,7 @@ impl Messages {
     fn complete(&self, length: usize) -> Result<String, Error> {
         let bytes = self.out.get(..length).ok_or(Error::NoSpace)?;
         let text = core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?;
-        Ok(String::from(text))
+        mem::string(text)
     }
 
     pub(super) fn digits(&mut self, host: &Host<'_>, text: &str) -> Result<String, Error> {
@@ -65,7 +62,7 @@ impl Messages {
     }
 
     pub(super) fn integer(&mut self, host: &Host<'_>, value: i64) -> Result<String, Error> {
-        self.digits(host, &format!("{value}"))
+        self.digits(host, &mem::format!("{value}")?)
     }
 
     pub(super) fn duration(&mut self, host: &Host<'_>, ms: u64) -> Result<String, Error> {
@@ -104,7 +101,7 @@ impl Messages {
         let tenths = (value * 10.0 + 0.5) as u32;
         let number = self.digits(
             host,
-            &format!("{}{}{}", tenths / 10, self.decimal, tenths % 10),
+            &mem::format!("{}{}{}", tenths / 10, self.decimal, tenths % 10)?,
         )?;
         self.format(
             host,
@@ -120,12 +117,12 @@ impl Messages {
         let hundredths = (u32::from(millivolts) + 5) / 10;
         self.digits(
             host,
-            &format!(
+            &mem::format!(
                 "{}{}{:02} V",
                 hundredths / 100,
                 self.decimal,
                 hundredths % 100
-            ),
+            )?,
         )
     }
 
@@ -133,7 +130,7 @@ impl Messages {
         let tenths = micros / 100_000;
         self.digits(
             host,
-            &format!("{}{}{} s", tenths / 10, self.decimal, tenths % 10),
+            &mem::format!("{}{}{} s", tenths / 10, self.decimal, tenths % 10)?,
         )
     }
 }
