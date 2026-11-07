@@ -154,6 +154,7 @@ impl Device {
             total: u32::try_from(self.plugins.len()).unwrap(),
             generation: 1,
             next: u32::try_from(self.plugins.len()).unwrap(),
+            cursor: None,
         })));
         services.insert("core.plugin-usage/from.0".into(), rows);
     }

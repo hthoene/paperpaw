@@ -86,6 +86,7 @@ fn at(h: &mut host::Harness, at: u64) {
         total: 5,
         generation: 1,
         next: 5,
+        cursor: None,
     })));
     services.insert("core.plugin-usage/from.0".into(), rows);
 }
