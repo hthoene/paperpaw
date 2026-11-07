@@ -219,11 +219,11 @@ one counted batch of at most `input_rows` records.
   (the send queue) and `SOCK_READ` (the read part, also a file read's write buffer) are **4 KiB
   each on the X4** and 16 KiB on others. mail reads 1,024 bytes and sends in pieces on `sent`;
   calibre's large messages and books go through `file` reads.
-- [D] **The X4's network pool** (`network.md` 3.4, `NET_POOL`, 48 KiB until measured) is shared with NET: a socket
-  reserves `SOCK_QUEUE` + `SOCK_READ` (8 KiB) at `connect` and a broadcast 8 x 1 KiB for its
-  answers at `broadcast`, both freed when they end; when the pool is short the call answers
-  `ERR_NO_MEMORY` and nothing is held. A reservation never grows, so a socket never ends for
-  memory once open (`no_memory` stays for the shell's own buffers, below).
+- [D] **The X4's network pool** (`network.md` 3.4, `NET_POOL`, 48 KiB until measured) is shared with
+  NET: a socket reserves `SOCK_QUEUE` + `SOCK_READ` (8 KiB) at `connect` and a broadcast 8 x 1 KiB
+  for its answers at `broadcast`, both freed when they end; when the pool is short the call answers
+  `ERR_NO_MEMORY` and nothing is held. A reservation never grows, so a socket never ends for memory
+  once open (`no_memory` stays for the shell's own buffers, below).
 - Per socket in the shell, outside the pool: 8 KiB TCP receive and 2 KiB send (X4 `MAX_SOCKETS`
   2), and the device's one TLS session (about 40 KiB, shared with NET). A shell that cannot get
   them ends the socket `failed` `no_memory`. The TLS session's memory is allocated once at start,
