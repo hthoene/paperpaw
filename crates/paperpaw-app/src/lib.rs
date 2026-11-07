@@ -80,7 +80,6 @@ impl core::fmt::Debug for StorePlugins<'_> {
 /// with the feature `store-plugins`.
 pub const STORE_PLUGINS: [&str; 41] = [
     "aids",
-    "battery",
     "browser",
     "calibre",
     "fonts-browser",
@@ -236,7 +235,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-        b = offered(b, store, paperpaw_plugin_battery::Battery);
         b = offer_hyphenation(b, store);
     }
     b = b
