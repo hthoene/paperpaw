@@ -11,6 +11,15 @@ pub const ID_LEN: usize = 48;
 /// Nested calls kept apart; deeper ones are counted but share the last slot.
 pub const NESTING: usize = 4;
 
+// Every plugin call the interface-7 host can nest gets a slot of its own: the
+// calls live in one dispatch budget plus the one that opens it (`make`). The
+// watch of the escape blames by depth and would share a slot between two
+// calls that nest deeper.
+const _: () = assert!(
+    crate::abi7::calls::MAX_LIVE as usize + 1 < NESTING,
+    "NESTING must keep a slot for every nested plugin call, with one to spare"
+);
+
 /// What a watcher reads of the record: see [`Inflight::watch`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Watched {
