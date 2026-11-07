@@ -763,3 +763,8 @@ mod pinned_owner_tests {
         assert_eq!(unsafe { (*context).canary }, 0x1234_5678);
     }
 }
+
+/// Generated stage-local payload records, shared byte for byte with the SDK.
+#[path = "abi7/stages_wire.rs"]
+#[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
+pub mod stages_wire;

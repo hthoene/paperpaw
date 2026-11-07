@@ -156,12 +156,18 @@ def validate_wire_records(schema, descriptor):
     """Generated records have checked tags, names and fields."""
     declared = wire_records(schema)
     check_tags(schema['records'])
+    validate_record_shapes(declared, descriptor['since'], schema.get('minor', 0))
+    return declared
+
+
+def validate_record_shapes(declared, minimum_since, maximum_since):
+    """Shared generated-name and revision checks for kernel and local tags."""
     titles, consts = set(), set()
     for record in declared:
         _require(RECORD_NAME.fullmatch(record['name']) is not None,
                  f'record name {record["name"]!r} is not dotted lowercase')
         _require(type(record['since']) is int and
-                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 minimum_since <= record['since'] <= maximum_since,
                  'record since outside codec/schema minor')
         title, const = _camel(record['name']), _const(record['name'])
         _require(title not in titles and const not in consts and title != 'Registration',
@@ -169,7 +175,7 @@ def validate_wire_records(schema, descriptor):
         titles.add(title)
         consts.add(const)
         for field in record['fields']:
-            _require(field['since'] <= schema.get('minor', 0),
+            _require(field['since'] <= maximum_since,
                      f'{record["name"]}.{field["name"]}: since outside schema minor')
     return declared
 
@@ -213,7 +219,7 @@ def _lifetime(record):
     return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
-def _record_source(record):
+def _record_source(record, decode_name="decode", record_type="Record<'a>"):
     """One borrowed record struct with decode, length and write steps."""
     name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
@@ -250,8 +256,8 @@ def _record_source(record):
         out += [f'    /// {text}', f'    pub {field["name"]}: {rust},']
     borrows = _lifetime(record)
     out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
-            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {" if borrows
-            else "    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
+            f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{" if borrows
+            else f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",
             '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
             f'        Ok(Record::{title}(Self {{']
     for field in fields:

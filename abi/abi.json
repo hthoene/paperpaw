@@ -3691,6 +3691,406 @@
     "since": 1,
     "version": 1
   },
+  "stages": [
+    {
+      "input": [
+        "filter.input"
+      ],
+      "key": "core.input-filter",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 4,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "input",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "bytes"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 1,
+          "name": "filter.input",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "kind",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "action",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "input",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "bytes"
+            },
+            {
+              "default": null,
+              "max_bytes": 64,
+              "name": "raise",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 2,
+          "name": "filter.verdict",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "filter.verdict"
+      ],
+      "reply_rows": 1,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "input": [
+        "status.ask"
+      ],
+      "key": "core.status",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "list": {
+                "item_max_bytes": 128,
+                "max_items": 8,
+                "separator": "\n"
+              },
+              "max_bytes": 1032,
+              "name": "items",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "context",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "bytes"
+            }
+          ],
+          "id": 1,
+          "name": "status.ask",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "item",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 128,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 2,
+          "name": "status.value",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "status.value"
+      ],
+      "reply_rows": 8,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "input": [
+        "widget.measure",
+        "widget.place",
+        "widget.targets"
+      ],
+      "key": "core.widget",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "instance",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 1,
+          "name": "widget.measure",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "instance",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "x",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "y",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 2,
+          "name": "widget.place",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "instance",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "x",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "y",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 3,
+          "name": "widget.targets",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "min_height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 4,
+          "name": "widget.size",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "target",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "x",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "y",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "i32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "width",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "height",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 5,
+          "name": "widget.target",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "widget.size",
+        "widget.target"
+      ],
+      "reply_rows": 32,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    }
+  ],
   "statuses": [
     {
       "name": "OK",

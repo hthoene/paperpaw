@@ -1,6 +1,7 @@
 """Validate and emit the initial bounded registration and tick record codecs."""
 from abi_declarations import (check_tags, declaration_source, validate_wire_records,
-                              wire_records)
+                              wire_records, _camel, _const, _lifetime, _reader_extra,
+                              _record_extra, _record_source)
 
 
 def _require(ok, message):
@@ -151,69 +152,7 @@ impl RegistrationBatch {
     }
 }
 
-struct Reader<'a> {
-    remaining: &'a [u8],
-}
-
-impl<'a> Reader<'a> {
-    fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
-        if len > self.remaining.len() {
-            return Err(@INVALID@);
-        }
-        let (value, rest) = self.remaining.split_at(len);
-        self.remaining = rest;
-        Ok(value)
-    }
-
-    fn varint(&mut self) -> Result<u32, i32> {
-        let mut value = 0_u32;
-        for index in 0..5 {
-            let byte = self.take(1)?[0];
-            if index == 4 && byte > 0x0f {
-                return Err(@INVALID@);
-            }
-            value |= u32::from(byte & 0x7f) << (index * 7);
-            if byte & 0x80 == 0 {
-                if index > 0 && byte == 0 {
-                    return Err(@INVALID@);
-                }
-                return Ok(value);
-            }
-        }
-        Err(@INVALID@)
-    }
-
-    fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
-        let mut value = [0; N];
-        value.copy_from_slice(self.take(N)?);
-        Ok(value)
-    }
-
-    fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
-        let tag = self.varint()?;
-        let len = self.varint()? as usize;
-        let body = Reader {
-            remaining: self.take(len)?,
-        };
-        Ok((tag, body))
-    }
-
-    fn bitmap(&mut self) -> Result<(), i32> {
-        let len = self.varint()? as usize;
-        // Unknown optional bits and fields are skipped using the record length.
-        self.take(len)?;
-        Ok(())
-    }
-
-    fn finish(self) -> Result<(), i32> {
-        if self.remaining.is_empty() {
-            Ok(())
-        } else {
-            Err(@INVALID@)
-        }
-    }
-}
-
+@READER@
 /// Decode an entire batch before exposing any registration.
 ///
 /// Framing must be canonical u32 LEB128. Unknown tags return ERR_UNSUPPORTED;
@@ -252,43 +191,7 @@ pub fn registrations_decode(bytes: &[u8]) -> Result<RegistrationBatch, i32> {
     Ok(batch)
 }
 
-fn varint_len(mut value: u32) -> usize {
-    let mut len = 1;
-    while value >= 0x80 {
-        len += 1;
-        value >>= 7;
-    }
-    len
-}
-
-fn record_len(tag: u32, fields: u32) -> usize {
-    let body_len = fields + 1; // The initial bitmap is empty.
-    varint_len(tag) + varint_len(body_len) + body_len as usize
-}
-
-fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
-    loop {
-        let byte = (value & 0x7f) as u8;
-        value >>= 7;
-        out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
-        *offset += 1;
-        if value == 0 {
-            return;
-        }
-    }
-}
-
-fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
-    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
-    *offset += bytes.len();
-}
-
-fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
-    write_varint(tag, out, offset);
-    write_varint(fields + 1, out, offset);
-    write_varint(0, out, offset);
-}
-
+@WRITERS@
 /// Encode a canonical batch without allocating.
 ///
 /// Every bound and the complete output capacity are checked before any write.
@@ -361,6 +264,8 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
     Ok(now_ms)
 }
 '''
+    source = source.replace("@READER@\n", reader_source())
+    source = source.replace("@WRITERS@\n", writer_source())
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
     declared = wire_records(schema)
@@ -369,3 +274,263 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
         # exact bytes already pinned by older locks.
         source += declaration_source(declared, statuses)
     return source
+
+
+def reader_source():
+    """Shared canonical framing reader, parameterised by status markers."""
+    return READER_TEMPLATE
+
+
+def writer_source():
+    """Shared canonical framing writers, after the caller preflights capacity."""
+    return WRITER_TEMPLATE
+
+
+READER_TEMPLATE = '''struct Reader<'a> {
+    remaining: &'a [u8],
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+        if len > self.remaining.len() {
+            return Err(@INVALID@);
+        }
+        let (value, rest) = self.remaining.split_at(len);
+        self.remaining = rest;
+        Ok(value)
+    }
+
+    fn varint(&mut self) -> Result<u32, i32> {
+        let mut value = 0_u32;
+        for index in 0..5 {
+            let byte = self.take(1)?[0];
+            if index == 4 && byte > 0x0f {
+                return Err(@INVALID@);
+            }
+            value |= u32::from(byte & 0x7f) << (index * 7);
+            if byte & 0x80 == 0 {
+                if index > 0 && byte == 0 {
+                    return Err(@INVALID@);
+                }
+                return Ok(value);
+            }
+        }
+        Err(@INVALID@)
+    }
+
+    fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+        let mut value = [0; N];
+        value.copy_from_slice(self.take(N)?);
+        Ok(value)
+    }
+
+    fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+        let tag = self.varint()?;
+        let len = self.varint()? as usize;
+        let body = Reader {
+            remaining: self.take(len)?,
+        };
+        Ok((tag, body))
+    }
+
+    fn bitmap(&mut self) -> Result<(), i32> {
+        let len = self.varint()? as usize;
+        // Unknown optional bits and fields are skipped using the record length.
+        self.take(len)?;
+        Ok(())
+    }
+
+    fn finish(self) -> Result<(), i32> {
+        if self.remaining.is_empty() {
+            Ok(())
+        } else {
+            Err(@INVALID@)
+        }
+    }
+}
+
+'''
+
+WRITER_TEMPLATE = '''fn varint_len(mut value: u32) -> usize {
+    let mut len = 1;
+    while value >= 0x80 {
+        len += 1;
+        value >>= 7;
+    }
+    len
+}
+
+fn record_len(tag: u32, fields: u32) -> usize {
+    let body_len = fields + 1; // The initial bitmap is empty.
+    varint_len(tag) + varint_len(body_len) + body_len as usize
+}
+
+fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+        *offset += 1;
+        if value == 0 {
+            return;
+        }
+    }
+}
+
+fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+
+fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+    write_varint(tag, out, offset);
+    write_varint(fields + 1, out, offset);
+    write_varint(0, out, offset);
+}
+
+'''
+
+
+def local_records(records, revision):
+    """Use the kernel record field/name validators with a stage-local tag table."""
+    from abi_declarations import _fields, validate_record_shapes
+    declared = [dict(name=r['name'], id=r['id'], since=r['since'], fields=_fields(r))
+                for r in records]
+    validate_record_shapes(declared, 0, revision)
+    return declared
+
+
+def local_codec_source(stage):
+    """Emit a stage-local codec through the kernel's borrowed record emitters."""
+    declared = local_records(stage['records'], stage['revision'])
+    borrowed = any(_lifetime(r) for r in declared)
+    life = "<'a>" if borrowed else ''
+    record_type = 'Record' + life
+    variants = '\n'.join(f'    /// A `{r["name"]}` record.\n    {_camel(r["name"])}({_camel(r["name"])}{_lifetime(r)}),' for r in declared)
+    source = reader_source() + writer_source()
+    # Existing field and optional-field emission is shared with the kernel codec.
+    source += ''.join(_record_source(r, 'decode_body', record_type) for r in declared)
+    source += f'\n/// A record with a tag local to this stage.\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[non_exhaustive]\npub enum Record{life} {{\n{variants}\n}}\n'
+    reader_extra = _reader_extra(declared)
+    source += '''impl<'a> Reader<'a> {
+    fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+        let len = self.varint()? as usize;
+        if len > cap { return Err(-2); }
+        self.take(len)
+    }
+    fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+        core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+    }
+''' + reader_extra + '}\n'
+    source += '''fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+    if len > cap { return Err(-2); }
+    Ok(varint_len(len as u32) + len)
+}
+fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    write_bytes(bytes, out, offset);
+}
+fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+    let mut count = 0;
+    for item in value.split(separator) {
+        count += 1;
+        if item.is_empty() || item.len() > item_max || count > max_items { return false; }
+    }
+    true
+}
+'''
+    arms = lambda pattern: ''.join(pattern.replace('@T@', _camel(r['name'])).replace('@C@', _const(r['name'])) for r in declared)
+    source += (f"impl<'a> {record_type} {{\n" if borrowed else 'impl Record {\n') + '''    /// Local wire tag.
+    pub fn tag(&self) -> u32 { match self {
+''' + arms('Record::@T@(_) => @C@_TAG,\n') + '} }\n'
+    source += 'fn body_len(&self) -> Result<usize, i32> { match self {\n' + arms('Record::@T@(r) => r.body_len(),\n') + '} }\n'
+    source += 'fn write(&self, out: &mut [u8], offset: &mut usize) { match self {\n' + arms('Record::@T@(r) => r.write(out, offset),\n') + '} }\n'
+    source += _record_extra(declared)
+    source += 'fn validate(&self) -> Result<(), i32> {\n match self {\n'
+    for r in declared:
+        lists = [f for f in r['fields'] if f['items']]
+        if lists:
+            source += f'Record::{_camel(r["name"])}(r) => {{\n'
+            for f in lists:
+                items = f['items']
+                source += f'if !valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
+            source += '}\n'
+    source += '_ => {}\n}\nOk(())\n}\n}\n'
+    source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\nif !body.remaining.is_empty() { return Err(-2); }\nrecord.validate()?;\nOk(record)\n}\n'
+    source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
+    source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if any(f['optional'] for r in declared for f in r['fields']) else 'write_varint(0, out, &mut offset);')
+    for r in declared:
+        title, borrows = _camel(r['name']), _lifetime(r)
+        source += f"impl<'a> {title}<'a> {{\n" if borrows else f'impl {title} {{\n'
+        source += f'/// Local tag of this record.\npub const TAG: u32 = {_const(r["name"])}_TAG;\n'
+        source += '/// Encode this record as a one-record batch.\npub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {\n' + f'records_encode(&[Record::{title}(*self)], out)\n}}\n'
+        source += f"/// Decode a batch holding exactly this record.\npub fn decode(bytes: {'&\'a [u8]' if borrows else '&[u8]'}) -> Result<Self, i32> {{\n" + f'let mut records = records_decode(bytes)?;\nif records.len() != 1 {{ return Err(-2); }}\nmatch records.next() {{\nSome(Ok(Record::{title}(r))) => Ok(r),\n_ => Err(-2),\n}}\n}}\n}}\n'
+    source = source.replace('@INVALID@', '-2').replace('@NO_SPACE@', '-2').replace('@UTF8@', '-2')
+    return source
+
+
+
+STREAM_TEMPLATE = '''/// A validated stage batch, borrowed without keeping a decoded array.
+#[derive(Clone, Debug)]
+pub struct RecordStream<'a> {
+    bytes: &'a [u8],
+    remaining: usize,
+}
+impl RecordStream<'_> {
+    /// Records still to iterate.
+    pub fn len(&self) -> usize { self.remaining }
+    /// Whether iteration is complete.
+    pub fn is_empty(&self) -> bool { self.remaining == 0 }
+}
+impl<'a> Iterator for RecordStream<'a> {
+    type Item = Result<@ITEM@, i32>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 { return None; }
+        let mut reader = Reader { remaining: self.bytes };
+        let decoded = (|| {
+            let (tag, mut body) = reader.record()?;
+            decode_body(tag, &mut body)
+        })();
+        self.bytes = reader.remaining;
+        self.remaining -= 1;
+        Some(decoded)
+    }
+}
+/// Validate the complete batch before exposing records; foreign tags are invalid.
+pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    if bytes.len() > MAX_INPUT.max(MAX_REPLY) { return Err(-2); }
+    let mut reader = Reader { remaining: bytes };
+    let count = reader.varint()? as usize;
+    if count > REPLY_ROWS.max(1) { return Err(-2); }
+    let records = reader.remaining;
+    for _ in 0..count {
+        let (tag, mut body) = reader.record()?;
+        decode_body(tag, &mut body)?;
+    }
+    reader.finish()?;
+    Ok(RecordStream { bytes: records, remaining: count })
+}
+'''
+ENCODE_TEMPLATE = '''/// Encode a bounded batch; invalid values and short output leave it untouched.
+pub fn records_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() > REPLY_ROWS.max(1) { return Err(-2); }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        record.validate()?;
+        let body = record.body_len()?;
+        required += varint_len(record.tag()) + varint_len(body as u32) + body;
+    }
+    if required > MAX_INPUT.max(MAX_REPLY) { return Err(-2); }
+    if out.len() < required { return Err(-3); }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let body = record.body_len()?;
+        write_varint(record.tag(), out, &mut offset);
+        write_varint(body as u32, out, &mut offset);
+        @BITMAP@
+        record.write(out, &mut offset);
+    }
+    Ok(offset)
+}
+'''
