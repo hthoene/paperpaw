@@ -205,7 +205,9 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   - **At start**, after the FAT repair (`settle_moves`), the host looks at the open entry: only `to`
     exists, it finishes the job; only `from` exists, it drops the entry (nothing moved); **both
     exist** (a cut between FAT's two directory writes), the repair settles them first and the host
-    then decides as above, never dropping the entry blind.
+    then decides as above, never dropping the entry blind; **neither exists** (the folder was
+    removed on a computer while the card was a USB drive), it drops the entry and the next walk
+    forgets the books below both names, as for any deleted file.
   - **While the job runs:** a `move`, `storage.rename`, `remove_tree` or `storage.remove` at or
     below `from` or `to` answers `ERR_BUSY` until the entry is cleared, and the library answers for
     books below `to` through the pending entry (or carries that book first), so a reader that opens

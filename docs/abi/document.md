@@ -142,7 +142,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
   `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
-  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600),
+  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600;
+  larger values are taken as 1,600, the most a picture is ever decoded to),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
@@ -186,7 +187,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   until it closes it. A reply the format produces after that is never delivered (it is not called
   again).
 - [D] Limits: at most 2 open documents per opener and 2 on the X4 device-wide (the shown book and a
-  background index), 8 elsewhere; over that `ERR_FULL`.
+  background index), 8 elsewhere; over that `ERR_FULL`. On the X4 the cap is in effect 1 per
+  opener: the host keeps one of the two places for the book the reader shows, so opening it never
+  fails with `ERR_FULL` because another plugin holds documents.
 
 ### 2.2 Metadata
 
