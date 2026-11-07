@@ -1633,9 +1633,12 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-battery",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
  "paperpaw-table",
  "paperpaw-text",
+ "png",
  "proptest",
 ]
 
@@ -1828,6 +1831,7 @@ dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
  "paperpaw-native",
+ "serde_json",
 ]
 
 [[package]]
@@ -1860,10 +1864,12 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",

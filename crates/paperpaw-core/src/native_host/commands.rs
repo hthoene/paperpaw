@@ -17,6 +17,13 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 
+#[allow(
+    dead_code,
+    reason = "native screen dispatch installs UI command authority next"
+)]
+#[path = "commands_ui.rs"]
+mod ui;
+
 /// Host-resolved authority for guarded settings, shared with the drain-time filter.
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
@@ -50,6 +57,9 @@ pub struct CommandStage<'a> {
     limit: usize,
     byte_limit: usize,
     bytes: usize,
+    ui: Option<ui::UiContext<'a>>,
+    redraw: Option<u32>,
+    accepted: usize,
 }
 
 impl<'a> CommandStage<'a> {
@@ -75,6 +85,9 @@ impl<'a> CommandStage<'a> {
             limit,
             byte_limit,
             bytes: 0,
+            ui: None,
+            redraw: None,
+            accepted: 0,
         }
     }
 
@@ -109,16 +122,21 @@ impl<'a> CommandStage<'a> {
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
     fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
-        if self.staged.len().saturating_add(batch.len()) > self.limit {
+        if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
         for command in batch.iter() {
-            // Commands 56-59 are decoded but not yet run by this host: the
-            // whole batch is refused before anything is staged.
             let WireCommand::SetSetting { key, value } = command else {
-                return ERR_UNSUPPORTED;
+                match self.validate_ui(command) {
+                    Ok(extra) => bytes = bytes.saturating_add(extra),
+                    Err(error) => return error,
+                }
+                if bytes > self.byte_limit {
+                    return ERR_NO_SPACE;
+                }
+                continue;
             };
             let text = match value {
                 SettingValueRef::Text(text) => text.len(),
@@ -141,11 +159,18 @@ impl<'a> CommandStage<'a> {
                 return ERR_INVALID;
             }
         }
-        if self.staged.try_reserve(batch.len()).is_err() {
+        let stored = batch
+            .iter()
+            .filter(|command| !matches!(command, WireCommand::Redraw { .. }))
+            .count();
+        if self.staged.try_reserve(stored).is_err() {
             return ERR_NO_MEMORY;
         }
         let start = self.staged.len();
         for command in batch.iter() {
+            if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
             match self.owned(command) {
                 // Capacity is reserved, so this push cannot reallocate.
                 Ok(command) => self.staged.push(command),
@@ -155,6 +180,12 @@ impl<'a> CommandStage<'a> {
                 }
             }
         }
+        for command in batch.iter() {
+            if let WireCommand::Redraw { mode } = command {
+                self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
+            }
+        }
+        self.accepted += batch.len();
         self.bytes = bytes;
         OK
     }
@@ -162,7 +193,7 @@ impl<'a> CommandStage<'a> {
     /// Convert one admitted command, copying text fallibly and checking it.
     fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
         let WireCommand::SetSetting { key, value } = command else {
-            return Err(ERR_UNSUPPORTED);
+            return self.owned_ui(command);
         };
         let spec = self.admitted(key)?;
         let value = match value {
@@ -183,9 +214,9 @@ impl<'a> CommandStage<'a> {
         }
         // Keys are at most COMMAND_MAX_KEY_BYTES; a placement key is parsed.
         let id = if key == spec.id.as_str() {
-            spec.id.clone()
+            spec.id.try_clone().ok_or(ERR_NO_MEMORY)?
         } else {
-            Id::parse(key).map_err(|_| ERR_INVALID)?
+            ui::copy_id(key)?
         };
         Ok(Command::SetSetting(id, value))
     }

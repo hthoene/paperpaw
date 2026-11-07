@@ -39,6 +39,9 @@ change the plugin SDK.
   writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
   new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
   declarations until they wire them (#228).
+- Native host text ink probes the shaped raster path with the target frame's
+  coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
+
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
@@ -54,9 +57,17 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+- `Id::try_parse` and `IdError`: a parse that tells an invalid id (`IdError::Invalid`) from a full
+  heap (`IdError::NoMemory`) instead of aborting, so the X4's plugin admission can make new ids
+  from declarations and answer `ERR_NO_MEMORY` (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: the heap word (`abi/heap-word.md`). A plugin's optional read-only word
   `PAPERPAW_HEAP`, which the loader fills before `make`, points at the host's context-free
   `PpHeap` table (alloc, dealloc, realloc, abort). `native_plugin!` emits the word, a global
@@ -78,6 +89,8 @@ change the plugin SDK.
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
   `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
   settings, colour and command codecs (#228).
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
 
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode

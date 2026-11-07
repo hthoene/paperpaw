@@ -486,6 +486,35 @@ pub(crate) struct Staging {
 }
 
 impl Staging {
+    /// Stage already decoded native contributions without infallible growth.
+    /// The caller publishes only after every record has mapped successfully.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this staging primitive"
+    )]
+    pub(crate) fn native(&mut self, owner: &Id, contribution: Contribution) -> Result<(), i32> {
+        use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
+        fn push<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
+            target.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            target.push(value);
+            Ok(())
+        }
+        match contribution {
+            Contribution::Action(action) => push(&mut self.actions, *action),
+            Contribution::Screen(screen) => push(&mut self.screens, screen),
+            Contribution::Setting(setting) => push(&mut self.settings, Staged::Owned(setting)),
+            Contribution::SettingGroup(group) => push(&mut self.setting_groups, group),
+            Contribution::Subscription { event, handler, .. } => {
+                let owner = owner.try_clone().ok_or(ERR_NO_MEMORY)?;
+                push(
+                    &mut self.subscriptions,
+                    (owner, Subscribed::One(event, handler)),
+                )
+            }
+            _ => Err(ERR_UNSUPPORTED),
+        }
+    }
+
     /// Moves actions, screens, slots and bindings into `registry`.
     /// Settings, key maps and catalogs are left for the caller.
     pub(crate) fn merge_into(

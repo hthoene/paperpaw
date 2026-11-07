@@ -11,6 +11,7 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 pub(crate) struct CoreFrame<'a> {
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
@@ -23,6 +24,27 @@ impl Frame for CoreFrame<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
+    fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
+        Some(self.env.fonts())
+    }
+    fn ink_threshold(&self) -> Result<u8, i32> {
+        Ok(match self.env.device().display.format {
+            paperpaw_platform::PixelFormat::Mono1 => {
+                crate::config::mono_coverage(self.env.settings()).max(1)
+            }
+            _ => 128,
+        })
+    }
+    fn font_generation(&self) -> Option<u64> {
+        self.font_removals.generation()
+    }
+    fn font_valid(&self, provider: &str, acquired: u64) -> bool {
+        self.font_removals.valid(provider, acquired)
+    }
+    fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
+        Some(self.env.storage())
+    }
+
     fn snapshot(&self) -> Result<Snapshot, i32> {
         Frame::snapshot(self.env)
     }

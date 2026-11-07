@@ -932,6 +932,7 @@ enum paperpaw_sdk::gesture::GestureKind { Tap, LongPress, Swipe(0: paperpaw_sdk:
 enum paperpaw_sdk::help::Input { Any, Touch, Buttons }
 enum paperpaw_sdk::hyphenation::Table<'a> { Compiled(0: paperpaw_hyphen::Patterns<'static>), Card(0: &'a paperpaw_sdk::hyphenation::card::CardTables, 1: u32) }
 enum paperpaw_sdk::hyphenation::card::Unopened { Failed, GiveUp, NoRoom }
+enum paperpaw_sdk::id::IdError { Invalid, NoMemory }
 enum paperpaw_sdk::install::Digest { Sha1(0: alloc::string::String), Sha256(0: alloc::string::String) }
 enum paperpaw_sdk::install::Received { Other, Next(0: paperpaw_sdk::install::Progress), Complete(0: paperpaw_sdk::install::Progress), Failed(0: paperpaw_sdk::install::Progress) }
 enum paperpaw_sdk::install::origin::Origin { Store, Local }

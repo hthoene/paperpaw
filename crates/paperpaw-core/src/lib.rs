@@ -1259,6 +1259,7 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,
     menus: Menus,
@@ -1467,3 +1468,6 @@ fn clipped(text: &str) -> String {
 fn paperpaw_text_outlines() -> bool {
     paperpaw_sdk::text::OUTLINES
 }
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+mod native_battery_pixel_tests;

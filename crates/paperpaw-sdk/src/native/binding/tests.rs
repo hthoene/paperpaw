@@ -266,7 +266,7 @@ fn macro_entry_dispatches_and_drops_with_the_matching_host_allocator() {
     let table = table();
     let mut ctx = Context::default();
     let mut plugin: *const PpPlugin = ptr::null();
-    // SAFETY: Entry transparently wraps the generated entry record.
+    // SAFETY: Entry is repr(transparent) over the generated entry record.
     let entry = unsafe { &*ptr::from_ref(&PAPERPAW_ENTRY).cast::<abi::PpEntry>() };
     assert_eq!(
         (entry.abi_major, entry.needs_minor),
@@ -504,12 +504,13 @@ fn entry_minor_is_derived_from_metadata_and_older_host_is_accepted() {
         bytes
     };
     let entry = entry::Entry::new::<TestPlugin, 0>(OLDER).unwrap();
-    // SAFETY: Entry transparently wraps PpEntry.
+    // SAFETY: Entry is repr(transparent) over its generated PpEntry field.
     let descriptor = unsafe { &*ptr::from_ref(&entry).cast::<abi::PpEntry>() };
     assert_eq!(descriptor.needs_minor, 0);
+    // On riscv32, the linker and packer enforce entry alignment instead.
     #[cfg(target_pointer_width = "64")]
     assert_eq!(mem::align_of_val(&PAPERPAW_ENTRY), 8);
-    // SAFETY: exported entry transparently wraps PpEntry.
+    // SAFETY: exported Entry is repr(transparent) over PpEntry.
     let exported = unsafe { &*ptr::from_ref(&PAPERPAW_ENTRY).cast::<abi::PpEntry>() };
     assert_eq!(exported.metadata.ptr, PAPERPAW_METADATA.as_ptr());
     assert_eq!(exported.metadata.len, PAPERPAW_METADATA.len());
