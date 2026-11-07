@@ -46,6 +46,12 @@ impl AdmittedFeatures {
         Ok(Self { bits, host })
     }
 
+    /// Features for a host test: `bits` is the admitted set indexed by `host`.
+    #[cfg(test)]
+    pub(crate) const fn for_test(host: &'static [Feature<'static>], bits: u32) -> Self {
+        Self { bits, host }
+    }
+
     /// Enforce host support before checking this instance's admitted availability.
     ///
     /// # Errors
