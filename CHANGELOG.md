@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Hints 1.0.4: the interface-7 native plugin (hints over a screen, show again, the settings) on
+  `paperpaw-ui-kit`'s new `Dialog`; the button-hint labels while the hints are open wait for a native
+  hint-row API (#228).
+
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
