@@ -91,6 +91,7 @@ pub(super) fn check_open(open: &wire::ServiceDocOpen<'_>, long_side: u32) -> Res
         || !path_valid(open.path)
         || !(open.css_path.is_empty() || path_valid(open.css_path))
         || !(open.format.is_empty() || id_valid(open.format))
+        || open.image_side > IMAGE_SIDE_MAX
         || open.cover_side > long_side
     {
         return Err(ERR_INVALID);
