@@ -282,9 +282,14 @@ def plugin_stages_source(stages):
 
 
 def rustfmt(source):
+    """Formats with the repository's pinned toolchain (`rust-toolchain.toml`): run from the
+    repository root, the rustup proxy picks it whatever folder the caller is in, so every
+    crate's generated file and its `--check` agree."""
     import subprocess
+    from pathlib import Path
     return subprocess.run(['rustfmt', '--edition', '2024', '--emit', 'stdout'],
-                          input=source, text=True, check=True, capture_output=True).stdout
+                          input=source, text=True, check=True, capture_output=True,
+                          cwd=Path(__file__).resolve().parents[1]).stdout
 
 
 def rust_stages(schema):

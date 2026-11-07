@@ -41,7 +41,11 @@ runner = "espflash flash --monitor --chip esp32s3 --erase-parts otadata"
 [target.riscv32imc-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c3 --erase-parts otadata"
 # Frame pointers for backtraces; the linker script is in build.rs.
-rustflags = ["-C", "force-frame-pointers"]
+# No jump tables: the frame scan (`paperpaw-sign frames`, the ppn5 budget)
+# cannot size a function that jumps through a table inside its frame, and the
+# host's larger `match`es (the DEV commands) compile to one. About 11 KB of
+# flash (decision on #228; todo 68 makes the scan size them so this can go).
+rustflags = ["-C", "force-frame-pointers", "-C", "jump-tables=no"]
 
 [env]
 ESP_LOG = "info"

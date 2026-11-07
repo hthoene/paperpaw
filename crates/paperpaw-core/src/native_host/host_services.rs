@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
     work_service::WorkServices,
 };
@@ -37,6 +38,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    net: OnceCell<NetServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
@@ -59,6 +61,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("net", &self.net.get().is_some())
             .field("work", &self.work.get().is_some())
             .field("secrets", &self.secrets.get().is_some())
             .finish()
@@ -71,6 +74,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            net: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
@@ -190,6 +194,16 @@ impl HostServices {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
     }
 
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.net` once.
+    pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
+        self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn net(&self) -> Option<&NetServices> {
+        self.net.get()
+    }
+
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
@@ -243,6 +257,9 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        if let Some(net) = self.net.get() {
+            result = result.and(net_service::owner_stopped(&*net.0, owner));
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {
