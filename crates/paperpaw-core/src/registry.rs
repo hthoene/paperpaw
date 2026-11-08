@@ -358,6 +358,17 @@ impl Registry {
         self.hints.get(screen).copied().unwrap_or_default()
     }
 
+    /// How many screens are offered for slots.
+    pub(crate) fn offers(&self) -> usize {
+        self.candidates.len()
+    }
+
+    /// Forgets the offers of `owner`'s screens, when it is unloaded.
+    pub(crate) fn remove_native_offers(&mut self, owner: &str) {
+        self.candidates
+            .retain(|candidate| candidate.screen.namespace() != owner);
+    }
+
     /// Every slot some screen is bound to.
     pub(crate) fn bound_slots(&self) -> Vec<Id> {
         let mut slots: Vec<Id> = Vec::new();
@@ -372,6 +383,24 @@ impl Registry {
             }
         }
         slots
+    }
+
+    /// [`Registry::bound_slots`] where the heap may be short: `None` when it
+    /// has no room for the list (the caller keeps the list it has).
+    pub(crate) fn try_bound_slots(&self) -> Option<Vec<Id>> {
+        let mut slots: Vec<Id> = Vec::new();
+        for slot in self
+            .candidates
+            .iter()
+            .map(|c| &c.slot)
+            .chain(self.user_bindings.iter().map(|(slot, _)| slot))
+        {
+            if !slots.contains(slot) && self.resolve_slot(slot.as_str()).is_some() {
+                slots.try_reserve(1).ok()?;
+                slots.push(slot.try_clone()?);
+            }
+        }
+        Some(slots)
     }
 
     /// The screen bound to `slot`: the user's choice if that screen exists,
@@ -591,6 +620,28 @@ impl Staging {
         push_native(&mut self.native_screens, screen)
     }
 
+    /// Stages the offer of the plugin's screen `screen` for `slot`, without
+    /// infallible growth. A screen of another plugin is `ERR_INVALID`.
+    pub(crate) fn native_offer(
+        &mut self,
+        owner: &Id,
+        slot: Id,
+        screen: Id,
+        priority: Priority,
+    ) -> Result<(), i32> {
+        if screen.namespace() != owner.as_str() {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(
+            &mut self.candidates,
+            SlotCandidate {
+                slot,
+                screen,
+                priority,
+            },
+        )
+    }
+
     /// How many actions, settings and setting groups are staged: what a
     /// native publication must make room for before it merges.
     pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
@@ -696,6 +747,13 @@ impl Staging {
                     message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
         }
+        // The offers' room, before anything is moved.
+        registry
+            .candidates
+            .try_reserve(self.candidates.len())
+            .map_err(|_| RegisterError::Invalid {
+                message: NATIVE_CAPACITY_UNAVAILABLE.into(),
+            })?;
         for action in self.actions.drain(..) {
             actions.insert(action);
         }

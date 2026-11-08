@@ -4,7 +4,8 @@ use super::*;
 
 /// The batch of the resource mode `res`: the screen and
 /// 1 the three kinds; 2 a face with no family; 3 a language twice; 4 an
-/// action that is taken; 5 a weight that differs; 6 a font file; 7 a name twice.
+/// action that is taken; 5 a weight that differs; 6 a font file; 7 a name twice; 8 a slot of its own and
+/// three offers for slots.
 pub(super) fn batch(
     res: u8,
     screen: wire::Record<'static>,
@@ -41,6 +42,13 @@ pub(super) fn batch(
         token: 92,
         flags: 0,
     });
+    let offer = |slot, priority| {
+        wire::Record::SlotOffer(wire::SlotOffer {
+            slot,
+            screen: "factory.screen",
+            priority,
+        })
+    };
     match res {
         1 => wire::records_encode(
             &[
@@ -62,6 +70,21 @@ pub(super) fn batch(
         5 => wire::records_encode(&[screen, face("Serif", "fonts/serif.ttf", 400)], bytes),
         // A font file, which a device that reads packs only leaves out.
         6 => wire::records_encode(&[screen, face("Serif", "fonts/serif.ttf", 0)], bytes),
+        // A slot of its own and screens offered for slots (the offer of an
+        // existing slot, of its own, and one more at another priority).
+        8 => wire::records_encode(
+            &[
+                screen,
+                wire::Record::SlotSpec(wire::SlotSpec {
+                    name: "own",
+                    title: "factory.own",
+                }),
+                offer("core.translate", 4),
+                offer("factory.own", 0),
+                offer("core.lookup", -2),
+            ],
+            bytes,
+        ),
         // A face and an extension of the same name.
         _ => wire::records_encode(&[screen, face("Serif", pack, 0), extension("serif")], bytes),
     }
