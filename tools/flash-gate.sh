@@ -64,7 +64,11 @@ base_sha="$(git rev-parse --verify "$base^{commit}")"
 # Everything goes into a directory of its own inside --work, made here; only
 # that directory is ever removed, never --work itself.
 mkdir -p "$work" || die "cannot make $work"
-ours="$(mktemp -d "$work/flash-gate.XXXXXX")" || die "cannot make a directory in $work"
+# A fixed name: the path is part of what the compiler sees (the crates' hashes
+# and so the layout), so a random name would move the sizes by a little.
+ours="$work/flash-gate"
+[ ! -e "$ours" ] || die "$ours exists (a kept run?): remove it, or use another --work"
+mkdir "$ours" || die "cannot make $ours"
 cleanup() {
     git -C "$root" worktree remove --force "$ours/tree" >/dev/null 2>&1 || true
     if [ "$keep" = 0 ]; then rm -rf "$ours"; else echo "kept: $ours" >&2; fi
