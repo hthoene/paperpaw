@@ -63,8 +63,9 @@ impl FontSpec {
 /// A face of a family in a file on the storage, as a data plugin names
 /// it (`[family]` in its `plugin.ini`): a font pack (`.ppfp`), read a
 /// glyph at a time and drawn on every device, or an OpenType/TrueType
-/// file, drawn where scalable fonts are, at its style's weight (400 or
-/// 700) where it is a variable font. Loaded only while its family is
+/// file, drawn where scalable fonts are, at its weight where it is a
+/// variable font (its style's, 400 or 700, unless [`FontFace::weight`]
+/// names one). Loaded only while its family is
 /// chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -77,6 +78,10 @@ pub struct FontFace {
     pub family: Cow<'static, str>,
     pub bold: bool,
     pub italic: bool,
+    /// Its weight, 1 to 1,000 (a variable font is drawn at it, and it
+    /// picks among faces of one style); 0 for its style's: 400, or 700
+    /// when bold.
+    pub weight: u16,
 }
 
 impl FontFace {
@@ -93,7 +98,16 @@ impl FontFace {
             family: family.into(),
             bold,
             italic,
+            weight: 0,
         }
+    }
+
+    /// With weight `weight` (1 to 1,000; 0 for its style's, above 1,000
+    /// is 1,000).
+    #[must_use]
+    pub const fn weight(mut self, weight: u16) -> Self {
+        self.weight = if weight > 1000 { 1000 } else { weight };
+        self
     }
 
     /// Whether its file is a font pack, by its name.
@@ -323,7 +337,11 @@ impl Fonts {
             id: face.id,
             font: None,
             family: Some(face.family),
-            weight: if face.bold { 700 } else { 400 },
+            weight: match face.weight {
+                0 if face.bold => 700,
+                0 => 400,
+                weight => weight,
+            },
             bold: face.bold,
             italic: face.italic,
             file: Some(face.path),
