@@ -549,9 +549,9 @@ fn a_card_that_says_no_is_told_apart_from_no_memory() {
 
 #[test]
 fn a_damaged_index_or_folder_list_makes_a_bounded_list() {
-    // 3,000 short lines fit the 64 KiB read; only the first 50 are rows.
+    // 2,000 short lines fit the 64 KiB read; only the first 50 are rows.
     let mut index = String::from("#serial 1\n");
-    for uid in 0..3_000 {
+    for uid in 0..2_000 {
         index.push_str(&format!("{uid}\tS\t1\t2\tA\ta@x\ts\t<m>\n"));
     }
     assert!(index.len() < 64 * 1024);
