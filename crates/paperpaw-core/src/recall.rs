@@ -10,7 +10,7 @@
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
@@ -89,8 +89,15 @@ impl Recall {
     fn remember_size(&self, path: &str, size: Result<u64, StorageError>) {
         let mut entries = self.entries.borrow_mut();
         if entries.len() < MAX_ENTRIES && self.position(&entries, path).is_none() {
+            // Remembering is a convenience: where the heap has no room for
+            // it, the path is simply asked again.
+            let mut copy = String::new();
+            if copy.try_reserve_exact(path.len()).is_err() || entries.try_reserve(1).is_err() {
+                return;
+            }
+            copy.push_str(path);
             entries.push(Entry {
-                path: path.to_string(),
+                path: copy,
                 size,
                 data: None,
             });

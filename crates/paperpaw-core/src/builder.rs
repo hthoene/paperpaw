@@ -953,59 +953,22 @@ impl Kernel {
     /// a plugin speaks.
     pub(crate) fn offer_choices(&mut self) {
         self.add_plugin_choices();
-        let mut presets: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(keymap_presets::STANDARD_NAME)];
-        presets.extend(
-            self.keys
-                .presets
-                .iter()
-                .map(|(id, _)| Cow::Owned(id.as_str().to_string())),
+        let presets = crate::font_refresh::choice_list(
+            &[keymap_presets::STANDARD_NAME],
+            self.keys.presets.iter().map(|(id, _)| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::KEYMAP_PRESET.as_str(), presets);
-        let mut families: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::DEFAULT_FONT)];
-        families.extend(
-            self.shared
-                .fonts
-                .families()
-                .into_iter()
-                .map(|f| Cow::Owned(f.to_string())),
+        self.offer_list(core_settings::KEYMAP_PRESET.as_str(), presets);
+        self.offer_font_choices();
+        let frames = crate::font_refresh::choice_list(
+            &[core_settings::PAGE_FRAME_SINGLE],
+            self.shared.page_layers.frames().map(|id| id.as_str()),
         );
-        let mut status: Vec<Cow<'static, str>> = alloc::vec![
-            Cow::Borrowed(core_settings::STATUS_FONT_UI),
-            Cow::Borrowed(core_settings::STATUS_FONT_BOOK),
-        ];
-        status.extend(families.iter().skip(1).cloned());
-        self.shared
-            .settings
-            .set_choices(core_settings::READING_FONT.as_str(), families);
-        self.shared
-            .settings
-            .set_choices(core_settings::STATUS_FONT.as_str(), status);
-        let mut frames: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::PAGE_FRAME_SINGLE)];
-        frames.extend(
-            self.shared
-                .page_layers
-                .frames()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
+        self.offer_list(core_settings::PAGE_FRAME.as_str(), frames);
+        let voices = crate::font_refresh::choice_list(
+            &[core_settings::VOICE_SYSTEM],
+            self.shared.voices.ids().map(|id| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::PAGE_FRAME.as_str(), frames);
-        let mut voices: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::VOICE_SYSTEM)];
-        voices.extend(
-            self.shared
-                .voices
-                .ids()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
-        );
-        self.shared
-            .settings
-            .set_choices(core_settings::VOICE.as_str(), voices);
+        self.offer_list(core_settings::VOICE.as_str(), voices);
         self.offer_reading_apps();
         self.shared.caps.speech = self.io.speech.system || !self.shared.voices.is_empty();
         self.shared.menus.set_capabilities(self.shared.caps);

@@ -2,6 +2,8 @@
 
 use alloc::vec::Vec;
 
+use paperpaw_text::FontError;
+
 use super::{Fonts, Id};
 
 impl Fonts {
@@ -10,9 +12,11 @@ impl Fonts {
     /// once loaded), e.g. Literata's bold from the card, where the
     /// firmware has none. Losing proposals stay unloaded.
     #[cfg(any(test, feature = "kernel"))]
-    pub(super) fn role_faces(&self) -> Vec<usize> {
+    pub(super) fn role_faces(&self, wanted: &mut Vec<usize>) -> Result<(), FontError> {
+        let no_room = |_| FontError::OutOfMemory;
         let position = |font: &Id| self.entries.iter().position(|e| e.id == *font);
-        let mut wanted: Vec<usize> = self.user.values().filter_map(position).collect();
+        wanted.try_reserve(self.user.len()).map_err(no_room)?;
+        wanted.extend(self.user.values().filter_map(position));
         let mut seen: Vec<&Id> = Vec::new();
         for (role, _, _) in &self.candidates {
             if seen.contains(&role)
@@ -21,6 +25,7 @@ impl Fonts {
             {
                 continue;
             }
+            seen.try_reserve(1).map_err(no_room)?;
             seen.push(role);
             let best = self
                 .candidates
@@ -28,8 +33,11 @@ impl Fonts {
                 .filter(|(r, _, _)| r == role)
                 .filter_map(|(_, font, priority)| Some((position(font)?, *priority)))
                 .max_by_key(|(_, priority)| *priority);
-            wanted.extend(best.map(|(entry, _)| entry));
+            if let Some((entry, _)) = best {
+                wanted.try_reserve(1).map_err(no_room)?;
+                wanted.push(entry);
+            }
         }
-        wanted
+        Ok(())
     }
 }

@@ -176,13 +176,20 @@ fn a_face_is_proposed_for_its_role_with_its_priority() {
 fn a_weight_that_differs_from_the_style_bits_is_noted_for_the_plugin() {
     let mut kernel = fresh();
     install_resources(&mut kernel, 5, FOLDER).unwrap();
-    assert!(kernel.shared.fonts.contains("factory.serif"));
+    // The face is a font file (a pack has no weight): where only packs are
+    // read it is left out, and nothing is told of its weight.
+    let outlines = paperpaw_sdk::text::OUTLINES;
+    assert_eq!(kernel.shared.fonts.contains("factory.serif"), outlines);
     let told = kernel.take_warnings();
     let note = told
         .iter()
-        .find(|warning| warning.message.starts_with("factory.serif: the weight"))
-        .expect("the weight is noted");
-    assert!(matches!(&note.source, crate::WarningSource::Plugin(id) if id.as_str() == "factory"));
+        .find(|warning| warning.message.starts_with("factory.serif: the weight"));
+    assert_eq!(note.is_some(), outlines);
+    if let Some(note) = note {
+        assert!(
+            matches!(&note.source, crate::WarningSource::Plugin(id) if id.as_str() == "factory")
+        );
+    }
 }
 
 #[test]
@@ -198,6 +205,41 @@ fn a_font_file_is_left_out_where_only_packs_are_read() {
             .ends_with("only reads fonts made for it (.ppfp)")
     });
     assert_eq!(noted, !outlines);
+    // A face left out proposes no font for its role.
+    assert_eq!(
+        kernel.shared.fonts.proposals("core.font-ui").count(),
+        usize::from(outlines)
+    );
+}
+
+#[test]
+fn an_empty_folder_is_no_folder_and_a_trailing_slash_is_the_same_folder() {
+    let mut kernel = fresh();
+    for folder in [Some(""), Some("/")] {
+        let result = install_resources(&mut kernel, 1, folder);
+        assert!(
+            matches!(result, Err(Error::Status(host_glue::ERR_UNSUPPORTED))),
+            "{folder:?}: {result:?}"
+        );
+        nothing_published(&kernel);
+    }
+    install_resources(&mut kernel, 1, Some("plugins/factory/")).unwrap();
+    // The file is named from the folder once (it is not on the test card).
+    kernel
+        .shared
+        .settings
+        .set(
+            "core.reading-font",
+            paperpaw_sdk::SettingValue::Text("Serif".into()),
+        )
+        .unwrap();
+    kernel.apply_reading_font();
+    let told = kernel.take_warnings();
+    assert!(
+        told.iter().any(|warning| warning.message
+            == "plugins/factory/fonts/serif.ppfp: font could not be loaded"),
+        "{told:?}"
+    );
 }
 
 #[test]
@@ -263,4 +305,59 @@ fn every_allocation_of_an_install_with_resources_refuses_whole() {
         reached_success,
         "the fault walk reached a fully admitted owner"
     );
+}
+
+/// The choices of setting `id`.
+fn offered(kernel: &crate::Kernel, id: &str) -> Vec<String> {
+    match &kernel.shared.settings.spec(id).unwrap().kind {
+        paperpaw_sdk::SettingKind::Choice(choices) => choices.iter().map(String::from).collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn every_allocation_of_the_font_refresh_keeps_what_was_or_makes_what_is_new() {
+    const SETTINGS: [&str; 2] = ["core.reading-font", "core.status-font"];
+    // The user's choice is made before the refresh, which is what fails.
+    let choose = |kernel: &mut crate::Kernel| {
+        for id in SETTINGS {
+            let value = paperpaw_sdk::SettingValue::Text("Serif".into());
+            let _ = kernel.shared.settings.set(id, value);
+        }
+    };
+    let refresh = |kernel: &mut crate::Kernel| {
+        kernel.offer_font_choices();
+        kernel.apply_reading_font();
+        kernel.apply_status_font();
+    };
+    // What the refresh makes where every allocation is granted.
+    let mut twin = fresh();
+    admit_resources(&mut twin, 1, FOLDER).unwrap();
+    choose(&mut twin);
+    refresh(&mut twin);
+    let made: Vec<_> = SETTINGS.map(|id| offered(&twin, id)).into();
+    assert!(made[0].iter().any(|family| family == "Serif"), "{made:?}");
+    let (mut kept, mut done) = (0, 0);
+    for allocation in 1..400 {
+        let mut kernel = fresh();
+        admit_resources(&mut kernel, 1, FOLDER).unwrap();
+        let before: Vec<_> = SETTINGS.map(|id| offered(&kernel, id)).into();
+        choose(&mut kernel);
+        arm_failure(allocation);
+        refresh(&mut kernel);
+        arm_failure(0);
+        for (at, id) in SETTINGS.into_iter().enumerate() {
+            let after = offered(&kernel, id);
+            assert!(
+                after == before[at] || after == made[at],
+                "{id} at {allocation}: {after:?}"
+            );
+            kept += usize::from(after == before[at]);
+            done += usize::from(after == made[at]);
+        }
+        // The family in use is the one before or the one chosen, whole.
+        assert!(matches!(kernel.shared.fonts.family(), None | Some("Serif")));
+    }
+    assert!(kept > 0, "a refusal was reached");
+    assert!(done > 0, "a refresh was made");
 }
