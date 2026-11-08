@@ -28,6 +28,10 @@ mod letters;
 mod list;
 mod native_entry;
 #[doc(hidden)]
+pub mod native_item;
+#[doc(hidden)]
+pub mod native_list;
+#[doc(hidden)]
 pub mod native_model;
 /// The interface-7 plugin store (slice 1; see `PORTING-7.md`).
 pub mod native_plugin;

@@ -8,7 +8,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 8] = [
     // The dashboard draws its pages of widgets and tools as before (widgets
     // composed with `ui.compose`), pages by swipe or buttons.
     Case {
@@ -35,6 +35,20 @@ const CASES: [Case; 6] = [
         name: "home-footer-items-editor",
         golden: None,
         blocked_by: &["H1", "H4"],
+    },
+    // The grid's columns or rows changed: every page fitted to it, what has no
+    // room carried to the next page. Widgets' sizes come from `widget_measure`
+    // of an instance the dashboard makes, so this runs with the dashboard.
+    Case {
+        name: "home-grid-reflow",
+        golden: None,
+        blocked_by: &["HOME-dashboard-slice", "H3"],
+    },
+    // The tools drawer: every tool as an icon in a grid.
+    Case {
+        name: "home-drawer",
+        golden: None,
+        blocked_by: &["HOME-dashboard-slice", "H1", "H4", "517"],
     },
     // The first-time hints on the dashboard.
     Case {
@@ -86,13 +100,25 @@ fn home_footer_items_editor() {
 }
 
 #[test]
+#[ignore = "BLOCKED HOME-dashboard-slice: the pages are fitted by the dashboard, which measures widgets"]
+fn home_grid_reflow() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED HOME-dashboard-slice: the drawer shares the dashboard's tool cells; icons wait for #517"]
+fn home_drawer() {
+    CASES[5].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1: help hints are not declared for the native screen yet"]
 fn home_help_hints() {
-    CASES[4].refuse().unwrap();
+    CASES[6].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
 fn home_footer_items_editor_grip_drag() {
-    CASES[5].refuse().unwrap();
+    CASES[7].refuse().unwrap();
 }

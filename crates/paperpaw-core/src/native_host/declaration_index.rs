@@ -34,8 +34,12 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("menu.section", 26),
     ("menu.hide", 27),
     ("menu.describe", 28),
+    ("registration.stage", 29),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
+/// Category of `registration.stage`: keyed by the stage's full id and the
+/// token, so one plugin may subscribe two tokens to a stage, never one twice.
+pub(crate) const STAGE_SUBSCRIPTION_KIND: u8 = KIND_TABLE[29].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
 const KIND_MASK: u16 = 0x7f;
 const EXTENSION: u16 = 1 << 15;
@@ -113,11 +117,31 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::MenuSection(r) => (KIND_TABLE[26].1, r.name),
         Record::MenuHide(r) => (KIND_TABLE[27].1, r.menu),
         Record::MenuDescribe(r) => (KIND_TABLE[28].1, r.item),
+        Record::RegistrationStage(r) => (STAGE_SUBSCRIPTION_KIND, r.stage),
         _ => return None,
     })
 }
-/// All unique-key fields, borrowed from the record without joining strings.
-fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
+/// A token as decimal text in `scratch` (a key field is text).
+fn token_text(token: u32, scratch: &mut [u8; 10]) -> &str {
+    let mut at = scratch.len();
+    let mut rest = token;
+    loop {
+        at -= 1;
+        scratch[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&scratch[at..]).unwrap_or("0")
+}
+
+/// All unique-key fields, borrowed from the record without joining strings
+/// (a number is written into `scratch`).
+fn name_parts<'a>(
+    record: Record<'a>,
+    scratch: &'a mut [u8; 10],
+) -> Option<(u8, [&'a str; 4], usize)> {
     let (kind, name) = key(record)?;
     let mut parts = [name, "", "", ""];
     let len = match record {
@@ -147,13 +171,18 @@ fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
             parts[1] = r.item;
             2
         }
+        Record::RegistrationStage(r) => {
+            parts[1] = token_text(r.token, scratch);
+            2
+        }
         _ => 1,
     };
     Some((kind, parts, len))
 }
 
 pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
-    let (kind, parts, len) = name_parts(record)?;
+    let mut scratch = [0; 10];
+    let (kind, parts, len) = name_parts(record, &mut scratch)?;
     Some(if len == 1 {
         name_hash(kind, parts[0])
     } else {
@@ -163,7 +192,10 @@ pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
 
 /// Hash equality never replaces comparison of every original key field.
 pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
-    let (Some((ak, a, al)), Some((bk, b, bl))) = (name_parts(a), name_parts(b)) else {
+    let (mut scratch_a, mut scratch_b) = ([0; 10], [0; 10]);
+    let (Some((ak, a, al)), Some((bk, b, bl))) =
+        (name_parts(a, &mut scratch_a), name_parts(b, &mut scratch_b))
+    else {
         return false;
     };
     ak == bk
@@ -175,7 +207,8 @@ pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
 }
 
 pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bool {
-    let Some((actual_kind, parts, len)) = name_parts(record) else {
+    let mut scratch = [0; 10];
+    let Some((actual_kind, parts, len)) = name_parts(record, &mut scratch) else {
         return false;
     };
     actual_kind == kind

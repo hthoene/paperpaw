@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 19;
+const KIND_COUNT: usize = 28;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -93,8 +93,22 @@ pub(crate) enum Kind {
     MenuSection,
     MenuHide,
     MenuDescribe,
+    // REG declarations (`registry.md` section 6). `setup.step` (category 8)
+    // joins as the next variant, with `KIND_COUNT` one higher, when the host
+    // admits it.
+    SlotSpec,
+    SlotOffer,
+    KeyBind,
+    SettingDefault,
+    SettingChoice,
+    PresetSpec,
+    PresetValue,
+    /// `stage.spec`: a stage the plugin owns.
+    Stage,
+    /// `registration.stage`: the plugin's token on a stage (any owner's).
+    Subscription,
 }
-const _: () = assert!(Kind::MenuDescribe as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::Subscription as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -117,6 +131,15 @@ impl Kind {
             Self::MenuSection => 26,
             Self::MenuHide => 27,
             Self::MenuDescribe => 28,
+            Self::SlotSpec => 9,
+            Self::SlotOffer => 10,
+            Self::KeyBind => 11,
+            Self::SettingDefault => 12,
+            Self::SettingChoice => 13,
+            Self::PresetSpec => 14,
+            Self::PresetValue => 15,
+            Self::Stage => super::declaration_index::STAGE_KIND,
+            Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
         }
     }
 
@@ -141,6 +164,15 @@ impl Kind {
             Record::MenuSection(_) => Self::MenuSection,
             Record::MenuHide(_) => Self::MenuHide,
             Record::MenuDescribe(_) => Self::MenuDescribe,
+            Record::SlotSpec(_) => Self::SlotSpec,
+            Record::SlotOffer(_) => Self::SlotOffer,
+            Record::KeyBind(_) => Self::KeyBind,
+            Record::SettingDefault(_) => Self::SettingDefault,
+            Record::SettingChoice(_) => Self::SettingChoice,
+            Record::PresetSpec(_) => Self::PresetSpec,
+            Record::PresetValue(_) => Self::PresetValue,
+            Record::StageSpec(_) => Self::Stage,
+            Record::RegistrationStage(_) => Self::Subscription,
             _ => return None,
         })
     }
@@ -357,6 +389,11 @@ impl PendingDeclarations {
             });
         }
         let image = reference.is_some();
+        if self.kinds[Kind::Subscription as usize].len() + counts[Kind::Subscription as usize]
+            > super::declaration_checks::STAGE_SUBSCRIPTIONS_MAX
+        {
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
         let (resident, index_bytes, image_entries) = self.charge(counts, image, bytes.len())?;
         let reference = match reference {
             Some(reference) => reference,
@@ -433,6 +470,18 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // REG declarations share the aggregate byte cap as well.
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // Stage specs and subscriptions: the plugin's eight
+                // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
                 usize::MAX,
             ];
@@ -639,6 +688,19 @@ impl DeclarationStore {
         name: &str,
         visit: &mut dyn for<'a> FnMut(Record<'a>),
     ) -> bool {
+        self.find_parts(plugin, kind, &[name], visit)
+    }
+
+    /// Lookup by every key field of the kind (one for a plain name; a slot
+    /// offer is `[slot, screen]`, a key binding `[layer, input, when_key,
+    /// when_value]`, a choice `[key, value]`, a preset value `[preset, key]`).
+    pub(crate) fn find_parts(
+        &self,
+        plugin: &str,
+        kind: Kind,
+        parts: &[&str],
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
         let Some((index, owner)) = self.owners.iter().enumerate().find_map(|(index, owner)| {
             owner
                 .as_ref()
@@ -648,7 +710,7 @@ impl DeclarationStore {
             return false;
         };
         let category = kind.category();
-        let hash = super::declaration_index::name_hash(category, name);
+        let hash = super::declaration_index::composite_hash(category, parts);
         let slots = &owner.kinds[kind as usize];
         let from = slots.partition_point(|slot| slot.hash < hash);
         for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
@@ -661,9 +723,7 @@ impl DeclarationStore {
             };
             let mut found = false;
             self.with_record(key, &mut |record| {
-                if super::declaration_index::key(record).is_some_and(|(_, actual)| {
-                    super::declaration_index::same_name(category, actual, name)
-                }) {
+                if super::declaration_index::matches_parts(record, category, parts) {
                     found = true;
                     visit(record);
                 }
@@ -808,6 +868,14 @@ fn check_indexed_name(
     }
     Ok(())
 }
+
+#[path = "declaration_stages.rs"]
+mod stages;
+#[allow(
+    unused_imports,
+    reason = "read by the broker's adapter when slot 32 is wired"
+)]
+pub(crate) use stages::{StageLimits, StageSubscriber};
 
 #[cfg(test)]
 #[path = "declaration_store_tests.rs"]

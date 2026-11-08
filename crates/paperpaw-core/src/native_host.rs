@@ -44,6 +44,7 @@ pub mod host_slot;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
+pub use ui_service::check_ask;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -269,6 +270,7 @@ mod native_ui_directory;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+mod native_resources;
 
 #[path = "native_host/native_action.rs"]
 pub(crate) mod native_action;

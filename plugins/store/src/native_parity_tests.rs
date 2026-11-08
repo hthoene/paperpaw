@@ -8,7 +8,30 @@ use crate::native_model as native;
 use alloc::{string::String, vec::Vec};
 use proptest::prelude::*;
 
-fn old_entry(n: &native::Entry) -> Old {
+/// A field past what the store writes into a line (`MAX_NAME`, `MAX_SUMMARY`):
+/// the interface-6 reading takes it, the native one refuses the line on
+/// purpose (the store's own lines never hold one; see `PORTING-7.md`).
+fn over_cap(e: &Old) -> bool {
+    [&e.id, &e.version, &e.sdk, &e.author, &e.licence, &e.name]
+        .iter()
+        .any(|t| t.len() > native::MAX_NAME)
+        || e.summary.len() > native::MAX_SUMMARY
+}
+
+/// What the native reading makes of `line` against the old one: the same,
+/// except that a line with a field over its cap is refused.
+fn same_reading(line: &str) -> Result<(), TestCaseError> {
+    let new = native::Entry::parse(line).unwrap();
+    let old = Old::parse(line);
+    if old.as_ref().is_some_and(over_cap) {
+        prop_assert!(new.is_none(), "over the cap, old reads it: {line:?}");
+    } else {
+        prop_assert_eq!(new.as_ref().map(old_entry), old);
+    }
+    Ok(())
+}
+
+pub(crate) fn old_entry(n: &native::Entry) -> Old {
     Old {
         id: n.id.clone(),
         name: n.name.clone(),
@@ -82,16 +105,12 @@ proptest! {
         let line = entry.line().unwrap();
         prop_assert_eq!(&line, &old_entry(&entry).line());
         // And read back the same by both.
-        let new = native::Entry::parse(line.trim_end_matches('\n')).unwrap();
-        let old = Old::parse(line.trim_end_matches('\n'));
-        prop_assert_eq!(new.as_ref().map(old_entry), old);
+        same_reading(line.trim_end_matches('\n'))?;
     }
 
     #[test]
     fn any_line_is_read_as_before(line in "\\PC{0,80}|[0-9a-z\\t]{0,60}") {
-        let new = native::Entry::parse(&line).unwrap();
-        let old = Old::parse(&line);
-        prop_assert_eq!(new.as_ref().map(old_entry), old);
+        same_reading(&line)?;
     }
 
     #[test]
@@ -122,13 +141,15 @@ proptest! {
     fn hex_is_read_as_before(text in "[0-9a-fA-F]{0,70}|\\PC{0,70}") {
         let old32: Option<[u8; 32]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
         let old64: Option<[u8; 64]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
-        prop_assert_eq!(native::hex_array::<32>(&text), old32);
-        prop_assert_eq!(native::hex_array::<64>(&text), old64);
+        prop_assert_eq!(paperpaw_sdk::digest::hex::decode_array::<32>(&text), old32);
+        prop_assert_eq!(paperpaw_sdk::digest::hex::decode_array::<64>(&text), old64);
     }
 
     #[test]
     fn a_build_fits_as_before(
         interface in proptest::option::of(0u16..12),
+        minor in proptest::option::of(0u16..6),
+        have_minor in proptest::option::of(0u16..6),
         api in proptest::option::of(0u32..800),
         families in proptest::option::of(any::<[u16; 8]>()),
         provides_api in 0u32..800,
@@ -140,10 +161,10 @@ proptest! {
         let have = have.map(|r| r % 6);
         let oldest = oldest.map(|r| r % 6);
         let families = families.map(|_| fam);
-        let n = native::Needs { interface, api, families };
-        let o = crate::needs::Needs { interface, api, families };
-        let np = native::Provides { api: provides_api, families: have, oldest, checks_families: checks };
-        let op = crate::needs::Provides { api: provides_api, families: have, oldest, checks_families: checks };
+        let n = native::Needs { interface, minor, api, families };
+        let o = crate::needs::Needs { interface, minor, api, families };
+        let np = native::Provides { minor: have_minor, api: provides_api, families: have, oldest, checks_families: checks };
+        let op = crate::needs::Provides { minor: have_minor, api: provides_api, families: have, oldest, checks_families: checks };
         let new = match np.fit(&n) {
             native::Fit::Yes => "yes",
             native::Fit::Newer => "newer",
@@ -244,4 +265,57 @@ fn a_long_list_of_revocations_is_bounded() {
     list.field("key", &"é".repeat(100_000)).unwrap();
     list.entry_done(&here, &author, &stopped).unwrap();
     assert!(list.pending().is_empty());
+}
+
+#[test]
+fn an_abi_is_a_fingerprint_or_major_dot_minor() {
+    use crate::native_model::Abi;
+    let f = paperpaw_sdk::native::Fingerprint::of(7, 0x1234);
+    assert_eq!(
+        Abi::parse(&alloc::format!("{f}")),
+        Some(Abi::Fingerprint(f))
+    );
+    assert_eq!(
+        Abi::parse(" 7.2 "),
+        Some(Abi::Dotted { major: 7, minor: 2 })
+    );
+    assert_eq!(Abi::parse("0.0"), Some(Abi::Dotted { major: 0, minor: 0 }));
+    assert_eq!(Abi::parse("7.65535").and_then(Abi::minor), Some(65535));
+    assert_eq!(Abi::parse("7.1").map(Abi::interface), Some(7));
+    for bad in [
+        "", ".", "7", "7.", ".1", "7.1.2", "07.1", "7.01", "7.-1", "+7.1", "7.x", "7.65536",
+        "70000.1", "7 .1", "٧.١", "7,1",
+    ] {
+        assert_eq!(Abi::parse(bad), None, "{bad:?}");
+    }
+}
+
+/// The one difference from the old reading: a field past 80 bytes (a summary
+/// past 300) is no line of the store's, which cuts what it writes.
+#[test]
+fn a_field_over_its_cap_is_read_by_the_old_code_and_refused_by_the_native() {
+    let line = |name: &str, summary: &str| {
+        alloc::format!("0\t10\t0\t1\t2\tid\t1.0.0\t1.0\tme\tMIT\t{name}\t{summary}")
+    };
+    for (name, summary, kept) in [
+        ("x".repeat(80), "s".repeat(300), true),
+        ("x".repeat(81), String::new(), false),
+        ("é".repeat(41), String::new(), false),
+        (String::new(), "s".repeat(301), false),
+    ] {
+        let line = line(&name, &summary);
+        let old = Old::parse(&line);
+        assert!(old.is_some(), "the old reading takes it");
+        assert_eq!(native::Entry::parse(&line).unwrap().is_some(), kept);
+    }
+}
+
+/// What the store writes is always within the caps, as the old code cut
+/// every field of the library before it wrote it (`cut`): a Beta 3 index holds
+/// no such line.
+#[test]
+fn what_the_old_code_cut_fits_the_caps() {
+    let name = "é".repeat(60);
+    let cut = crate::catalog::cut(&name, native::MAX_NAME);
+    assert!(cut.len() <= native::MAX_NAME);
 }

@@ -54,10 +54,22 @@ pub const X4_PROFILE: crate::metadata::Profile<'static> = crate::metadata::Profi
     entry_bytes: X4_ENTRY_BYTES as u16,
 };
 
+/// The entry's length on the ESP32-S3 (profile `esp32s3-xtensa-lx7-ilp32-windowed-le`,
+/// `abi/entry.md`, "The Xtensa profile"; target 9, decision 142).
+pub const S3_ENTRY_BYTES: u32 = 20;
+/// The ESP32-S3's profile as the metadata check compares a record with it
+/// (`abi/abi.def`, `metadata.profiles`).
+pub const S3_PROFILE: crate::metadata::Profile<'static> = crate::metadata::Profile {
+    target: "esp32s3-xtensa-lx7-ilp32-windowed-le",
+    entry_layout: ENTRY_LAYOUT,
+    entry_bytes: S3_ENTRY_BYTES as u16,
+};
+
 /// What the host (the firmware) is, to compare a file with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Host {
-    /// The chip it runs on. Only the ESP32-C3 has a profile (`abi/entry.md`).
+    /// The chip it runs on: the ESP32-C3 (target 5) or the ESP32-S3 (target
+    /// 9); either has a profile (`abi/entry.md`).
     pub target: Chip,
     /// The interface major it speaks.
     pub abi_major: u16,
@@ -65,6 +77,12 @@ pub struct Host {
     pub minor: u16,
     /// The length of the entry in its target profile.
     pub entry_bytes: u32,
+    /// The alignment the entry has in its target profile (8 on the ESP32-C3,
+    /// where the packer and the linker script have always kept it, 4 on the
+    /// ESP32-S3: `PpEntry`).
+    pub entry_align: u32,
+    /// The target name the metadata record must carry (step 9).
+    pub profile_target: &'static str,
 }
 
 impl Host {
@@ -75,6 +93,21 @@ impl Host {
             abi_major: ABI_MAJOR,
             minor,
             entry_bytes: X4_ENTRY_BYTES,
+            entry_align: 8,
+            profile_target: X4_PROFILE.target,
+        }
+    }
+
+    /// The X4 Pro and the X4 Classic (ESP32-S3) at interface 7, minor
+    /// `minor` (target 9, decision 142).
+    pub const fn x4_pro(minor: u16) -> Host {
+        Host {
+            target: Chip::Esp32S3,
+            abi_major: ABI_MAJOR,
+            minor,
+            entry_bytes: S3_ENTRY_BYTES,
+            entry_align: 4,
+            profile_target: S3_PROFILE.target,
         }
     }
 }
@@ -93,8 +126,8 @@ pub enum Refusal {
     NewerFormat,
     /// A chip this build does not know.
     UnknownChip,
-    /// A chip for which this host has no profile (the X4 Pro's until an
-    /// Xtensa profile exists).
+    /// A host chip that has no profile (a host built for another chip: the
+    /// file is not even compared).
     NoProfile,
     /// Made for another chip than the host's.
     OtherChip,
@@ -149,6 +182,17 @@ pub struct RecordFacts {
 }
 
 impl RecordFacts {
+    /// The target name the record carries (`target_bytes` at 24, the text
+    /// right after the 32-byte prefix), or `None` if it does not lie in the
+    /// record. The generated reader (`metadata::check`) compares it with the
+    /// shell's profile again; this one makes step 9 refuse a file built for
+    /// the other chip's profile even where that reader is not run.
+    pub fn target(record: &[u8]) -> Option<&[u8]> {
+        const PREFIX_BYTES: usize = 32;
+        let len = usize::from(u16::from_le_bytes([*record.get(24)?, *record.get(25)?]));
+        record.get(PREFIX_BYTES..PREFIX_BYTES.checked_add(len)?)
+    }
+
     /// The facts of the metadata record `record` (the bytes at `meta_at`),
     /// read from its fixed prefix with every bound checked: `None` if it is
     /// not a record this host reads (wrong magic or layout, a prefix or a
@@ -288,15 +332,11 @@ impl Header5 {
             _ => return Err(Refusal::NewerFormat),
         }
         let target = Chip::from_id(le16(head, 6)).ok_or(Refusal::UnknownChip)?;
-        if host.target != Chip::Esp32C3 {
+        if !matches!(host.target, Chip::Esp32C3 | Chip::Esp32S3) {
             return Err(Refusal::NoProfile);
         }
         if target != host.target {
-            return Err(if target == Chip::Esp32S3 {
-                Refusal::NoProfile
-            } else {
-                Refusal::OtherChip
-            });
+            return Err(Refusal::OtherChip);
         }
         let abi_major = le16(head, 8);
         if abi_major < host.abi_major {
@@ -380,16 +420,21 @@ impl Header5 {
                 "the metadata record is not 4-aligned in the read-only data",
             ));
         }
-        if !self.entry.is_multiple_of(8)
+        if !self.entry.is_multiple_of(host.entry_align)
             || self
                 .entry
                 .checked_add(host.entry_bytes)
                 .is_none_or(|end| end > self.code_at)
         {
-            return Err(bad("the entry is not 8-aligned in the read-only data"));
+            return Err(bad("the entry is not aligned in the read-only data"));
         }
         if self.relocs > self.image_len / 4 {
             return Err(bad("more words to relocate than the image holds"));
+        }
+        // Target 9 has no hot code and no patches (`abi/ppn5.md`, "Target 9"):
+        // any other value is damage, refused before the image is read.
+        if host.target == Chip::Esp32S3 && (self.hot_at | self.hot_len | self.patches) != 0 {
+            return Err(bad("target 9 has no hot code and no patches"));
         }
         if self.hot_len == 0 {
             if self.hot_at != 0 {
@@ -587,6 +632,11 @@ impl Header5 {
         }
         if record_bytes.len() != self.meta_len as usize {
             return Err(EntryRefusal::RecordLength);
+        }
+        // The record is built for this host's profile (the C3's record on the
+        // S3 and the other way round are refused here, before `make`).
+        if RecordFacts::target(record_bytes) != Some(host.profile_target.as_bytes()) {
+            return Err(EntryRefusal::RecordDisagrees);
         }
         if placed_base.checked_add(self.meta_at) != Some(entry.metadata_ptr)
             || entry.metadata_len != self.meta_len

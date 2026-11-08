@@ -90,22 +90,27 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::MenuSection(section) => section_check(plugin_id, section),
         Record::MenuHide(hide) => hide_check(hide),
         Record::MenuDescribe(describe) => describe_check(plugin_id, describe),
-        // Checked, then refused until the host runs stages
-        // (`docs/abi/stages-services.md` section 1).
-        Record::StageSpec(spec) => stage_spec_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::RegistrationStage(registration) => {
-            stage_registration_check(registration).and(Err(ERR_UNSUPPORTED))
-        }
-        // Registry declarations (`docs/abi/registry.md` section 6): refused
-        // until the host admits them (Core, REG hand-off).
-        Record::SetupStep(_)
-        | Record::SlotSpec(_)
+        // Stages (`docs/abi/stages-services.md` section 1.1): checked here;
+        // the whole-plugin rules (eight subscriptions, none to its own stage,
+        // one name and one token per stage) are `declaration_checks`.
+        Record::StageSpec(spec) => stage_spec_check(plugin_id, spec),
+        Record::RegistrationStage(registration) => stage_registration_check(registration),
+        // Registry declarations (`docs/abi/registry.md` section 6): checked
+        // here, admitted into the declaration store and the catalog. Their
+        // per-plugin duplicates and own-screen references are checked over the
+        // whole declaration set at commit (`declaration_checks.rs`).
+        Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
         | Record::PresetSpec(_)
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
-        | Record::PresetValue(_) => {
+        | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
+        // The one registry declaration not admitted yet: checked, then
+        // refused until the host admits it together with its own cross-checks
+        // (a step's name against the plugin's actions, screens, settings and
+        // menu items, `registry.md` section 6).
+        Record::SetupStep(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
         }
         // Input and help declarations (`docs/abi/ui.md`): refused until the
@@ -802,7 +807,7 @@ pub(crate) fn stage_spec_check(plugin_id: &str, spec: &StageSpec<'_>) -> Check {
         max_reply,
         max_records,
     } = spec;
-    relative(plugin_id, name)?;
+    stage_name(plugin_id, name)?;
     let payload = 1..=STAGE_CALL_PAYLOAD_MAX_BYTES as u32;
     ensure(payload.contains(max_input) && payload.contains(max_reply))?;
     ensure((1..=STAGE_MAX_RECORDS).contains(max_records))?;
@@ -822,7 +827,26 @@ pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> 
         signature: _,
     } = registration;
     full_id(stage)?;
+    // `<plugin>.<name>` splits at its last dot: both parts must be there, and
+    // the name is one segment of at most `STAGE_NAME_MAX_BYTES`.
+    let (plugin, name) = stage.rsplit_once('.').ok_or(ERR_INVALID)?;
+    ensure(!plugin.is_empty() && !name.is_empty() && name.len() <= STAGE_NAME_MAX_BYTES)?;
     ensure(i16::try_from(*order).is_ok())
+}
+
+/// Longest stage name (one segment of the full id).
+pub(crate) const STAGE_NAME_MAX_BYTES: usize = 64;
+
+/// A stage's own name is exactly one id segment: `[a-z0-9-]`, 1..=64 bytes,
+/// no dot, so the full id `<plugin>.<name>` splits at its last dot even though
+/// plugin ids contain dots (`stages-services.md` section 1.1).
+fn stage_name(plugin_id: &str, name: &str) -> Check {
+    ensure(
+        !name.is_empty()
+            && name.len() <= STAGE_NAME_MAX_BYTES
+            && name.bytes().all(is_name_byte)
+            && plugin_id.len() + 1 + name.len() <= FULL_ID_MAX_BYTES,
+    )
 }
 
 #[path = "declarations_docs.rs"]

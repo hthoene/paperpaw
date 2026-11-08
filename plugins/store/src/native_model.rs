@@ -9,7 +9,8 @@
 //! in a way that can panic.
 use alloc::string::String;
 use alloc::vec::Vec;
-use paperpaw_sdk::native::{Error, INTERFACE, keys::MAX_REVOKED};
+use paperpaw_sdk::digest::hex;
+use paperpaw_sdk::native::{Error, Fingerprint, INTERFACE, keys::MAX_REVOKED};
 use paperpaw_ui_kit::{
     mem::push,
     text::{concat, copy, decimal_u64},
@@ -286,6 +287,74 @@ pub fn keep_in_section(ids: &mut Vec<String>, id: &str) -> Result<bool, Error> {
     Ok(true)
 }
 
+/// What a build's `abi` says it was made for: the fingerprint of format 4
+/// (16 hexadecimal digits), or `<major>.<needs_minor>` of format 5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Abi {
+    /// Format 4: the build's own, chip and draft included.
+    Fingerprint(Fingerprint),
+    /// Format 5: the interface major and the newest minor the build uses.
+    Dotted {
+        /// The interface major.
+        major: u16,
+        /// The newest minor of it the build needs.
+        minor: u16,
+    },
+}
+
+impl Abi {
+    /// Either form; `None` for anything else (an empty part, a sign, a
+    /// third number, leading zeros, a number past 16 bits).
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Abi> {
+        let text = text.trim();
+        let Some((major, minor)) = text.split_once('.') else {
+            return Fingerprint::parse(text).map(Abi::Fingerprint);
+        };
+        let number = |part: &str| {
+            let plain = !part.is_empty()
+                && part.len() <= 5
+                && part.bytes().all(|b| b.is_ascii_digit())
+                && (part == "0" || !part.starts_with('0'));
+            plain.then(|| part.parse::<u16>().ok()).flatten()
+        };
+        Some(Abi::Dotted {
+            major: number(major)?,
+            minor: number(minor)?,
+        })
+    }
+
+    /// The interface it names.
+    #[must_use]
+    pub const fn interface(self) -> u16 {
+        match self {
+            Abi::Fingerprint(f) => f.interface(),
+            Abi::Dotted { major, .. } => major,
+        }
+    }
+
+    /// The minor it needs, where it names one.
+    #[must_use]
+    pub const fn minor(self) -> Option<u16> {
+        match self {
+            Abi::Fingerprint(_) => None,
+            Abi::Dotted { minor, .. } => Some(minor),
+        }
+    }
+
+    /// Whether a build of this `abi` is made for the device: a fingerprint
+    /// must be the device's own; a dotted one has no draft or chip of its own
+    /// (the build's `device` is the target) and [`Provides::fit`] judges its
+    /// major and minor.
+    #[must_use]
+    pub fn is_for(self, device: Option<Fingerprint>) -> bool {
+        match self {
+            Abi::Fingerprint(f) => device == Some(f),
+            Abi::Dotted { .. } => true,
+        }
+    }
+}
+
 /// The families of shared functions a build or a firmware has.
 pub const FAMILIES: usize = 8;
 
@@ -294,6 +363,9 @@ pub const FAMILIES: usize = 8;
 pub struct Needs {
     /// The plugin interface it was built for.
     pub interface: Option<u16>,
+    /// The newest minor of that interface it uses (`needs_minor`), where the
+    /// library names it as `7.<minor>`.
+    pub minor: Option<u16>,
     /// The bytes of the firmware's table it uses.
     pub api: Option<u32>,
     /// The revision of each family it uses, 0 for the others; whole, or not
@@ -316,6 +388,9 @@ pub enum Fit {
 /// What the firmware here provides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Provides {
+    /// The newest minor of the interface it speaks (`Native::minor`, draft
+    /// 29); `None` where it is not known yet: the minor is not checked.
+    pub minor: Option<u16>,
     /// The bytes of its table.
     pub api: u32,
     /// The revision of each family it has (0: none).
@@ -335,7 +410,12 @@ impl Provides {
             return Fit::Older;
         }
         let mut older = false;
-        let mut newer = interface > INTERFACE || needs.api.is_some_and(|api| api > self.api);
+        let mut newer = interface > INTERFACE
+            || needs.api.is_some_and(|api| api > self.api)
+            || needs
+                .minor
+                .zip(self.minor)
+                .is_some_and(|(need, have)| need > have);
         let used = needs.families.filter(|_| self.checks_families);
         if let Some(used) = used {
             for (i, &rev) in used.iter().enumerate().filter(|(_, rev)| **rev != 0) {
@@ -410,24 +490,6 @@ pub fn list_url(
     ])
 }
 
-/// The bytes a hexadecimal text of exactly `2 * N` digits names; `None` for
-/// any other text. Nothing is allocated.
-#[must_use]
-pub fn hex_array<const N: usize>(text: &str) -> Option<[u8; N]> {
-    let bytes = text.as_bytes();
-    if bytes.len() != N * 2 {
-        return None;
-    }
-    let mut out = [0; N];
-    for (byte, pair) in out.iter_mut().zip(bytes.as_chunks::<2>().0) {
-        let [high, low] = *pair;
-        let high = char::from(high).to_digit(16)?;
-        let low = char::from(low).to_digit(16)?;
-        *byte = u8::try_from(high * 16 + low).ok()?;
-    }
-    Some(out)
-}
-
 /// Entries of a list of revocations looked at, most: a bound on the reading,
 /// apart from what is kept. Past it a list is not read further.
 pub const MAX_READ: usize = 4096;
@@ -492,8 +554,8 @@ impl Revocations {
         author_of: &dyn Fn(&str) -> Option<[u8; 32]>,
         stopped: &dyn Fn() -> Vec<String>,
     ) -> Result<(), Error> {
-        let key = hex_array::<32>(&self.key);
-        let signature = hex_array::<64>(&self.signature);
+        let key = hex::decode_array::<32>(&self.key);
+        let signature = hex::decode_array::<64>(&self.signature);
         let plugin = core::mem::take(&mut self.plugin);
         self.key.clear();
         self.signature.clear();

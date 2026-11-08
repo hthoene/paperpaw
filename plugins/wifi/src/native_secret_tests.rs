@@ -61,7 +61,7 @@ fn draw(buf: &mut [u8]) -> Result<bool, Error> {
 }
 
 fn text(drawn: Option<Drawn>) -> Option<String> {
-    drawn.map(|d| d.text.as_str().to_string())
+    drawn.map(|d| d.text().as_str().to_string())
 }
 
 #[test]
@@ -74,10 +74,10 @@ fn drawn_texts_are_the_texts_they_were() {
             let new = own::token(chars, &mut draw).unwrap();
             assert_eq!(
                 old,
-                Some(new.text.as_str().to_string()),
+                Some(new.text().as_str().to_string()),
                 "token {kind} {chars}"
             );
-            assert!(new.strong);
+            assert!(new.is_strong());
         }
         for chars in [0, 1, 5, 15, 40, 128] {
             start(kind);
@@ -95,7 +95,7 @@ fn drawn_texts_are_the_texts_they_were() {
     let drawn = own::readable(15, &mut draw).unwrap().unwrap();
     assert!(
         drawn
-            .text
+            .text()
             .as_str()
             .chars()
             .all(|c| own::READABLE.contains(c))
@@ -113,7 +113,7 @@ fn a_weak_draw_is_told_and_a_refused_one_is_the_error() {
     };
     start(4);
     let drawn = own::readable(40, &mut weak).unwrap().unwrap();
-    assert!(!drawn.strong);
+    assert!(!drawn.is_strong());
     assert!(drawn.into_strong().is_none());
     let mut strong_draw = |buf: &mut [u8]| {
         fill(buf);
@@ -206,7 +206,7 @@ proptest! {
         STATE.set(skip);
         let old = old_source().token(chars.min(51));
         STATE.set(skip);
-        let new = own::token(chars.min(51), &mut draw).unwrap().text.as_str().to_string();
+        let new = own::token(chars.min(51), &mut draw).unwrap().text().as_str().to_string();
         prop_assert_eq!(old, Some(new));
     }
 }
@@ -273,11 +273,11 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     for kind in [0, 4] {
         sweep(|| {
             start(kind);
-            own::token(13, &mut draw).map(|d| d.text.as_str().len())
+            own::token(13, &mut draw).map(|d| d.text().as_str().len())
         });
         sweep(|| {
             start(kind);
-            own::readable(15, &mut draw).map(|d| d.map(|d| d.text.as_str().len()))
+            own::readable(15, &mut draw).map(|d| d.map(|d| d.text().as_str().len()))
         });
     }
     sweep(|| own::grouped("acdefhkmnprtwxy").map(|t| t.len()));
@@ -287,4 +287,37 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     sweep(|| known::ssids_of(["Home", "Work"]).map(|l| l.len()));
     let list = known::ssids_of(["Home", "Work"]).unwrap();
     sweep(|| known::known_with(&list, |n| Password::new(n).map(Some)).map(|k| k.len()));
+}
+
+#[test]
+fn the_own_network_is_made_of_strong_draws_only() {
+    let mut strong = |buf: &mut [u8]| {
+        fill(buf);
+        Ok(true)
+    };
+    start(9);
+    let own = own::Own::draw("  My Reader  ", &mut strong)
+        .unwrap()
+        .unwrap();
+    assert_eq!(own.ssid(), "My Reader");
+    assert_eq!(own.password().as_str().len(), 15);
+    assert_eq!(own.token().as_str().len(), 13);
+    let mut weak = |buf: &mut [u8]| {
+        fill(buf);
+        Ok(false)
+    };
+    assert!(own::Own::draw("x", &mut weak).unwrap().is_none());
+    // A weak second draw (the token) takes the network away as well.
+    let mut calls = 0;
+    let mut late = |buf: &mut [u8]| {
+        fill(buf);
+        calls += 1;
+        Ok(calls < 2)
+    };
+    assert!(own::Own::draw("x", &mut late).unwrap().is_none());
+    let mut refused = |_: &mut [u8]| Err(Error::Unsupported);
+    assert_eq!(
+        own::Own::draw("x", &mut refused).unwrap_err(),
+        Error::Unsupported
+    );
 }

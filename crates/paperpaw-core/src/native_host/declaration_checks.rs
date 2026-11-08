@@ -1,11 +1,17 @@
 //! Allocation-free cross-record checks over image and owned declarations.
 use super::{
-    declaration_index::{key, same_name},
+    declaration_index::{STAGE_KIND, STAGE_SUBSCRIPTION_KIND, key, same_name},
     raw_declarations::RawDeclarations,
     registrations::*,
     staged::Declarations,
 };
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID};
+
+/// Most stage subscriptions one plugin declares.
+pub(crate) const STAGE_SUBSCRIPTIONS_MAX: usize = 8;
+
+/// Index category of `screen.spec` (`declaration_index::KIND_TABLE`).
+const KIND_SCREEN: u8 = 5;
 
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
@@ -137,6 +143,17 @@ impl<'a> View<'a> {
             .filter(|entry| entry.kind() == 0)
             .count()
             + self.owned.groups().len();
+        // Stage subscriptions are the plugin's own declarations, so the
+        // plugin can fix a ninth (`stages-services.md` section 1.1).
+        let subscriptions = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == STAGE_SUBSCRIPTION_KIND)
+            .count();
+        if subscriptions > STAGE_SUBSCRIPTIONS_MAX {
+            return Err(ERR_FULL);
+        }
         let mut result = Ok(());
         self.visit(&mut |record| {
             if result.is_err() {
@@ -146,6 +163,7 @@ impl<'a> View<'a> {
                 Record::SettingSpec(spec) => self.require_group(spec.group),
                 Record::SettingGroup(group) => self.ancestry(group.parent, groups),
                 Record::SettingExtra(extra) => self.follow_kind(&extra),
+                Record::RegistrationStage(registration) => self.not_own_stage(&registration),
                 // An item of the plugin's own must exist; another plugin's may
                 // come later (`screens-input.md` section 1).
                 Record::MenuEntry(entry) => self.require_item(entry.item),
@@ -153,6 +171,10 @@ impl<'a> View<'a> {
                 Record::MenuNeed(need) => self.require_item(need.item),
                 Record::MenuHide(hide) => self.require_item(hide.item),
                 Record::MenuDescribe(describe) => self.require_own(describe.item),
+                // `registry.md` section 6: an offer names a declared screen of
+                // the declaring plugin. Everything else REG declares refers to
+                // other plugins' items too, so it resolves where it is read.
+                Record::SlotOffer(offer) => self.require_screen(offer.screen),
                 _ => Ok(()),
             };
         })?;
@@ -208,6 +230,14 @@ impl<'a> View<'a> {
         }
         Ok(())
     }
+    fn require_screen(&self, id: &str) -> Result<(), i32> {
+        let name = own_name(self.plugin, id).ok_or(ERR_INVALID)?;
+        // Screens are kept only as raw declarations.
+        match self.raw.find(self.image, KIND_SCREEN, name)? {
+            Some(_) => Ok(()),
+            None => Err(ERR_INVALID),
+        }
+    }
     fn ancestry(&self, mut parent: &'a str, groups: usize) -> Result<(), i32> {
         let mut steps = 0;
         while let Some(name) = own_name(self.plugin, parent) {
@@ -216,6 +246,16 @@ impl<'a> View<'a> {
             if steps > groups {
                 return Err(ERR_INVALID);
             }
+        }
+        Ok(())
+    }
+    /// The owner is inside its own callback whenever its stage runs, so a
+    /// subscription to one of its own stages could only answer `ERR_BUSY`.
+    fn not_own_stage(&self, registration: &RegistrationStage<'_>) -> Result<(), i32> {
+        if let Some(name) = own_name(self.plugin, registration.stage)
+            && self.raw.find(self.image, STAGE_KIND, name)?.is_some()
+        {
+            return Err(ERR_INVALID);
         }
         Ok(())
     }
@@ -253,3 +293,7 @@ fn unique_names<'a>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "declaration_stage_checks_tests.rs"]
+mod stage_tests;
