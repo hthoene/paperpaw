@@ -110,6 +110,10 @@ pub(super) fn check(raw: &RawRecord<'_>) -> Result<(), i32> {
         wire::SERVICE_SOCK_STARTED_TAG => row::<wire::ServiceSockStarted>(raw),
         wire::SERVICE_SOCK_BYTES_TAG => row::<wire::ServiceSockBytes<'_>>(raw),
         wire::SERVICE_SOCK_PEER_TAG => row::<wire::ServiceSockPeer<'_>>(raw),
+        // The host's own usage producers (`data_services`) answer outside the
+        // generated op tables, through the same validator.
+        wire::SERVICE_USAGE_TAG => row::<wire::ServiceUsage>(raw),
+        wire::SERVICE_PLUGIN_USAGE_TAG => row::<wire::ServicePluginUsage<'_>>(raw),
         _ => Err(ERR_INVALID),
     }
 }

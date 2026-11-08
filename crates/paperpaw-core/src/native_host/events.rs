@@ -11,12 +11,11 @@
 //! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
-    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG,
-    EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
+    EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
     EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
-    EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
-    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
-    Record,
+    EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG,
+    EVENT_SUSPEND_TAG, EVENT_TICK_TAG, EventBatteryMeasured, EventPageTurned, EventResume,
+    EventStarted, EventStopping, EventSuspend, Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
