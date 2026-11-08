@@ -17,6 +17,8 @@ use paperpaw_i18n::Translator;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
 use paperpaw_sdk::{Env, Settings};
 
+#[path = "tests/book.rs"]
+mod book;
 #[path = "tests/busy.rs"]
 mod busy;
 #[path = "tests/change.rs"]
@@ -628,6 +630,12 @@ pub(super) struct Setup {
     pub(super) granted: bool,
     pub(super) wired: bool,
     pub(super) storage: bool,
+    /// The caller is in a format call for this book: kind, path, opened file.
+    pub(super) book: Option<(
+        crate::native_host::format_scope::BookKind,
+        &'static str,
+        &'static str,
+    )>,
 }
 
 pub(super) const NORMAL: Setup = Setup {
@@ -635,6 +643,7 @@ pub(super) const NORMAL: Setup = Setup {
     granted: true,
     wired: true,
     storage: true,
+    book: None,
 };
 
 pub(super) fn with<R>(
@@ -650,13 +659,29 @@ pub(super) fn with<R>(
     if setup.wired {
         hosts.wire_files(host.clone()).unwrap();
     }
-    body(&TestFrame {
+    let frame = TestFrame {
         env: &env,
         card: setup.storage.then_some(&*host.card),
         plugin: setup.plugin,
         hosts,
         granted: setup.granted,
-    })
+    };
+    let _guard = setup.book.map(|(kind, path, opened)| {
+        frame
+            .hosts
+            .format_scope()
+            .enter(
+                OWNER,
+                &crate::native_host::format_scope::FormatBook {
+                    path,
+                    kind,
+                    opened,
+                    document: 1,
+                },
+            )
+            .unwrap()
+    });
+    body(&frame)
 }
 
 pub(super) fn schema_op(id: u32) -> &'static ServiceOp {

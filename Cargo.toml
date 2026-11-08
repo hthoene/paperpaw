@@ -180,7 +180,7 @@ paperpaw-plugin-format-mobi = { path = "plugins/format-mobi", version = "1.0.2" 
 paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.2" }
 paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.2" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.2" }
-paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.2" }
+paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.3" }
 paperpaw-plugin-power = { path = "plugins/power", version = "1.1.2" }
 paperpaw-plugin-file-manager = { path = "plugins/file-manager", version = "1.0.3" }
 paperpaw-plugin-transfer = { path = "plugins/transfer", version = "1.0.3" }
@@ -204,7 +204,7 @@ paperpaw-plugin-joplin = { path = "plugins/joplin", version = "1.0.2" }
 paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
-paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.2" }
+paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
