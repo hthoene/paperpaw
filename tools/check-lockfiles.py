@@ -17,6 +17,7 @@ looks at the root's lock only. Two things go wrong that way:
 
     python3 tools/check-lockfiles.py            # every Cargo.lock in git
     python3 tools/check-lockfiles.py shells/xteink/Cargo.lock
+    python3 tools/check-lockfiles.py --offline  # only from cargo's own cache
 
 Run it after changing a version or a dependency, and before pushing.
 """
@@ -92,19 +93,27 @@ def toolchain_env():
     return env
 
 
-def check(lock_path, env):
+def check(lock_path, env, offline=False):
     """The problems of one lockfile, as lines."""
     manifest = lock_path.with_name("Cargo.toml")
     shown = lock_path.relative_to(ROOT).as_posix() if lock_path.is_relative_to(ROOT) else str(lock_path)
     if not manifest.is_file():
-        return []
+        return [f"{shown}: no Cargo.toml beside it, so nothing says what it should hold "
+                "(delete the lock, or keep the manifest next to it)"]
+    command = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
+    if offline:
+        command.append("--offline")
     run = subprocess.run(
-        ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd=ROOT,
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd=ROOT,
     )
     if run.returncode != 0:
         errors = [l for l in run.stderr.splitlines() if l.startswith("error")]
         reason = errors[0].replace(str(lock_path.parent) + "/", "") if errors else run.stderr.strip()[-200:]
+        if "cannot update the lock file" not in run.stderr:
+            # Not a stale lock: cargo could not read the crates (no network, an
+            # empty cache with --offline, a broken manifest). Say so.
+            return [f"{shown}: cargo could not read the packages, so the lock was not checked "
+                    f"(no network, or an empty cache with --offline?): {reason}"]
         return [f"{shown}: stale for its manifests: {reason}"
                 + f" (fix: cargo metadata --manifest-path {manifest.relative_to(ROOT).as_posix()}"
                 + " > /dev/null, then commit the lock)"]
@@ -122,9 +131,11 @@ def check(lock_path, env):
 def main(argv):
     env = toolchain_env()
     problems = []
-    paths = lockfiles(argv[1:])
+    args = argv[1:]
+    offline = "--offline" in args
+    paths = lockfiles([a for a in args if a != "--offline"])
     for path in paths:
-        problems += check(path, env)
+        problems += check(path, env, offline)
     for line in problems:
         print("check-lockfiles:", line, file=sys.stderr)
     if not problems:

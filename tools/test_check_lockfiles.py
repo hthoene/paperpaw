@@ -85,6 +85,26 @@ class RealWorkspace(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertIn("stale for its manifests", found[0])
 
+    def test_a_lock_without_a_manifest_is_a_failure(self):
+        (self.dir / "app/Cargo.toml").unlink()
+        found = check_lockfiles.check(self.lock, self.env)
+        self.assertEqual(len(found), 1)
+        self.assertIn("no Cargo.toml beside it", found[0])
+
+    def test_an_unreadable_manifest_is_not_called_stale(self):
+        (self.dir / "app/Cargo.toml").write_text("not [valid toml")
+        found = check_lockfiles.check(self.lock, self.env)
+        self.assertEqual(len(found), 1)
+        self.assertIn("could not read the packages", found[0])
+        self.assertNotIn("stale", found[0])
+
+    def test_offline_still_finds_a_stale_version(self):
+        text = self.lock.read_text()
+        self.lock.write_text(text.replace('name = "leaf"\nversion = "0.2.0"', 'name = "leaf"\nversion = "0.1.0"'))
+        found = check_lockfiles.check(self.lock, self.env, offline=True)
+        self.assertEqual(len(found), 1)
+        self.assertIn("stale for its manifests", found[0])
+
     def test_an_entry_nothing_needs_is_found(self):
         with self.lock.open("a") as stream:
             stream.write('\n[[package]]\nname = "gone"\nversion = "3.0.0"\n')
