@@ -8,6 +8,7 @@ use super::{
     args, gate, reason, serving,
     wire::{self, Record},
 };
+use crate::native_host::codec;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{RefCell, RefMut};
 use paperpaw_native::host_glue::{
@@ -819,7 +820,7 @@ fn encode_done(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, i32>
         flags: done.flags,
         body_len: done.body.len() as u32,
     });
-    let used = wire::record_encode_one(&record, out)?;
+    let used = codec::encode_one(&record, out)?;
     r.state = State::Held;
     Ok(used)
 }
@@ -836,7 +837,7 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
         total: p.total,
         flags: p.flags,
     });
-    let used = wire::record_encode_one(&record, out)?;
+    let used = codec::encode_one(&record, out)?;
     r.pending = None;
     Ok(used)
 }
