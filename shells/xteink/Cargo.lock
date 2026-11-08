@@ -2423,9 +2423,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
