@@ -20,6 +20,8 @@ use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
+mod broker;
+
 /// `lookup_entry.flags`: bit 0 more pages follow, bit 1 pending (the provider
 /// answers later).
 const ENTRY_FLAGS: u32 = 0b11;
