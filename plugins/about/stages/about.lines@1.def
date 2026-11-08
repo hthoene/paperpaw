@@ -1,0 +1,51 @@
+{
+  "key": "about.lines",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 64,
+  "max_reply": 640,
+  "input": [
+    "lines.ask"
+  ],
+  "reply": [
+    "lines.line"
+  ],
+  "reply_rows": 1,
+  "records": [
+    {
+      "id": 1,
+      "name": "lines.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "product",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "lines.line",
+      "since": 0,
+      "fields": [
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        }
+      ]
+    }
+  ]
+}

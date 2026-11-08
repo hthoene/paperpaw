@@ -758,12 +758,6 @@ pub(crate) fn plain(html: &str) -> Result<String, StorageError> {
     Ok(out)
 }
 
-/// [`plain`] for the modules of the plugin not ported yet: an empty text
-/// where the heap refuses.
-pub(crate) fn plain_or_empty(html: &str) -> String {
-    plain(html).unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
