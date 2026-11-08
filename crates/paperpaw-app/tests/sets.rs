@@ -27,7 +27,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-const ALWAYS: [&str; 15] = [
+const ALWAYS: [&str; 14] = [
     "fonts-default",
     "format-epub",
     "format-txt",

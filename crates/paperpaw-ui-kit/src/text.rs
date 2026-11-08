@@ -258,6 +258,23 @@ pub fn wrap_with(
     Ok(lines)
 }
 
+/// `notes` joined as a line of notes: "a · b · c".
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn join_notes(notes: &[String]) -> Result<String, Error> {
+    let mut joined = String::new();
+    let total = notes.iter().map(|note| note.len() + 4).sum::<usize>();
+    joined.try_reserve(total).map_err(|_| Error::NoMemory)?;
+    for (n, note) in notes.iter().enumerate() {
+        if n > 0 {
+            joined.push_str(" · ");
+        }
+        joined.push_str(note);
+    }
+    Ok(joined)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
