@@ -243,6 +243,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
     plugin may ask the user) and stores nothing; an equal `updated` keeps the stored one;
   - a sync write with `confirmed` (the user chose "go to the other device's place",
     `kosync/confirm.rs`) counts as local.
+- [D] **Stored form of a position** (the book's `[position]` section, as interface 6): `insert =
+  N` is kept only when N is not 0; `sync = 1` marks a position written with `sync` and without
+  `confirmed`, and any other write removes it, so `from_sync` (bit 2) reads what the last write
+  was. A stored XPointer over 1,024 bytes reads as absent (`has_xpointer` clear), never cut.
 - [D] **Annotations** (interface 6 `Annotation`, `Mark`): `annotations` (`lib_page`: `lib_ref`,
   `cursor`, `annotation_generation`) rows `lib_annotation` (`id`, `kind` 0 bookmark, 1 highlight,
   2+n other(n), `start_section`, `start_offset`, `end_section`, `end_offset`, `flags` bit 0 noted, 1
@@ -262,6 +266,17 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `client_key` (optional, at most 64 bytes, unique per book) is the caller's own identity for an
   annotation (a KOReader highlight's datetime and position), so a repeated import adds nothing
   twice.
+- [D] **The annotation file, version 3** (written by the host; the SDK's version 2 is read):
+  the first line is `# format 3`, then `# next-id N` (only grows) and `# generation G`; each line
+  adds two columns after the end XPointer, `id` (a `u32`, at least 1) and `client_key` (escaped, at
+  most 64 bytes). A version 2 file is read as it is and never written by a read: its ids are the
+  1-based positions among the lines read as annotations (other kinds included), its generation 1,
+  its client keys empty. The first write of a version 2 file rewrites it whole as version 3 in one
+  atomic save (`next-id` = count + 1, generation 2) and then applies the change. A line that does
+  not parse gets no id, is never listed by ops 15 and 16, and is kept byte for byte by every write.
+- [D] **Annotation generation:** the file's own number. A missing or version 2 file reads as 1, a
+  file the host creates starts at 2, and every committed change adds 1; past `u32::MAX` it goes to
+  2, never 0 or 1, so a caller's 1 always means "before any write".
 - [D] **Transactions** (koreader saves a whole merged set at once, `koreader/lib.rs:761`):
   `edit_begin` (`lib_edit_head`: `lib_ref`, `annotation_generation` the caller read) opens one
   staged transaction (`lib_transaction`: `transaction`, a `u32`) on the book; `edit_add` adds up to
