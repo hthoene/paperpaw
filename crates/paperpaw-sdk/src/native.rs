@@ -417,7 +417,7 @@ fn entry_in(text: &str, plugin: &str) -> Option<[u8; 32]> {
     let hex = text
         .lines()
         .find_map(|line| line.strip_prefix(plugin)?.strip_prefix('\t'))?;
-    paperpaw_digest::hex::decode(hex.trim())?.try_into().ok()
+    paperpaw_digest::hex::decode_array(hex.trim())
 }
 
 /// Keeps `value` for `plugin` in `file`, in place of what was kept. A

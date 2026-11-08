@@ -671,9 +671,7 @@ impl Item {
 /// An Ed25519 public key written as 64 hex digits.
 /// A signature in hexadecimal (128 digits).
 fn signature(hex: &str) -> Option<[u8; 64]> {
-    paperpaw_sdk::digest::hex::decode(hex.trim())?
-        .try_into()
-        .ok()
+    paperpaw_sdk::digest::hex::decode_array(hex.trim())
 }
 
 fn key(hex: &str) -> Option<[u8; 32]> {

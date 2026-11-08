@@ -651,7 +651,7 @@ fn refused(refusal: Refusal) -> String {
 }
 
 fn digest(hex: &str) -> Option<[u8; 32]> {
-    paperpaw_sdk::digest::hex::decode(hex)?.try_into().ok()
+    paperpaw_sdk::digest::hex::decode_array(hex)
 }
 
 /// Whether a `sha256` the request names, if it names one, is `offered`.
