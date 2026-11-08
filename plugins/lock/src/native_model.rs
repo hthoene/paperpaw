@@ -285,6 +285,18 @@ impl Attempts {
         Failed { tries, wake_at }
     }
 
+    /// Whether a wait is over at `now_ms` (the timer woke at its end): the
+    /// wrong tries are forgotten, and the caller clears the tries file. `false`
+    /// where no wait was due or it still runs.
+    pub fn expire(&mut self, now_ms: u64) -> bool {
+        if self.wait_until.is_some() && !self.waiting(now_ms) {
+            self.wait_until = None;
+            self.failures = 0;
+            return true;
+        }
+        false
+    }
+
     /// The right code: the tries forgotten. Whether there were any to forget
     /// on the card.
     pub fn succeeded(&mut self) -> bool {
@@ -350,9 +362,13 @@ impl Pin {
             }
             Some(&"OK") => return Ok(Pressed::Submit(core::mem::take(&mut self.entered))),
             Some(digit) if self.entered.len() < MAX_PIN => {
-                self.entered
-                    .try_reserve(digit.len())
-                    .map_err(|_| Error::NoMemory)?;
+                // Room for all of it at once, so that no growth leaves a copy
+                // of the digits behind, unwiped.
+                if self.entered.capacity() < MAX_PIN {
+                    self.entered
+                        .try_reserve_exact(MAX_PIN - self.entered.len())
+                        .map_err(|_| Error::NoMemory)?;
+                }
                 self.entered.push_str(digit);
             }
             _ => {}
@@ -394,7 +410,46 @@ pub fn add_dot(entered: &mut String, dot: usize) -> Result<bool, Error> {
     if entered.contains(c) {
         return Ok(false);
     }
-    entered.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    // Room for all the dots at once, so that no growth leaves a copy behind,
+    // unwiped.
+    if entered.capacity() < DOTS {
+        entered
+            .try_reserve_exact(DOTS - entered.len())
+            .map_err(|_| Error::NoMemory)?;
+    }
     entered.push(c);
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The digits never move while they are entered: a growth would leave a copy
+    /// of them in the freed memory.
+    #[test]
+    fn a_pin_is_kept_in_one_place_while_it_is_entered() {
+        let mut pin = Pin::default();
+        pin.press(0).unwrap();
+        let place = pin.entered.as_ptr();
+        assert!(pin.entered.capacity() >= MAX_PIN);
+        for _ in 0..MAX_PIN * 2 {
+            pin.press(1).unwrap();
+            assert_eq!(pin.entered.as_ptr(), place);
+        }
+        assert_eq!(pin.len(), MAX_PIN);
+    }
+
+    #[test]
+    fn a_pattern_is_kept_in_one_place_while_it_is_drawn() {
+        let mut entered = String::new();
+        assert!(add_dot(&mut entered, 4).unwrap());
+        let place = entered.as_ptr();
+        assert!(entered.capacity() >= DOTS);
+        for dot in 0..DOTS {
+            add_dot(&mut entered, dot).unwrap();
+            assert_eq!(entered.as_ptr(), place);
+        }
+        assert_eq!(entered.len(), DOTS);
+    }
 }

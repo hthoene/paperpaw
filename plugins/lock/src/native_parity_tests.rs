@@ -247,3 +247,65 @@ fn what_is_secret_is_zeroed_where_it_is_kept() {
     native::wipe_string(&mut dots);
     assert!(dots.bytes().all(|b| b == 0));
 }
+
+#[test]
+fn the_wait_ends_after_thirty_seconds_and_forgets_the_tries() {
+    let mut attempts = native::Attempts::default();
+    for _ in 0..native::TRIES {
+        attempts.failed(10_000);
+    }
+    assert_eq!(attempts.failures(), native::TRIES);
+    // Not yet: the wait runs.
+    assert!(!attempts.expire(10_000));
+    assert!(!attempts.expire(10_000 + native::WAIT_MS - 1));
+    assert_eq!(attempts.failures(), native::TRIES);
+    // Over: the tries are forgotten (the caller clears the file), once.
+    assert!(attempts.expire(10_000 + native::WAIT_MS));
+    assert_eq!(attempts.failures(), 0);
+    assert!(!attempts.waiting(10_000 + native::WAIT_MS));
+    assert!(!attempts.expire(10_000 + native::WAIT_MS));
+    // With no wait due, a few wrong tries are kept as they are.
+    attempts.failed(50_000);
+    assert!(!attempts.expire(500_000));
+    assert_eq!(attempts.failures(), 1);
+    // As interface 6 did: the file goes with them.
+    let storage = MemoryStorage::new();
+    crate::keep_tries(&storage, native::TRIES);
+    assert!(paperpaw_sdk::Storage::exists(
+        &storage,
+        &crate::tries_path()
+    ));
+    crate::keep_tries(&storage, 0);
+    assert!(!paperpaw_sdk::Storage::exists(
+        &storage,
+        &crate::tries_path()
+    ));
+}
+
+/// Codes as the interface-6 code stored them (made once with its `code::hash`,
+/// as literals): one with a salt of the code's day (legacy), one with a random
+/// `v2.` salt. The native check opens them with the code `1234` only.
+const LEGACY: &str = "pin:legacy-salt:630cc1d253113f3f561cf9bda0d685037d0380ac";
+const RANDOM: &str = "pin:v2.0123456789abcdef:da5f4294fb875aefe74eb8f07ec8c95a1a012aea";
+
+#[test]
+fn codes_stored_by_interface_6_still_open() {
+    for stored in [LEGACY, RANDOM] {
+        assert!(native::check(Some(stored), "1234").unwrap(), "{stored}");
+        assert!(!native::check(Some(stored), "1235").unwrap(), "{stored}");
+        assert!(!native::check(Some(stored), "").unwrap(), "{stored}");
+        assert_eq!(native::kept_kind(Some(stored)), Some("pin"));
+        assert_eq!(
+            native::active_kind("lock.kind.pin", Some(stored)),
+            Some("pin")
+        );
+    }
+    // The old salt is to be kept anew (at random) once the code opened it; the
+    // random one is not.
+    assert_eq!(native::renewal(Some(LEGACY), "1234").unwrap(), Some("pin"));
+    assert_eq!(native::renewal(Some(LEGACY), "1235").unwrap(), None);
+    assert_eq!(native::renewal(Some(RANDOM), "1234").unwrap(), None);
+    // What the native code keeps opens the same way, with the old parts.
+    let kept = native::kept_value("pin", "v2.0123456789abcdef", "1234").unwrap();
+    assert_eq!(kept, RANDOM);
+}
