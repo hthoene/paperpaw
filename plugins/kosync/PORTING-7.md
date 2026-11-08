@@ -23,8 +23,9 @@ port.
 - The settings test (`src/native_parity_tests.rs`) compares each native setting with interface 6's
   field by field (name, title, group, help, kind, default, advanced, kept on reset) and the group.
   The one difference is the editor that opens the account screen: the native plugin declares none.
-- `password_key` has a `TODO(#421)`: wipe the MD5 state, the hex array and the key with
-  `mem::wipe` once it lands.
+- `password_key` zeroes its hex array with `mem::wipe` (tested); the MD5 state wipes itself when
+  dropped (#451). The returned key is the credential, so the sync slice that sends it must
+  `wipe_text` it afterwards.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 

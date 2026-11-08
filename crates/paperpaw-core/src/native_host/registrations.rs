@@ -5,6 +5,8 @@
 //! bytes are retained as fallible host copies; submitted addresses are metadata.
 //! A refused submission poisons construction even if the plugin ignores it.
 
+#[path = "registrations/subset.rs"]
+mod subset;
 #[path = "../abi7/records_wire.rs"]
 #[allow(
     clippy::all,
@@ -14,6 +16,9 @@
     reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
+#[cfg(test)]
+pub(super) use subset::decode_any;
+pub(super) use subset::{as_wire, decode_record, unexpected};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
@@ -273,6 +278,12 @@ pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, recor
 pub use wire::{
     host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
     host_records_visit,
+};
+// The typed codec (#364): decode and encode one record type, linking no other
+// record's code. The host reads and writes records through `codec` (todo 129).
+pub use wire::{
+    RawRecord, WireEncode, WireRecord, record_encode_of, record_framed_len_of,
+    records_encode_counted_of, records_encode_of,
 };
 // Counted service inputs above the registration limit (`ServiceOp::input_rows`).
 pub use wire::{records_encode_counted, records_encode_counted_iter};
