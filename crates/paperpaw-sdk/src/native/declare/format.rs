@@ -1,6 +1,6 @@
 //! A file format's declaration (`format.spec`, `docs/abi/document.md` 1).
 use super::menus::menu_identifier;
-use super::records_wire::{self as wire, Record};
+use super::records_wire as wire;
 use super::{Declarations, DeclareError, filled};
 use paperpaw_native::host_glue::ERR_INVALID;
 
@@ -148,14 +148,14 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             {
                 return Err(DeclareError::Encode(ERR_INVALID));
             }
-            Ok(Record::FormatSpec(wire::FormatSpec {
+            Ok(wire::FormatSpec {
                 name: format.name,
                 title: format.title,
                 extensions: format.extensions,
                 flags: format.flags,
                 priority: format.priority,
                 token: format.token,
-            }))
+            })
         })();
         self.accept_record(record)
     }

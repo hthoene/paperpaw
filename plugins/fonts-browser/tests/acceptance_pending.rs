@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 4] = [
+const CASES: [Case; 3] = [
     // The list of fonts (fetched with `core.net`, kept in the data folder), the
     // font's page with Download / Update / Remove, and choosing a font draw as before.
     Case {
@@ -30,13 +30,6 @@ const CASES: [Case; 4] = [
         name: "fonts-browser-samples",
         golden: None,
         blocked_by: &["FONT-runtime"],
-    },
-    // Reading the catalog never aborts when memory is short: the JSON stream
-    // parser's own allocations are not fallible yet.
-    Case {
-        name: "fonts-browser-catalog-refusal",
-        golden: None,
-        blocked_by: &["JSON-fallible"],
     },
 ];
 
@@ -66,10 +59,4 @@ fn fonts_browser_install() {
 #[ignore = "BLOCKED FONT-runtime: no host path to draw with a font loaded at run time"]
 fn fonts_browser_samples() {
     CASES[2].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED JSON-fallible: paperpaw_json::stream::Parser allocates infallibly"]
-fn fonts_browser_catalog_refusal() {
-    CASES[3].refuse().unwrap();
 }

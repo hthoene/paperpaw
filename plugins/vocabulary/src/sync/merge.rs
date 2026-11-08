@@ -77,7 +77,7 @@ pub(super) fn deck_entries(
     if crowded {
         return Err(Failure::Outcome(Outcome::Crowded));
     }
-    entries.sort_unstable_by_key(|e| (e.key, e.order));
+    paperpaw_sdk::sort::sort_by_key(&mut entries, |e| (e.key, e.order));
     Ok(entries)
 }
 
@@ -168,7 +168,7 @@ pub(super) fn write_slice(
     mut edits: Vec<Edit>,
 ) -> Result<(), Failure> {
     // The changes by card number, then the new lines in the file's order.
-    edits.sort_unstable_by_key(|e| (e.add, e.id, e.offset));
+    paperpaw_sdk::sort::sort_by_key(&mut edits, |e| (e.add, e.id, e.offset));
     let split = edits.partition_point(|e| !e.add);
     let (changes, adds) = edits.split_at(split);
     let (path, layout) = (&work.path, &work.layout);

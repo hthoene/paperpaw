@@ -81,6 +81,8 @@ pub enum Opt {
     Size(&'static str, bool),
     /// A switch for a part of what the widget shows: key, title, default.
     Part(&'static str, &'static str, bool),
+    /// A number: key, title, smallest, largest, default, help.
+    Number(&'static str, &'static str, i32, i32, i64, &'static str),
     /// A choice: key, title, values, default, help.
     Choice(
         &'static str,
@@ -188,6 +190,13 @@ pub fn row(option: Opt) -> Row<'static> {
             kind: Kind::Bool(default),
             title,
             help: "core.setting.part.help",
+            keeps: false,
+        },
+        Opt::Number(key, title, min, max, default, help) => Row {
+            suffix: key,
+            kind: Kind::Int { default, min, max },
+            title,
+            help,
             keeps: false,
         },
         Opt::Choice(key, title, values, default, help) => {
