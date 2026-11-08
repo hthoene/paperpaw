@@ -96,7 +96,7 @@ fn before() -> Vec<Vec<Key>> {
 fn now() -> Vec<Vec<Key>> {
     let mut kernel = Kernel::builder(X4)
         .storage(MemoryStorage::new())
-        .user_config("[core]\nlanguage = en\n[help]\nshow = false\n".to_string())
+        .user_config("[core]\nlanguage = en\n".to_string())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .plugin(Keyboard)
         .build()

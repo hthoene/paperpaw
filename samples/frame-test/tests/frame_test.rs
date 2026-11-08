@@ -50,7 +50,7 @@ fn runs_at_its_pace_and_says_what_it_measured() {
     // With the standard app's fonts, as on a device.
     let builder = Kernel::builder(DEVICE)
         .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
-        .user_config("[core]\nlanguage = en\n[help]\nshow = false\n")
+        .user_config("[core]\nlanguage = en\n")
         .plugin(FrameTest);
     let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
         .build()
