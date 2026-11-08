@@ -265,17 +265,6 @@ pub const fn host_table<S: Services>() -> PpHost {
     table
 }
 
-/// The host table of `S` as one static: every plugin hosted with the same
-/// services type is handed the same table, so a hosted plugin costs no copy
-/// of it on the heap (`abi/heap-word.md`, built-ins).
-struct SharedTable<S>(core::marker::PhantomData<S>);
-
-impl<S: Services> SharedTable<S> {
-    /// Evaluated at compile time; a reference to a constant without interior
-    /// mutability is promoted to a `'static` (read-only data, not heap).
-    const TABLE: &'static PpHost = &host_table::<S>();
-}
-
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
     /// `report` is the shell's real diagnostic sink, including the X4 sink.
@@ -1495,16 +1484,6 @@ pub(crate) use stage::dispatch_stage;
 #[path = "shell/native_commit.rs"]
 mod native_commit;
 
-/// The X4's per-plugin host context (`abi/heap-word.md` section 9): the boxed
-/// owner of a hosted plugin holds a reference to the shared table, never a
-/// copy of it. Measured on riscv32: owner 200 bytes, context 168, table 152.
-#[cfg(target_arch = "riscv32")]
-const _: () = {
-    assert!(core::mem::size_of::<Owner<(), ()>>() <= OWNER_BUDGET);
-    assert!(core::mem::size_of::<Context<()>>() < core::mem::size_of::<PpHost>() + 32);
-};
-
-/// The most the boxed owner of one hosted plugin may take on the X4
-/// (`abi/heap-word.md` section 9).
-#[cfg(target_arch = "riscv32")]
-const OWNER_BUDGET: usize = 224;
+#[path = "shell/shared_table.rs"]
+mod shared_table;
+use shared_table::SharedTable;
