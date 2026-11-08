@@ -271,6 +271,16 @@ impl<const N: usize> Stack<N> {
         }
     }
 
+    /// `args` written into a new buffer; refused where they do not fit.
+    ///
+    /// # Errors
+    /// [`Error::NoSpace`].
+    pub fn from_args(args: core::fmt::Arguments<'_>) -> Result<Self, Error> {
+        let mut out = Self::new();
+        core::fmt::Write::write_fmt(&mut out, args).map_err(|_| Error::NoSpace)?;
+        Ok(out)
+    }
+
     /// What was written.
     #[must_use]
     pub fn as_str(&self) -> &str {

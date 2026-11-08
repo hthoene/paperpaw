@@ -291,6 +291,7 @@ impl Kernel {
     }
 
     pub(crate) fn run_commands(&mut self) {
+        self.drain_deferred_ui_closes();
         self.retry_native_unloads();
         for _ in 0..MAX_COMMAND_ROUNDS {
             // Callbacks from the previous round have returned their borrowed
