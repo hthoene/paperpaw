@@ -78,7 +78,7 @@ pub(crate) fn ledger_path() -> &'static str {
 }
 
 /// Whether `text` ends in `ending` (ASCII), whatever the case.
-fn ends_with_ignore_case(text: &str, ending: &str) -> bool {
+pub(crate) fn ends_with_ignore_case(text: &str, ending: &str) -> bool {
     text.len() >= ending.len()
         && text
             .as_bytes()
@@ -1309,7 +1309,9 @@ impl Job {
                 mirror: work.mirror,
                 left_out: work.report.skipped + work.report.no_room,
             });
-            tidy(storage, &mut known, &self.listed);
+            tidy(storage, &mut known, |name| {
+                self.listed.iter().any(|l| l == name)
+            });
             write_sources(storage, &known)
         });
         let mut report = work.report;

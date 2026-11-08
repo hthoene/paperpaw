@@ -276,13 +276,13 @@ pub(super) fn note_failed(storage: &dyn Storage, found: &Found) {
 
 /// The ledger without what can be of no use: a link to a deck that is gone,
 /// a failed file that is not in the folder any more.
-pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
+pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: impl Fn(&str) -> bool) {
     let Ok(decks) = cards::decks(storage) else {
         return;
     };
     ledger.sources.retain(|s| {
         if s.deck == 0 {
-            listed.contains(&s.name)
+            listed(&s.name)
         } else {
             decks.iter().any(|d| d.id == s.deck)
         }

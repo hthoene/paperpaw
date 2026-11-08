@@ -123,3 +123,24 @@ native screens replace these callers.
 - Marks in books (decorations).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: `core.files` (#339).
+
+## Ported: save to card (`export.rs`, host-free over `Storage`)
+
+- The save (`Saver`) allocates fallibly: names (`file_name_of`, `backup_name`, a free name
+  tried without an allocation per candidate), the part and file paths (made once), the head,
+  each piece of rows (one reservation of 8 KiB, quoting reserves its worst case first), the
+  backup copy (`files::copy_file`: a part beside the copy, one 4 KiB buffer, put in place when
+  whole) and the ledger link. A refusal ends the save as `Failed` ("could not be written",
+  never `TooLarge`, which is the 4 MiB rule): the part is removed, what was in place stays.
+  A refusal while linking after the file is in place is `NotLinked`.
+- `export::update_first` and `Saver::new` return `Result`: a refusal means the save must not
+  go on (it would not have read what changed on a computer). Interface 6 turned it into "no
+  job" and wrote over the file. The screens (`sdcard.rs`, still interface 6) tell it as
+  "save failed".
+- `sync::tidy` takes a predicate (no list of names is built). `report()` moves the strings.
+- `files::put_in_place` (and so `copy_file`, the ledger and the save) moves a part into place with
+  a plain `rename`, no copy-and-delete fallback: the `core.files` adapter the shell builds over the
+  card folder must offer rename (`move_entry`, with replace), or the plugin must switch to the
+  SDK's `move_to` fallback.
+- Not done: `sdcard.rs` and `sdmenu.rs` (screens, with the native shell); the card folder is
+  still the platform `Storage` (the adapter over `core.files` belongs to the shell).
