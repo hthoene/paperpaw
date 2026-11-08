@@ -333,6 +333,22 @@ impl Fonts {
         Ok(())
     }
 
+    /// Makes room for `entries` more fonts, faces and extensions and `roles`
+    /// more bindings, so that adding them cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room (some may be kept).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        entries: usize,
+        roles: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.entries.try_reserve(entries)?;
+        self.candidates.try_reserve(roles)
+    }
+
     /// Forgets every font of plugin `plugin` (ids `<plugin>.…`), e.g. of a
     /// data plugin removed while running; returns how many. Glyphs drawn
     /// so far are forgotten too.
