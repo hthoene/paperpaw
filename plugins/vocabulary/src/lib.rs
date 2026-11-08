@@ -42,11 +42,22 @@ mod alloc_refusal_tests;
 mod apkg;
 mod cards;
 mod decks;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
 mod export;
 mod files;
 mod fsrs;
 mod lines;
 mod marks;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 mod phone;
 mod review;
 mod sdcard;
