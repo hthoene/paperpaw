@@ -1275,7 +1275,7 @@ impl Index {
         let mut run: Vec<Keyed> = Vec::new();
         let mut kept = storage.write(&runs_path, b"").is_ok();
         let mut flush = |run: &mut Vec<Keyed>, runs: &mut Vec<u32>| {
-            run.sort_by(|a, b| order_of(*a, *b));
+            paperpaw_sdk::sort::sort_by(run, |a, b| order_of(*a, *b));
             let mut bytes = Vec::with_capacity(run.len() * KEYED);
             for (key, n) in run.iter() {
                 bytes.extend_from_slice(&key.to_le_bytes());

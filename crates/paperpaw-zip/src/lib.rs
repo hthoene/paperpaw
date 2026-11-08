@@ -334,7 +334,7 @@ impl ZipArchive {
             index.push((hash_lossy(&name), at as u32));
             at += RECORD as u64 + name_len + field(30)? + field(32)?;
         }
-        index.sort_unstable();
+        paperpaw_sort::sort(&mut index);
         let mut owned = String::new();
         owned
             .try_reserve_exact(path.len())

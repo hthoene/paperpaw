@@ -97,6 +97,7 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_native",
     "paperpaw_lang",
     "paperpaw_table",
+    "paperpaw_sort",
 ];
 
 /// The layouts of the types that cross between a plugin and PaperPaw, as
@@ -193,7 +194,7 @@ pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 
             ids.push(String::from(id));
         }
     });
-    ids.sort_unstable();
+    paperpaw_sort::sort(&mut ids);
     ids.into_iter()
         .filter_map(|id| {
             let header = read_header(storage, &native.path(&fetched_folder(&id)))?;

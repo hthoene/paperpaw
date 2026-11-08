@@ -95,7 +95,7 @@ impl<'a> Marks<'a> {
             .iter()
             .flat_map(|s| s.mark.iter().chain(&s.mkmk).copied())
             .collect();
-        all.sort_unstable();
+        paperpaw_sort::sort(&mut all);
         all.dedup();
         let mut first = Vec::new();
         let mut next = 0usize;
@@ -517,7 +517,7 @@ fn lookups(
                 .collect::<Vec<_>>()
         })
         .collect();
-    out.sort_unstable();
+    paperpaw_sort::sort(&mut out);
     out.dedup();
     out.truncate(MAX_LOOKUPS);
     out

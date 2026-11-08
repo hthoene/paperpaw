@@ -18,6 +18,7 @@ testing = []
 
 [dependencies]
 paperpaw-platform.workspace = true
+paperpaw-sort.workspace = true
 # An exact version: its decompressor lies inside types that cross
 # between a code plugin and PaperPaw (ADR 0026).
 miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
