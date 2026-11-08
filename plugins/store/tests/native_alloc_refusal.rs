@@ -119,8 +119,12 @@ fn a_list_and_a_page_survive_refused_allocations() {
         "cd".repeat(32),
         "ef".repeat(64),
     );
-    let list =
-        format!(r#"{{"format": 2, "sections": {{"new": ["airy"]}}, "plugins": [{plugin}]}}"#);
+    let list = format!(
+        r#"{{"format": 2, "sections": {{"new": ["airy"]}}, "plugins": [{plugin}],
+ "revoked_keys": [{{"plugin": "airy", "key": "{}", "signature": "{}"}}]}}"#,
+        "01".repeat(32),
+        "02".repeat(64),
+    );
     let page = format!(r#"{{"format": 2, "plugin": {plugin}}}"#);
     let device = || Device {
         name: "x4",
@@ -131,15 +135,15 @@ fn a_list_and_a_page_survive_refused_allocations() {
         official: true,
         provides: None,
     };
-    fn nobody(_: &str) -> Option<[u8; 32]> {
-        None
+    fn author(_: &str) -> Option<[u8; 32]> {
+        Some([1; 32])
     }
     fn none() -> Vec<String> {
         Vec::new()
     }
     fail_alloc::sweep(|| {
         let hooks = Hooks {
-            author_of: &nobody,
+            author_of: &author,
             stopped: &none,
         };
         let mut reader = ListReader::new(device(), hooks);
@@ -154,7 +158,8 @@ fn a_list_and_a_page_survive_refused_allocations() {
             found += 1;
             Ok(())
         })?;
-        assert!(read.is_some());
+        // The revocation is handed over in a copy that is made fallibly too.
+        assert_eq!(read.as_ref().map(|l| l.revoked.len()), Some(1));
         assert_eq!(found, 1);
         let mut reader = PageReader::new(device());
         for piece in page.as_bytes().chunks(97) {

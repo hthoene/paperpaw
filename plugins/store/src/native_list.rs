@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::digest::hex;
 use paperpaw_sdk::json::stream::{Event, OutOfMemory, Parser};
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::mem::push;
+use paperpaw_ui_kit::{mem::push, text::copy};
 
 /// What a list says beside its plugins: whether it is in a fair order (it has
 /// `sections`), and the plugins of each section.
@@ -156,7 +156,14 @@ impl<'a> ListReader<'a> {
         }
         let mut handed = Vec::new();
         for r in revoked.pending() {
-            push(&mut handed, r.clone())?;
+            push(
+                &mut handed,
+                Revoked {
+                    plugin: copy(&r.plugin)?,
+                    key: r.key,
+                    signature: r.signature,
+                },
+            )?;
         }
         Ok(Some(List {
             picks: core::mem::take(picks),
