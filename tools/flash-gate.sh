@@ -131,21 +131,26 @@ def builtin(name):
 bf, hf, bb, hb = files("base"), files("head"), builtin("base"), builtin("head")
 ids = sorted(set(bf) | set(hf) | bb | hb)
 pb = sum(bf.values())
-ph = sum(v for k, v in hf.items() if k in bf or k in bb)
+# A plugin with a Beta 3 file but no head file is not shipped as a file on head
+# yet (waiting for its interface-7 build). It is counted at its Beta 3 size, as
+# the rule for plugins that are not ported says; dropping it would flatter the head.
+pending = {k: v for k, v in bf.items() if k not in hf and k not in hb}
+ph = sum(v for k, v in hf.items() if k in bf or k in bb) + sum(pending.values())
 rows = []
 for i in ids:
     if i in bf and i in hf: st = "file in both"
     elif i in bb and i in hf: st = "ported (image -> file)"
     elif i in bb and i in hb and i not in hf: st = "NOT PORTED (in the image, counted there)"
     elif i in hf and i not in bf and i not in bb: st = "NEW since Beta 3 (left out of the gate)"
-    elif i in bf and i not in hf: st = "file in Beta 3 only (removed or built in now)"
+    elif i in bf and i not in hf: st = ("no head file yet (counted at its Beta 3 size)" if i in pending
+                                         else "file in Beta 3 only (built into the image now)")
     else: st = "other"
     rows.append((i, bf.get(i), hf.get(i), st))
 print()
 print(f"{'plugin':28} {'Beta 3 .ppn':>12} {'head .ppn':>12}  status")
 for i, b, h, st in rows:
     print(f"{i:28} {b if b is not None else '-':>12} {h if h is not None else '-':>12}  {st}")
-print(f"{'sum of files':28} {pb:>12} {sum(hf.values()):>12}  (head counted in the gate: {ph})")
+print(f"{'sum of files':28} {pb:>12} {sum(hf.values()):>12}  (head counted in the gate: {ph}, of which {sum(pending.values())} pending at Beta 3 size)")
 open(os.path.join(ours, "ppn-sums"), "w").write(f"{pb} {ph}\n")
 PY
     read -r pb ph < "$ours/ppn-sums"
@@ -170,7 +175,7 @@ if [ "$image_only" = 0 ]; then
     echo "image delta $image_delta B; plugin files: Beta 3 $pb B, head $ph B (same feature set)"
     echo "total Beta 3 $((b + pb)) B, head $((h + ph)) B"
 fi
-echo "delta $delta B over the gate of $limit B (image: .text, .rodata, .data load, .rwtext, .trap$( [ "$image_only" = 0 ] && echo '; plus the plugin files' ))"
+echo "delta $delta B against the gate of $limit B (image: .text, .rodata, .data load, .rwtext, .trap$( [ "$image_only" = 0 ] && echo '; plus the plugin files' ))"
 [ -n "$label" ] && echo "RESULT (${label}): $delta B"
 if [ "$delta" -le "$limit" ]; then
     echo "GATE: within ($((limit - delta)) B to spare)"
