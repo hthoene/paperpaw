@@ -1,6 +1,6 @@
 # Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
 
-Version 1.0.8. Partial: what the plugin decides and what it declares, without the host. No native
+Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
 set-up screen and no `NATIVE_ENTRY` yet; the interface-6 `Joplin` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
 
