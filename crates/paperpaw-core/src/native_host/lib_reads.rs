@@ -1,0 +1,242 @@
+//! The reads of `core.library` over the catalog on the card: op 1 `state`, op
+//! 3 `book`, op 4 `text` and op 25 `book_key` (`docs/abi/library.md` 2.1, 6).
+//!
+//! One implementation: `paperpaw_sdk::library`'s `try_` readers. This adapter
+//! only maps them to the wire records, so nothing is read twice and no
+//! reader lives in core. A memory shortage is `ERR_NO_MEMORY`, never an
+//! abort and never "not found"; every buffer is reserved fallibly, and the
+//! catalog is read a line at a time (no call holds the catalog or a line).
+//!
+//! The adapter is stateless: it holds the card and the three facts of the
+//! device the card cannot tell ([`CatalogEnv`]).
+//!
+//! Memory of one call, peak: `book` 1,952 bytes of text buffers (path, title,
+//! author, series, number, format) next to the details of the book for the
+//! `indexed` flag (`try_book`); `text` 1,024; `state` and `book_key` none
+//! (stack: the partial MD5's 1 KiB sample, the SDK's catalog reads below
+//! 1 KiB). Not measured on the X4 yet.
+//!
+//! Not here yet: the book key of a book whose path hashes like another's
+//! (the writes round owns key allocation, so op 25 answers the plain
+//! FNV-1a key), the `missing` flag (todo 96), annotation texts (`text` kinds
+//! 5 and 6 are `ERR_UNSUPPORTED` until the annotation reads).
+use super::lib_service::{BookRef, LibQuery, One};
+use crate::native_host::registrations::{self as wire, Record};
+use alloc::rc::Rc;
+use alloc::string::String;
+use alloc::vec::Vec;
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
+use paperpaw_platform::{Storage, StorageError};
+use paperpaw_sdk::data;
+use paperpaw_sdk::digest::{fnv1a64, md5};
+use paperpaw_sdk::library::{self, catalog};
+
+mod book;
+
+const PPM: u32 = 1_000_000;
+
+/// What the card cannot tell the adapter.
+pub(crate) trait CatalogEnv {
+    /// `Some(progress in parts per million)` while the walk makes the
+    /// catalog where there was none (its books are those found so far:
+    /// `core.library-walking`), `None` otherwise.
+    fn walking(&self) -> Option<u32>;
+    /// Today as days since 1970, `None` for an unknown clock (no book is
+    /// new then).
+    fn today(&self) -> Option<u32>;
+    /// The id of the format of the book at `path`, as the format index
+    /// finds it by extension; nothing for none.
+    fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
+}
+
+/// The catalog reads over `storage`.
+pub(crate) struct CatalogReads {
+    storage: Rc<dyn Storage>,
+    env: Rc<dyn CatalogEnv>,
+}
+
+impl CatalogReads {
+    pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
+        Self { storage, env }
+    }
+
+    /// The catalog generation of the wire: it changes whenever the
+    /// catalog's own generation or its log of changes does (a book added,
+    /// removed, its status changed); never 0.
+    fn generation(&self) -> Result<u32, i32> {
+        let catalog_generation = catalog::try_generation(&*self.storage).map_err(fail)?;
+        let stamp = match catalog::try_state(&*self.storage).map_err(fail)? {
+            catalog::State::Ready { stamp } => stamp,
+            _ => 0,
+        };
+        let mut bytes = [0_u8; 17];
+        bytes[0] = u8::from(catalog_generation.is_some());
+        bytes[1..9].copy_from_slice(&catalog_generation.unwrap_or(0).to_le_bytes());
+        bytes[9..].copy_from_slice(&stamp.to_le_bytes());
+        let hash = fnv1a64(bytes);
+        // Folded to 32 bits; 0 is no generation.
+        Ok(u32::try_from((hash ^ (hash >> 32)) & 0xffff_ffff)
+            .unwrap_or(1)
+            .max(1))
+    }
+
+    /// Where the line of the book starts in the catalog (a handle): a
+    /// handle of another generation is stale; one that is not the start of
+    /// a line is no book.
+    fn locate(&self, book: BookRef<'_>) -> Result<u64, i32> {
+        match book {
+            BookRef::Path(path) => catalog::try_offset_of(&*self.storage, path)
+                .map_err(fail)?
+                .ok_or(ERR_NOT_FOUND),
+            BookRef::Key { key, generation } => {
+                if generation != self.generation()? {
+                    return Err(ERR_STATE);
+                }
+                let offset = u64::from(key);
+                if self.starts_a_line(offset)? {
+                    Ok(offset)
+                } else {
+                    Err(ERR_NOT_FOUND)
+                }
+            }
+        }
+    }
+
+    /// Whether `offset` follows a line break (the header at 0 is no book).
+    fn starts_a_line(&self, offset: u64) -> Result<bool, i32> {
+        let Some(before) = offset.checked_sub(1) else {
+            return Ok(false);
+        };
+        let file = catalog_file()?;
+        let mut byte = [0_u8; 1];
+        match self.storage.read_at(&file, before, &mut byte) {
+            Ok(1) => Ok(byte[0] == b'\n'),
+            Ok(_) | Err(StorageError::NotFound) => Ok(false),
+            Err(e) => Err(storage_status(e)),
+        }
+    }
+}
+
+impl LibQuery for CatalogReads {
+    fn state(&self, visit: One<'_>) -> Result<(), i32> {
+        let generation = self.generation()?;
+        let ready = matches!(
+            catalog::try_state(&*self.storage).map_err(fail)?,
+            catalog::State::Ready { .. }
+        );
+        let books = if ready {
+            catalog::try_count(&*self.storage).map_err(fail)?
+        } else {
+            0
+        };
+        let (state, walk_ppm) = match self.env.walking() {
+            Some(ppm) => (1, ppm.min(PPM)),
+            None if ready => (2, PPM),
+            None => (0, 0),
+        };
+        visit(Record::ServiceLibState(wire::ServiceLibState {
+            state,
+            books,
+            generation,
+            walk_ppm,
+        }));
+        Ok(())
+    }
+
+    fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        book::book(self, book, visit)
+    }
+
+    fn text(
+        &self,
+        book: BookRef<'_>,
+        at: &wire::ServiceLibTextAt,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        book::text(self, book, at, visit)
+    }
+
+    fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        let owned;
+        let path = match book {
+            BookRef::Path(path) => {
+                self.locate(book)?;
+                path
+            }
+            BookRef::Key { .. } => {
+                let offset = self.locate(book)?;
+                owned = catalog::try_path_at(&*self.storage, offset)
+                    .map_err(fail)?
+                    .ok_or(ERR_NOT_FOUND)?;
+                &owned
+            }
+        };
+        // The file may be gone from the card: then there is no key to give.
+        let size = self.storage.size(path).map_err(storage_status)?;
+        let mut key = [0_u8; library::KEY_LEN];
+        let key = library::key_into(path, &mut key);
+        let mut digits = [0_u8; 32];
+        let fingerprint = md5::partial_into(&*self.storage, path, &mut digits).ok_or(ERR_IO)?;
+        visit(Record::ServiceLibKey(wire::ServiceLibKey {
+            key,
+            fingerprint,
+            size,
+        }));
+        Ok(())
+    }
+}
+
+/// The status of a failed read of the library.
+pub(super) fn fail(error: data::Error) -> i32 {
+    match error {
+        data::Error::OutOfMemory => ERR_NO_MEMORY,
+        data::Error::Storage(e) => storage_status(e),
+        _ => ERR_IO,
+    }
+}
+
+fn storage_status(error: StorageError) -> i32 {
+    match error {
+        StorageError::NotFound => ERR_NOT_FOUND,
+        StorageError::InvalidPath => ERR_INVALID,
+        StorageError::Unsupported => ERR_UNSUPPORTED,
+        StorageError::TooLarge | StorageError::Full => ERR_NO_SPACE,
+        StorageError::OutOfMemory => ERR_NO_MEMORY,
+        _ => ERR_IO,
+    }
+}
+
+/// The catalog's file, reserved fallibly.
+fn catalog_file() -> Result<String, i32> {
+    const NAME: &str = "catalog.txt";
+    let mut out = String::new();
+    out.try_reserve_exact(library::DIR.len() + 1 + NAME.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    out.push_str(library::DIR);
+    out.push('/');
+    out.push_str(NAME);
+    Ok(out)
+}
+
+/// `size` zero bytes, reserved fallibly.
+fn zeroed(size: usize) -> Result<Vec<u8>, i32> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(size).map_err(|_| ERR_NO_MEMORY)?;
+    out.resize(size, 0);
+    Ok(out)
+}
+
+/// The longest prefix of `bytes` that is text (a cut character at its end
+/// is left out).
+fn valid_prefix(bytes: &[u8]) -> &str {
+    match core::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(e) => core::str::from_utf8(&bytes[..e.valid_up_to()]).unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+#[path = "lib_reads_tests.rs"]
+pub(crate) mod tests;

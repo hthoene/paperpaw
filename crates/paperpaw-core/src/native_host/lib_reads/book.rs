@@ -1,0 +1,235 @@
+//! Ops 3 `book` and 4 `text`: one book's line, whole texts by offsets.
+use super::{CatalogReads, fail, valid_prefix, zeroed};
+use crate::native_host::lib_service::{BookRef, One};
+use crate::native_host::registrations::{self as wire, Record};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
+use paperpaw_sdk::library::{self, catalog};
+
+/// Bytes of the long forms `lib_book` carries.
+const PATH: usize = 512;
+const TITLE: usize = 512;
+const AUTHOR: usize = 512;
+const SERIES: usize = 256;
+const NUMBER: usize = 32;
+const FORMAT: usize = 128;
+/// Bytes of a `lib_text`.
+const TEXT: usize = 1024;
+/// A book is new for this many days after it was added.
+const NEW_DAYS: u32 = 30;
+/// `lib_book.progress` of a book never opened.
+const NEVER_OPENED: u32 = 255;
+
+mod flag {
+    pub(super) const FAVOURITE: u32 = 1;
+    pub(super) const OPENED: u32 = 1 << 1;
+    pub(super) const FINISHED: u32 = 1 << 2;
+    pub(super) const NEW: u32 = 1 << 3;
+    pub(super) const INDEXED: u32 = 1 << 4;
+    /// Title, author, series cut: bits 5-7.
+    pub(super) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
+}
+
+/// What of a line `book` keeps beyond the path and the number (copied into
+/// the buffer): the numbers.
+#[derive(Clone, Copy, Default)]
+struct Line {
+    path: usize,
+    number: usize,
+    author_bytes: u32,
+    title_bytes: u32,
+    series_bytes: u32,
+    tags: u32,
+    fields: u32,
+    status: catalog::Status,
+    added: Option<u32>,
+    size: Option<u64>,
+}
+
+/// The line of the book, its path and number in `path` and `number`.
+fn line_of(
+    reads: &CatalogReads,
+    offset: u64,
+    path: &mut [u8],
+    number: &mut [u8],
+) -> Result<Line, i32> {
+    let mut line = None;
+    let seen = catalog::try_view_at(&*reads.storage, offset, &mut |view| {
+        let (p, n) = (view.path.as_bytes(), view.number.as_bytes());
+        if p.len() <= path.len() && n.len() <= number.len() {
+            path[..p.len()].copy_from_slice(p);
+            number[..n.len()].copy_from_slice(n);
+            line = Some(Line {
+                path: p.len(),
+                number: n.len(),
+                author_bytes: view.author_bytes,
+                title_bytes: view.title_bytes,
+                series_bytes: view.series_bytes,
+                tags: view.tags,
+                fields: view.fields,
+                status: view.status,
+                added: view.added,
+                size: view.size,
+            });
+        }
+    })
+    .map_err(fail)?;
+    if seen {
+        line.ok_or(ERR_NO_SPACE)
+    } else {
+        Err(ERR_NOT_FOUND)
+    }
+}
+
+/// A text of the line read into `out`: its valid prefix and whole length.
+fn text_of<'o>(
+    reads: &CatalogReads,
+    offset: u64,
+    column: catalog::TextColumn,
+    out: &'o mut [u8],
+) -> Result<&'o str, i32> {
+    let read = catalog::try_text_at(&*reads.storage, offset, column, 0, 0, out)
+        .map_err(fail)?
+        .ok_or(ERR_NOT_FOUND)?;
+    Ok(valid_prefix(&out[..read.filled]))
+}
+
+/// The length of `text` as the wire counts.
+fn bytes(text: &str) -> u32 {
+    u32::try_from(text.len()).unwrap_or(u32::MAX)
+}
+
+pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+    let offset = reads.locate(book)?;
+    let key = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
+    let generation = reads.generation()?;
+    let mut buffer = zeroed(PATH + TITLE + AUTHOR + SERIES + NUMBER + FORMAT)?;
+    let (path_b, rest) = buffer.split_at_mut(PATH);
+    let (title_b, rest) = rest.split_at_mut(TITLE);
+    let (author_b, rest) = rest.split_at_mut(AUTHOR);
+    let (series_b, rest) = rest.split_at_mut(SERIES);
+    let (number_b, format_b) = rest.split_at_mut(NUMBER);
+    let line = line_of(reads, offset, path_b, number_b)?;
+    let path = core::str::from_utf8(&path_b[..line.path]).map_err(|_| ERR_INVALID)?;
+    let number = core::str::from_utf8(&number_b[..line.number]).map_err(|_| ERR_INVALID)?;
+    let title = text_of(reads, offset, catalog::TextColumn::Title, title_b)?;
+    let author = text_of(reads, offset, catalog::TextColumn::Author, author_b)?;
+    let series = text_of(reads, offset, catalog::TextColumn::Series, series_b)?;
+    let mut format_len = None;
+    reads.env.format_id(path, &mut |id| {
+        if id.len() <= format_b.len() {
+            format_b[..id.len()].copy_from_slice(id.as_bytes());
+            format_len = Some(id.len());
+        }
+    });
+    let format = match format_len {
+        Some(n) => core::str::from_utf8(&format_b[..n]).map_err(|_| ERR_INVALID)?,
+        None => "",
+    };
+    let indexed = indexed(reads, path, line.size)?;
+    let status = line.status;
+    let opened = status.opened || status.progress.is_some();
+    let mut flags = 0;
+    for (set, bit) in [
+        (status.favourite, flag::FAVOURITE),
+        (opened, flag::OPENED),
+        (status.progress == Some(100), flag::FINISHED),
+        (is_new(reads, line.added, opened), flag::NEW),
+        (indexed, flag::INDEXED),
+        (bytes(title) < line.title_bytes, flag::CUT[0]),
+        (bytes(author) < line.author_bytes, flag::CUT[1]),
+        (bytes(series) < line.series_bytes, flag::CUT[2]),
+    ] {
+        if set {
+            flags |= bit;
+        }
+    }
+    visit(Record::ServiceLibBook(wire::ServiceLibBook {
+        key,
+        generation,
+        path,
+        title,
+        author,
+        series,
+        number,
+        progress: status.progress.map_or(NEVER_OPENED, u32::from),
+        flags,
+        added: line.added.unwrap_or(0),
+        size: line.size.unwrap_or(0),
+        format,
+        tags: line.tags,
+        fields: line.fields,
+        title_bytes: line.title_bytes,
+        author_bytes: line.author_bytes,
+        series_bytes: line.series_bytes,
+    }));
+    Ok(())
+}
+
+/// Whether the library read title, author and cover from the book (its
+/// details say so); a file the details do not belong to is not indexed.
+fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Result<bool, i32> {
+    let size = match size {
+        Some(size) => size,
+        None => match reads.storage.size(path) {
+            Ok(size) => size,
+            Err(_) => return Ok(false),
+        },
+    };
+    let book = library::try_book_sized(&*reads.storage, path, size).map_err(fail)?;
+    Ok(book.is_some_and(|book| book.indexed))
+}
+
+/// Added within the last [`NEW_DAYS`] days and not opened.
+fn is_new(reads: &CatalogReads, added: Option<u32>, opened: bool) -> bool {
+    match (added, reads.env.today()) {
+        (Some(added), Some(today)) => !opened && today >= added && today - added <= NEW_DAYS,
+        _ => false,
+    }
+}
+
+pub(super) fn text(
+    reads: &CatalogReads,
+    book: BookRef<'_>,
+    at: &wire::ServiceLibTextAt,
+    visit: One<'_>,
+) -> Result<(), i32> {
+    use catalog::TextColumn::{Author, Field, Series, Tag, Title};
+    let column = match at.kind {
+        0 => Title,
+        1 => Author,
+        2 => Series,
+        3 => Tag,
+        4 => Field,
+        // Annotation texts and notes: the annotation reads.
+        _ => return Err(ERR_UNSUPPORTED),
+    };
+    let offset = reads.locate(book)?;
+    let mut buffer = zeroed(TEXT).map_err(|_| ERR_NO_MEMORY)?;
+    let read = catalog::try_text_at(
+        &*reads.storage,
+        offset,
+        column,
+        at.index,
+        at.offset,
+        &mut buffer,
+    )
+    .map_err(fail)?
+    .ok_or(ERR_NOT_FOUND)?;
+    if at.offset > read.total {
+        return Err(ERR_INVALID);
+    }
+    let found = &buffer[..read.filled];
+    // The text starts at a character: an offset inside one is the caller's.
+    if found.first().is_some_and(|b| b & 0xc0 == 0x80) {
+        return Err(ERR_INVALID);
+    }
+    visit(Record::ServiceLibText(wire::ServiceLibText {
+        kind: at.kind,
+        index: at.index,
+        total: read.total,
+        text: valid_prefix(found),
+    }));
+    Ok(())
+}

@@ -1396,6 +1396,8 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
 
 #[path = "format_call_oom_tests.rs"]
 mod format_call_oom;
+#[path = "lib_reads_oom_tests.rs"]
+mod lib_reads_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
 
