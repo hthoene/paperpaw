@@ -114,7 +114,8 @@ impl Key {
                 digest.update(part.as_bytes());
                 digest.update(&[0]);
             }
-            Self::from_hex(&digest.hex()).unwrap_or_default()
+            let mut digits = [0u8; 32];
+            Self::from_hex(digest.hex_into(&mut digits)).unwrap_or_default()
         }))
     }
 
@@ -340,9 +341,14 @@ fn merge_with(
         });
     }
     let per_book = to_time_order(storage, &books, files, out.is_some())?;
-    // The new log replaces the old one.
-    store::replace_log(storage, &files.time)?;
-    store::save_books(storage, &books)?;
+    // Both new files are written before either replaces the old one, so
+    // that a refusal or a full card leaves the log and the books as a pair.
+    store::stage_log(storage, &files.time)?;
+    if let Err(e) = store::stage_books(storage, &books) {
+        store::unstage_log(storage);
+        return Err(e.into());
+    }
+    store::commit_pair(storage, &books)?;
     let outcome = Outcome {
         books: books.len(),
         stays,

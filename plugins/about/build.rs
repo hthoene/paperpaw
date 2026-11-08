@@ -1,60 +1,45 @@
-//! Packs the licences for the build's product: the firmware's
-//! (`data/licences-firmware.md`, for the readers, `target_os = "none"`) or the
-//! apps' (`data/licences-app.md`), both from `tools/licences/build.py`. They
-//! are split into parts of about [`PART`] bytes at paragraphs, each
-//! deflated on its own, so that the page writes them out to read one
-//! part at a time, with little memory, and they take little of the
-//! readers' flash.
+//! Turns the declarations into read-only batches built into the plugin image.
+mod declarations;
 
-use std::path::PathBuf;
+use paperpaw_sdk::native::declare::Declarations;
+use std::{fmt::Write, path::PathBuf};
 
-/// The largest part, before it is deflated.
-const PART: usize = 8 * 1024;
-
-fn main() {
-    let product = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("none") => "firmware",
-        _ => "app",
-    };
-    let source = format!("data/licences-{product}.md");
-    println!("cargo:rerun-if-changed={source}");
-    println!("cargo:rerun-if-changed=build.rs");
-    let text = std::fs::read_to_string(&source).unwrap_or_else(|e| panic!("{source}: {e}"));
-    let mut out = Vec::new();
-    for part in parts(&text) {
-        let packed = miniz_oxide::deflate::compress_to_vec(part.as_bytes(), 10);
-        out.extend_from_slice(&u32::try_from(packed.len()).unwrap_or(0).to_le_bytes());
-        out.extend_from_slice(&u32::try_from(part.len()).unwrap_or(0).to_le_bytes());
-        out.extend_from_slice(&packed);
-    }
-    let dir = PathBuf::from(
-        std::env::var_os("OUT_DIR").unwrap_or_else(|| panic!("OUT_DIR is set by cargo")),
-    );
-    std::fs::write(dir.join("licences.bin"), out).unwrap_or_else(|e| panic!("licences.bin: {e}"));
+/// Runs `$declare` against a sink that writes each batch as a static.
+macro_rules! emit {
+    ($source:expr, $name:literal, $declare:path) => {{
+        let mut count = 0;
+        let mut batches = String::new();
+        {
+            let mut d = Declarations::new(|batch: &[u8]| -> Result<(), i32> {
+                writeln!(
+                    batches,
+                    "pub static {}_{count}: [u8; {}] = {batch:?};",
+                    $name,
+                    batch.len()
+                )
+                .map_err(|_| -2)?;
+                count += 1;
+                Ok(())
+            });
+            $declare(&mut d)
+                .map_err(|error| format!("invalid {} declarations: {error:?}", $name))?;
+        }
+        $source.push_str(&batches);
+        let _ = writeln!($source, "pub static {}: &[&[u8]] = &[", $name);
+        for index in 0..count {
+            let _ = writeln!($source, "&{}_{index},", $name);
+        }
+        $source.push_str("];\n");
+    }};
 }
 
-/// `text` in parts of at most [`PART`] bytes, cut after an empty line
-/// where there is one (else at a line, else at a character).
-fn parts(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut rest = text;
-    while rest.len() > PART {
-        let mut end = PART;
-        while !rest.is_char_boundary(end) {
-            end -= 1;
-        }
-        let window = &rest[..end];
-        let cut = window
-            .rfind("\n\n")
-            .map(|at| at + 2)
-            .or_else(|| window.rfind('\n').map(|at| at + 1))
-            .filter(|at| *at > 0)
-            .unwrap_or(end);
-        parts.push(&rest[..cut]);
-        rest = &rest[cut..];
-    }
-    if !rest.is_empty() {
-        parts.push(rest);
-    }
-    parts
+fn main() -> Result<(), String> {
+    println!("cargo:rerun-if-changed=declarations.rs");
+    let mut source = String::new();
+    emit!(source, "SCREENS", declarations::screens);
+    emit!(source, "NAVIGATION", declarations::navigation);
+    emit!(source, "STAGE_SPECS", declarations::stages);
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
+    std::fs::write(out.join("about_declarations.rs"), source)
+        .map_err(|error| format!("write declarations: {error}"))
 }

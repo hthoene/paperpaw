@@ -616,6 +616,7 @@ impl BuilderParts {
                 translator,
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),

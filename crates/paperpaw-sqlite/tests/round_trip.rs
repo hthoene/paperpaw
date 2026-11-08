@@ -295,6 +295,25 @@ fn a_write_that_fails_part_way_leaves_the_old_database() {
     assert_eq!(storage.get("db").unwrap(), b"the database before");
 }
 
+/// A storage that cannot move files: the write is refused and the database
+/// there before is left as it was (no copy over it that could fail part
+/// way), with no temporary file.
+#[test]
+fn a_storage_that_cannot_move_files_keeps_the_old_database() {
+    let storage = Memory::default();
+    storage.put("db", b"the database before".to_vec());
+    storage.fixed.set(true);
+    let mut writer = Writer::new(&storage, "db");
+    let rows = (1..=100).map(|i| (i, encode_record(&[Value::Int(i)])));
+    let root = writer.table(rows).unwrap();
+    assert_eq!(
+        writer.finish(&[table_entry("t", &["a"], root)], 1),
+        Err(Error::Storage(StorageError::Unsupported))
+    );
+    assert_eq!(storage.paths(), ["db"]);
+    assert_eq!(storage.get("db").unwrap(), b"the database before");
+}
+
 /// A card that fills up while the pages are written: the error comes
 /// back, no database and no temporary file are left.
 #[test]

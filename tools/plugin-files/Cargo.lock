@@ -109,7 +109,7 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-aids"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -123,21 +123,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-diagnostics"
 version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-end-of-book"
-version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -150,7 +144,6 @@ dependencies = [
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
- "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",
@@ -193,9 +186,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -207,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
@@ -473,9 +467,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
