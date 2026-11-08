@@ -1,0 +1,22 @@
+[package]
+name = "paperpaw-host-seal"
+description = "Sealing of saved passwords for the shells that run on a file system of their own: the desktop emulator and Android (decision 140), with a per-device key file"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+paperpaw-core.workspace = true
+paperpaw-native = { workspace = true, features = ["kernel"] }
+# AES-256-GCM, as the X4 seals with (mbedTLS there).
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc", "zeroize"] }
+getrandom = "0.4"
+zeroize = "1"
+
+[lints]
+workspace = true

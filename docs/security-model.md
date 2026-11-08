@@ -18,11 +18,16 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   install, and an older firmware only when the reader chooses it, told
   it is older: nothing on the card makes a key trusted.
 - **Passwords and keys** (Wi-Fi, catalogs, sync accounts) are kept in
-  `.paperpaw/secrets.txt`. They are veiled so that they do not show at a
-  glance, but they are **not encrypted**: whoever has the card has them.
-  On the Xteink devices (X4, X3, X4 Pro, X4 Classic; interface-7 plugins) they
-  are sealed with AES-256-GCM under a per-device key kept in the chip's flash,
-  never on the card (decisions 138 and 140): a card in another device opens none
+  `.paperpaw/secrets.txt`. **On every device they are encrypted** (decision
+  140; interface 7): each value is sealed with AES-256-GCM under a key of that
+  device, never on the card or in the folder the books are in, and a device
+  that cannot seal refuses to save a password (`ERR_STATE`) and writes nothing:
+  there is no veiling for a new value. Only values written by Beta 3 and
+  earlier (interface 6) are still **veiled, not encrypted**, so that they do
+  not show at a glance: whoever has the card has those. Such a value is read
+  once and sealed at the next save of it.
+  On the Xteink devices (X4, X3, X4 Pro, X4 Classic) the key is in the chip's flash
+  (decisions 138 and 140): a card in another device opens none
   of them (the values count as absent and are entered again). The authenticated
   data of each value is its owner, a zero byte and its name. The key is one 4 KiB
   sector:
@@ -53,8 +58,12 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   sector is not known from sources (no dump, no ESP-IDF source here); it needs one
   look on the owner's device (checklist: key sector read-back before and after,
   and a read-only NVS dump).
-  On Android the file is in the app's private folder, which only
-  PaperPaw reads. They are never shown
+  **Android** keeps the file and the key in the app's private folder, which only
+  PaperPaw reads (key file `device.key`, mode 0600, beside `secrets.txt`, never in
+  the folder of the books). The **desktop emulator** keeps both in its own data
+  folder, never in the card folder it shows (`paperpaw_host_seal::FileSealer`).
+  Moving the card folder, or a copy of `secrets.txt`, to another device opens
+  nothing. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the
   web flasher gives with the firmware (X4s) go to the card as `wifi.ini`,
   are kept with the passwords at the next start and the file removed;
@@ -204,7 +213,7 @@ PaperPaw's is a trusted customisation and sees what the original would.
 
 ## What is not protected
 
-- A lost or stolen device with its card: the passwords are only veiled.
+- A lost or stolen device with its card: the passwords are sealed under the device's key, which is in the device (flash, private folder), not on the card; the device is not locked by it, so whoever uses the unlocked device can use them. Passwords of Beta 3 not yet saved again are only veiled.
 - Firmware flashed over USB by someone holding the device.
 - What a code plugin does with its rights, built in or installed: it can
   also change the lists of authors, recovery keys, revocations and code
