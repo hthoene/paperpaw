@@ -15,6 +15,11 @@
 
 extern crate alloc;
 
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 pub mod pictures;
 
 #[cfg(any(test, feature = "reader-filter"))]
