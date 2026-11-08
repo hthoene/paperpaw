@@ -1,6 +1,7 @@
 //! Screen identity parity only; not callback or instance-policy parity.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
+#[allow(dead_code, reason = "this test uses the screen identity only")]
 mod declarations;
 use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};

@@ -1,0 +1,1 @@
+- Reading goal: the interface-7 shell (settings, the events that write today's reading, the subscription to the statistics' stage); the cat's widget and sleep screen follow with images (#228)

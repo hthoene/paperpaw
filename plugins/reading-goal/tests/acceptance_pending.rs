@@ -4,7 +4,7 @@
 //! ignored until they are. Each names what is missing.
 
 #[test]
-#[ignore = "needs the stage stats.read-today from the stats port (day, seconds) and a host that runs native plugins"]
+#[ignore = "needs the statistics to run the stage stats.read-today with the figure (stats side) and a host that admits stage subscriptions and runs native plugins end to end"]
 fn the_statistics_tell_today_and_it_is_written_to_the_card_when_a_book_closes() {
     unreachable!(
         "read_today while a book is open is kept in memory; book_closed, suspend and stopping write today.txt"
@@ -12,7 +12,7 @@ fn the_statistics_tell_today_and_it_is_written_to_the_card_when_a_book_closes() 
 }
 
 #[test]
-#[ignore = "needs core.files (PR #339) for today.txt under the plugin's data folder"]
+#[ignore = "needs a host that runs native plugins end to end: today.txt is written through the data folder (the store is tested over MemoryStorage)"]
 fn today_txt_is_read_and_replaced_only_when_it_differs() {
     unreachable!("parse_told on the file, told_text into a 32-byte buffer, one write per change");
 }
