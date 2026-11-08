@@ -40,14 +40,29 @@ unsafe extern "C" fn screen_make(
             token: 91,
             flags: FLAGS.with(Cell::get),
         }),
-        wire::Record::ActionSpec(wire::ActionSpec {
-            name: "action",
-            title: "factory.action",
-            token: 92,
-            flags: 0,
+        // A secret setting passes the declaration checks, and the host does
+        // not map it yet (`native_values::setting`): the whole batch is refused.
+        wire::Record::SettingGroup(wire::SettingGroup {
+            name: "g",
+            title: "factory.group",
+            order: 0,
+            parent: "",
+            page: "",
+        }),
+        wire::Record::SettingSpec(wire::SettingSpec {
+            name: "secret",
+            kind: 0,
+            flags: 1 << 3,
+            group: "factory.g",
+            title: "factory.secret",
+            help: "",
+            default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+            min: 0,
+            max: 0,
+            choices: "",
         }),
     ];
-    let count = if UNSUPPORTED.with(Cell::get) { 2 } else { 1 };
+    let count = if UNSUPPORTED.with(Cell::get) { 3 } else { 1 };
     let stages = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
@@ -355,10 +370,10 @@ fn unsupported_native_family_discards_every_staged_screen() {
     UNSUPPORTED.with(|value| value.set(true));
     let result = install(&mut kernel, 0);
     UNSUPPORTED.with(|value| value.set(false));
-    assert!(matches!(
-        result,
-        Err(Error::Status(host_glue::ERR_UNSUPPORTED))
-    ));
+    assert!(
+        matches!(result, Err(Error::Status(host_glue::ERR_UNSUPPORTED))),
+        "{result:?}"
+    );
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
