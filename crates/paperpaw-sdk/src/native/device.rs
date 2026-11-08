@@ -4,7 +4,7 @@
 use super::wire::services_wire::{ServiceOp, core_device_v1 as schema};
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    declare::records_wire::{self as wire, RawRecord, WireEncode, WireRecord},
     services::Service,
 };
 use core::{fmt, marker::PhantomData};
@@ -66,7 +66,7 @@ impl DevicePageEnd {
     }
 }
 
-type Decode<'a, T> = fn(Record<'a>) -> Result<T, Error>;
+type Decode<'a, T> = fn(RawRecord<'a>) -> Result<T, Error>;
 /// A completely validated list borrowing caller-owned reply bytes.
 ///
 /// ```compile_fail
@@ -138,7 +138,7 @@ impl<'a, T> Iterator for DeviceRows<'a, T> {
         if self.remaining == 0 {
             return None;
         }
-        let (record, len) = wire::record_decode_prefix(self.bytes).ok()?;
+        let (record, len) = RawRecord::prefix(self.bytes).ok()?;
         self.bytes = self.bytes.get(len..)?;
         self.remaining -= 1;
         (self.decode)(record).ok()
@@ -176,14 +176,14 @@ impl Device {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<(&'a [u8], &ServiceOp), Error> {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
         let cap = input.len().min(operation.max_input);
-        let len = wire::records_encode_counted(
-            records,
+        let len = wire::records_encode_counted_of(
+            records.iter().copied(),
             usize::from(operation.input_rows),
             operation.max_input,
             &mut input[..cap],
@@ -196,13 +196,13 @@ impl Device {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &'a mut [u8],
         decode: Decode<'a, T>,
     ) -> Result<T, Error> {
         let (bytes, _) = self.call(host, op, records, input, out)?;
-        let (record, len) = wire::record_decode_prefix(bytes).map_err(|_| Error::Invalid)?;
+        let (record, len) = RawRecord::prefix(bytes).map_err(|_| Error::Invalid)?;
         if len != bytes.len() {
             return Err(Error::Invalid);
         }
@@ -220,12 +220,12 @@ impl Device {
         if cursor.generation == 0 && cursor.offset != 0 {
             return Err(Error::State);
         }
-        let query = Record::ServiceRegQuery(wire::ServiceRegQuery {
+        let query = wire::ServiceRegQuery {
             scope: "",
             cursor: cursor.offset,
             generation: cursor.generation,
             flags: 0,
-        });
+        };
         let (bytes, operation) = if self
             .service
             .operation(op)
@@ -235,7 +235,7 @@ impl Device {
         {
             self.call(host, op, &[], input, out)?
         } else {
-            self.call(host, op, &[query], input, out)?
+            self.call(host, op, &[&query], input, out)?
         };
         validate_page(bytes, operation, cursor, decode)
     }
@@ -261,9 +261,12 @@ fn validate_page<'a, T>(
     };
     let cap = table_cap.map_or(cap, |limit| cap.min(usize::from(limit)));
     loop {
-        let (record, len) = wire::record_decode_prefix(rest).map_err(|_| Error::Invalid)?;
+        let (record, len) = RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
         rest = rest.get(len..).ok_or(Error::Invalid)?;
-        if let Record::ServiceEnd(end) = record {
+        if record.tag() == wire::ServiceEnd::TAG {
+            let end = record
+                .decode::<wire::ServiceEnd>()
+                .map_err(|_| Error::Invalid)?;
             if !rest.is_empty() || table_cap.is_some_and(|limit| end.total > u32::from(limit)) {
                 return Err(Error::Invalid);
             }

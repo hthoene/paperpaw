@@ -2,6 +2,7 @@
 //! `doc_service/check.rs` does for a format's: a record of another kind, a
 //! value outside its set, rows out of order or a repeated id is `ERR_INVALID`.
 use super::super::BookRef;
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::ERR_INVALID;
 
@@ -46,7 +47,7 @@ impl<'a> Iterator for Earlier<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let (record, used) = wire::record_decode_prefix(self.0).ok()?;
+        let (record, used) = codec::decode_prefix(self.0).ok()?;
         self.0 = &self.0[used..];
         Some(record)
     }

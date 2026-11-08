@@ -89,7 +89,7 @@ fn kinds(order: &[&str], found: &[(String, What, String)]) -> Vec<(String, usize
             order.iter().position(|k| *k == kind).unwrap_or(order.len())
         }
     };
-    kinds.sort_by_cached_key(|(kind, _)| rank(kind));
+    paperpaw_sdk::sort::sort_by_cached_key(&mut kinds, |(kind, _)| rank(kind));
     kinds
 }
 

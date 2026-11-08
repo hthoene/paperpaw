@@ -352,7 +352,8 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   `core.input-filter` (4 subscribers, one verdict), `core.widget` (32 subscribers, up to 32
   target rows) and `core.status` (32 subscribers, up to 8 value rows); DOC adds `core.format`
   (the format call, 22 reply kinds, up to 64 rows) and `core.lookup` (one entry per provider
-  call), `document.md` sections 3 and 7.
+  call), `document.md` sections 3 and 7; LIB adds `core.book-badge` (32 subscribers, 16 book keys
+  in, up to 16 badge rows out), `library.md` section 1.
 
 The stage codec is pinned as `emitted_stages`, the SHA-256 of the unformatted emitter
 output, in ABI lock format 11. Formatting is checked separately, so a rustfmt update

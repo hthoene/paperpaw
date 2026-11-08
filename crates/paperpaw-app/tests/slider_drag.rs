@@ -165,7 +165,7 @@ impl App {
             .storage(storage)
             .frame_rows(96)
             .row_align(8)
-            .user_config("[core]\nlanguage = en\n[help]\nshow = false\n");
+            .user_config("[core]\nlanguage = en\n");
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Light)
             .build()

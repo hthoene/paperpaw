@@ -14329,6 +14329,7 @@
           "name": "data",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "bytes"
         }
@@ -15216,6 +15217,56 @@
       ],
       "id": 109,
       "name": "event.text_typed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "provider",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 110,
+      "name": "event.lookup_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 35,
+          "name": "language",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1593,
+      "name": "command.lookup_ready",
       "since": 1
     }
   ],
@@ -17686,6 +17737,89 @@
     "version": 1
   },
   "stages": [
+    {
+      "input": [
+        "badge.ask"
+      ],
+      "key": "core.book-badge",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 96,
+              "name": "badge",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "list": {
+                "item_max_bytes": 16,
+                "max_items": 16,
+                "separator": "\n"
+              },
+              "max_bytes": 271,
+              "name": "keys",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 1,
+          "name": "badge.ask",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 16,
+              "name": "key",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 16,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 64,
+              "name": "icon",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 2,
+          "name": "badge.value",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "badge.value"
+      ],
+      "reply_rows": 16,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
     {
       "input": [
         "fmt.call",

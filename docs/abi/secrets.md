@@ -138,13 +138,14 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 ## 3. Saving and the card
 
 - [D] Secrets live in one host file, `.paperpaw/secrets.txt` (interface 6's format: one line per
-  secret, owner and name, label, flags, veiled value). **The host never holds the file whole**
-  (interface 6 loaded it and doubled it while writing, up to 2 x 64 KiB on the X4): `get` and
-  `list` read it line by line through one 4 KiB buffer; `keep` and `remove` stream the old lines
-  through to a new file with the one change and then **replace the old file by rename**, so a
-  power cut leaves the old file or the new one, never half of either. Memory per call: the 4 KiB
-  buffer and one line (at most about 2.5 KiB: the names, the label and a 1,024-byte value veiled
-  as hex, or sealed with its 59 more characters, section 3.1), no allocation per secret.
+  secret, owner and name, label, flags, value: sealed on the X4, section 3.1; veiled on the desktop
+  emulator). **The host never holds the file whole** (interface 6 loaded it and doubled it while
+  writing, up to 2 x 64 KiB on the X4): `get` and `list` read it line by line through one 4 KiB
+  buffer; `keep` and `remove` stream the old lines through to a new file with the one change and
+  then **replace the old file by rename**, so a power cut leaves the old file or the new one, never
+  half of either. Memory per call: the 4 KiB buffer and one line (at most about 2.5 KiB: the names,
+  the label and a 1,024-byte value veiled as hex, or sealed with its 59 more characters, section
+  3.1), no allocation per secret.
 - [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
   error; lines the host does not understand are kept as they are and do not count), `keep` and
   `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
@@ -161,13 +162,22 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   (the web flasher's erase option) loses it, and with it every secret on the card, which then
   reads as absent. The flasher's erase option and the help on secrets say so.
 - [D] **Each value** is sealed with AES-256-GCM under the device key, a fresh 12-byte nonce from the
-  generator per write, and the line's owner and name as associated data (a value copied to another
-  line does not open there). The line keeps interface 6's layout; the value field is the marker
-  `s1:` and then the nonce, the sealed value and the tag in hex. The marker holds characters that
-  are not hex, so interface 6's reader (`decode_line`) fails on the field and keeps the line
-  unread and written back unchanged: after a downgrade to beta 3 a sealed value is absent there,
-  never taken for a veiled one and saved back as garbage. Owner, name, label and flags stay
-  readable, as the settings editor lists them anyway; only values are secret.
+  generator per write, and as associated data exactly the line's owner id (UTF-8 bytes), one zero
+  byte, then the secret's name (UTF-8 bytes, to the end). A plugin id never holds a zero byte
+  (`[a-z0-9-]`), so the first zero byte ends the owner and no other (owner, name) pair gives the
+  same bytes. A sealed value moved to another line (another name of the same plugin, or another
+  plugin's line) fails to open there and counts as absent (below); the host's tests must pin both
+  cases. The line keeps interface 6's layout; the value field is the marker `s1:` and then the
+  nonce, the sealed value and the tag in hex. The marker holds characters that are not hex, so
+  interface 6's reader (`decode_line`) fails on the field and keeps the line unread and written back
+  unchanged: after a downgrade to beta 3 a sealed value is absent there, never taken for a veiled
+  one and saved back as garbage. Owner, name, label and flags stay readable, as the settings editor
+  lists them anyway; only values are secret.
+- [D] **Which devices seal:** the X4 only (decision 138). Android keeps secrets in the app's private
+  folder; the desktop emulator veils them as interface 6 does. The X4 Pro and X4 Classic are not
+  covered by decision 138: until the owner decides, they veil as interface 6 and their help says so
+  (no sealed line is written there; a sealed line from an X4 card is absent there, as on another
+  X4).
 - [D] **A value that does not open** (another device's card, a lost key, a damaged line) counts as
   **absent**: `get` answers `ERR_NOT_FOUND`, `list` leaves it out, never a crash or a log of the
   bytes. Its line is written back unchanged by every `keep` and `remove` (never dropped), so the

@@ -284,6 +284,11 @@ host passes them on after checking them.
 | 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
 | 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
 
+- [D] **Picture sides are the host's.** A format never asks for the screen and never sees a side
+  of 0: in `open` the host turns a `cover_side` of 0 into its default (the larger of 300 and 3/8
+  of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
+  conversion key is made, so an open with 0 and one with the same sides spelled out share one
+  cache; ops 2, 17 and 18 always carry both sides, set by the host.
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -302,6 +307,12 @@ host passes them on after checking them.
   only, `path` "", during op 2 and 3 only). These three outside such a call are `ERR_UNSUPPORTED`;
   roots 0-2 keep their meaning in every callback (`files.md`). The format writes its cache
   atomically per file (D2.5); it may not write root 3.
+- [D] **Root 3 through the slots and through `core.files`** (Files on #499): for a single-file
+  format, root 3 is read with the storage slots (`storage_size`, `storage_read_at`; `path` "" is
+  the file), and `core.files` `list`/`stat` on it are `ERR_UNSUPPORTED`. For a `folder` or
+  `siblings` format, `core.files` `list` and `stat` work on root 3 inside its `core.format` call.
+  The scope is checked first: root 3 outside such a call is `ERR_UNSUPPORTED` for every op;
+  inside it, every op that changes something is `ERR_DENIED`.
 - [D] **Root numbers mean one thing everywhere** (Code Reviewer on #346): root 2 is the plugin's
   own install folder (`files.md` section 1.1) in every callback, a format's too; the document's
   cache is root 6, not 2.
@@ -551,10 +562,41 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `context: str 1024`, `cursor: u32`) and gets the providers' rows 1093 `lookup_entry` (`provider:
   str 64`, `title: str 256`, `text: str 2048`, `flags` bit 0 more pages, bit 1 pending: the provider
   answers later) in pages, one provider per page.
-- [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
-  ASY's async stage reply by request id (ASY family); the asker gets ASY's completion event and asks
-  again with the cursor. Until ASY lands, network providers answer `ERR_UNSUPPORTED` and only local
-  ones (stardict dictionaries) answer. No provider sees another's answer; the asker sees all.
+- [D] **Provider names:** the registry refuses a `lookup.spec` whose `name` is empty or longer than
+  64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
+- [D] **Empty answers:** a provider's own `ERR_NOT_FOUND` is not passed on: the host answers that
+  provider's page with one `lookup_entry` carrying the provider's name and an empty `title` and
+  `text`. Only running out of providers (a `cursor` past the last) is `ERR_NOT_FOUND` to the asker.
+- [D] **`flags` bit 0 (more) is the host's:** the host sets it on every entry that later providers
+  follow and clears whatever the provider set; the provider's own paging stays inside its page.
+- [D] **A provider that must fetch** (wikipedia, translate) never blocks the asker: its stage call
+  answers at once with its `lookup_entry` flagged bit 1 `pending` (empty `text`), starts its own
+  request (`core.net`, as itself) and keeps the result in its own data. If the asker subscribes
+  to `event.lookup_ready` (110), the host records one **pending ask**; for an asker that does not,
+  it records nothing (the asker sees `pending` and may ask again itself).
+- [D] **The pending table** is fixed and allocates nothing: **16 entries on the X4, 32
+  elsewhere**, 32 bytes each (the asker and the provider as `u64` owners, the ask's hash, the
+  deadline as `u64` ms, 60 s after the ask): 512 bytes on the X4. The hash is 64-bit FNV-1a over
+  the length of `language` as one byte, the `language` bytes and the `text` bytes, so the pair
+  (`language`, `text`) maps to one input without ambiguity. One entry per (asker, provider, hash):
+  asking again refreshes its deadline. At most 4 entries per asker and **at most 8 per provider
+  on the X4** (16 elsewhere), so one provider cannot fill the table for the others. With no room
+  (table, asker's or provider's share full), the provider's page is answered as an empty entry
+  (the empty-answer rule above) and the host logs it, so a full table never blocks or fails the
+  lookup. Two asks whose hashes collide are matched together: the extra asker gets an event,
+  asks again and sees `pending` or the answer; nothing worse.
+- [D] When its result is kept, the provider stages `command.lookup_ready` (1593: `text: str 1024`,
+  `language: str 35`, the ask it answered). The host matches it against the pending asks naming
+  that provider, removes them and sends each asker `event.lookup_ready` (110: `now_ms`, `provider:
+  str 64`; the asker subscribes to it like any event). The asker calls `lookup` again with the same
+  `text` and `language` (from 0 or at that provider's cursor) and the provider answers from what it
+  kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing but
+  count: the host adds 1 to a counter of unmatched ready commands and logs at most one line a
+  minute about them; the command is accepted (never an error to the provider).
+- [D] A pending ask ends without an event when its deadline passes, the asker stops or the
+  provider stops; an asker that wants the answer later asks again. The host never starts a
+  stopped plugin for a lookup and never holds a provider's answer itself. No provider sees
+  another's answer; the asker sees all.
 
 ## 8. Sizes and memory
 
@@ -612,12 +654,14 @@ reply 4,096 bytes, stage payload 3,840.
 - Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
   interface 6's card tables, which the reader held; the same bytes, now counted to the host.
-- Lookup: one stage call on the scratch; nothing kept.
-- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
-  queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
-  X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB, `de` about 20
-  KB; interface 6's reader held the same)**, all fallible; an activation-gate item beside UIX's,
-  measured with the reader port. The format plugins' own heaps are gated by their ports.
+- Lookup: one stage call on the scratch; the pending table (section 7) of 16 × 32 bytes = **512
+  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept.
+- **X4 worst case for DOC's host side: about 6.5 KiB at rest** (documents 0.13, images 1.5, band 4,
+  pending lookups 0.5, queue), **plus the decoder's transient peak while an image decodes (PNG at
+  most 48 KiB on the X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB,
+  `de` about 20 KB; interface 6's reader held the same)**, all fallible; an activation-gate item
+  beside UIX's, measured with the reader port. The format plugins' own heaps are gated by their
+  ports.
 
 ## 9. Interface-6 calls and their interface-7 form
 

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use alloc::{string::String, vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -727,13 +728,15 @@ fn status_discovery_checks_empty_pages_unknown_kinds_and_scope_mismatch() {
 #[test]
 fn menu_user_definition_is_read_from_the_explicit_flag() {
     for flags in [0, 31, 32, 63, 1 << 31] {
-        let item = RegistryItem::decode(Record::ServiceRegItem(wire::ServiceRegItem {
+        let row = wire::ServiceRegItem {
             id: "demo.menu",
             plugin: "demo",
             title: "Menu",
             flags,
-        }))
-        .unwrap();
+        };
+        let mut bytes = [0; 512];
+        let n = wire::record_encode_of(&row, &mut bytes).unwrap();
+        let item = RegistryItem::decode(wire::RawRecord::one(&bytes[..n]).unwrap()).unwrap();
         assert_eq!(item.user_defined(), flags & 32 != 0);
     }
 }

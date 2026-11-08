@@ -497,8 +497,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     (`screen`, `owner`, flag guards) and nothing above or below it; `service.end.flags` bit 2
     says rows were left out. The guard's plugin sees the instances from the guard up.
   - **Drawing below.** Under another plugin's overlay nothing at or below the guard is drawn
-    (section 1.2): the sleep screen never shows the page while the device is locked. Widget
-    instances made by a screen below the guard are `ERR_DENIED` for ops 4-7 and 12-15.
+    (section 1.2): the sleep screen never shows the page while the device is locked. A screen
+    below the guard is not the top instance, so it makes no widget (op 4 `ERR_STATE`, checked
+    before any guard rule). The widget instances it made before are `ERR_DENIED` for ops 6, 7,
+    12 and 13 while the guard is up, and so are ops 14 and 15 for it; it may still drop them
+    (op 5: dropping frees memory and shows nothing).
   - **Output.** No `notify` is drawn over it (it waits, section 7); help shows nothing for any
     screen while the guard is up except the guard's plugin's own.
   - Core's tests cover each of these (hand-off, section 10).
@@ -542,10 +545,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   re-entered while its `draw` runs; it draws its own widgets itself); a call from depth 2
   `ERR_BUSY`.
 - [D] **Depth.** The caller's `draw` runs at depth 1, the child's at depth 2. A child cannot
-  compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 7 and 12-15 are
-  depth 1 only. Only widgets and status values are children, and they hold no widgets
-  themselves, so nothing visible is lost; screens under an overlay are drawn at depth 1 with
-  everything (section 1.2).
+  compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 4, 7 and 12-15
+  are depth 1 only. Only widgets and status values are children, and they hold no widgets
+  themselves (op 4 `ERR_BUSY` at depth 2), so nothing visible is lost; screens under an overlay
+  are drawn at depth 1 with everything (section 1.2).
 - [D] **State.** The host saves the caller's clip and canvas state before the child and restores
   them after it, also when the child fails or faults. The child's failure is its status, logged;
   the caller's frame stays.
@@ -672,14 +675,17 @@ For the host implementer: `host_records_visit` checks the whole batch before its
 but an error the visitor itself returns stops the walk with the earlier visits done. So the op 16
 handler stages the params in its own scratch and publishes the hand-over only after the walk
 returned `OK`; a refusal leaves no hand-over and no partial params.
-Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper).
+Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper),
+and so is op 4 (a child holds no widgets, section 5.1). Op 6 runs nothing inside the caller: the
+host queues `input.widget` for the owner's `input` callback, as other input. Op 5 has no depth
+or guard rule: only the maker drops its instances.
 
 | Op | Name | Input | Reply | Who |
 | --- | --- | --- | --- | --- |
 | 1 | `stack` | `reg_query` | `ui_screen`*, `end` | anyone; top first, guarded rows left out |
 | 2 | `question` | `ui_request` | `ui_question` | the request's dialog instance |
 | 3 | `hints` | `reg_query` (`scope`: screen id) | `ui_hint`*, `end` | anyone (the help plugin) |
-| 4 | `widget_make` | `ui_widget_ref` | `ui_instance` | for the caller's top instance |
+| 4 | `widget_make` | `ui_widget_ref` | `ui_instance` | for the caller's top instance (else `ERR_STATE`) |
 | 5 | `widget_drop` | `ui_instance` | (none) | the instance's maker |
 | 6 | `widget_input` | `ui_widget_input` | (none) | the instance's maker |
 | 7 | `widget_targets` | `ui_widget_area` | `ui_target`*, `end` | the instance's maker |

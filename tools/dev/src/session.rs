@@ -97,8 +97,7 @@ impl Session {
             .map(|(path, bytes)| (path.clone(), bytes.as_slice()))
             .chain(plugin_files)
             .collect();
-        // No first-time hints over the screens looked at, unless asked.
-        let mut settings: Vec<(&str, &str)> = vec![("help.show", "false")];
+        let mut settings: Vec<(&str, &str)> = Vec::new();
         settings.extend(variant.settings());
         // What the command line set (`--set`), for every command.
         settings.extend(

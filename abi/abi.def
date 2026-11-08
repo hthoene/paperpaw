@@ -13690,7 +13690,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 256,
+          "secret": true
         }
       ]
     },
@@ -14572,6 +14573,56 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "name": "event.lookup_ready",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "provider",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
+    },
+    {
+      "id": 1593,
+      "name": "command.lookup_ready",
+      "since": 1,
+      "fields": [
+        {
+          "name": "text",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        },
+        {
+          "name": "language",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 35
         }
       ]
     }

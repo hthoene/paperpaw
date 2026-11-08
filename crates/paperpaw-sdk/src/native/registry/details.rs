@@ -76,13 +76,7 @@ impl Registry {
         if key.is_empty() {
             return Err(Error::Invalid);
         }
-        let bytes = self.call(
-            host,
-            op,
-            Record::ServiceRegKey(wire::ServiceRegKey { key }),
-            input,
-            out,
-        )?;
+        let bytes = self.call(host, op, &wire::ServiceRegKey { key }, input, out)?;
         Ok(DetailRecords::new(bytes))
     }
 
@@ -164,8 +158,7 @@ impl Registry {
 fn optional_text<'a>(records: &mut DetailRecords<'a>) -> Result<Option<&'a str>, Error> {
     let text = match records.next()? {
         None => None,
-        Some(Record::ServiceRegText(text)) => Some(text.text),
-        Some(_) => return Err(Error::Invalid),
+        Some(raw) => Some(expect::<wire::ServiceRegText<'_>>(raw)?.text),
     };
     records.finish()?;
     Ok(text)
@@ -178,16 +171,15 @@ impl<'a> DetailRecords<'a> {
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
-    fn next(&mut self) -> Result<Option<Record<'a>>, Error> {
+    fn next(&mut self) -> Result<Option<wire::RawRecord<'a>>, Error> {
         if self.bytes.is_empty() {
             return Ok(None);
         }
-        let (record, length) =
-            wire::record_decode_prefix(self.bytes).map_err(|_| Error::Invalid)?;
+        let (record, length) = wire::RawRecord::prefix(self.bytes).map_err(|_| Error::Invalid)?;
         self.bytes = self.bytes.get(length..).ok_or(Error::Invalid)?;
         Ok(Some(record))
     }
-    fn required(&mut self) -> Result<Record<'a>, Error> {
+    fn required(&mut self) -> Result<wire::RawRecord<'a>, Error> {
         self.next()?.ok_or(Error::Invalid)
     }
     fn finish(&self) -> Result<(), Error> {

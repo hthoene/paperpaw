@@ -47,7 +47,7 @@ pub(crate) fn kept(storage: &dyn Storage) -> Vec<u64> {
             names.push(number);
         }
     });
-    names.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut names);
     names
 }
 
@@ -105,6 +105,6 @@ pub(crate) fn books(env: &Env<'_>) -> (Vec<Counted>, bool) {
             bookmarks,
         });
     });
-    found.sort_by_cached_key(|book| book.title.to_lowercase());
+    paperpaw_sdk::sort::sort_by_cached_key(&mut found, |book| book.title.to_lowercase());
     (found, more)
 }

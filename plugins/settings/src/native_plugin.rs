@@ -12,7 +12,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PreviewSetting, RedrawMode, ResetTarget},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -20,6 +20,7 @@ use paperpaw_sdk::{
         ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -70,6 +71,7 @@ enum Link {
     Advanced,
     Search,
     Reset,
+    Restart,
 }
 
 /// The main page.
@@ -149,6 +151,7 @@ impl Link {
             Self::Advanced => Self::Advanced,
             Self::Search => Self::Search,
             Self::Reset => Self::Reset,
+            Self::Restart => Self::Restart,
         })
     }
 }
@@ -253,6 +256,8 @@ impl View {
 enum Asked {
     /// Reset the settings of a group (empty: all).
     Reset(String),
+    /// Restart PaperPaw.
+    Restart,
     /// A new text for setting `key`.
     Text(String),
     /// What to search for.
@@ -285,10 +290,14 @@ impl Plugin for NativeSettings {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::PluginsChanged, kinds::RegistryChanged, kinds::PreviewChanged, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,
@@ -664,6 +673,7 @@ impl NativeSettings {
                 self.ask(host, Question::text(&title, "")?, Asked::Search)
             }
             Link::Reset => self.ask_reset(host, "", ""),
+            Link::Restart => self.ask_restart(host),
         }
     }
 
@@ -971,6 +981,22 @@ impl NativeSettings {
         )
     }
 
+    /// Asks whether to restart PaperPaw (what plugins saved goes along).
+    fn ask_restart(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut messages = Messages::new()?;
+        let question = messages.copy(host, "settings.restart.question")?;
+        let heading = messages.copy(host, "settings.title")?;
+        let yes = messages.copy(host, "settings.option.restart")?;
+        let no = messages.copy(host, "settings.option.cancel")?;
+        // Cancel first: it is what the dialog starts on.
+        let choices = concat(&[&no, "\n", &yes])?;
+        self.ask(
+            host,
+            Question::choice(&heading, &question, &choices)?,
+            Asked::Restart,
+        )
+    }
+
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
         let Some((request, _)) = &self.asked else {
             return Ok(());
@@ -987,6 +1013,16 @@ impl NativeSettings {
         match asked {
             Asked::Reset(group) if answer.choice() == 0 => self.reset(host, &group),
             Asked::Reset(_) => Ok(()),
+            Asked::Restart if answer.choice() == 1 => {
+                let mut scratch = buffer(256)?;
+                // Refused where the shell does not allow it (`uses.power` is
+                // not required): say so, and let that notice fail silently.
+                if CommandSender::new(host, &mut scratch).restart().is_err() {
+                    Self::notify(host, "settings.restart.refused").unwrap_or(());
+                }
+                Ok(())
+            }
+            Asked::Restart => Ok(()),
             Asked::Text(key) => {
                 let text = uitext::read_all(self.ui()?, host, request.text(), TEXT_LIMIT)?;
                 let mut scratch = buffer(TEXT_LIMIT + 256)?;

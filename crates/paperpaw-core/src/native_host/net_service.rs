@@ -34,8 +34,9 @@ use super::{
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::{rc::Rc, string::String};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
 mod serving;
@@ -166,11 +167,11 @@ pub(crate) type Refused = u32;
 pub(crate) trait NetTransport {
     /// Begin one request (connect, send, read). Its memory body is bounded
     /// by `max_body` (reserved from the pool already); a saving request writes
-    /// `<path>.part` in 4 KiB appends and renames it over the target only when
+    /// `<path>.pp-staged` in 4 KiB appends and renames it over the target only when
     /// the answer is whole. `Err` means it could not begin.
     fn start(&self, id: u32, start: &Start<'_>) -> Result<(), i32>;
     /// Drop the transfer of `id` without any report; a saving request's
-    /// `.part` file is removed by the service ([`NetHost::release_save`]).
+    /// `.pp-staged` file is removed by the service ([`NetHost::release_save`]).
     fn abort(&self, id: u32);
     /// Listen on `port` (0: the cable), trying the next 20 ports when it is
     /// taken. The address that was got (`""` for the cable) or the reason.
@@ -199,12 +200,12 @@ pub(crate) trait NetHost {
     /// Whether two paths of the same root name the same file (case, 8.3
     /// aliases): the storage's identity, not the spelling.
     fn same_file(&self, root: u32, a: &str, b: &str) -> bool;
-    /// Put the target and its `.part` file in the paths-in-use table. Claims
+    /// Put the target and its `.pp-staged` file in the paths-in-use table. Claims
     /// are counted: the same plugin may claim a file it already has claimed (a
     /// request that replaces its older one claims first, so a refusal changes
     /// nothing), and each `release_save` gives one back.
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
-    /// Remove the `.part` file (best effort) and free the claim.
+    /// Remove the `.pp-staged` file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
@@ -264,33 +265,23 @@ pub(crate) fn backend(
             )
         }
         op::CANCEL => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             table::cancel(host, who.owner, t.token).map(|()| 0)
         }
         op::ANSWER => {
-            let Record::ServiceNetId(i) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let i: wire::ServiceNetId = codec::single(input)?;
             table::answer(host, who.owner, i.id, out)
         }
         op::BODY => {
-            let Record::ServiceNetRead(r) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let r: wire::ServiceNetRead = codec::single(input)?;
             table::body(host, who.owner, r.id, r.offset, out)
         }
         op::SERVE => {
-            let Record::ServiceNetServe(s) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let s: wire::ServiceNetServe = codec::single(input)?;
             serving::serve(host, who, &s).map(|()| 0)
         }
         op::STOP_SERVING => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             serving::stop_serving(host, who.owner, t.token).map(|()| 0)
         }
         op::RESPOND => serving::respond(host, who, input).map(|()| 0),
@@ -300,7 +291,7 @@ pub(crate) fn backend(
 
 /// A bare reply: the one record's framed bytes, no count and no end.
 fn reply(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 // The test hook for allocation failures: the `n`th gate of a test that armed
@@ -319,6 +310,12 @@ pub(crate) fn gate() -> Result<(), i32> {
             Ok(())
         }
     })
+}
+
+/// Makes the `n`th next [`gate`] (counting from 1) fail; 0 clears it.
+#[cfg(test)]
+pub(crate) fn fail_nth(n: u32) {
+    tests::FAIL_NTH.with(|nth| nth.set(n));
 }
 
 #[cfg(not(test))]
@@ -357,7 +354,7 @@ pub(crate) use table::{
 
 /// The plugin stopped (its callbacks are revoked): its requests are
 /// cancelled without events, its servers stopped without events, held
-/// bodies freed, `.part` files removed and its `.received/` emptied.
+/// bodies freed, `.pp-staged` files removed and its `.received/` emptied.
 /// Idempotent.
 ///
 /// # Errors

@@ -240,7 +240,7 @@ fn files_have_their_roots_and_names() {
     assert_eq!(r(&[h(), file(1, 1, "out.bin")]), Err(ERR_DENIED));
     assert_eq!(r(&[h(), file(1, 2, "out.bin")]), Err(ERR_DENIED));
     assert_eq!(r(&[h(), file(1, 3, "out.bin")]), Err(ERR_INVALID));
-    // Paths: the storage grammar, and never a `.part` name (any case).
+    // Paths: the storage grammar, and never a `.pp-staged` name (any case).
     for bad in [
         "",
         "../x",
@@ -248,13 +248,14 @@ fn files_have_their_roots_and_names() {
         "a/./b",
         "a:b",
         "a\\b",
-        "x.part",
-        "x.PART",
-        "dir/x.Part",
+        "a.pp-staged",
+        "a.PP-STAGED",
+        "dir/b.Pp-Staged",
     ] {
         assert_eq!(r(&[h(), file(1, 0, bad)]), Err(ERR_INVALID), "{bad:?}");
     }
-    assert!(r(&[h(), file(1, 0, "x.parts")]).is_ok());
+    assert!(r(&[h(), file(1, 0, "a.part")]).is_ok());
+    assert!(r(&[h(), file(1, 0, "x.pp-staged.txt")]).is_ok());
     assert!(r(&[h(), file(1, 0, "part")]).is_ok());
 }
 

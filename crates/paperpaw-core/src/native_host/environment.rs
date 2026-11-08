@@ -2,7 +2,7 @@
 //! No environment or device pointer crosses the plugin boundary.
 
 use super::Error;
-pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
+pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode, settings_encode};
 pub use crate::abi7::snapshot_wire::{
     Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, SNAPSHOT_VERSION, Snapshot,
     snapshot_decode,
@@ -148,6 +148,20 @@ impl EnvironmentScope {
         self.slot
             .with(read)
             .map_err(|_| paperpaw_native::host_glue::ERR_STATE)
+    }
+
+    /// Plugin reads supply the identity bound by Hosted::new, never input bytes.
+    ///
+    /// # Safety
+    /// Input/output meet the same contract as `settings_read`.
+    pub(crate) unsafe fn settings_read_for(
+        &self,
+        caller: &paperpaw_sdk::Id,
+        key: paperpaw_native::host_glue::PpBytes,
+        out: paperpaw_native::host_glue::PpBuffer,
+    ) -> i32 {
+        // SAFETY: the shell forwards the slot pointer contract unchanged.
+        unsafe { queries::settings_read_for(&self.slot, caller, key, out) }
     }
 
     /// Read a typed setting from the current dispatch frame.

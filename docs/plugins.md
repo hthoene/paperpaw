@@ -1834,17 +1834,16 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
-The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
-for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
-`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
-call; parameter text and transport buffers remain borrowed. This type-layout
-measurement does not replace the runtime X4 heap gate.
+The interface-7 SDK handover (`Ui::handover`) allocates nothing: it encodes
+at most 32 params and 1,024 content bytes straight into the caller's input
+buffer, and parameter text and transport buffers stay borrowed. A unit test
+counts its heap use at zero bytes with a counting allocator; the runtime X4
+heap gate stays open.
 
 Menu replacement temporarily allocates only its joined item bytes, at most
 2,048 bytes, and frees them after encoding into the caller's command buffer,
-before host submission. Empty and reset lists allocate nothing. The menu and
-handover temporaries are released before their host calls, so they do not
-overlap, including when both operations run in one callback.
+before host submission. Empty and reset lists allocate nothing. The menu
+temporary is released before its host call.
 
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
@@ -2687,6 +2686,55 @@ operation version and buffer limits before calling the host. Explicitly consume
 the handle with `release(host)` when done; teardown also releases it. There is
 no automatic Drop release because the handle retains no callback host. Per-family
 typed wrappers define the input and output records.
+### Secrets and device randomness
+
+Open `native::secrets::Secrets` once with the metadata-declared `core.secrets`
+service, use the current callback's `Host` for each operation and call `release`
+when finished. The handle retains no callback binding. `get` accepts an own
+unprefixed name; it cannot request another plugin's value. Names and labels
+preserve SSID tab, LF and CR characters while refusing other controls.
+
+`SecretWrite::new(SecretName::new(name)?, value)` saves a complete value, including
+an empty value. `.label(text)` replaces a label; an empty label preserves an
+existing one. `.changeable()` permits editing by the user. `keep` clears the
+encoded input buffer before returning, including after a refusal; its borrowed
+source value remains the caller's responsibility. `remove` accepts a `SecretName`.
+
+The settings editor declares `uses.secrets`. It lists `SecretList::all()`;
+ordinary plugins use `SecretList::own()`. A list page contains borrowed names,
+labels and changeable flags, never values. Continue from `page.end().next()`
+using the same query's `.from(cursor)`. Concurrent edits may change row order
+or totals between pages. `entry.target()` names an owner for removal, and
+`entry.replacement(value)` preserves its changeable flag for replacement.
+Other owners' values cannot be read, even by the editor.
+
+`random(host, len, input, out)` draws exactly 1-256 bytes. Inspect `bytes()` and
+`strong()` on the returned borrowed view. A host without a source refuses the
+call; the facade supplies no substitute source. Lock may use a weak draw as a
+salt under its contract; callers needing a strong key check the flag. Secret
+values and random bytes are redacted in Debug output.
+
+Input buffers of 1,280 bytes cover all calls. Output needs 4,096 bytes for list
+or 1,280 bytes for get, keep, remove and random. Views cannot outlive or reuse
+their output buffer while borrowed; a caller clears its value output after use.
+
+### Book fields and badges
+
+Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
+and `Declarations::book_field`; `.in_catalog()` also keeps short values in the
+catalog. `Declarations::book_badge(name, token)` registers the owner callback.
+The host supplies each name's plugin prefix. Badge stage payload codecs follow
+Kernel's `core.book-badge` schema.
+
+Read all owners' fields with `native::library::Library::fields`, passing a
+`BookRef` and `FieldCursor::start()` for the first page. `FieldPage::rows()`
+lends each complete id, translated title and value. Continue with
+`page.end().next()` until it is `None`; no value is silently shortened.
+The cursor carries this book's field generation. It is distinct from the
+catalog generation carried by a catalog-based `BookRef`. `Error::State` on
+continuation means restart from the first page. At most 64 fields belong to
+one book, in owning-plugin/name order; each page fits the service reply cap.
+
 ### Core event subscriptions
 
 `native::declare::EventKind` includes setting changes, book opened/closed/finished,
@@ -2744,6 +2792,18 @@ Create `FormatBuffers::new(scratch, out)` to name the temporary argument encodin
 storage and translated output separately; neither buffer is allocated by the SDK.
 `digits` maps ASCII digits. Both functions return the full required byte length,
 so retry when the result exceeds the output capacity.
+
+### Native Bluetooth
+
+Declare `uses.bluetooth` in the metadata for the commands; reads of the radio and the bonded devices
+(`Device::bluetooth`, `Device::bonded`) need none. `CommandSender::bt_scan(ms)`, `bt_stop_scan`,
+`bt_pair(device)`, `bt_connect`, `bt_disconnect`, `bt_forget`, `bt_give(device, plugin)`,
+`bt_take_back` and `bt_keys(device, on)` queue one command each and do not wait; the answers come as
+`Event::Bluetooth` to the plugin bound to the host slot `core.bluetooth` (offer a screen for the slot
+with `SlotOfferDecl`; no event subscription exists for it). Device ids are those of the reads. The
+event carries `kind` (`Changed`, `Found`, `ScanEnded`, `Connected`, `Disconnected`, `Paired`, `Done`,
+`Failed`), the device and its kind, the signal in dBm (`None` where not known) and a `reason` (`None`
+where none is said); unknown values read as `Other`. Its name borrows the event.
 
 ### Native library access
 
@@ -2848,3 +2908,27 @@ host refusal. The draw-frame clip remains the outer bound.
 `CommandSender` also opens screens, runs actions, queues a redraw with typed
 `RedrawMode`, and closes the submitting plugin's top screen. Screen and action
 ids are validated before encoding; each call stages one complete batch or none.
+
+### Reading annotations through interface 7
+
+Use `native::library::Library::annotations` with a `BookRef` and
+`AnnotationCursor::start()`. `page.end().total()` counts all annotations for
+that book, including bookmarks and highlights without notes. This count is
+available from the first page; a whole-library overview reads a first page for
+each catalog book. There is no count-only call or catalog has-notes filter.
+
+Annotation rows borrow the caller's reply buffer and include stable per-book
+ids, kind, source offsets, progress, timestamps and text/note previews. Each
+preview is at most 512 UTF-8 bytes. Continue with `page.end().next()` while
+keeping the same book reference. The cursor carries the book's annotation
+generation; a catalog reference carries a separate catalog generation. On
+`Error::State`, restart that book's annotation enumeration.
+
+For lossless exports, read cut previews with `Library::annotation_text` and
+`AnnotationTextQuery::new(id, AnnotationTextKind::Text)` or `Note`. The id is
+the annotation id, not the row index. Each part borrows at most 1,024 UTF-8 bytes;
+continue with `query.from(part.next_offset().unwrap())` only when the offset is
+present. Consume each borrowed part before reusing the output buffer. Text calls
+have no annotation-generation input, so a multi-call export must handle concurrent
+edits; it does not acquire a snapshot. A caller can recheck annotation generation
+and restart if it changed.

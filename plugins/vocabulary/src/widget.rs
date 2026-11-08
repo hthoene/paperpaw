@@ -359,9 +359,9 @@ fn today(env: &Env<'_>) -> Option<i64> {
 /// are read (at start, and when they change), else the newest.
 fn pick(env: &Env<'_>) -> Option<Word> {
     if env.settings().text(&format!("{WORD_NAME}.pick")) == PICKS[1] {
-        return store::summary(env.storage()).newest;
+        return store::summary(env.storage()).ok().and_then(|s| s.newest);
     }
-    let count = store::count(env.storage());
+    let count = store::count(env.storage()).unwrap_or(0);
     if count == 0 {
         return None;
     }
@@ -377,6 +377,7 @@ fn pick(env: &Env<'_>) -> Option<Word> {
         }
     };
     store::range(env.storage(), n, n + 1)
+        .ok()?
         .into_iter()
         .next()
         .map(|(_, word)| word)
@@ -481,7 +482,7 @@ impl Widget for WordWidget {
     fn update(&mut self, env: &Env<'_>) -> bool {
         // Read again only when the day, the words or the choice changed:
         // it is asked each minute, for the day.
-        let size = env.storage().size(&store::file()).unwrap_or(0);
+        let size = env.storage().size(store::file()).unwrap_or(0);
         let newest = env.settings().text(&format!("{WORD_NAME}.pick")) == PICKS[1];
         let read_for = Some((today(env), size, newest));
         if read_for == self.read_for {
@@ -612,7 +613,7 @@ impl Saved {
 
 impl Widget for Saved {
     fn update(&mut self, env: &Env<'_>) -> bool {
-        let summary = store::summary(env.storage());
+        let summary = store::summary(env.storage()).unwrap_or_default();
         let changed = summary != self.summary;
         self.summary = summary;
         if changed {
