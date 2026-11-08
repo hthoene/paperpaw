@@ -7,6 +7,9 @@ use super::{
 };
 use paperpaw_native::host_glue::ERR_INVALID;
 
+/// Index category of `screen.spec` (`declaration_index::KIND_TABLE`).
+const KIND_SCREEN: u8 = 5;
+
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
     pub(crate) owned: &'a Declarations,
@@ -146,6 +149,10 @@ impl<'a> View<'a> {
                 Record::SettingSpec(spec) => self.require_group(spec.group),
                 Record::SettingGroup(group) => self.ancestry(group.parent, groups),
                 Record::SettingExtra(extra) => self.follow_kind(&extra),
+                // `registry.md` section 6: an offer names a declared screen of
+                // the declaring plugin. Everything else REG declares refers to
+                // other plugins' items too, so it resolves where it is read.
+                Record::SlotOffer(offer) => self.require_screen(offer.screen),
                 _ => Ok(()),
             };
         })?;
@@ -179,6 +186,14 @@ impl<'a> View<'a> {
             return Err(ERR_INVALID);
         }
         Ok(())
+    }
+    fn require_screen(&self, id: &str) -> Result<(), i32> {
+        let name = own_name(self.plugin, id).ok_or(ERR_INVALID)?;
+        // Screens are kept only as raw declarations.
+        match self.raw.find(self.image, KIND_SCREEN, name)? {
+            Some(_) => Ok(()),
+            None => Err(ERR_INVALID),
+        }
     }
     fn ancestry(&self, mut parent: &'a str, groups: usize) -> Result<(), i32> {
         let mut steps = 0;

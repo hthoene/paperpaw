@@ -98,16 +98,20 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::RegistrationStage(registration) => {
             stage_registration_check(registration).and(Err(ERR_UNSUPPORTED))
         }
-        // Registry declarations (`docs/abi/registry.md` section 6): refused
-        // until the host admits them (Core, REG hand-off).
-        Record::SetupStep(_)
-        | Record::SlotSpec(_)
+        // Registry declarations (`docs/abi/registry.md` section 6): checked
+        // here, admitted into the declaration store and the catalog. Their
+        // per-plugin duplicates and own-screen references are checked over the
+        // whole declaration set at commit (`declaration_checks.rs`).
+        Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
         | Record::PresetSpec(_)
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
-        | Record::PresetValue(_) => {
+        | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
+        // Checked, then refused until the host admits it (the setup-step
+        // arm follows: `setup.step`'s own contract, `registry.md` section 6).
+        Record::SetupStep(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
         }
         // Screen, widget and status declarations (`docs/abi/ui.md`): refused
