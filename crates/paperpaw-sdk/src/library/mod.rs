@@ -38,7 +38,7 @@ pub mod sorted;
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod split;
 
-pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key};
+pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_status};
 pub use fingerprint::Fingerprint;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
 
@@ -507,7 +507,7 @@ fn file_keys(storage: &dyn Storage, library: &str) -> Result<Vec<u64>, StorageEr
     let mut keys: Vec<u64> = Vec::new();
     let mut add = |key: u64| -> Result<(), StorageError> {
         // A card full of files is not worth the device: told, not taken.
-        keys.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+        keys.try_reserve(1).map_err(|_| StorageError::OutOfMemory)?;
         keys.push(key);
         Ok(())
     };
@@ -772,14 +772,14 @@ fn update_list(
 /// What the library knows of the book at `path`, if it belongs to this
 /// file (not to another one of that name before).
 pub fn book(storage: &dyn Storage, path: &str) -> Option<Book> {
-    try_book(storage, path).ok().flatten()
+    fallible::surviving(try_book(storage, path)).flatten()
 }
 
 /// [`book`] for a file whose size is known, e.g. from a listing
 /// ([`listing::Entry::size`]): the file is not looked up again (on a card,
 /// a search through its folder).
 pub fn book_sized(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
-    try_book_sized(storage, path, size).ok().flatten()
+    fallible::surviving(try_book_sized(storage, path, size)).flatten()
 }
 
 /// What the library knows of the book at `path` to change it and
@@ -793,7 +793,7 @@ fn book_for_update(storage: &dyn Storage, path: &str) -> Result<Book, StorageErr
     let known = load_details(storage, path)?
         .map(|source| fallible::try_parse_details(&source))
         .transpose()
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     Ok(match known {
         Some(book) if book.size == size => book,
         Some(old) => Book {
@@ -1122,16 +1122,7 @@ pub(crate) fn noted_status(storage: &dyn Storage, path: &str) {
 /// The status of the book at `path` as its details and the lists say;
 /// an error where one of them cannot be read, or the book is gone.
 fn status_of(storage: &dyn Storage, path: &str) -> Result<catalog::Status, StorageError> {
-    let size = storage.size(path)?;
-    let progress = load_details(storage, path)?
-        .map(|source| fallible::try_parse_details(&source))
-        .transpose()
-        .map_err(|_| StorageError::TooLarge)?
-        .filter(|book| book.size == size)
-        .and_then(|book| book.progress);
-    let favourite = read_favourites(storage)?.iter().any(|p| p == path);
-    let opened = read_opened(storage)?.iter().any(|p| p == path);
-    Ok(catalog::Status::new(progress, favourite, opened))
+    Ok(try_status(storage, path)?)
 }
 
 /// Moves what the library knows of a book from `from` to `to`: its
@@ -1390,6 +1381,9 @@ pub fn request_catalog_anew() -> crate::Command {
     let wanted = crate::builtin::events::CatalogWanted::new(true);
     crate::builtin::events::CATALOG_WANTED.emit(wanted)
 }
+
+#[cfg(test)]
+mod fallible_tests;
 
 #[cfg(test)]
 #[allow(

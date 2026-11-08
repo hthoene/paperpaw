@@ -54,8 +54,10 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> Book {
 /// ([`index_details`]). A book replaced by one of the same size keeps the
 /// details of the one before (as an indexed one always did).
 pub(crate) fn read_book(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
-    let source = load_details(storage, path).ok()??;
-    let book = super::fallible::try_parse_details(&source).ok()?;
+    let source = super::fallible::surviving(load_details(storage, path))??;
+    let book = super::fallible::surviving(
+        super::fallible::try_parse_details(&source).map_err(|_| crate::data::Error::OutOfMemory),
+    )?;
     (book.size == size && (book.indexed || metadata_read(&source))).then_some(book)
 }
 

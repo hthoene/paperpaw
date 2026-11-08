@@ -136,7 +136,7 @@ impl From<Error> for StorageError {
     fn from(e: Error) -> Self {
         match e {
             Error::Storage(e) => e,
-            Error::OutOfMemory => StorageError::TooLarge,
+            Error::OutOfMemory => StorageError::OutOfMemory,
             Error::Newer(_) | Error::Unreadable | Error::Other(_) => StorageError::InvalidData,
         }
     }

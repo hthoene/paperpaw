@@ -30,6 +30,11 @@ pub enum StorageError {
     /// The file is there but does not hold what was asked for, e.g. text
     /// that is not UTF-8.
     InvalidData,
+    /// The device had no memory for the operation just now: nothing was
+    /// read or changed, and it may be tried again (unlike
+    /// [`StorageError::TooLarge`], which is the file's own size and
+    /// never works). Not the card: [`StorageError::CARD_GONE`] is another.
+    OutOfMemory,
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
@@ -57,6 +62,7 @@ impl fmt::Debug for StorageError {
             StorageError::Io => "Io",
             StorageError::TooLarge => "TooLarge",
             StorageError::InvalidData => "InvalidData",
+            StorageError::OutOfMemory => "OutOfMemory",
             StorageError::Other(code) => return write!(f, "Other({code})"),
         })
     }
@@ -72,6 +78,7 @@ impl fmt::Display for StorageError {
             StorageError::Io => "input/output error",
             StorageError::TooLarge => "file too large",
             StorageError::InvalidData => "invalid data",
+            StorageError::OutOfMemory => "out of memory",
             StorageError::Other(code) => return write!(f, "storage error {code}"),
         })
     }

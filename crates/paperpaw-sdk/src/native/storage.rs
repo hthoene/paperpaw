@@ -300,15 +300,15 @@ impl<'h, 'cb> DataStorage<'h, 'cb> {
     }
 }
 
-/// The host's refusal as a storage error. A refused allocation is `Io`
-/// (`Other(1)` is the card taken out, which it must never be taken for).
+/// The host's refusal as a storage error. A refused allocation is
+/// `OutOfMemory` (never `Other(1)`, the card taken out).
 fn storage_error(error: Error) -> StorageError {
     match error {
         Error::NotFound => StorageError::NotFound,
         Error::Full | Error::NoSpace => StorageError::Full,
         Error::Unsupported => StorageError::Unsupported,
         Error::Invalid => StorageError::InvalidPath,
-        Error::NoMemory => StorageError::Io,
+        Error::NoMemory => StorageError::OutOfMemory,
         _ => StorageError::Io,
     }
 }

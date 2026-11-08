@@ -39,6 +39,22 @@ pub fn try_key(path: &str) -> Result<String, TryReserveError> {
     copy(key_into(path, &mut digits))
 }
 
+/// The result of a `try_` read for the plain forms, which have always
+/// stopped the program where there is no memory: the book, `None` where
+/// the details could not be read, and the allocation failure handler
+/// (`handle_alloc_error`) where memory was short, never `None`: a caller
+/// takes `None` for a book the library does not know and may write or
+/// extract it again.
+pub(super) fn surviving<T>(result: Result<T, Error>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(Error::OutOfMemory | Error::Storage(crate::StorageError::OutOfMemory)) => {
+            alloc::alloc::handle_alloc_error(core::alloc::Layout::new::<Book>())
+        }
+        Err(_) => None,
+    }
+}
+
 /// `text` as a new `String`, reserved fallibly.
 fn copy(text: &str) -> Result<String, TryReserveError> {
     join(&[text])
@@ -165,4 +181,74 @@ pub fn try_book_sized(storage: &dyn Storage, path: &str, size: u64) -> Result<Op
     };
     let book = try_parse_details(&source).map_err(|_| Error::OutOfMemory)?;
     Ok((book.size == size).then_some(book))
+}
+
+/// Whether the list file `file` (the books opened, the favourites: one
+/// path a line, at most `max`) holds `path`; the file is looked through a
+/// piece at a time and none is held. `TooLarge` where it is longer than a
+/// list of `max` paths can be.
+fn list_has(storage: &dyn Storage, file: &str, max: usize, path: &str) -> Result<bool, Error> {
+    match storage.size(file) {
+        Ok(size) if size > (max * 512) as u64 => {
+            return Err(Error::Storage(crate::StorageError::TooLarge));
+        }
+        Ok(_) => {}
+        Err(crate::StorageError::NotFound) => return Ok(false),
+        Err(e) => return Err(Error::Storage(e)),
+    }
+    let mut has = false;
+    let mut first = true;
+    super::catalog::each_head(storage, file, 0, &mut |_, head| {
+        let head = if core::mem::take(&mut first) {
+            head.strip_prefix("\u{feff}".as_bytes()).unwrap_or(head)
+        } else {
+            head
+        };
+        let head = head.strip_suffix(b"\r").unwrap_or(head);
+        has = !head.is_empty() && head == path.as_bytes();
+        !has
+    })?;
+    Ok(has)
+}
+
+/// The size and progress a details file `source` says, without a book.
+fn progress_in(source: &str) -> (u64, Option<u8>) {
+    let (mut size, mut progress) = (0, None);
+    for entry in config::parse(source).filter_map(Result::ok) {
+        match (entry.section, entry.key) {
+            ("field", _) => {}
+            (_, "size") => size = entry.value.raw().parse().unwrap_or_default(),
+            (_, "progress") => progress = entry.value.as_u32().map(|p| p.min(100) as u8),
+            _ => {}
+        }
+    }
+    (size, progress)
+}
+
+/// [`status_of`](super::status_of) with the memory error: how far the book
+/// at `path` is read (its details, when they are of this file), whether it
+/// is a favourite and whether it was opened.
+///
+/// # Errors
+/// [`Error::OutOfMemory`]; the storage's error where the book is gone or a
+/// list or the details cannot be read.
+pub fn try_status(storage: &dyn Storage, path: &str) -> Result<super::catalog::Status, Error> {
+    let size = storage.size(path)?;
+    let progress = match try_load_details(storage, path)? {
+        Some(source) => {
+            let (kept, progress) = progress_in(&source);
+            if kept == size { progress } else { None }
+        }
+        None => None,
+    };
+    let mut file = String::new();
+    file.try_reserve_exact(DIR.len() + "/favourites.txt".len())
+        .map_err(|_| Error::OutOfMemory)?;
+    file.push_str(DIR);
+    file.push_str("/favourites.txt");
+    let favourite = list_has(storage, &file, super::MAX_FAVOURITES, path)?;
+    file.truncate(DIR.len());
+    file.push_str("/opened.txt");
+    let opened = list_has(storage, &file, super::MAX_OPENED, path)?;
+    Ok(super::catalog::Status::new(progress, favourite, opened))
 }

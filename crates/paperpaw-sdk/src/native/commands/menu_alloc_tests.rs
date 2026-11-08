@@ -10,6 +10,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 struct Counts {
     enabled: bool,
     refuse: bool,
+    /// Allocations let through before the refusal.
+    skip: usize,
     refused: bool,
     live: usize,
     peak: usize,
@@ -23,7 +25,11 @@ unsafe impl GlobalAlloc for Counting {
         let refuse = COUNTS
             .try_with(|cell| {
                 let mut count = cell.get();
-                if count.enabled && count.refuse {
+                if count.enabled && count.refuse && count.skip > 0 {
+                    count.skip -= 1;
+                    cell.set(count);
+                    false
+                } else if count.enabled && count.refuse {
                     count.refuse = false;
                     count.refused = true;
                     cell.set(count);
@@ -57,7 +63,7 @@ unsafe impl GlobalAlloc for Counting {
             .try_with(|cell| {
                 let mut count = cell.get();
                 if count.enabled {
-                    count.live -= layout.size();
+                    count.live = count.live.saturating_sub(layout.size());
                     cell.set(count);
                 }
             })
@@ -68,6 +74,30 @@ unsafe impl GlobalAlloc for Counting {
 }
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
+
+/// Runs `operation` with its `number`-th allocation (1 is the first)
+/// refused; says whether one was.
+pub(crate) fn refuse_nth<T>(number: usize, operation: impl FnOnce() -> T) -> (T, bool) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            COUNTS.with(|cell| cell.set(Counts::default()));
+        }
+    }
+    COUNTS.with(|cell| {
+        cell.set(Counts {
+            enabled: true,
+            refuse: true,
+            skip: number - 1,
+            ..Counts::default()
+        })
+    });
+    let reset = Reset;
+    let result = operation();
+    let refused = COUNTS.with(|cell| cell.get().refused);
+    drop(reset);
+    (result, refused)
+}
 
 fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset;

@@ -55,7 +55,7 @@ fn hashed_list(storage: &dyn Storage, path: &str) -> Result<Vec<u32>, StorageErr
     let mut hashes = Vec::new();
     hashes
         .try_reserve_exact(count_lines(storage, path)?)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     lines(storage, path, &mut |_, line| {
         let line = line.trim_start_matches('\u{feff}');
         if !line.is_empty() && !line.starts_with(crate::data::MARK) {

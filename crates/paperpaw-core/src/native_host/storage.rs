@@ -24,7 +24,8 @@
 
 use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED, ERR_UTF8,
+    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_UTF8,
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::Id;
@@ -293,6 +294,7 @@ fn status(error: StorageError) -> i32 {
         StorageError::Unsupported => ERR_UNSUPPORTED,
         StorageError::Full => ERR_FULL,
         StorageError::TooLarge => ERR_NO_SPACE,
+        StorageError::OutOfMemory => ERR_NO_MEMORY,
         _ => ERR_IO,
     }
 }
