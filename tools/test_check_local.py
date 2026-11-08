@@ -69,6 +69,18 @@ class CheckLocal(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("packages: good", run.stdout)
 
+    def test_a_copy_outside_the_repository_checks_the_worktree_it_is_run_in(self):
+        copy = Path(tempfile.mkdtemp()) / "check-local.sh"
+        shutil.copy(self.repo / "tools/check-local.sh", copy)
+        self.addCleanup(shutil.rmtree, copy.parent, True)
+        env = dict(os.environ, CARGO_TARGET_DIR=str(self.repo / "target"))
+        run = subprocess.run(
+            ["bash", str(copy), "--base", "base", "--only", "test", "bad"],
+            cwd=self.repo, env=env, capture_output=True, text=True,
+        )
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"test\s+FAILED")
+
     def test_nothing_selected_is_no_pass(self):
         run = self.run_script("--only", "nonsense")
         self.assertEqual(run.returncode, 2)

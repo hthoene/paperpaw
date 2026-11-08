@@ -24,10 +24,14 @@
 #   --base REV        base for finding the changed packages
 #   --jobs N          cargo -j (default 4)
 #
-# Run it from a worktree root, with CARGO_TARGET_DIR of that worktree.
+# Run it from inside the worktree to check (a copy of the script elsewhere
+# works too), with CARGO_TARGET_DIR of that worktree.
 set -uo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The worktree it is run in (so a copy of this file anywhere works), else the
+# one it lives in.
+root="$(git rev-parse --show-toplevel 2> /dev/null)" \
+    || root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root" || exit 2
 
 features=""
