@@ -263,9 +263,7 @@ pub fn install_with(
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    builder
-        .plugin(paperpaw_plugin_update::Update)
-        .plugin(paperpaw_plugin_setup::Setup)
+    builder.plugin(paperpaw_plugin_update::Update)
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are

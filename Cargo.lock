@@ -1579,7 +1579,6 @@ dependencies = [
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
- "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
@@ -2502,14 +2501,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
