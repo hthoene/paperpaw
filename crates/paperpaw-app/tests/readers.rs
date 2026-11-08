@@ -230,9 +230,7 @@ impl App {
         let builder = Kernel::builder(device)
             .storage(storage)
             // On touch screens without the hints over it all.
-            .user_config(format!(
-                "[help]\nshow = false\n[core]\nlanguage = en\n{config}"
-            ));
+            .user_config(format!("[core]\nlanguage = en\n{config}"));
         let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
         let mut kernel = more(builder).build().unwrap();
         let effects = kernel.start(Instant(0));
