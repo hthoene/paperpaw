@@ -433,8 +433,10 @@ fn a_large_message_is_the_same_cut_at_what_was_asked() {
         "From: a@b.c\r\nSubject: big\r\n\r\n{}",
         "line of text for a big message\r\n".repeat(9000)
     );
-    let mut script = Script::default();
-    script.messages = vec![(10, "".into(), big)];
+    let script = Script {
+        messages: vec![(10, "".into(), big)],
+        ..Script::default()
+    };
     let tasks = (
         vec![old::Task::Body {
             folder: "INBOX".into(),
@@ -861,5 +863,5 @@ fn the_password_is_not_in_a_debug_text() {
 }
 
 /// Unused here, kept so that both stacks' unused imports stay honest.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "keeps the imports of both stacks honest")]
 fn _types(_: CertificateHash, _: SocketError, _: Fail) {}
