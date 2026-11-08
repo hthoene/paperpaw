@@ -139,5 +139,10 @@
     "core.registry",
     "core.ui"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.power",
+      "required": false
+    }
+  ]
 }

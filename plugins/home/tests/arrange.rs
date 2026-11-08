@@ -404,11 +404,11 @@ fn a_tool_is_added_into_the_first_free_cell() {
         choose(&mut app, "Tools");
         // Those on the page already are not offered.
         assert!(!app.shows("Library"), "{}", app.described());
-        choose(&mut app, "Battery");
+        choose(&mut app, "Catalogs");
         assert_eq!(app.screen(), HOME, "{}", app.described());
         let added = page(&app, 1)
             .split(", ")
-            .find(|i| i.starts_with("tool:battery"))
+            .find(|i| i.starts_with("tool:opds"))
             .map(String::from);
         assert_eq!(
             added.as_deref().and_then(|i| i.split(' ').nth(1)),
@@ -416,7 +416,7 @@ fn a_tool_is_added_into_the_first_free_cell() {
             "{}",
             page(&app, 1)
         );
-        assert!(app.shows("Battery"), "{}", app.described());
+        assert!(app.shows("Catalogs"), "{}", app.described());
     }
 }
 
@@ -483,7 +483,7 @@ fn a_full_page_says_there_is_no_room() {
     edit(&mut app);
     open_add(&mut app);
     choose(&mut app, "Tools");
-    choose(&mut app, "Battery");
+    choose(&mut app, "Catalogs");
     // Told (a notice), the list stays for another choice.
     assert_eq!(app.screen(), "home.add-widget");
     assert_eq!(page(&app, 1), before);
