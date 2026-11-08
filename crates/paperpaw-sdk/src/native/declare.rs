@@ -58,6 +58,8 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod format;
+pub use format::FormatDecl;
 mod lookup;
 pub use lookup::LookupProviderDecl;
 mod library;
