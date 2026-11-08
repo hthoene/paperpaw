@@ -214,6 +214,14 @@ class CheckLocal(unittest.TestCase):
         run = self.run_script("--only", "test")
         self.assertEqual(run.returncode, 2)  # no package changed: test is skipped
 
+    def test_help_works_from_a_subdirectory(self):
+        # The script changes to the worktree root before it reads options, so
+        # --help must not re-open a relative $0.
+        run = subprocess.run(["bash", "../tools/check-local.sh", "--help"],
+                             cwd=self.repo / "crates", capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("tools/check-local.sh [options]", run.stdout)
+
     def test_unknown_option_is_refused(self):
         self.assertEqual(self.run_script("--frobnicate").returncode, 2)
 

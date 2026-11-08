@@ -64,15 +64,26 @@ done
 # debug paths in the code). The target's rustflags variable is joined with
 # .cargo/config.toml's flags, unlike RUSTFLAGS, which would replace them.
 # The variable is split at spaces, so with a space in one of the paths the
-# remap is left out (with a warning): the build works, but its files then
-# depend on where it ran.
+# remap cannot be made and the files would depend on where they were built:
+# the build refuses, unless PAPERPAW_ALLOW_UNREMAPPED=1 (a trial build).
 remap_paths=("$root" "${CARGO_TARGET_DIR:-$here/target}" "${CARGO_HOME:-$HOME/.cargo}")
 remappable=1
+spaced=
 for dir in "${remap_paths[@]}"; do
     case "$dir" in
-        *[[:space:]]*) remappable=0; echo "warning: $dir has a space or tab in it; the paths are not remapped, so the plugin files depend on where they are built" >&2 ;;
+        *[[:space:]]*) remappable=0; spaced=$dir ;;
     esac
 done
+if [[ $remappable = 0 ]]; then
+    # The files would differ by where they were built: not what the store, the
+    # release or the CI hash-check can accept. A trial build may go on.
+    if [[ ${PAPERPAW_ALLOW_UNREMAPPED:-} = 1 ]]; then
+        echo "warning: $spaced has a space or tab in it; the paths are not remapped, so the plugin files depend on where they are built (PAPERPAW_ALLOW_UNREMAPPED=1)" >&2
+    else
+        echo "error: $spaced has a space or tab in it, so the paths cannot be remapped and the plugin files would depend on where they are built. Use a path without one, or set PAPERPAW_ALLOW_UNREMAPPED=1 for a trial build that is not published." >&2
+        exit 1
+    fi
+fi
 if [[ $remappable = 1 ]]; then
     flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
     remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_TARGET_DIR:-$here/target}=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"

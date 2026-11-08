@@ -71,7 +71,7 @@ while (($#)); do
         --online) lock_args=""; shift ;;
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a number}"; shift 2 ;;
-        -h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^set -uo/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "check-local: unknown option $1" >&2; exit 2 ;;
         *) crates+=("$1"); shift ;;
     esac

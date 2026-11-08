@@ -114,10 +114,11 @@ impl<'a> AlphaWriter<'a> {
 
 impl ImageSink for AlphaWriter<'_> {
     fn start(&mut self, width: u32, height: u32) -> Result<(), ImageError> {
-        let mut header = Vec::with_capacity(HEADER as usize);
-        header.extend_from_slice(MAGIC);
-        header.extend_from_slice(&width.to_le_bytes());
-        header.extend_from_slice(&height.to_le_bytes());
+        // On the stack: an allocation here aborted on a full heap.
+        let mut header = [0_u8; HEADER as usize];
+        header[..4].copy_from_slice(MAGIC);
+        header[4..8].copy_from_slice(&width.to_le_bytes());
+        header[8..].copy_from_slice(&height.to_le_bytes());
         self.storage
             .write(self.path, &header)
             .map_err(|_| ImageError::Io)?;
