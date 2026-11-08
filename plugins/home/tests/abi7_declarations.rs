@@ -241,19 +241,28 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(footer, ["footer.items||||=|1:core.status-items|0|0"]);
     assert_eq!(native.extras, others);
     assert_eq!(native.screens, old.screens);
-    // The actions, the offer, the menu places, the icons, the key, the widget
-    // place and the event.
-    for kind in [
-        "SlotOffer",
-        "WidgetPlace",
-        "KeyBind",
-        "MenuEntry",
-        "IconSpec",
-    ] {
-        assert!(
-            native.others.iter().any(|k| k == kind),
-            "{kind} in {:?}",
-            native.others
-        );
-    }
+    // The navigation records, decoded: the offer (slot, priority), the pages
+    // as a place of widgets (their settings, the layout), the actions, the menu
+    // places (menu, item, order), the icons and the key; and the event.
+    assert_eq!(native.slots, old.slots);
+    assert_eq!(native.slots, ["core.home|home.dashboard|0"]);
+    assert_eq!(native.widget_places, old.widget_places);
+    assert_eq!(native.widget_places.len(), 1);
+    // The status line widget's place belongs to the built-in widgets, which are
+    // not declared yet (an ignored acceptance case).
+    assert!(native.status_places.is_empty());
+    assert_eq!(old.status_places.len(), 1, "{:?}", old.status_places);
+    assert_eq!(native.keys, old.keys);
+    assert_eq!(native.keys, ["core.home|swipe.up|home.all-tools"]);
+    assert_eq!(native.menu_entries, old.menu_entries);
+    assert_eq!(native.menu_entries.len(), 2);
+    assert_eq!(native.icons, old.icons);
+    assert_eq!(native.needs, old.needs);
+    assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
+    assert_eq!(native.actions, old.actions);
+    assert_eq!(native.actions.len(), 2);
+    assert_eq!(native.events.len(), 1);
+    assert!(native.events[0].ends_with(&format!(":{}", declarations::SETTING_CHANGED)));
+    // Nothing else was declared.
+    assert!(native.others.is_empty(), "{:?}", native.others);
 }

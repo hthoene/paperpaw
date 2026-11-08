@@ -4,9 +4,14 @@
 //! actions) must pass `validate_record`; the others are checked and then
 //! refused as unsupported until the host takes them (anything else, such as
 //! an invalid record, fails the test).
-#![allow(dead_code, clippy::unwrap_used, reason = "test support")]
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "test support: one arm per kind of record"
+)]
 use paperpaw_core::native_host::declarations::validate_record;
-use paperpaw_core::native_host::registrations::{Record, records_decode};
+use paperpaw_core::native_host::registrations::{Record, Registration, records_decode};
 use paperpaw_sdk::{Contribution, Editor, SettingKind, SettingValue};
 
 /// `ERR_UNSUPPORTED` of `paperpaw_native::host_glue` (a plugin has no such dependency).
@@ -20,8 +25,58 @@ pub struct Lines {
     /// Only extras that say something.
     pub extras: Vec<String>,
     pub screens: Vec<String>,
-    /// The kind of every record that is none of these.
+    /// The navigation records, each as a line, sorted: slot offers
+    /// (`slot|screen|priority`), places of widgets
+    /// (`name|title|setting keys|layout|shown if`), places of status items,
+    /// key bindings (`layer|input|action`), menu entries (`menu|item|order`),
+    /// icons (`item|icon`), needs (`item|need`), actions (`name|title`) and
+    /// the events subscribed to (native only: `tag:token`).
+    pub slots: Vec<String>,
+    pub widget_places: Vec<String>,
+    pub status_places: Vec<String>,
+    pub keys: Vec<String>,
+    pub menu_entries: Vec<String>,
+    pub icons: Vec<String>,
+    pub needs: Vec<String>,
+    pub actions: Vec<String>,
+    pub events: Vec<String>,
+    /// The kind of every record that is none of the settings, screens or
+    /// these.
     pub others: Vec<String>,
+}
+
+const NEEDS: [&str; 12] = [
+    "Speech",
+    "Sleep",
+    "Rotation",
+    "NoTouch",
+    "Touch",
+    "ButtonRow",
+    "Colors",
+    "Wifi",
+    "Firmware",
+    "BlackAndWhite",
+    "Frontlight",
+    "Bluetooth",
+];
+
+impl Lines {
+    fn sort(mut self) -> Self {
+        for list in [
+            &mut self.slots,
+            &mut self.widget_places,
+            &mut self.status_places,
+            &mut self.keys,
+            &mut self.menu_entries,
+            &mut self.icons,
+            &mut self.needs,
+            &mut self.actions,
+            &mut self.events,
+        ] {
+            list.sort();
+        }
+        self
+    }
 }
 
 fn default_text(bytes: &[u8]) -> String {
@@ -123,6 +178,40 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
                     flags: e.flags,
                 })),
                 Record::ScreenSpec(s) => out.screens.push(format!("{}|{}", s.name, s.title)),
+                Record::SlotOffer(o) => out
+                    .slots
+                    .push(format!("{}|{}|{}", o.slot, o.screen, o.priority)),
+                Record::WidgetPlace(p) => out.widget_places.push(format!(
+                    "{}|{}|{}|{}|{}={}",
+                    p.name,
+                    p.title,
+                    p.list_keys,
+                    ["Grid", "Stack"][p.layout as usize],
+                    p.shown_if_key,
+                    p.shown_if_value
+                )),
+                Record::StatusPlace(p) => out.status_places.push(format!(
+                    "{}|{}|{}|{}|{}",
+                    p.name, p.title, p.left, p.center, p.right
+                )),
+                Record::KeyBind(k) => {
+                    assert!(k.when_key.is_empty(), "{k:?}");
+                    out.keys
+                        .push(format!("{}|{}|{}", k.layer, k.input, k.action));
+                }
+                Record::MenuEntry(e) => {
+                    assert!(e.place == 0 && e.anchor.is_empty(), "{e:?}");
+                    out.menu_entries
+                        .push(format!("{}|{}|{}", e.menu, e.item, e.order));
+                }
+                Record::IconSpec(i) => out.icons.push(format!("{}|{}", i.item, i.icon)),
+                Record::MenuNeed(n) => out
+                    .needs
+                    .push(format!("{}|{}", n.item, NEEDS[n.need as usize])),
+                Record::ActionSpec(a) => out.actions.push(format!("{}|{}", a.name, a.title)),
+                Record::Registration(Registration::Event { event_tag, token }) => {
+                    out.events.push(format!("{event_tag}:{token}"));
+                }
                 other => {
                     let text = format!("{other:?}");
                     let kind = text.split(['(', ' ']).next().unwrap_or("");
@@ -131,7 +220,7 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
             }
         }
     }
-    out
+    out.sort()
 }
 
 /// What the interface-6 registration of `plugin` says, in the same lines:
@@ -141,6 +230,7 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
     let relative = |id: &str| id.strip_prefix(&prefix).unwrap_or(id).to_string();
     let mut out = Lines::default();
     let mut specs = Vec::new();
+    let mut entries = Vec::new();
     for contribution in contributions {
         match contribution {
             Contribution::SettingGroup(g) if g.id.as_str() == group => out.groups.push(format!(
@@ -161,7 +251,84 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
                         .push(format!("{}|{}", relative(s.id().as_str()), s.title()));
                 }
             }
+            Contribution::SlotBinding {
+                slot,
+                screen,
+                priority,
+                ..
+            } if screen.as_str().starts_with(&prefix) => {
+                out.slots.push(format!("{slot}|{screen}|{}", priority.0))
+            }
+            Contribution::WidgetPlace(p) if p.id.as_str().starts_with(&prefix) => {
+                let keys: Vec<&str> = p.settings.iter().map(|k| k.as_str()).collect();
+                let (key, value) = p
+                    .shown_if
+                    .as_ref()
+                    .map_or(("", ""), |(id, value)| (id.as_str(), *value));
+                out.widget_places.push(format!(
+                    "{}|{}|{}|{:?}|{key}={value}",
+                    relative(p.id.as_str()),
+                    p.title,
+                    keys.join("\n"),
+                    p.kind
+                ));
+            }
+            Contribution::StatusPlace(p) if p.id.as_str().starts_with(&prefix) => {
+                out.status_places.push(format!(
+                    "{}|{}|{}|{}|{}",
+                    relative(p.id.as_str()),
+                    p.title,
+                    p.parts[0],
+                    p.parts[1],
+                    p.parts[2]
+                ));
+            }
+            Contribution::Keymap(text) => {
+                let mut layer = String::new();
+                for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                    if let Some(name) = line
+                        .strip_prefix("[keymap.")
+                        .and_then(|l| l.strip_suffix(']'))
+                    {
+                        layer = name.to_string();
+                    } else if let Some((input, action)) = line.split_once('=') {
+                        out.keys
+                            .push(format!("{layer}|{}|{}", input.trim(), action.trim()));
+                    }
+                }
+            }
+            Contribution::MenuEntry(e) => entries.push(e),
+            Contribution::FixedMenuEntries(list) => entries.extend(list.iter().cloned()),
+            Contribution::Icon { item, icon, .. } if item.as_str().starts_with(&prefix) => {
+                out.icons.push(format!("{item}|{icon}"));
+            }
+            Contribution::FixedIcons(list) => {
+                for (item, icon) in list.iter().filter(|(i, _)| i.as_str().starts_with(&prefix)) {
+                    out.icons.push(format!("{item}|{icon}"));
+                }
+            }
+            Contribution::MenuNeed { item, need, .. } if item.as_str().starts_with(&prefix) => {
+                out.needs.push(format!("{item}|{need:?}"));
+            }
+            Contribution::Action(a) => {
+                out.actions
+                    .push(format!("{}|{}", relative(a.id.as_str()), a.title))
+            }
+            Contribution::FixedActions(list) => {
+                for a in list.iter() {
+                    let a = paperpaw_sdk::Action::Fixed(a);
+                    out.actions
+                        .push(format!("{}|{}", relative(a.id().as_str()), a.title()));
+                }
+            }
             _ => {}
+        }
+    }
+    for e in entries {
+        if e.menu.as_str().starts_with(&prefix) || e.item.as_str().starts_with(&prefix) {
+            assert!(e.place.is_none(), "{e:?}");
+            out.menu_entries
+                .push(format!("{}|{}|{}", e.menu, e.item, e.order));
         }
     }
     for s in specs {
@@ -219,5 +386,5 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
             flags,
         }));
     }
-    out
+    out.sort()
 }
