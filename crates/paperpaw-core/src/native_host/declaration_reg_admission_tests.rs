@@ -302,7 +302,7 @@ fn a_bad_batch_is_refused_as_a_whole_and_the_store_stays_empty() {
 }
 
 #[test]
-fn setup_steps_stay_refused_until_their_own_arm() {
+fn a_setup_step_is_admitted_with_the_other_declarations_and_found_by_name() {
     let step = Record::SetupStep(SetupStep {
         name: "setup",
         title: "Setup",
@@ -316,13 +316,21 @@ fn setup_steps_stay_refused_until_their_own_arm() {
         capability: 0,
         flags: 1,
     });
-    let source = source(&[rows()[0], step]);
-    let mut store = DeclarationStore::default();
-    assert_eq!(
-        install(&mut store, "fixture", &source, false),
-        Err(ERR_UNSUPPORTED)
-    );
-    assert_eq!(count(&store, Kind::SlotSpec), 0);
+    for owned in [false, true] {
+        let source = source(&[rows()[0], step]);
+        let mut store = DeclarationStore::default();
+        install(&mut store, "fixture", &source, owned).unwrap();
+        assert_eq!(count(&store, Kind::SlotSpec), 1);
+        assert_eq!(count(&store, Kind::SetupStep), 1);
+        assert!(
+            store.find("fixture", Kind::SetupStep, "setup", &mut |record| {
+                assert!(matches!(record, Record::SetupStep(_)));
+            })
+        );
+        assert!(!store.find("fixture", Kind::SetupStep, "slot", &mut |_| {}));
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        assert_eq!(count(&store, Kind::SetupStep), 0);
+    }
 }
 
 #[test]

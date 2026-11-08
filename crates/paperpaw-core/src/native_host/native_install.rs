@@ -39,6 +39,9 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // broker is fed by `DeclarationStore::stage` and `stage_subscribers`);
         // they go with the owner's declarations.
         Record::StageSpec(_) | Record::RegistrationStage(_) => Ok(None),
+        // A setup step stays in the declaration store; the registry's `setup`
+        // query evaluates it where it is read (`registry.md` section 6).
+        Record::SetupStep(_) => Ok(None),
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)

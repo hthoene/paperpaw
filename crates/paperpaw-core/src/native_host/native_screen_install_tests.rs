@@ -28,8 +28,40 @@ struct ScreenState {
     context: *mut c_void,
 }
 
-/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2).
+/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2);
+/// with `STAGES` 3, a screen and two setup steps (4: one named like the screen).
 fn stage_fixture() -> [wire::Record<'static>; 3] {
+    let step = |name| {
+        wire::Record::SetupStep(wire::SetupStep {
+            name,
+            title: "factory.step",
+            help: "",
+            order: 0,
+            page_kind: 1,
+            page: "factory.screen",
+            applies_key: "",
+            applies_value: "",
+            need: 0,
+            capability: 0,
+            flags: 1,
+        })
+    };
+    if STAGES.with(Cell::get) >= 3 {
+        return [
+            wire::Record::ScreenSpec(wire::ScreenSpec {
+                name: "screen",
+                title: "factory.title",
+                token: 91,
+                flags: FLAGS.with(Cell::get),
+            }),
+            step(if STAGES.with(Cell::get) == 4 {
+                "screen"
+            } else {
+                "setup"
+            }),
+            step("second"),
+        ];
+    }
     [
         wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
@@ -995,3 +1027,55 @@ fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_not
 }
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
+
+#[test]
+fn a_native_plugins_setup_steps_are_admitted_and_go_with_it() {
+    reset(NORMAL);
+    STAGES.with(|value| value.set(3));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    result.unwrap();
+    let kind = crate::native_host::declaration_store::Kind::SetupStep;
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    for name in ["setup", "second"] {
+        assert!(
+            directory
+                .store
+                .borrow()
+                .find("factory", kind, name, &mut |_| {})
+        );
+    }
+    assert!(
+        !directory
+            .store
+            .borrow()
+            .find("factory", kind, "screen", &mut |_| {})
+    );
+    kernel.unload_plugin(&Id::new_static("factory"));
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    assert!(
+        !directory
+            .store
+            .borrow()
+            .find("factory", kind, "setup", &mut |_| {})
+    );
+}
+
+#[test]
+fn a_setup_step_named_like_the_plugins_screen_refuses_the_install_and_publishes_nothing() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    STAGES.with(|value| value.set(4));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
