@@ -18,6 +18,7 @@
 //! made it and read (op 10) only by the owning instance; they are wiped when
 //! freed and never in a `Debug` or a log.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
@@ -401,7 +402,7 @@ impl UiStore {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
-            framed += wire::record_framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
+            framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
             }))?;
@@ -422,7 +423,7 @@ impl UiStore {
                 key: param.key,
                 value: param.value,
             });
-            used += wire::record_encode_one(&record, &mut block.0[used..])?;
+            used += codec::encode_one(&record, &mut block.0[used..])?;
         }
         inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
@@ -637,6 +638,28 @@ impl UiStore {
             }
         }
         Ok(())
+    }
+
+    /// Find the next retained instance, including request ties and dialogs.
+    /// The kernel compares these ids against its actual stack during recovery.
+    pub(crate) fn next_retained_instance(&self, after: u32) -> Result<Option<u32>, i32> {
+        let inner = self.inner_busy()?;
+        Ok(inner
+            .entries
+            .iter()
+            .filter_map(|entry| match entry.state {
+                State::Owned { instance } => Some(instance),
+                _ => None,
+            })
+            .chain(
+                inner
+                    .requests
+                    .iter()
+                    .flat_map(|request| request.instances())
+                    .flatten(),
+            )
+            .filter(|instance| *instance > after)
+            .min())
     }
 
     /// An instance closed: what it owns is freed.

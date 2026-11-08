@@ -2,6 +2,7 @@
 //! exactly one `service.end` (`registry.md` 2.1), built in the lent scratch.
 use super::check::{self, Row};
 use crate::abi7::context::RowsEnd;
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE};
@@ -9,11 +10,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE};
 /// A record the host returned, framed into `out`. A record the codec refuses
 /// (a field over its cap) is the host's malformed answer.
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    let length = wire::record_framed_len(record).map_err(|_| ERR_INVALID)?;
+    let length = codec::framed_len(record).map_err(|_| ERR_INVALID)?;
     if length > out.len() {
         return Err(ERR_NO_SPACE);
     }
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 /// The one record of a detail answer: the host calls `ask`'s callback exactly
@@ -55,7 +56,7 @@ struct Sink<'a> {
 }
 impl<'a> Sink<'a> {
     fn new(out: &'a mut [u8], cap: usize, kind: Row) -> Result<Self, i32> {
-        let reserved = wire::record_framed_len(&Record::ServiceEnd(END))?;
+        let reserved = codec::framed_len(&Record::ServiceEnd(END))?;
         let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
         Ok(Self {
             out,
@@ -77,11 +78,11 @@ impl<'a> Sink<'a> {
         }
         let before = &self.out[..self.used];
         let length = check::row(self.kind, record, before)
-            .and_then(|()| wire::record_framed_len(record).map_err(|_| ERR_INVALID));
+            .and_then(|()| codec::framed_len(record).map_err(|_| ERR_INVALID));
         match length {
             Err(error) => self.failure = Some(error),
             Ok(length) if length > self.available - self.used => self.stopped = true,
-            Ok(_) => match wire::record_encode_one(record, &mut self.out[self.used..]) {
+            Ok(_) => match codec::encode_one(record, &mut self.out[self.used..]) {
                 Ok(written) => {
                     self.used += written;
                     self.rows += 1;
@@ -95,8 +96,7 @@ impl<'a> Sink<'a> {
 
     /// The closing record after the rows; returns the reply length.
     fn finish(self, end: wire::ServiceEnd) -> Result<usize, i32> {
-        Ok(self.used
-            + wire::record_encode_one(&Record::ServiceEnd(end), &mut self.out[self.used..])?)
+        Ok(self.used + codec::encode_one(&Record::ServiceEnd(end), &mut self.out[self.used..])?)
     }
 }
 
