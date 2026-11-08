@@ -441,7 +441,7 @@ pub(crate) fn is_block(name: &str) -> bool {
 
 /// The paragraphs of the text of `markup`, at most `max` bytes in all;
 /// `None` where the heap had no room to read it.
-fn paragraphs(markup: &str, max: usize) -> Option<Vec<String>> {
+pub(crate) fn paragraphs(markup: &str, max: usize) -> Option<Vec<String>> {
     let mut out: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut total = 0;

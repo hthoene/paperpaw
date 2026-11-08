@@ -25,6 +25,7 @@ extern crate std;
 mod data;
 mod draw;
 mod forecast;
+pub mod native_answers;
 pub mod native_weather;
 mod now;
 mod place;
@@ -37,6 +38,8 @@ mod fail_alloc;
 #[cfg(test)]
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+#[cfg(test)]
+mod native_answers_tests;
 #[cfg(test)]
 mod native_parity_tests;
 
