@@ -77,7 +77,11 @@ depths or codes, invalid Booleans, invalid percentages, nonzero reserved bytes
 and inconsistent declared lengths return `ERR_INVALID`.
 
 The descriptor is closed. Adding it must respect the ABI minor release floor;
-an existing descriptor cannot be removed or changed. Lock format 5 records
+an existing descriptor cannot be removed or changed. Draft 29 is the last
+change inside the 52-byte prefix (the UTC offset in the tail's reserved
+bytes, presence bit 8): after 1.0 the snapshot grows only by trailing
+extension bytes under version 1, read by the length the host declares, and
+never changes a byte of the prefix. Lock format 5 records
 its separate emitted source as `emitted_snapshot`. Lock formats 1 through 4
 remain readable without this field. Generation does not insert snapshot
 facades or codecs into the existing raw Rust module.

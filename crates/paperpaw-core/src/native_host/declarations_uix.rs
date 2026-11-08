@@ -16,14 +16,16 @@ const SQUARE: u32 = 1 << 2;
 
 /// Whether a widget's size hint is consistent (`ui.md` section 5): a
 /// declared size (`cells` bits 0-15, 0 for "the place decides") is no less
-/// than its least (bits 16-31, 0 for one cell), and a square widget
-/// declares no two different sides.
+/// than its least (bits 16-31, 0 for one cell); a square widget declares no
+/// two different sides, and a side it declares is no less than either least.
 fn cells_consistent(cells: u32, flags: u32) -> bool {
     let [columns, rows, min_columns, min_rows] = cells.to_le_bytes();
     let fits = |size: u8, least: u8| size == 0 || size >= least.max(1);
-    fits(columns, min_columns)
-        && fits(rows, min_rows)
-        && (flags & SQUARE == 0 || columns == 0 || rows == 0 || columns == rows)
+    if flags & SQUARE == 0 {
+        return fits(columns, min_columns) && fits(rows, min_rows);
+    }
+    let least = min_columns.max(min_rows);
+    fits(columns, least) && fits(rows, least) && (columns == 0 || rows == 0 || columns == rows)
 }
 
 /// Checks only local syntax. Tokens are opaque, including zero; admission
@@ -249,6 +251,12 @@ mod tests {
             // Square with two different sides.
             WidgetSpec {
                 cells: 0x0000_0302,
+                flags: SQUARE,
+                ..widget()
+            },
+            // Square, two wide, but at least three high: a side under a least.
+            WidgetSpec {
+                cells: 0x0300_0002,
                 flags: SQUARE,
                 ..widget()
             },

@@ -477,7 +477,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   runs while a journal entry is open. Single-file writes (`set_position`, fields, annotation
   commits) are atomic replaces and need no entry.
 - [D] **Paths in use are busy.** A `move`, `delete` or `import` over a path the host uses (the
-  book open in a reader, a download's target or `.part` file, a served request body, a staged
+  book open in a reader, a download's target or `.pp-staged` file, a served request body, a staged
   install copy; FS's paths-in-use table, `files.md` section 3) answers `ERR_BUSY` (per path in
   `lib_result.status` for ops 9 and 10, the call's status for the others) and changes nothing.
 - [D] **One move job at a time.** While a folder move's bounded job runs (`files.md` 2.6), every

@@ -232,11 +232,17 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   earlier `set_hint` for it), 1 the words in `label` (the plugin's own text, already translated;
   empty `ERR_INVALID`), 2 the icon named by `label` (an `icon.spec` name or a host icon; unknown
   `ERR_NOT_FOUND`), 3 hidden (the button does nothing here); other kinds `ERR_INVALID`, and
-  `label` is empty for kinds 0 and 3. The labels go with the instance and end when it closes; a
-  second `set_hint` for one action replaces the first; at most 8 actions per instance (a ninth
+  `label` is empty for kinds 0 and 3. Kind 3 is `ERR_DENIED` for the actions that are the user's
+  way out: `core.back`, the pinned actions (the main menu's opener, the settings editor's entry,
+  sleep, power off, restart; `registry.md` section 4.2) and the Power key's escape; their hint is
+  never hidden by a plugin. The labels go with the instance and end when it closes; a second
+  `set_hint` for one action replaces the first; at most 8 actions per instance (a ninth
   `ERR_NO_SPACE`). Outside its own top screen `ERR_STATE`. On a device without a hint row `OK` and
   nothing, as `show_hints`. The host draws the words with its own rules (smaller, two lines, then
-  shortened); a label never moves or adds a button.
+  shortened); a label never moves or adds a button. **Memory:** the host keeps each label as
+  given, at most 8 × (128 + 64 + 4) = 1,568 bytes per instance on the X4, charged to the
+  submitter's heap budget (`abi/heap-word.md` section 4; `ERR_NO_MEMORY` when it is spent, the
+  earlier labels kept), and frees them when the instance closes.
 - [D] `raise_input`: raises an input as written in key maps (`button.menu`, `double-tap.center`,
   or the submitter's own `input.<plugin>.<name>` / `gesture.<plugin>.<name>`): it runs what the
   layers shown bind it to, as if it came from the device. Another plugin's input or gesture, the
@@ -594,9 +600,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   rows it needs), `token` its callback state; `flags` bit 0 `live` (read each minute; without it
   only after events), bit 2 `square` (as wide as high; interface 6 `SizeHint::square`). **Size
   hint (draft 29, interface 6 `SizeHint`):** `cells` bits 16-23 the least columns and bits 24-31
-  the least rows (0: one); a declared column or row count under its least, or a square widget
-  that declares two different sides, is `ERR_INVALID` at admission. The host and a home screen
-  never lay a widget out below its least, and keep a square one square. REG op 19 lists them,
+  the least rows (0: one); a declared column or row count under its least, a square widget that
+  declares two different sides, or a square widget's declared side under either least, is
+  `ERR_INVALID` at admission (a square widget's side is at least the larger least). The host and
+  a home screen never lay a widget out below its least, and keep a square one square. REG op 19 lists them,
   with `cells` and `square` (`reg_widget`).
 - [D] `widget.place` declares where widgets show (interface 6 `WidgetPlace`): `list_keys` the
   settings that list them (full ids, one per line, at most 8: a grid's pages each one), `layout`

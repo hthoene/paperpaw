@@ -238,6 +238,18 @@ typedef struct PpHeap {
     exception frame being 256 bytes plus the spills): 14,336 bytes between the stack's end and the
     band, 16 KiB with the band. The S3's `STACK_FLOOR` grows by that over the measured deepest path
     (some 33 KiB): about 50 KiB, from the internal heap (`HEAP_SIZE`); PSRAM keeps the rest.
+  - **Firmware on the chain (Senior M1).** The six-frame bound holds for the whole call chain,
+    not only the plugin's code: a plugin calls into the firmware (host slots, shared-table
+    entries, the dispatch entries), and those frames run on the same stack below the band. So on
+    the S3, as on the X4, every firmware function a plugin's call can reach keeps its frame
+    (`entry` operand plus 16) under `LIMIT`, and the whole chain calls with `call8` or `call12`
+    only: a `call4` chain (ROM or C code compiled for it, reached through a host slot) fits up to
+    14 windows in the register file and could run 14 frames below the band before the spill. The
+    S3 firmware build runs the same frame and call-width scan over every function reachable from
+    the host table and the shared table (Firmware's check, `frame-budget-ppn5.txt`); the band is
+    armed, and `band_armed()` can be true, only in a build where that check passed. A firmware
+    function that fails it is fixed (smaller frame, `call8`), never waived; a ROM function called
+    with `call4` is wrapped or not reachable from a host slot.
   - **Packer, target 9:** refuses in plugin code `call0`, `callx0`, `call4` and `callx4` (more
     windows per register file; `call8` and `call12` stay); any write to `a1` but `entry`'s
     (`movsp`, `mov`, `addi`, loads into `a1`); and the instructions that change the interrupt level
@@ -254,7 +266,10 @@ typedef struct PpHeap {
     `call8` frames just under `LIMIT` that store nothing, and the crash slot blames it with the
     paint below the reserve intact, once with Wi-Fi traffic arriving at the band; S5 no false
     firing in an hour of reading with Wi-Fi and Bluetooth on; S6 the deepest legitimate path on
-    the S3 fits above the band (the stack note's `left`).
+    the S3 fits above the band (the stack note's `left`); S7 the 16 KiB of band and reserve come
+    out of the S3's internal RAM (`STACK_FLOOR` about 50 KiB, `HEAP_SIZE` less by as much): the
+    X4 Pro and X4 Classic start, connect to Wi-Fi (and Bluetooth on the Pro) and open a large book
+    with the smaller internal heap, its low-water mark logged.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
 

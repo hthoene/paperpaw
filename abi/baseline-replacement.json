@@ -1,6 +1,7 @@
 {
   "replaces_sha256": "28d7582d91613be7f8afcc8ad2fb8861d34bb997b9a01ed86f9f4a289d47a2de",
-  "reason": "interface 7 is unreleased (draft 29): setting.spec choices hold 64 values (translate's 33 DeepL languages, interface 6 parity) and the environment snapshot carries the user's UTC offset in minutes (presence bit 8, i16 in the tail's reserved bytes; stats day boundaries); the snapshot stays 52 bytes, version 1",
+  "lock_sha256": "59b89896b9c6ac2414908127698183578d976caed223f8606cfbb5b5be12a6f0",
+  "reason": "interface 7 is unreleased (draft 29): setting.spec choices hold 64 values (translate's 33 DeepL languages, interface 6 parity) and the environment snapshot carries the user's UTC offset in minutes (presence bit 8, i16 in the tail's reserved bytes; stats day boundaries); the snapshot stays 52 bytes, version 1; widget.spec size hint bits, reg_widget.cells (optional) and command.set_hint 1594 are appended or additive",
   "ticket": "#228",
   "waives": [
     "schema",
