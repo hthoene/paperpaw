@@ -158,6 +158,7 @@ paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
