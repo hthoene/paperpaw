@@ -53,11 +53,15 @@ pub(crate) mod records_wire;
 pub(crate) mod settings_value;
 
 use records_wire::{
-    ActionSpec, Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
-    SettingExtra, SettingGroup, SettingSpec, records_encode,
+    ActionSpec, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
+    SettingExtra, SettingGroup, SettingSpec, WireEncode, records_encode_of,
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod format;
+pub use format::FormatDecl;
+mod lookup;
+pub use lookup::LookupProviderDecl;
 mod library;
 pub use library::BookFieldDecl;
 
@@ -481,9 +485,8 @@ impl<'a> ActionDecl<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
-    Registry(Record<'a>),
+    Registry(&'a dyn records_wire::WireEncode),
     MenuEntry(records_wire::MenuEntry<'a>),
     Icon(records_wire::IconSpec<'a>),
     MenuNeed(records_wire::MenuNeed<'a>),
@@ -1082,9 +1085,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         if self.count == BATCH_MAX_RECORDS {
             self.submit()?;
         }
-        let record = item.record();
         let previous = self.bytes[self.used - 1];
-        let result = records_encode(&[record], &mut self.bytes[self.used - 1..]);
+        let result = item.encode(&mut self.bytes[self.used - 1..]);
         let length = match result {
             Ok(length) => {
                 self.bytes[self.used - 1] = previous;
@@ -1092,7 +1094,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             }
             Err(ERR_NO_SPACE) if self.count > 0 => {
                 self.submit()?;
-                records_encode(&[item.record()], &mut self.bytes).map_err(DeclareError::Encode)?
+                item.encode(&mut self.bytes).map_err(DeclareError::Encode)?
             }
             Err(status) => return Err(DeclareError::Encode(status)),
         };
@@ -1105,56 +1107,74 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 }
 
 impl<'a> Item<'a> {
-    fn record(&self) -> Record<'_> {
+    /// Encodes the item as a one-record batch, by its own record type: a plugin's
+    /// declarations link only the codecs of the declarations it makes.
+    fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+        let one = |record: &dyn WireEncode, out: &mut [u8]| records_encode_of(&[record], out);
         match self {
-            Item::Registry(record) => *record,
-            Item::MenuEntry(entry) => Record::MenuEntry(*entry),
-            Item::Icon(icon) => Record::IconSpec(*icon),
-            Item::MenuNeed(need) => Record::MenuNeed(*need),
-            Item::MenuSection(section) => Record::MenuSection(*section),
-            Item::MenuHide(hide) => Record::MenuHide(*hide),
-            Item::MenuDescribe(describe) => Record::MenuDescribe(*describe),
-            Item::Registration(registration) => Record::Registration(*registration),
-            Item::Group(g) => Record::SettingGroup(SettingGroup {
-                name: g.name,
-                title: g.title,
-                order: g.order,
-                page: g.page,
-                parent: g.parent,
-            }),
-            Item::Spec(s, parts) => Record::SettingSpec(spec_record(s, parts)),
-            Item::Extra(e) => Record::SettingExtra(extra_record(e)),
+            Item::Registry(record) => one(*record, out),
+            Item::MenuEntry(entry) => one(entry, out),
+            Item::Icon(icon) => one(icon, out),
+            Item::MenuNeed(need) => one(need, out),
+            Item::MenuSection(section) => one(section, out),
+            Item::MenuHide(hide) => one(hide, out),
+            Item::MenuDescribe(describe) => one(describe, out),
+            Item::Registration(registration) => one(registration, out),
+            Item::Group(g) => one(
+                &SettingGroup {
+                    name: g.name,
+                    title: g.title,
+                    order: g.order,
+                    page: g.page,
+                    parent: g.parent,
+                },
+                out,
+            ),
+            Item::Spec(s, parts) => one(&spec_record(s, parts), out),
+            Item::Extra(e) => one(&extra_record(e), out),
             Item::Hyphenation { language, path } => {
-                Record::ResourceHyphenation(ResourceHyphenation { language, path })
+                one(&ResourceHyphenation { language, path }, out)
             }
-            Item::FontFace(f) => Record::ResourceFontFace(ResourceFontFace {
-                name: f.name,
-                path: f.path,
-                family: f.family,
-                style: f.style,
-                weight: f.weight,
-                role: f.role,
-                priority: f.priority,
-            }),
-            Item::FontExtension(e) => Record::ResourceFontExtension(ResourceFontExtension {
-                name: e.name,
-                path: e.path,
-                extends: e.extends,
-            }),
-            Item::Screen(s) => Record::ScreenSpec(ScreenSpec {
-                name: s.name,
-                title: s.title,
-                token: s.token,
-                flags: u32::from(s.full_refresh_on_open) | s.policy_flags,
-            }),
-            Item::Stage(stage) => Record::StageSpec(stage.record()),
-            Item::Subscribe(to) => Record::RegistrationStage(to.record()),
-            Item::Action(a) => Record::ActionSpec(ActionSpec {
-                name: a.name,
-                title: a.title,
-                token: a.token,
-                flags: u32::from(a.needs_screen),
-            }),
+            Item::FontFace(f) => one(
+                &ResourceFontFace {
+                    name: f.name,
+                    path: f.path,
+                    family: f.family,
+                    style: f.style,
+                    weight: f.weight,
+                    role: f.role,
+                    priority: f.priority,
+                },
+                out,
+            ),
+            Item::FontExtension(e) => one(
+                &ResourceFontExtension {
+                    name: e.name,
+                    path: e.path,
+                    extends: e.extends,
+                },
+                out,
+            ),
+            Item::Screen(s) => one(
+                &ScreenSpec {
+                    name: s.name,
+                    title: s.title,
+                    token: s.token,
+                    flags: u32::from(s.full_refresh_on_open) | s.policy_flags,
+                },
+                out,
+            ),
+            Item::Stage(stage) => one(&stage.record(), out),
+            Item::Subscribe(to) => one(&to.record(), out),
+            Item::Action(a) => one(
+                &ActionSpec {
+                    name: a.name,
+                    title: a.title,
+                    token: a.token,
+                    flags: u32::from(a.needs_screen),
+                },
+                out,
+            ),
         }
     }
 }
@@ -1223,6 +1243,9 @@ fn extra_record<'a>(e: &ExtraDecl<'a>) -> SettingExtra<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod typed_wire_tests;
 
 #[cfg(test)]
 mod uix_tests;

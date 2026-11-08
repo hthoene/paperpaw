@@ -7,12 +7,14 @@ pub mod paperpaw_digest::md5
 pub struct paperpaw_digest::md5::Md5
 impl paperpaw_digest::md5::Md5
 pub fn paperpaw_digest::md5::Md5::hex(self) -> alloc::string::String
+pub fn paperpaw_digest::md5::Md5::hex_into(self, &mut [u8; 32]) -> &str
 pub fn paperpaw_digest::md5::Md5::new() -> Self
 pub fn paperpaw_digest::md5::Md5::update(&mut self, &[u8])
 impl core::default::Default for paperpaw_digest::md5::Md5
 pub fn paperpaw_digest::md5::Md5::default() -> Self
 pub fn paperpaw_digest::md5::of(&str) -> alloc::string::String
 pub fn paperpaw_digest::md5::partial(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<alloc::string::String>
+pub fn paperpaw_digest::md5::partial_into<'o>(&dyn paperpaw_platform::storage::Storage, &str, &'o mut [u8; 32]) -> core::option::Option<&'o str>
 pub mod paperpaw_digest::sha1
 pub struct paperpaw_digest::sha1::Sha1
 impl paperpaw_digest::sha1::Sha1

@@ -793,5 +793,65 @@ fn screen_and_action_field_refusals_abort_pending_construction() {
     }
 }
 
+#[test]
+fn a_lookup_provider_declares_its_name_languages_network_and_token() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.lookup_provider(
+        LookupProviderDecl::new("summary", "wikipedia.title", 7)
+            .languages("en\nde\npt-BR")
+            .online(),
+    )
+    .unwrap();
+    d.lookup_provider(LookupProviderDecl::new("local", "dictionary.title", 8))
+        .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let rows: Vec<_> = records_decode(&batches[0]).unwrap().iter().collect();
+    assert!(matches!(rows[0], Record::LookupSpec(s)
+        if (s.name, s.title, s.languages, s.flags, s.token)
+            == ("summary", "wikipedia.title", "en\nde\npt-BR", 1, 7)));
+    assert!(matches!(rows[1], Record::LookupSpec(s)
+        if (s.languages, s.flags, s.token) == ("", 0, 8)));
+}
+
+#[test]
+fn a_lookup_provider_is_refused_for_what_the_host_would_refuse() {
+    let refuse = |decl: LookupProviderDecl<'_>| {
+        let mut batches = Vec::new();
+        let mut d = collecting(&mut batches);
+        let refused = d.lookup_provider(decl).is_err();
+        if !refused {
+            d.submit().unwrap();
+        }
+        refused
+    };
+    assert!(refuse(LookupProviderDecl::new("Summary", "t", 1)));
+    assert!(refuse(LookupProviderDecl::new("a b", "t", 1)));
+    assert!(refuse(LookupProviderDecl::new("a", "", 1)));
+    assert!(refuse(LookupProviderDecl::new("a", "t", 1).languages("e")));
+    assert!(refuse(
+        LookupProviderDecl::new("a", "t", 1).languages("en\n\nde")
+    ));
+    assert!(refuse(
+        LookupProviderDecl::new("a", "t", 1).languages("en_GB")
+    ));
+    let many = (0..33)
+        .map(|i| alloc::format!("a{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(refuse(
+        LookupProviderDecl::new("a", "t", 1).languages(&many)
+    ));
+    let fits = (0..32)
+        .map(|i| alloc::format!("a{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!refuse(
+        LookupProviderDecl::new("a", "t", 1).languages(&fits)
+    ));
+}
+#[path = "tests/format.rs"]
+mod format;
 #[path = "tests/library.rs"]
 mod library;

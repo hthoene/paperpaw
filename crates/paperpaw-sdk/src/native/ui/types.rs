@@ -246,20 +246,20 @@ impl<'a> Question<'a> {
         self.record()?;
         Ok(self)
     }
-    pub(super) fn record(self) -> Result<wire::Record<'a>, Error> {
+    pub(super) fn record(self) -> Result<wire::ServiceUiAsk<'a>, Error> {
         if self.kind != QuestionKind::Text && !self.slot.is_empty() {
             return Err(Error::Invalid);
         }
         validate_question(self.kind, self.flags, self.choices)?;
-        let record = wire::Record::ServiceUiAsk(wire::ServiceUiAsk {
+        let record = wire::ServiceUiAsk {
             kind: self.kind.encode(),
             flags: self.flags,
             slot: self.slot,
             title: self.title,
             text: self.text,
             choices: self.choices,
-        });
-        wire::record_framed_len(&record).map_err(Error::from_status)?;
+        };
+        wire::record_framed_len_of(&record).map_err(Error::from_status)?;
         Ok(record)
     }
 }

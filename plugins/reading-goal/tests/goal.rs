@@ -55,7 +55,7 @@ impl Reader {
             storage = storage.with(path, bytes.to_vec());
         }
         let user = format!(
-            "[core]\nlanguage = en\n[help]\nshow = false\n[home]\ncolumns = 4\npage-1 = \"{WIDGET}\"\n{config}\n"
+            "[core]\nlanguage = en\n[home]\ncolumns = 4\npage-1 = \"{WIDGET}\"\n{config}\n"
         );
         let mut builder = Kernel::builder(X4)
             .storage(storage)

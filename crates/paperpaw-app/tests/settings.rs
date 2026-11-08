@@ -38,9 +38,7 @@ fn is_widget_group(kernel: &Kernel, group: &str) -> bool {
 /// The standard app, started.
 fn app() -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE)
-        .storage(storage)
-        .user_config("[help]\nshow = false\n");
+    let builder = Kernel::builder(DEVICE).storage(storage).user_config("");
     let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
     let _ = kernel.start(Instant(0));
     kernel

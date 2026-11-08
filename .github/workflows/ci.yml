@@ -6,6 +6,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "CHANGELOG.md"
+      - "changelog.d/**"
+      - "RELEASING.md"
       - "README.md"
       - "CONTRIBUTING.md"
       - "AGENTS.md"
@@ -15,6 +17,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "CHANGELOG.md"
+      - "changelog.d/**"
+      - "RELEASING.md"
       - "README.md"
       - "CONTRIBUTING.md"
       - "AGENTS.md"
@@ -458,6 +462,10 @@ jobs:
         # by tools/licences/build.py: a crate added, removed or updated
         # without them fails here.
         run: python3 tools/licences/build.py --check
+      - name: A plugin's own stage codec is its schema's
+        # plugins/about/src/stages.rs from plugins/about/stages/*.def by
+        # tools/stage-codec.py (needs rustfmt, which this job has).
+        run: python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
       - name: The plugin store's rules are the site's
         # tools/publish/store-rules.json, which paperpaw-dev and
         # paperpaw-sign check by, against paperpaw.org's own (where it

@@ -81,6 +81,37 @@ pub fn copy(text: &str) -> Result<String, Error> {
     Ok(result)
 }
 
+/// `text` wrapped and centred in `area`, in the small size and muted colour.
+///
+/// # Errors
+/// [`Error::NoMemory`] or a refused font reply.
+pub fn message(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &crate::Style,
+    area: Rect,
+    text: &str,
+) -> Result<(), Error> {
+    let room = f32::from(area.width.saturating_sub(style.margin.saturating_mul(4))).max(1.0);
+    let lines = wrap_with(|l| font.measure_text(style.small, l), text, room, 8)?;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let total = u32::from(line) * lines.len() as u32;
+    let mut y = u32::from(area.y) + u32::from(area.height).saturating_sub(total) / 2;
+    for text in &lines {
+        let wide = font.measure_text(style.small, text)?;
+        let x = f32::from(area.x) + (f32::from(area.width) - wide).max(0.0) / 2.0;
+        let row = Rect::new(
+            area.x,
+            crate::geometry::clamp_u16(i64::from(y)),
+            area.width,
+            line,
+        );
+        label(paint, font, text, style.small, x, row, style.ink, None)?;
+        y = y.saturating_add(u32::from(line));
+    }
+    Ok(())
+}
+
 /// Compares two texts by their lower-case characters, without allocating.
 #[must_use]
 pub fn cmp_lowercase(a: &str, b: &str) -> core::cmp::Ordering {
@@ -225,6 +256,23 @@ pub fn wrap_with(
         }
     }
     Ok(lines)
+}
+
+/// `notes` joined as a line of notes: "a · b · c".
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn join_notes(notes: &[String]) -> Result<String, Error> {
+    let mut joined = String::new();
+    let total = notes.iter().map(|note| note.len() + 4).sum::<usize>();
+    joined.try_reserve(total).map_err(|_| Error::NoMemory)?;
+    for (n, note) in notes.iter().enumerate() {
+        if n > 0 {
+            joined.push_str(" · ");
+        }
+        joined.push_str(note);
+    }
+    Ok(joined)
 }
 
 #[cfg(test)]

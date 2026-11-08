@@ -104,19 +104,20 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
+        | Record::PresetSpec(_)
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
-        | Record::PresetSpec(_)
-        | Record::PresetValue(_) => Err(ERR_UNSUPPORTED),
+        | Record::PresetValue(_) => {
+            super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
+        }
         // Screen, widget and status declarations (`docs/abi/ui.md`): refused
         // until the host admits them (UIX hand-off).
-        Record::InputSpec(_)
-        | Record::HelpHint(_)
-        | Record::WidgetSpec(_)
+        Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
+        Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
         | Record::StatusLine(_)
-        | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
+        | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
         // `library.md`): refused until the host admits them (DOC/LIB hand-off).
         // Checked, then refused until the host admits them (the format index).
@@ -382,7 +383,7 @@ pub(crate) fn full_id(id: &str) -> Check {
 }
 
 /// A name relative to the plugin; the joined full id must also fit.
-fn relative(plugin_id: &str, name: &str) -> Check {
+pub(crate) fn relative(plugin_id: &str, name: &str) -> Check {
     full_id(name)?;
     ensure(plugin_id.len() + 1 + name.len() <= FULL_ID_MAX_BYTES)
 }
@@ -743,10 +744,14 @@ pub(crate) fn need_check(need: &MenuNeed<'_>) -> Check {
         capability,
     } = need;
     item_id(item)?;
-    let known = usize::try_from(*need).is_ok_and(|need| need < MENU_NEEDS.len());
+    need_value_check(*need, *capability)
+}
+
+pub(crate) fn need_value_check(need: u32, capability: u64) -> Check {
+    let known = usize::try_from(need).is_ok_and(|need| need < MENU_NEEDS.len());
     // `capability` names the bits for `has` and is 0 for every other known
     // need; a later need may give it a meaning.
-    ensure(!known || (*need == MENU_NEED_HAS) == (*capability != 0))
+    ensure(!known || (need == MENU_NEED_HAS) == (capability != 0))
 }
 
 /// The syntax of one `menu.section`: a heading of the plugin's own in any menu.
