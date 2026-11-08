@@ -1,4 +1,4 @@
-# Mail on interface 7 (slices 1 and 2, partly ported)
+# Mail on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
 store and the widgets) is still in place beside the native one. It is removed in the PR that
@@ -43,10 +43,29 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   make the reader with `HtmlText::with_limit` (the room the store has left) and flush the text in
   chunks as it comes, never building a String of the whole mail.
 
-## Slice 3 (still interface 6)
+## Ported in slice 3
 
-- `imap` (the response parser) and `smtp` (the reply parser) and the connection code that uses
-  them need the sockets host (SOCK), which is not there yet; then `render` and `store`.
+- `src/native_model/imap.rs` and `smtp.rs` (`tests/native_imap_smtp.rs`): the IMAP response reader
+  (line buffer, tokens, responses, FETCH helpers, quoting, Modified UTF-7 names, flag letters) and
+  the SMTP reply parser, extensions, commands and DATA, fallible. Same answers as interface 6 on
+  fixed lines, 6,000 random IMAP lines, random reply sequences and the buffer cut anywhere (compared
+  by `Debug` text). `tests/native_model_alloc_refusal.rs` refuses each allocation in turn.
+- Differences from interface 6, on purpose, each tested: a line is at most 8 KiB (`response` and
+  `tokens` refuse a longer one, `LineBuffer::line` drops it) and the buffer holds at most 64 KiB
+  (the session takes what it has between two pushes); a FETCH line is read from its own bytes
+  (interface 6 lost the items of a line ending in white space or holding bytes that are no UTF-8);
+  `smtp::auth_plain` and `imap::quoted_secret` make the lines that carry the password in a buffer that
+  wipes itself and shows nothing in `Debug`; the types that grow are `#[non_exhaustive]` and do not
+  derive `Clone` (it allocates without asking).
+- The SMTP reply bounds are as they were (line 1,000 bytes, reply 4,096, 64 lines). `smtp::data` leaves
+  the bound of the message to the caller, who holds it whole.
+
+## Still interface 6
+
+- `session.rs`, `driver.rs`, `job.rs` (the connection and the commands, on the sockets host and facade
+  of `docs/abi/sockets.md`), `render.rs` and `store.rs` (with the card through `core.files`; `render` must
+  make the HTML reader with `HtmlText::with_limit` and flush in chunks, see slice 2), then the screens.
+  They are the next slices; the pieces above are what they will call.
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
