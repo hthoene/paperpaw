@@ -88,7 +88,9 @@ fn groups(env: &Env<'_>) -> Vec<(i32, bool, Entry)> {
         })
         .collect();
     // By name where the order is the same; the main page's sort keeps it.
-    found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.2.title.cmp(&b.2.title)));
+    paperpaw_sdk::sort::sort_by(&mut found, |a, b| {
+        a.0.cmp(&b.0).then_with(|| a.2.title.cmp(&b.2.title))
+    });
     found
 }
 
@@ -154,7 +156,7 @@ impl GroupList {
                 icon: Some(String::from("power")),
             },
         ));
-        placed.sort_by_cached_key(|(order, entry, _)| (*order, *entry));
+        paperpaw_sdk::sort::sort_by_cached_key(&mut placed, |(order, entry, _)| (*order, *entry));
         let mut entries: Vec<Entry> = placed.into_iter().map(|(_, _, entry)| entry).collect();
         // Headings with nothing under them go.
         let empty: Vec<bool> = (0..entries.len())

@@ -290,9 +290,8 @@ impl FormatIndex {
             count += 1;
         }
         let list = &mut list[..count];
-        // Unstable on purpose: a stable sort allocates 4 KiB of stack. The unique
-        // reference is the last key, so the order is the same and total.
-        list.sort_unstable_by(|a, b| match (a, b) {
+        // The unique reference is the last key, so the order is total.
+        paperpaw_sort::sort_by(list, |a, b| match (a, b) {
             (Some(a), Some(b)) => b
                 .priority
                 .cmp(&a.priority)

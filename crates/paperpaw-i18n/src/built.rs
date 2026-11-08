@@ -238,7 +238,7 @@ impl BuiltTable {
             added.push((key, entry));
         }
         self.entries.extend(added);
-        self.entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+        paperpaw_sort::sort_by(&mut self.entries, |(a, _), (b, _)| a.cmp(b));
         Ok(true)
     }
 

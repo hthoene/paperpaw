@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use alloc::{vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},

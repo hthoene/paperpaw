@@ -229,29 +229,10 @@ fn addresses_are_resolved_as_the_sdk_does() {
 #[test]
 fn refused_allocations_end_in_no_memory_and_recover() {
     let json = catalog(&[font("a", 3, true), font("b", 2, false), font("c", 4, true)]);
-    // The parser's own allocations are not fallible: it reads once, and
-    // what it reports is replayed to the catalog under refusals.
-    let mut events: Vec<(u8, Vec<String>, String)> = Vec::new();
-    let mut parser = Parser::default();
-    let mut record = |event: Event<'_>| match event {
-        Event::Open(at) => events.push((0, at.to_vec(), String::new())),
-        Event::Close(at) => events.push((1, at.to_vec(), String::new())),
-        Event::Value(at, value) => events.push((2, at.to_vec(), value.to_string())),
-    };
-    parser.feed(&json, &mut record);
-    parser.finish(&mut record);
+    // The parser allocates fallibly too (`try_feed`/`try_finish`): the whole
+    // read, parser included, is swept.
     for outlines in [false, true] {
-        sweep(|| {
-            let mut catalog = Catalog::new(BASE, outlines);
-            for (kind, at, value) in &events {
-                catalog.event(match kind {
-                    0 => Event::Open(at),
-                    1 => Event::Close(at),
-                    _ => Event::Value(at, value),
-                });
-            }
-            catalog.finish().map(|fonts| fonts.map(|f| f.len()))
-        });
+        sweep(|| Catalog::read(BASE, outlines, &json).map(|fonts| fonts.map(|f| f.len())));
     }
     let fonts = read(&json, true);
     sweep(|| fonts[0].try_clone().map(|f| f.files.len()));

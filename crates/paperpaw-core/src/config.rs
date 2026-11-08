@@ -680,7 +680,7 @@ impl Kernel {
                     && !self.shared.menus.is_section(id.as_str())
             })
             .collect();
-        unknown.sort_unstable();
+        paperpaw_sort::sort(&mut unknown);
         unknown.dedup();
         for action in unknown {
             messages.push(format!("unknown action `{action}` in a key map or menu"));
