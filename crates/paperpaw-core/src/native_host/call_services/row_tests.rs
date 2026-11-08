@@ -203,6 +203,87 @@ fn a_row_of_an_unlisted_tag_is_invalid_before_its_body_is_read() {
     }
 }
 
+fn lookup_op() -> &'static ServiceOp {
+    services_wire::service_schema("core.lookup", 1)
+        .unwrap()
+        .op(1)
+        .unwrap()
+}
+
+fn lookup_entry() -> Vec<u8> {
+    let row = Record::ServiceLookupEntry(registrations::ServiceLookupEntry {
+        provider: "dict",
+        title: "word",
+        text: "meaning",
+        flags: 0,
+    });
+    let mut out = std::vec![0; 256];
+    let len = registrations::record_encode_one(&row, &mut out).unwrap();
+    out.truncate(len);
+    out
+}
+
+#[test]
+fn release_framing_check_reads_framing_and_the_end_row_only() {
+    let op = targets_op();
+    // A listed row whose body ends early: only the full check refuses it.
+    let mut bad_row = frame(registrations::SERVICE_UI_TARGET_TAG, &[0]);
+    bad_row.extend_from_slice(&targets(0, end(1)));
+    assert_eq!(validate_reply_with(&bad_row, op, Rows::Framing), Ok(()));
+    assert_eq!(
+        validate_reply_with(&bad_row, op, Rows::All),
+        Err(ERR_INVALID)
+    );
+    // Framing, the row list, the row cap and the end row are checked as before.
+    let whole = targets(1, end(1));
+    assert_eq!(validate_reply_with(&whole, op, Rows::Framing), Ok(()));
+    for len in 0..whole.len() {
+        assert_eq!(
+            validate_reply_with(&whole[..len], op, Rows::Framing),
+            Err(ERR_INVALID)
+        );
+    }
+    for tail in [
+        end(0),
+        ServiceEnd { next: 1, ..end(1) },
+        ServiceEnd { flags: 1, ..end(1) },
+    ] {
+        assert_eq!(
+            validate_reply_with(&targets(1, tail), op, Rows::Framing),
+            Err(ERR_INVALID)
+        );
+    }
+    let limit = usize::from(op.reply_rows);
+    assert_eq!(
+        validate_reply_with(&targets(limit + 1, end(limit + 1)), op, Rows::Framing),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn release_lookup_check_reads_the_providers_entry_row_by_type() {
+    let op = lookup_op();
+    let entry = lookup_entry();
+    for check in [Rows::Lookup, Rows::Framing, Rows::All] {
+        assert_eq!(validate_reply_with(&entry, op, check), Ok(()));
+    }
+    // A provider's entry whose body ends early: refused by the lookup check
+    // and the full one; the framing check does not read it.
+    let bad = frame(registrations::SERVICE_LOOKUP_ENTRY_TAG, &[0]);
+    assert_eq!(
+        validate_reply_with(&bad, op, Rows::Lookup),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(validate_reply_with(&bad, op, Rows::All), Err(ERR_INVALID));
+    assert_eq!(validate_reply_with(&bad, op, Rows::Framing), Ok(()));
+    // A tag the lookup check does not read is refused before any body.
+    let other = frame(registrations::SERVICE_ECHO_TAG, &[0]);
+    assert_eq!(
+        validate_reply_with(&other, op, Rows::Lookup),
+        Err(ERR_INVALID)
+    );
+}
+
 #[test]
 fn list_reply_requires_one_terminal_end_and_canonical_frames() {
     let op = targets_op();

@@ -121,7 +121,6 @@ pub(super) fn check(raw: &RawRecord<'_>) -> Result<(), i32> {
 
 /// The rows of `core.lookup`, whose provider is a plugin: its entry row and
 /// the end row, each by its type. Any other tag is `ERR_INVALID`.
-#[cfg(not(any(test, debug_assertions)))]
 pub(super) fn check_lookup(raw: &RawRecord<'_>) -> Result<(), i32> {
     match raw.tag() {
         wire::SERVICE_LOOKUP_ENTRY_TAG => row::<wire::ServiceLookupEntry<'_>>(raw),

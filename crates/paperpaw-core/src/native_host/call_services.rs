@@ -143,26 +143,26 @@ fn validate_batch(bytes: &[u8], expected: &[u32], max_records: usize) -> Result<
 /// - **release, every other service**: the framing of every row and the typed
 ///   end row (`Framing`). A row's body is its backend's own encoding, and the
 ///   asker decodes every row fallibly.
+///
+/// Whichever check reads a row, a row it refuses is `ERR_INVALID` (as the reply
+/// check always answered).
+///
+/// All variants exist in every build (so each is compiled and tested); in a
+/// release build `All` is never chosen by [`Rows::of`] and reads like `Framing`,
+/// so the 93 row decoders it would need are not linked.
 #[derive(Clone, Copy)]
 enum Rows {
-    #[cfg(any(test, debug_assertions))]
     All,
-    #[cfg(not(any(test, debug_assertions)))]
     Lookup,
-    #[cfg(not(any(test, debug_assertions)))]
     Framing,
 }
 
 impl Rows {
     /// The check a reply of `service` gets in this build.
     fn of(service: &str) -> Self {
-        #[cfg(any(test, debug_assertions))]
-        {
-            let _ = service;
+        if cfg!(any(test, debug_assertions)) {
             Self::All
-        }
-        #[cfg(not(any(test, debug_assertions)))]
-        if service == crate::abi7::services_wire::core_lookup_v1::KEY {
+        } else if service == crate::abi7::services_wire::core_lookup_v1::KEY {
             Self::Lookup
         } else {
             Self::Framing
@@ -174,10 +174,11 @@ impl Rows {
         match self {
             #[cfg(any(test, debug_assertions))]
             Self::All => rows::check(raw),
-            #[cfg(not(any(test, debug_assertions)))]
             Self::Lookup => rows::check_lookup(raw),
-            #[cfg(not(any(test, debug_assertions)))]
+            #[cfg(any(test, debug_assertions))]
             Self::Framing => Ok(()),
+            #[cfg(not(any(test, debug_assertions)))]
+            Self::All | Self::Framing => Ok(()),
         }
     }
 }

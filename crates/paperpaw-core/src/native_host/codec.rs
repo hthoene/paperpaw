@@ -11,8 +11,10 @@ use super::registrations::{
 use paperpaw_native::host_glue::ERR_NO_SPACE;
 
 /// `raw` as the record type `R`. A tag the codec does not know is
-/// `ERR_UNSUPPORTED`; a known tag the op does not expect, and an expected tag
-/// with a bad body, are `ERR_INVALID` ([`unexpected`]).
+/// `ERR_UNSUPPORTED`; a known tag the op does not expect is `ERR_INVALID`
+/// ([`unexpected`]). An expected tag with a bad body has the decoder's own
+/// status (`ERR_INVALID` for a body that ends early, `ERR_NO_SPACE` for an
+/// over-cap field, and so on), as the enum path had.
 pub(crate) fn decode<'a, R: WireRecord<'a>>(raw: RawRecord<'a>) -> Result<R, i32> {
     if raw.tag() != R::TAG {
         return Err(unexpected(raw.tag()));
