@@ -402,18 +402,23 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert!(items.iter().all(|e| e.contains("|1:core.status-items|")));
     assert_eq!(native.extras, others);
     assert_eq!(native.screens, old.screens);
-    // The offer, the widget place, the bar's status place, the icon and the need.
-    for kind in [
-        "SlotOffer",
-        "WidgetPlace",
-        "StatusPlace",
-        "IconSpec",
-        "MenuNeed",
-    ] {
-        assert!(
-            native.others.iter().any(|k| k == kind),
-            "{kind} in {:?}",
-            native.others
-        );
-    }
+    // The navigation records, decoded: the offer at the replacing priority, the
+    // pages as a place of widgets (their settings, the layout), the bar's place
+    // of status items, the icon and the need.
+    assert_eq!(native.slots, old.slots);
+    assert_eq!(native.slots, ["core.home|picture-home.dashboard|100"]);
+    assert_eq!(native.widget_places, old.widget_places);
+    assert_eq!(native.widget_places.len(), 1);
+    assert!(native.widget_places[0].contains("picture-home.page-4|Grid"));
+    assert_eq!(native.status_places, old.status_places);
+    assert_eq!(native.status_places.len(), 1);
+    assert_eq!(native.icons, old.icons);
+    assert_eq!(native.icons, ["picture-home.group|layout-grid"]);
+    assert_eq!(native.needs, old.needs);
+    assert_eq!(native.needs, ["picture-home.focus-at-once|NoTouch"]);
+    assert_eq!(native.keys, old.keys);
+    assert_eq!(native.menu_entries, old.menu_entries);
+    assert_eq!(native.actions, old.actions);
+    assert!(native.events.is_empty());
+    assert!(native.others.is_empty(), "{:?}", native.others);
 }
