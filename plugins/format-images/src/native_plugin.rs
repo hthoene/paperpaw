@@ -1,4 +1,4 @@
-//! The interface-7 plain text format: one `core.format` provider that keeps its
+//! The interface-7 picture format: one `core.format` provider that keeps its
 //! open documents between the host's calls (the host retains the instance).
 use crate::{
     declarations::FORMAT_TOKEN,
@@ -15,7 +15,7 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/format_images_declarations.rs"));
 }
 
-/// The plain text format's instance.
+/// The picture format's instance.
 #[derive(Debug, Default)]
 pub struct NativeImages {
     provider: ImagesProvider,

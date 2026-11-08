@@ -127,10 +127,14 @@ pub(crate) fn open(
 ) -> Result<Option<ImageRef>, DocumentError> {
     let path = file(base, color)?;
     let mut header = [0u8; 12];
-    match storage.read_at(&path, 0, &mut header) {
-        Ok(12) => {}
-        Ok(_) | Err(paperpaw_sdk::StorageError::NotFound) => return Ok(None),
-        Err(error) => return Err(DocumentError::Storage(error)),
+    // A read may return less than asked: fill the header, as `read_all` does.
+    let mut filled = 0;
+    while filled < header.len() {
+        match storage.read_at(&path, filled as u64, &mut header[filled..]) {
+            Ok(0) | Err(paperpaw_sdk::StorageError::NotFound) => return Ok(None),
+            Ok(n) => filled += n,
+            Err(error) => return Err(DocumentError::Storage(error)),
+        }
     }
     let (magic, bytes): (&[u8; 4], u64) = if color { (b"PPCI", 3) } else { (b"PPGI", 1) };
     let field = |at: usize| {
@@ -212,5 +216,94 @@ pub(crate) fn shown(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open;
+    use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+
+    /// A storage that gives at most `step` bytes for a read, as a card may.
+    struct Short(MemoryStorage, usize);
+
+    impl Storage for Short {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            let n = buf.len().min(self.1);
+            self.0.read_at(path, at, &mut buf[..n])
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(&self, dir: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, v)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+    }
+
+    fn file(magic: &[u8], width: u32, height: u32, pixels: usize) -> alloc::vec::Vec<u8> {
+        let mut out = magic.to_vec();
+        out.extend_from_slice(&width.to_le_bytes());
+        out.extend_from_slice(&height.to_le_bytes());
+        out.resize(12 + pixels, 0);
+        out
+    }
+
+    fn opened(data: alloc::vec::Vec<u8>, color: bool) -> Option<(u32, u32)> {
+        let name = if color { "b.rgb" } else { "b.gray" };
+        let io = MemoryStorage::new().with(name, data);
+        open(&io, "b", color)
+            .unwrap()
+            .map(|image| (image.width, image.height))
+    }
+
+    #[test]
+    fn a_decoded_picture_opens_with_its_size() {
+        assert_eq!(opened(file(b"PPGI", 3, 2, 6), false), Some((3, 2)));
+        assert_eq!(opened(file(b"PPCI", 3, 2, 18), true), Some((3, 2)));
+    }
+
+    #[test]
+    fn a_read_that_gives_less_is_read_again() {
+        let io = Short(
+            MemoryStorage::new().with("b.gray", file(b"PPGI", 3, 2, 6)),
+            5,
+        );
+        assert_eq!(open(&io, "b", false).unwrap().map(|i| i.width), Some(3));
+    }
+
+    #[test]
+    fn a_hostile_header_is_no_picture() {
+        // Wrong magic, and the other kind's magic.
+        assert_eq!(opened(file(b"XXXX", 3, 2, 6), false), None);
+        assert_eq!(opened(file(b"PPCI", 3, 2, 6), false), None);
+        // No pixels at all, or no width or height.
+        assert_eq!(opened(file(b"PPGI", 0, 2, 0), false), None);
+        assert_eq!(opened(file(b"PPGI", 3, 0, 0), false), None);
+        // Sizes that no file has (and whose product overflows).
+        assert_eq!(opened(file(b"PPGI", u32::MAX, u32::MAX, 0), false), None);
+        assert_eq!(opened(file(b"PPCI", u32::MAX, u32::MAX, 0), true), None);
+        assert_eq!(opened(file(b"PPGI", u32::MAX, 1, 6), false), None);
+        // One byte too many, or too few.
+        assert_eq!(opened(file(b"PPGI", 3, 2, 7), false), None);
+        assert_eq!(opened(file(b"PPGI", 3, 2, 5), false), None);
+        assert_eq!(opened(file(b"PPCI", 3, 2, 17), true), None);
+    }
+
+    #[test]
+    fn a_short_or_missing_file_is_no_picture() {
+        assert_eq!(opened(alloc::vec::Vec::new(), false), None);
+        assert_eq!(opened(b"PPGI".to_vec(), false), None);
+        assert_eq!(opened(b"PPGI\x03\0\0\0\x02\0\0".to_vec(), false), None);
+        let io = MemoryStorage::new();
+        assert!(open(&io, "b", false).unwrap().is_none());
     }
 }
