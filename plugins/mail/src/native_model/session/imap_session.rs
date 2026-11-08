@@ -2,7 +2,7 @@
 use super::super::codec;
 use super::super::fail::Fail;
 use super::super::header;
-use super::super::imap::{self, Fault, LineBuffer, Response, Status, Token, Untagged};
+use super::super::imap::{self, Fault, Response, Status, Token, Untagged};
 use super::super::mem::{
     Error, Secret, lower_ascii, push, push_bytes, push_char, push_str, string_with, vec_with,
     wipe_text,
@@ -392,6 +392,11 @@ impl Imap {
                         why,
                     },
                 )?;
+            }
+            Input::Bytes(_) if self.wire.switching => {
+                // Nothing is read while the socket is secured: these were
+                // not asked for and cannot be trusted.
+                return self.fail(io, events, Failure::Unsafe);
             }
             Input::Bytes(bytes) => {
                 self.wire.reading = false;
@@ -830,10 +835,18 @@ impl Imap {
                 if !ok {
                     return self.fail(io, events, Failure::Unsafe);
                 }
+                // Bytes behind the OK were sent in the clear by whoever is on
+                // the wire: never parsed, the session ends.
+                if !self.wire.buf.is_empty() {
+                    return self.fail(io, events, Failure::Unsafe);
+                }
                 // The switch: nothing is sent or read until it is done.
-                self.wire.buf = LineBuffer::default();
                 self.wire.switching = true;
                 let started = io.start_tls(self.endpoint.pin);
+                if matches!(started, Err(Error::State)) {
+                    // The reader still holds bytes of the plain stream.
+                    return self.fail(io, events, Failure::Unsafe);
+                }
                 self.went(io, events, started)?;
             }
             Command::Capability => {

@@ -115,6 +115,10 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   `tests/native_model_alloc_refusal.rs` refuses every allocation of a whole IMAP session (all four
   tasks) and a whole SMTP session in turn, on a card and a server double that never allocate: each
   ends `Failed(NoMemory)` (the socket closed) or succeeds.
+  `tests/native_session_starttls.rs`: bytes behind the STARTTLS OK (IMAP) or 220 (SMTP) and bytes
+  that arrive while the switch is under way are never parsed: the session ends `Failed(Unsafe)`; so
+  does a `start_tls` the socket refuses with `Error::State` (the SDK reader still holds bytes of the
+  plain stream). The slice that adds the `Io` over `native::sockets` must pass that refusal through.
 - Differences from interface 6, on purpose: a refused allocation ends the session and is told as
   `Failure::NoMemory` (it never aborts); the password is a `Secret` and every line that carries it
   (the final `LOGIN`, `AUTHENTICATE`, the credentials after a `+`, `AUTH PLAIN`, the password of

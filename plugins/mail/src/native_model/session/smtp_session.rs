@@ -1,7 +1,7 @@
 //! The SMTP side of a mail session (see the parent module).
 use super::super::codec;
 use super::super::fail::Fail;
-use super::super::imap::{Fault, LineBuffer};
+use super::super::imap::Fault;
 use super::super::mem::{Error, Secret, copy, push, wipe_text};
 use super::super::smtp::{self, Extensions, Reply, ReplyParser};
 use super::{
@@ -230,6 +230,11 @@ impl Smtp {
                     },
                 )?;
             }
+            Input::Bytes(_) if self.wire.switching => {
+                // Nothing is read while the socket is secured: these were
+                // not asked for and cannot be trusted.
+                return self.fail(io, events, Failure::Unsafe);
+            }
             Input::Bytes(bytes) => {
                 self.wire.reading = false;
                 if bytes.is_empty() {
@@ -402,11 +407,19 @@ impl Smtp {
                 if reply.code != 220 {
                     return self.fail(io, events, Failure::Unsafe);
                 }
+                // Bytes behind the 220 were sent in the clear by whoever is on
+                // the wire: never parsed, the session ends.
+                if !self.wire.buf.is_empty() {
+                    return self.fail(io, events, Failure::Unsafe);
+                }
                 // Nothing is sent or read until the switch is done.
-                self.wire.buf = LineBuffer::default();
                 self.wire.reading = false;
                 self.wire.switching = true;
                 let started = io.start_tls(self.endpoint.pin);
+                if matches!(started, Err(Error::State)) {
+                    // The reader still holds bytes of the plain stream.
+                    return self.fail(io, events, Failure::Unsafe);
+                }
                 self.went(io, events, started)?;
                 Ok(())
             }
