@@ -181,7 +181,7 @@ fn expected(storage: &dyn Storage, plugin: &str) -> Option<Named> {
 }
 
 fn bytes<const N: usize>(hex: &str) -> Option<[u8; N]> {
-    paperpaw_sdk::digest::hex::decode(hex)?.try_into().ok()
+    paperpaw_sdk::digest::hex::decode_array(hex)
 }
 
 /// Takes `plugin`'s author along the library's rotation `steps` to `key`,
