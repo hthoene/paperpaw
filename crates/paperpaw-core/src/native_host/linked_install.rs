@@ -20,7 +20,8 @@ impl crate::Kernel {
     /// and requirements against `host`), then the plugin is hosted and registered exactly as
     /// [`register_native`](Self::register_native) does; `make` runs only in
     /// that registration, and not at all when the entry, the metadata or the
-    /// id is refused.
+    /// id is refused. `image` gives staging the read-only range that declaration
+    /// batches may stay in without a copy (see the safety section).
     ///
     /// # Errors
     /// `ERR_INVALID` for an entry that disagrees with its metadata or its
@@ -33,6 +34,11 @@ impl crate::Kernel {
     /// `entry` comes from `native_plugin!(..., linked = NAME)` of a crate that
     /// is linked into this program: its factory obeys the SDK's native factory
     /// contract and its code and static data stay loaded for the whole run.
+    /// `image` is the firmware's read-only data (on the X4 the linker's bounds
+    /// of the flash-mapped read-only data; empty on a shell without that
+    /// constraint). It stays mapped and unchanged for the whole run. A
+    /// declaration batch the plugin submits from inside it is kept as offsets;
+    /// every other batch is copied to the heap.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the shell host, the owner resources, both sinks and the metadata view"
@@ -41,6 +47,7 @@ impl crate::Kernel {
         &mut self,
         entry: &'static PpEntry,
         metadata: &'static [u8],
+        image: &'static [u8],
         host: &metadata::Host<'static>,
         id: &str,
         services: S,
@@ -65,7 +72,7 @@ impl crate::Kernel {
             })
         })?;
         // SAFETY: the caller guarantees the factory contract and static code.
-        let host = unsafe { admitted.hosted(services, id, teardown, resources) }?;
+        let host = unsafe { admitted.hosted(services, id, image, teardown, resources) }?;
         self.register_native(host, depth, report)
     }
 }

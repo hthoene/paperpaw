@@ -37,6 +37,8 @@ impl Services for Heap {
 }
 
 std::thread_local! {
+    /// The batch `make_static` submits (a static slice: pointer and length).
+    static STATIC_BATCH: Cell<(*const u8, usize)> = const { Cell::new((ptr::null(), 0)) };
     static MAKES: Cell<u32> = const { Cell::new(0) };
     static DROPS: Cell<u32> = const { Cell::new(0) };
 }
@@ -59,15 +61,33 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
     .unwrap();
     // SAFETY: the host table and context are live for this call; the encoded
     // declaration stays readable until it returns.
-    let status = unsafe {
-        ((*host).registrations_submit)(
-            ctx,
-            PpBytes {
-                ptr: bytes.as_ptr(),
-                len,
-            },
-        )
-    };
+    unsafe { publish(host, ctx, out, bytes.as_ptr(), len) }
+}
+
+/// Like `make`, but submits the static batch in `STATIC_BATCH` as it is, the
+/// way a built-in submits its pre-encoded declarations.
+unsafe extern "C" fn make_static(
+    host: *const PpHost,
+    ctx: *mut c_void,
+    out: *mut *const PpPlugin,
+) -> i32 {
+    MAKES.with(|count| count.set(count.get() + 1));
+    let (bytes, len) = STATIC_BATCH.with(Cell::get);
+    // SAFETY: as `make`; the batch is a leaked static.
+    unsafe { publish(host, ctx, out, bytes, len) }
+}
+
+/// Submit `len` bytes at `bytes`, then publish an empty plugin table.
+unsafe fn publish(
+    host: *const PpHost,
+    ctx: *mut c_void,
+    out: *mut *const PpPlugin,
+    bytes: *const u8,
+    len: usize,
+) -> i32 {
+    // SAFETY: the host table and context are live for this call; the bytes
+    // stay readable until it returns.
+    let status = unsafe { ((*host).registrations_submit)(ctx, PpBytes { ptr: bytes, len }) };
     if status != host_glue::OK {
         return status;
     }
@@ -159,11 +179,23 @@ fn install_on(
     host: &Host<'static>,
     id: &str,
 ) -> Result<(), shell::Error> {
+    install_in(kernel, entry, metadata, &[], host, id)
+}
+
+fn install_in(
+    kernel: &mut crate::Kernel,
+    entry: &'static PpEntry,
+    metadata: &'static [u8],
+    image: &'static [u8],
+    host: &Host<'static>,
+    id: &str,
+) -> Result<(), shell::Error> {
     // SAFETY: the test factory obeys the contract and its code is static.
     unsafe {
         kernel.register_linked(
             entry,
             metadata,
+            image,
             host,
             id,
             Heap,
@@ -345,4 +377,62 @@ fn a_required_feature_the_shell_host_has_admits_the_plugin() {
     install_on(&mut kernel, with_view, bytes, &shell_host(WIRED), "linked").unwrap();
     assert_eq!(MAKES.with(Cell::get), 1);
     assert!(kernel.shared.native_instances.find("linked").is_some());
+}
+
+/// Eight screens in one encoded batch, leaked: the image is 64 bytes of
+/// padding, the batch, then padding; the batch is the slice inside it.
+fn image_with_batch() -> (&'static [u8], &'static [u8]) {
+    let names = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"];
+    let records: std::vec::Vec<_> = names
+        .iter()
+        .zip(100..)
+        .map(|(name, token)| {
+            wire::Record::ScreenSpec(wire::ScreenSpec {
+                name,
+                title: "linked.title",
+                token,
+                flags: 0,
+            })
+        })
+        .collect();
+    let mut bytes = [0; 1024];
+    let len = wire::records_encode(&records, &mut bytes).unwrap();
+    let mut image = std::vec![0xAA; 64];
+    image.extend_from_slice(&bytes[..len]);
+    image.extend_from_slice(&[0xBB; 64]);
+    let image: &'static [u8] = Box::leak(image.into_boxed_slice());
+    (image, &image[64..64 + len])
+}
+
+/// Heap bytes the registration of the static batch holds, with `image` as the
+/// shell's read-only range.
+fn registered_heap(image: &'static [u8], batch: &'static [u8], id: &str) -> usize {
+    let mut kernel = kernel();
+    STATIC_BATCH.with(|slot| slot.set((batch.as_ptr(), batch.len())));
+    let entry = entry(|entry| entry.make = Some(make_static));
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    install_in(&mut kernel, entry, METADATA, image, &shell_host(&[]), id).unwrap();
+    let held = live() - before;
+    assert_eq!(MAKES.with(Cell::get), 1);
+    drop(kernel);
+    held
+}
+
+#[test]
+fn a_batch_inside_the_image_is_kept_as_offsets_and_one_outside_is_copied() {
+    let (image, batch) = image_with_batch();
+    let inside = registered_heap(image, batch, "inside");
+    // The same bytes, the same plugin, but the image is another allocation:
+    // the batch lies outside it and is copied.
+    let elsewhere: &'static [u8] = Box::leak(std::vec![0_u8; image.len()].into_boxed_slice());
+    let outside = registered_heap(elsewhere, batch, "outside");
+    // An empty image (a shell without the constraint) copies too.
+    let none = registered_heap(&[], batch, "none");
+    std::println!(
+        "{} B batch: {inside} B kept in the image, {outside} B outside, {none} B with no image",
+        batch.len()
+    );
+    assert!(outside >= inside + batch.len(), "{outside} vs {inside}");
+    assert!(none >= inside + batch.len(), "{none} vs {inside}");
 }

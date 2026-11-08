@@ -184,6 +184,7 @@ fn linked_host_copies_service_admission_before_any_factory_call() {
         admitted.hosted(
             NoHeap,
             "fixture",
+            &[],
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
         )
@@ -228,6 +229,7 @@ fn linked_host_retains_available_features_after_admission() {
         admitted.hosted(
             NoHeap,
             "fixture",
+            &[],
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
         )

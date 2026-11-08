@@ -32,10 +32,14 @@ impl Admitted {
     /// # Safety
     /// The linked factory must obey Hosted's native factory contract. Its code
     /// and static data must remain loaded for the entire program lifetime.
+    /// `image` is the firmware's read-only data (empty for none): it stays
+    /// mapped and unchanged for the whole program lifetime, so a declaration
+    /// batch that lies inside it is kept as offsets and never copied.
     pub(crate) unsafe fn hosted<S: Services>(
         self,
         services: S,
         id: &str,
+        image: &'static [u8],
         report: shell::Report<S>,
         resources: super::HostResources,
     ) -> Result<shell::Hosted<S, ()>, shell::Error> {
@@ -49,14 +53,15 @@ impl Admitted {
                 }
             })?;
         // SAFETY: the caller guarantees the factory contract and static code
-        // lifetime; linked entries retain no unloadable module or image range.
+        // lifetime and that `image` stays mapped for the program's lifetime;
+        // linked entries retain no unloadable module.
         unsafe {
             shell::Hosted::new(
                 services,
                 (),
                 self.make,
                 id,
-                (core::ptr::null(), 0),
+                (image.as_ptr(), image.len()),
                 report,
                 resources,
                 declared.with_features(self.features),
