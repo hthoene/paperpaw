@@ -3,9 +3,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::{Record, records_decode},
+    registrations::records_decode,
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -47,12 +46,10 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
-/// The host takes the screens, the actions and the events; it checks the
-/// menu places and the icons and then refuses them until its menus take them
-/// (`screens-input.md` section 1): `make` is refused as unsupported until
-/// then, the same state as Keys, Profiles and About (#944).
+/// The host takes the screens, the actions, the events, the menu places and
+/// the icons (`screens-input.md` section 1).
 #[test]
-fn the_host_admits_the_screens_the_actions_and_the_events_and_refuses_the_menu_places_and_icons() {
+fn the_host_admits_the_screens_the_actions_the_events_the_menu_places_and_the_icons() {
     for batch in batches!(declarations::screens)
         .into_iter()
         .chain(batches!(declarations::events))
@@ -60,19 +57,16 @@ fn the_host_admits_the_screens_the_actions_and_the_events_and_refuses_the_menu_p
         let records = records_decode(&batch).unwrap();
         validate_batch("plugin-manager", &records).unwrap();
     }
-    let mut refused = 0;
+    let mut admitted = 0;
     for batch in batches!(declarations::navigation) {
         let records = records_decode(&batch).unwrap();
         for record in records.iter() {
             match validate_record("plugin-manager", &record) {
-                Ok(()) => assert!(matches!(record, Record::ActionSpec(_)), "{record:?}"),
-                Err(status) => {
-                    assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
-                    assert!(matches!(record, Record::MenuEntry(_) | Record::IconSpec(_)));
-                    refused += 1;
-                }
+                Ok(()) => admitted += 1,
+                Err(status) => panic!("{record:?}: {status}"),
             }
         }
     }
-    assert_eq!(refused, 4, "the two menu places and the two icons");
+    // The actions, the two menu places and the two icons.
+    assert_eq!(admitted, 6);
 }

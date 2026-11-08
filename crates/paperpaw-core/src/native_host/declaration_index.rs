@@ -2,7 +2,8 @@
 use super::registrations::Record;
 
 /// Shared declaration categories. Slots 8..=15 belong to REG, 16..=22 to UIX.
-/// Services adds its entries here; every category fits the five-bit packed field.
+/// Services adds its entries here; every category fits the seven-bit field of `NameEntry` (bits 3-9 of
+/// `record_kind`, host-internal, so widening it changes no ABI).
 pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("setting.group", 0),
     ("setting.spec", 1),
@@ -27,11 +28,21 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("status.item", 20),
     ("status.line", 21),
     ("status.place", 22),
+    ("menu.entry", 23),
+    ("icon.spec", 24),
+    ("menu.need", 25),
+    ("menu.section", 26),
+    ("menu.hide", 27),
+    ("menu.describe", 28),
+    ("registration.stage", 29),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
+/// Category of `registration.stage`: keyed by the stage's full id and the
+/// token, so one plugin may subscribe two tokens to a stage, never one twice.
+pub(crate) const STAGE_SUBSCRIPTION_KIND: u8 = KIND_TABLE[29].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
-const KIND_MASK: u16 = 0x1f;
-const EXTENSION: u16 = 1 << 8;
+const KIND_MASK: u16 = 0x7f;
+const EXTENSION: u16 = 1 << 15;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct NameEntry {
@@ -54,7 +65,7 @@ impl NameEntry {
             hash,
             batch,
             record_kind: (u16::from(kind) << 3)
-                | (u16::from(extension) << 8)
+                | (u16::from(extension) << 15)
                 | u16::try_from(record).map_err(|_| paperpaw_native::host_glue::ERR_INVALID)?,
         })
     }
@@ -98,11 +109,39 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::StatusItem(r) => (KIND_TABLE[20].1, r.name),
         Record::StatusLine(r) => (KIND_TABLE[21].1, r.name),
         Record::StatusPlace(r) => (KIND_TABLE[22].1, r.name),
+        // Menus and icons (`screens-input.md` section 1): an entry and a hide
+        // are keyed by (menu, item), the others by their item or name.
+        Record::MenuEntry(r) => (KIND_TABLE[23].1, r.menu),
+        Record::IconSpec(r) => (KIND_TABLE[24].1, r.item),
+        Record::MenuNeed(r) => (KIND_TABLE[25].1, r.item),
+        Record::MenuSection(r) => (KIND_TABLE[26].1, r.name),
+        Record::MenuHide(r) => (KIND_TABLE[27].1, r.menu),
+        Record::MenuDescribe(r) => (KIND_TABLE[28].1, r.item),
+        Record::RegistrationStage(r) => (STAGE_SUBSCRIPTION_KIND, r.stage),
         _ => return None,
     })
 }
-/// All unique-key fields, borrowed from the record without joining strings.
-fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
+/// A token as decimal text in `scratch` (a key field is text).
+fn token_text(token: u32, scratch: &mut [u8; 10]) -> &str {
+    let mut at = scratch.len();
+    let mut rest = token;
+    loop {
+        at -= 1;
+        scratch[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&scratch[at..]).unwrap_or("0")
+}
+
+/// All unique-key fields, borrowed from the record without joining strings
+/// (a number is written into `scratch`).
+fn name_parts<'a>(
+    record: Record<'a>,
+    scratch: &'a mut [u8; 10],
+) -> Option<(u8, [&'a str; 4], usize)> {
     let (kind, name) = key(record)?;
     let mut parts = [name, "", "", ""];
     let len = match record {
@@ -124,13 +163,26 @@ fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
             parts[1] = r.key;
             2
         }
+        Record::MenuEntry(r) => {
+            parts[1] = r.item;
+            2
+        }
+        Record::MenuHide(r) => {
+            parts[1] = r.item;
+            2
+        }
+        Record::RegistrationStage(r) => {
+            parts[1] = token_text(r.token, scratch);
+            2
+        }
         _ => 1,
     };
     Some((kind, parts, len))
 }
 
 pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
-    let (kind, parts, len) = name_parts(record)?;
+    let mut scratch = [0; 10];
+    let (kind, parts, len) = name_parts(record, &mut scratch)?;
     Some(if len == 1 {
         name_hash(kind, parts[0])
     } else {
@@ -140,7 +192,10 @@ pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
 
 /// Hash equality never replaces comparison of every original key field.
 pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
-    let (Some((ak, a, al)), Some((bk, b, bl))) = (name_parts(a), name_parts(b)) else {
+    let (mut scratch_a, mut scratch_b) = ([0; 10], [0; 10]);
+    let (Some((ak, a, al)), Some((bk, b, bl))) =
+        (name_parts(a, &mut scratch_a), name_parts(b, &mut scratch_b))
+    else {
         return false;
     };
     ak == bk
@@ -152,7 +207,8 @@ pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
 }
 
 pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bool {
-    let Some((actual_kind, parts, len)) = name_parts(record) else {
+    let mut scratch = [0; 10];
+    let Some((actual_kind, parts, len)) = name_parts(record, &mut scratch) else {
         return false;
     };
     actual_kind == kind
@@ -198,11 +254,13 @@ pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
 const _: () = {
     let mut index = 0;
     while index < KIND_TABLE.len() {
-        assert!(KIND_TABLE[index].1 < 32);
+        assert!(KIND_TABLE[index].1 as u16 <= KIND_MASK);
         index += 1;
     }
 };
 const _: () = assert!(core::mem::size_of::<NameEntry>() == 8);
+// The kind (bits 3-9), the record index (bits 0-2) and the extension flag (bit 15) do not overlap.
+const _: () = assert!((KIND_MASK << 3) & EXTENSION == 0 && (KIND_MASK << 3) & 7 == 0);
 
 // The low three bits of record_kind hold the record index.
 const _: () = assert!(super::registrations::REGISTRATION_MAX_RECORDS <= 8);
@@ -289,8 +347,8 @@ mod packed_tests {
     #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
     use super::*;
     #[test]
-    fn every_five_bit_kind_preserves_record_and_extension_in_eight_bytes() {
-        for kind in 0..=31 {
+    fn every_seven_bit_kind_preserves_record_and_extension_in_eight_bytes() {
+        for kind in 0..=127 {
             for record in 0..8 {
                 for extension in [false, true] {
                     let entry = NameEntry::new(17, 3, kind, record, extension).unwrap();
@@ -302,7 +360,7 @@ mod packed_tests {
                 }
             }
         }
-        assert!(NameEntry::new(0, 0, 32, 0, false).is_err());
+        assert!(NameEntry::new(0, 0, 128, 0, false).is_err());
         assert!(NameEntry::new(0, 0, 7, 8, false).is_err());
         assert_eq!(core::mem::size_of::<NameEntry>(), 8);
     }
@@ -320,5 +378,29 @@ mod packed_tests {
         for (index, (_, kind)) in KIND_TABLE.iter().enumerate() {
             assert_eq!(usize::from(*kind), index);
         }
+    }
+}
+
+#[cfg(test)]
+mod pack_tests {
+    #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
+    use super::NameEntry;
+
+    #[test]
+    fn kind_record_and_extension_round_trip_for_every_field_edge() {
+        for kind in [0_u8, 1, 28, 31, 32, 64, 127] {
+            for record in 0..super::super::registrations::REGISTRATION_MAX_RECORDS {
+                for extension in [false, true] {
+                    let entry = NameEntry::new(7, 3, kind, record, extension).unwrap();
+                    assert_eq!(entry.kind(), kind);
+                    assert_eq!(entry.record(), record);
+                    assert_eq!(entry.is_extension(), extension);
+                    assert_eq!((entry.hash, entry.batch), (7, 3));
+                }
+            }
+        }
+        // 128 does not fit the seven bits; a ninth record does not fit three.
+        assert!(NameEntry::new(0, 0, 128, 0, false).is_err());
+        assert!(NameEntry::new(0, 0, 0, 8, false).is_err());
     }
 }
