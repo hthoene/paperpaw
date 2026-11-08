@@ -75,6 +75,17 @@ event_fn!(action_run, wire::EventActionRun<'_>, |r| Event::ActionRun {
     now_ms: r.now_ms,
     action: r.action,
 });
+event_fn!(text_typed, wire::EventTextTyped<'_>, |r| {
+    // Only bit 0 (`done`) is defined; a decoder refuses the others.
+    if r.flags & !1 != 0 {
+        return Err(Error::Invalid);
+    }
+    Event::TextTyped {
+        now_ms: r.now_ms,
+        text: r.text,
+        done: r.flags & 1 != 0,
+    }
+});
 event_fn!(registry_changed, wire::EventRegistryChanged, |r| {
     Event::RegistryChanged {
         now_ms: r.now_ms,

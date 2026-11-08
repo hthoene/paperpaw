@@ -176,6 +176,11 @@ fn fixtures() -> Vec<Vec<u8>> {
                 total: 10,
                 flags: 0,
             }),
+            Record::EventTextTyped(EventTextTyped {
+                now_ms: 42,
+                text: "héllo",
+                flags: 1,
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",

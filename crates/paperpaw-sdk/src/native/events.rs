@@ -285,6 +285,17 @@ pub enum Event<'a> {
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
+    /// Text typed from outside: a hardware keyboard's keys or a shell's remote
+    /// control (`event.text_typed`, 109). Sent only to the instance on top when it
+    /// is a screen offered on slot `core.keyboard`, through `dispatch_event`, and
+    /// needs no subscription (naming 109 in a registration refuses the batch). Text
+    /// over 1,024 bytes comes in several events cut between characters; `done` is
+    /// set only on the last, and confirms the dialog.
+    TextTyped {
+        now_ms: u64,
+        text: &'a str,
+        done: bool,
+    },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
     ///

@@ -513,3 +513,39 @@ fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
     assert_eq!(plugin, id);
     assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
 }
+
+#[test]
+fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
+    let encode = |flags| {
+        let mut bytes = [0; 128];
+        let n = wire::records_encode(
+            &[wire::Record::EventTextTyped(wire::EventTextTyped {
+                now_ms: 4,
+                text: "héllo wörld",
+                flags,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[..n].to_vec()
+    };
+    assert_eq!(
+        Event::decode(&encode(0)),
+        Ok(Event::TextTyped {
+            now_ms: 4,
+            text: "héllo wörld",
+            done: false
+        })
+    );
+    assert!(matches!(
+        Event::decode(&encode(1)),
+        Ok(Event::TextTyped { done: true, .. })
+    ));
+    for flags in [2, 3, 0x8000_0000] {
+        assert_eq!(
+            Event::decode(&encode(flags)),
+            Err(Error::Invalid),
+            "{flags}"
+        );
+    }
+}
