@@ -367,7 +367,7 @@ fn read_items(
         })
         .collect::<Option<Vec<_>>>()
         .ok_or(Unreadable)?;
-    items.sort_by_key(|(n, _)| *n);
+    paperpaw_sdk::sort::sort_by_key(&mut items, |(n, _)| *n);
     Ok(Some((
         items.into_iter().map(|(_, item)| item).collect(),
         true,

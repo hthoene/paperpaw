@@ -266,7 +266,7 @@ impl Radio {
         let mut told: Vec<Id> = link.users.iter().map(|u| u.asker.events.clone()).collect();
         told.extend(link.raw.iter().map(|r| r.events.clone()));
         told.extend(link.pairing.iter().cloned());
-        told.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        paperpaw_sort::sort_by(&mut told, |a, b| a.as_str().cmp(b.as_str()));
         told.dedup();
         for events in told {
             out.push(tell(&events, BtEvent::disconnected(link.device, reason)));

@@ -68,7 +68,7 @@ impl Table {
                 _ => None,
             })
             .collect();
-        items.sort_by_key(|(n, _)| *n);
+        paperpaw_sdk::sort::sort_by_key(&mut items, |(n, _)| *n);
         items.into_iter().map(|(_, v)| v)
     }
 

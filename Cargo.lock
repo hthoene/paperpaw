@@ -1605,6 +1605,7 @@ dependencies = [
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-sort",
  "paperpaw-table",
  "proptest",
 ]
@@ -1624,6 +1625,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
+ "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "png",
@@ -1717,6 +1719,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "libc",
  "paperpaw-platform",
+ "paperpaw-sort",
  "proptest",
 ]
 
@@ -1760,6 +1763,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
+ "paperpaw-sort",
  "paperpaw-table",
  "proptest",
 ]
@@ -2547,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2767,6 +2771,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sdk",
+ "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
@@ -2802,6 +2807,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "paperpaw-sqlite"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2834,6 +2846,7 @@ dependencies = [
  "paperpaw-hyphen",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-table",
  "proptest",
  "read-fonts",

@@ -10,7 +10,7 @@ use crate::{
 use alloc::vec::Vec;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
-    events::Event,
+    events::{Event, Incoming},
     lookup::{self, Ask, Entry},
     registrations,
     reply::Reply,
@@ -63,9 +63,10 @@ impl Plugin for NativeDictionary {
         &mut self,
         _: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::StageCall { stage, payload, .. }
                 if token == PROVIDER_TOKEN && stage == "core.lookup" =>

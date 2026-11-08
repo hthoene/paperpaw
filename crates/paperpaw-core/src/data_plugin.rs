@@ -485,7 +485,7 @@ fn point_files(storage: &dyn Storage, path: &str, budget: &mut Budget) -> Vec<St
             names.push(entry.name.to_string());
         }
     });
-    names.sort_unstable();
+    paperpaw_sort::sort(&mut names);
     names
         .into_iter()
         .take(MAX_POINTS)
@@ -601,7 +601,7 @@ pub(crate) fn folders(
             }
         }
     }
-    names.sort_unstable();
+    paperpaw_sort::sort(&mut names);
     names
         .into_iter()
         .map(|name| format!("{dir}/{name}"))
@@ -683,8 +683,8 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
             compiled.push(format!("{catalogs}/{}", entry.name));
         }
     });
-    files.sort_unstable();
-    compiled.sort_unstable();
+    paperpaw_sort::sort(&mut files);
+    paperpaw_sort::sort(&mut compiled);
     if budget.formats < FORMATS_4 {
         if !compiled.is_empty() {
             budget.problems.push(format!(
@@ -789,7 +789,7 @@ fn font_files(storage: &dyn Storage, dir: &str, packs: bool) -> Vec<String> {
     for folder in &folders {
         list_fonts(storage, folder, packs, &mut files, None);
     }
-    files.sort_unstable();
+    paperpaw_sort::sort(&mut files);
     files
 }
 
