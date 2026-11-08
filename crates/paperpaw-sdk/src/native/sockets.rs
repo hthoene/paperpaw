@@ -417,14 +417,11 @@ impl<'a> FileRead<'a> {
     /// A file read of `len` bytes (1 to [`MAX_FILE_LEN`]) to `path`.
     ///
     /// # Errors
-    /// `Invalid` for `len` 0 or over [`MAX_FILE_LEN`] or an empty path,
-    /// `NoSpace` for a path over [`MAX_PATH`] bytes.
+    /// `Invalid` for `len` 0 or over [`MAX_FILE_LEN`], or a path that is empty
+    /// or over [`MAX_PATH`] bytes.
     pub fn new(root: Root, path: &'a str, len: u64) -> Result<Self, Error> {
-        if len == 0 || len > MAX_FILE_LEN || path.is_empty() {
+        if len == 0 || len > MAX_FILE_LEN || path.is_empty() || path.len() > MAX_PATH {
             return Err(Error::Invalid);
-        }
-        if path.len() > MAX_PATH {
-            return Err(Error::NoSpace);
         }
         Ok(Self { root, path, len })
     }
@@ -456,15 +453,14 @@ impl<'a> Broadcast<'a> {
     /// A broadcast of `data` to `ports`, answers collected for `wait_ms`.
     ///
     /// # Errors
-    /// `Invalid` for no data, no port or a port 0; `NoSpace` for data over
-    /// [`BROADCAST_MAX_BYTES`] or more than [`BROADCAST_MAX_PORTS`] ports;
-    /// `Invalid` for a wait outside 100 to 10,000 ms.
+    /// `Invalid` for no data or data over [`BROADCAST_MAX_BYTES`], no port, more
+    /// than [`BROADCAST_MAX_PORTS`] ports or a port 0, and a wait outside 100 to
+    /// 10,000 ms.
     pub fn new(token: u32, data: &'a [u8], wait_ms: u32, ports: &'a [u16]) -> Result<Self, Error> {
-        if data.len() > BROADCAST_MAX_BYTES || ports.len() > BROADCAST_MAX_PORTS {
-            return Err(Error::NoSpace);
-        }
         if data.is_empty()
+            || data.len() > BROADCAST_MAX_BYTES
             || ports.is_empty()
+            || ports.len() > BROADCAST_MAX_PORTS
             || ports.contains(&0)
             || !(100..=10_000).contains(&wait_ms)
         {
@@ -934,7 +930,7 @@ impl Sockets {
     /// event once the queue has drained.
     ///
     /// # Errors
-    /// `Invalid` for no data, `NoSpace` for more than [`PIECE`] bytes, `Busy`
+    /// `Invalid` for no data or more than [`PIECE`] bytes, `Busy`
     /// when the queue cannot take it (nothing is queued: send the rest on
     /// `Sent`), `State` while the socket connects or switches to TLS,
     /// `NotFound` for another plugin's or an ended socket.
@@ -946,11 +942,8 @@ impl Sockets {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        if data.is_empty() {
+        if data.is_empty() || data.len() > PIECE {
             return Err(Error::Invalid);
-        }
-        if data.len() > PIECE {
-            return Err(Error::NoSpace);
         }
         let row = Row::Send(wire::ServiceSockSend { socket: id.0, data });
         self.call_empty(host, schema::OP_SEND, core::iter::once(row), input, out)
