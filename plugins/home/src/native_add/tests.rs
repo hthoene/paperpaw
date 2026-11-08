@@ -224,7 +224,8 @@ fn a_page_is_added_after_the_others_as_a_space_and_the_last_is_never_removed() {
     let Plan::Writes(writes) = add_page(&fake, &layout(&g, &pages)).unwrap() else {
         panic!("not written")
     };
-    assert_eq!(set_of(&writes, "home.page-1"), "a.b");
+    // Only the page that changed is written.
+    assert_eq!(writes.len(), 1);
     assert_eq!(set_of(&writes, "home.page-2"), "core.space");
     // Only one page: it stays.
     assert_eq!(
@@ -241,7 +242,8 @@ fn a_removed_page_empties_the_last_setting_and_shifts_the_rest_up() {
     let Plan::Writes(writes) = remove_page(&fake, &layout(&g, &pages), 1).unwrap() else {
         panic!("not written")
     };
-    assert_eq!(set_of(&writes, "home.page-1"), "a.b");
+    // The first page is as it was: not written.
+    assert_eq!(writes.len(), 2);
     assert_eq!(set_of(&writes, "home.page-2"), "e.f");
     assert_eq!(set_of(&writes, "home.page-3"), "");
     assert_eq!(
@@ -251,12 +253,20 @@ fn a_removed_page_empties_the_last_setting_and_shifts_the_rest_up() {
 }
 
 #[test]
-fn the_layout_for_a_screen_on_its_side_is_emptied_by_reset() {
-    let Plan::Writes(writes) = reset_wide().unwrap() else {
+fn the_layout_for_a_screen_on_its_side_is_emptied_by_reset_where_it_holds_something() {
+    let mut fake = Fake::new(&["a.b"]);
+    fake.settings
+        .insert(setting(1, true).unwrap(), "c.d".to_string());
+    let Plan::Writes(writes) = reset_wide(&fake).unwrap() else {
         panic!("not written")
     };
-    assert_eq!(writes.len(), MAX_PAGES);
-    assert_eq!(set_of(&writes, "home.page-1.wide"), "");
+    assert_eq!(writes.len(), 1);
+    assert_eq!(set_of(&writes, "home.page-2.wide"), "");
+    // Nothing kept: nothing to write.
+    let Plan::Writes(none) = reset_wide(&Fake::new(&["a.b"])).unwrap() else {
+        panic!("not a plan")
+    };
+    assert!(none.is_empty());
 }
 
 #[test]
@@ -305,7 +315,7 @@ fn every_allocation_may_be_refused() {
         add_item(&fake, &l, 0, library.try_clone()?)?;
         add_page(&fake, &l)?;
         remove_page(&fake, &l, 0)?;
-        reset_wide()?;
+        reset_wide(&fake)?;
         placement(&fake, "a.one", |_| Ok(false))?;
         Ok(())
     });
@@ -323,4 +333,65 @@ fn a_removed_page_resets_the_placements_no_other_page_shows() {
     assert_eq!(removed_placements(&fake, &l, 2).unwrap(), ["e.f@2"]);
     assert!(removed_placements(&fake, &l, 9).unwrap().is_empty());
     sweep(|| removed_placements(&fake, &l, 1).map(drop));
+}
+
+#[test]
+fn kinds_come_in_the_kernels_order_then_plugins_own_then_the_tools() {
+    let widgets = [
+        widget("a.world", "core.widgets.world"),
+        widget("p.own", "plugin.kind"),
+        widget("a.time", "core.widgets.time"),
+        widget("q.own", "other.plugin.kind"),
+        widget("a.books", "core.widgets.books"),
+        widget("a.time2", "core.widgets.time"),
+    ];
+    let found = entries(&widgets, &[tool("core.library")], false, &[]).unwrap();
+    let names: Vec<(String, usize)> = kinds(&found).unwrap();
+    assert_eq!(
+        names,
+        [
+            ("core.widgets.time".to_string(), 2),
+            ("core.widgets.books".to_string(), 1),
+            ("core.widgets.world".to_string(), 1),
+            // Plugins' own, in the order found.
+            ("plugin.kind".to_string(), 1),
+            ("other.plugin.kind".to_string(), 1),
+            (TOOLS_KIND.to_string(), 1),
+        ]
+    );
+    sweep(|| kinds(&found).map(drop));
+}
+
+/// A page of about 600 bytes.
+fn full_page(n: usize) -> String {
+    let items: Vec<String> = (0..30)
+        .map(|i| alloc::format!("plugin.example.widget{n}x{i} {}/{} 1x1", i % 6, i / 6))
+        .collect();
+    items.join(", ")
+}
+
+#[test]
+fn a_full_home_that_shifts_every_page_is_over_the_stage_budget() {
+    let texts: Vec<String> = (0..MAX_PAGES).map(full_page).collect();
+    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let fake = Fake::new(&refs);
+    let g = Geometry::of(Rect::new(0, 0, 400, 300), 6, 6, 0);
+    let pages = crate::native_pages::pages(&fake).unwrap();
+    assert_eq!(pages.len(), MAX_PAGES);
+    let l = layout(&g, &pages);
+    // Removing the first page shifts all of them: every setting changes.
+    let Plan::Writes(writes) = remove_page(&fake, &l, 0).unwrap() else {
+        panic!("not written")
+    };
+    assert_eq!(writes.len(), MAX_PAGES);
+    assert!(!fits(&writes, &[]));
+    // Removing the last changes only that one: it fits.
+    let Plan::Writes(writes) = remove_page(&fake, &l, MAX_PAGES - 1).unwrap() else {
+        panic!("not written")
+    };
+    assert_eq!(writes.len(), 1);
+    assert!(fits(&writes, &[]));
+    // The reset placements count too.
+    let resets = [String::from_utf8(alloc::vec![b'x'; STAGE_BUDGET]).unwrap()];
+    assert!(!fits(&writes, &resets));
 }

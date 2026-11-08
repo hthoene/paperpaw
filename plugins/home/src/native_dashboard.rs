@@ -115,6 +115,21 @@ impl Dashboard {
         }
     }
 
+    /// Whether the home screen is being edited.
+    #[must_use]
+    pub const fn editing(&self) -> bool {
+        self.editing
+    }
+
+    /// Opened again by the host while it is open: its view is kept (the page
+    /// it is on, the widgets it made, the focus), editing starts where asked.
+    /// A new dashboard would drop the widgets it made without letting them go.
+    pub fn reopened(&mut self, edit: bool) {
+        if edit && !self.editing {
+            self.set_editing(true);
+        }
+    }
+
     /// Starts editing (opened to edit with `mode` = `edit`).
     pub fn start_editing(&mut self) {
         self.editing = true;
@@ -938,6 +953,30 @@ mod tests {
             // Not editing: it runs (the host decides what).
             assert_eq!(decide(owner, false), None);
         }
+    }
+
+    #[test]
+    fn a_dashboard_opened_again_keeps_its_page_and_focus() {
+        let mut nav = Nav::new(3);
+        assert!(nav.turn(true));
+        assert!(nav.turn(true));
+        let mut dashboard = Dashboard {
+            nav: Some(nav),
+            ..Dashboard::new()
+        };
+        dashboard.focus.show(true);
+        dashboard.stale = false;
+        dashboard.reopened(false);
+        assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
+        assert!(dashboard.focus.shown());
+        assert!(!dashboard.editing());
+        // Not laid out again for nothing.
+        assert!(!dashboard.stale);
+        // Asked to edit: editing starts, the page stays.
+        dashboard.reopened(true);
+        assert!(dashboard.editing());
+        assert!(dashboard.stale);
+        assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
     }
 
     #[test]

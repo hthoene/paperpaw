@@ -200,11 +200,8 @@ impl NativeHome {
         }
         // Opened to edit (`mode` = `edit`) starts editing.
         if screen == DASHBOARD_SCREEN {
-            let mut dashboard = Dashboard::new();
-            if self.edits(host, handover)? {
-                dashboard.start_editing();
-            }
-            return self.screens.open(instance, Slot::Dashboard(dashboard));
+            let edit = self.edits(host, handover)?;
+            return open_dashboard(&mut self.screens, instance, edit);
         }
         if screen == add_screen::SCREEN {
             let add = self.add_screen(host, handover)?;
@@ -277,6 +274,25 @@ impl NativeHome {
         let view = StatusItemsView::new(entries, &held, title, texts)?;
         Ok(Editor { setting, view })
     }
+}
+
+/// Opens the dashboard of `instance`, starting in editing where `edit`. One
+/// opened again keeps its view (its page, its widgets): replacing it would
+/// drop the widgets it made without letting them go.
+fn open_dashboard(
+    screens: &mut Screens<Slot>,
+    instance: Instance,
+    edit: bool,
+) -> Result<(), Error> {
+    if let Some(Slot::Dashboard(dashboard)) = screens.get(instance) {
+        dashboard.reopened(edit);
+        return Ok(());
+    }
+    let mut dashboard = Dashboard::new();
+    if edit {
+        dashboard.start_editing();
+    }
+    screens.open(instance, Slot::Dashboard(dashboard))
 }
 
 /// Whether the params ask to edit: `mode` = `edit`.

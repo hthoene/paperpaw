@@ -247,7 +247,7 @@ impl AddScreen {
                 resets = add::removed_placements(src, &layout, self.page)?;
                 add::remove_page(src, &layout, self.page)?
             }
-            Row::ResetWide => add::reset_wide()?,
+            Row::ResetWide => add::reset_wide(src)?,
             Row::Kind(..) => Plan::Nothing,
         };
         self.stage(host, plan, &resets)
@@ -293,6 +293,9 @@ impl AddScreen {
         let writes = match plan {
             Plan::Nothing => return Ok(()),
             Plan::NoRoom => return Self::say(host, "home.grid.no-room"),
+            Plan::Writes(writes) if !add::fits(&writes, resets) => {
+                return Self::say(host, "home.grid.no-room");
+            }
             Plan::Writes(writes) => writes,
         };
         let longest = writes

@@ -6,10 +6,12 @@
 //! [`Source`] and the pages, what is written is returned as [`Write`]s.
 //!
 //! Not here (ignored acceptance cases, `PORTING-7.md`): the gallery of
-//! widgets drawn as they would show, the ready-made layouts, the values of a
-//! removed page's widgets reset, and the messages (no room, landscape full).
+//! widgets drawn as they would show, and the ready-made layouts.
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{native::Error, widgets::grid::Geometry};
+use paperpaw_sdk::{
+    native::Error,
+    widgets::{categories, grid::Geometry},
+};
 use paperpaw_ui_kit::{mem::push, text::copy};
 
 use crate::native_grid::{self as grid, Item, What};
@@ -112,33 +114,44 @@ pub fn entries(
     Ok(found)
 }
 
+/// Where a kind comes in the screen: the kernel's kinds in the order of
+/// [`categories::ALL`], then a plugin's own, the tools last.
+fn rank(kind: &str) -> usize {
+    if kind == TOOLS_KIND {
+        return categories::ALL.len() + 1;
+    }
+    categories::ALL
+        .iter()
+        .position(|known| *known == kind)
+        .unwrap_or(categories::ALL.len())
+}
+
 /// The kinds that have something to add and how many things each has, in the
-/// order they were found, the tools last.
+/// order screens show kinds on interface 6 (the kernel's, then plugins' own in
+/// the order found, the tools last).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn kinds(entries: &[Entry]) -> Result<Vec<(String, usize)>, Error> {
-    let mut kinds: Vec<(String, usize)> = Vec::new();
+    let mut found: Vec<(String, usize)> = Vec::new();
     for entry in entries {
-        match kinds.iter_mut().find(|(kind, _)| *kind == entry.kind) {
+        match found.iter_mut().find(|(kind, _)| *kind == entry.kind) {
             Some((_, count)) => *count += 1,
-            None => push(&mut kinds, (copy(&entry.kind)?, 1))?,
+            None => push(&mut found, (copy(&entry.kind)?, 1))?,
         }
     }
-    // Stable: the tools after every other kind.
-    let tools: Vec<(String, usize)> = {
-        let mut tools = Vec::new();
-        if let Some(at) = kinds.iter().position(|(kind, _)| kind == TOOLS_KIND) {
-            tools.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-            tools.push(kinds.remove(at));
-        }
-        tools
-    };
-    kinds
-        .try_reserve(tools.len())
+    // A stable order without sorting in place (a sort may allocate): by rank,
+    // ties in the order found.
+    let mut ordered = Vec::new();
+    ordered
+        .try_reserve_exact(found.len())
         .map_err(|_| Error::NoMemory)?;
-    kinds.extend(tools);
-    Ok(kinds)
+    for wanted in 0..=categories::ALL.len() + 1 {
+        for (kind, count) in found.iter().filter(|(kind, _)| rank(kind) == wanted) {
+            ordered.push((copy(kind)?, *count));
+        }
+    }
+    Ok(ordered)
 }
 
 /// The rows of the screen: with no `kind` chosen the kinds, *Add a page* (where
@@ -288,12 +301,32 @@ pub fn removed_placements(
     Ok(found)
 }
 
+/// The most the keys and texts staged in one callback may be: the host's
+/// budget for the stage (`docs/abi/commands.md`).
+pub const STAGE_BUDGET: usize = 4096;
+
+/// Whether what a choice stages (the settings written and the placements
+/// reset) is within [`STAGE_BUDGET`]; where it is not the choice is not made
+/// and the screen says there is no room (a full home of 8 pages that shifts
+/// every page on a removal is the case).
+#[must_use]
+pub fn fits(writes: &[Write], resets: &[String]) -> bool {
+    let sets = writes.iter().map(|write| match write {
+        Write::Set { setting, text } => setting.len() + text.len(),
+        Write::Notify(_) => 0,
+    });
+    let bytes = sets
+        .chain(resets.iter().map(String::len))
+        .fold(0usize, usize::saturating_add);
+    bytes <= STAGE_BUDGET
+}
+
 /// Empties the layout for a screen on its side.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn reset_wide() -> Result<Plan, Error> {
-    Ok(Plan::Writes(pages::reset_wide()?))
+pub fn reset_wide(src: &impl Source) -> Result<Plan, Error> {
+    Ok(Plan::Writes(pages::reset_wide(src)?))
 }
 
 fn copy_pages(pages: &[Page], extra: usize) -> Result<Vec<Page>, Error> {
