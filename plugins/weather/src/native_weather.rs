@@ -223,7 +223,8 @@ pub fn days_from_civil(year: i32, month: u8, day: u8) -> i64 {
 
 /// The weekday of a day since 1970, 0 (Sunday) to 6.
 pub fn weekday(date: i32) -> u8 {
-    (date + 4).rem_euclid(7) as u8
+    // In 64 bits: a date near `i32::MAX` (a bad answer) must not overflow.
+    (i64::from(date) + 4).rem_euclid(7) as u8
 }
 
 /// `text` for a query: letters, digits and `-_.~` as they are, spaces as `+`,

@@ -1,4 +1,4 @@
-# Interface-7 port (slice 1: the decisions and the declarations)
+# Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
 
 Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
 place screen, no widgets and no `NATIVE_ENTRY` yet; the interface-6 `Weather` and everything of it
@@ -20,6 +20,16 @@ stays until the host activates native plugins (then it goes together, no shim).
   `KEPT_CAP` (4 KiB); a larger or bad file counts as none and is written over, as in interface 6.
   The forecast's and the search's answers come as the HTTP reply's body (the host bounds it); they
   are read in the next slice.
+- `src/native_answers.rs` (slice 2): the forecast (`Forecast`: the conditions now and up to 8 days)
+  and the places a search found (`Places`: at most 10, with a name and coordinates in range), read
+  with `paperpaw_sdk::json::stream::Parser`'s `try_feed`/`try_finish`, so a refused allocation of
+  the parser's path or text ends in `NoMemory` and nothing is returned in part; what the plugin
+  keeps is allocated with `try_reserve`. The caller feeds the reply's body in pieces (`feed`, then
+  `finish`); after an error the reading is over and every later `feed` says the same.
+  `src/native_answers_tests.rs` compares each with `parse_forecast`/`parse_places` at piece sizes
+  from 1 byte to 2 KiB, on the recorded answers and on odd ones, and sweeps every allocation.
+  The weekday of a date no longer overflows near the ends of `i32` (`native::weekday` computes in 64
+  bits; the interface-6 one is left as it is, it goes with the legacy code).
 - `declarations.rs`: the settings group (order 88), the place (edited on its own screen), the units
   and how often as choices, the coordinates (advanced), the place's screen, the actions
   `choose-place` and `refresh`, and the icons. `tests/abi7_declarations.rs` decodes the batches
@@ -28,8 +38,6 @@ stays until the host activates native plugins (then it goes together, no shim).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- The answers' JSON (`parse_forecast`, `parse_places`: `paperpaw_sdk::json::stream`, to be read
-  with `try_feed`/`try_finish` and the caps above in slice 2).
 - The fetch itself (the timer, the network, the kept file, the place's change and the checks of
   when and whether to fetch: `lib.rs` `check`, `online`, `placed`).
 - The place's screen (H1, H2: the search by name, the places found, the offer to go online) and
