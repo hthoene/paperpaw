@@ -1,6 +1,8 @@
-//! `core.secrets` on the X4 (decision 138): values are sealed with AES-256-GCM
-//! under a per-device key kept in the `nvs` partition of the internal flash
-//! (`paperpaw_x4::device_key`), never on the card. A card from another device
+//! `core.secrets` on the X4, X3, X4 Pro and X4 Classic (decisions 138 and 140):
+//! values are sealed with AES-256-GCM under a per-device key kept in a sector
+//! of the internal flash that no installer touches (`paperpaw_x4::device_key`:
+//! the `nvs` partition's fourth sector, the Classic's last flash sector), never
+//! on the card. A card from another device
 //! opens nothing: its values count as absent here, never a crash.
 //!
 //! - The key is read for each seal or open and wiped after: it is not held in
@@ -13,7 +15,10 @@
 //!   only at a seal.
 //! - Statuses: `ERR_STATE` means only "the random numbers are weak now" (the host
 //!   then asks to turn Wi-Fi on); a failing cipher or flash is `ERR_IO`, a flash that
-//!   somebody else holds is `ERR_BUSY`.
+//!   somebody else holds is `ERR_BUSY`. A partition table with no place for the key
+//!   (an X4 Classic still on CrossPoint's table) is `ERR_UNSUPPORTED`, never
+//!   `ERR_NOT_FOUND` (which means "no such value") nor `ERR_STATE`: the host and its
+//!   screens can tell it apart and say that this device cannot keep passwords yet.
 //! - Fallible throughout: the GCM context is made with `try_reserve`, a
 //!   panic is never the answer to a value that does not open.
 
@@ -34,6 +39,7 @@ use mbedtls_rs::sys::{
 use paperpaw_core::native_host::{ShellRandom, ShellSealer};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_x4::device_key::{self as dk, KEY, NONCE, Sector, TAG};
 
@@ -121,7 +127,12 @@ impl DeviceSealer {
         }
     }
 
-    /// Where the key's sector is: in the `nvs` partition, which must hold it.
+    /// Where the key's sector is (decision 140, `dk::place`): the fourth sector
+    /// of the `nvs` partition on the X4, X3 and X4 Pro; on the X4 Classic the
+    /// last sector of the flash, which no partition of the table may cover (its
+    /// factory `nvs` is never written). A table that does not allow the place
+    /// is `ERR_UNSUPPORTED` (a table that cannot be read is `ERR_IO`): nothing is
+    /// sealed, nothing is written.
     fn sector(&self) -> Result<u32, i32> {
         if let Some(at) = self.at.get() {
             return Ok(at);
@@ -132,19 +143,19 @@ impl DeviceSealer {
             .try_reserve_exact(PARTITION_TABLE_MAX_LEN)
             .map_err(|_| ERR_NO_MEMORY)?;
         table.resize(PARTITION_TABLE_MAX_LEN, 0u8);
-        let found = partitions::read_partition_table(&mut flash, &mut table[..])
+        let pt =
+            partitions::read_partition_table(&mut flash, &mut table[..]).map_err(|_| ERR_IO)?;
+        let nvs = pt
+            .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
             .ok()
-            .and_then(|pt| {
-                pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
-                    .ok()
-                    .flatten()
-                    .map(|p| (p.offset(), p.len()))
-            });
-        let (offset, len) = found.ok_or(ERR_NOT_FOUND)?;
-        if (len as usize) < dk::OFFSET as usize + dk::SECTOR {
-            return Err(ERR_NOT_FOUND);
-        }
-        let at = offset + dk::OFFSET;
+            .flatten()
+            .map(|p| (p.offset(), p.len()));
+        let at = dk::locate(
+            dk::place(cfg!(feature = "x4-classic")),
+            nvs,
+            pt.iter().map(|p| (p.offset(), p.len())),
+        )
+        .ok_or(ERR_UNSUPPORTED)?;
         self.at.set(Some(at));
         Ok(at)
     }
@@ -200,6 +211,23 @@ impl DeviceSealer {
             }
         }
     }
+}
+
+/// Sorts the result of the host's start-up re-save of veiled values and logs
+/// it: a table without a place for the key is one `info` line, never a
+/// warning on each start; the caller treats only `Failed` as an error.
+#[allow(
+    dead_code,
+    reason = "the start-up call is wired with the shell wiring (todo 107)"
+)]
+pub fn log_startup_upgrade(result: Result<bool, i32>) -> dk::StartupUpgrade {
+    let outcome = dk::startup_upgrade(result, ERR_UNSUPPORTED);
+    if outcome == dk::StartupUpgrade::NoKeyPlace {
+        log::info!(
+            "secrets: no place for the device key on this partition table; veiled values kept"
+        );
+    }
+    outcome
 }
 
 impl ShellSealer for DeviceSealer {

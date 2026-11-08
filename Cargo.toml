@@ -26,6 +26,7 @@ members = [
     "crates/paperpaw-app",
     "crates/paperpaw-fs",
     "crates/paperpaw-x4",
+    "crates/paperpaw-host-seal",
     "crates/paperpaw-fat",
     "crates/paperpaw-update",
     "crates/paperpaw-digest",
@@ -145,6 +146,7 @@ paperpaw-xml = { path = "crates/paperpaw-xml", version = "0.6.0-beta.3" }
 paperpaw-stardict = { path = "crates/paperpaw-stardict", version = "0.6.0-beta.3" }
 paperpaw-layout = { path = "crates/paperpaw-layout", version = "0.6.0-beta.3" }
 paperpaw-x4 = { path = "crates/paperpaw-x4", version = "0.6.0-beta.3" }
+paperpaw-host-seal = { path = "crates/paperpaw-host-seal" }
 paperpaw-fat = { path = "crates/paperpaw-fat" }
 paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
 paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }

@@ -18,28 +18,57 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   install, and an older firmware only when the reader chooses it, told
   it is older: nothing on the card makes a key trusted.
 - **Passwords and keys** (Wi-Fi, catalogs, sync accounts) are kept in
-  `.paperpaw/secrets.txt`. They are veiled so that they do not show at a
-  glance, but they are **not encrypted**: whoever has the card has them.
-  On the X4 (interface-7 plugins) they are sealed with AES-256-GCM under a
-  per-device key kept in the chip's flash, never on the card: a card in
-  another device opens none of them (the values count as absent and are
-  entered again). The key is the 4 KiB sector at `0xC000` (the fourth of the
-  `nvs` partition, which begins at `0x9000`); **a full-image flash or an erase of the whole flash
-  erases it**, and then the sealed values cannot be read any more. Flash
-  the app partitions and the partition table without touching
-  `[0xC000, 0xD000)` (`tools/flash-x4.py` does not). The web flasher keeps it too: a reinstall
-  skips `[0xC000, 0xD000)`, so saved passwords survive it (decision 139).
+  `.paperpaw/secrets.txt`. **On the Xteink devices (X4, X3, X4 Pro, X4 Classic)
+  they are encrypted** (decisions 138 and 140; interface 7): each value is sealed
+  with AES-256-GCM under a key of that device, never on the card, and a device
+  that cannot seal refuses to save a password (`ERR_STATE` while the random
+  numbers are weak; `ERR_UNSUPPORTED` where its partition table has no place for
+  the key, see below) and writes
+  nothing: there is no veiling for a new value. **The desktop emulator and
+  Android do not seal yet:** their sealer (`paperpaw_host_seal::FileSealer`, a
+  key file in the app's own folder) is written and tested but not wired into the
+  secrets hook of those shells (pending, before 1.0, with the host's secrets
+  services); until then the core still veils there, as in Beta 3. Values written
+  by Beta 3 and earlier (interface 6) are **veiled, not encrypted**, so that they
+  do not show at a glance: whoever has the card has those. On the Xteink devices
+  such a value is read once and sealed at the next save of it.
+  On the Xteink devices the key is in the chip's flash
+  (decisions 138 and 140): a card in another device opens none
+  of them (the values count as absent and are entered again). The authenticated
+  data of each value is its owner, a zero byte and its name. The key is one 4 KiB
+  sector:
+
+  | Device | Key sector | Where it lies |
+  | --- | --- | --- |
+  | X4, X3, X4 Pro | `[0xC000, 0xD000)` | the fourth sector of the `nvs` partition of `partitions.csv` (`0x9000`, 16 KiB) |
+  | X4 Classic | `[0xFFF000, 0x1000000)` | the last sector of the 16 MB flash, in no partition of `partitions-classic.csv` |
+
+  The Classic's `nvs` (`0x9000` to `0xE000`) is the factory's, kept whole and never
+  written (it says which panel the device has), so its key is not a page of it. A
+  partition table that has a partition over the Classic's sector (CrossPoint's
+  `coredump` at `0xFF0000`) makes the firmware seal nothing there: a save is
+  refused with `ERR_UNSUPPORTED`, which the screens can tell from a missing value. (Owner decision 141: no saved passwords there, with a hint to reinstall once with the web flasher; values already saved stay readable.) **A full-image flash or an erase of the whole flash erases the key**, and
+  then the sealed values cannot be read any more. Flash the app partitions and the
+  partition table without touching the sector (`tools/flash-x4.py` does not). The
+  web flasher keeps it too: a reinstall skips the device's range, so saved
+  passwords survive it (decision 139); `paperpaw_x4::device_key::kept_range` is
+  that range, pinned by a test against the shipped tables.
   **Another firmware on the same flash** (Xteink's stock firmware, or
   CrossPoint's table, both with an ESP-IDF NVS over `0x9000` to `0xE000`,
-  which reaches `0xC000`) can erase that sector, because to its NVS the key
-  is a page it does not know; PaperPaw's own table has no other user of
-  `nvs`. Nothing is exposed then: the sealed values cannot be opened any
-  more, count as absent and are entered again, and the next save makes a new
-  key. Whether the stock firmware does erase it is not known from sources
-  (no dump, no ESP-IDF source here); it needs one look on the owner's X4
-  (todo for dual-boot, not for this change).
-  On Android the file is in the app's private folder, which only
-  PaperPaw reads. They are never shown
+  which reaches `0xC000`) can erase the X4, X3 and X4 Pro sector, because to its
+  NVS the key is a page it does not know; the Classic's sector is where the
+  stock `coredump` may be, which a crash dump overwrites. PaperPaw's own tables
+  have no other user of either. Nothing is exposed then: the sealed values cannot
+  be opened any more, count as absent and are entered again, and the next save
+  makes a new key. Whether the stock firmware of each device does erase its
+  sector is not known from sources (no dump, no ESP-IDF source here); it needs one
+  look on the owner's device (checklist: key sector read-back before and after,
+  and a read-only NVS dump).
+  **Android and the desktop emulator (once the sealer is wired):** the key file
+  (`device.key`, mode 0600) lies in the app's private folder or the emulator's own
+  data folder, never in the card folder or the folder of the books; until then
+  their values are veiled only, and Android's file is in the app's private folder,
+  which only PaperPaw reads. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the
   web flasher gives with the firmware (X4s) go to the card as `wifi.ini`,
   are kept with the passwords at the next start and the file removed;
@@ -189,7 +218,7 @@ PaperPaw's is a trusted customisation and sees what the original would.
 
 ## What is not protected
 
-- A lost or stolen device with its card: the passwords are only veiled.
+- A lost or stolen device with its card: on the Xteink devices the passwords are sealed under the device's key, which is in the device's flash, not on the card; the device is not locked by it, so whoever uses the unlocked device can use them. On the desktop emulator and Android (sealer not wired yet), and for Beta 3 passwords not yet saved again, they are only veiled.
 - Firmware flashed over USB by someone holding the device.
 - What a code plugin does with its rights, built in or installed: it can
   also change the lists of authors, recovery keys, revocations and code

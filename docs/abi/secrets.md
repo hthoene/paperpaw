@@ -21,13 +21,18 @@ first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets),
 - [D] **Values never go to another plugin.** Only the owner reads a value. The settings editor
   (the plugin with `uses.secrets`, 1.1) may list every plugin's secrets (names and labels, never
   values) and change or remove them for the user; it cannot read them, as in interface 6.
-- [D] **Encrypted on the X4 (owner decision 138, 2026-11-07).** Secrets are kept apart from
-  settings and logs. On the X4 their values are **encrypted at rest** with a device key kept in the
-  chip's internal flash (section 3.1): the card alone, also read by a computer in USB drive mode,
-  shows no secret. They do not move with the card: on another device, or after the device's flash
-  was erased, they read as absent and the user enters them again. Android keeps them in the app's
-  private folder; the desktop emulator keeps interface 6's veiling (not encryption) and its help
-  says so. This is a host rule: ops, records and statuses are the same on every device.
+- [D] **Encrypted on the Xteink devices (owner decisions 138 and 140).** Secrets are kept apart
+  from settings and logs. On the X4, X3, X4 Pro and X4 Classic their values are **encrypted at
+  rest** with a device key kept in the chip's internal flash (section 3.1): the card alone, also
+  read by a computer in USB drive mode, shows no secret. They do not move with the card: on
+  another device, or after the device's flash was erased, they read as absent and the user
+  enters them again. A device that cannot seal refuses the save (`ERR_STATE` while the random
+  numbers are weak; `ERR_UNSUPPORTED` when the partition table has no place for the key, for
+  example an X4 Classic still on CrossPoint's table) and writes nothing. **Status of the other
+  shells:** the desktop emulator and Android keep interface 6's veiling (not encryption) until
+  their sealer (`paperpaw-host-seal`, written, not yet wired) is hooked in, before 1.0; their
+  help says so until then. This is a host rule: ops, records and statuses are the same on every
+  device.
 - Out of SEC: TLS trust and pinning (NET, SOCK), the server key guard (the SDK's `served`, over
   `random`), Wi-Fi joining (DEV: `join` with `remember` keeps the password as the Wi-Fi plugin's
   secret, 4), hashing (plugin code, e.g. lock's salted hash).
@@ -112,6 +117,17 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   `value` is a value (an open Wi-Fi network's).
 - [D] `OK` means saved on the card. Otherwise nothing changed and the call answers `ERR_IO` (card
   away or unwritable) or `ERR_FULL` (1.2); the old value stays.
+  On a device that seals (section 3.1) two more statuses can refuse the save, again with nothing
+  changed: `ERR_STATE` when the random numbers are weak now (the host asks to turn Wi-Fi on, then
+  the call can be repeated) and `ERR_UNSUPPORTED` when the device has no place for its key (an X4
+  Classic still on CrossPoint's partition table): it cannot keep passwords until it is flashed with
+  PaperPaw's table, and repeating does not help. Neither is `ERR_NOT_FOUND`, which only means that a
+  value is absent. The start-up re-save of Beta 3's veiled values (3.1) skips quietly on
+  `ERR_UNSUPPORTED`: one note in the log, no error on each start; the values stay veiled.
+  **Owner decision 141:** an X4 Classic on CrossPoint's partition table keeps no new saved
+  passwords: every save answers `ERR_UNSUPPORTED` and the screens show one hint (reinstall once with
+  the web flasher, which gives the Classic PaperPaw's table). Values already saved there (veiled, from
+  Beta 3 or earlier) stay readable; nothing is lost, nothing is written.
 
 ### 2.4 `remove`
 
@@ -151,8 +167,10 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   `core.secrets-unreadable`; reads answer from what was read. Interface 6 applied such changes in
   memory only; this draft refuses them so `OK` always means saved.
 - [D] Android keeps the file in the app's private folder; the X4 and desktop on the card.
+  Their device key (once sealed there) lies outside the card: a flash sector on the Xteink
+  devices, `device.key` in the app's own folder on Android and the desktop emulator.
 
-### 3.1 Encryption at rest on the X4 (decision 138)
+### 3.1 Encryption at rest on the Xteink devices (decisions 138 and 140)
 
 - [D] **The device key:** 32 bytes drawn from the chip's generator while it is fully random
   (`strong`, 2.5), made once on the first start that needs it and kept in the chip's internal
