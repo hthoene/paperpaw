@@ -218,13 +218,13 @@ pub(crate) mod tls_code {
     /// `untrusted`: no pin matched the leaf.
     pub(crate) const NOT_PINNED: u32 = 1;
     /// `tls_failed`: the name does not match.
-    pub(crate) const NAME: u32 = 1;
+    pub(crate) const NAME: u32 = 2;
     /// `tls_failed`: the certificate has expired (or is not yet valid).
-    pub(crate) const EXPIRED: u32 = 2;
+    pub(crate) const EXPIRED: u32 = 3;
     /// `tls_failed`: any other TLS failure.
-    pub(crate) const TLS: u32 = 3;
+    pub(crate) const TLS: u32 = 4;
     /// `tls_failed`: the shell has no memory for the session.
-    pub(crate) const NO_MEMORY: u32 = 4;
+    pub(crate) const NO_MEMORY: u32 = 5;
 }
 
 /// The TLS of a shell: the handshake over a socket's connection. Once a

@@ -6,8 +6,8 @@
 //! plugin never hears of an end whose session is still held.
 use super::{
     Caller, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, IDLE_DEFAULT_MS, IDLE_MAX_MS,
-    Inner, Slot, SockHost, State, TIMEOUT_DEFAULT_MS, TIMEOUT_MAX_MS, host_ok, kind, owned, reason,
-    table,
+    Inner, Slot, SockHost, State, TIMEOUT_DEFAULT_MS, TIMEOUT_MAX_MS, gate, host_ok, kind, owned,
+    reason, table,
     wire::{self, Record},
 };
 use crate::native_host::{
@@ -15,7 +15,7 @@ use crate::native_host::{
     net_pool::{TlsHolder, TlsLease},
     sock_service::{PeerInfo, TlsOpen, TlsPin, tls_code},
 };
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 
 /// The most pins (2.4).
@@ -55,35 +55,57 @@ impl Pins {
     }
 }
 
+/// What only a TLS socket needs, allocated for it alone (about 270 bytes): a
+/// plain socket pays the few flags of [`Row`] and one empty `Vec`.
+struct Heavy {
+    /// The name the certificate must match.
+    name: String,
+    pins: Pins,
+    /// The peer's facts and the reason of an `untrusted`.
+    peer: Option<(PeerInfo, u32)>,
+}
+
 /// What a socket keeps for TLS.
 #[derive(Default)]
 pub(super) struct Row {
     /// A TLS socket from `connect` or `start_tls`.
     pub(super) wanted: bool,
-    /// The name the certificate must match.
-    name: String,
-    pins: Pins,
+    /// When the socket first asked for the session, which is after any wait
+    /// for the network: the `busy` clock runs from there.
+    asked: Option<u64>,
+    /// Zero or one: the name, the pins and the peer.
+    heavy: Vec<Heavy>,
     /// The session is leased to this socket.
     pub(super) lease: bool,
     /// The shell's session exists (`begin` succeeded and `end` has not run).
     pub(super) begun: bool,
     /// The handshake passed.
     pub(super) secure: bool,
-    /// The peer's facts and the reason of an `untrusted`.
-    peer: Option<(PeerInfo, u32)>,
     /// The callback of `secured` or `untrusted` runs: `peer` answers.
     pub(super) peer_open: bool,
     pub(super) secured: Option<Slot>,
 }
 
 impl Row {
-    pub(super) fn new(name: String, pins: Pins) -> Self {
-        Self {
-            wanted: true,
+    /// The row of a TLS socket; `ERR_NO_MEMORY` when its fields do not fit.
+    pub(super) fn new(name: String, pins: Pins) -> Result<Self, i32> {
+        gate()?;
+        let mut heavy = Vec::new();
+        heavy.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
+        heavy.push(Heavy {
             name,
             pins,
+            peer: None,
+        });
+        Ok(Self {
+            wanted: true,
+            heavy,
             ..Self::default()
-        }
+        })
+    }
+
+    fn peer_mut(&mut self) -> Option<&mut Option<(PeerInfo, u32)>> {
+        self.heavy.first_mut().map(|h| &mut h.peer)
     }
 }
 
@@ -116,6 +138,9 @@ impl Inner {
         if s.tls.lease {
             return true;
         }
+        // The wait for the session starts now, not at `connect`: the network
+        // may have been away for a while.
+        let asked = *s.tls.asked.get_or_insert(now);
         match host.table().pool.tls_request(TlsHolder::Sock(s.id)) {
             TlsLease::Held => {
                 s.tls.lease = true;
@@ -123,7 +148,7 @@ impl Inner {
                 true
             }
             TlsLease::Wait => {
-                if now.saturating_sub(s.waiting_since) >= u64::from(s.timeout_ms) {
+                if now.saturating_sub(asked) >= u64::from(s.timeout_ms) {
                     let open = s.state == State::Securing;
                     self.end(host, index, kind::FAILED, reason::BUSY, open);
                 }
@@ -141,13 +166,13 @@ impl Inner {
     pub(super) fn begin_tls(&mut self, host: &dyn SockHost, index: usize) {
         let now = host.now_ms();
         let s = &self.socks[index];
-        let Some(shell) = host.tls() else {
+        let (Some(shell), Some(h)) = (host.tls(), s.tls.heavy.first()) else {
             self.end(host, index, kind::FAILED, reason::TLS, true);
             return;
         };
         let open = TlsOpen {
-            server_name: &s.tls.name,
-            pins: s.tls.pins.as_slice(),
+            server_name: &h.name,
+            pins: h.pins.as_slice(),
         };
         match shell.begin(s.id, &open) {
             Ok(()) => {
@@ -252,10 +277,10 @@ pub(in crate::native_host::sock_service) fn start_tls(
     {
         return Err(ERR_STATE);
     }
-    let name = name_of(t.server_name, &s.target)?;
+    let row = Row::new(name_of(t.server_name, &s.target)?, pins)?;
     let now = host.now_ms();
     let s = &mut inner.socks[index];
-    s.tls = Row::new(name, pins);
+    s.tls = row;
     s.state = State::Securing;
     s.sent_due = false;
     s.waiting_since = now;
@@ -293,7 +318,8 @@ pub(in crate::native_host::sock_service) fn peer(
         .map(|i| &inner.socks[i])
         .filter(|s| s.owner == owner)
         .ok_or(ERR_NOT_FOUND)?;
-    let (Some((info, why)), true) = (s.tls.peer, s.tls.peer_open) else {
+    let peer = s.tls.heavy.first().and_then(|h| h.peer);
+    let (Some((info, why)), true) = (peer, s.tls.peer_open) else {
         return Err(ERR_STATE);
     };
     codec::encode_one(
@@ -318,7 +344,9 @@ pub(crate) fn secured(host: &dyn SockHost, id: u32, peer: &PeerInfo) -> Result<(
         let s = &mut inner.socks[index];
         s.state = State::Open;
         s.tls.secure = true;
-        s.tls.peer = Some((*peer, 0));
+        if let Some(slot) = s.tls.peer_mut() {
+            *slot = Some((*peer, 0));
+        }
         s.tls.secured = Some(slot);
         s.last_move = slot.at;
     }
@@ -340,7 +368,9 @@ pub(crate) fn untrusted(
     let mut inner = table(host)?;
     if let Some(index) = inner.handshaking(host, id) {
         if matches!(why, tls_code::UNKNOWN_ISSUER | tls_code::NOT_PINNED) {
-            inner.socks[index].tls.peer = Some((*peer, why));
+            if let Some(slot) = inner.socks[index].tls.peer_mut() {
+                *slot = Some((*peer, why));
+            }
             inner.end(host, index, kind::UNTRUSTED, why, true);
         } else {
             inner.end(host, index, kind::FAILED, reason::TLS, true);

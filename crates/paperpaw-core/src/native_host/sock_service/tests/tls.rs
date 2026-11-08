@@ -705,7 +705,7 @@ fn an_allocation_that_fails_anywhere_in_tls_leaves_nothing_held() {
         assert!(tls_connect(&f, OWNER, 9).is_ok(), "gate {nth}");
     }
     // The first TLS connect fails for memory at each of its gates.
-    for nth in 1..=5 {
+    for nth in 1..=6 {
         let f = fake();
         fail_nth(nth);
         assert_eq!(tls_connect(&f, OWNER, 1), Err(ERR_NO_MEMORY), "gate {nth}");
@@ -741,4 +741,33 @@ fn a_start_tls_that_gets_no_session_in_time_ends_busy_and_closes_the_connection(
     assert!(f.begins.borrow().is_empty());
     assert!(!f.table.pool().tls_waiting(), "it left the queue");
     assert_eq!(holder(&f), Some(TlsHolder::Net(1)), "NET's is untouched");
+}
+
+#[test]
+fn the_wait_for_the_session_counts_from_the_end_of_the_wait_for_the_network() {
+    let f = fake();
+    f.table.pool().tls_request(TlsHolder::Net(1));
+    f.network.set(false);
+    let c = wire::ServiceSockConnect {
+        flags: 1,
+        timeout_ms: 10_000,
+        ..head(1)
+    };
+    let id = tls_connect_with(&f, OWNER, c, &[]).unwrap();
+    f.advance(20_000);
+    tick(&f).unwrap();
+    assert!(drain(&f, OWNER).is_empty(), "still waiting for the network");
+    // The network is back; NET still holds the session. The clock starts now.
+    f.network.set(true);
+    tick(&f).unwrap();
+    assert!(drain(&f, OWNER).is_empty(), "not busy at once");
+    f.advance(9_999);
+    tick(&f).unwrap();
+    assert!(drain(&f, OWNER).is_empty());
+    f.advance(1);
+    tick(&f).unwrap();
+    assert_eq!(
+        drain(&f, OWNER),
+        std::vec![Ev::new(id, 1, kind::FAILED, reason::BUSY, 0)]
+    );
 }

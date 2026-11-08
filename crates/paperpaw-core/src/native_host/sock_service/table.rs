@@ -548,7 +548,7 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     let queue = buffer(profile.queue)?;
     let inbox = buffer(profile.read)?;
     let tls = if secure {
-        tls::Row::new(tls::name_of(c.server_name, c.host)?, pins)
+        tls::Row::new(tls::name_of(c.server_name, c.host)?, pins)?
     } else {
         tls::Row::default()
     };
