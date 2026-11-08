@@ -92,17 +92,12 @@ impl<'a> StorageAdapter<'a> {
         })
     }
 
-    /// The reserve to keep free: the larger of 256 KiB and 1 % of the card.
-    fn reserve(&self) -> u64 {
-        let one_percent = self.storage.total_space().map_or(0, |total| total / 100);
-        one_percent.max(MIN_RESERVE)
-    }
-
     /// `ERR_FULL` when `len` more bytes would leave less than the reserve.
     fn check_room(&self, len: usize) -> Result<(), i32> {
-        match self.storage.free_space() {
-            Some(free) if free.saturating_sub(len as u64) < self.reserve() => Err(ERR_FULL),
-            _ => Ok(()),
+        if has_room(self.storage, len as u64) {
+            Ok(())
+        } else {
+            Err(ERR_FULL)
         }
     }
 
@@ -270,6 +265,18 @@ impl<'a> StorageAdapter<'a> {
     }
 }
 
+/// Whether `len` more bytes keep the free-space reserve: the larger of 256 KiB
+/// and 1 % of the card. A storage that does not tell its free space has room.
+pub(super) fn has_room(storage: &dyn Storage, len: u64) -> bool {
+    let reserve = storage
+        .total_space()
+        .map_or(0, |total| total / 100)
+        .max(MIN_RESERVE);
+    storage
+        .free_space()
+        .is_none_or(|free| free.saturating_sub(len) >= reserve)
+}
+
 /// `path` as a relative path: sizes, UTF-8 and grammar, nothing joined.
 pub(super) fn relative_path(path: &[u8]) -> Result<&str, i32> {
     if path.len() > MAX_PATH {
@@ -286,7 +293,7 @@ pub(super) fn relative_path(path: &[u8]) -> Result<&str, i32> {
 }
 
 /// The status of a storage failure.
-fn status(error: StorageError) -> i32 {
+pub(super) fn status(error: StorageError) -> i32 {
     match error {
         StorageError::NotFound => ERR_NOT_FOUND,
         StorageError::InvalidPath => ERR_INVALID,

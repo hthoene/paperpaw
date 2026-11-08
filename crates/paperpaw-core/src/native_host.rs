@@ -132,6 +132,7 @@ pub(crate) mod lookup_service;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+pub(crate) mod paths_in_use;
 mod service_slots;
 #[allow(
     dead_code,

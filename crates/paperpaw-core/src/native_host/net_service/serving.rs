@@ -402,6 +402,17 @@ pub(super) fn expire(inner: &mut Inner, host: &dyn NetHost) {
     inner.release(host, freed);
 }
 
+/// The plugin that owns server `key`.
+pub(crate) fn server_owner(host: &dyn NetHost, key: u32) -> Option<u64> {
+    let inner = host.table().lock().ok()?;
+    inner
+        .serving
+        .servers
+        .iter()
+        .find(|s| s.key == key)
+        .map(|s| s.owner)
+}
+
 /// A request head arrived on a server (`key` as `listen` got it).
 ///
 /// # Errors
@@ -604,6 +615,7 @@ pub(super) fn respond(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         return Err(ERR_NO_MEMORY);
     }
     let reply = Reply {
+        owner: inner.serving.served[at].owner,
         response: &response,
         file_len,
     };

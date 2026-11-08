@@ -11,7 +11,13 @@
 //! today; the other families' hosts are core's adapters over kernel objects
 //! and join as their adapters land, one method each.
 use super::{device_service::DeviceHost, hyphen_card::CardTables, resources::HostResources};
+#[path = "shell_wiring/net.rs"]
+mod net;
 use alloc::rc::Rc;
+pub use net::{
+    HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
+    NetReports, ServedDecision, ServedReply, ServerReason, ShellHttp, ShellNetwork,
+};
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::Storage;
 
@@ -22,6 +28,7 @@ use paperpaw_platform::Storage;
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
+    net: Option<NetInputs>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -29,6 +36,7 @@ impl core::fmt::Debug for HostWiring {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
             .field("device", &self.device.is_some())
+            .field("net", &self.net.is_some())
             .finish()
     }
 }
@@ -53,6 +61,15 @@ impl HostWiring {
     #[must_use]
     pub fn device(mut self, host: Rc<dyn DeviceHost>) -> Self {
         self.device = Some(host);
+        self
+    }
+
+    /// `core.net`: HTTP requests and serving, over the card and the shell's
+    /// network ([`NetInputs`]). The transport's reports come back through
+    /// [`WiredHosts::net`].
+    #[must_use]
+    pub fn net(mut self, inputs: NetInputs) -> Self {
+        self.net = Some(inputs);
         self
     }
 }
@@ -95,6 +112,7 @@ impl HyphenTables {
 #[non_exhaustive]
 pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
+    net: Option<NetReports>,
 }
 
 impl WiredHosts {
@@ -102,6 +120,12 @@ impl WiredHosts {
     #[must_use]
     pub fn hyphen(&self) -> Option<&HyphenTables> {
         self.hyphen.as_ref()
+    }
+
+    /// The transport's reports, if `core.net` was wired.
+    #[must_use]
+    pub fn net(&self) -> Option<&NetReports> {
+        self.net.as_ref()
     }
 }
 
@@ -114,6 +138,7 @@ impl HostResources {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
+            || (wiring.net.is_some() && hosts.net().is_some())
         {
             return Err(ERR_STATE);
         }
@@ -126,6 +151,11 @@ impl HostResources {
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;
         }
+        if let Some(inputs) = wiring.net {
+            let device = Rc::new(inputs.device(hosts.in_use().clone()));
+            hosts.wire_net(device.clone())?;
+            wired.net = Some(NetReports(device));
+        }
         Ok(wired)
     }
 }
@@ -133,3 +163,7 @@ impl HostResources {
 #[cfg(test)]
 #[path = "shell_wiring_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_wiring/net_tests.rs"]
+mod net_tests;

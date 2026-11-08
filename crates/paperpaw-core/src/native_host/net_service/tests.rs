@@ -329,7 +329,7 @@ pub(crate) enum Event {
 }
 
 /// The next event of `owner`, if any.
-pub(crate) fn next(fake: &Fake, owner: u64) -> Option<Event> {
+pub(crate) fn next(fake: &dyn NetHost, owner: u64) -> Option<Event> {
     let mut out = std::vec![0; 2048];
     let used = next_event(fake, owner, &mut out).unwrap()?;
     Some(match wire::record_decode_one(&out[..used]).unwrap() {
@@ -366,7 +366,7 @@ pub(crate) fn next(fake: &Fake, owner: u64) -> Option<Event> {
 }
 
 /// Every event of `owner`, then the callback returns.
-pub(crate) fn drain(fake: &Fake, owner: u64) -> Vec<Event> {
+pub(crate) fn drain(fake: &dyn NetHost, owner: u64) -> Vec<Event> {
     let mut all = Vec::new();
     while let Some(event) = next(fake, owner) {
         all.push(event);

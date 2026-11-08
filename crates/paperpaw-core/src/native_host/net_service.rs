@@ -38,11 +38,13 @@ use alloc::{rc::Rc, string::String};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
+mod device;
 mod serving;
 mod table;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use device::NetDevice;
 pub(crate) use table::NetTable;
 
 /// `event.http_done.reason` (`network.md` 4.1).
@@ -139,6 +141,8 @@ pub(crate) struct PowerEnd {
 
 /// What a request gives the transport when it starts.
 pub(crate) struct Start<'a> {
+    /// The plugin that made the request (the transport runs outside its call).
+    pub(crate) owner: u64,
     pub(crate) request: &'a args::Request<'a>,
     pub(crate) max_body: u32,
     pub(crate) max_file: u64,
@@ -147,6 +151,8 @@ pub(crate) struct Start<'a> {
 
 /// An answer to a served request.
 pub(crate) struct Reply<'a> {
+    /// The plugin that serves.
+    pub(crate) owner: u64,
     pub(crate) response: &'a args::Response<'a>,
     /// The file to send exists (a missing one is answered 404 by the
     /// transport; the service already checked).
@@ -345,7 +351,7 @@ fn own(text: &str) -> Result<String, i32> {
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use serving::{
-    Decision, screen_closed, served_body, served_gone, served_head, served_whole,
+    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_owner,
 };
 #[allow(
     unused_imports,
@@ -354,6 +360,16 @@ pub(crate) use serving::{
 pub(crate) use table::{
     Finished, event_delivered, finished, network_lost, next_event, progress, tick, work_ended,
 };
+
+/// A request as the dispatcher admits it, for the tests of the shell's wiring.
+#[cfg(test)]
+pub(crate) fn request_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
+    table::request(host, who, input)
+}
 
 /// The plugin stopped (its callbacks are revoked): its requests are
 /// cancelled without events, its servers stopped without events, held

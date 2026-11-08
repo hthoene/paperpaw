@@ -47,6 +47,9 @@ pub(crate) struct HostServices {
     net: OnceCell<NetServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The storage paths host writers hold (`core.net` saves), which
+    /// `core.files` answers `ERR_BUSY` for. One per device.
+    in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -90,6 +93,7 @@ impl HostServices {
             net: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            in_use: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -252,6 +256,11 @@ impl HostServices {
     /// Wire `core.net` once.
     pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
         self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    /// The paths in use by host writers (shared with `core.files`' busy check).
+    pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
+        self.in_use.get_or_init(Default::default)
     }
 
     pub(crate) fn net(&self) -> Option<&NetServices> {

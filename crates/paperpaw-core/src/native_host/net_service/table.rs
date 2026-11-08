@@ -350,6 +350,7 @@ impl Inner {
         let r = &self.reqs[index];
         let parsed = args::parse_request(&r.batch)?;
         let start = Start {
+            owner: r.owner,
             request: &parsed,
             max_body: r.max_body,
             max_file: r.max_file,
