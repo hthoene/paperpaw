@@ -194,6 +194,12 @@ if nofile:
     sys.exit(1)
 eff = {**hf, **hf7}
 eff_all = {**hf, **all7}
+if not bb: sys.exit("no built-in plugin symbols in base.elf: Beta 3 has some, so the symbols are missing")
+ids = sorted(set(bf) | set(hf) | bb | hb)
+pb = sum(bf.values())
+# A plugin with a Beta 3 file but no head file is not shipped as a file on head
+# yet (waiting for its interface-7 build). It is counted at its Beta 3 size, as
+# the rule for plugins that are not ported says; dropping it would flatter the head.
 pending = {k: v for k, v in bf.items() if k not in eff and k not in hb}
 ph = sum(v for k, v in eff.items() if k in bf or k in bb) + sum(pending.values())
 rows = []
