@@ -232,8 +232,8 @@ pub fn remove(host: &Host<'_>, plugin: &str, name: &str) -> Result<(), Error> {
     done.ok_or(Error::Unsupported)
 }
 
-/// What the user typed for a secret.
-#[derive(Debug, PartialEq, Eq)]
+/// What the user typed for a secret. Debug never shows the value.
+#[derive(PartialEq, Eq)]
 pub enum Typed {
     /// Nothing but white space: the secret stays as it is.
     Nothing,
@@ -241,6 +241,16 @@ pub enum Typed {
     TooLong,
     /// The value, trimmed.
     Value(String),
+}
+
+impl core::fmt::Debug for Typed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Nothing => f.write_str("Nothing"),
+            Self::TooLong => f.write_str("TooLong"),
+            Self::Value(_) => f.write_str("Value(..)"),
+        }
+    }
 }
 
 /// Reads the answer of a password question with buffers that are wiped, as
@@ -411,6 +421,15 @@ mod tests {
         sweep(|| choices(Some(&secret)).map(|c| c.len()));
         sweep(|| id_of("wifi", "Home").map(|id| id.len()));
         sweep(|| list_items(core::slice::from_ref(&secret)).map(|items| items.len()));
+    }
+
+    #[test]
+    fn debug_never_shows_what_was_typed() {
+        let typed = Typed::Value("s3cr3t-Value-42".into());
+        let shown = std::format!("{typed:?} {:?}", [&typed]);
+        assert!(!shown.contains("s3cr3t"), "{shown}");
+        assert_eq!(std::format!("{:?}", Typed::Nothing), "Nothing");
+        assert_eq!(std::format!("{:?}", Typed::TooLong), "TooLong");
     }
 
     #[test]
