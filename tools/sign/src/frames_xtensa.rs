@@ -260,7 +260,8 @@ fn narrow_class(w: u32) -> Class {
 }
 
 /// The frame `entry` takes, if the 24-bit instruction `w` is an `entry`
-/// (`36 s1 ii`: op0 = 6, n = 3, m = 0; `imm12` is bits 23:12).
+/// (`36 s1 ii`: op0 = 6, n = 3, m = 0; `imm12` is bits 23:12). Whether its
+/// register is `a1` is checked by the caller.
 fn entry_frame(w: u32) -> Option<u32> {
     (w & 0xFF == 0x36).then(|| ((w >> 12) << 3) + BASE_SAVE)
 }
@@ -296,6 +297,10 @@ fn function(code: &[u8], start: usize, end: usize, literals: &mut Vec<usize>) ->
             let w =
                 u32::from(code[at]) | u32::from(code[at + 1]) << 8 | u32::from(code[at + 2]) << 16;
             if let Some(size) = entry_frame(w) {
+                // `entry a1, ...` only: the frame is taken from the stack pointer.
+                if (w >> 8) & 0xF != 1 {
+                    return Some(Finding::Form { at });
+                }
                 if size >= LIMIT {
                     return Some(Finding::Frame { at, size });
                 }
@@ -322,14 +327,19 @@ fn function(code: &[u8], start: usize, end: usize, literals: &mut Vec<usize>) ->
 }
 
 /// The first byte of `code` outside every range that is not padding (zero
-/// bytes, `nop`, `nop.n`) and not a word an `l32r` reads (a literal: the
+/// bytes, `nop`, `nop.n`) and not a word an `l32r` reads (`literals`: their offsets, sorted) (a literal: the
 /// linker script puts the `.literal` sections among the functions').
 fn uncovered(code: &[u8], ranges: &[(usize, usize)], literals: &[usize]) -> Option<usize> {
     let mut at = 0usize;
     for &(start, end) in ranges.iter().chain([&(code.len(), code.len())]) {
         while at < start.min(code.len()) {
             let rest = &code[at..start.min(code.len())];
-            if let Some(&word) = literals.iter().find(|&&l| l <= at && at < l + 4) {
+            // `literals` is sorted: the last literal at or before `at`.
+            let nearest = literals
+                .partition_point(|&l| l <= at)
+                .checked_sub(1)
+                .map(|n| literals[n]);
+            if let Some(word) = nearest.filter(|&l| at < l + 4) {
                 at = word + 4;
             } else if rest[0] == 0 {
                 at += 1;
@@ -353,6 +363,8 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)]) -> Option<Finding> {
     let found = ranges
         .iter()
         .find_map(|&(start, end)| function(code, start, end.min(code.len()), &mut literals));
+    literals.sort_unstable();
+    literals.dedup();
     found.or_else(|| uncovered(code, ranges, &literals).map(|at| Finding::Uncovered { at }))
 }
 

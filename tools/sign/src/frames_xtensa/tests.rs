@@ -61,6 +61,17 @@ fn the_frame_is_the_entry_operand_in_eight_byte_steps_and_the_base_save_area() {
 }
 
 #[test]
+fn entry_is_accepted_only_with_a1() {
+    // entry a1, 32 is ENTRY_32 (36 41 00); entry a2, 32 and a15, 32.
+    for reg in [0u32, 2, 3, 8, 15] {
+        let entry = 0x36 | reg << 8 | 4 << 12; // entry a<reg>, 32
+        let mut code = entry.to_le_bytes()[..3].to_vec();
+        code.extend_from_slice(&RETW_N);
+        assert_eq!(find(&code), Some(Finding::Form { at: 0 }), "entry a{reg}");
+    }
+}
+
+#[test]
 fn call0_and_callx0_are_refused_and_call8_is_not() {
     let mut code = ENTRY_32.to_vec();
     code.extend_from_slice(&[0x05, 0x00, 0x00]); // call0
