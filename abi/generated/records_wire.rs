@@ -22032,7 +22032,7 @@ impl WireEncode for Registration {
 }
 
 /// One record type of the wire: what a plugin decodes, by type, linking only that
-/// record's decoder ([`RawRecord::decode`]).
+/// record's decoder (`RawRecord::decode`).
 pub trait WireRecord<'a>: WireEncode + Copy + Sized {
     /// Wire tag.
     const TAG: u32;
@@ -22047,7 +22047,7 @@ mod seal {
     pub struct Seal;
 }
 
-/// A record whose frame is checked and whose body is still undecoded: [`RawRecord::decode`]
+/// A record whose frame is checked and whose body is still undecoded: `RawRecord::decode`
 /// decodes it as one record type, [`RawRecord::record`] as whichever its tag names.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RawRecord<'a> {
@@ -22434,7 +22434,7 @@ impl RecordStream {
 
     /// [`RecordStream::feed`] with each record's frame checked and its body not
     /// decoded: the visitor decodes the record types it expects
-    /// ([`RawRecord::decode`]), so a plugin links no other record's decoder.
+    /// (`RawRecord::decode`), so a plugin links no other record's decoder.
     pub fn feed_raw(
         &mut self,
         mut chunk: &[u8],
