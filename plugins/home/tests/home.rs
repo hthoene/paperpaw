@@ -154,7 +154,7 @@ impl Home {
 
     /// The same on `device`.
     fn on(device: DeviceInfo, settings: &str) -> Self {
-        let config = format!("[core]\nlanguage = en\n[help]\nshow = false\n[home]\n{settings}");
+        let config = format!("[core]\nlanguage = en\n[home]\n{settings}");
         let mut kernel = Kernel::builder(device)
             .storage(MemoryStorage::new())
             .user_config(&config)

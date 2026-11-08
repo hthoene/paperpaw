@@ -207,7 +207,7 @@ impl App {
         network: bool,
     ) -> Self {
         let storage = Shared::new(storage);
-        let user = format!("[core]\nlanguage = en\n[help]\nshow = false\n{config}\n");
+        let user = format!("[core]\nlanguage = en\n{config}\n");
         let mut kernel = Kernel::builder(device)
             .storage(storage.clone())
             .user_config(user)

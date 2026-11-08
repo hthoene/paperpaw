@@ -712,3 +712,85 @@ fn owned_wire_uses_one_form_at_exact_32_kib_boundary() {
             .is_err()
     );
 }
+
+#[test]
+fn a_refused_image_batch_fails_the_whole_construction_without_an_owned_fallback() {
+    let (image, ranges) = group_image(IMAGE_DECLARATIONS_MAX + 1, 8);
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    construction.set_image(&image).unwrap();
+    let mut statuses = Vec::new();
+    for (start, len) in ranges {
+        let status = scope
+            .as_ref()
+            .scope(&mut construction, || {
+                submit(&scope, &image[start..start + len])
+            })
+            .unwrap();
+        statuses.push(status);
+    }
+    assert_eq!(statuses.last(), Some(&ERR_NO_SPACE));
+    assert!(statuses[..statuses.len() - 1].iter().all(|s| *s == OK));
+    // Nothing was copied instead: no batch is staged as an owned copy.
+    assert!(
+        construction
+            .raw
+            .batches
+            .iter()
+            .all(|batch| batch.bytes.is_empty() && batch.image.is_some())
+    );
+    assert!(construction.declarations().is_empty());
+    // The construction is poisoned: it cannot commit.
+    assert!(
+        construction
+            .commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| panic!("a refused construction must not activate"),
+            })
+            .is_err()
+    );
+}
+
+#[test]
+fn a_batch_outside_the_image_range_is_copied_and_never_read_through_the_image() {
+    // The X4 gives `[0, code_at)`. A batch that lies past the range (or that the
+    // plugin builds elsewhere) is not image-backed: it is copied at submit and
+    // counted as an owned copy, so the image is never read for it.
+    let inside = encode(&[group("g", "")]);
+    let past = encode(&[group("h", "")]);
+    let mut all = inside.clone();
+    all.extend_from_slice(&past);
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    construction.set_image(&all[..inside.len()]).unwrap();
+    for bytes in [&all[..inside.len()], &all[inside.len()..]] {
+        let status = scope
+            .as_ref()
+            .scope(&mut construction, || submit(&scope, bytes))
+            .unwrap();
+        assert_eq!(status, OK);
+    }
+    let backed = construction
+        .raw
+        .batches
+        .iter()
+        .map(|batch| batch.image.is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        backed,
+        [true, false],
+        "only the batch inside the range is borrowed"
+    );
+    assert_eq!(construction.raw.batches[1].bytes.len(), past.len());
+    let inside_image = &all[..inside.len()];
+    assert!(construction.raw.batches[0].view(Some(inside_image)).is_ok());
+    assert_eq!(
+        construction.raw.batches[0].view(Some(&inside_image[..inside.len() - 1])),
+        Err(ERR_INVALID),
+        "a range cut short refuses the batch"
+    );
+}

@@ -49,7 +49,7 @@ impl App {
             storage = storage.with(KEPT, include_str!("../testdata/weather.txt.v1"));
         }
         let config = format!(
-            "[core]\nlanguage = en\n[help]\nshow = false\n[home]\npage-1 = weather.now 0/0 4x2, weather.forecast 0/2 4x2\n{config}"
+            "[core]\nlanguage = en\n[home]\npage-1 = weather.now 0/0 4x2, weather.forecast 0/2 4x2\n{config}"
         );
         let builder = Kernel::builder(DEVICE)
             .storage(storage)

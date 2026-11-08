@@ -118,11 +118,28 @@ native screens replace these callers.
   `create_dir`): the native adapter over `core.files` (SDK `native::files`, PR #384) is the
   shell's, and an ignored case names it.
 
+## Ported (the native shell, first part): `src/native_plugin.rs`, `declarations.rs`
+
+- `NativeVocabulary` (`native_plugin!`, features `linked` and `native-entry`, metadata in `native/`
+  — regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+  --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`;
+  `tools/tests/test_abi_plugin_metadata.py` fails on a stale one). Declares `uses.storage`.
+- The eight settings (`declarations::settings`, pinned in `testdata/declarations.bin.v1`, compared
+  field by field with what interface 6 registered in `tests/settings_parity.rs`): `collect`, `mark`,
+  `new-per-day`, `retention`, `cards-from-lookups`, `review-on-wake`, `sd-auto`, `sd-folder`, all in
+  `core.group.reading`. The seven settings of the role of the marked words (`vocabulary.learning.*`)
+  come with the marks.
+- The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
+  `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
+- Not declared yet: `uses.network` (the phone page), the menu entries, actions, screens, the sleep
+  choice, the help hints, the widget and the events for the words looked up and the wake (the
+  native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
+- The rest of the native shell: the actions, menu entries, icons, screens, events and help.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.

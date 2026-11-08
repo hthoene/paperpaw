@@ -1102,3 +1102,31 @@ fn a_waiting_work_starts_in_due_order_when_a_run_ends_without_declaring_again() 
     }
     assert_eq!(s.counts(), (0, 0));
 }
+
+#[test]
+fn the_current_run_is_the_open_callback_of_that_owner_only() {
+    let s = sched();
+    let env = Fake::new();
+    s.declare(A, &spec("outer"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    let Some(Event::Due(due)) = s.next_event(&env, &|_| true).unwrap() else {
+        panic!("due")
+    };
+    assert_eq!(s.current_run(A), None, "no callback on the stack");
+    {
+        let _guard = s.enter_run_callback(A, due.run);
+        assert_eq!(s.current_run(A), Some(u64::from(due.run)));
+        assert_eq!(s.current_run(B), None, "another plugin is not in the run");
+        {
+            let _inner = s.enter_run_callback(B, due.run + 1);
+            assert_eq!(s.current_run(A), None);
+            assert_eq!(s.current_run(B), Some(u64::from(due.run + 1)));
+        }
+        assert_eq!(
+            s.current_run(A),
+            Some(u64::from(due.run)),
+            "the outer one is back"
+        );
+    }
+    assert_eq!(s.current_run(A), None, "the guard ended it");
+}
