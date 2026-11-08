@@ -18,7 +18,7 @@ use crate::native_host::{
     shell_wiring::{NetInputs, NetLimits, NetPowerEnd, ShellHttp, ShellNetwork},
 };
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_IO, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_sdk::MemoryStorage;
 use std::{string::ToString, vec};
@@ -355,6 +355,29 @@ fn an_owner_the_kernel_does_not_know_is_refused_safely() {
     // Without a subscription nothing is admitted.
     assert!(request(&f, &fixtures::get(1)).is_err());
     assert!(f.shell.started.borrow().is_empty());
+}
+
+#[test]
+fn an_id_that_cannot_be_kept_is_still_used_but_not_cleaned_up_later() {
+    let mut not_kept = 0;
+    // Each allocation of the first claim fails in turn, one at a time.
+    for nth in 1..8 {
+        let f = fixture(x4());
+        crate::native_host::net_service::fail_nth(nth);
+        let first = f.device.claim_save(OWNER, 0, "a.txt");
+        crate::native_host::net_service::fail_nth(0);
+        if first.is_err() {
+            assert_eq!(first, Err(ERR_NO_MEMORY), "failure {nth}");
+            assert!(!f.device.in_use.holds(".paperpaw/plugins/mail/a.txt", false));
+            continue;
+        }
+        // The owner left the directory; the cleanup needs the kept id.
+        f.owners.withdraw(OWNER);
+        if f.device.claim_save(OWNER, 0, "b.txt") == Err(ERR_STATE) {
+            not_kept += 1;
+        }
+    }
+    assert!(not_kept > 0, "the copy of the id is one of the allocations");
 }
 
 #[test]

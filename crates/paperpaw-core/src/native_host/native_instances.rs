@@ -168,6 +168,12 @@ impl NativeInstances {
         self.pool.as_ref()?.owners().ok()
     }
 
+    /// How many owner-directory updates were skipped since the last call.
+    pub(crate) fn take_directory_missed(&self) -> u32 {
+        self.directory()
+            .map_or(0, |directory| directory.take_missed())
+    }
+
     /// Lets the device services see the kernel's screen stack.
     pub(crate) fn attach_screens(&self, screens: &alloc::rc::Rc<super::stack_rows::StackRows>) {
         if let Some(directory) = self.directory() {
@@ -671,6 +677,25 @@ mod tests {
         assert_eq!(id_of(&dir, key), None, "nor an id");
         registry.retire(lazy).unwrap();
         assert_eq!(id_of(&dir, lazy), None, "a retired owner has no row");
+    }
+
+    #[test]
+    fn an_admission_the_directory_cannot_hold_is_refused_whole() {
+        let mut registry = NativeInstances::default();
+        let first = registry
+            .test_insert(Id::new_static("net.one"), None, true)
+            .unwrap();
+        crate::native_host::net_service::fail_nth(1);
+        let refused = registry.test_insert(Id::new_static("net.two"), None, true);
+        crate::native_host::net_service::fail_nth(0);
+        assert_eq!(refused, Err(ERR_NO_MEMORY));
+        assert_eq!(registry.retained_rows().0, 1, "no registry row either");
+        assert!(registry.find("net.two").is_none());
+        let dir = registry.directory().unwrap().try_clone().unwrap();
+        assert!(dir.with_id(first, &mut |_| {}).is_ok(), "the first stays");
+        registry
+            .test_insert(Id::new_static("net.two"), None, true)
+            .unwrap();
     }
 
     #[test]

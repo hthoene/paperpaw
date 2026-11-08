@@ -10,7 +10,7 @@
 
 use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
 use alloc::{rc::Rc, string::String, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
 
 struct Row {
@@ -27,6 +27,12 @@ pub(crate) struct OwnerDirectory {
     screens: RefCell<Option<Rc<StackRows>>>,
     /// The scheduler, once `core.work` is wired.
     sched: RefCell<Option<Rc<WorkSched>>>,
+    /// Updates ([`Self::subscribe`], [`Self::withdraw`]) that found the table
+    /// held and were skipped; the kernel reports them ([`Self::take_missed`]).
+    /// A missed subscribe fails closed (nothing is admitted); a missed
+    /// withdraw leaves a row for an owner that never comes back (keys never
+    /// repeat).
+    missed: Cell<u32>,
 }
 
 impl core::fmt::Debug for OwnerDirectory {
@@ -41,6 +47,7 @@ impl OwnerDirectory {
             rows: RefCell::new(Vec::new()),
             screens: RefCell::new(None),
             sched: RefCell::new(None),
+            missed: Cell::new(0),
         }
     }
 
@@ -78,8 +85,10 @@ impl OwnerDirectory {
     /// # Errors
     /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
     pub(crate) fn admit(&self, key: u64, id: &str) -> Result<(), i32> {
+        super::net_service::gate()?;
         let mut rows = self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        super::net_service::gate()?;
         let mut copy = String::new();
         copy.try_reserve_exact(id.len())
             .map_err(|_| ERR_NO_MEMORY)?;
@@ -96,18 +105,31 @@ impl OwnerDirectory {
     /// Records the event tags the owner's instance subscribed to. An owner
     /// that has no row (stopped) is left alone.
     pub(crate) fn subscribe(&self, key: u64, tags: EventTags) {
-        if let Ok(mut rows) = self.rows.try_borrow_mut()
-            && let Some(row) = rows.iter_mut().find(|row| row.key == key)
-        {
+        let Ok(mut rows) = self.rows.try_borrow_mut() else {
+            self.miss();
+            return;
+        };
+        if let Some(row) = rows.iter_mut().find(|row| row.key == key) {
             row.tags = tags;
         }
     }
 
     /// Drops the owner's row (it stopped or was retired).
     pub(crate) fn withdraw(&self, key: u64) {
-        if let Ok(mut rows) = self.rows.try_borrow_mut() {
-            rows.retain(|row| row.key != key);
-        }
+        let Ok(mut rows) = self.rows.try_borrow_mut() else {
+            self.miss();
+            return;
+        };
+        rows.retain(|row| row.key != key);
+    }
+
+    fn miss(&self) {
+        self.missed.set(self.missed.get().saturating_add(1));
+    }
+
+    /// How many updates were skipped since the last call (the table was held).
+    pub(crate) fn take_missed(&self) -> u32 {
+        self.missed.replace(0)
     }
 
     /// Hands the plugin id of an enabled owner to `visit`.
@@ -135,6 +157,7 @@ impl OwnerDirectory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native_host::net_service::fail_nth;
 
     fn tags(of: &[u32]) -> EventTags {
         let mut set = EventTags::default();
@@ -188,6 +211,27 @@ mod tests {
         })
         .unwrap();
         assert_eq!(inner, Ok(()), "readers share");
-        assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"), "withdraw waited out");
+        assert_eq!(
+            id_of(&dir, 1).as_deref(),
+            Ok("a"),
+            "the busy withdraw was skipped, so the row stays"
+        );
+        assert_eq!(dir.take_missed(), 1, "and the skip is counted");
+        assert_eq!(dir.take_missed(), 0, "once");
+        dir.withdraw(1);
+        assert_eq!(id_of(&dir, 1), Err(ERR_STATE), "free again: it goes");
+    }
+
+    #[test]
+    fn admission_under_memory_pressure_adds_no_row() {
+        let dir = OwnerDirectory::new();
+        for nth in [1, 2] {
+            fail_nth(nth);
+            assert_eq!(dir.admit(1, "a"), Err(ERR_NO_MEMORY), "failure {nth}");
+            fail_nth(0);
+            assert_eq!(id_of(&dir, 1), Err(ERR_STATE), "no half row after {nth}");
+        }
+        dir.admit(1, "a").unwrap();
+        assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"));
     }
 }
