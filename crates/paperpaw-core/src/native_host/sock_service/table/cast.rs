@@ -417,8 +417,11 @@ pub(super) fn encode(
     let used = match pick {
         Pick::Answer(n) => {
             let a = c.answers.get(n).ok_or(ERR_NOT_FOUND)?;
-            let from = core::str::from_utf8(&a.from[..usize::from(a.from_len)])
-                .map_err(|_| ERR_INVALID)?;
+            let from = a
+                .from
+                .get(..usize::from(a.from_len))
+                .and_then(|b| core::str::from_utf8(b).ok())
+                .ok_or(ERR_INVALID)?;
             codec::encode_one(
                 &Record::EventBroadcast(wire::EventBroadcast {
                     now_ms: a.slot.map_or(0, |s| s.at),

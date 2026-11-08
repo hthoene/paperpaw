@@ -423,3 +423,33 @@ fn an_allocation_that_fails_anywhere_in_a_broadcast_leaves_nothing_held() {
         assert!(cast(&f, OWNER, 2).is_ok(), "gate {nth}");
     }
 }
+
+#[test]
+fn two_plugins_broadcasts_keep_their_answers_events_and_ends_apart() {
+    let f = Fake::new(SockProfile::OTHER, 0);
+    let a = cast(&f, OWNER, 1).unwrap();
+    let b = cast(&f, OTHER, 2).unwrap();
+    answered(&f, a, b"10.0.0.1:1", b"for a").unwrap();
+    answered(&f, b, b"10.0.0.2:2", b"for b").unwrap();
+    // Each plugin hears only its own answer, and reads only its own bytes.
+    assert_eq!(next_cast(&f, OWNER), Some(cev(a, 1, 0, 0, 5, "10.0.0.1:1")));
+    assert_eq!(data_of(&f, OWNER, a, 0).unwrap(), b"for a");
+    assert_eq!(data_of(&f, OWNER, b, 0), Err(ERR_NOT_FOUND));
+    assert_eq!(next_cast(&f, OTHER), Some(cev(b, 2, 0, 0, 5, "10.0.0.2:2")));
+    assert_eq!(data_of(&f, OTHER, b, 0).unwrap(), b"for b");
+    assert_eq!(data_of(&f, OTHER, a, 0), Err(ERR_NOT_FOUND));
+    // One plugin cannot close the other's broadcast; stopping one leaves the
+    // other running with its answers.
+    close(&f, OTHER, a).unwrap();
+    assert!(f.closes.borrow().is_empty(), "a foreign close does nothing");
+    event_delivered(&f, OWNER).unwrap();
+    event_delivered(&f, OTHER).unwrap();
+    owner_stopped(&f, OWNER).unwrap();
+    assert_eq!(drain_cast(&f, OWNER), std::vec![]);
+    answered(&f, b, b"10.0.0.3:3", b"more").unwrap();
+    assert_eq!(
+        drain_cast(&f, OTHER),
+        std::vec![cev(b, 2, 0, 0, 4, "10.0.0.3:3")]
+    );
+    assert_eq!(f.closes.borrow().as_slice(), &[a]);
+}
