@@ -171,6 +171,8 @@ all or nothing. No room, and a landscape layout too full, say their message and 
   layouts and the rows' icons: `home-add` (#517). The things are listed by name.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
   the key.
+- At a show the focus is drawn only if `home.focus-at-once` is on; interface 6 also asks whether the
+  last input was by keys (`ui::focus_shown`), which waits for the input mode (H4): `home-dashboard`.
 - The status line above the grid is made room for but not drawn (`home-status-line`).
 - Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
   admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
