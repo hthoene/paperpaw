@@ -23,7 +23,6 @@
 //! sorting or holding the file: an interface-6 file keeps its order, `keep`
 //! appends a new secret and a changed one keeps its line. The `list` cursor is
 //! a row number among the rows the caller may see.
-use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -33,6 +32,7 @@ use super::{
     },
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
@@ -250,7 +250,7 @@ fn get(
         label,
         value: file.opener.value(),
     });
-    wire::record_encode_one(&record, out)
+    codec::encode_one(&record, out)
 }
 
 fn list(
@@ -274,7 +274,7 @@ fn list(
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut file = File::new(&*secrets.host)?;
     let File {
@@ -312,7 +312,7 @@ fn list(
         {
             None
         } else {
-            wire::record_encode_one(&record, room).ok()
+            codec::encode_one(&record, room).ok()
         };
         match written {
             Some(length) => {
@@ -340,7 +340,7 @@ fn list(
         next: ask.cursor.checked_add(rows).ok_or(ERR_INVALID)?,
         ..end
     };
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 
@@ -419,7 +419,7 @@ fn random(secrets: &SecretsServices, input: &[u8], out: &mut [u8]) -> Result<usi
             flags: if strong { STRONG } else { 0 },
             data: &bytes[..len],
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     });
     file::wipe(&mut bytes);
     result

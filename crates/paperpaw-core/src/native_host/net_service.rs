@@ -29,14 +29,14 @@
 //! answers and the buffers are in the pool; the transport's connections and
 //! the TLS session (about 40 KiB, one fixed block) are outside it. Every
 //! allocation is fallible.
-use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::{rc::Rc, string::String};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
 mod serving;
@@ -291,7 +291,7 @@ pub(crate) fn backend(
 
 /// A bare reply: the one record's framed bytes, no count and no end.
 fn reply(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 // The test hook for allocation failures: the `n`th gate of a test that armed

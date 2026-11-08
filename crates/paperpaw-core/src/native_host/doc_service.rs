@@ -14,7 +14,6 @@
 //! answer is written into it, checked there and, for pictures, rewritten in
 //! place. No call keeps anything. The peak of the DOC host side beyond the
 //! scratch is the table: 80 bytes.
-use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -23,6 +22,7 @@ use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::ServiceOp,
 };
+use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
@@ -394,7 +394,7 @@ pub(crate) fn backend(
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 /// `doc_state` of a document, from the table.
@@ -778,29 +778,31 @@ fn verify(
         Check::Sections { cursor, generation } => {
             let mut forward = Forward(None, cursor);
             let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocSection| {
-                    forward.row(row.index)?;
-                    check::section(row, cursor)
-                })?;
+                forward.row(row.index)?;
+                check::section(row, cursor)
+            })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Toc { cursor, generation } => {
             let mut forward = Forward(None, cursor);
             let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocToc<'_>| {
-                    forward.row(row.index)?;
-                    check::toc(row, cursor)
-                })?;
+                forward.row(row.index)?;
+                check::toc(row, cursor)
+            })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Fonts { cursor, generation } => {
             let mut forward = Forward(None, cursor);
             let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocFont| {
-                    forward.row(row.index)?;
-                    check::font(row)
-                })?;
+                forward.row(row.index)?;
+                check::font(row)
+            })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Links { cursor, generation } => {
-            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocLink<'_>| check::link(row))?;
+            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocLink<'_>| {
+                check::link(row)
+            })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Block(at) => return block_verify(host, document, at, out, length),
@@ -945,7 +947,7 @@ fn list(
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut used = 0;
     let mut rows = 0;
@@ -954,9 +956,9 @@ fn list(
         if rows == rows_cap {
             return ControlFlow::Break(());
         }
-        match wire::record_framed_len(&record) {
+        match codec::framed_len(&record) {
             Ok(length) if length <= available - used => {
-                match wire::record_encode_one(&record, &mut out[used..available]) {
+                match codec::encode_one(&record, &mut out[used..available]) {
                     Ok(written) => {
                         used += written;
                         rows += 1;
@@ -989,7 +991,7 @@ fn list(
         // A row that fits no page would loop its reader for ever.
         return Err(ERR_NO_SPACE);
     }
-    Ok(used + wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
+    Ok(used + codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
 }
 
 fn paged(input: &[u8], scope_allowed: bool) -> Result<wire::ServiceDocPage<'_>, i32> {

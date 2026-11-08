@@ -12,12 +12,12 @@
 //!
 //! Memory: nothing is kept; the call runs in the dispatcher's 4,096-byte
 //! scratch (a `lookup_entry` is at most 2,384 bytes).
-use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
@@ -76,7 +76,7 @@ fn language_ok(tag: &str) -> bool {
 }
 
 fn check(reply: &[u8]) -> Result<(), i32> {
-    let (record, used) = wire::record_decode_prefix(reply).map_err(|_| ERR_INVALID)?;
+    let (record, used) = codec::decode_prefix(reply).map_err(|_| ERR_INVALID)?;
     match record {
         Record::ServiceLookupEntry(entry)
             if used == reply.len()

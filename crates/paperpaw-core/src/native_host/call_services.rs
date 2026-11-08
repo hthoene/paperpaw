@@ -7,6 +7,7 @@ use super::{
     secret_bytes::wipe,
 };
 use crate::abi7::services_wire::ServiceOp;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
@@ -148,7 +149,7 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             .iter()
             .position(|expected| *expected == tag)
             .ok_or(ERR_INVALID)?;
-        let record = registrations::record_decode_one(framed).map_err(|_| ERR_INVALID)?;
+        let record = codec::decode_one(framed).map_err(|_| ERR_INVALID)?;
         if op.reply_rows == 0 {
             if tag == registrations::SERVICE_END_TAG || index < next_tag {
                 return Err(ERR_INVALID);

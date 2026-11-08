@@ -5,6 +5,8 @@
 //! bytes are retained as fallible host copies; submitted addresses are metadata.
 //! A refused submission poisons construction even if the plugin ignores it.
 
+#[path = "registrations/subset.rs"]
+mod subset;
 #[path = "../abi7/records_wire.rs"]
 #[allow(
     clippy::all,
@@ -14,6 +16,7 @@
     reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
+pub(super) use subset::{as_wire, decode_record};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,

@@ -8,7 +8,6 @@
 //! `ERR_UNSUPPORTED`; the X4 profile wires nothing yet. Texts and params may be
 //! secret: they are never in a `Debug` or a log, and the buffers that held a
 //! text are wiped.
-use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -17,6 +16,7 @@ use super::{
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::{rc::Rc, vec::Vec};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
@@ -153,7 +153,7 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
     if let Some(dialog) = cancelled.and_then(|c| c.dialog) {
         ui.host.close_dialog(dialog);
     }
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiRequest(wire::ServiceUiRequest { request: id }),
         out,
     )
@@ -172,7 +172,7 @@ fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
             text: shown.text,
             choices: shown.choices,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     })?
 }
 
@@ -204,7 +204,7 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
         Ok(())
     })?;
     let id = ui.store.handover_make(stamp, &staged)?;
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiHandle(wire::ServiceUiHandle { handle: id }),
         out,
     )
@@ -225,10 +225,10 @@ fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Re
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let room = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let used = ui.store.params(instance, handle.handle, &mut out[..room])?;
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 
@@ -287,7 +287,7 @@ fn text_read(
             flags: u32::from(last),
             data,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     });
     part.fill(0);
     core::hint::black_box(&mut part);

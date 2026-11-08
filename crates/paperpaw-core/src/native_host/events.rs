@@ -15,7 +15,7 @@ use super::registrations::{
     EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
     EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
     EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
-    Record, records_decode, records_encode,
+    Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
@@ -58,7 +58,7 @@ pub fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => records_encode(&[*record], out),
+        | Record::EventActionRun(_) => super::codec::encode_batch(&[*record], out),
         _ => Err(ERR_INVALID),
     }
 }
@@ -183,11 +183,7 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
 /// turn that [`encode_page_turned`] refuses; `ERR_UNSUPPORTED` when that record
 /// is not an event.
 pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    let batch = records_decode(bytes)?;
-    let mut records = batch.iter();
-    let (Some(record), None) = (records.next(), records.next()) else {
-        return Err(ERR_INVALID);
-    };
+    let record = super::codec::decode_single(bytes)?;
     match record {
         Record::EventStarted(_)
         | Record::EventResume(_)

@@ -1,12 +1,12 @@
 //! The `core.device` backend: decode the op, ask the [`DeviceHost`], encode the
 //! reply exactly per schema into the scratch the dispatcher lends.
-use crate::native_host::codec;
 use super::{
     BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_BONDED,
     MAX_KEYS, MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, NativeFacts, NetworkRow,
     NotInstalledRow, Reading, WifiFacts, caps,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
@@ -76,7 +76,7 @@ fn no_input(input: &[u8]) -> Result<(), i32> {
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 /// `text` cut at a UTF-8 boundary to at most `limit` bytes.
@@ -307,7 +307,7 @@ impl<'o> Rows<'o> {
             next: 0,
             cursor: None,
         };
-        let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+        let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
         let limit = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
         Ok(Self {
             out,
