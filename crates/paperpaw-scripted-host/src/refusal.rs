@@ -20,9 +20,15 @@ pub enum Slot {
     SettingsRead,
     /// `env.snapshot`.
     EnvSnapshot,
+    /// `i18n.copy`.
+    I18nCopy,
+    /// `i18n.format`.
+    I18nFormat,
+    /// `i18n.digits`.
+    I18nDigits,
 }
 
-pub(crate) const SLOTS: usize = 7;
+pub(crate) const SLOTS: usize = 10;
 
 impl Slot {
     pub(crate) fn index(self) -> usize {
@@ -34,6 +40,9 @@ impl Slot {
             Self::ServiceCall => 4,
             Self::SettingsRead => 5,
             Self::EnvSnapshot => 6,
+            Self::I18nCopy => 7,
+            Self::I18nFormat => 8,
+            Self::I18nDigits => 9,
         }
     }
 }

@@ -13,11 +13,11 @@ use super::*;
 /// and open no slot: wiring one fails here until it leaves the list. The
 /// one list below names every field of the table: a new entry fails the
 /// count until added.
-/// The entries the core host table leaves to `host_glue`'s stubs (slot 39,
-/// `text.covers`; slots 36, 37, 38 and 40 are wired). Named, not found by comparing function
+/// The entries the core host table leaves to `host_glue`'s stubs: none
+/// (slots 36 to 40 are wired). Named, not found by comparing function
 /// pointers: the compiler may give one small function a copy per codegen
 /// unit, so the same stub can have two addresses.
-const UNWIRED: &[&str] = &["text_covers"];
+const UNWIRED: &[&str] = &[];
 
 #[allow(
     clippy::too_many_lines,

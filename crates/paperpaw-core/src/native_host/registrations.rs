@@ -65,10 +65,11 @@ pub use wire::{
 // `docs/abi/screens-input.md`.
 pub use wire::{
     ACTION_SPEC_TAG, ActionSpec, DRAW_FRAME_PAYLOAD_MAX_BYTES, DRAW_FRAME_TAG, DrawFrame,
-    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun, EventScreenShown,
-    I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr, I18nCount,
-    INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
-    InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_TEXT_TYPED_TEXT_MAX_BYTES, EventActionRun,
+    EventScreenShown, EventTextTyped, I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG,
+    I18nArgInt, I18nArgStr, I18nCount, INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG,
+    INPUT_POINTER_TAG, InputAction, InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG,
+    ScreenSpec,
 };
 // Stages (19, 20, 512, 513) and the test-only service record 1024
 // (`docs/abi/stages-services.md`).
