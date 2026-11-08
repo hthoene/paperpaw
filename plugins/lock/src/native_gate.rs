@@ -74,39 +74,38 @@ pub struct Door {
 /// # Errors
 /// What opening the screen refused; the device is locked all the same.
 pub fn lock_now(device: &impl Device, lock: &mut Lockstate, door: &mut Door) -> Result<(), Error> {
+    // A screen asked for in an earlier callback has shown up or it never will.
+    door.opening = false;
     let stored = device.stored()?;
-    lock_kept(
-        device,
-        lock,
-        door,
-        model::kept_kind(stored.as_deref()).is_some(),
-    )
+    lock_kept(device, lock, door, active(stored.as_deref()).is_some()).map(drop)
 }
 
+/// Whether the screen was asked for in this callback.
 fn lock_kept(
     device: &impl Device,
     lock: &mut Lockstate,
     door: &mut Door,
     kept: bool,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     if !kept {
-        return Ok(());
+        return Ok(false);
     }
     lock.locked = true;
     reopen(device, lock, door)
 }
 
-/// A locked device with no unlock screen gets one.
+/// A locked device with no unlock screen gets one. Whether it was asked for
+/// now.
 ///
 /// # Errors
 /// What opening the screen refused; it is tried again at the next occasion.
-pub fn reopen(device: &impl Device, lock: &Lockstate, door: &mut Door) -> Result<(), Error> {
+pub fn reopen(device: &impl Device, lock: &Lockstate, door: &mut Door) -> Result<bool, Error> {
     if !lock.locked || door.shown || door.opening {
-        return Ok(());
+        return Ok(false);
     }
     device.open_unlock()?;
     door.opening = true;
-    Ok(())
+    Ok(true)
 }
 
 /// PaperPaw started: the device locks, then a wait due when it stopped is
