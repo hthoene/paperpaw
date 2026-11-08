@@ -127,6 +127,9 @@ pub(crate) struct NativeInstances {
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
     orphan_failure_reported: Cell<bool>,
+    /// The hand-over the staged `open` being applied names: `Some(None)` an
+    /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
+    pending_handover: Cell<Option<Option<u32>>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -153,6 +156,22 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    /// The staged `open` about to be applied names `handover` (or none).
+    pub(crate) fn set_pending_handover(&self, pending: Option<Option<u32>>) {
+        self.pending_handover.set(pending);
+    }
+
+    /// Takes the hand-over the applied `open` was given: the first screen it
+    /// reaches keeps it, no other.
+    pub(crate) fn take_pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.take()
+    }
+
+    /// Whether a staged `open` is being applied (it names a hand-over or none).
+    pub(crate) fn pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.get()
+    }
+
     pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
         self.pool.as_ref()?.ui_store()
     }

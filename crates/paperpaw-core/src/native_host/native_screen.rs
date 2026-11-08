@@ -1,6 +1,7 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
 use crate::native_host::codec;
+use crate::native_host::ui_store::Info;
 #[cfg(test)]
 use alloc::rc::Rc;
 use paperpaw_graphics::Canvas;
@@ -198,7 +199,7 @@ impl<D: Dispatch> NativeScreen<D> {
         self.status(result)
     }
 
-    fn opened(&self, again: bool, count: u32, env: &Env<'_>) {
+    fn opened(&self, again: bool, info: Info, env: &Env<'_>) {
         let Some(key) = self.key else {
             return;
         };
@@ -215,9 +216,9 @@ impl<D: Dispatch> NativeScreen<D> {
                 instance: key.serial(),
                 slot,
                 flags: u32::from(again),
-                handover: 0,
-                params: count,
-                text_bytes: 0,
+                handover: info.handover,
+                params: info.params,
+                text_bytes: info.text_bytes,
             }),
             env,
         );
@@ -325,7 +326,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
         self.key = cx.key();
         if !self.opened && self.key.is_some() {
             self.opened = true;
-            self.opened(false, self.params_count, cx.env());
+            let info = Info {
+                params: self.params_count,
+                ..Info::NONE
+            };
+            self.opened(false, info, cx.env());
         }
         self.shown(cx.env());
     }
@@ -341,11 +346,16 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
         };
-        self.params_count = count;
+        // The open's hand-over, if it named one, comes carried by the kernel.
+        let info = params.carried::<Info>().copied().unwrap_or(Info {
+            params: count,
+            ..Info::NONE
+        });
+        self.params_count = info.params;
         let again = self.opened;
         self.key = cx.key();
         self.opened = self.key.is_some();
-        self.opened(again, count, cx.env());
+        self.opened(again, info, cx.env());
         if again && self.is_top(cx) {
             self.shown(cx.env());
         }

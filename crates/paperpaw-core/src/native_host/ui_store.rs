@@ -137,6 +137,15 @@ pub(crate) struct Info {
     pub(crate) text_bytes: u32,
 }
 
+impl Info {
+    /// No hand-over: what the event says of an instance opened without one.
+    pub(crate) const NONE: Self = Self {
+        handover: 0,
+        params: 0,
+        text_bytes: 0,
+    };
+}
+
 /// Bytes wiped when they are freed (with the shared volatile wipe). Room
 /// beyond `len` was never written, so it holds nothing to wipe.
 pub(super) struct Wiped(pub(super) Vec<u8>);
@@ -703,6 +712,29 @@ impl UiStore {
         let entry = inner.entries.remove(at);
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
+    }
+
+    /// Whether `made` (a hand-over of an `open` being applied, or none) has
+    /// the params `instance` was given: the compare of `open` modes 1 and 3 and
+    /// of instances per params (`ui.md` 1.1). Texts are not compared.
+    pub(crate) fn same_params(&self, made: Option<u32>, instance: u32) -> bool {
+        let Ok(inner) = self.inner.try_borrow() else {
+            return false;
+        };
+        let framed = |id: Option<u32>, owned: bool| -> &[u8] {
+            inner
+                .entries
+                .iter()
+                .find(|entry| match id {
+                    Some(id) => entry.id == id,
+                    None => {
+                        owned
+                            && matches!(entry.state, State::Owned { instance: i } if i == instance)
+                    }
+                })
+                .map_or(&[][..], |entry| &entry.params.0[..])
+        };
+        framed(made, false) == framed(None, true)
     }
 
     /// What the opened event says about `instance`'s hand-over, if it has one.

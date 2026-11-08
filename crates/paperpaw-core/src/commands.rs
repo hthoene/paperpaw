@@ -517,6 +517,11 @@ impl Kernel {
                 {
                     self.close_above(index);
                 }
+                // A staged open passes the open instance its new hand-over
+                // (or none), also when the params are the same.
+                if self.shared.native_instances.pending_handover().is_some() {
+                    self.reopen(index, &params);
+                }
                 return;
             }
             if !self.require_screen_keys(1)
