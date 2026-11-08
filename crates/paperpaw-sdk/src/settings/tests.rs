@@ -499,6 +499,97 @@ fn a_plugin_that_goes_gives_back_the_defaults_it_changed() {
     assert!(s.spec("mod.own").is_none());
 }
 
+/// `base.n` (an Int, default 0) with `b` (1), then `c` (2) over it.
+fn stacked() -> Settings {
+    let mut s = Settings::new();
+    s.define(SettingSpec::new(
+        Id::new_static("base.n"),
+        "base.n",
+        SettingKind::Int { min: 0, max: 9 },
+        SettingValue::Int(0),
+        crate::builtin::groups::OTHER,
+    ))
+    .unwrap();
+    s.set_default_by("base.n", "1", Id::new_static("b"))
+        .unwrap();
+    s.set_default_by("base.n", "2", Id::new_static("c"))
+        .unwrap();
+    s
+}
+
+#[test]
+fn a_default_over_a_default_comes_back_when_the_upper_plugin_goes() {
+    let mut s = stacked();
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(2)));
+    assert_eq!(s.default_from("base.n").map(Id::as_str), Some("c"));
+    s.remove_plugin("c");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(1)));
+    assert_eq!(s.default_from("base.n").map(Id::as_str), Some("b"));
+    s.remove_plugin("b");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(0)));
+    assert!(s.default_from("base.n").is_none());
+}
+
+#[test]
+fn the_lower_plugin_going_first_leaves_the_upper_default_in_force() {
+    let mut s = stacked();
+    s.remove_plugin("b");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(2)));
+    assert_eq!(s.default_from("base.n").map(Id::as_str), Some("c"));
+    s.remove_plugin("c");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(0)));
+    assert!(s.default_from("base.n").is_none());
+}
+
+#[test]
+fn three_plugins_going_in_any_order_end_at_the_original_default() {
+    let orders: [[&str; 3]; 6] = [
+        ["a", "b", "c"],
+        ["a", "c", "b"],
+        ["b", "a", "c"],
+        ["b", "c", "a"],
+        ["c", "a", "b"],
+        ["c", "b", "a"],
+    ];
+    for order in orders {
+        let mut s = stacked();
+        s.set_default_by("base.n", "3", Id::new_static("a"))
+            .unwrap();
+        let mut gone: Vec<&str> = Vec::new();
+        for plugin in order {
+            s.remove_plugin(plugin);
+            gone.push(plugin);
+            // The newest of those left is in force: a=3, b=1, c=2, in the
+            // order b, c, a they came.
+            let left = ["b", "c", "a"]
+                .into_iter()
+                .rev()
+                .find(|p| !gone.contains(p));
+            let want = match left {
+                Some("a") => 3,
+                Some("b") => 1,
+                Some("c") => 2,
+                _ => 0,
+            };
+            assert_eq!(s.get("base.n"), Some(&SettingValue::Int(want)), "{order:?}");
+            assert_eq!(s.default_from("base.n").map(Id::as_str), left, "{order:?}");
+        }
+    }
+}
+
+#[test]
+fn a_plugin_setting_its_default_again_moves_to_the_top() {
+    let mut s = stacked();
+    s.set_default_by("base.n", "5", Id::new_static("b"))
+        .unwrap();
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(5)));
+    // One layer per plugin: c going leaves b's newest value.
+    s.remove_plugin("c");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(5)));
+    s.remove_plugin("b");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(0)));
+}
+
 #[test]
 fn room_for_made_settings_ends_at_the_places_there_are() {
     let mut s = Settings::new();
