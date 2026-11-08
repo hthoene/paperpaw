@@ -232,7 +232,7 @@ impl crate::Kernel {
                 // The list known stays, less the slots whose last offer went.
                 self.shared.registry.retain_bound(&mut self.shared.slots);
                 self.try_warn_runtime(&[
-                    "not enough memory to update the slots plugins offer screens for; the list stays as it was",
+                    "not enough memory to update the slots plugins offer screens for; the list stays, less slots whose last offer went",
                 ]);
             }
         }
