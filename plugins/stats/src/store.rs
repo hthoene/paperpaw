@@ -207,18 +207,50 @@ fn each_line(
     Ok(())
 }
 
-/// The books, by id; none while there is no `books.ini`. An error where
-/// it cannot be read whole (a read error, invalid UTF-8, a line that is
-/// no entry): then it must not be saved over.
-pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
-    // Sorted by id as they are read; the first section of an id wins.
-    let mut books: Vec<Book> = Vec::new();
+/// A set of book ids: 65,536 bits (8 KiB), whatever the number of books.
+pub(crate) struct IdSet(Vec<u64>);
+
+impl IdSet {
+    /// An empty set.
+    pub(crate) fn new() -> Result<Self, StorageError> {
+        let mut words = Vec::new();
+        words
+            .try_reserve_exact(1024)
+            .map_err(|_| StorageError::TooLarge)?;
+        words.resize(1024, 0);
+        Ok(Self(words))
+    }
+
+    pub(crate) fn has(&self, id: u16) -> bool {
+        self.0
+            .get(usize::from(id / 64))
+            .is_some_and(|w| w & (1 << (id % 64)) != 0)
+    }
+
+    pub(crate) fn insert(&mut self, id: u16) {
+        if let Some(w) = self.0.get_mut(usize::from(id / 64)) {
+            *w |= 1 << (id % 64);
+        }
+    }
+}
+
+/// Calls `visit` with each book of `books.ini` in file order, one at a time:
+/// only the book being read is held (and the [`IdSet`] of those already made),
+/// however many there are. What [`load_books`] reads, by the same rules: a
+/// section of an id read before (and not the book just made) is ignored, so the
+/// first book of an id is the book; sections of one book in a row merge. An
+/// error where the file cannot be read whole, as there; books `visit` was
+/// given before it are of a file that is then not to be trusted.
+pub(crate) fn each_book(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<(), StorageError>,
+) -> Result<(), StorageError> {
+    let mut seen = IdSet::new()?;
     // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
-    // The id of the book made last: a section of it goes on filling that book
-    // (sections in a row, empty ones between, merge); one of an id read before
-    // that is ignored, so the first book of an id is the book.
-    let mut last: Option<u16> = None;
+    // The book being made, and its id: a section of it goes on filling it
+    // (sections in a row, empty ones between, merge).
+    let mut current: Option<Book> = None;
     let mut skip = false;
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
@@ -241,27 +273,22 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
         if skip {
             return Ok(());
         }
-        let at = match books.binary_search_by_key(&id, |b| b.id) {
-            Ok(at) if last == Some(id) => at,
+        if current.as_ref().is_none_or(|book| book.id != id) {
             // Another section of this id came before: the first one is the book.
-            Ok(_) => {
+            if seen.has(id) {
                 skip = true;
                 return Ok(());
             }
-            Err(at) => {
-                books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
-                books.insert(
-                    at,
-                    Book {
-                        id,
-                        ..Book::default()
-                    },
-                );
-                last = Some(id);
-                at
+            seen.insert(id);
+            if let Some(done) = current.take() {
+                visit(done)?;
             }
-        };
-        let Some(book) = books.get_mut(at) else {
+            current = Some(Book {
+                id,
+                ..Book::default()
+            });
+        }
+        let Some(book) = current.as_mut() else {
             return Ok(());
         };
         let value = entry
@@ -282,7 +309,121 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
         }
         Ok(())
     })?;
+    match current {
+        Some(done) => visit(done),
+        None => Ok(()),
+    }
+}
+
+/// The books, by id; none while there is no `books.ini`. An error where
+/// it cannot be read whole (a read error, invalid UTF-8, a line that is
+/// no entry): then it must not be saved over.
+pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
+    let mut books: Vec<Book> = Vec::new();
+    each_book(storage, |book| {
+        books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+        books.push(book);
+        Ok(())
+    })?;
+    // Ids are unique: the order is the same whatever the sort.
+    paperpaw_sdk::sort::sort_by_key(&mut books, |b| b.id);
     Ok(books)
+}
+
+/// How many books there are, none held.
+pub(crate) fn count_books(storage: &dyn Storage) -> Result<usize, StorageError> {
+    let mut count = 0usize;
+    each_book(storage, |_| {
+        count += 1;
+        Ok(())
+    })?;
+    Ok(count)
+}
+
+/// Book `id`, if there is one: the only one held.
+pub(crate) fn find_book(storage: &dyn Storage, id: u16) -> Result<Option<Book>, StorageError> {
+    let mut found = None;
+    each_book(storage, |book| {
+        if book.id == id {
+            found = Some(book);
+        }
+        Ok(())
+    })?;
+    Ok(found)
+}
+
+/// The ids of the books with reading time in the log (as much of it as can
+/// be read, as the totals count).
+pub(crate) fn ids_read(storage: &dyn Storage) -> Result<IdSet, StorageError> {
+    let mut ids = IdSet::new()?;
+    scan(storage, |stat| {
+        if stat.duration > 0 {
+            ids.insert(stat.book);
+        }
+    })
+    .ok();
+    Ok(ids)
+}
+
+/// The books to list: of those with reading time, the `most` opened last (ties
+/// by id, the smaller first), by id, each as `keep` makes it from the book read.
+/// The file is read one book at a time and at most `most` are held, so the
+/// memory is the same for a library of ten books and of ten thousand.
+pub(crate) fn most_recent(
+    storage: &dyn Storage,
+    most: usize,
+    mut keep: impl FnMut(Book) -> Result<Book, StorageError>,
+) -> Result<Vec<Book>, StorageError> {
+    let read = ids_read(storage)?;
+    // Newer is smaller: the worst of those held is the largest.
+    let key = |b: &Book| (core::cmp::Reverse(b.last_open), b.id);
+    let mut held: Vec<Book> = Vec::new();
+    each_book(storage, |book| {
+        if !read.has(book.id) || most == 0 {
+            return Ok(());
+        }
+        if held.len() < most {
+            held.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+            held.push(keep(book)?);
+            return Ok(());
+        }
+        let worst = (0..held.len()).max_by_key(|&at| held.get(at).map(key));
+        if let Some(at) = worst
+            && held.get(at).is_some_and(|w| key(&book) < key(w))
+        {
+            let kept = keep(book)?;
+            if let Some(slot) = held.get_mut(at) {
+                *slot = kept;
+            }
+        }
+        Ok(())
+    })?;
+    paperpaw_sdk::sort::sort_by_key(&mut held, |b| b.id);
+    Ok(held)
+}
+
+/// The titles of the books `ids` name, each as `keep` makes it (`None` for an
+/// id with no book): only those titles are held.
+pub(crate) fn titles(
+    storage: &dyn Storage,
+    ids: &[u16],
+    mut keep: impl FnMut(&str) -> Result<String, StorageError>,
+) -> Result<Vec<Option<String>>, StorageError> {
+    let mut out: Vec<Option<String>> = Vec::new();
+    out.try_reserve_exact(ids.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    out.resize(ids.len(), None);
+    each_book(storage, |book| {
+        for (at, id) in ids.iter().enumerate() {
+            if *id == book.id
+                && let Some(slot) = out.get_mut(at)
+            {
+                *slot = Some(keep(&book.title)?);
+            }
+        }
+        Ok(())
+    })?;
+    Ok(out)
 }
 
 /// An owned copy of `text`, made with fallible allocation.

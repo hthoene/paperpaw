@@ -5,12 +5,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::formatting::Arg;
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::room;
-use crate::store::{self, Book, Day};
+use crate::store::{self, Day};
 use crate::texts::{self, Words, month_start};
 use crate::totals;
 
@@ -241,57 +241,12 @@ pub(crate) struct Detail {
     pub books: Vec<(String, u32)>,
 }
 
-/// What the calendar needs of a book to name it.
-pub(crate) trait Titled {
-    fn id(&self) -> u16;
-    fn title(&self) -> &str;
-}
-
-impl Titled for Book {
-    fn id(&self) -> u16 {
-        self.id
-    }
-    fn title(&self) -> &str {
-        &self.title
-    }
-}
-
-/// A book's id and its title cut to what a line shows: all the calendar
-/// keeps of the books (not their authors, paths or hashes).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Named {
-    pub id: u16,
-    pub title: String,
-}
-
-impl Titled for Named {
-    fn id(&self) -> u16 {
-        self.id
-    }
-    fn title(&self) -> &str {
-        &self.title
-    }
-}
-
-/// The names of `books`, each title cut ([`crate::book_list::MAX_TEXT`]).
-pub(crate) fn names(books: &[Book]) -> Result<Vec<Named>, Error> {
-    let mut out = Vec::new();
-    out.try_reserve_exact(books.len())
-        .map_err(|_| Error::NoMemory)?;
-    for book in books {
-        out.push(Named {
-            id: book.id,
-            title: crate::book_list::cut(&book.title)?,
-        });
-    }
-    Ok(out)
-}
-
 /// What was read on local day `day`; `day_of` turns Unix seconds into local
-/// days. A book of the log that has no entry is `?`.
+/// days. A book of the log that has no entry is `?`. The titles of the books read
+/// (at most [`DAY_BOOKS`]) are looked up in `books.ini` as it streams, cut to
+/// what a line shows; no list of books is held.
 pub(crate) fn detail(
     storage: &dyn Storage,
-    books: &[impl Titled],
     days: &[Day],
     day: i32,
     day_of: impl Fn(u32) -> i32,
@@ -332,16 +287,28 @@ pub(crate) fn detail(
     paperpaw_sdk::sort::sort_by_key(&mut per_book, |(_, s, seen)| {
         (core::cmp::Reverse(*s), *seen)
     });
+    let mut ids: Vec<u16> = Vec::new();
+    ids.try_reserve_exact(per_book.len().min(DAY_BOOKS))
+        .map_err(|_| Error::NoMemory)?;
+    ids.extend(per_book.iter().take(DAY_BOOKS).map(|(id, _, _)| *id));
+    let names = store::titles(storage, &ids, |title| {
+        crate::book_list::cut(title).map_err(|_| StorageError::TooLarge)
+    })
+    .map_err(|e| match e {
+        StorageError::TooLarge => Error::NoMemory,
+        StorageError::NotFound => Error::NotFound,
+        _ => Error::Io,
+    })?;
     let mut listed = Vec::new();
     listed
-        .try_reserve_exact(per_book.len().min(DAY_BOOKS))
+        .try_reserve_exact(ids.len())
         .map_err(|_| Error::NoMemory)?;
-    for (id, s, _) in per_book.iter().take(DAY_BOOKS) {
-        let title = books
-            .iter()
-            .find(|b| b.id() == *id)
-            .map_or("?", |b| b.title());
-        listed.push((room::string(&[title]).map_err(|_| Error::NoMemory)?, *s));
+    for ((_, s, _), name) in per_book.iter().zip(names) {
+        let title = match name {
+            Some(title) => title,
+            None => room::string(&["?"]).map_err(|_| Error::NoMemory)?,
+        };
+        listed.push((title, *s));
     }
     Ok(Detail {
         seconds,

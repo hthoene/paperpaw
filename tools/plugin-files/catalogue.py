@@ -127,12 +127,18 @@ def ppn(path):
     format, target = struct.unpack_from("<HH", data, 4)
     if format == FORMAT_5:
         header_len = 96
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 5 has {header_len} bytes)")
         major, minor = struct.unpack_from("<HH", data, 8)
         if major != 7:
             fail(f"{path}: interface {major}, not 7")
         abi = f"{major}.{minor}"
     elif format == FORMAT_4:
         header_len = 80
+        # Bytes 8..16 are the fingerprint: a file of 12 to 15 bytes has its
+        # format but not that.
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 4 has {header_len} bytes)")
         abi = f"{struct.unpack_from('<Q', data, 8)[0]:016x}"
     else:
         fail(f"{path}: plugin file format {format} (4 and 5 are known)")
