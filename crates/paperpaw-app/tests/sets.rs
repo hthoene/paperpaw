@@ -42,7 +42,6 @@ const ALWAYS: [&str; 15] = [
     "store",
     "update",
     "transfer",
-    "about",
 ];
 
 fn fonts() -> paperpaw_app::Fonts {
