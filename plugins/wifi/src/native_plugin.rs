@@ -28,8 +28,9 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN, PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN,
-    SCREEN_SHOWN, WIFI_CHANGED,
+    SCREEN_SHOWN, STARTED, WIFI_CHANGED,
 };
+use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
 use crate::native_model::{
     self, Link, Network, PageRow, Pick, is_kept, next_idle, note_keys, page_rows, pick,
@@ -121,6 +122,7 @@ impl Plugin for NativeWifi {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
             }
+            Event::Started { .. } if token == STARTED => self.keep_file(host),
             Event::WifiChanged { .. } if token == WIFI_CHANGED => self.radio_changed(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. }
@@ -619,6 +621,51 @@ impl NativeWifi {
                 Ok(())
             }
         }
+    }
+
+    /// The networks in `wifi.ini` on the card, read once at a start: kept
+    /// among the secrets, then the file is removed. A file that cannot be kept
+    /// (the device keeps no passwords, or a call failed) stays for the next
+    /// start; a network that cannot be one (a name over 32 bytes, a password
+    /// over 63) is dropped with the file.
+    fn keep_file(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        if !self.read_info(host)?.present {
+            return Ok(());
+        }
+        let found = match native_ini::read(host)? {
+            Content::Nothing => return Ok(()),
+            Content::TooLarge => {
+                native_model::best_effort(Self::notice(host, "wifi.file-too-large"));
+                return Ok(());
+            }
+            Content::Networks(found) => found,
+        };
+        let kept = self.read_kept(host)?;
+        for network in &found {
+            // A network without a password does not take the password kept.
+            if network.password.is_empty() && is_kept(&kept, &network.ssid) {
+                continue;
+            }
+            let Ok(remember) = Remember::new(&network.ssid, network.password.as_str()) else {
+                continue;
+            };
+            let saved = match self.secrets(host)? {
+                Some(secrets) => native_known::remember(secrets, host, &remember),
+                None => Err(Error::Unsupported),
+            };
+            match saved {
+                Ok(()) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::Unsupported) => {
+                    native_model::best_effort(Self::notice(host, "core.secrets-unsupported"));
+                    return Ok(());
+                }
+                Err(_) => return Ok(()),
+            }
+        }
+        native_ini::remove(host);
+        Ok(())
     }
 
     /// Does what the policy says to the radio.
