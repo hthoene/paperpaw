@@ -109,7 +109,9 @@ native screens replace these callers.
   readers are fallible now (`paperpaw-zip` #394, `paperpaw-sqlite` #383) and the whole-read
   sweep (`reading_an_anki_deck_refuses_cleanly`) runs with every allocation refused. It found
   that a refusal while reading the table's columns was told as `NoNotes` ("not an Anki deck,
-  not tried again"); it is `Fault::Memory` now.
+  not tried again"); it is `Fault::Memory` now. A `Fault::Memory` is a storage failure of the
+  step (the deck is tried again), never `DeckTooLarge` (the deck's own fault, not tried again);
+  `Crowded` is set only by the limits on cards, not by a refusal.
 - Sweeps (`alloc_refusal_tests::folder`): listing, pending, folder, names, `sources`,
   `write_sources` and a whole job (a changed file and a new one) with each allocation refused.
 - The card folder is still the platform `Storage`'s (`list`, `exists`, `modified`,
