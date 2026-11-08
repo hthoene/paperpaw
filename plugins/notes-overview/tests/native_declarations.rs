@@ -92,6 +92,7 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     assert_eq!(dicons, icons);
 }
 
+/// The host admits every one of them now, so none waits.
 #[test]
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     let mut waiting = Vec::new();
@@ -107,5 +108,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(waiting, ["MenuEntry", "IconSpec"]);
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
+    );
 }

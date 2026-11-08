@@ -104,9 +104,8 @@ fn the_stage_tells_today_with_a_day_and_the_seconds() {
     assert!(all.contains("read-today"), "{all}");
 }
 
-/// Every record is well formed for the host. The host does not admit icons and stages yet
-/// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
-/// fail only that way, and these are the only ones that do.
+/// Every record is well formed for the host, and the host admits every one of
+/// them now (icons, menu entries and stages included), so none waits.
 #[test]
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
@@ -132,17 +131,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    // Icons, the menu entries of the action that opens the overview, and the
-    // stage wait for the host to admit them; screens, the action and the
-    // settings are valid now.
-    assert_eq!(
-        waiting,
-        [
-            "ui: IconSpec",
-            "ui: MenuEntry",
-            "ui: MenuEntry",
-            "ui: IconSpec",
-            "stages: StageSpec"
-        ]
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
     );
 }
