@@ -8,7 +8,10 @@
 //! - a refused allocation is [`Fault::NoMemory`], never an abort;
 //! - what is read is bounded: a line is at most [`MAX_LINE`] bytes (also for
 //!   [`response`] and [`tokens`], which refuse a longer one), and the buffer
-//!   of a socket's bytes holds at most [`MAX_BUFFER`];
+//!   of a socket's bytes holds at most [`MAX_BUFFER`], a line makes at most
+//!   [`MAX_TOKENS`] tokens and a list of capabilities, arguments or flags
+//!   at most [`MAX_WORDS`]: past a bound the answer is [`Fault::TooLong`],
+//!   never a larger allocation;
 //! - a FETCH line is read from its own bytes: interface 6 counted from the
 //!   end of the line, which cut the first token off a line that ended in
 //!   white space or held bytes that are no UTF-8;
@@ -24,8 +27,17 @@ use alloc::vec::Vec;
 /// The longest response line taken; a server's longer line is an error.
 pub const MAX_LINE: usize = 8 * 1024;
 /// The most bytes a [`LineBuffer`] holds: a line and what came after it in
-/// the same read. The session takes what it has between two pushes.
-pub const MAX_BUFFER: usize = 64 * 1024;
+/// the same read. The session takes what it has between two pushes; the
+/// buffer grows by exactly what is pushed, so a push that makes it larger
+/// holds the old and the new block at once (32 KiB at the most).
+pub const MAX_BUFFER: usize = 2 * MAX_LINE;
+/// The most tokens one line makes (lists and what is in them all count): a
+/// real response has some twenty, and a line of single-letter atoms would
+/// make some 4,100, which the X4's heap cannot hold.
+pub const MAX_TOKENS: usize = 256;
+/// The most words in a CAPABILITY line, in a response code's arguments and
+/// in a list of flags.
+pub const MAX_WORDS: usize = 64;
 /// Tokens nested in lists, at most.
 const MAX_DEPTH: usize = 6;
 /// The most digits (and a `+`) a literal's size has between its braces.
@@ -63,7 +75,11 @@ impl LineBuffer {
         if self.data.len().saturating_add(bytes.len()) > MAX_BUFFER {
             return Err(Fault::TooLong);
         }
-        push_bytes(&mut self.data, bytes)?;
+        // Exactly what is pushed: no doubling past the bound.
+        self.data
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| Fault::NoMemory)?;
+        self.data.extend_from_slice(bytes);
         Ok(())
     }
 
@@ -169,8 +185,17 @@ pub fn tokens(line: &[u8]) -> Result<Vec<Token>, Fault> {
     if line.len() > MAX_LINE {
         return Err(Fault::TooLong);
     }
-    let mut at = 0;
-    tokens_in(line, &mut at, 0, false)
+    let (mut at, mut count) = (0, 0);
+    tokens_in(line, &mut at, 0, false, &mut count)
+}
+
+/// Counts one more token of the line.
+fn counted(count: &mut usize) -> Result<(), Fault> {
+    *count += 1;
+    if *count > MAX_TOKENS {
+        return Err(Fault::TooLong);
+    }
+    Ok(())
 }
 
 fn tokens_in(
@@ -178,6 +203,7 @@ fn tokens_in(
     at: &mut usize,
     depth: usize,
     in_list: bool,
+    count: &mut usize,
 ) -> Result<Vec<Token>, Fault> {
     let mut out = Vec::new();
     while let Some(&byte) = line.get(*at) {
@@ -194,11 +220,13 @@ fn tokens_in(
                 if depth >= MAX_DEPTH {
                     continue;
                 }
-                let inner = tokens_in(line, at, depth + 1, true)?;
+                counted(count)?;
+                let inner = tokens_in(line, at, depth + 1, true, count)?;
                 push(&mut out, Token::List(inner))?;
             }
             b'"' => {
                 *at += 1;
+                counted(count)?;
                 let text = quoted_token(line, at)?;
                 push(&mut out, Token::Quoted(text))?;
             }
@@ -221,6 +249,7 @@ fn tokens_in(
                 match (close, size) {
                     (Some(e), Some(n)) => {
                         *at += e + 2;
+                        counted(count)?;
                         push(&mut out, Token::Literal(n))?;
                     }
                     _ => *at += 1,
@@ -228,6 +257,7 @@ fn tokens_in(
             }
             _ => {
                 if let Some(token) = atom(line, at)? {
+                    counted(count)?;
                     push(&mut out, token)?;
                 }
             }
@@ -440,11 +470,20 @@ fn split_space(bytes: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
-/// The words of `text`, each a copy.
+/// Adds a copy of `word` to `found`, which holds at most [`MAX_WORDS`].
+fn push_word(found: &mut Vec<String>, word: &str) -> Result<(), Fault> {
+    if found.len() >= MAX_WORDS {
+        return Err(Fault::TooLong);
+    }
+    push(found, copy(word)?)?;
+    Ok(())
+}
+
+/// The words of `text`, each a copy, at most [`MAX_WORDS`].
 fn words(text: &str) -> Result<Vec<String>, Fault> {
     let mut found = Vec::new();
     for word in text.split_whitespace() {
-        push(&mut found, copy(word)?)?;
+        push_word(&mut found, word)?;
     }
     Ok(found)
 }
@@ -470,7 +509,7 @@ fn code(tail: &str) -> Result<Untagged, Fault> {
     let code = upper(parts.next().unwrap_or(""))?;
     let mut args = Vec::new();
     for word in parts {
-        push(&mut args, copy(word)?)?;
+        push_word(&mut args, word)?;
     }
     Ok(Untagged::Code { code, args })
 }
@@ -482,7 +521,7 @@ fn list(tail: &str) -> Result<Untagged, Fault> {
     match it.next() {
         Some(Token::List(found)) => {
             for text in found.iter().filter_map(Token::text) {
-                push(&mut flags, copy(text)?)?;
+                push_word(&mut flags, text)?;
             }
         }
         _ => return Ok(Untagged::Other),
@@ -540,11 +579,11 @@ pub fn fetch_text<'a>(items: &'a [Token], key: &str) -> Option<&'a str> {
     items.get(at + 1)?.text()
 }
 
-/// The flags of a FETCH (`\Seen`, …).
+/// The flags of a FETCH (`\Seen`, …), at most [`MAX_WORDS`].
 ///
 /// # Errors
-/// [`Error::NoMemory`].
-pub fn fetch_flags(items: &[Token]) -> Result<Vec<String>, Error> {
+/// [`Fault::TooLong`] for more flags, [`Fault::NoMemory`].
+pub fn fetch_flags(items: &[Token]) -> Result<Vec<String>, Fault> {
     let mut out = Vec::new();
     let flags = items
         .iter()
@@ -552,7 +591,7 @@ pub fn fetch_flags(items: &[Token]) -> Result<Vec<String>, Error> {
         .and_then(|at| items.get(at + 1))
         .and_then(Token::list);
     for text in flags.into_iter().flatten().filter_map(Token::text) {
-        push(&mut out, copy(text)?)?;
+        push_word(&mut out, text)?;
     }
     Ok(out)
 }

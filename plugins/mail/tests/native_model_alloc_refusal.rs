@@ -150,7 +150,7 @@ fn the_imap_reader_survives_refused_allocations() {
         else {
             return Err(Error::Invalid);
         };
-        let flags = imap::fetch_flags(&items)?;
+        let flags = imap::fetch_flags(&items).map_err(refusal)?;
         assert_eq!(imap::flag_letters(&flags)?, "SD");
         Ok(())
     });

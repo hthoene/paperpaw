@@ -51,14 +51,29 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   fixed lines, 6,000 random IMAP lines, random reply sequences and the buffer cut anywhere (compared
   by `Debug` text). `tests/native_model_alloc_refusal.rs` refuses each allocation in turn.
 - Differences from interface 6, on purpose, each tested: a line is at most 8 KiB (`response` and
-  `tokens` refuse a longer one, `LineBuffer::line` drops it) and the buffer holds at most 64 KiB
-  (the session takes what it has between two pushes); a FETCH line is read from its own bytes
+  `tokens` refuse a longer one, `LineBuffer::line` drops it) and the buffer holds at most 16 KiB
+  (the session takes what it has between two pushes; it grows by exactly what is pushed, so a
+  push that enlarges it holds the old and the new block at once, 32 KiB at the most); a line makes
+  at most 256 tokens (a line of single-letter atoms would make some 4,100, about 200 KiB) and a
+  CAPABILITY line, a response code's arguments and a list of flags at most 64 words: past a bound
+  the answer is `Fault::TooLong`, never a larger allocation; a FETCH line is read from its own bytes
   (interface 6 lost the items of a line ending in white space or holding bytes that are no UTF-8);
   `smtp::auth_plain` and `imap::quoted_secret` make the lines that carry the password in a buffer that
   wipes itself and shows nothing in `Debug`; the types that grow are `#[non_exhaustive]` and do not
   derive `Clone` (it allocates without asking).
 - The SMTP reply bounds are as they were (line 1,000 bytes, reply 4,096, 64 lines). `smtp::data` leaves
   the bound of the message to the caller, who holds it whole.
+
+## What the session slice must do with these (slice 4)
+
+- Cap the `{n}` literals it accepts (a body part is read in chunks into the card, never whole; an
+  `n` over the cap ends the fetch of that message), since `Token::Literal(n)` is only a number here.
+- Close the connection on `Fault::TooLong` (a server whose line or response is past the bounds is
+  not speaking IMAP) and on a refused allocation after telling the user; never go on with a line
+  half read.
+- Build the final `LOGIN` line (the tag, the user and the password quoted by `quoted_secret`) in a
+  buffer that wipes itself (`Secret`), send it from there, and wipe it; the same for `AUTH PLAIN`
+  (`smtp::auth_plain` already makes it so). No `format!` with the password.
 
 ## Still interface 6
 

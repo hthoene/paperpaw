@@ -319,6 +319,58 @@ fn what_is_too_long_is_refused() {
 }
 
 #[test]
+fn a_line_of_many_small_pieces_is_refused_before_it_grows() {
+    // The worst case of a line of 8 KiB: 4,096 single-letter atoms would make
+    // as many Tokens (about 200 KiB), the capability list as many Strings.
+    let atoms = "a ".repeat(new_imap::MAX_LINE / 2);
+    assert_eq!(atoms.len(), new_imap::MAX_LINE);
+    assert_eq!(new_imap::tokens(atoms.as_bytes()), Err(Fault::TooLong));
+    let fetch = format!("* 1 FETCH ({}", &atoms[..atoms.len() - 12]);
+    assert_eq!(new_imap::response(fetch.as_bytes()), Err(Fault::TooLong));
+    let list = format!("* LIST ({}) \"/\" x", &atoms[..atoms.len() - 20]);
+    assert_eq!(new_imap::response(list.as_bytes()), Err(Fault::TooLong));
+    let capability = format!("* CAPABILITY {}", &atoms[..atoms.len() - 16]);
+    assert_eq!(
+        new_imap::response(capability.as_bytes()),
+        Err(Fault::TooLong)
+    );
+    let code = format!("* OK [X {}] hi", &atoms[..atoms.len() - 16]);
+    assert_eq!(new_imap::response(code.as_bytes()), Err(Fault::TooLong));
+    let search = format!("* SEARCH {}", "1 ".repeat(100));
+    assert!(new_imap::response(search.as_bytes()).is_ok());
+    // The bounds themselves are taken: 256 tokens, 64 words.
+    let at_most = "a ".repeat(new_imap::MAX_TOKENS);
+    assert_eq!(
+        new_imap::tokens(at_most.as_bytes()).unwrap().len(),
+        new_imap::MAX_TOKENS
+    );
+    let one_more = "a ".repeat(new_imap::MAX_TOKENS + 1);
+    assert_eq!(new_imap::tokens(one_more.as_bytes()), Err(Fault::TooLong));
+    let words = |n: usize| format!("* CAPABILITY {}", "w ".repeat(n));
+    assert!(new_imap::response(words(new_imap::MAX_WORDS).as_bytes()).is_ok());
+    assert_eq!(
+        new_imap::response(words(new_imap::MAX_WORDS + 1).as_bytes()),
+        Err(Fault::TooLong)
+    );
+    let flags = |n: usize| format!("* 1 FETCH (FLAGS ({}))", "\\F ".repeat(n));
+    let Some(new_imap::Response::Untagged(new_imap::Untagged::Fetch { items, .. })) =
+        new_imap::response(flags(new_imap::MAX_WORDS).as_bytes()).unwrap()
+    else {
+        panic!("not a fetch");
+    };
+    assert_eq!(
+        new_imap::fetch_flags(&items).unwrap().len(),
+        new_imap::MAX_WORDS
+    );
+    let Some(new_imap::Response::Untagged(new_imap::Untagged::Fetch { items, .. })) =
+        new_imap::response(flags(new_imap::MAX_WORDS + 1).as_bytes()).unwrap()
+    else {
+        panic!("not a fetch");
+    };
+    assert_eq!(new_imap::fetch_flags(&items), Err(Fault::TooLong));
+}
+
+#[test]
 fn a_fetch_line_is_read_from_its_own_bytes() {
     // Interface 6 counted from the end of the line, which cut the first token
     // off a line that ended in white space or held bytes that are no UTF-8.
@@ -529,14 +581,20 @@ fn smtp_commands_and_data_are_the_same() {
     }
 }
 
+/// What hostile bytes may come to: an answer or a line past a bound, never a
+/// refused allocation (nothing is refused here) and never a panic.
+fn assert_ok_or_too_long<T>(result: Result<T, Fault>) {
+    assert!(matches!(result, Ok(_) | Err(Fault::TooLong)));
+}
+
 #[test]
 fn hostile_bytes_are_read_without_a_panic() {
     let mut rng = Rng(99);
     for len in [0usize, 1, 2, 5, 30, 300, 3000, 8000] {
         for _ in 0..40 {
             let line: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
-            let _ = new_imap::response(&line).unwrap();
-            let _ = new_imap::tokens(&line).unwrap();
+            assert_ok_or_too_long(new_imap::response(&line));
+            assert_ok_or_too_long(new_imap::tokens(&line));
             let _ = new_imap::literal_at_end(&line);
             let mut parser = new_smtp::ReplyParser::default();
             let _ = parser.line(&line).unwrap();
@@ -551,7 +609,7 @@ fn hostile_bytes_are_read_without_a_panic() {
         "[".repeat(8000),
         "* 1 FETCH ".to_owned() + &"(".repeat(7000),
     ] {
-        let _ = new_imap::response(text.as_bytes()).unwrap();
-        let _ = new_imap::tokens(text.as_bytes()).unwrap();
+        assert_ok_or_too_long(new_imap::response(text.as_bytes()));
+        assert_ok_or_too_long(new_imap::tokens(text.as_bytes()));
     }
 }
