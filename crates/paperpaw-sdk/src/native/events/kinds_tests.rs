@@ -176,6 +176,19 @@ fn fixtures() -> Vec<Vec<u8>> {
                 total: 10,
                 flags: 0,
             }),
+            Record::EventWorkDue(EventWorkDue {
+                now_ms: 42,
+                token: 7,
+                why: 3,
+                key: "mail.sync",
+            }),
+            Record::EventWorkRefused(EventWorkRefused {
+                now_ms: 42,
+                token: 7,
+                reason: 13,
+                key: "mail.sync",
+            }),
+            Record::EventWorkAllowed(EventWorkAllowed { now_ms: 42 }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",

@@ -62,6 +62,12 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
+    /// Work of this plugin came due (`core.work`).
+    WorkDue,
+    /// Work of this plugin was taken out for good.
+    WorkRefused,
+    /// What held work back no longer does (a hint, coalesced).
+    WorkAllowed,
 }
 
 impl EventKind {
@@ -95,6 +101,9 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
+            Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
+            Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
         }
     }
 }

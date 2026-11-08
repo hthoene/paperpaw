@@ -425,6 +425,141 @@ impl<'a> Iterator for WorkRows<'a> {
 }
 impl ExactSizeIterator for WorkRows<'_> {}
 
+/// Why work came due (`event.work_due.why`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Why {
+    /// Its time came (`at_ms`, or `after_ms` with no moment and no deadline).
+    Time,
+    /// Its deadline (`within_ms`) came.
+    Deadline,
+    /// The device woke.
+    Wake,
+    /// The network came up.
+    Online,
+    /// Charging began.
+    Charging,
+    /// A reason a newer host added.
+    Other(u32),
+}
+
+impl Why {
+    const fn from_wire(value: u32) -> Self {
+        match value {
+            0 => Self::Time,
+            1 => Self::Deadline,
+            2 => Self::Wake,
+            3 => Self::Online,
+            4 => Self::Charging,
+            other => Self::Other(other),
+        }
+    }
+}
+
+/// Work came due: `event.work_due`. Opens a run (`docs/abi/work.md` 2.3): the
+/// requests and sockets started in this callback belong to it. A once-work is
+/// removed when delivered; a repeating one waits for its next time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorkDue<'a> {
+    now_ms: u64,
+    token: u32,
+    why: Why,
+    key: &'a str,
+}
+
+impl<'a> WorkDue<'a> {
+    pub(crate) fn decode(r: wire::EventWorkDue<'a>) -> Self {
+        Self {
+            now_ms: r.now_ms,
+            token: r.token,
+            why: Why::from_wire(r.why),
+            key: r.key,
+        }
+    }
+
+    /// The host's clock.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    /// The token the work was declared with.
+    #[must_use]
+    pub const fn token(&self) -> u32 {
+        self.token
+    }
+
+    /// Why it came due.
+    #[must_use]
+    pub const fn why(&self) -> Why {
+        self.why
+    }
+
+    /// The key the work was declared with.
+    #[must_use]
+    pub const fn key(&self) -> &'a str {
+        self.key
+    }
+}
+
+/// Why work was taken out for good (`event.work_refused.reason`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Refusal {
+    /// The user turned the plugin's network off while the work waited.
+    NetworkOff,
+    /// A reason a newer host added.
+    Other(u32),
+}
+
+/// Work was taken out for good: `event.work_refused`. The only refusal after
+/// `declare`; declare again if the work is still wanted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorkRefused<'a> {
+    now_ms: u64,
+    token: u32,
+    reason: Refusal,
+    key: &'a str,
+}
+
+impl<'a> WorkRefused<'a> {
+    pub(crate) fn decode(r: wire::EventWorkRefused<'a>) -> Self {
+        Self {
+            now_ms: r.now_ms,
+            token: r.token,
+            reason: match r.reason {
+                13 => Refusal::NetworkOff,
+                other => Refusal::Other(other),
+            },
+            key: r.key,
+        }
+    }
+
+    /// The host's clock.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    /// The token the work was declared with.
+    #[must_use]
+    pub const fn token(&self) -> u32 {
+        self.token
+    }
+
+    /// Why it was taken out.
+    #[must_use]
+    pub const fn reason(&self) -> Refusal {
+        self.reason
+    }
+
+    /// The key the work was declared with.
+    #[must_use]
+    pub const fn key(&self) -> &'a str {
+        self.key
+    }
+}
+
 /// A work service handle, reusable across callbacks until explicitly released.
 #[derive(Debug)]
 #[must_use = "release the work service when done"]
