@@ -88,6 +88,26 @@ struct View {
     list: ItemList,
     /// What the screen says with no rows: the heading and the text.
     empty: (String, String),
+    /// The book of a notes screen, to read its rows again.
+    book: Option<Handle>,
+    /// Whether the rows are held. A notes screen hidden under another one has
+    /// none ([`free_notes`]) and reads them again when it is shown.
+    loaded: bool,
+    /// The focused row when the rows were freed.
+    focus: usize,
+}
+
+/// Frees the rows of every notes screen that holds them. Rows of a book take
+/// up to 45 KiB each, and the stack can hold several books (book A, the Tools
+/// menu, All notes again, book B), so only the book on top keeps its rows.
+fn free_notes<'a>(views: impl Iterator<Item = &'a mut View>) {
+    for view in views {
+        if matches!(view.rows, Rows::Notes) && view.loaded {
+            view.focus = view.list.focus();
+            view.list.replace(Vec::new());
+            view.loaded = false;
+        }
+    }
 }
 
 /// The interface-7 All notes.
@@ -135,7 +155,13 @@ impl Plugin for NativeNotesOverview {
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } if token == LIST_TOKEN || token == BOOK_TOKEN => self.screens.shown(token, instance),
+            } if token == LIST_TOKEN || token == BOOK_TOKEN => {
+                self.screens.shown(token, instance)?;
+                if token == BOOK_TOKEN {
+                    self.reload(host, instance)?;
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -312,8 +338,52 @@ impl NativeNotesOverview {
             rows: Rows::Books(handles),
             list: ItemList::new(items),
             empty: empty(host, &mut messages)?,
+            book: None,
+            loaded: true,
+            focus: 0,
         };
         self.screens.open(instance, view)
+    }
+
+    /// Reads the rows again of a notes screen that was shown after it had
+    /// freed them. A book that changed under it leaves it with nothing to
+    /// show but what to do.
+    fn reload(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(view) = self.screens.get(instance) else {
+            return Ok(());
+        };
+        let (Rows::Notes, false, Some(handle)) = (&view.rows, view.loaded, view.book) else {
+            return Ok(());
+        };
+        let focus = view.focus;
+        // Only one notes screen holds rows: the others are freed first.
+        free_notes(self.screens.all());
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let mut messages = Messages::new()?;
+        let book = BookRef::catalog(handle.key, handle.generation)?;
+        let items = match self.notes(host, &mut messages, book, &mut input, &mut out) {
+            Ok(items) => Some(items),
+            Err(Error::State | Error::NotFound) => None,
+            Err(error) => return Err(error),
+        };
+        let gone = if items.is_none() {
+            Some((
+                messages.copy(host, "notes-overview.empty.title")?,
+                messages.copy(host, "notes-overview.gone")?,
+            ))
+        } else {
+            None
+        };
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        if let Some(items) = items {
+            view.list.replace(items);
+            view.list.set_focus(focus);
+        }
+        if let Some(gone) = gone {
+            view.empty = gone;
+        }
+        view.loaded = true;
+        Ok(())
     }
 
     fn opened_book(
@@ -345,6 +415,9 @@ impl NativeNotesOverview {
             return Err(Error::Invalid);
         };
         let book = BookRef::catalog(key, generation)?;
+        // The book on top is the only one with rows: the others are freed
+        // before this one is read.
+        free_notes(self.screens.all());
         let mut messages = Messages::new()?;
         // A list older than a change to the catalog is `State` here, as is a
         // book that is gone (`NotFound`): the screen is not opened.
@@ -359,6 +432,9 @@ impl NativeNotesOverview {
             rows: Rows::Notes,
             list: ItemList::new(items),
             empty: empty(host, &mut messages)?,
+            book: Some(Handle { key, generation }),
+            loaded: true,
+            focus: 0,
         };
         self.screens.open(instance, view)
     }
@@ -471,7 +547,10 @@ fn empty(host: &Host<'_>, messages: &mut Messages) -> Result<(String, String), E
 
 #[cfg(test)]
 mod tests {
-    use super::{DIGITS, Handle, Item, digits, find_again, place_of};
+    use super::{
+        DIGITS, Handle, Item, ItemList, Rows, View, digits, find_again, free_notes, place_of,
+    };
+    use alloc::string::String;
     use alloc::vec::Vec;
 
     fn rows(titles: &[&str]) -> (Vec<Item>, Vec<Handle>) {
@@ -516,6 +595,52 @@ mod tests {
         let rows = super::MOST_NOTES * super::ROW_WORST;
         let vector = super::MOST_NOTES.next_power_of_two() * core::mem::size_of::<Item>();
         assert!(rows + vector <= 48 * 1024, "{}", rows + vector);
+    }
+
+    fn notes_view(rows: &[&str], focus: usize) -> View {
+        let items: Vec<Item> = rows
+            .iter()
+            .map(|t| Item::noted(t, "", "").unwrap())
+            .collect();
+        let mut list = ItemList::new(items);
+        list.set_focus(focus);
+        View {
+            title: String::new(),
+            rows: Rows::Notes,
+            list,
+            empty: (String::new(), String::new()),
+            book: Some(Handle {
+                key: 1,
+                generation: 1,
+            }),
+            loaded: true,
+            focus: 0,
+        }
+    }
+
+    #[test]
+    fn opening_a_second_book_frees_the_rows_of_the_first() {
+        // Book A under the list, then book B opens: only B keeps rows.
+        let mut a = notes_view(&["one", "two", "three"], 2);
+        let mut list = notes_view(&["Book A"], 0);
+        list.rows = Rows::Books(Vec::new());
+        list.book = None;
+        let mut b = notes_view(&["x", "y"], 1);
+        free_notes([&mut a, &mut list].into_iter());
+        assert!(!a.loaded);
+        assert!(a.list.items().is_empty());
+        assert_eq!(a.focus, 2, "the focus is kept for the reload");
+        assert!(a.book.is_some(), "the book is kept to read it again");
+        // The list of books is not a notes screen: its rows stay.
+        assert!(list.loaded);
+        assert_eq!(list.list.items().len(), 1);
+        // B is loaded after A was freed; freeing again changes nothing of A,
+        // and frees B when a third book opens.
+        free_notes([&mut a, &mut b].into_iter());
+        assert!(a.list.items().is_empty());
+        assert!(!b.loaded);
+        assert!(b.list.items().is_empty());
+        assert_eq!(b.focus, 1);
     }
 
     #[test]
