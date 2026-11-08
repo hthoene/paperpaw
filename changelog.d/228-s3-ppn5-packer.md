@@ -1,0 +1,1 @@
+Target 9 for format-5 plugin files: `paperpaw-sign` packs linked Xtensa (X4 Pro, X4 Classic) plugins with the windowed-ABI frame scan (2,048 B limit), `paperpaw-native` reads the target-9 header profile, and the X4 Pro/Classic shell has a PSRAM placement path. The path stays inert until the stack gate has a design: the S3 loader refuses every format-5 file with `Unsupported`.
