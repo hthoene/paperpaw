@@ -6,20 +6,19 @@
 //! drawing waits for images (draft 22) and the sleep plugin on interface 7.
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Kind, ScreenDecl, SpecDecl,
-    SubscribeDecl,
+    StageDecl,
 };
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
-/// The statistics' figure of today (the stage `stats.read-today`).
-pub const TODAY_TOKEN: u32 = 2;
 
 /// The statistics' group, where the settings are.
 pub const GROUP: &str = "stats.group";
 /// The part of the group that is this plugin's.
 const SECTION: &str = "reading-goal.title";
-/// The stage the statistics run to tell today's reading.
-pub const READ_TODAY: &str = "stats.read-today";
+/// The stage this plugin runs to ask the statistics for today's reading (its
+/// full id is `reading-goal.read-today`).
+pub const READ_TODAY: &str = "read-today";
 
 /// The three settings: from which share of the goal the cat is content and
 /// happy (percent), and a folder of one's own pictures.
@@ -85,12 +84,14 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// The subscription to the statistics' stage `stats.read-today`: they run it
-/// with the day (`i32`) and the seconds read on it (`u32`), little-endian, when
-/// the figure changes. A host without the stage leaves the subscription inert.
+/// The stage `reading-goal.read-today` (schema 1): this plugin runs it when it
+/// needs the figure, and the statistics answer from what they hold in memory.
+/// Input: the day as an `i32`, little-endian (empty: today). Reply: the day as an
+/// `i32` and the seconds read on it as a `u32`, little-endian; the statistics
+/// answer `ERR_NOT_FOUND` for a day they do not know.
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
-    declarations.subscribe(SubscribeDecl::new(READ_TODAY, TODAY_TOKEN))?;
+    declarations.stage(StageDecl::new(READ_TODAY, 1, 4, 8, 1))?;
     declarations.submit()
 }
 

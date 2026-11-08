@@ -4,7 +4,7 @@
 //! ignored until they are. Each names what is missing.
 
 #[test]
-#[ignore = "needs the statistics to run the stage stats.read-today with the figure (stats side) and a host that admits stage subscriptions and runs native plugins end to end"]
+#[ignore = "needs the statistics to subscribe to reading-goal.read-today and answer (stats side) and a host that admits stages and runs native plugins end to end"]
 fn the_statistics_tell_today_and_it_is_written_to_the_card_when_a_book_closes() {
     unreachable!(
         "read_today while a book is open is kept in memory; book_closed, suspend and stopping write today.txt"

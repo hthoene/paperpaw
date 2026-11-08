@@ -37,13 +37,17 @@ are not there. It is removed in the PR that finishes the port.
   folder chooser slot), all advanced, in the statistics' group `stats.group` as on interface 6.
 - Events: a book opened, a book closed, suspend and stopping. The edges are `edge()`, which
   maps events to `Edge`s (tested without a host), and `Kept::apply`.
-- **The figure comes by the stage `stats.read-today`** (schema 1, payload: day `i32` and seconds
-  `u32`, little-endian; anything else is ignored). Reading goal *subscribes* to it. The contract
-  (`docs/abi/stages-services.md`) lets only the stage's owner run it, so the statistics have to
-  *run* it when the figure changes, with the figure as input; they do not pull. Stats still
-  answers the stage as the asker's pull (stats `PORTING-7.md`): that change is on the stats side
-  and is asked of Kernel (see the report). A host that does not admit stage subscriptions yet
-  leaves the subscription out; `make` tolerates exactly that refusal (`ERR_UNSUPPORTED`).
+- **The figure is asked for, by a stage Reading goal owns** (Kernel's ruling): `reading-goal.read-today`
+  (schema 1; input: the day as `i32`, little-endian, empty meaning today; reply: the day `i32` and
+  the seconds `u32`, little-endian; `max_input` 4, `max_reply` 8, one record). The statistics
+  *subscribe* and answer from memory (no card read, `ERR_NOT_FOUND` for a day they do not know);
+  nothing re-enters because the owner cannot subscribe to its own stage. Reading goal runs it when it
+  is about to write: at a book closed, suspend and stopping (the widget and the sleep screen will
+  also on drawing and on the minute tick). No answer (`ERR_CANCELLED` when the statistics have not
+  started yet, `ERR_NOT_FOUND`, busy, no stage, a malformed reply) leaves what was kept: `figure()`
+  is tested for each. Not pushed by the statistics on every page turn (X4 stack and time). A host that
+  does not admit stages yet leaves the stage out; `make` tolerates exactly that refusal
+  (`ERR_UNSUPPORTED`). The statistics' side (the subscription and `stats.goal`) is a follow-up PR.
 - The write is best effort like interface 6's (`.ok()`): a failed write is not told; the figure is
   kept and written at the next edge.
 
@@ -57,7 +61,7 @@ are not there. It is removed in the PR that finishes the port.
 
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
-- The statistics running the stage `stats.read-today` with the figure (stats side, see above).
+- The statistics subscribing to `reading-goal.read-today` and answering (stats side, see above).
 - Images (draft 22) and the widget host call (Core todo 76) for the widget and the
   sleep screen; the sleep plugin on interface 7.
 - The plugin list and restart for the offer to switch the statistics on.

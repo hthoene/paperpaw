@@ -51,6 +51,10 @@
       "name": "storage.sync"
     },
     {
+      "kind": "host",
+      "name": "stage.run"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },

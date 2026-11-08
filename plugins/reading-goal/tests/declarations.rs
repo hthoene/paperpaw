@@ -96,13 +96,22 @@ fn the_events_are_the_ones_the_figure_is_written_at() {
 }
 
 #[test]
-fn the_figure_comes_by_the_statistics_stage() {
+fn the_figure_is_asked_by_a_stage_of_its_own() {
     let all = records(|sink| declarations::stages(sink));
-    assert!(all.contains("stats.read-today"), "{all}");
+    assert!(
+        all.contains("StageSpec") && all.contains("read-today"),
+        "{all}"
+    );
+    // A day in (4 bytes), a day and the seconds out (8), one reply.
+    assert!(
+        all.contains("max_input: 4") && all.contains("max_reply: 8"),
+        "{all}"
+    );
+    assert!(all.contains("max_records: 1"), "{all}");
 }
 
-/// Every record is well formed for the host. The host does not admit stage
-/// subscriptions yet (`native_host/declarations.rs`: checked, then
+/// Every record is well formed for the host. The host does not admit stages
+/// yet (`native_host/declarations.rs`: checked, then
 /// `ERR_UNSUPPORTED`); they must fail only that way, and these are the only ones
 /// that do.
 #[test]
@@ -129,5 +138,5 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(waiting, ["stages: RegistrationStage"]);
+    assert_eq!(waiting, ["stages: StageSpec"]);
 }

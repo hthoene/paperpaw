@@ -137,7 +137,7 @@ fn decimal(mut value: u64, digits: &mut [u8; 20]) -> &[u8] {
     digits.get(at..).unwrap_or(&[])
 }
 
-/// The statistics' figure of today as the stage `stats.read-today` carries it
+/// The statistics' figure of today as the reply of the stage `reading-goal.read-today` carries it
 /// (schema 1): the day as an `i32` and the seconds read on it as a `u32`, both
 /// little-endian. Anything but exactly eight bytes is nothing.
 #[must_use]
