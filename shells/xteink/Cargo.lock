@@ -2411,14 +2411,14 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
@@ -2518,7 +2518,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2563,7 +2563,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]

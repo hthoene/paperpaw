@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-platform",
@@ -1923,7 +1923,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",

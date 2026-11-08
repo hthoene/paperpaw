@@ -11,11 +11,14 @@ thread_local! {
     /// 0: no refusal. n > 0: refuse the n-th allocation of 64 bytes or more
     /// from now (once). `usize::MAX`: refuse every one.
     static FAIL: Cell<usize> = const { Cell::new(0) };
+    /// Every allocation of this thread, of any size.
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 
 // SAFETY: forwards to `System`, refusing (null) only where a refusal is armed.
 unsafe impl GlobalAlloc for Refusing {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
         if layout.size() >= 64 {
             let refuse = FAIL.with(|fail| match fail.get() {
                 0 => false,
@@ -101,4 +104,50 @@ fn a_cached_key_sort_survives_either_allocation_being_refused() {
             assert_eq!(cached, expected, "refusal {fail}, {len} items");
         }
     }
+}
+
+/// How many allocations `sorted` makes.
+fn allocations(sorted: impl FnOnce()) -> usize {
+    let before = ALLOCATIONS.with(Cell::get);
+    sorted();
+    ALLOCATIONS.with(Cell::get) - before
+}
+
+#[test]
+fn up_to_twelve_items_are_sorted_in_place_without_any_allocation() {
+    for len in 0..=12 {
+        let items = list(len);
+        let mut expected = items.clone();
+        expected.sort_by_key(|item| item.0);
+        let mut expected_plain = items.clone();
+        expected_plain.sort();
+
+        let mut by_key = items.clone();
+        assert_eq!(
+            allocations(|| sort_by_key(&mut by_key, |item| item.0)),
+            0,
+            "sort_by_key, {len} items"
+        );
+        assert_eq!(by_key, expected);
+        let mut by = items.clone();
+        assert_eq!(
+            allocations(|| sort_by(&mut by, |a, b| a.0.cmp(&b.0))),
+            0,
+            "sort_by, {len} items"
+        );
+        assert_eq!(by, expected);
+        let mut cached = items.clone();
+        assert_eq!(
+            allocations(|| sort_by_cached_key(&mut cached, |item| item.0)),
+            0,
+            "sort_by_cached_key, {len} items"
+        );
+        assert_eq!(cached, expected);
+        let mut plain = items.clone();
+        assert_eq!(allocations(|| sort(&mut plain)), 0, "sort, {len} items");
+        assert_eq!(plain, expected_plain);
+    }
+    // The counter sees allocations: a longer list needs its positions.
+    let mut longer = list(13);
+    assert!(allocations(|| sort(&mut longer)) > 0);
 }

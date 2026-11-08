@@ -18,6 +18,9 @@
 //! the time of the standard library's sort on lists of 2,000 to 10,000
 //! entries (the comparison is one indirect call).
 //!
+//! **Short lists.** Up to 12 items (`BLOCK`) are insertion-sorted in place,
+//! with no allocation.
+//!
 //! **No memory.** When the heap refuses the `4 * n` bytes (or `n` does not fit
 //! a `u32`), the sort is done in place: insertion-sorted blocks merged by
 //! `SymMerge` rotations, `O(n log n)` comparisons and `O(n log² n)` swaps, with
@@ -92,12 +95,13 @@ pub fn sort_by_key<T, K: Ord>(items: &mut [T], mut key: impl FnMut(&T) -> K) {
 }
 
 /// Sorts `items` by `key`, stably, calling `key` once per item (like
-/// `slice::sort_by_cached_key`). Without room for the keys it calls `key`
-/// for every comparison instead.
+/// `slice::sort_by_cached_key`). Up to 12 items, or without room for the
+/// keys, it calls `key` for every comparison instead and allocates nothing.
 pub fn sort_by_cached_key<T, K: Ord>(items: &mut [T], mut key: impl FnMut(&T) -> K) {
     let len = items.len();
-    if len < 2 {
-        return;
+    if len <= BLOCK {
+        // Too few for the keys to be worth a block of memory.
+        return sort_by_key(items, key);
     }
     let mut keys = Vec::new();
     if keys.try_reserve_exact(len).is_err() {
@@ -144,7 +148,10 @@ const BLOCK: usize = 12;
 
 /// The one sort: through positions, or in place without memory.
 fn stable(len: usize, ops: &mut dyn Ops) {
-    if len > 1 && !by_positions(len, ops) {
+    if len <= BLOCK {
+        // Menus, settings and most lists: in place, no allocation at all.
+        insertion(ops, 0, len);
+    } else if !by_positions(len, ops) {
         in_place(len, ops);
     }
 }
@@ -288,12 +295,13 @@ mod tests {
     #[test]
     fn a_cached_key_is_computed_once_per_item() {
         let mut calls = 0;
-        let mut items = [5, 3, 9, 1, 7];
+        let mut items: [u32; 20] = core::array::from_fn(|at| (at as u32 * 7) % 20);
         sort_by_cached_key(&mut items, |item| {
             calls += 1;
             *item
         });
-        assert_eq!((items, calls), ([1, 3, 5, 7, 9], 5));
+        assert_eq!(calls, 20);
+        assert!(items.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
     proptest! {
