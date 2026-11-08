@@ -111,6 +111,14 @@
       "name": "storage.rename"
     },
     {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -129,7 +137,8 @@
   ],
   "services": [
     "core.net",
-    "core.secrets"
+    "core.secrets",
+    "core.ui"
   ],
   "features": [
     "uses.network"

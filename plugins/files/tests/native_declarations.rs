@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::{Record, records_decode},
+    registrations::records_decode,
 };
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
@@ -51,11 +51,8 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
-/// The host takes the settings, the screens, the action and the events; it
-/// checks the icons, the menu needs and the slot offer and then refuses what
-/// its menus and slots do not take yet (`screens-input.md` section 1, #944):
-/// `make` is refused as unsupported until then, the same state as Keys,
-/// Profiles, About and the plugin manager.
+/// The host takes the settings, the screens, the action, the icons, the menu
+/// entry and need, and the slot offers (`screens-input.md` section 1).
 #[test]
 fn the_host_admits_what_it_can_and_names_what_it_refuses() {
     for batch in batches!(declarations::settings)
@@ -70,7 +67,7 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
         let records = records_decode(&batch).unwrap();
         for record in records.iter() {
             match validate_record("files", &record) {
-                Ok(()) => assert!(matches!(record, Record::ActionSpec(_)), "{record:?}"),
+                Ok(()) => {}
                 Err(status) => {
                     assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
                     refused.push(format!("{record:?}"));
@@ -78,9 +75,8 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
             }
         }
     }
-    assert_eq!(
-        refused.len(),
-        8,
-        "the four icons, the menu need, the menu entry and the two slot offers: {refused:?}"
+    assert!(
+        refused.is_empty(),
+        "the host admits every record now: {refused:?}"
     );
 }

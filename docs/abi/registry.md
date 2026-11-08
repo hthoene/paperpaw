@@ -94,10 +94,11 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 19 | `widgets` | `reg_query` (`scope`: widget kind or empty) | `reg_widget`*, `end` | widget discovery, section 6 |
 | 20 | `needs` | `reg_query` (`scope`: plugin id) | `reg_need`*, `end` | features, services and required plugins, paged (up to 32 + 32 + more do not fit one reply) |
 | 21 | `status` | `reg_query` (`scope`: empty, or `item` / `line` for one kind) | `reg_status`*, `end` | status items and lines (`ui.md` section 5.3); one row type per op, op 19 stays widgets only |
+| 22 | `setup_step` | `reg_key` | `reg_setup_step`, `reg_text`? | one step in full: its help text (Port A on #354) |
 
 - [D] `scope` that names nothing known gives an empty page (`total` 0), not an error: a plugin may
   ask for a group or menu of a plugin that is not installed.
-- [D] `setting`, `plugin` and `preset` with an unknown key: `ERR_NOT_FOUND`.
+- [D] `setting`, `plugin`, `preset` and `setup_step` with an unknown key: `ERR_NOT_FOUND`.
 - [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
 
 ### 2.3 Authority (what a reply shows)
@@ -168,7 +169,8 @@ Field meanings:
   types (`min`/`max`/`step` are `i32` there; `shown_id`/`shown_value` are `setting.extra`'s);
   `choices` is the number of choices, read with op 3 (paged: foreign `setting.choice` extensions
   make the count open; the longest fixed list today is 33).
-- `reg_text` in `setting` is the help text; in `plugin` the description.
+- `reg_text` in `setting` and `setup_step` is the help text (the declaration's `help`,
+  translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
   firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none), `problem_arg`
@@ -186,8 +188,11 @@ Field meanings:
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
   enabled, 2 hidden, 3 removed, 4 user-defined menu (per row; the menu-level flag is op 11's
   `reg_item.flags` bit 5), 5 in the declared rows (the editor's
-  "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
-  `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
+  "default" set), 6 `switch` (the row shows a switch: an action whose last
+  `command.set_item_state` set `switch`, or a Boolean setting; bit 0 is then whether it is on, so
+  an off switch differs from a plain action). `by` is the plugin that declared the row, or for a
+  hidden row the plugin whose `menu.hide` hides it. `describe` is the `menu.describe` text,
+  translated.
 - `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
   encoding, never cut; `flags` bit 0 "as if not set" (a preset that resets it), bit 1 hidden
   (section 2.3; `value` empty).

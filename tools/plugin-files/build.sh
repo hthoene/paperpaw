@@ -65,7 +65,8 @@ done
 # .cargo/config.toml's flags, unlike RUSTFLAGS, which would replace them.
 # The variable is split at spaces, so with a space in one of the paths the
 # remap cannot be made and the files would depend on where they were built:
-# the build refuses, unless PAPERPAW_ALLOW_UNREMAPPED=1 (a trial build).
+# the build refuses, unless PAPERPAW_ALLOW_UNREMAPPED=1 (a trial build; ignored
+# with --key or --fingerprint: a build that is signed or checked is never one).
 remap_paths=("$root" "${CARGO_TARGET_DIR:-$here/target}" "${CARGO_HOME:-$HOME/.cargo}")
 remappable=1
 spaced=
@@ -76,11 +77,14 @@ for dir in "${remap_paths[@]}"; do
 done
 if [[ $remappable = 0 ]]; then
     # The files would differ by where they were built: not what the store, the
-    # release or the CI hash-check can accept. A trial build may go on.
-    if [[ ${PAPERPAW_ALLOW_UNREMAPPED:-} = 1 ]]; then
+    # release or the CI hash-check can accept. Only a build that is neither
+    # signed nor checked against a fingerprint may go on, by the override: it
+    # is never read for a --key or --fingerprint build, so that it cannot leak
+    # into one that is published.
+    if [[ ${PAPERPAW_ALLOW_UNREMAPPED:-} = 1 && ${#key[@]} = 0 && -z $fingerprint ]]; then
         echo "warning: $spaced has a space or tab in it; the paths are not remapped, so the plugin files depend on where they are built (PAPERPAW_ALLOW_UNREMAPPED=1)" >&2
     else
-        echo "error: $spaced has a space or tab in it, so the paths cannot be remapped and the plugin files would depend on where they are built. Use a path without one, or set PAPERPAW_ALLOW_UNREMAPPED=1 for a trial build that is not published." >&2
+        echo "error: $spaced has a space or tab in it, so the paths cannot be remapped and the plugin files would depend on where they are built. Use a path without one. (PAPERPAW_ALLOW_UNREMAPPED=1 allows a trial build, but never one with --key or --fingerprint.)" >&2
         exit 1
     fi
 fi

@@ -63,7 +63,8 @@ impl BooksView {
     /// As [`Self::new`], with the texts given.
     pub(crate) fn build(words: &mut impl Words, data: &dyn Storage) -> Result<Self, Error> {
         let books = crate::book_list::recent(data).map_err(failed)?;
-        let seconds = totals::seconds_per_book(data, &books).map_err(failed)?;
+        let seconds = totals::seconds_by_id(data, books.len(), |at| books.get(at).map(|r| r.id))
+            .map_err(failed)?;
         let places = crate::book_list::order(&books, &seconds)?;
         let items = crate::book_list::items(words, &books, &seconds, &places, utc_day)?;
         let mut ids = Vec::new();

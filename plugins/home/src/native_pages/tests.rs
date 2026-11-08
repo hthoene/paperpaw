@@ -141,8 +141,9 @@ fn storing_upright_keeps_what_the_page_hides_and_a_space_for_an_emptied_page() {
 }
 
 #[test]
-fn storing_all_pages_writes_the_first_settings_and_empties_the_rest() {
-    let fake = Fake::new(&[]);
+fn storing_all_pages_writes_the_changed_settings_and_empties_the_rest() {
+    // The third setting holds something: emptied. The others are as they are.
+    let fake = Fake::new(&["", "", "old.page"]);
     let pages = vec![
         Page {
             slot: 0,
@@ -154,10 +155,13 @@ fn storing_all_pages_writes_the_first_settings_and_empties_the_rest() {
         },
     ];
     let writes = store_all(&fake, &pages, false).unwrap();
-    assert_eq!(writes.len(), MAX_PAGES);
+    assert_eq!(writes.len(), 3);
     assert_eq!(set_of(&writes, 0, false), "a.b 0/0 2x1");
     assert_eq!(set_of(&writes, 1, false), "core.space");
     assert_eq!(set_of(&writes, 2, false), "");
+    // Written as they are kept: nothing is written.
+    let kept = Fake::new(&["a.b 0/0 2x1", "core.space"]);
+    assert!(store_all(&kept, &pages, false).unwrap().is_empty());
 }
 
 #[test]
@@ -183,12 +187,12 @@ fn the_first_change_on_its_side_keeps_the_whole_derived_layout() {
     let g = Geometry::of(Rect::new(0, 0, 600, 300), 6, 3, 0);
     let items = grid::parse("a.b 0/0 3x1, c.d 3/0 2x1, e.f 0/1 2x1").unwrap();
     let writes = store(&fake, 0, &items, Some(&g)).unwrap();
-    assert_eq!(writes.len(), MAX_PAGES);
+    // The other pages of the layout hold nothing: only the first is written.
+    assert_eq!(writes.len(), 1);
     assert_eq!(
         set_of(&writes, 0, true),
         "a.b 0/0 3x1, c.d 3/0 2x1, e.f 0/1 2x1"
     );
-    assert_eq!(set_of(&writes, 1, true), "");
     // Too many pages to keep: a message, nothing written.
     let many: Vec<Page> = (0..=MAX_PAGES)
         .map(|slot| Page {
@@ -242,7 +246,8 @@ fn a_page_holds_a_widget_in_either_layout() {
     assert!(holds(&fake, "a.b").unwrap());
     assert!(holds(&fake, "x.y").unwrap());
     assert!(!holds(&fake, "n.w").unwrap());
-    assert_eq!(reset_wide().unwrap().len(), MAX_PAGES);
+    assert_eq!(reset_wide(&fake).unwrap().len(), 1);
+    assert!(reset_wide(&Fake::new(&["a.b"])).unwrap().is_empty());
 }
 
 #[test]
@@ -282,7 +287,7 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     sweep(|| store(&fake, 0, &items, Some(&g)).map(|w| w.len()));
     sweep(|| reflow(&fake, &small, false).map(|p| p.map(|p| p.len())));
     sweep(|| holds(&fake, "x.y"));
-    sweep(|| reset_wide().map(|w| w.len()));
+    sweep(|| reset_wide(&fake).map(|w| w.len()));
     let what = What::Widget("n.w".to_string());
     sweep(|| add_to_other(&fake, true, 0, what.try_clone()?, &g).map(|w| w.len()));
 }

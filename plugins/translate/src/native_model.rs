@@ -223,6 +223,9 @@ pub enum Outcome {
     Quota,
     /// The network did not answer (`translate.unreachable`).
     Unreachable,
+    /// The device is in the offline power mode and held the request: the panel
+    /// offers to go online, once (`network.md` 3.2, reason `offline`).
+    Offline,
     /// Anything else (`translate.failed`).
     Failed,
 }
@@ -242,4 +245,10 @@ pub fn outcome(status: u16, body: &str) -> Result<Outcome, Error> {
         0 => Outcome::Unreachable,
         _ => Outcome::Failed,
     })
+}
+
+/// Ignores the failure of something that is only said to the reader (a notice):
+/// it is not the event's error, whose work has been done.
+pub fn best_effort(result: Result<(), Error>) {
+    result.ok();
 }
