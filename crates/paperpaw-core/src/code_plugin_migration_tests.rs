@@ -138,7 +138,11 @@ impl CodeLoader for Interface6 {
     }
 }
 
-fn start(card: &Rc<MemoryStorage>, left: usize, staged: bool) -> (Kernel, Vec<String>) {
+/// What a start changed, as the paths named, shared so that what the kernel does
+/// after it started counts too.
+type Changes = Rc<RefCell<Vec<String>>>;
+
+fn start(card: &Rc<MemoryStorage>, left: usize, staged: bool) -> (Kernel, Changes) {
     let changes = Rc::new(RefCell::new(Vec::new()));
     let mut builder = Kernel::builder(crate::tests::DEVICE)
         .storage(Cut {
@@ -151,8 +155,7 @@ fn start(card: &Rc<MemoryStorage>, left: usize, staged: bool) -> (Kernel, Vec<St
         builder = builder.install_plugin(Id::new_static("hyphenation-de"), PART);
     }
     let kernel = builder.build().unwrap();
-    let changed = changes.borrow().clone();
-    (kernel, changed)
+    (kernel, changes)
 }
 
 fn file(card: &MemoryStorage, path: &str) -> Option<Vec<u8>> {
@@ -205,8 +208,12 @@ fn a_beta3_hyphenation_plugin_without_a_pack_is_left_alone_and_needs_an_update()
     );
     // Nothing deleted and nothing written for it.
     assert!(
-        !changes.iter().any(|p| p.contains("hyphenation-de")),
-        "{changes:?}"
+        !changes
+            .borrow()
+            .iter()
+            .any(|p| p.contains("hyphenation-de")),
+        "{:?}",
+        changes.borrow()
     );
     assert_eq!(before, format!("{:?}", snapshot(&card)));
     assert_eq!(folder(&card, "no pack"), Folder::Beta3);
@@ -214,8 +221,12 @@ fn a_beta3_hyphenation_plugin_without_a_pack_is_left_alone_and_needs_an_update()
     drop(kernel);
     let (kernel, changes) = start(&card, usize::MAX, false);
     assert!(
-        !changes.iter().any(|p| p.contains("hyphenation-de")),
-        "{changes:?}"
+        !changes
+            .borrow()
+            .iter()
+            .any(|p| p.contains("hyphenation-de")),
+        "{:?}",
+        changes.borrow()
     );
     assert_eq!(
         kernel.plugins().get("hyphenation-de").unwrap().problem,
@@ -243,8 +254,8 @@ fn the_pack_from_the_bundle_replaces_beta3_and_a_power_cut_anywhere_loses_nothin
     // A start that is not cut: how many changes the swap makes.
     let card = beta3_card(true);
     let (kernel, changed) = start(&card, usize::MAX, true);
-    let total = changed.len();
-    assert!(total >= 3, "{changed:?}");
+    let total = changed.borrow().len();
+    assert!(total >= 3, "{:?}", changed.borrow());
     assert_eq!(folder(&card, "uncut"), Folder::Pack);
     let plugin = kernel.plugins().get("hyphenation-de").unwrap();
     assert_eq!(plugin.manifest.version, paperpaw_sdk::Version::new(2, 0, 0));
@@ -300,15 +311,29 @@ fn the_pack_from_the_bundle_replaces_beta3_and_a_power_cut_anywhere_loses_nothin
 
 #[test]
 fn a_pack_installed_later_from_the_store_replaces_beta3_whole_or_not_at_all() {
-    for cut in 0..32 {
-        let when = format!("store install cut after {cut} changes");
+    // A start and an install that are not cut: the changes the start makes
+    // and the changes the install makes after it.
+    let card = beta3_card(true);
+    let (mut kernel, changes) = start(&card, usize::MAX, false);
+    let at_start = changes.borrow().len();
+    kernel.install_plugin(&Id::new_static("hyphenation-de"), PART);
+    let install = changes.borrow().len() - at_start;
+    assert!(install >= 3, "{:?}", changes.borrow());
+    assert_eq!(folder(&card, "uncut"), Folder::Pack);
+    drop(kernel);
+
+    let mut seen = [0usize; 2];
+    for cut in 0..install {
+        let when = format!("store install cut after {cut} of {install} changes");
         let card = beta3_card(true);
-        let (mut kernel, _) = start(&card, cut, false);
+        // The power goes after the start's own changes and `cut` of the install's.
+        let (mut kernel, _) = start(&card, at_start + cut, false);
         kernel.install_plugin(&Id::new_static("hyphenation-de"), PART);
         drop(kernel);
         // The power came back: the folder is whole, one version or the other.
         let (kernel, _) = start(&card, usize::MAX, false);
         let state = folder(&card, &when);
+        seen[usize::from(state == Folder::Pack)] += 1;
         drop(kernel);
         if card.get(&format!("{PART}/plugin.ini")).is_some() {
             // The pack was not taken: the store tries again and gets there.
@@ -323,4 +348,51 @@ fn a_pack_installed_later_from_the_store_replaces_beta3_whole_or_not_at_all() {
             );
         }
     }
+    // The cuts did cut: some left Beta 3's plugin whole, some the pack's.
+    assert!(seen[0] > 0 && seen[1] > 0, "{seen:?}");
+}
+
+/// Beta 3's store named `hyphenation-de`'s code as installed
+/// (`.paperpaw/plugin-code.txt`); the swap leaves that line. It decides
+/// nothing for a plugin without code: the start asks it only of the folders
+/// that have a code file, so the pack starts as a data plugin with no
+/// warning, and a code plugin installed under the id later names its own
+/// digest over it.
+#[test]
+fn the_line_beta3_left_for_the_code_changes_nothing_once_the_pack_is_in_place() {
+    let card = beta3_card(true);
+    let stale = paperpaw_sdk::native::installed_code(card.as_ref(), "hyphenation-de");
+    assert_eq!(stale, Some([14; 32]));
+    let (mut kernel, _) = start(&card, usize::MAX, false);
+    kernel.install_plugin(&Id::new_static("hyphenation-de"), PART);
+    drop(kernel);
+    assert_eq!(folder(&card, "installed"), Folder::Pack);
+    // Still named: no installer removes it.
+    assert_eq!(
+        paperpaw_sdk::native::installed_code(card.as_ref(), "hyphenation-de"),
+        stale
+    );
+    // Starts again, as a plugin with no code, running, and without a word
+    // said about code that was never installed or changed.
+    let (mut kernel, changes) = start(&card, usize::MAX, false);
+    let plugin = kernel.plugins().get("hyphenation-de").unwrap();
+    assert_eq!(plugin.kind, PluginKind::Data);
+    assert_eq!((plugin.state, plugin.problem), (PluginState::Running, None));
+    assert!(
+        !changes.borrow().iter().any(|p| p.contains("plugin-code")),
+        "{:?}",
+        changes.borrow()
+    );
+    assert!(kernel.take_warnings().is_empty());
+    // A code plugin put under the id later is named by its own digest, which
+    // takes the line's place: the old one grants nothing to it.
+    assert!(paperpaw_sdk::native::remember_code(
+        card.as_ref(),
+        "hyphenation-de",
+        &[15; 32]
+    ));
+    assert_eq!(
+        paperpaw_sdk::native::installed_code(card.as_ref(), "hyphenation-de"),
+        Some([15; 32])
+    );
 }

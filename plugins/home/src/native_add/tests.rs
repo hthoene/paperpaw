@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 
 struct Fake {
     settings: BTreeMap<String, String>,
+    /// The rows a widget measured.
+    rows: u8,
 }
 
 impl Fake {
@@ -17,13 +19,13 @@ impl Fake {
         for (slot, text) in pages.iter().enumerate() {
             settings.insert(setting(slot, false).unwrap(), (*text).to_string());
         }
-        Self { settings }
+        Self { settings, rows: 1 }
     }
 }
 
 impl Sizes for Fake {
     fn widget(&self, geometry: &Geometry, _: &str) -> (u8, u8, u8) {
-        (geometry.columns, 1, 1)
+        (geometry.columns, self.rows.min(geometry.rows), 1)
     }
 }
 
@@ -394,4 +396,37 @@ fn a_full_home_that_shifts_every_page_is_over_the_stage_budget() {
     // The reset placements count too.
     let resets = [String::from_utf8(alloc::vec![b'x'; STAGE_BUDGET]).unwrap()];
     assert!(!fits(&writes, &resets));
+}
+
+#[test]
+fn an_added_widget_takes_the_rows_it_measured() {
+    let mut fake = Fake::new(&["a.b 0/0 4x1"]);
+    let g = grid4();
+    let pages = crate::native_pages::pages(&fake).unwrap();
+    let widget = What::Widget("c.d".to_string());
+    // One row measured: the second row only.
+    let Plan::Writes(writes) =
+        add_item(&fake, &layout(&g, &pages), 0, widget.try_clone().unwrap()).unwrap()
+    else {
+        panic!("not written")
+    };
+    assert_eq!(set_of(&writes, "home.page-1"), "a.b 0/0 4x1, c.d 0/1 4x1");
+    // Two rows measured: two rows where there is room, else as low as it can
+    // do (its least is one).
+    fake.rows = 2;
+    let Plan::Writes(lowered) =
+        add_item(&fake, &layout(&g, &pages), 0, widget.try_clone().unwrap()).unwrap()
+    else {
+        panic!("not written")
+    };
+    assert_eq!(set_of(&lowered, "home.page-1"), "a.b 0/0 4x1, c.d 0/1 4x1");
+    let empty = Fake {
+        rows: 2,
+        ..Fake::new(&[""])
+    };
+    let none = crate::native_pages::pages(&empty).unwrap();
+    let Plan::Writes(roomy) = add_item(&empty, &layout(&g, &none), 0, widget).unwrap() else {
+        panic!("not written")
+    };
+    assert_eq!(set_of(&roomy, "home.page-1"), "c.d 0/0 4x2");
 }
