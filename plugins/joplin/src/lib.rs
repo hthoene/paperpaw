@@ -44,6 +44,8 @@ mod markdown;
 pub mod native_joplin;
 #[cfg(test)]
 mod native_parity_tests;
+#[cfg(test)]
+mod native_read_tests;
 mod send;
 mod service;
 mod setup;
