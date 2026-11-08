@@ -4,10 +4,10 @@
 //! allocation: a refused allocation ends the reading in
 //! [`Error::NoMemory`] and nothing is returned in part.
 //!
-//! The JSON text itself is read by `paperpaw_json::stream::Parser`, whose
-//! own allocations are bounded (64 levels, 4,096 bytes a string) but not
-//! fallible; [`Catalog::event`] takes what it reports, so that everything
-//! this plugin allocates is swept (see `PORTING-7.md`).
+//! The JSON text itself is read by `paperpaw_json::stream::Parser` with
+//! `try_feed`/`try_finish`, whose allocations are bounded (64 levels,
+//! 4,096 bytes a string) and fallible: a refusal ends the read in
+//! [`Error::NoMemory`]. [`Catalog::event`] takes what it reports.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::json::stream::{Event, Parser};
 use paperpaw_sdk::{Version, native::Error};
@@ -303,9 +303,13 @@ impl<'a> Catalog<'a> {
         let mut catalog = Catalog::new(base, outlines);
         let mut parser = Parser::default();
         for piece in text.chunks(2048) {
-            parser.feed(piece, &mut |event| catalog.event(event));
+            parser
+                .try_feed(piece, &mut |event| catalog.event(event))
+                .map_err(|_| Error::NoMemory)?;
         }
-        parser.finish(&mut |event| catalog.event(event));
+        parser
+            .try_finish(&mut |event| catalog.event(event))
+            .map_err(|_| Error::NoMemory)?;
         catalog.finish()
     }
 

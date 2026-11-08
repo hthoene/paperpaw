@@ -83,3 +83,47 @@ fn a_volume_that_comes_back_works_again() {
     storage.write("books/a.epub", b"abc").unwrap();
     assert_eq!(storage.size("books/a.epub"), Ok(3));
 }
+
+#[test]
+fn the_file_read_last_is_not_read_from_a_pulled_volume() {
+    let (storage, card) = router("cached");
+    storage.write("books/a.epub", b"abcdef").unwrap();
+    // Reads it, so the handle stays open for the next read.
+    let mut buf = [0; 3];
+    assert_eq!(storage.read_at("books/a.epub", 0, &mut buf), Ok(3));
+    std::fs::remove_dir_all(&card).unwrap();
+    assert_eq!(
+        storage.read_at("books/a.epub", 3, &mut buf),
+        Err(StorageError::CARD_GONE)
+    );
+}
+
+#[test]
+fn a_root_deleted_while_running_is_not_made_again() {
+    let (storage, card) = router("not-made");
+    std::fs::remove_dir_all(&card).unwrap();
+    assert_eq!(storage.create_dir("books/x"), Err(StorageError::CARD_GONE));
+    assert_eq!(
+        storage.write("books/x/y", b"1"),
+        Err(StorageError::CARD_GONE)
+    );
+    assert!(!card.exists());
+}
+
+/// A root the system refuses to look at (access revoked) is gone too.
+#[cfg(unix)]
+#[test]
+fn a_root_without_permission_is_card_gone() {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = temp("denied");
+    let root = parent.join("card");
+    let storage = DirStorage::new(&root).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // Root (uid 0) looks anyway: nothing to check then.
+    let refused = std::fs::metadata(&root).is_err();
+    let answer = storage.size("a.epub");
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if refused {
+        assert_eq!(answer, Err(StorageError::CARD_GONE));
+    }
+}

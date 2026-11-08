@@ -7,12 +7,12 @@ use paperpaw_native::host_glue::{self as abi, PpHost};
 use std::alloc::{GlobalAlloc, Layout, System};
 
 #[derive(Clone, Copy, Default)]
-struct Counts {
-    enabled: bool,
-    refuse: bool,
-    refused: bool,
-    live: usize,
-    peak: usize,
+pub(crate) struct Counts {
+    pub(crate) enabled: bool,
+    pub(crate) refuse: bool,
+    pub(crate) refused: bool,
+    pub(crate) live: usize,
+    pub(crate) peak: usize,
 }
 std::thread_local! {
     static COUNTS: Cell<Counts> = Cell::new(Counts::default());
@@ -69,7 +69,7 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
+pub(crate) fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {

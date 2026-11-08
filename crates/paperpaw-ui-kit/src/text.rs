@@ -226,7 +226,7 @@ pub fn wrap_with(
                     taken = at + ch.len_utf8();
                 }
                 line = piece;
-                rest = &rest[taken..];
+                rest = rest.get(taken..).unwrap_or_default();
             }
             if lines.len() + 1 >= max_lines {
                 cut = true;

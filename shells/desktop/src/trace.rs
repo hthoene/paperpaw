@@ -313,6 +313,17 @@ impl<S: Storage> Storage for Traced<S> {
         self.0.create_dir(path)
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        count(|c| c.other += 1);
+        note("remove_tree_step", root, place);
+        self.0.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         count(|c| c.other += 1);
         note("remove_dir_all", path, 0);
