@@ -2285,7 +2285,6 @@ dependencies = [
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-opds",
- "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
@@ -2538,13 +2537,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-plugin-manager"
-version = "1.0.5"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-power"
 version = "1.1.1"
 dependencies = [
@@ -2575,9 +2567,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
