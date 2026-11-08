@@ -151,6 +151,45 @@ pub fn stable_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> cor
     }
 }
 
+/// A vector holding `item` alone, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn one<T>(item: T) -> Result<Vec<T>, Error> {
+    let mut found = Vec::new();
+    found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+    found.push(item);
+    Ok(found)
+}
+
+/// The text of each of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn strs(items: &[String]) -> Result<Vec<&str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    for item in items {
+        found.push(item.as_str());
+    }
+    Ok(found)
+}
+
+/// A copy of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    found.extend_from_slice(items);
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

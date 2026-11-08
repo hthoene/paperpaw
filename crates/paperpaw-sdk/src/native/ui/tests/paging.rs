@@ -3,7 +3,7 @@ use super::*;
 fn check_terminal(end: wire::ServiceEnd, rows: usize) -> Result<(), Error> {
     let state = State::default();
     let row = Param::new("key", "value").unwrap();
-    let mut records = vec![row.record(); rows];
+    let mut records = vec![wire::Record::ServiceUiParam(row.record()); rows];
     records.push(wire::Record::ServiceEnd(end));
     set_stream(&state, &records);
     let bytes = state.reply.borrow();

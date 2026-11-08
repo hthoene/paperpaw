@@ -181,7 +181,8 @@ def validate_record(record, minor):
     names, ordinals = set(), set()
     for field in record['fields']:
         # `list` (str fields only) bounds a separated list inside the text;
-        # `secret` (true, str fields of commands only) keeps the text out of Debug.
+        # `secret` (true: str fields of commands, str or bytes fields of service
+        # records) keeps the value out of Debug.
         keys(field, 'name type since optional ordinal default max_bytes' +
              (' list' if type(field) is dict and 'list' in field else '') +
              (' secret' if type(field) is dict and 'secret' in field else ''))
