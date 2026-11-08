@@ -271,8 +271,7 @@ pub fn install_with(
     let builder = b
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin)
-        .plugin(paperpaw_plugin_plugin_manager::PluginManager);
+        .plugin(paperpaw_plugin_settings::SettingsPlugin);
     #[cfg(feature = "diagnostics")]
     let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
     builder

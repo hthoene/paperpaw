@@ -681,6 +681,7 @@ fn the_settings_open_on_a_setting_focused() {
 /// The installed-plugin manager and the group of plugin preferences are
 /// different destinations, so their settings rows must say which opens.
 #[test]
+#[ignore = "BLOCKED (#228): the interface-7 plugin manager's menu place waits for the host (#944, H1/H3/H4); its row is not in this app"]
 fn plugin_management_and_plugin_settings_have_distinct_names_and_destinations() {
     for device in DEVICES {
         for (language, manager, preferences, screens, network) in [
