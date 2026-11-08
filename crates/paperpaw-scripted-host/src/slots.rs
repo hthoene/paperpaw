@@ -4,6 +4,7 @@
 use crate::{Slot, State};
 use core::ffi::c_void;
 use paperpaw_core::native_host::environment::{SettingValueRef, settings_encode};
+use paperpaw_core::native_host::formatting;
 use paperpaw_native::host_glue::{
     ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
     OK, PpBuffer, PpBytes, PpHost, host_table,
@@ -283,6 +284,47 @@ unsafe extern "C" fn service_call(
     copy_prefix(&reply, out)
 }
 
+/// Slot 6: the key's message in the plugin's catalogs, as the shell copies it.
+unsafe extern "C" fn i18n_copy(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    let Some(state) = state(ctx) else {
+        return ERR_INVALID;
+    };
+    if let Some(status) = state.refusals.call(Slot::I18nCopy) {
+        return status;
+    }
+    // SAFETY: the slot contract supplies live, disjoint input and output.
+    unsafe { formatting::copy_with(&state.translator.borrow(), key, out) }
+}
+
+/// Slot 27: a message with its arguments, formatted as the shell does.
+unsafe extern "C" fn i18n_format(
+    ctx: *mut c_void,
+    key: PpBytes,
+    args: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    let Some(state) = state(ctx) else {
+        return ERR_INVALID;
+    };
+    if let Some(status) = state.refusals.call(Slot::I18nFormat) {
+        return status;
+    }
+    // SAFETY: the slot contract supplies live, disjoint inputs and output.
+    unsafe { formatting::format_with(&state.translator.borrow(), key, args, out) }
+}
+
+/// Slot 28: ASCII digits in the language's digits.
+unsafe extern "C" fn i18n_digits(ctx: *mut c_void, text: PpBytes, out: PpBuffer) -> i32 {
+    let Some(state) = state(ctx) else {
+        return ERR_INVALID;
+    };
+    if let Some(status) = state.refusals.call(Slot::I18nDigits) {
+        return status;
+    }
+    // SAFETY: the slot contract supplies live, disjoint input and output.
+    unsafe { formatting::digits_with(&state.translator.borrow(), text, out) }
+}
+
 unsafe extern "C" fn handle_release(ctx: *mut c_void, handle: u32) -> i32 {
     let Some(state) = state(ctx) else {
         return ERR_INVALID;
@@ -312,5 +354,8 @@ pub(crate) fn table() -> PpHost {
     table.service_open = service_open;
     table.service_call = service_call;
     table.handle_release = handle_release;
+    table.i18n_copy = i18n_copy;
+    table.i18n_format = i18n_format;
+    table.i18n_digits = i18n_digits;
     table
 }

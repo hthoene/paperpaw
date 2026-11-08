@@ -3,14 +3,15 @@
 //!
 //! The rows live in the declaration store, charged there, and leave with their
 //! owner (`begin_native_unload` removes the owner's rows and prunes the
-//! catalog); this module only reads them, with no allocation and no plugin call.
+//! catalog); this module only reads them, with no plugin call and one small
+//! seen-list of ids.
 
 use super::{
-    declaration_store::{DeclarationStore, Kind},
-    native_declarations::NativeDeclarations,
-    registrations::Record,
+    declaration_store::Kind, native_declarations::NativeDeclarations, registrations::Record,
 };
-use paperpaw_native::host_glue::ERR_BUSY;
+use alloc::{string::String, vec::Vec};
+
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 
 /// `reg_item.flags` bit 5 of op 11: the user has a `command.set_menu`
 /// definition for this menu, even when no plugin put anything into it.
@@ -26,31 +27,29 @@ fn menu_of<'a>(record: Record<'a>) -> Option<&'a str> {
     }
 }
 
-/// Calls `visit` with every menu a record names, in declaration order (owners
-/// as stored, then the kinds entry, section, hide), repeats included.
-fn declared(store: &DeclarationStore, visit: &mut dyn FnMut(&str) -> bool) {
-    for kind in [Kind::MenuEntry, Kind::MenuSection, Kind::MenuHide] {
-        let mut go = true;
-        store.keys(kind, &mut |key| {
-            if go {
-                store.with_record(key, &mut |record| {
-                    if let Some(menu) = menu_of(record) {
-                        go = visit(menu);
-                    }
-                });
-            }
-        });
-        if !go {
-            return;
-        }
+/// Records `menu` in `seen` unless an earlier row already named it; `true`
+/// when it is new. The one allocation is reserved fallibly.
+fn first_time(seen: &mut Vec<String>, menu: &str) -> Result<bool, i32> {
+    if seen.iter().any(|other| other == menu) {
+        return Ok(false);
     }
+    seen.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+    let mut copy = String::new();
+    copy.try_reserve_exact(menu.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    copy.push_str(menu);
+    seen.push(copy);
+    Ok(true)
 }
 
 impl NativeDeclarations {
     /// Op 11: every menu id once, with `flags` bit 5 where `user_defined`
     /// says the user redefined it. `custom` are the menus the user defined
-    /// (they show even when empty). Ids come in declaration order, then the
-    /// user's own. `ERR_BUSY` when the store is borrowed.
+    /// (they show even when empty). One pass over the stored rows: the menus
+    /// named by entry rows, then by section rows, then by hide rows (within a
+    /// kind in owner order as stored), each at its first mention; then the
+    /// user's own that no plugin named. `ERR_BUSY` when the store is borrowed,
+    /// `ERR_NO_MEMORY` when the seen-list cannot grow (some ids were visited).
     pub(crate) fn menu_ids<'a>(
         &self,
         custom: &mut dyn Iterator<Item = &'a str>,
@@ -58,33 +57,31 @@ impl NativeDeclarations {
         visit: &mut dyn FnMut(&str, u32),
     ) -> Result<(), i32> {
         let store = self.store.try_borrow().map_err(|_| ERR_BUSY)?;
-        let mut index = 0_usize;
-        declared(&store, &mut |menu| {
-            // Not twice: skip it when an earlier row named the same menu.
-            let mut earlier = false;
-            let mut at = 0_usize;
-            declared(&store, &mut |other| {
-                if at >= index {
-                    return false;
+        let mut seen: Vec<String> = Vec::new();
+        let mut failed = None;
+        for kind in [Kind::MenuEntry, Kind::MenuSection, Kind::MenuHide] {
+            store.keys(kind, &mut |key| {
+                if failed.is_some() {
+                    return;
                 }
-                at += 1;
-                earlier = earlier || other == menu;
-                !earlier
+                store.with_record(key, &mut |record| {
+                    let Some(menu) = menu_of(record) else {
+                        return;
+                    };
+                    match first_time(&mut seen, menu) {
+                        Ok(true) => visit(menu, flags(menu, user_defined)),
+                        Ok(false) => {}
+                        Err(error) => failed = Some(error),
+                    }
+                });
             });
-            index += 1;
-            if !earlier {
-                visit(menu, flags(menu, user_defined));
-            }
-            true
-        });
+        }
+        if let Some(error) = failed {
+            return Err(error);
+        }
         // The user's menus that no plugin named.
         for menu in custom {
-            let mut seen = false;
-            declared(&store, &mut |other| {
-                seen = other == menu;
-                !seen
-            });
-            if !seen {
+            if first_time(&mut seen, menu)? {
                 visit(menu, flags(menu, user_defined));
             }
         }

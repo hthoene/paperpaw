@@ -132,7 +132,7 @@ pub(crate) mod format_index;
 )]
 pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
-mod formatting;
+pub mod formatting;
 pub(crate) mod host_services;
 #[allow(
     dead_code,

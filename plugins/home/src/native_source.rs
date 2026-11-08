@@ -19,6 +19,7 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
+use crate::native_add::WidgetRow;
 use crate::native_grid::Sizes;
 use crate::native_pages::{self, MAX_PAGES, Source};
 
@@ -65,7 +66,7 @@ pub struct HostSource {
     pub focus_at_once: bool,
     /// The arrow keys stay on the page (go round at its edges).
     pub arrows_stay: bool,
-    widgets: Vec<String>,
+    widgets: Vec<WidgetRow>,
     /// The tools' actions and their names.
     tools: Vec<(String, String)>,
     /// The footer's actions: the action, its name, whether it is chosen now.
@@ -150,7 +151,7 @@ impl HostSource {
         registry: &Registry,
     ) -> Result<
         (
-            Vec<String>,
+            Vec<WidgetRow>,
             Vec<(String, String)>,
             Vec<(String, String, bool)>,
         ),
@@ -161,7 +162,14 @@ impl HostSource {
         let mut widgets = Vec::new();
         rows!(cursor => registry.widgets(host, "", cursor, &mut input, &mut out), |w| {
             if widgets.len() < MOST {
-                push(&mut widgets, copy(w.id())?)
+                push(
+                    &mut widgets,
+                    WidgetRow {
+                        id: copy(w.id())?,
+                        title: copy(w.title())?,
+                        kind: copy(w.kind())?,
+                    },
+                )
             } else {
                 Ok(())
             }
@@ -207,6 +215,18 @@ impl HostSource {
             .iter()
             .find(|(id, _)| id == action)
             .map_or(action, |(_, title)| title.as_str())
+    }
+
+    /// The widgets there are: id, name and kind.
+    #[must_use]
+    pub fn widget_rows(&self) -> &[WidgetRow] {
+        &self.widgets
+    }
+
+    /// The tools there are: action and name.
+    #[must_use]
+    pub fn tool_rows(&self) -> &[(String, String)] {
+        &self.tools
     }
 
     /// A widget measured at the grid's width: its rows and its fewest rows.
@@ -267,7 +287,7 @@ impl Source for HostSource {
 
     fn has_widget(&self, id: &str) -> bool {
         let base = native_pages::base(id);
-        self.widgets.iter().any(|w| w == base)
+        self.widgets.iter().any(|w| w.id == base)
     }
 
     fn tools(&self) -> Result<Vec<String>, Error> {
@@ -300,7 +320,11 @@ mod tests {
         HostSource {
             widgets: ["home.clock", "home.recent"]
                 .iter()
-                .map(|s| (*s).into())
+                .map(|s| WidgetRow {
+                    id: (*s).into(),
+                    title: (*s).into(),
+                    kind: "k".into(),
+                })
                 .collect(),
             tools: [("core.library", "Library"), ("core.settings", "Settings")]
                 .iter()
