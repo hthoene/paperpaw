@@ -82,6 +82,30 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        let fonts_before = self.shared.fonts.ids().count();
+        self.admit_native(host, depth, folder, report)?;
+        if self.shared.fonts.ids().count() != fonts_before {
+            // The families it brought are offered, and a font chosen that was
+            // waiting for it is in use. This is the kernel's own refresh, the
+            // one `plugins_changed` runs for every plugin and the builder at
+            // start-up; it is not part of the admission, whose allocation
+            // faults the tests sweep ([`Self::admit_native`]).
+            self.offer_choices();
+            self.apply_reading_font();
+            self.apply_status_font();
+        }
+        Ok(())
+    }
+
+    /// The admission of [`Self::register_native_in`], without the refresh of
+    /// the font choices: all or nothing, and every allocation fallible.
+    pub(crate) fn admit_native<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
         self.shared
             .native_instances
             .adopt_pool(
@@ -385,7 +409,7 @@ impl crate::Kernel {
     /// publication starts, so a failure leaves no trace.
     fn publish_native(
         &mut self,
-        mut staging: crate::registry::Staging,
+        staging: crate::registry::Staging,
         owner: &Id,
         folder: &str,
         resources: super::native_resources::Resources,
@@ -429,11 +453,23 @@ impl crate::Kernel {
             .try_reserve(settings, groups)
             .map_err(|_| no_room())?;
         self.reserve_resources(owner, folder, &resources)?;
-        if let Err(error) = staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)
-        {
+        // Whatever refuses from here on takes the hyphenation tables out
+        // again (nothing else is published before the merge).
+        let published = self.publish_rest(staging, owner, resources);
+        if published.is_err() {
             self.undo_resources(owner);
-            return Err(error);
         }
+        published
+    }
+
+    /// The part of the publication after the room is made.
+    fn publish_rest(
+        &mut self,
+        mut staging: crate::registry::Staging,
+        owner: &Id,
+        resources: super::native_resources::Resources,
+    ) -> Result<(), RegisterError> {
+        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
             // Checked above (no duplicate, a default that fits, a place
             // and the room); an error here would be a mistake in those.

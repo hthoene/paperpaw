@@ -101,7 +101,8 @@ pub(super) struct Resources {
     extensions: Vec<(Id, String, Id)>,
     roles: Vec<(Id, Id, Priority)>,
     tables: Vec<(String, String)>,
-    weight_differs: bool,
+    /// The faces whose weight does not match their style bits.
+    differing: Vec<Id>,
 }
 
 /// `folder/path`, with fallible allocation.
@@ -116,7 +117,7 @@ fn joined(folder: &str, path: &str) -> Result<String, i32> {
 }
 
 fn reserve<T>(list: &mut Vec<T>) -> Result<(), i32> {
-    list.try_reserve(1).map_err(|_| ERR_NO_MEMORY)
+    list.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)
 }
 
 impl Resources {
@@ -130,7 +131,11 @@ impl Resources {
                     let font = face.id.try_clone().ok_or(ERR_NO_MEMORY)?;
                     self.roles.push((role, font, priority));
                 }
-                self.weight_differs |= face.weight_differs;
+                if face.weight_differs {
+                    reserve(&mut self.differing)?;
+                    self.differing
+                        .push(face.id.try_clone().ok_or(ERR_NO_MEMORY)?);
+                }
                 self.faces.push(FontFace::new(
                     face.id,
                     joined(folder, &face.path)?,
@@ -241,8 +246,12 @@ impl crate::Kernel {
         for face in resources.faces {
             if !face.is_pack() && !crate::paperpaw_text_outlines() {
                 // This device reads only packs: the face is left out.
-                self.warn_runtime(
-                    "a font file was left out, this device only reads fonts made for it (.ppfp)",
+                self.native_warning(
+                    owner,
+                    &[
+                        &face.path,
+                        ": this device only reads fonts made for it (.ppfp)",
+                    ],
                 );
                 continue;
             }
@@ -260,9 +269,13 @@ impl crate::Kernel {
         for (role, font, priority) in resources.roles {
             self.shared.fonts.propose(role, font, priority);
         }
-        if resources.weight_differs {
-            self.warn_runtime(
-                "a font face's weight does not match its style bits; the bold bit is used",
+        for id in &resources.differing {
+            self.native_warning(
+                owner,
+                &[
+                    id.as_str(),
+                    ": the weight does not match the style bits; the bold bit is used",
+                ],
             );
         }
         self.tell_hyphenation_collisions(owner);
@@ -272,20 +285,53 @@ impl crate::Kernel {
     /// Tells which languages another plugin's table keeps from `owner`'s, or
     /// the other way round (as a data plugin's tables are told).
     fn tell_hyphenation_collisions(&mut self, owner: &Id) {
-        let told: Vec<String> = self
-            .shared
-            .hyphenation
-            .collisions(owner.as_str())
-            .map(|(lost, kept)| {
-                alloc::format!(
-                    "{}: hyphenation left out, {} has the language",
-                    lost.name(),
-                    kept.plugin()
-                )
-            })
-            .collect();
-        for problem in told {
-            self.warn_runtime(problem);
+        let mut told: Vec<String> = Vec::new();
+        for (lost, kept) in self.shared.hyphenation.collisions(owner.as_str()) {
+            let parts = [
+                lost.plugin(),
+                ":",
+                lost.tag(),
+                ": hyphenation left out, ",
+                kept.plugin(),
+                " has the language",
+            ];
+            let Some(message) = fallible_string(&parts) else {
+                break;
+            };
+            if told.try_reserve_exact(1).is_err() {
+                break;
+            }
+            told.push(message);
+        }
+        for message in told {
+            self.native_warning_text(owner, message);
         }
     }
+
+    /// A warning from `owner` made of `parts`; none if the heap refuses it.
+    fn native_warning(&mut self, owner: &Id, parts: &[&str]) {
+        if let Some(message) = fallible_string(parts) {
+            self.native_warning_text(owner, message);
+        }
+    }
+
+    fn native_warning_text(&mut self, owner: &Id, message: String) {
+        let Some(plugin) = owner.try_clone() else {
+            return;
+        };
+        if self.warnings.try_reserve(1).is_ok() {
+            self.warn(crate::WarningSource::Plugin(plugin), None, message);
+        }
+    }
+}
+
+/// The `parts` one after another, with fallible allocation.
+fn fallible_string(parts: &[&str]) -> Option<String> {
+    let mut text = String::new();
+    text.try_reserve_exact(parts.iter().map(|part| part.len()).sum())
+        .ok()?;
+    for part in parts {
+        text.push_str(part);
+    }
+    Some(text)
 }

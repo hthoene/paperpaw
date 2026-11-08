@@ -327,6 +327,21 @@ fn install_resources(
     result
 }
 
+/// The same without the refresh of the font choices, which allocates as the
+/// kernel does at start-up: the allocation-failure sweeps stop at the end of
+/// the admission.
+fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
+    RES.with(|value| value.set(res));
+    let result = kernel.admit_native(
+        host(0),
+        &FlatDepth::try_new().unwrap(),
+        folder,
+        |_, _, _| {},
+    );
+    RES.with(|value| value.set(0));
+    result
+}
+
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
     kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));

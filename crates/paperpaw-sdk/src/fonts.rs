@@ -345,8 +345,19 @@ impl Fonts {
         entries: usize,
         roles: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        self.entries.try_reserve(entries)?;
-        self.candidates.try_reserve(roles)
+        self.entries.try_reserve_exact(entries)?;
+        self.candidates.try_reserve_exact(roles)
+    }
+
+    /// The fonts proposed for `role` with their priorities, in the order
+    /// they were proposed.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn proposals<'a>(&'a self, role: &'a str) -> impl Iterator<Item = (&'a Id, Priority)> {
+        self.candidates
+            .iter()
+            .filter(move |(r, ..)| r.as_str() == role)
+            .map(|(_, font, priority)| (font, *priority))
     }
 
     /// Adds a face in a file on the storage that belongs to no family: it
