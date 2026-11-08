@@ -1,10 +1,8 @@
 {
-  "replaces_sha256": "022fa498c38bb9a1d407981be5e55a75aa423201231576ef1e717546d2d6ccd2",
-  "reason": "interface 7 is unreleased (draft 21 with #325): the generated records codec gains a typed form next to the Record enum (WireEncode, WireRecord, RawRecord, the _of encoders and RecordStream::feed_raw), so a plugin links only the codecs of the records it uses (#1156: Battery-like sample .ppn 238,916 to 90,184 bytes); the wire format, tags and every record are unchanged, only the emitted Rust text; service.sec_bytes.data (core.secrets random bytes) is marked secret, so its generated Debug shows neither the bytes nor their length (Senior R2 on #367), which changes that field for the compatibility check",
+  "replaces_sha256": "d7862e8f07c2f64a73732a4bd9d2cfe3e85b470966cfce55c4a9f0331b49aacb",
+  "reason": "interface 7 is unreleased (draft 24): the generated records codec gains record_tag_known (a sorted table of the declared record tags, two bytes each), so the host's typed decoding (todo 129) keeps the enum path's statuses without linking any decoder: an unknown tag stays ERR_UNSUPPORTED and a known tag an operation does not expect stays ERR_INVALID; the wire format, tags and every record are unchanged, only the emitted Rust text gains the table and one function",
   "ticket": "#228",
   "waives": [
-    "compatible",
-    "emitted_records",
-    "emitted_streams"
+    "emitted_records"
   ]
 }
