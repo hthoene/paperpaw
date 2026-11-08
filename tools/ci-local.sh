@@ -340,8 +340,6 @@ g_emulator() {
         $emu --headless --profile two-buttons \
           --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
           --screenshot out/two-buttons-settings.png
-        $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-          --script "page-forward,long-tap:600:800"
         $emu --registry out/registry.json
         printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
         py="$(command -v python3 || command -v python)"

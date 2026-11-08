@@ -226,7 +226,7 @@ pub fn wrap_with(
                     taken = at + ch.len_utf8();
                 }
                 line = piece;
-                rest = &rest[taken..];
+                rest = rest.get(taken..).unwrap_or_default();
             }
             if lines.len() + 1 >= max_lines {
                 cut = true;
@@ -256,6 +256,50 @@ pub fn wrap_with(
         }
     }
     Ok(lines)
+}
+
+/// A string that grows only where the allocator allows.
+struct Fallible<'a> {
+    text: &'a mut String,
+    refused: bool,
+}
+
+impl core::fmt::Write for Fallible<'_> {
+    fn write_str(&mut self, part: &str) -> core::fmt::Result {
+        if self.text.try_reserve(part.len()).is_err() {
+            self.refused = true;
+            return Err(core::fmt::Error);
+        }
+        self.text.push_str(part);
+        Ok(())
+    }
+}
+
+/// Appends the formatted `args` to `target`, growing it with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`] when `target` cannot grow; [`Error::Invalid`] when a
+/// formatted value's own `Display` fails.
+pub fn write_to(target: &mut String, args: core::fmt::Arguments<'_>) -> Result<(), Error> {
+    let mut out = Fallible {
+        text: target,
+        refused: false,
+    };
+    match core::fmt::Write::write_fmt(&mut out, args) {
+        Ok(()) => Ok(()),
+        Err(_) if out.refused => Err(Error::NoMemory),
+        Err(_) => Err(Error::Invalid),
+    }
+}
+
+/// The formatted `args` as a new string, with fallible allocation.
+///
+/// # Errors
+/// As [`write_to`].
+pub fn format(args: core::fmt::Arguments<'_>) -> Result<String, Error> {
+    let mut text = String::new();
+    write_to(&mut text, args)?;
+    Ok(text)
 }
 
 /// `notes` joined as a line of notes: "a · b · c".

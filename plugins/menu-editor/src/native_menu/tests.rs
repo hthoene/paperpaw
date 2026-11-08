@@ -42,7 +42,19 @@ fn legacy_reaches(graph: &MenuGraph, from: &str, target: &str) -> bool {
                 .collect()
         })
     };
-    crate::reaches(&entries, from, &Id::parse(target).unwrap(), &mut Vec::new())
+    reaches(&entries, from, &Id::parse(target).unwrap(), &mut Vec::new())
+}
+
+/// The reference: whether `from` leads to `target`, directly or through
+/// submenus (the walk of the interface-6 plugin, kept as the oracle).
+fn reaches(ids: &dyn Fn(&str) -> Vec<Id>, from: &str, target: &Id, seen: &mut Vec<String>) -> bool {
+    if seen.iter().any(|s| s == from) {
+        return false;
+    }
+    seen.push(String::from(from));
+    ids(from)
+        .iter()
+        .any(|id| id == target || reaches(ids, id.as_str(), target, seen))
 }
 
 proptest! {

@@ -89,6 +89,7 @@ mod free;
 mod listed;
 mod settle;
 mod swap;
+mod walk;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
 pub use swap::{
@@ -1172,6 +1173,32 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
         self.list_piece(dir, from, visit)
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.list_head(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.remove_listed_entry(dir, place)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        let result = self.walk_tree(root, keep_root, place, &mut walk::Reads::default());
+        let back = self.write_back();
+        let step = result?;
+        back?;
+        Ok(step)
     }
 
     fn modified(&self, path: &str) -> Option<i64> {

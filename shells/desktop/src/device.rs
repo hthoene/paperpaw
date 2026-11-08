@@ -154,6 +154,15 @@ impl Storage for Card {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.on(|s| s.create_dir(path))
     }
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.on(|s| s.remove_tree_step(root, keep_root, place))
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.on(|s| s.remove_dir_all(path))
     }

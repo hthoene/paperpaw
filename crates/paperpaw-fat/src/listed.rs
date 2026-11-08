@@ -56,14 +56,17 @@ fn visit_on<IO: ReadWriteSeek + 'static>(
             read.met(&entry);
         }
         if stopped.is_some() {
-            if read.is_none() {
-                break;
-            }
             continue;
         }
         match shown(dir, &entry, visit) {
             Some(true) => before += 1,
-            Some(false) => stopped = Some(place(before, &entry)),
+            Some(false) => {
+                stopped = Some(place(before, &entry));
+                // Nothing reads on past it where nobody wants the rest.
+                if read.is_none() {
+                    break;
+                }
+            }
             None => {}
         }
     }
@@ -120,4 +123,96 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         }
         visit_on(dir, items, before, None, visit)
     }
+
+    /// [`Storage::list_bounded`]: the entries from `from` on, none read past
+    /// the one refused, from the start also (no whole folder read), and from
+    /// the start where `from` no longer begins an entry (no counting to it).
+    pub(super) fn list_head(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        if !dir.is_empty() {
+            check(dir)?;
+        }
+        // The sizes in the folders, as appended.
+        self.sync()?;
+        let folder = self.dir(dir)?;
+        let (before, slot) = (from >> 32, from & u64::from(u32::MAX));
+        if from != 0 && folder.begins_entry(slot * SLOT).map_err(error)? {
+            let after = folder.iter_from(slot * SLOT).map_err(error)?;
+            return visit_on(
+                dir,
+                bounded(after.map(|e| e.map_err(error))),
+                before,
+                None,
+                visit,
+            );
+        }
+        visit_on(dir, entries(&folder), 0, None, visit)
+    }
+
+    /// [`Storage::remove_listed`]: the entry `list_head` shows first from
+    /// `place`, taken away by itself: a file, or a folder with nothing in it
+    /// (not even a name PaperPaw does not take); `InvalidPath` for a folder
+    /// with something in it. Its name is not looked for: a name no path
+    /// holds is removed all the same.
+    pub(super) fn remove_listed_entry(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        if !dir.is_empty() {
+            check(dir)?;
+        }
+        self.settle_moves()?;
+        // The sizes in the folders, as appended.
+        self.sync()?;
+        let folder = self.dir(dir)?;
+        // The entry `list_head` shows first: at the place, or at the start
+        // where the place no longer begins an entry.
+        let slot = (place & u64::from(u32::MAX)) * SLOT;
+        let entry = if place != 0 && folder.begins_entry(slot).map_err(error)? {
+            bounded(
+                folder
+                    .iter_from(slot)
+                    .map_err(error)?
+                    .map(|e| e.map_err(error)),
+            )
+            .find(|e| {
+                e.as_ref()
+                    .map_or(true, |e| shown(dir, e, &mut |_| ()).is_some())
+            })
+        } else {
+            entries(&folder).find(|e| {
+                e.as_ref()
+                    .map_or(true, |e| shown(dir, e, &mut |_| ()).is_some())
+            })
+        };
+        let entry = entry.ok_or(StorageError::NotFound)??;
+        let path = child(dir, &entry.file_name());
+        // Empty: its `.` and `..` only. Reads up to the first other entry.
+        let mut empty = true;
+        if entry.is_dir() {
+            for inner in entries(&entry.to_dir()) {
+                let name = inner?.file_name();
+                if name != "." && name != ".." {
+                    empty = false;
+                    break;
+                }
+            }
+        }
+        self.hold(&path)?;
+        self.close(&path)?;
+        self.forget(&path);
+        if !empty {
+            return Err(StorageError::InvalidPath);
+        }
+        self.written(dir_remove_found(&folder, &entry))
+    }
+}
+
+/// `entry` of `dir` taken away where it is, not looked up by its name.
+fn dir_remove_found<IO: ReadWriteSeek + 'static>(
+    dir: &FatDir<IO>,
+    entry: &FatEntry<IO>,
+) -> Result<(), StorageError> {
+    dir.remove_found(entry).map_err(error)
 }

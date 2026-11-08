@@ -18,7 +18,7 @@
 //!   switch them off until the reader wants them ([`StorePlugins`]).
 //!
 //! The diagnostics screen (feature `diagnostics`) is for developer
-//! builds.
+//! builds; it is a native interface-7 plugin and not registered here yet.
 
 #![no_std]
 
@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 39] = [
+pub const STORE_PLUGINS: [&str; 36] = [
     "aids",
     "browser",
     "calibre",
@@ -99,16 +99,13 @@ pub const STORE_PLUGINS: [&str; 39] = [
     "hyphenation-sv",
     "hyphenation-uk",
     "joplin",
-    "keys",
     "koreader",
     "kosync",
     "mail",
-    "menu-editor",
     "news",
     "notes-overview",
     "notes-vault",
     "picture-home",
-    "profiles",
     "read-later-cloud",
     "reading-goal",
     "readwise",
@@ -222,7 +219,6 @@ pub fn install_with(
         .plugin(paperpaw_plugin_menu::Menu);
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_menu_editor::MenuEditor);
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
@@ -239,7 +235,6 @@ pub fn install_with(
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_bluetooth::Bluetooth)
-        .plugin(paperpaw_plugin_power::Power)
         .plugin(paperpaw_plugin_file_manager::FileManager)
         .plugin(paperpaw_plugin_transfer::Transfer)
         .plugin(paperpaw_plugin_opds::Opds);
@@ -249,11 +244,6 @@ pub fn install_with(
     }
     b = b.plugin(paperpaw_plugin_store::Store);
     b = b.plugin(paperpaw_plugin_lock::Lock);
-    #[cfg(feature = "store-plugins")]
-    {
-        b = offered(b, store, paperpaw_plugin_profiles::Profiles);
-        b = offered(b, store, paperpaw_plugin_keys::Keys);
-    }
     b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {
@@ -274,8 +264,6 @@ pub fn install_with(
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    #[cfg(feature = "diagnostics")]
-    let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
     builder
         .plugin(paperpaw_plugin_update::Update)
         .plugin(paperpaw_plugin_setup::Setup)

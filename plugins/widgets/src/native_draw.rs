@@ -85,6 +85,10 @@ pub fn day_mark(t: &LocalTime) -> u64 {
     u64::from(t.year.unsigned_abs()) * 10_000 + u64::from(t.month) * 100 + u64::from(t.day) + 1
 }
 
+/// The most bytes a text setting holds (what the editor allows): a text is
+/// read whole, never refused for being longer than a smaller guess.
+pub const TEXT_MAX: usize = 4096;
+
 /// `hash` taken on over `bytes` (FNV-1a): a number that changes when what it
 /// was made of does, to tell a change without keeping the text.
 #[must_use]

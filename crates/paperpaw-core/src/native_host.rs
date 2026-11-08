@@ -13,6 +13,12 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/codec.rs"]
+pub(crate) mod codec;
+
+#[path = "native_host/event_tags.rs"]
+pub(crate) mod event_tags;
+
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
@@ -104,6 +110,8 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
+pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod fmt_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]

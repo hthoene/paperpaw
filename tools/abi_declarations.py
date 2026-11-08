@@ -521,6 +521,7 @@ def declaration_source(declared, statuses):
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
     source += TYPED_TEMPLATE
+    source += _known_tags_source(declared)
     if any(r['name'].startswith('service.') for r in declared):
         source += (BARE_TEMPLATE
                    .replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
@@ -531,6 +532,37 @@ def declaration_source(declared, statuses):
                          ('@NO_SPACE@', 'ERR_NO_SPACE'), ('@UTF8@', 'ERR_UTF8')]:
         source = source.replace(marker, str(statuses[name]))
     return source
+
+
+def _known_tags_source(declared):
+    """`record_tag_known`: the tags `record_decode` knows, as a sorted table."""
+    tags = sorted(r['id'] for r in declared)
+    _require(all(0 <= t <= 0xFFFF for t in tags), 'record tags must fit u16 for RECORD_TAGS')
+    _require(len(set(tags)) == len(tags), 'duplicate record tag')
+    rows, line = [], '   '
+    for tag in tags:
+        item = f' {tag},'
+        if len(line) + len(item) > 99:
+            rows.append(line)
+            line = '   '
+        line += item
+    rows.append(line)
+    table = '\n'.join(rows)
+    return f'''
+/// The tags of the declared records, ascending (registrations are named by their constants).
+const RECORD_TAGS: [u16; {len(tags)}] = [
+{table}
+];
+
+/// Whether `tag` names a record of this codec ([`Record`]), without decoding anything: a
+/// tag this is false for is the one [`RawRecord::record`] refuses as unknown
+/// (ERR_UNSUPPORTED). It links a table of two bytes per record, no decoder.
+pub fn record_tag_known(tag: u32) -> bool {{
+    tag == REGISTRATION_EVENT_TAG
+        || tag == REGISTRATION_DRAW_TAG
+        || u16::try_from(tag).is_ok_and(|tag| RECORD_TAGS.binary_search(&tag).is_ok())
+}}
+'''
 
 
 DECL_TEMPLATE = '''
