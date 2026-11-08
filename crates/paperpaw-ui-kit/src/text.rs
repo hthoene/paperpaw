@@ -226,7 +226,9 @@ pub fn wrap_with(
                     taken = at + ch.len_utf8();
                 }
                 line = piece;
-                rest = &rest[taken..];
+                // `taken` ends a character of `rest` (`at + len_utf8`): a boundary.
+                debug_assert!(rest.is_char_boundary(taken));
+                rest = rest.get(taken..).unwrap_or_default();
             }
             if lines.len() + 1 >= max_lines {
                 cut = true;
