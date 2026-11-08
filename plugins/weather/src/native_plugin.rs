@@ -267,7 +267,7 @@ impl NativeWeather {
             // The widgets say it is being fetched.
             self.changed(host);
             if told {
-                notice(host, "weather.fetching")?;
+                notice(host, "weather.fetching");
             }
         }
         Ok(())
@@ -311,7 +311,7 @@ impl NativeWeather {
             // Shown at once, the new weather or that it failed.
             self.changed(host);
             if fetched == (Fetched::Failed { told: true }) {
-                notice(host, "weather.failed")?;
+                notice(host, "weather.failed");
             }
             return Ok(());
         }
@@ -530,11 +530,15 @@ fn open_place(host: &Host<'_>) -> Result<(), Error> {
     CommandSender::new(host, &mut scratch).open_screen("weather.place-screen")
 }
 
-/// The notice `key`, shown to the reader.
-fn notice(host: &Host<'_>, key: &str) -> Result<(), Error> {
-    let text = Messages::new()?.copy(host, key)?;
-    let mut scratch = [0; 512];
-    CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+/// The notice `key`, shown to the reader. A courtesy: one that cannot be shown
+/// (no text, no room, the host refuses) changes nothing else.
+fn notice(host: &Host<'_>, key: &str) {
+    let shown = (|| {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    })();
+    drop(shown);
 }
 
 /// Asks for the screen to be drawn again. A refusal (it is not on top any more)

@@ -18,13 +18,18 @@ use crate::{
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
-    device::{Device, PowerLevel},
+    device::{Device, PowerLevel, WifiState},
     net::{BODY_PART, Header, HttpDone, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
     snapshot::capture_snapshot,
     storage::{self, Root},
     work::{Moment, Work, WorkSpec},
 };
-use paperpaw_ui_kit::{files, mem, text, widget::settings::text_of};
+use paperpaw_ui_kit::{
+    files,
+    mem::{self, SERVICE_BUFFER},
+    text,
+    widget::settings::text_of,
+};
 
 /// The plugin's own number of the forecast's request, in its `http_done` event.
 pub const FETCH_REQUEST: u32 = 1;
@@ -213,23 +218,18 @@ impl Fetcher {
     /// Whether the network can be used now: where PaperPaw manages Wi-Fi, only
     /// while it is in a network (the radio is not switched on for the weather).
     fn online(&mut self, host: &Host<'_>) -> bool {
-        let Ok(mut input) = mem::buffer(256) else {
-            return false;
-        };
-        let Ok(mut out) = mem::buffer(512) else {
+        let (Ok(mut input), Ok(mut out)) = (mem::buffer(SERVICE_BUFFER), mem::buffer(SERVICE_BUFFER))
+        else {
             return false;
         };
         let Ok(device) = self.device(host) else {
             return self.net(host).is_ok();
         };
         match device.wifi(host, &mut input, &mut out) {
-            Ok(info) => matches!(
-                info.state(),
-                paperpaw_sdk::native::device::WifiState::Online
-                    | paperpaw_sdk::native::device::WifiState::Hosting
-            ),
+            Ok(info) => matches!(info.state(), WifiState::Online | WifiState::Hosting),
             // No radio of PaperPaw's: a network is there when the service is.
-            Err(_) => self.net(host).is_ok(),
+            Err(Error::NotFound | Error::Unsupported) => self.net(host).is_ok(),
+            Err(_) => false,
         }
     }
 
@@ -238,7 +238,7 @@ impl Fetcher {
     fn power_every(&mut self, host: &Host<'_>, base: i64) -> Result<Option<i64>, Error> {
         let base_ms = u32::try_from(base.saturating_mul(1000)).unwrap_or(u32::MAX);
         let mut input = mem::buffer(256)?;
-        let mut out = mem::buffer(512)?;
+        let mut out = mem::buffer(SERVICE_BUFFER)?;
         let device = self.device(host)?;
         let info = device.power(host, base_ms, &mut input, &mut out)?;
         if info.level() == PowerLevel::Offline {
