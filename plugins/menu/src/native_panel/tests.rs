@@ -382,3 +382,39 @@ fn the_models_survive_refused_allocations() {
     badged.badge = "1".to_string();
     sweep(|| button_text(&badged).map(|t| t.len()));
 }
+
+#[test]
+fn the_focus_goes_round_and_past_faint_controls() {
+    let all = |_: usize| true;
+    assert_eq!(step_focus(0, None, 1, all), None);
+    // Nowhere yet: forward the first, back the last.
+    assert_eq!(step_focus(4, None, 1, all), Some(0));
+    assert_eq!(step_focus(4, None, -1, all), Some(3));
+    assert_eq!(step_focus(4, Some(3), 1, all), Some(0));
+    assert_eq!(step_focus(4, Some(0), -1, all), Some(3));
+    // Past faint ones, round the end.
+    let not_one_two = |i: usize| i != 1 && i != 2;
+    assert_eq!(step_focus(4, Some(0), 1, not_one_two), Some(3));
+    assert_eq!(step_focus(4, Some(3), -1, not_one_two), Some(0));
+    // All faint: one on all the same.
+    assert_eq!(step_focus(3, Some(0), 1, |_| false), Some(1));
+}
+
+#[test]
+fn controls_have_pages_rows_and_hits() {
+    let lines: Vec<Line> = (0..20).map(Line::Open).collect();
+    let layout = layout(&lines, &geometry()).unwrap();
+    assert_eq!(layout.count(), 20);
+    assert!(layout.pages() > 1);
+    assert_eq!(layout.page_of(0), 0);
+    assert_eq!(layout.page_of(19), layout.pages() - 1);
+    assert_eq!(layout.row_of(1), Some(layout.rows[1].area));
+    assert_eq!(layout.row_of(20), None);
+    let second = &layout.rows[1];
+    let inside =
+        paperpaw_sdk::Point::new(i32::from(second.area.x) + 5, i32::from(second.area.y) + 5);
+    assert_eq!(layout.hit(0, inside), Some((1, Control::Open(1))));
+    // The same place on another page is another control, or none.
+    assert_ne!(layout.hit(1, inside).map(|(i, _)| i), Some(1));
+    assert_eq!(layout.hit(0, paperpaw_sdk::Point::new(5, 0)), None);
+}

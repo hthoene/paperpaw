@@ -460,5 +460,81 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
     })
 }
 
+impl Layout {
+    /// How many pages the rows take.
+    #[must_use]
+    pub fn pages(&self) -> usize {
+        self.rows.last().map_or(1, |row| row.page + 1)
+    }
+
+    /// Every control in reading order, with its place and its page.
+    pub fn controls(&self) -> impl Iterator<Item = (&Control, Rect, usize)> {
+        self.rows
+            .iter()
+            .flat_map(|row| row.controls.iter().map(|(c, r)| (c, *r, row.page)))
+    }
+
+    /// How many controls there are.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.rows.iter().map(|row| row.controls.len()).sum()
+    }
+
+    /// The page with control `index` (in reading order); the first page for
+    /// one that is not there.
+    #[must_use]
+    pub fn page_of(&self, index: usize) -> usize {
+        self.controls().nth(index).map_or(0, |(_, _, page)| page)
+    }
+
+    /// The row holding control `index`.
+    #[must_use]
+    pub fn row_of(&self, index: usize) -> Option<Rect> {
+        let mut count = 0;
+        self.rows.iter().find_map(|row| {
+            count += row.controls.len();
+            (index < count).then_some(row.area)
+        })
+    }
+
+    /// The control at `point` on `page`, with its number in reading order.
+    #[must_use]
+    pub fn hit(&self, page: usize, point: paperpaw_sdk::Point) -> Option<(usize, Control)> {
+        self.controls()
+            .enumerate()
+            .find(|(_, (_, rect, on))| *on == page && rect.contains(point))
+            .map(|(index, (control, _, _))| (index, *control))
+    }
+}
+
+/// Where the focus goes from `from` (`None`: nowhere yet) one control forward
+/// (`delta` 1) or back (`-1`), round the ends, past the controls `enabled`
+/// refuses unless none is enabled (then it goes one on all the same).
+/// `None` when there are no controls.
+#[must_use]
+pub fn step_focus(
+    count: usize,
+    from: Option<usize>,
+    delta: isize,
+    enabled: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    // From nowhere: forward the first, back the last (interface 6 went back
+    // to the one before the last).
+    let current = from.map_or(if delta < 0 { count as isize } else { -1 }, |f| f as isize);
+    let step = |at: isize| (at + delta).rem_euclid(count as isize) as usize;
+    let first = step(current);
+    let mut focus = first;
+    for _ in 0..count {
+        if enabled(focus) {
+            return Some(focus);
+        }
+        focus = step(focus as isize);
+    }
+    Some(first)
+}
+
 #[cfg(test)]
 mod tests;
