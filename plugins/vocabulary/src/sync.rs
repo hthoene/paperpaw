@@ -186,7 +186,7 @@ pub(crate) fn files(
     if refused {
         return Err(StorageError::TooLarge);
     }
-    found.sort_unstable_by(|a, b| {
+    paperpaw_sdk::sort::sort_by(&mut found, |a, b| {
         lines::folded(&a.name)
             .cmp(lines::folded(&b.name))
             .then_with(|| a.name.cmp(&b.name))

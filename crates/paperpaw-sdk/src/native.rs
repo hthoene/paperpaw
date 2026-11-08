@@ -97,6 +97,7 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_native",
     "paperpaw_lang",
     "paperpaw_table",
+    "paperpaw_sort",
 ];
 
 /// The layouts of the types that cross between a plugin and PaperPaw, as
@@ -193,7 +194,7 @@ pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 
             ids.push(String::from(id));
         }
     });
-    ids.sort_unstable();
+    paperpaw_sort::sort(&mut ids);
     ids.into_iter()
         .filter_map(|id| {
             let header = read_header(storage, &native.path(&fetched_folder(&id)))?;
@@ -345,6 +346,7 @@ pub mod registrations;
 /// Borrowed registry rows and lossless generation-bound paging.
 pub mod registry;
 pub mod reply;
+pub mod secrets;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
@@ -418,7 +420,7 @@ fn entry_in(text: &str, plugin: &str) -> Option<[u8; 32]> {
     let hex = text
         .lines()
         .find_map(|line| line.strip_prefix(plugin)?.strip_prefix('\t'))?;
-    paperpaw_digest::hex::decode(hex.trim())?.try_into().ok()
+    paperpaw_digest::hex::decode_array(hex.trim())
 }
 
 /// Keeps `value` for `plugin` in `file`, in place of what was kept. A

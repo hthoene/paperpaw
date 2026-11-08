@@ -868,7 +868,7 @@ fn read_metadata(
     if out_of_memory {
         return Err(DocumentError::OutOfMemory);
     }
-    spine_ids.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut spine_ids);
     Ok(Opf {
         metadata,
         spine_ids,
