@@ -195,9 +195,7 @@ fn refused_allocations_in_touch_steps_leave_rows_and_model_in_step() {
         Ok(())
     });
     // Whatever was refused on the way, the rows are those of the model.
-    v.chooser.put_down();
     let rows = v.build().unwrap();
-    v.list.replace(rows.clone());
     assert_eq!(v.list().items(), rows.as_slice());
     assert!(v.value().unwrap().contains("gone"));
 }
