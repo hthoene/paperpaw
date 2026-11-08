@@ -263,7 +263,7 @@ pub mod layout {
 
 /// Streaming XML/XHTML tokenizer (see `paperpaw-xml`) for format plugins.
 pub mod xml {
-    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name};
+    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name, try_decode};
 }
 
 /// Streaming JPEG, PNG and GIF decoding to gray or colour (see

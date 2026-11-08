@@ -61,3 +61,4 @@
 26 additive: native::library annotation reads (Annotation, AnnotationKind, AnnotationCursor, AnnotationPage, AnnotationPageEnd, AnnotationTextQuery, AnnotationTextKind, AnnotationTextPart, annotation_text) for core.library annotations (#370) (#228)
 26 additive: web::try_clean_name, try_file_name, try_percent_decode and try_base_url: fallible twins with identical output (#506) (#228)
 26 additive: paperpaw_digest::hex decode_into, decode_array and try_decode: hex digits decoded into caller-owned bytes or with fallible allocation (#507) (#228)
+26 additive: xml::try_decode re-exported from paperpaw-xml (#510) (#228)
