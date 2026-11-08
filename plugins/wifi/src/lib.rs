@@ -24,6 +24,7 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+pub mod native_phone;
 pub mod native_policy;
 
 mod networks;

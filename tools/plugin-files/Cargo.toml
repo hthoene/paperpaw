@@ -29,12 +29,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "diagnostics"
-path = "src/bin/diagnostics.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "fonts-browser"
 path = "src/bin/fonts-browser.rs"
 test = false
@@ -262,7 +256,6 @@ paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
-paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
 paperpaw-plugin-keys = { path = "../../plugins/keys" }

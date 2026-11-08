@@ -11,7 +11,7 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{MemoryClass, digest::sha1::Sha1, files::is_plain_name, json, native::Error};
 use paperpaw_ui_kit::{
-    mem::push,
+    mem::{push, wipe, wipe_text},
     text::{concat, copy, decimal},
 };
 
@@ -281,7 +281,6 @@ pub fn json_string(text: &str) -> Result<String, Error> {
 
 /// What the device says of itself when Calibre asks
 /// (`GET_INITIALIZATION_INFO`).
-#[derive(Debug)]
 pub struct Device<'a> {
     pub name: &'a str,
     /// The file extensions PaperPaw reads.
@@ -292,34 +291,65 @@ pub struct Device<'a> {
     pub version: &'a str,
 }
 
+/// The password is never shown: `Debug` writes `<set>` or `<none>`.
+impl core::fmt::Debug for Device<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Device")
+            .field("name", &self.name)
+            .field("extensions", &self.extensions)
+            .field("challenge", &self.challenge)
+            .field(
+                "password",
+                &if self.password.is_some() {
+                    "<set>"
+                } else {
+                    "<none>"
+                },
+            )
+            .field("version", &self.version)
+            .finish()
+    }
+}
+
 /// The answer to `GET_INITIALIZATION_INFO`.
 ///
 /// # Errors
 /// `NoMemory` when the answer cannot be kept.
 pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
+    let mut digits = [0; 40];
+    initialization_with(device, &mut digits)
+}
+
+/// [`initialization`] with the hex digits of the password hash kept in
+/// `digits`, which are zeroed before it returns, as is the quoted copy of the
+/// hash; only the answer keeps it.
+///
+/// The SHA-1 state (it holds the password's last block) wipes itself when
+/// the digest is dropped (`paperpaw_digest`'s `Drop`, #451).
+fn initialization_with(device: &Device<'_>, digits: &mut [u8; 40]) -> Result<String, Error> {
+    let answer = initialization_inner(device, digits);
+    wipe(digits);
+    answer
+}
+
+fn initialization_inner(device: &Device<'_>, digits: &mut [u8; 40]) -> Result<String, Error> {
     let mut extensions = String::new();
     for (at, extension) in device.extensions.iter().enumerate() {
         let literal = json_string(extension)?;
         extensions = concat(&[&extensions, if at == 0 { "" } else { ", " }, &literal])?;
     }
-    // TODO(#421): wipe the SHA-1 state, the hex array and the hash with
-    // `mem::wipe` once it lands; the password is secret.
-    let mut digits = [0; 40];
     let hash = match device.password {
         Some(password) if !device.challenge.is_empty() => {
             let mut sha = Sha1::new();
             sha.update(password.as_bytes());
             sha.update(device.challenge.as_bytes());
-            sha_hex(sha, &mut digits)
+            sha_hex(sha, digits)
         }
         _ => "",
     };
-    let (name, version, hash) = (
-        json_string(device.name)?,
-        json_string(device.version)?,
-        json_string(hash)?,
-    );
-    concat(&[
+    let (name, version) = (json_string(device.name)?, json_string(device.version)?);
+    let hash = json_string(hash)?;
+    let answer = concat(&[
         "{\"versionOK\": true, \"maxBookContentPacketLen\": 65536, \"acceptedExtensions\": [",
         &extensions,
         "], \"extensionPathLengths\": {}, \
@@ -335,7 +365,9 @@ pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
         ", \"passwordHash\": ",
         &hash,
         "}",
-    ])
+    ]);
+    wipe_text(hash);
+    answer
 }
 
 /// The 40 lower-case hex digits of a SHA-1, written into `out`.
@@ -665,6 +697,44 @@ mod tests {
                 version: "v"
             })
         );
+    }
+
+    #[test]
+    fn the_password_is_never_in_the_debug_text() {
+        let device = Device {
+            name: "n",
+            extensions: &[],
+            challenge: "abc",
+            password: Some("hunter2-secret"),
+            version: "v",
+        };
+        let shown = alloc::format!("{device:?}");
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(shown.contains("<set>"));
+    }
+
+    #[test]
+    fn the_hash_digits_are_zeroed_once_the_answer_is_made() {
+        let device = Device {
+            name: "n",
+            extensions: &["epub"],
+            challenge: "abc",
+            password: Some("pw"),
+            version: "v",
+        };
+        let mut digits = [0xAA; 40];
+        let answer = initialization_with(&device, &mut digits).unwrap();
+        assert_eq!(digits, [0; 40]);
+        assert_eq!(answer, initialization(&device).unwrap());
+        assert!(answer.contains("\"passwordHash\": \""));
+        // Also with no extension in the answer.
+        let mut digits = [0xAA; 40];
+        let none = Device {
+            extensions: &[],
+            ..device
+        };
+        initialization_with(&none, &mut digits).unwrap();
+        assert_eq!(digits, [0; 40]);
     }
 
     #[test]
