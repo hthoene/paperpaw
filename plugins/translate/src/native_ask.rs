@@ -37,6 +37,8 @@ pub const KEY_NAME: &str = "deepl-key";
 pub const KEY_LABEL: &str = "translate.key";
 /// Where a form too long for the request is written.
 const FORM_FILE: &str = "request.form";
+/// The file a long write is staged in (`storage::STAGED_SUFFIX` after the name).
+const FORM_TEMP: &str = "request.form.pp-staged";
 /// The input and the reply a secrets call needs.
 const SECRETS_INPUT: usize = 1280;
 /// The `User-Agent` of interface 6.
@@ -61,8 +63,7 @@ pub struct Asker {
     net: Option<Net>,
     secrets: Option<Secrets>,
     pending: Option<RequestId>,
-    /// A form file may be in the data folder.
-    staged: bool,
+    form: Form,
 }
 
 impl Asker {
@@ -73,8 +74,7 @@ impl Asker {
             net: None,
             secrets: None,
             pending: None,
-            // A form a cut-off run left behind is taken away with the first one.
-            staged: true,
+            form: Form::new(),
         }
     }
 
@@ -121,7 +121,7 @@ impl Asker {
     ///
     /// # Errors
     /// What the service says, except `Unsupported` (that is [`Kept::Unsupported`]);
-    /// `Invalid` for a key the secrets cannot hold; `NoMemory`.
+    /// `NoSpace` for a key over 1,024 bytes; `NoMemory`.
     pub fn keep_key(&mut self, host: &Host<'_>, typed: &str) -> Result<Kept, Error> {
         let key = typed.trim();
         if key.is_empty() {
@@ -149,7 +149,8 @@ impl Asker {
     /// # Errors
     /// `Busy` at 4 requests of the plugin (wait for an `http_done`), `State`
     /// without the subscription, `Denied` without the network feature,
-    /// `Invalid` for a key the headers cannot hold, `NoMemory`; otherwise the
+    /// `NoSpace` for a key the `Authorization` header cannot hold (over 1,008
+    /// bytes), `Invalid` for control characters in it, `NoMemory`; otherwise the
     /// host's.
     pub fn ask(
         &mut self,
@@ -202,32 +203,46 @@ impl Asker {
         {
             net.cancel(host, REQUEST_TOKEN, input, reply).ok();
         }
-        self.remove_form(host);
+        let storage = DataStorage::new(host);
+        self.form.clear(&storage);
+        let sent = self.send(host, &storage, url, &headers, form, input, reply);
+        if sent.is_err() {
+            // Whatever failed after the form was staged leaves no file behind.
+            self.form.clear(&storage);
+        }
+        sent
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the buffers and the parts of one request, all borrowed from `start`"
+    )]
+    fn send(
+        &mut self,
+        host: &Host<'_>,
+        storage: &dyn Storage,
+        url: &str,
+        headers: &[Header<'_>],
+        form: &[u8],
+        input: &mut [u8],
+        reply: &mut [u8],
+    ) -> Result<RequestId, Error> {
         let mut request = Request::new(REQUEST_TOKEN, "POST", url)?
-            .headers(&headers)?
+            .headers(headers)?
             .max_body(u32::try_from(MAX_BODY).map_err(|_| Error::Invalid)?);
         if form.len() <= MAX_INLINE_BODY {
             request = request.body(form)?;
         } else {
-            DataStorage::new(host)
-                .write(FORM_FILE, form)
-                .map_err(|_| Error::Io)?;
-            self.staged = true;
+            self.form.stage(storage, form)?;
             request = request.send_file(FileRoot::Data, FORM_FILE)?;
         }
         let net = self.net.as_ref().ok_or(Error::State)?;
-        let started = net.request(host, &request, input, reply);
-        if started.is_err() {
-            self.remove_form(host);
-        }
-        started
+        net.request(host, &request, input, reply)
     }
 
     /// Takes the form file away.
     fn remove_form(&mut self, host: &Host<'_>) {
-        if core::mem::take(&mut self.staged) {
-            DataStorage::new(host).remove(FORM_FILE).ok();
-        }
+        self.form.clear(&DataStorage::new(host));
     }
 
     /// Cancels the request in flight; its `http_done` follows and is ignored.
@@ -315,5 +330,142 @@ pub const fn inline(form: &str) -> bool {
 impl Default for Asker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// The form file of a request too long to go inline: whether it may be in the
+/// data folder, and the two ways to get rid of it.
+#[derive(Debug)]
+struct Form {
+    /// A file (or the half of one) may be there.
+    maybe: bool,
+}
+
+impl Form {
+    /// A form a cut-off run left behind is taken away with the first one.
+    const fn new() -> Self {
+        Self { maybe: true }
+    }
+
+    /// Writes `form` for the request to send from. It is marked before the
+    /// write, and a write that fails (partway too) takes what it left away.
+    fn stage(&mut self, storage: &dyn Storage, form: &[u8]) -> Result<(), Error> {
+        self.maybe = true;
+        let written = storage.write(FORM_FILE, form).map_err(|_| Error::Io);
+        if written.is_err() {
+            self.clear(storage);
+        }
+        written
+    }
+
+    /// Removes the file and the one a cut write staged; none is no error.
+    fn clear(&mut self, storage: &dyn Storage) {
+        if core::mem::take(&mut self.maybe) {
+            storage.remove(FORM_FILE).ok();
+            storage.remove(FORM_TEMP).ok();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{string::String, vec::Vec};
+    use core::cell::RefCell;
+    use paperpaw_sdk::{DirEntry, StorageError};
+
+    /// A card that logs what is written and removed, and fails writes on demand.
+    #[derive(Default)]
+    struct Card {
+        log: RefCell<Vec<String>>,
+        fail_write: bool,
+    }
+
+    impl Storage for Card {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.log
+                .borrow_mut()
+                .push(alloc::format!("write {path} {}", data.len()));
+            if self.fail_write {
+                Err(StorageError::Io)
+            } else {
+                Ok(())
+            }
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.log.borrow_mut().push(alloc::format!("remove {path}"));
+            Ok(())
+        }
+    }
+
+    fn log(card: &Card) -> Vec<String> {
+        card.log.borrow().clone()
+    }
+
+    #[test]
+    fn the_temporary_name_is_the_one_a_long_write_stages_in() {
+        assert_eq!(
+            FORM_TEMP,
+            [FORM_FILE, paperpaw_sdk::native::storage::STAGED_SUFFIX].concat()
+        );
+    }
+
+    #[test]
+    fn a_form_is_marked_before_it_is_written_and_cleared_once() {
+        let card = Card::default();
+        let mut form = Form { maybe: false };
+        form.stage(&card, b"abc").unwrap();
+        assert!(form.maybe);
+        assert_eq!(log(&card), ["write request.form 3"]);
+        form.clear(&card);
+        form.clear(&card);
+        assert_eq!(
+            log(&card),
+            [
+                "write request.form 3",
+                "remove request.form",
+                "remove request.form.pp-staged"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_write_that_fails_leaves_neither_the_file_nor_the_staged_one() {
+        let card = Card {
+            fail_write: true,
+            ..Card::default()
+        };
+        // Whatever the mark was before, the failed write is cleaned up.
+        let mut form = Form { maybe: false };
+        assert_eq!(form.stage(&card, b"abc"), Err(Error::Io));
+        assert!(!form.maybe);
+        assert_eq!(
+            log(&card),
+            [
+                "write request.form 3",
+                "remove request.form",
+                "remove request.form.pp-staged"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_first_clear_takes_a_leftover_of_a_cut_off_run_away() {
+        let card = Card::default();
+        let mut form = Form::new();
+        form.clear(&card);
+        assert_eq!(log(&card).len(), 2);
     }
 }

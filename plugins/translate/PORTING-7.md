@@ -57,7 +57,7 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   `User-Agent: PaperPaw/0.1 (e-reader)`) and `max_body` 24 KiB. A form of up to 2,048 bytes goes
   inline; a longer one (3,000 characters keep their full length) is written to `request.form` in the
   data folder and sent from there (`network.md` 2.1: bodies over 2 KiB are written to root 0
-  first), and removed when the request ends or is cancelled (a leftover of a cut-off run goes with
+  first), and removed (with the file a cut write staged) when the request ends, is cancelled, or any step after the form was marked fails (a leftover of a cut-off run goes with
   the first one). A newer `ask` cancels the one in flight (its end is told apart by the request id
   and ignored).
 - `done` (the `http_done` event): reads the answer and, for a 2xx, the body in pieces of up to

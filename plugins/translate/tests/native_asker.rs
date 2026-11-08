@@ -222,8 +222,8 @@ fn secrets(host: &ScriptedHost, kept: Rc<RefCell<Option<(String, String)>>>, uns
     });
 }
 
-fn tell(args: [&str; 3]) {
-    ARGS.with(|a| *a.borrow_mut() = args.map(String::from));
+fn tell<S: AsRef<str>>(args: &[S; 3]) {
+    ARGS.with(|a| *a.borrow_mut() = args.each_ref().map(|s| s.as_ref().to_string()));
 }
 
 fn done(id: u32, status: u32, reason: u32, body_len: usize) -> Vec<u8> {
@@ -252,7 +252,7 @@ fn a_request_goes_out_as_interface_6_sent_it_and_the_translation_comes_back() {
     let log = Log::default();
     net(&host, log.clone(), 200, ANSWER);
     let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-    tell(["abc:fx", "Hello world", "DE"]);
+    tell(&["abc:fx", "Hello world", "DE"]);
     assert_eq!(plugin.event(ASK, &ping()).unwrap().status, 0);
     assert_eq!(
         *log.borrow(),
@@ -288,7 +288,7 @@ fn the_paid_service_is_asked_with_a_key_that_does_not_end_in_fx() {
     let log = Log::default();
     net(&host, log.clone(), 200, ANSWER);
     let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-    tell(["secret-key", "Hi", "EN-GB"]);
+    tell(&["secret-key", "Hi", "EN-GB"]);
     assert_eq!(plugin.event(ASK, &ping()).unwrap().status, 0);
     assert!(log.borrow()[0].starts_with("request POST https://api.deepl.com/v2/translate "));
     seen();
@@ -310,7 +310,7 @@ fn each_status_says_what_interface_6_said() {
         let host = ScriptedHost::new();
         net(&host, Log::default(), status, body);
         let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-        tell(["k", "Hi", "DE"]);
+        tell(&["k", "Hi", "DE"]);
         plugin.event(ASK, &ping()).unwrap();
         seen();
         let batch = done(1, status, reason, body.len());
@@ -329,7 +329,7 @@ fn a_request_cancelled_or_replaced_says_nothing_and_a_newer_one_cancels_the_olde
     let log = Log::default();
     net(&host, log.clone(), 200, ANSWER);
     let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-    tell(["k", "One", "DE"]);
+    tell(&["k", "One", "DE"]);
     plugin.event(ASK, &ping()).unwrap();
     plugin.event(ASK, &ping()).unwrap();
     assert_eq!(
@@ -360,7 +360,7 @@ fn a_long_text_that_does_not_fit_inline_goes_through_a_file_or_is_refused_not_cu
     // host has no storage, so the form cannot be written and the request is
     // refused whole: it never goes out cut.
     let long = "ж".repeat(3000);
-    tell(["k", &long, "DE"]);
+    tell(&["k", &long, "DE"]);
     plugin.event(ASK, &ping()).unwrap();
     assert!(seen()[0].starts_with("ask Err("));
     assert!(log.borrow().is_empty());
@@ -374,14 +374,14 @@ fn the_key_is_kept_trimmed_as_the_plugins_own_secret_and_read_back() {
     let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
     plugin.event(KEY, &ping()).unwrap();
     assert_eq!(seen(), ["key None"]);
-    tell(["  abc:fx \n", "", ""]);
+    tell(&["  abc:fx \n", "", ""]);
     plugin.event(KEEP, &ping()).unwrap();
     assert_eq!(seen(), ["keep Ok(Saved)"]);
     assert_eq!(*kept.borrow(), Some((KEY_LABEL.into(), "abc:fx".into())));
     plugin.event(KEY, &ping()).unwrap();
     assert_eq!(seen(), ["key Some(\"abc:fx\")"]);
     // Nothing typed changes nothing.
-    tell(["   ", "", ""]);
+    tell(&["   ", "", ""]);
     plugin.event(KEEP, &ping()).unwrap();
     assert_eq!(seen(), ["keep Ok(Empty)"]);
     assert_eq!(kept.borrow().as_ref().unwrap().1, "abc:fx");
@@ -392,7 +392,7 @@ fn a_host_that_cannot_keep_passwords_is_told_apart() {
     let host = ScriptedHost::new();
     secrets(&host, Rc::default(), true);
     let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-    tell(["abc:fx", "", ""]);
+    tell(&["abc:fx", "", ""]);
     plugin.event(KEEP, &ping()).unwrap();
     assert_eq!(seen(), ["keep Ok(Unsupported)"]);
     let _ = Kept::Saved;
@@ -417,7 +417,7 @@ fn no_refusal_makes_asking_or_reading_abort() {
         net(host, Log::default(), 200, ANSWER);
         secrets(host, Rc::default(), false);
         let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-        tell(["abc", "Hello", "DE"]);
+        tell(&["abc", "Hello", "DE"]);
         let mut worst = 0;
         for (token, batch) in [
             (KEEP, ping()),
@@ -438,10 +438,36 @@ fn no_refusal_makes_asking_or_reading_abort() {
         net(host, Log::default(), 200, ANSWER);
         secrets(host, Rc::default(), false);
         let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
-        tell(["abc", "Hello", "DE"]);
+        tell(&["abc", "Hello", "DE"]);
         let status = plugin.event(ASK, &ping()).map_or_else(|s| s, |c| c.status);
         seen();
         status
     });
     assert!(results.iter().skip(1).all(|(_, status)| *status <= 0));
+}
+
+#[test]
+fn a_key_too_long_or_with_control_characters_is_refused_before_anything_is_sent() {
+    let host = ScriptedHost::new();
+    let log = Log::default();
+    net(&host, log.clone(), 200, ANSWER);
+    secrets(&host, Rc::default(), false);
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    // The header value (`DeepL-Auth-Key ` and the key) is at most 1,024 bytes.
+    tell(&["k".repeat(1100), "Hi".to_string(), "DE".to_string()]);
+    plugin.event(ASK, &ping()).unwrap();
+    tell(&["a\nb", "Hi", "DE"]);
+    plugin.event(ASK, &ping()).unwrap();
+    assert_eq!(
+        seen(),
+        [
+            "ask Err(NoSpace) waiting false",
+            "ask Err(Invalid) waiting false"
+        ]
+    );
+    assert!(log.borrow().is_empty());
+    // The secrets take a value of at most 1,024 bytes.
+    tell(&["k".repeat(1025), String::new(), String::new()]);
+    plugin.event(KEEP, &ping()).unwrap();
+    assert_eq!(seen(), ["keep Err(NoSpace)"]);
 }
