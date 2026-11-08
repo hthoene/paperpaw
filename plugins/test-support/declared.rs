@@ -1,7 +1,7 @@
 //! Test-only: what a plugin's native declaration batches say, decoded, next to
 //! what its interface-6 registration says, as lines of text that must be
 //! equal. A record the host admits (groups, settings, their extras, screens,
-//! actions) must pass `validate_record`; the others are checked and then
+//! actions, widgets and status declarations) must pass `validate_record`; the others are checked and then
 //! refused as unsupported until the host takes them (anything else, such as
 //! an invalid record, fails the test).
 #![allow(
@@ -140,6 +140,11 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
                     | Record::SettingExtra(_)
                     | Record::ScreenSpec(_)
                     | Record::ActionSpec(_)
+                    | Record::WidgetSpec(_)
+                    | Record::WidgetPlace(_)
+                    | Record::StatusItem(_)
+                    | Record::StatusLine(_)
+                    | Record::StatusPlace(_)
                     | Record::Registration(_)
             );
             match validate_record(plugin, &record) {
