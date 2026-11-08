@@ -36,8 +36,6 @@ pub const PART_MAX: usize = 3_072;
 pub const FOLDER_MAX: usize = 512;
 /// `event.answered.flags` bit 1: the request was cancelled before it started.
 const NOT_STARTED: u32 = 1 << 1;
-/// The slot the keyboard's "type on the phone" asks on (kind 0 only).
-const REMOTE_KEYBOARD: &str = "core.remote-keyboard";
 
 /// What the asker asked, as the host recorded it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -293,7 +291,8 @@ impl Dialogs {
     }
 
     fn ask(&self, ask: &ServiceUiAsk<'_>) -> Result<Vec<u8>, i32> {
-        check_ask(ask)?;
+        // The host's own check, not a copy of it: the two cannot drift.
+        paperpaw_core::native_host::check_ask(ask)?;
         let mut inner = self.inner.borrow_mut();
         // One open request per asker: asking again cancels the open one. Its
         // `event.answered` (outcome 1) is [`Dialogs::answer`] with `Cancelled`.
@@ -387,62 +386,4 @@ impl Dialogs {
         out.truncate(len);
         Ok(out)
     }
-}
-
-/// The form of an `ask` (ui.md 3.1), in the host's order: kind, slot, flag
-/// bits for the kind, then the choices (`Question::check`).
-fn check_ask(ask: &ServiceUiAsk<'_>) -> Result<(), i32> {
-    if ask.kind > 3 {
-        return Err(ERR_INVALID);
-    }
-    match ask.slot {
-        "" => {}
-        REMOTE_KEYBOARD if ask.kind == 0 => {}
-        _ => return Err(ERR_INVALID),
-    }
-    let allowed = match ask.kind {
-        0 => 0xFF,
-        2 => 0x300,
-        _ => 0,
-    };
-    if ask.flags & !allowed != 0 || (ask.kind == 0 && (ask.flags >> 4) & 0xF > 4) {
-        return Err(ERR_INVALID);
-    }
-    match ask.kind {
-        1 => {
-            if ask.choices.is_empty() {
-                return Err(ERR_INVALID);
-            }
-            let mut count = 0;
-            for line in ask.choices.split('\n') {
-                if line.is_empty() {
-                    return Err(ERR_INVALID);
-                }
-                if line.len() > 128 {
-                    return Err(ERR_NO_SPACE);
-                }
-                count += 1;
-            }
-            if count > 32 || ask.choices.len() > 2_048 {
-                return Err(ERR_NO_SPACE);
-            }
-        }
-        2 if !ask.choices.is_empty() => {
-            let mut words = ask.choices.split('\n');
-            let (Some(yes), Some(no), None) = (words.next(), words.next(), words.next()) else {
-                return Err(ERR_INVALID);
-            };
-            if yes.len() > 128 || no.len() > 128 {
-                return Err(ERR_NO_SPACE);
-            }
-            // `only_yes` (bit 8) shows one button, so its `no` line is empty.
-            if ask.flags & (1 << 8) != 0 && !no.is_empty() {
-                return Err(ERR_INVALID);
-            }
-        }
-        2 => {}
-        _ if !ask.choices.is_empty() => return Err(ERR_INVALID),
-        _ => {}
-    }
-    Ok(())
 }
