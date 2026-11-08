@@ -3,8 +3,9 @@
 //! `My Clippings.txt`. The opening of a book at a note needs a host piece
 //! that is not there yet: those rows refuse plainly (`PORTING-7.md`).
 use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
-use crate::model::{self, Counted, Handle};
+use crate::model::{self, Counted, Handle, Kind};
 use crate::native_library::{BUFFER, HostSource};
+use crate::native_notes::{self, Choice, HostReplies, Layout, Row, Show, Start};
 use crate::native_run::run;
 use crate::native_scan::scan;
 use alloc::string::String;
@@ -17,7 +18,7 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{Event, Incoming, kinds},
         formatting::Arg,
-        library::{AnnotationCursor, AnnotationKind, BookRef, Library},
+        library::{AnnotationCursor, BookRef, Library},
         registrations,
         reply::Reply,
         ui::{HandoverId, Instance, Notify, Open, Param, Ui},
@@ -55,30 +56,13 @@ fn digits(mut n: u32, buf: &mut [u8; DIGITS]) -> &str {
     core::str::from_utf8(&buf[at..]).unwrap_or("0")
 }
 
-/// Notes of one book shown at most. A book has more only by the thousand;
-/// interface 6 showed them all, from a file of up to 1 MiB. With the texts
-/// cut at [`model::TEXT_MAX`] and [`model::NOTE_MAX`] a row costs at most
-/// 350 bytes (`ROW_WORST` in the tests), so the screen holds 100 x that, about 44 KiB.
-pub const MOST_NOTES: usize = 100;
-/// A pass over a book's notes ends after this many pages (a book with 300
-/// notes has a dozen), so a host that never ends cannot hold the screen.
-const MOST_PAGES: usize = 64;
-
-/// The most a row of a note takes: the item (three strings and flags), the
-/// quoted text (two curly quotes, 6 bytes), the detail (the note or the kind,
-/// then `· 100 %`, at most 16 bytes more) and 8 bytes of allocator header for
-/// each of the three strings.
-#[cfg(test)]
-const ROW_WORST: usize =
-    core::mem::size_of::<Item>() + model::TEXT_MAX + 6 + model::NOTE_MAX + 16 + 3 * 8;
-
 /// What a screen's rows stand for.
 #[derive(Debug)]
 enum Rows {
     /// The books of the list by catalog handle, then the *Export* row.
     Books(Vec<Handle>),
-    /// The notes of a book.
-    Notes,
+    /// The notes of a book: one page of them.
+    Notes(Layout),
 }
 
 /// One open screen.
@@ -96,6 +80,10 @@ struct View {
     loaded: bool,
     /// The focused row when the rows were freed.
     focus: usize,
+    /// Where each page of notes shown so far starts; the last is this one.
+    pages: Vec<Start<AnnotationCursor>>,
+    /// Where the page after this one starts.
+    next: Option<Start<AnnotationCursor>>,
 }
 
 /// Frees the rows of every notes screen that holds them. Rows of a book take
@@ -103,7 +91,7 @@ struct View {
 /// menu, All notes again, book B), so only the book on top keeps its rows.
 fn free_notes<'a>(views: impl Iterator<Item = &'a mut View>) {
     for view in views {
-        if matches!(view.rows, Rows::Notes) && view.loaded {
+        if matches!(view.rows, Rows::Notes(_)) && view.loaded {
             view.focus = view.list.focus();
             view.list.replace(Vec::new());
             view.loaded = false;
@@ -197,7 +185,7 @@ impl Plugin for NativeNotesOverview {
         };
         let book = match &view.rows {
             Rows::Books(handles) => index < handles.len(),
-            Rows::Notes => false,
+            Rows::Notes(_) => false,
         };
         if book {
             self.open_chosen(host, token, index)?;
@@ -208,9 +196,13 @@ impl Plugin for NativeNotesOverview {
                 self.export(host)?;
                 Ok(Handled::Yes)
             }
-            // BLOCKED (#228): the book opens at the note with `command.open`
-            // into `core.reader` and the goto event (draft 22 `doc_open`).
-            Rows::Notes => Err(Error::Unsupported),
+            Rows::Notes(layout) => match layout.choice(index) {
+                Choice::Previous => self.turn(host, token, false).map(|()| Handled::Yes),
+                Choice::Next => self.turn(host, token, true).map(|()| Handled::Yes),
+                // BLOCKED (#228): the book opens at the note with `command.open`
+                // into `core.reader` and the goto event (draft 22 `doc_open`).
+                Choice::Note => Err(Error::Unsupported),
+            },
         }
     }
 }
@@ -366,6 +358,8 @@ impl NativeNotesOverview {
             book: None,
             loaded: true,
             focus: 0,
+            pages: Vec::new(),
+            next: None,
         };
         self.screens.open(instance, view)
     }
@@ -377,32 +371,88 @@ impl NativeNotesOverview {
         let Some(view) = self.screens.get(instance) else {
             return Ok(());
         };
-        let (Rows::Notes, false, Some(handle)) = (&view.rows, view.loaded, view.book) else {
+        if !matches!(view.rows, Rows::Notes(_)) || view.loaded || view.book.is_none() {
             return Ok(());
-        };
+        }
         let focus = view.focus;
-        // Only one notes screen holds rows: the others are freed first.
+        self.fill(host, instance, Some(focus))
+    }
+
+    /// Shows the page after (or before) the one of the notes screen on top
+    /// for `token`. Its rows are freed first, so two pages are never held.
+    fn turn(&mut self, host: &Host<'_>, token: u32, forward: bool) -> Result<(), Error> {
+        let instance = self.screens.top_instance(token).ok_or(Error::State)?;
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        view.list.replace(Vec::new());
+        view.loaded = false;
+        if forward {
+            let next = view.next.take().ok_or(Error::State)?;
+            view.pages.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            view.pages.push(next);
+        } else if view.pages.len() > 1 {
+            view.pages.pop();
+        }
+        // Coming back, the focus is on the row that went forward.
+        self.fill(
+            host,
+            instance,
+            if forward { None } else { Some(usize::MAX) },
+        )
+    }
+
+    /// Reads the page of notes the screen `instance` is at into it: the other
+    /// notes screens give up their rows first. A page the library no longer
+    /// knows (the book's notes changed) starts again at the first; a book
+    /// that is gone leaves the screen with what to do.
+    fn fill(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        focus: Option<usize>,
+    ) -> Result<(), Error> {
         free_notes(self.screens.all());
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        let handle = view.book.ok_or(Error::State)?;
+        let mut pages = core::mem::take(&mut view.pages);
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
         let mut messages = Messages::new()?;
         let book = BookRef::catalog(handle.key, handle.generation)?;
-        let items = match self.notes(host, &mut messages, book, &mut input, &mut out) {
-            Ok(items) => Some(items),
-            Err(Error::State | Error::NotFound) => None,
-            Err(error) => return Err(error),
+        let library = self.library()?;
+        let mut read = |pages: &[Start<AnnotationCursor>]| {
+            let mut source = HostReplies {
+                library,
+                host,
+                book,
+                input: &mut input,
+                out: &mut out,
+            };
+            native_notes::page(&mut source, pages, &mut |show| {
+                show_row(host, &mut messages, show)
+            })
         };
-        let gone = if items.is_none() {
-            Some((
+        let mut found = read(&pages);
+        if matches!(found, Err(Error::State)) && pages.len() > 1 {
+            pages.truncate(1);
+            found = read(&pages);
+        }
+        let gone = match found {
+            Err(Error::State | Error::NotFound) => Some((
                 messages.copy(host, "notes-overview.empty.title")?,
                 messages.copy(host, "notes-overview.gone")?,
-            ))
-        } else {
-            None
+            )),
+            _ => None,
         };
         let view = self.screens.get(instance).ok_or(Error::State)?;
-        if let Some(items) = items {
-            view.list.replace(items);
-            view.list.set_focus(focus);
+        view.pages = pages;
+        match found {
+            Ok(page) => {
+                view.list.replace(page.items);
+                view.list.set_focus(focus.unwrap_or(0));
+                view.rows = Rows::Notes(page.layout);
+                view.next = page.next;
+            }
+            Err(Error::State | Error::NotFound) => {}
+            Err(error) => return Err(error),
         }
         if let Some(gone) = gone {
             view.empty = gone;
@@ -440,10 +490,6 @@ impl NativeNotesOverview {
             return Err(Error::Invalid);
         };
         let book = BookRef::catalog(key, generation)?;
-        // The book on top is the only one with rows: the others are freed
-        // before this one is read.
-        free_notes(self.screens.all());
-        let mut messages = Messages::new()?;
         // A list older than a change to the catalog is `State` here, as is a
         // book that is gone (`NotFound`): the screen is not opened.
         let title = copy(
@@ -451,79 +497,62 @@ impl NativeNotesOverview {
                 .book(host, book, &mut input, &mut out)?
                 .title(),
         )?;
-        let items = self.notes(host, &mut messages, book, &mut input, &mut out)?;
+        drop((input, out));
+        let mut messages = Messages::new()?;
+        let mut pages = Vec::new();
+        push(&mut pages, Start::default())?;
         let view = View {
             title,
-            rows: Rows::Notes,
-            list: ItemList::new(items),
+            rows: Rows::Notes(Layout::default()),
+            list: ItemList::new(Vec::new()),
             empty: empty(host, &mut messages)?,
             book: Some(Handle { key, generation }),
-            loaded: true,
+            loaded: false,
             focus: 0,
+            pages,
+            next: None,
         };
-        self.screens.open(instance, view)
+        self.screens.open(instance, view)?;
+        // The rows are read into the open screen, after the others gave up
+        // theirs.
+        self.fill(host, instance, None)
     }
+}
 
-    /// The rows of a book's notes, in reading order: bookmarks as their
-    /// label, highlights quoted, each with its own note (else its kind) and
-    /// how far into the book it lies. Kinds a newer reader keeps are not
-    /// listed.
-    fn notes(
-        &self,
-        host: &Host<'_>,
-        messages: &mut Messages,
-        book: BookRef<'_>,
-        input: &mut [u8],
-        out: &mut [u8],
-    ) -> Result<Vec<Item>, Error> {
-        let library = self.library()?;
-        let mut items = Vec::new();
-        let mut cursor = AnnotationCursor::start();
-        for _ in 0..MOST_PAGES {
-            let page = library.annotations(host, book, cursor, input, out)?;
-            for row in page.rows() {
-                let row = row?;
-                let (kind, text) = match row.kind() {
-                    AnnotationKind::Bookmark => (
-                        "notes-overview.bookmark",
-                        copy(model::cut(row.text(), model::TEXT_MAX))?,
-                    ),
-                    AnnotationKind::Highlight => (
-                        "notes-overview.highlight",
-                        messages.format(
-                            host,
-                            "notes-overview.quoted",
-                            &[Arg::Text {
-                                name: "text",
-                                value: model::cut(row.text(), model::TEXT_MAX),
-                            }],
-                        )?,
-                    ),
-                    _ => continue,
-                };
-                if items.len() >= MOST_NOTES {
-                    return Ok(items);
-                }
-                let what = if row.note().is_empty() {
-                    messages.copy(host, kind)?
-                } else {
-                    copy(model::cut(row.note(), model::NOTE_MAX))?
-                };
-                let mut detail = String::new();
-                model::put_detail(
-                    &mut detail,
-                    &what,
-                    u8::try_from(row.percent()).unwrap_or(100),
-                )?;
-                push(&mut items, Item::noted(&text, "", &detail)?)?;
-            }
-            match page.end().next() {
-                Some(next) => cursor = next,
-                None => break,
-            }
-        }
-        Ok(items)
+/// The row a notes screen shows for `show`: a bookmark as its label, a
+/// highlight quoted, each with its own note (else its kind) and how far into
+/// the book it lies.
+fn show_row(host: &Host<'_>, messages: &mut Messages, show: Show<'_, '_>) -> Result<Item, Error> {
+    match show {
+        Show::Previous => Item::row(&messages.copy(host, "notes-overview.previous")?, "‹"),
+        Show::More => Item::row(&messages.copy(host, "notes-overview.more")?, "›"),
+        Show::Note(row) => note_row(host, messages, row),
     }
+}
+
+fn note_row(host: &Host<'_>, messages: &mut Messages, row: &Row<'_>) -> Result<Item, Error> {
+    let (kind, text) = match row.kind {
+        Kind::Highlight => (
+            "notes-overview.highlight",
+            messages.format(
+                host,
+                "notes-overview.quoted",
+                &[Arg::Text {
+                    name: "text",
+                    value: row.text,
+                }],
+            )?,
+        ),
+        _ => ("notes-overview.bookmark", copy(row.text)?),
+    };
+    let what = if row.note.is_empty() {
+        messages.copy(host, kind)?
+    } else {
+        copy(row.note)?
+    };
+    let mut detail = String::new();
+    model::put_detail(&mut detail, &what, row.percent)?;
+    Item::noted(&text, "", &detail)
 }
 
 /// The title of row `index` and how many rows before it have the same title.
@@ -573,7 +602,8 @@ fn empty(host: &Host<'_>, messages: &mut Messages) -> Result<(String, String), E
 #[cfg(test)]
 mod tests {
     use super::{
-        DIGITS, Handle, Item, ItemList, Rows, View, digits, find_again, free_notes, place_of,
+        DIGITS, Handle, Item, ItemList, Layout, Rows, View, digits, find_again, free_notes,
+        place_of,
     };
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -617,8 +647,9 @@ mod tests {
     fn the_notes_of_a_book_fit_in_48_kib_at_worst() {
         // The rows of a screen, and the vector holding them grown to the next
         // power of two (an item is 80 bytes or so).
-        let rows = super::MOST_NOTES * super::ROW_WORST;
-        let vector = super::MOST_NOTES.next_power_of_two() * core::mem::size_of::<Item>();
+        let rows = crate::native_notes::MOST_NOTES * crate::native_notes::ROW_WORST;
+        let vector =
+            crate::native_notes::MOST_NOTES.next_power_of_two() * core::mem::size_of::<Item>();
         assert!(rows + vector <= 48 * 1024, "{}", rows + vector);
     }
 
@@ -631,7 +662,7 @@ mod tests {
         list.set_focus(focus);
         View {
             title: String::new(),
-            rows: Rows::Notes,
+            rows: Rows::Notes(Layout::default()),
             list,
             empty: (String::new(), String::new()),
             book: Some(Handle {
@@ -640,6 +671,8 @@ mod tests {
             }),
             loaded: true,
             focus: 0,
+            pages: Vec::new(),
+            next: None,
         }
     }
 

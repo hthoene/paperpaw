@@ -40,6 +40,9 @@ pub mod native_export;
 #[cfg(test)]
 mod native_export_tests;
 pub mod native_library;
+pub mod native_notes;
+#[cfg(test)]
+mod native_notes_tests;
 pub mod native_plugin;
 pub mod native_run;
 pub mod native_scan;

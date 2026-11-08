@@ -4,7 +4,7 @@
 //! books needs the page in hand and one note, however long the library is.
 //!
 //! Written over [`Texts`], which the library service fills in
-//! ([`crate::native_library::ExportSource`]) and the tests with a scripted
+//! ([`crate::native_library::HostSource::for_export`]) and the tests with a scripted
 //! library, and over a [`Sink`], which the staged file fills in
 //! ([`crate::native_staged`]). The library is read as a whole: a page that
 //! goes stale (a change to the catalog or to a book's notes under the export)
