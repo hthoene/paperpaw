@@ -337,7 +337,9 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
         }
     }
     for s in specs {
-        if s.group.as_str() != group {
+        // An empty `group` takes the settings of every group (a plugin whose
+        // settings sit in the kernel's groups).
+        if !group.is_empty() && s.group.as_str() != group {
             continue;
         }
         let name = relative(s.id.as_str());
