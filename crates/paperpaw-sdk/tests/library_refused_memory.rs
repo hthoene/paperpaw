@@ -356,8 +356,8 @@ fn a_catalog_line_is_seen_cut_and_counted_without_holding_it() {
     assert_eq!((seen.1, seen.2, seen.3.as_str()), (512, 600, "Series"));
     assert_eq!((seen.4, seen.6), ((3, 2), (None, Some(9))));
     // No line, a header and a line from nowhere are not books.
-    assert_eq!(view(0).unwrap().0, false);
-    assert_eq!(view(1_000_000).unwrap().0, false);
+    assert!(!view(0).unwrap().0);
+    assert!(!view(1_000_000).unwrap().0);
     // Where lines start, by path.
     assert_eq!(
         catalog::try_offset_of(&storage, "books/d.epub"),
