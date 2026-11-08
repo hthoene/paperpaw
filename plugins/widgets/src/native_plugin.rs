@@ -11,9 +11,10 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
         events::Event,
+        fonts::{Font, FontRole},
         registrations,
         reply::Reply,
-        ui::{Instance, stages::WidgetCall},
+        ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
     },
 };
 use paperpaw_ui_kit::paint;
@@ -25,6 +26,10 @@ mod image {
 
 /// The callback token of the minute tick, as declared.
 const TICK: u32 = crate::declarations::TICK;
+/// The target of a widget whose tap opens its settings.
+const SETTINGS_TARGET: u32 = 1;
+/// The slot the settings fill.
+const SETTINGS_SLOT: &str = "core.settings";
 /// The most bytes of a stage reply (sizes and up to 32 targets).
 const REPLY: usize = 1280;
 
@@ -81,9 +86,14 @@ impl NativeWidgets {
                 self.find(instance.get()).ok_or(Error::NotFound)?;
                 call.reply_place(&mut out)?
             }
-            WidgetCall::Targets { instance, .. } => {
-                self.find(instance.get()).ok_or(Error::NotFound)?;
-                call.reply_targets(&[], &mut out)?
+            WidgetCall::Targets { instance, rect } => {
+                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let settable = behaviour(item.token).is_some_and(|b| b.settable);
+                if settable {
+                    call.reply_targets(&[WidgetTarget::new(SETTINGS_TARGET, rect)], &mut out)?
+                } else {
+                    call.reply_targets(&[], &mut out)?
+                }
             }
             _ => return Err(Error::Unsupported),
         };
@@ -182,12 +192,50 @@ impl Plugin for NativeWidgets {
         );
         let mut out = Vec::new();
         (behaviour.draw)(&mut cx, &mut out, area)?;
-        paint::replay(&mut frame, &cx.font, &out)
+        let bold = if out
+            .iter()
+            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
+        {
+            Some(Font::acquire_role(host, FontRole::UiBold)?)
+        } else {
+            None
+        };
+        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
     }
 
-    fn input(&mut self, _: &Host<'_>, _: u32, _: Input<'_>) -> Result<Handled, Error> {
-        Ok(Handled::No)
+    fn input(&mut self, host: &Host<'_>, _: u32, input: Input<'_>) -> Result<Handled, Error> {
+        let Input::Widget {
+            instance,
+            target: SETTINGS_TARGET,
+            kind: WidgetInputKind::Tap,
+            ..
+        } = input
+        else {
+            return Ok(Handled::No);
+        };
+        let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+        if !behaviour(item.token).is_some_and(|b| b.settable) {
+            return Ok(Handled::No);
+        }
+        open_settings(host, paperpaw_ui_kit::widget::settings::base(&item.widget))?;
+        Ok(Handled::Yes)
     }
+}
+
+/// Opens the settings on the page of the widget `widget` (its id without the
+/// placement).
+fn open_settings(host: &Host<'_>, widget: &str) -> Result<(), Error> {
+    let ui = Ui::open(host)?;
+    let made = (|| {
+        let mut input = paperpaw_ui_kit::mem::buffer(1024)?;
+        let mut out = paperpaw_ui_kit::mem::buffer(1024)?;
+        ui.handover(host, &[Param::new("id", widget)?], &mut input, &mut out)
+    })();
+    let released = ui.release(host);
+    let handover = made?;
+    released?;
+    let mut scratch = [0; 256];
+    CommandSender::new(host, &mut scratch).open(Open::slot(SETTINGS_SLOT)?.handover(handover))
 }
 
 #[cfg(test)]
