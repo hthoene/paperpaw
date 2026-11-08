@@ -7,8 +7,8 @@ interface 6's sockets (the SDK's `sockets.rs`, `command.rs`, `replies.rs`; the k
 `paperpaw-x4`'s `tls_trust.rs` and `tls_watch.rs`; `paperpaw-serve` for desktop and Android) and of
 the two first-party plugins that use them, mail and calibre (section 7), ADR 0014 (sockets for
 plugins), ADR 0017 (TLS on the X4), `network.md` (NET: `uses.network`, waiting for the network,
-power ends, TLS, `MEMORY_BODIES`), `files.md` (roots, `.part` files) and `work.md` (runs). Doc-only;
-records follow once approved. Tags are proposed and numbered without gaps at the records step.
+power ends, TLS, `MEMORY_BODIES`), `files.md` (roots, `.pp-staged` files) and `work.md` (runs).
+Doc-only; records follow once approved. Tags are proposed and numbered without gaps at the records step.
 
 ## 0. Scope and principles
 
@@ -68,7 +68,8 @@ one counted batch of at most `input_rows` records.
   `server_name` (for TLS: the name to check, `""` for `host`), `timeout_ms` (0 for 20,000; at most
   60,000: lookup, connect and handshake together; for TLS counted from when a TLS session is free),
   `idle_ms` (0 for 60,000: no byte either way that long ends the socket with `timeout`; at most
-  1,800,000). Then at most 4 `sock_pin` (2.4); pins without `tls` are `ERR_INVALID`.
+  1,800,000). Then at most 4 `sock_pin` (2.4); pins without `tls` are `ERR_INVALID`, and so is a
+  non-empty `server_name` without `tls` (it could not mean anything).
 - [D] **Idle applies to every socket** (interface 6 had it for TLS only; plain sockets waited for
   the TCP keep-alive's 45 s): no socket stays open forever unused. A work run's socket always has
   one.
@@ -103,19 +104,22 @@ one counted batch of at most `input_rows` records.
   `event.socket` `received` with `len`; during that callback `data` (`sock_at`: `socket`, `offset`)
   answers `sock_bytes` with up to 3,840 bytes from `offset`, zero at the end. The bytes are freed
   when the callback returns. `len` 0 means the peer closed its side (interface 6's empty read).
-- [D] **File:** the host writes exactly `len` bytes to `<path>.part` and renames it over `path` when
-  whole, as NET saves (`network.md` 3.3), then sends `saved`; a socket that closes before `len`
-  bytes, a full card or a card error removes the `.part` file, leaves the old file as it was and
-  ends the socket (`failed`, reason `closed_early`, `full` or `io`). The target and its `.part` file
-  are paths in use (`files.md` section 3) while the read runs. calibre's books and mail's message
-  bodies come this way, so no large body is held in memory.
+- [D] **An `exact` read is all or nothing:** a peer that closes before `max` bytes came ends the
+  socket `failed` with reason `closed_early`; the bytes that did come are freed, never delivered
+  as a short `received`. `received` with `len` 0 ends only a read without `exact`.
+- [D] **File:** the host writes exactly `len` bytes to `<path>.pp-staged` and renames it over `path`
+  when whole, as NET saves (`network.md` 3.3), then sends `saved`; a socket that closes before `len`
+  bytes, a full card or a card error removes the `.pp-staged` file, leaves the old file as it was
+  and ends the socket (`failed`, reason `closed_early`, `full` or `io`). The target and its
+  `.pp-staged` file are paths in use (`files.md` section 3) while the read runs. calibre's books and
+  mail's message bodies come this way, so no large body is held in memory.
 - [D] **A file read follows the card rules of `files.md` for writes:** the root and path checks
   (root 1 never reaches `plugins/` or `.paperpaw/`, root 0's `.received/` is the host's:
-  `ERR_DENIED`), `ERR_BUSY` at `read` for a target or `.part` another writer uses, and the host's
-  writes keep the storage's free-space reserve (the storage contract's D2.6): reaching it ends the
-  socket `failed` `full` with the `.part` removed, and a `len` above the known free space after
-  the reserve is `ERR_FULL` at `read`. The write buffer is the socket's read part (no other
-  memory).
+  `ERR_DENIED`), `ERR_BUSY` at `read` for a target or `.pp-staged` file another writer uses, and the
+  host's writes keep the storage's free-space reserve (the storage contract's D2.6): reaching it
+  ends the socket `failed` `full` with the `.pp-staged` file removed, and a `len` above the known
+  free space after the reserve is `ERR_FULL` at `read`. The write buffer is the socket's read part
+  (no other memory).
 - [D] A `bytes` read holds at most `SOCK_READ` per socket, inside the socket's reservation.
 
 ### 2.4 TLS: trust, pins, STARTTLS
@@ -157,7 +161,16 @@ one counted batch of at most `input_rows` records.
   broadcast; then one `done`. A broadcast counts as one of the plugin's sockets while it runs.
   calibre finds its server this way.
 - [D] Without a network the broadcast ends `done` with `reason` `no_network` (interface 6 answered
-  `Done` too); refused by power or feature it is `failed` as a socket (section 4).
+  `Done` too); refused by power or feature it is `failed` as a socket (section 4). A network that
+  goes away while it runs (sleep, `network_lost`) ends it `done` `no_network` too; answers already
+  sent stay delivered.
+- [D] **How a broadcast ends** (always with exactly one `done` or `failed`): the 8th answer ends it
+  at once with `done` reason 0 (no further answer could be delivered); otherwise `wait_ms` runs out
+  (`done` 0). `close` on its id ends it `done` 0; the screen closing or the run ending ends it
+  `done` with reason 26 `screen_closed` or 27 `work_ended`.
+- [D] **Answers are checked, never cut:** an answer over 1,024 bytes, or whose `from` is over 64
+  bytes or not UTF-8, is not delivered and does not count toward the 8; the host logs it. A cut
+  answer would hand the plugin a malformed message.
 
 ## 4. Events
 
@@ -250,8 +263,8 @@ one counted batch of at most `input_rows` records.
 - **Host Engineer (after NET's host):** the `core.sockets` host in `paperpaw-core` over interface
   6's `io/sockets.rs`: ids and owners (screen, run, plugin), the limits, idle for every socket, the
   TLS session queue and `session_needed`, send queues and `sent`, reads (bytes, `exact`, file with
-  `.part`, paths in use, the card rules and the free-space reserve), `peer`, `start_tls` refusal
-  of unread bytes, broadcasts, the per-class caps and the reservations from NET's pool
+  `.pp-staged`, paths in use, the card rules and the free-space reserve), `peer`, `start_tls`
+  refusal of unread bytes, broadcasts, the per-class caps and the reservations from NET's pool
   (`ERR_NO_MEMORY`), `work_ended` at a run's longest time, events from the socket table, the NET
   gate and power ends; tests for each status and reason, and one for a pool full of NET bodies.
 - **Firmware (with H10):** the shells' sockets as today (X4 `MAX_SOCKETS` 2, buffers, `tls_slots`,

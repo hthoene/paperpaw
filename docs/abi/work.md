@@ -138,6 +138,10 @@ record.
   input, `network.md` 3.2) and keep the radio on until they end. The run ends when its callback has
   returned and its last request and socket have ended; its sockets must have an idle time
   (`sockets.md` 2.1). A work with `every_ms` is due again only after its run ended.
+- [D] **At most 2 runs of one plugin at once on devices of the small memory class (the X4), 8 on
+  others** (`RUNS_PER_PLUGIN`). A work of that plugin that comes due while it has that many runs
+  open waits, due, in due order and is never dropped: its `work_due` comes when one of the
+  plugin's runs ends (its `within_ms` deadline still counts). Other plugins' work is not held back.
 - [D] **A run lasts at most 10 minutes** (`RUN_MAX_MS` 600,000, from its `work_due`): then the host
   ends what still belongs to it, its requests with reason 14 `work_ended` (`network.md` 4.1) and
   its sockets with reason 27 `work_ended` (`sockets.md` section 4), and the run is over; nothing

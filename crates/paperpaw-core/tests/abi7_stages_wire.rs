@@ -252,8 +252,9 @@ fn local_tags_are_interpreted_only_by_the_selected_stage_schema() {
 
 #[test]
 fn stage_catalog_exposes_the_schema_caps_and_local_tags() {
-    // The three UIX stages and DOC's `core.format` and `core.lookup`.
-    assert_eq!(STAGES.len(), 5);
+    // The three UIX stages, DOC's `core.format` and `core.lookup`, and LIB's
+    // `core.book-badge`.
+    assert_eq!(STAGES.len(), 6);
     assert_eq!(filter::MAX_SUBSCRIBERS, 4);
     assert_eq!(widget::MAX_SUBSCRIBERS, 32);
     assert_eq!(status::MAX_SUBSCRIBERS, 32);

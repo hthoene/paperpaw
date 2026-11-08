@@ -1,0 +1,83 @@
+{
+  "key": "core.book-badge",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "badge.ask"
+  ],
+  "reply": [
+    "badge.value"
+  ],
+  "reply_rows": 16,
+  "records": [
+    {
+      "id": 1,
+      "name": "badge.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "badge",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "keys",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 271,
+          "list": {
+            "separator": "\n",
+            "max_items": 16,
+            "item_max_bytes": 16
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "badge.value",
+      "since": 0,
+      "fields": [
+        {
+          "name": "key",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        },
+        {
+          "name": "icon",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
+    }
+  ]
+}
