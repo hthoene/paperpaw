@@ -32,6 +32,9 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+pub mod native_fetch;
+#[cfg(test)]
+mod native_fetch_tests;
 #[cfg(test)]
 mod native_parity_tests;
 pub mod native_wallabag;
