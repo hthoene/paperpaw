@@ -93,7 +93,7 @@ pub(crate) mod ui_compose_host;
 pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
-mod shared;
+pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
