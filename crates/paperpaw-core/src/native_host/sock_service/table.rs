@@ -8,6 +8,7 @@ use super::{
     READ_MAX, SockHost, TIMEOUT_DEFAULT_MS, TIMEOUT_MAX_MS, kind, reason,
     wire::{self, Record},
 };
+mod file;
 use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{RefCell, RefMut};
@@ -81,7 +82,10 @@ struct Sock {
     connected: Option<Slot>,
     received: Option<(Slot, u32)>,
     sent: Option<Slot>,
+    saved: Option<Slot>,
     end: Option<(Slot, u32, u32)>,
+    /// The read to a file under way.
+    file: Option<file::File>,
 }
 
 impl Sock {
@@ -93,6 +97,7 @@ impl Sock {
         self.connected.is_some()
             || self.received.is_some()
             || self.sent.is_some()
+            || self.saved.is_some()
             || self.end.is_some()
     }
 }
@@ -243,6 +248,7 @@ impl Inner {
         if abort && matches!(self.socks[index].state, State::Connecting | State::Open) {
             host.transport().close(self.socks[index].id);
         }
+        self.drop_file(host, index);
         let slot = self.slot(host);
         let s = &mut self.socks[index];
         s.state = State::Ended;
@@ -356,9 +362,9 @@ impl Inner {
     /// (a partial exact read) or an empty read, then the socket closes.
     fn settle_eof(&mut self, host: &dyn SockHost, index: usize) {
         let s = &self.socks[index];
-        if s.eof && s.state == State::Open && s.want.is_some_and(|w| w.exact) {
-            // An exact read the peer cut short is all or nothing: the socket
-            // ends, the partial bytes are freed, no `received` is told.
+        if s.eof && s.state == State::Open && (s.file.is_some() || s.want.is_some_and(|w| w.exact))
+        {
+            // A file read or an exact read the peer cut short: all or nothing.
             self.end(host, index, kind::FAILED, reason::CLOSED_EARLY, true);
             return;
         }
@@ -515,7 +521,9 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         connected: None,
         received: None,
         sent: None,
+        saved: None,
         end: None,
+        file: None,
     });
     inner.sync_demand(host);
     inner.pump(host);
@@ -548,19 +556,17 @@ pub(super) fn send(
     Ok(())
 }
 
-/// `read` (2.3), bytes only.
+/// `read` (2.3): bytes, or a file.
 pub(super) fn read(
     host: &dyn SockHost,
-    owner: u64,
+    who: &Caller<'_>,
     r: &wire::ServiceSockRead<'_>,
 ) -> Result<(), i32> {
-    if r.mode != MODE_BYTES && r.mode != MODE_FILE {
-        return Err(ERR_INVALID);
-    }
-    if r.mode == MODE_FILE {
-        // Reads to a file need the card rules and the paths in use: a later
-        // slice.
-        return Err(ERR_UNSUPPORTED);
+    let owner = who.owner;
+    match r.mode {
+        MODE_BYTES => {}
+        MODE_FILE => return file::read(host, who, r),
+        _ => return Err(ERR_INVALID),
     }
     let cap = host.profile().read;
     let exact = r.flags & FLAG_EXACT != 0;
@@ -667,6 +673,9 @@ pub(crate) fn received(host: &dyn SockHost, id: u32, bytes: &[u8]) -> Result<usi
     let Some(want) = want else {
         return Err(ERR_STATE);
     };
+    if s.file.is_some() {
+        return inner.file_received(host, index, bytes);
+    }
     let room = (want.max as usize).saturating_sub(s.inbox.len());
     let taken = bytes.len().min(room);
     s.inbox.extend_from_slice(bytes.get(..taken).unwrap_or(&[]));
@@ -792,6 +801,7 @@ enum Pick {
     Connected,
     Received,
     Sent,
+    Saved,
     End,
 }
 
@@ -819,6 +829,7 @@ pub(crate) fn next_event(
             (s.connected.map(|e| e.stamp), Pick::Connected),
             (s.received.map(|(e, _)| e.stamp), Pick::Received),
             (s.sent.map(|e| e.stamp), Pick::Sent),
+            (s.saved.map(|e| e.stamp), Pick::Saved),
             (s.end.map(|(e, _, _)| e.stamp), Pick::End),
         ];
         for (stamp, pick) in slots {
@@ -839,6 +850,8 @@ pub(crate) fn next_event(
             (e.at, kind::RECEIVED, 0, len)
         }),
         Pick::Sent => (s.sent.map_or(0, |e| e.at), kind::SENT, 0, 0),
+        // The plugin knows the length it asked for (the field is 32 bits).
+        Pick::Saved => (s.saved.map_or(0, |e| e.at), kind::SAVED, 0, 0),
         Pick::End => s
             .end
             .map_or((0, kind::FAILED, 0, 0), |(e, k, r)| (e.at, k, r, 0)),
@@ -862,6 +875,7 @@ pub(crate) fn next_event(
             s.held = true;
         }
         Pick::Sent => s.sent = None,
+        Pick::Saved => s.saved = None,
         Pick::End => s.end = None,
     }
     Ok(Some(used))
@@ -916,6 +930,7 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
             index += 1;
             continue;
         }
+        inner.drop_file(host, index);
         let s = &inner.socks[index];
         if matches!(s.state, State::Connecting | State::Open) {
             host.transport().close(s.id);
