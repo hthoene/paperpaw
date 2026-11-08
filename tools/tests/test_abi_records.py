@@ -212,6 +212,13 @@ class RecordsTests(unittest.TestCase):
     def setUp(self):
         self.schema = ABI.load(ROOT / 'abi/abi.def')
 
+    def test_event_tags_stay_below_256(self):
+        # `registration.event` names an event by tag and hosts keep per-plugin
+        # event bitsets: every event record's tag stays below 256.
+        events = [r for r in self.schema['records'] if r['name'].startswith('event.')]
+        self.assertGreater(len(events), 40)
+        self.assertEqual([(r['name'], r['id']) for r in events if r['id'] >= 256], [])
+
     def test_initial_descriptors_and_tags(self):
         ABI.validate(self.schema)
         self.assertEqual([(r['name'], r['id']) for r in self.schema['records']],
