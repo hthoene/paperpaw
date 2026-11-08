@@ -305,7 +305,7 @@ fn each_status_says_what_interface_6_said() {
         (0, 1, "", "Unreachable"),
         (0, 2, "", "Unreachable"),
         (0, 4, "", "Unreachable"),
-        (0, 11, "", "Unreachable"),
+        (0, 11, "", "Offline"),
     ] {
         let host = ScriptedHost::new();
         net(&host, Log::default(), status, body);

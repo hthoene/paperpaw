@@ -1422,6 +1422,8 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
 
 #[path = "native_resources_tests.rs"]
 mod resources;
+#[path = "native_slot_offers_tests.rs"]
+mod slot_offers;
 
 #[test]
 fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
