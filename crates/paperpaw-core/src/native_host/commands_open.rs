@@ -191,13 +191,24 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Records an open staged at `index`.
-    pub(super) fn record_open(&mut self, index: usize, mode: u32, handover: u32) {
-        let replaces = if mode == 2 { self.own_top().ok() } else { None };
+    pub(super) fn record_open(
+        &mut self,
+        index: usize,
+        mode: u32,
+        handover: u32,
+    ) -> Result<(), i32> {
+        let replaces = if mode == 2 {
+            Some(self.own_top()?)
+        } else {
+            None
+        };
+        // Room was reserved for every open of the batch.
         self.opens.at.push(StagedOpen {
             index,
             handover: (handover != 0).then_some(handover),
             replaces,
         });
+        Ok(())
     }
 }
 

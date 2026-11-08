@@ -409,6 +409,18 @@ fn a_screen_that_is_not_native_keeps_its_params_when_a_native_open_shows_its_slo
     // Its params stay; no hand-over was given to it and none is left claimed.
     assert_eq!(kernel.stack.last().unwrap().params.get("page"), Some("1"));
     assert_eq!(store.len(), 0);
+    // A hand-over with params of its own: the screen is no native one and
+    // owns none, so it stays as it is, not closed and opened again without
+    // the params it has.
+    let legacy = kernel.stack.last().unwrap().serial;
+    let id = made(&store, &[("x", "1")], b"text");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
+        0
+    );
+    let top = kernel.stack.last().unwrap();
+    assert_eq!((top.serial, top.params.get("page")), (legacy, Some("1")));
+    assert_eq!(store.len(), 0);
 }
 
 #[test]

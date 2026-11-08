@@ -359,7 +359,11 @@ impl Kernel {
             self.shared.native_instances.pending_handover(),
             self.shared.native_instances.ui_store(),
         ) {
-            (Some(pending), Some(store)) => store.same_params(pending, self.stack[index].serial),
+            // A screen that is not native owns no hand-over: it keeps the
+            // rule of params it has.
+            (Some(pending), Some(store)) if self.is_native_at(index) => {
+                store.same_params(pending, self.stack[index].serial)
+            }
             _ => params.is_empty() || self.stack[index].params == *params,
         }
     }
