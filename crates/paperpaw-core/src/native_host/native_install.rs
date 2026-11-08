@@ -11,19 +11,30 @@ use super::{
 };
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
-use paperpaw_sdk::{Id, IdError, RegisterError};
+use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 enum Owned {
     Screen(Callback),
+    Action(Callback),
+    Setting(paperpaw_sdk::SettingSpec),
+    Group(paperpaw_sdk::SettingGroupSpec),
 }
 
 fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
     match record {
-        Record::ScreenSpec(_) => match native_values::from_record(owner, record)? {
+        Record::ScreenSpec(_)
+        | Record::ActionSpec(_)
+        | Record::SettingSpec(_)
+        | Record::SettingGroup(_) => match native_values::from_record(owner, record)? {
             Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
-            _ => Err(ERR_INVALID),
+            Value::Action(callback) => Ok(Some(Owned::Action(callback))),
+            Value::Setting(spec) => Ok(Some(Owned::Setting(spec))),
+            Value::Group(group) => Ok(Some(Owned::Group(group))),
         },
+        // The extras (section, editor, check) are presentation the settings
+        // page reads from the declaration store; the store keeps the record.
+        Record::SettingExtra(_) => Ok(None),
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
@@ -122,6 +133,10 @@ impl crate::Kernel {
             .registry
             .screens
             .remove_native_owner(owner.as_str());
+        // The actions hold the plugin's lease; the settings and groups it
+        // defined go with it (the reader's values stay for its next load).
+        self.shared.actions.remove_plugin(owner.as_str());
+        self.shared.settings.remove_plugin(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
@@ -252,6 +267,29 @@ impl crate::Kernel {
                         .native_screen(owner, screen)
                         .map_err(shell::Error::Status)?;
                 }
+                Owned::Action(callback) => {
+                    let action = instance
+                        .try_clone()
+                        .and_then(|lease| super::native_action::spec(callback, lease))
+                        .map_err(shell::Error::Status)?;
+                    let action = super::shared::try_box(action)
+                        .ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
+                    staging
+                        .native(owner, Contribution::Action(action))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::Setting(spec) => {
+                    let spec =
+                        super::shared::try_box(spec).ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
+                    staging
+                        .native(owner, Contribution::Setting(spec))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::Group(group) => {
+                    staging
+                        .native(owner, Contribution::SettingGroup(group.into()))
+                        .map_err(shell::Error::Status)?;
+                }
             }
         }
         self.shared
@@ -277,8 +315,9 @@ impl crate::Kernel {
         let publication = declarations
             .stage(pending, key, &mut allocations)
             .map_err(shell::Error::Status)?;
-        staging
-            .merge_into(&mut self.shared.registry, &mut self.shared.actions)
+        // Every contribution at once (all or nothing): the duplicates are
+        // refused before anything is published.
+        self.merge(owner, staging)
             .map_err(|error| shell::Error::Status(merge_status(&error)))?;
         publication.commit();
         Ok(())
