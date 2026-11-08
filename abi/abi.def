@@ -13542,7 +13542,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 256,
+          "secret": true
         }
       ]
     },

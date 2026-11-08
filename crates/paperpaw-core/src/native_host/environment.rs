@@ -150,6 +150,20 @@ impl EnvironmentScope {
             .map_err(|_| paperpaw_native::host_glue::ERR_STATE)
     }
 
+    /// Plugin reads supply the identity bound by Hosted::new, never input bytes.
+    ///
+    /// # Safety
+    /// Input/output meet the same contract as `settings_read`.
+    pub(crate) unsafe fn settings_read_for(
+        &self,
+        caller: &paperpaw_sdk::Id,
+        key: paperpaw_native::host_glue::PpBytes,
+        out: paperpaw_native::host_glue::PpBuffer,
+    ) -> i32 {
+        // SAFETY: the shell forwards the slot pointer contract unchanged.
+        unsafe { queries::settings_read_for(&self.slot, caller, key, out) }
+    }
+
     /// Read a typed setting from the current dispatch frame.
     /// Returns the complete required byte count, copying only the fitting prefix.
     /// Decode only a complete value; absent, false, zero and empty text are distinct.
