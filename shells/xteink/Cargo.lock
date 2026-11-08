@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
@@ -2494,9 +2494,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2524,9 +2525,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2559,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2603,9 +2605,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

@@ -52,7 +52,11 @@ const PHONE: Case = Case {
 const CARD_FILES: Case = Case {
     name: "vocabulary-card-files",
     golden: None,
-    blocked_by: &["core.files #339"],
+    blocked_by: &[
+        "core.files #339",
+        "native::files facade #384",
+        "a Storage over core.files",
+    ],
 };
 /// A flash card due is the sleep screen; the review opens on waking.
 const SLEEP: Case = Case {
@@ -117,7 +121,7 @@ fn the_phone_page_edits_decks_and_cards() {
 }
 
 #[test]
-#[ignore = "BLOCKED #339: core.files for the card folder (sdcard.rs, sync.rs) and the Notes export folder"]
+#[ignore = "BLOCKED #339/#384: a Storage over core.files (native::files) for the card folder (sdcard.rs, sync.rs) and the Notes export folder"]
 fn card_files_on_the_card_update_the_decks() {
     CARD_FILES.refuse().unwrap();
 }

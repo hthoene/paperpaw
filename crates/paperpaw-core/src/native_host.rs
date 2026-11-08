@@ -68,6 +68,13 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_compose_host.rs"]
+#[allow(
+    dead_code,
+    reason = "Core's frame answers Frame::compose with it when the screen stack is wired"
+)]
+pub(crate) mod ui_compose_host;
+
 #[path = "native_host/ui_input.rs"]
 #[allow(
     dead_code,
@@ -101,6 +108,8 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod fmt_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
