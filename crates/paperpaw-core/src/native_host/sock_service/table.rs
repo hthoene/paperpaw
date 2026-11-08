@@ -456,6 +456,8 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     {
         return Err(ERR_INVALID);
     }
+    // `server_name` is for TLS only (sockets.md 2.1); without `tls` it is
+    // ignored, as the contract does not refuse it.
     if c.flags & FLAG_TLS != 0 {
         // TLS needs the shell's session and trust store: a later slice.
         return Err(ERR_UNSUPPORTED);
@@ -464,11 +466,13 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         return Err(ERR_STATE);
     }
     let profile = host.profile();
+    let mut inner = table(host)?;
+    // The limits come before the first allocation: a refused `connect` costs
+    // no memory.
+    inner.admit(host, who.owner)?;
     let target = owned(c.host)?;
     let queue = buffer(profile.queue)?;
     let inbox = buffer(profile.read)?;
-    let mut inner = table(host)?;
-    inner.admit(host, who.owner)?;
     gate()?;
     inner.socks.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
     let id = inner.next_id.checked_add(1).ok_or(ERR_FULL)?;
@@ -707,6 +711,7 @@ pub(crate) fn writable(host: &dyn SockHost, id: u32) -> Result<(), i32> {
     let mut inner = table(host)?;
     if let Some(index) = inner.index(id) {
         inner.flush(host, index);
+        inner.sync_demand(host);
     }
     Ok(())
 }

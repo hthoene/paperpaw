@@ -452,6 +452,16 @@ fn limits_per_plugin_and_per_device_and_the_pool_hold() {
 }
 
 #[test]
+fn a_server_name_without_tls_is_ignored_not_refused() {
+    let f = Fake::x4();
+    let c = wire::ServiceSockConnect {
+        server_name: "other.example.org",
+        ..head(1)
+    };
+    assert!(connect_with(&f, OWNER, c).is_ok());
+}
+
+#[test]
 fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
     let pool = Rc::new(NetPool::new(49_152));
     assert!(pool.reserve(49_152 - 8_191));
