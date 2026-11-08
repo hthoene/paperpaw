@@ -292,6 +292,8 @@ pub(crate) mod native_instances;
 )]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
 
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
