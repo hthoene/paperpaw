@@ -707,6 +707,12 @@ pub fn changed(book: &str) -> Command {
     })
 }
 
+mod read;
+pub use read::{
+    FILE_VERSION, Head, KEY_MAX, LINE_MAX, Part, Row, Window, Windows, generation_of, is_row,
+    next_generation, try_head, try_rows,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

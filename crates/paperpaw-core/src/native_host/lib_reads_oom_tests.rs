@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
 use super::{NORMAL, arm_failure, reset};
 use crate::native_host::lib_reads::CatalogReads;
-use crate::native_host::lib_reads::tests::{Card, card};
+use crate::native_host::lib_reads::tests::{Card, annotation_file, card, put_annotations};
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::{self as wire, Record};
 extern crate std;
@@ -54,6 +54,7 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
         use paperpaw_sdk::positions::{self, Position};
         let kept = Position::new(Locator::new(7, 1234), 41.5).xpointer(Some("/body/p[3]".into()));
         positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
+        put_annotations(&card, &annotation_file("a note"));
     }
     let by_path = BookRef::Path("books/b.epub");
     let by_key = BookRef::Key { key: a, generation };
@@ -157,6 +158,67 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
             },
             &card,
         ),
+        sweep(
+            |reads, seen| {
+                let mut total = 0_u64;
+                let end =
+                    reads.annotations(BookRef::Path("books/a.epub"), 1, 0, &mut |record| {
+                        let Record::ServiceLibAnnotation(a) = record else {
+                            panic!()
+                        };
+                        total += u64::from(a.id) + a.text.len() as u64;
+                        core::ops::ControlFlow::Continue(())
+                    })?;
+                *seen = Some([
+                    total,
+                    end.total.into(),
+                    end.next.into(),
+                    end.generation.into(),
+                    0,
+                    0,
+                ]);
+                Ok(())
+            },
+            &card,
+        ),
+        sweep(
+            |reads, seen| {
+                let mut total = 0_u64;
+                let end = reads.anchors(BookRef::Path("books/a.epub"), 0, 0, &mut |record| {
+                    let Record::ServiceLibAnchor(a) = record else {
+                        panic!()
+                    };
+                    total += u64::from(a.id) + a.start.len() as u64;
+                    core::ops::ControlFlow::Continue(())
+                })?;
+                *seen = Some([
+                    total,
+                    end.total.into(),
+                    end.next.into(),
+                    end.generation.into(),
+                    0,
+                    0,
+                ]);
+                Ok(())
+            },
+            &card,
+        ),
+        sweep(
+            |reads, seen| {
+                let ask = wire::ServiceLibTextAt {
+                    kind: 6,
+                    index: 2,
+                    offset: 0,
+                };
+                reads.text(BookRef::Path("books/a.epub"), &ask, &mut |record| {
+                    let Record::ServiceLibText(t) = record else {
+                        panic!()
+                    };
+                    *seen = Some([t.total.into(), t.text.len() as u64, 0, 0, 0, 0]);
+                })
+            },
+            &card,
+        ),
     ];
     // Each read reserves something, so each has an allocation to refuse.
     assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
@@ -185,6 +247,7 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
         use paperpaw_sdk::positions::{self, Position};
         let kept = Position::new(Locator::new(7, 1234), 41.5).xpointer(Some("/body/p[3]".into()));
         positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
+        put_annotations(&card, &annotation_file("a note"));
     }
     let path = BookRef::Path("books/b.epub");
     let ask = wire::ServiceLibTextAt {
@@ -210,13 +273,51 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
             },
             &card,
         ),
+        peak(
+            |r| {
+                r.annotations(BookRef::Path("books/a.epub"), 0, 0, &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        ),
+        peak(
+            |r| {
+                r.anchors(BookRef::Path("books/a.epub"), 0, 0, &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        ),
+        peak(
+            |r| {
+                let ask = wire::ServiceLibTextAt {
+                    kind: 6,
+                    index: 2,
+                    offset: 0,
+                };
+                r.text(BookRef::Path("books/a.epub"), &ask, &mut |_| ())
+                    .unwrap();
+            },
+            &card,
+        ),
     ];
-    std::eprintln!("heap peaks (state, book, text, book_key, position): {peaks:?}");
+    std::eprintln!(
+        "heap peaks (state, book, text, book_key, position, annotations, anchors, note): {peaks:?}"
+    );
     // The book's buffers are 1,952 bytes, and the log of changes (12 bytes
     // a line, two lines here) is held while a line is read.
     assert!(peaks[1] <= 2_048, "{peaks:?}");
     assert!(
-        peaks[2] <= 1_152 && peaks[0] <= 256 && peaks[3] <= 256 && peaks[4] <= 512,
+        peaks[2] <= 1_152
+            && peaks[0] <= 256
+            && peaks[3] <= 256
+            && peaks[4] <= 512
+            && peaks[5] <= 1_280
+            && peaks[6] <= 2_304
+            && peaks[7] <= 1_280,
         "{peaks:?}"
     );
 }

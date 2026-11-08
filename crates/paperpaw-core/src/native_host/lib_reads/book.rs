@@ -201,7 +201,12 @@ pub(super) fn text(
         2 => Series,
         3 => Tag,
         4 => Field,
-        // Annotation texts and notes: the annotation reads.
+        // The annotation's own text and note: its file.
+        5 | 6 => {
+            return reads.with_path(book, |path| {
+                super::annotations::text(&*reads.storage, path, at, visit)
+            });
+        }
         _ => return Err(ERR_UNSUPPORTED),
     };
     let offset = reads.locate(book)?;

@@ -1,6 +1,6 @@
 //! The reads of `core.library` over the catalog on the card: op 1 `state`, op
-//! 3 `book`, op 4 `text`, op 13 `position` and op 25 `book_key`
-//! (`docs/abi/library.md` 2.1, 2.2, 6).
+//! 3 `book`, op 4 `text`, op 13 `position`, ops 15 and 16 `annotations` and
+//! `anchors`, and op 25 `book_key` (`docs/abi/library.md` 2.1, 2.2, 6).
 //!
 //! One implementation: `paperpaw_sdk::library`'s `try_` readers. This adapter
 //! only maps them to the wire records, so nothing is read twice and no
@@ -16,7 +16,9 @@
 //! text buffers, 1,952; the flag `indexed` scans the details a line at a
 //! time and holds none of them), `text` 1,077, `book_key` 53, `position` 114 with
 //! a 60-byte file (the file's text, 4 KiB at most, and its XPointer, 1 KiB at
-//! most). Every read
+//! most), `annotations` 1,130 (scratch for a row's text, note and key, 1,088), `anchors`
+//! 2,090 (two XPointers of 1 KiB), `text` of an annotation 1,066; the annotation
+//! file is read a line at a time and held nowhere. Every catalog read
 //! holds the log of changes while it reads a line: 12 bytes a line, 3 KiB at
 //! the 256 lines after which the kernel folds it, 12 KiB at most. Stack: the
 //! partial MD5's 1 KiB sample for `book_key`, the SDK's catalog reads below
@@ -24,9 +26,10 @@
 //!
 //! Not here yet: the book key of a book whose path hashes like another's
 //! (the writes round owns key allocation, so op 25 answers the plain
-//! FNV-1a key), the `missing` flag (todo 96), annotation texts (`text` kinds
-//! 5 and 6 are `ERR_UNSUPPORTED` until the annotation reads).
-use super::lib_service::{BookRef, LibQuery, One};
+//! FNV-1a key) and the `missing` flag (todo 96). The generation of an
+//! annotation list is the file's own number, never 0 (`annotations::generation_of`).
+use super::lib_service::{BookRef, LibQuery, One, Rows};
+use crate::abi7::context::RowsEnd;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -39,6 +42,7 @@ use paperpaw_sdk::data;
 use paperpaw_sdk::digest::{fnv1a64, md5};
 use paperpaw_sdk::library::{self, catalog};
 
+mod annotations;
 mod book;
 mod position;
 
@@ -164,6 +168,30 @@ impl LibQuery for CatalogReads {
         visit: One<'_>,
     ) -> Result<(), i32> {
         book::text(self, book, at, visit)
+    }
+
+    fn annotations(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.with_path(book, |path| {
+            annotations::annotations(&*self.storage, path, cursor, generation, visit)
+        })
+    }
+
+    fn anchors(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.with_path(book, |path| {
+            annotations::anchors(&*self.storage, path, cursor, generation, visit)
+        })
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

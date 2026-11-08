@@ -95,3 +95,56 @@ fn every_read_of_the_adapter_passes_the_services_checks() {
         Err(paperpaw_native::host_glue::ERR_NOT_FOUND)
     );
 }
+
+#[test]
+fn annotations_anchors_and_their_texts_pass_the_services_checks() {
+    use crate::native_host::lib_reads::tests::{annotation_file, put_annotations};
+    let card = card();
+    let host = host(&card);
+    put_annotations(&card, &annotation_file(&"€".repeat(700)));
+    let page = |cursor, generation| {
+        Record::ServiceLibPage(wire::ServiceLibPage {
+            cursor,
+            annotation_generation: generation,
+        })
+    };
+    // The rows then the end, as the service built them.
+    let rows = |op, cursor, generation| {
+        let reply = call(
+            &host,
+            op,
+            &[path_ref("books/a.epub"), page(cursor, generation)],
+        )
+        .unwrap();
+        let (mut at, mut ids, mut end) = (0, std::vec::Vec::new(), None);
+        while at < reply.len() {
+            let (record, used) = wire::record_decode_prefix(&reply[at..]).unwrap();
+            at += used;
+            match record {
+                Record::ServiceLibAnnotation(a) => ids.push(a.id),
+                Record::ServiceLibAnchor(a) => ids.push(a.id),
+                Record::ServiceEnd(e) => end = Some((e.total, e.generation, e.next, e.flags)),
+                _ => panic!("a row"),
+            }
+        }
+        (ids, end.unwrap())
+    };
+    // Four annotations fit a page; from the cursor 2 on, the last two.
+    let (ids, end) = rows(15, 0, 0);
+    assert_eq!((ids.as_slice(), end), (&[1, 2, 3, 4][..], (4, 1, 4, 1)));
+    let (ids, end) = rows(15, 2, 1);
+    assert_eq!((ids.as_slice(), end), (&[3, 4][..], (4, 1, 4, 1)));
+    let (ids, end) = rows(16, 0, 0);
+    assert_eq!((ids.as_slice(), end), (&[1, 3][..], (2, 1, 2, 1)));
+    // The note of the second, whole by id.
+    let ask = Record::ServiceLibTextAt(wire::ServiceLibTextAt {
+        kind: 6,
+        index: 2,
+        offset: 1023,
+    });
+    let reply = call(&host, 4, &[path_ref("books/a.epub"), ask]).unwrap();
+    let Record::ServiceLibText(part) = wire::record_decode_one(&reply).unwrap() else {
+        panic!("a text")
+    };
+    assert_eq!((part.total, part.text.len()), (2100, 1023));
+}

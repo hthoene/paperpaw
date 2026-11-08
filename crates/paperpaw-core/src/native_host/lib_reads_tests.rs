@@ -365,9 +365,10 @@ fn a_text_is_read_whole_or_in_pieces_from_an_offset() {
         text(&reads, a, 0, 0, 0).unwrap(),
         (7, "Title A".to_string())
     );
-    // Annotation texts and notes come with the annotation reads.
-    assert_eq!(text(&reads, a, 5, 0, 0).unwrap_err(), ERR_UNSUPPORTED);
-    assert_eq!(text(&reads, a, 6, 0, 0).unwrap_err(), ERR_UNSUPPORTED);
+    // A book without annotations has none by id; a kind past 6 is no text.
+    assert_eq!(text(&reads, a, 5, 1, 0).unwrap_err(), ERR_NOT_FOUND);
+    assert_eq!(text(&reads, a, 6, 1, 0).unwrap_err(), ERR_NOT_FOUND);
+    assert_eq!(text(&reads, a, 7, 0, 0).unwrap_err(), ERR_UNSUPPORTED);
 }
 
 #[test]
@@ -437,6 +438,24 @@ impl LibQuery for Host {
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.0.position(book, visit)
+    }
+    fn annotations(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: crate::native_host::lib_service::Rows<'_>,
+    ) -> Result<crate::abi7::context::RowsEnd, i32> {
+        self.0.annotations(book, cursor, generation, visit)
+    }
+    fn anchors(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: crate::native_host::lib_service::Rows<'_>,
+    ) -> Result<crate::abi7::context::RowsEnd, i32> {
+        self.0.anchors(book, cursor, generation, visit)
     }
 }
 impl crate::native_host::lib_service::LibWrite for Host {}
@@ -534,4 +553,172 @@ fn a_position_is_read_with_its_flags_or_is_not_found() {
     let long = Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(1025)));
     positions::save(&*card.storage, "books/a.epub", &long).unwrap();
     assert_eq!(position(&reads, a), Err(ERR_NO_SPACE));
+}
+
+/// An annotation file of version 2: four annotations and a line that is none.
+pub(crate) fn annotation_file(note: &str) -> std::string::String {
+    format!(
+        "# format 2\n\
+         b\t1\t0\t1\t0\t10\t100\t200\t00000000000000ff\t/a\t\tfirst\tshort\n\
+         garbage\n\
+         h\t2\t5\t2\t9\t20\t0\t0\t\t\t\tsecond\t{note}\n\
+         x\t3\t0\t3\t0\t30\t1\t2\t?\t/p\t/q\tfuture\t\n\
+         h\t5\t0\t5\t0\t50\t0\t0\t\t\t\tlast\t\n"
+    )
+}
+
+pub(crate) fn put_annotations(card: &Card, text: &str) {
+    card.storage
+        .write(
+            &paperpaw_sdk::annotations::file("books/a.epub"),
+            text.as_bytes(),
+        )
+        .unwrap();
+}
+
+type Page = (Vec<[u64; 5]>, crate::abi7::context::RowsEnd);
+
+/// Annotations or anchors from `cursor`, taking at most `take` rows.
+fn listing(
+    reads: &CatalogReads,
+    anchors: bool,
+    cursor: u32,
+    generation: u32,
+    take: usize,
+) -> Result<Page, i32> {
+    let mut rows = Vec::new();
+    let mut visit = |record: Record<'_>| {
+        if rows.len() == take {
+            return core::ops::ControlFlow::Break(());
+        }
+        rows.push(match record {
+            Record::ServiceLibAnnotation(a) => [
+                a.id.into(),
+                a.kind.into(),
+                a.flags.into(),
+                a.note.len() as u64,
+                a.conversion,
+            ],
+            Record::ServiceLibAnchor(a) => [
+                a.id.into(),
+                a.flags.into(),
+                a.conversion,
+                a.start.len() as u64,
+                a.end.len() as u64,
+            ],
+            _ => panic!("a row"),
+        });
+        core::ops::ControlFlow::Continue(())
+    };
+    let book = BookRef::Path("books/a.epub");
+    let end = if anchors {
+        reads.anchors(book, cursor, generation, &mut visit)?
+    } else {
+        reads.annotations(book, cursor, generation, &mut visit)?
+    };
+    Ok((rows, end))
+}
+
+#[test]
+fn annotations_page_by_cursor_under_the_files_generation() {
+    let card = card();
+    let reads = card.reads();
+    put_annotations(&card, &annotation_file("n"));
+    let (rows, end) = listing(&reads, false, 0, 0, 10).unwrap();
+    // Version 2: the generation 0 is 1 on the wire; ids by place; the line that
+    // is no annotation takes none; "x" is another kind (2 + its letter).
+    assert_eq!((end.total, end.generation, end.next), (4, 1, 4));
+    assert_eq!(
+        rows.iter().map(|r| (r[0], r[1])).collect::<Vec<_>>(),
+        [(1, 0), (2, 1), (3, 2 + u64::from(b'x')), (4, 1)]
+    );
+    // noted | has conversion | has XPointers.
+    assert_eq!(rows[0][2], 0b11001);
+    assert_eq!((rows[0][3], rows[0][4]), (5, 255));
+    assert_eq!(rows[1][2], 0b001);
+    assert_eq!(rows[2][2], 0b10000, "the conversion is not known");
+    // A page of two, then from the cursor.
+    let (rows, end) = listing(&reads, false, 0, 0, 2).unwrap();
+    assert_eq!((rows.len(), end.total, end.next), (2, 4, 2));
+    let (rows, end) = listing(&reads, false, 2, end.generation, 10).unwrap();
+    assert_eq!((rows[0][0], rows.len(), end.next), (3, 2, 4));
+    // Past the end: nothing, at the end. Another generation is stale.
+    let (rows, end) = listing(&reads, false, 9, 1, 10).unwrap();
+    assert_eq!((rows.len(), end.next, end.total), (0, 4, 4));
+    assert_eq!(listing(&reads, false, 0, 2, 10).unwrap_err(), ERR_STATE);
+    // No file: no rows.
+    card.storage
+        .remove(&paperpaw_sdk::annotations::file("books/a.epub"))
+        .unwrap();
+    let (rows, end) = listing(&reads, false, 0, 0, 10).unwrap();
+    assert_eq!((rows.len(), end.total, end.generation), (0, 0, 1));
+}
+
+#[test]
+fn a_file_of_version_3_answers_its_ids_and_generation() {
+    let card = card();
+    let reads = card.reads();
+    put_annotations(
+        &card,
+        "# format 3\n# next-id 20\n# generation 7\n\
+         h\t1\t0\t1\t4\t10\t1\t2\t\t\t\ttext\tnote\t17\tkey-a\n\
+         b\t2\t0\t2\t0\t20\t0\t0\t\t\t\t\t\t4\t\n",
+    );
+    let (rows, end) = listing(&reads, false, 0, 0, 10).unwrap();
+    assert_eq!((end.generation, end.total), (7, 2));
+    assert_eq!(rows.iter().map(|r| r[0]).collect::<Vec<_>>(), [17, 4]);
+    // A page of version 3 is stale once the file moves on.
+    assert_eq!(listing(&reads, false, 1, 8, 10).unwrap_err(), ERR_STATE);
+    assert_eq!(listing(&reads, false, 1, 7, 10).unwrap().1.next, 2);
+}
+
+#[test]
+fn anchors_are_the_annotations_that_have_a_conversion_or_xpointers() {
+    let card = card();
+    let reads = card.reads();
+    put_annotations(&card, &annotation_file("n"));
+    let (rows, end) = listing(&reads, true, 0, 0, 10).unwrap();
+    assert_eq!((end.total, end.generation, end.next), (2, 1, 2));
+    // [id, flags, conversion, start len, end len]
+    assert_eq!(rows, [[1, 0b11, 255, 2, 0], [3, 0b10, 0, 2, 2]]);
+    let (rows, end) = listing(&reads, true, 1, 1, 10).unwrap();
+    assert_eq!((rows.len(), rows[0][0], end.next), (1, 3, 2));
+    // An XPointer of 1,025 bytes cannot be carried and is not cut.
+    let long = "p".repeat(1025);
+    put_annotations(
+        &card,
+        &format!("# format 2\nh\t1\t0\t1\t4\t10\t0\t0\t\t{long}\t\tt\t\n"),
+    );
+    assert_eq!(listing(&reads, true, 0, 0, 10).unwrap_err(), ERR_NO_SPACE);
+}
+
+#[test]
+fn a_long_note_is_cut_for_its_row_and_read_whole_by_id() {
+    let card = card();
+    let reads = card.reads();
+    let note = "€".repeat(700);
+    put_annotations(&card, &annotation_file(&note));
+    let (rows, _) = listing(&reads, false, 0, 0, 10).unwrap();
+    // Cut at a character in 512 bytes (170 of three), flag 2 and noted.
+    assert_eq!((rows[1][2], rows[1][3]), (0b101, 510));
+    let book = BookRef::Path("books/a.epub");
+    let (total, first) = text(&reads, book, 6, 2, 0).unwrap();
+    assert_eq!((total, first.len()), (2100, 1023));
+    let (_, last) = text(&reads, book, 6, 2, 2046).unwrap();
+    assert_eq!(last.len(), 54);
+    assert_eq!(
+        text(&reads, book, 5, 2, 0).unwrap(),
+        (6, "second".to_string())
+    );
+    assert_eq!(
+        text(&reads, book, 5, 3, 0).unwrap(),
+        (6, "future".to_string())
+    );
+    // No such id, id 0, a note that is empty.
+    assert_eq!(text(&reads, book, 6, 9, 0).unwrap_err(), ERR_NOT_FOUND);
+    assert_eq!(text(&reads, book, 6, 0, 0).unwrap_err(), ERR_NOT_FOUND);
+    assert_eq!(text(&reads, book, 6, 3, 0).unwrap(), (0, String::new()));
+    // Inside a character, or past the end.
+    assert_eq!(text(&reads, book, 6, 2, 1).unwrap_err(), ERR_INVALID);
+    assert_eq!(text(&reads, book, 6, 2, 2101).unwrap_err(), ERR_INVALID);
 }

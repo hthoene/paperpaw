@@ -82,10 +82,11 @@ impl Position {
     /// Read from a position file's text (also a reader's `progress.ini`
     /// of before, whose section is `[progress]`).
     pub fn parse(text: &str) -> Option<Position> {
-        // Where there is no memory the program stops, as it always did.
-        try_parse(text).unwrap_or_else(|_| {
-            alloc::alloc::handle_alloc_error(core::alloc::Layout::new::<Position>())
-        })
+        match try_parse(text, None) {
+            Ok(position) => position,
+            // Where there is no memory the program stops, as it always did.
+            Err(_) => alloc::alloc::handle_alloc_error(core::alloc::Layout::new::<Position>()),
+        }
     }
 
     /// As a position file's text.
@@ -148,9 +149,16 @@ fn try_file(book: &str) -> Result<String, TryReserveError> {
     Ok(name)
 }
 
+/// The longest XPointer (as the file writes it, escapes and all) that
+/// [`try_load`] holds: the bound of `doc_xpointer`, 1,024 bytes. A longer one
+/// is [`StorageError::TooLarge`], never held and never cut.
+pub const XPOINTER_MAX: usize = 1024;
+
 /// [`Position::parse`] with the memory error: the XPointer is the only
-/// thing held, reserved with one fallible reservation of its raw length.
-fn try_parse(text: &str) -> Result<Option<Position>, TryReserveError> {
+/// thing held, in one fallible reservation of its length (resolved at once,
+/// so that an escaped one is not copied twice). With `limit`, a longer one
+/// (as written) is `TooLarge` before anything is reserved.
+fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error> {
     let (mut section, mut offset, mut percent) = (None, None, 0.0);
     let mut position = Position::new(Locator::START, 0.0);
     for entry in crate::config::parse(text).filter_map(Result::ok) {
@@ -163,10 +171,20 @@ fn try_parse(text: &str) -> Result<Option<Position>, TryReserveError> {
             "percent" => percent = entry.value.raw().parse().unwrap_or(0.0),
             "conversion" => position.conversion = u64::from_str_radix(entry.value.raw(), 16).ok(),
             "xpointer" => {
-                let text = entry.value.try_as_str()?;
-                let mut owned = String::new();
-                owned.try_reserve_exact(text.len())?;
-                owned.push_str(&text);
+                if limit.is_some_and(|limit| entry.value.raw().len() > limit) {
+                    return Err(StorageError::TooLarge.into());
+                }
+                let owned = match entry.value.try_as_str().map_err(|_| Error::OutOfMemory)? {
+                    alloc::borrow::Cow::Owned(owned) => owned,
+                    alloc::borrow::Cow::Borrowed(text) => {
+                        let mut owned = String::new();
+                        owned
+                            .try_reserve_exact(text.len())
+                            .map_err(|_| Error::OutOfMemory)?;
+                        owned.push_str(text);
+                        owned
+                    }
+                };
                 position.xpointer = Some(owned);
             }
             "updated" => position.updated = entry.value.as_i64().unwrap_or(0),
@@ -182,12 +200,13 @@ fn try_parse(text: &str) -> Result<Option<Position>, TryReserveError> {
 }
 
 /// [`load_for_update`] with the memory error: where the book was left,
-/// `Ok(None)` if none was kept; nothing is held but the file's text (at
-/// most 4 KiB, its size as a rule well under 1 KiB) and the XPointer.
+/// `Ok(None)` if none was kept. Held at most: the file's text (4 KiB, as a
+/// rule well under 1 KiB) and the XPointer ([`XPOINTER_MAX`], 1 KiB).
 ///
 /// # Errors
 /// [`Error::OutOfMemory`] where either cannot be had; [`Error::Unreadable`]
-/// for a file that is no position; the storage's error otherwise.
+/// for a file that is no position; `TooLarge` for an XPointer past
+/// [`XPOINTER_MAX`]; the storage's error otherwise.
 pub fn try_load(storage: &dyn Storage, book: &str) -> Result<Option<Position>, Error> {
     let file = try_file(book).map_err(|_| Error::OutOfMemory)?;
     let data = match crate::read_file(storage, &file, LIMIT) {
@@ -199,8 +218,7 @@ pub fn try_load(storage: &dyn Storage, book: &str) -> Result<Option<Position>, E
     drop(file);
     let text =
         core::str::from_utf8(crate::files::without_bom(&data)).map_err(|_| Error::Unreadable)?;
-    try_parse(text)
-        .map_err(|_| Error::OutOfMemory)?
+    try_parse(text, Some(XPOINTER_MAX))?
         .map(Some)
         .ok_or(Error::Unreadable)
 }
@@ -321,6 +339,20 @@ mod tests {
         }
         // The name, the text and the XPointer.
         assert!(allocations >= 3, "{allocations}");
+        // An XPointer past the bound is refused before it is held (the plain
+        // read still has it), and one at the bound is read.
+        let longest =
+            Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(XPOINTER_MAX)));
+        save(&storage, book, &longest).unwrap();
+        assert_eq!(try_load(&storage, book), Ok(Some(longest)));
+        let too_long =
+            Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(XPOINTER_MAX + 1)));
+        save(&storage, book, &too_long).unwrap();
+        assert_eq!(
+            try_load(&storage, book),
+            Err(Error::Storage(StorageError::TooLarge))
+        );
+        assert_eq!(load(&storage, book), Some(too_long));
         // A file that is no position is unreadable, never none.
         storage
             .write(&file(book), b"[position]\nsection = 1\n")

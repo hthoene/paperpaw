@@ -28,7 +28,7 @@ mod write;
 #[allow(unused_imports, reason = "the query and write halves name it")]
 pub(crate) use args::BookRef;
 #[allow(unused_imports, reason = "the catalog reads implement it")]
-pub(crate) use query::{LibQuery, One};
+pub(crate) use query::{LibQuery, One, Rows};
 #[cfg(test)]
 pub(crate) use write::{LibWrite, Transactions};
 
