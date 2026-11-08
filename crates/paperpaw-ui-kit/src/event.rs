@@ -1,6 +1,6 @@
 //! Reading the events a plugin handles.
 //!
-//! [`read_event!`] reads an incoming event if it is of one of the kinds listed and
+//! [`read_event!`](crate::read_event!) reads an incoming event if it is of one of the kinds listed and
 //! links only the decoders of those kinds, where `Incoming::decode` links all of them.
 
 /// Reads `$incoming` (an `events::Incoming`) as the first of the listed kinds
