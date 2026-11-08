@@ -62,3 +62,4 @@
 26 additive: web::try_clean_name, try_file_name, try_percent_decode and try_base_url: fallible twins with identical output (#506) (#228)
 26 additive: paperpaw_digest::hex decode_into, decode_array and try_decode: hex digits decoded into caller-owned bytes or with fallible allocation (#507) (#228)
 26 additive: xml::try_decode re-exported from paperpaw-xml (#510) (#228)
+26 additive: sort re-exported from paperpaw-sort (sort, sort_by, sort_by_key, sort_by_cached_key: one shared stable sorter) (#515) (#228)

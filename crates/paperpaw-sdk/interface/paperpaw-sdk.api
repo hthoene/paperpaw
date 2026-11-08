@@ -36,6 +36,7 @@ pub use paperpaw_sdk::Translator
 pub use paperpaw_sdk::WallClock
 pub use paperpaw_sdk::lang
 pub use paperpaw_sdk::round
+pub use paperpaw_sdk::sort
 pub mod paperpaw_sdk::annotations
 #[non_exhaustive] pub enum paperpaw_sdk::annotations::Kind
 pub paperpaw_sdk::annotations::Kind::Bookmark
@@ -8818,6 +8819,7 @@ pub use paperpaw_sdk::xml::Tokenizer
 pub use paperpaw_sdk::xml::decode
 pub use paperpaw_sdk::xml::escape
 pub use paperpaw_sdk::xml::local_name
+pub use paperpaw_sdk::xml::try_decode
 pub macro paperpaw_sdk::data_path!
 pub macro paperpaw_sdk::event_data!
 pub macro paperpaw_sdk::hears!
