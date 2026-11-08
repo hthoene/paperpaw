@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 7] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -43,6 +43,11 @@ const CASES: [Case; 6] = [
     },
     Case {
         name: "widgets-quote-turns-on-tap",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
+    },
+    Case {
+        name: "widgets-todo-ticks-on-tap",
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
@@ -91,4 +96,10 @@ fn widgets_note_edits_on_tap() {
 #[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
 fn widgets_quote_turns_on_tap() {
     CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
+fn widgets_todo_ticks_on_tap() {
+    CASES[6].refuse().unwrap();
 }

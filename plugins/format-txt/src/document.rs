@@ -771,7 +771,7 @@ fn typical_line_length(sample: &[u8]) -> Result<usize, DocumentError> {
     if lengths.len() < 8 {
         return Ok(0);
     }
-    lengths.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut lengths);
     let typical = lengths[lengths.len() * 3 / 4];
     Ok(if typical >= 40 { typical } else { 0 })
 }

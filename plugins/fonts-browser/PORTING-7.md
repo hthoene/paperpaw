@@ -34,8 +34,9 @@ stays until the host activates native plugins (then it goes together, no shim).
 - Samples in the font's own face need a font loaded at run time; fonts are declared in metadata only
   (`resource.font_face`), so the native list shows the names in the interface font until the host has
   a contract for it.
-- `paperpaw_json::stream::Parser` allocates infallibly (bounded: 64 levels, 4,096-byte strings,
-  256-byte keys). Everything this plugin allocates is swept; the parser is not. Asked of Kernel.
+- The catalog is read with `Parser::try_feed`/`try_finish` (bounded: 64 levels, 4,096-byte strings,
+  256-byte keys); a refused allocation ends the read in `Error::NoMemory`. The refusal sweep covers
+  the parser as well as the catalog.
 
 ## Review fixes
 

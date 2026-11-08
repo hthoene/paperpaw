@@ -2,7 +2,7 @@
 //! No environment or device pointer crosses the plugin boundary.
 
 use super::Error;
-pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
+pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode, settings_encode};
 pub use crate::abi7::snapshot_wire::{
     Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, SNAPSHOT_VERSION, Snapshot,
     snapshot_decode,

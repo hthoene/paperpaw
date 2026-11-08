@@ -697,6 +697,24 @@ fn the_network_manager_hears_demand_and_idle_once_each() {
 }
 
 #[test]
+fn net_idle_while_a_socket_is_live_is_no_idle_edge() {
+    use crate::native_host::net_pool::{DEMAND_SOCK, NetPool};
+    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    let fake = Fake::with_pool(NetProfile::X4, pool.clone());
+    // A socket wants the network first: NET adds no edge.
+    assert_eq!(pool.demand(DEMAND_SOCK, true), Some(true));
+    let a = request(&fake, OWNER, &get(1)).unwrap();
+    assert!(fake.demand.borrow().is_empty());
+    finish(&fake, a, 200, b"");
+    assert!(fake.demand.borrow().is_empty(), "the socket still wants it");
+    // NET busy, the socket ends first: still no edge; then NET ends: one.
+    let b = request(&fake, OWNER, &get(2)).unwrap();
+    assert_eq!(pool.demand(DEMAND_SOCK, false), None);
+    finish(&fake, b, 200, b"");
+    assert_eq!(*fake.demand.borrow(), [false], "both idle: exactly one");
+}
+
+#[test]
 fn the_http_done_failures_and_a_busy_table_never_panic() {
     // A reentrant call finds the table borrowed.
     let fake = Fake::x4();
