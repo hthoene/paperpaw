@@ -19,6 +19,9 @@ use std::{
     string::{String, ToString},
 };
 
+/// A broadcast the transport was asked for: id, datagram, ports.
+type CastCall = (u32, Vec<u8>, Vec<u16>);
+
 const OWNER: u64 = 7;
 const OTHER: u64 = 8;
 
@@ -33,6 +36,8 @@ struct Fake {
     run: Cell<Option<u64>>,
     connects: RefCell<Vec<(u32, String, u32)>>,
     connect_fails: Cell<Option<i32>>,
+    cast_fails: Cell<Option<i32>>,
+    casts: RefCell<Vec<CastCall>>,
     wire: RefCell<Vec<u8>>,
     /// How many more bytes the connection takes (`usize::MAX`: any).
     room: Cell<usize>,
@@ -68,6 +73,8 @@ impl Fake {
             run: Cell::new(None),
             connects: RefCell::new(Vec::new()),
             connect_fails: Cell::new(None),
+            cast_fails: Cell::new(None),
+            casts: RefCell::new(Vec::new()),
             wire: RefCell::new(Vec::new()),
             room: Cell::new(usize::MAX),
             send_fails: Cell::new(false),
@@ -119,6 +126,15 @@ impl SockTransport for Fake {
     fn read(&self, id: u32, max: u32) {
         self.reads.borrow_mut().push((id, max));
     }
+    fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32> {
+        if let Some(error) = self.cast_fails.get() {
+            return Err(error);
+        }
+        self.casts
+            .borrow_mut()
+            .push((id, data.to_vec(), ports.to_vec()));
+        Ok(())
+    }
     fn close(&self, id: u32) {
         self.closes.borrow_mut().push(id);
     }
@@ -138,7 +154,7 @@ impl SockHost for Fake {
         self.clock.get()
     }
     fn subscribed(&self, _: u64, tag: u32) -> bool {
-        tag == wire::EVENT_SOCKET_TAG && self.subscribed.get()
+        (tag == wire::EVENT_SOCKET_TAG || tag == wire::EVENT_BROADCAST_TAG) && self.subscribed.get()
     }
     fn power_end(&self, _: u64, _: bool) -> Option<PowerEnd> {
         self.power.get()
@@ -228,7 +244,7 @@ fn caller<'a>(owner: u64, hosts: &'a HostServices) -> Caller<'a> {
 
 fn batch(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = std::vec![0; 4096];
-    let used = wire::records_encode_counted(records, 5, 4096, &mut out).unwrap();
+    let used = wire::records_encode_counted(records, 20, 4096, &mut out).unwrap();
     out.truncate(used);
     out
 }
@@ -537,6 +553,8 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
     assert_eq!(pool.used(), 49_152 - 8_192, "the table gave back its own");
 }
 
+#[path = "tests/cast.rs"]
+mod cast;
 #[path = "tests/file.rs"]
 mod file;
 

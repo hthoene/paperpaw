@@ -14,7 +14,6 @@
 //! until it lands, and none of them changes a wire record:
 //! * TLS: `connect` with the `tls` flag or with pins, `start_tls`, `peer`
 //!   (they need the shell's TLS session and trust store, section 2.4);
-//! * `broadcast` and `event.broadcast`.
 //!
 //! # Reads to a file
 //! `read` mode 1 writes exactly `len` bytes to the staged file of `path` (`.pp-staged`) and renames it
@@ -164,8 +163,13 @@ pub(crate) trait SockTransport {
     /// Allow the transport to report up to `max` more bytes through
     /// [`received`] (and nothing beyond: nothing arrives unasked).
     fn read(&self, id: u32, max: u32);
-    /// Close the connection of `id` without any report.
+    /// Close the connection of `id` (a socket or a broadcast) without any
+    /// report.
     fn close(&self, id: u32);
+    /// Send `data` from a port of its own to the network's broadcast address
+    /// on each of `ports` and report the answers through [`answered`]. `Err`
+    /// means it could not begin.
+    fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32>;
 }
 
 /// What the device provides around the service.
@@ -263,8 +267,15 @@ pub(crate) fn backend(
             let r: wire::ServiceSockRef = codec::single(input)?;
             table::close(host, who.owner, r.socket).map(|()| 0)
         }
-        // Later slices: TLS, `peer`, UDP broadcast.
-        op::START_TLS | op::PEER | op::BROADCAST => Err(ERR_UNSUPPORTED),
+        op::BROADCAST => {
+            let id = table::broadcast(host, who, input)?;
+            codec::encode_one(
+                &Record::ServiceSockStarted(wire::ServiceSockStarted { socket: id }),
+                out,
+            )
+        }
+        // A later slice: TLS (`start_tls`, `peer`).
+        op::START_TLS | op::PEER => Err(ERR_UNSUPPORTED),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -274,7 +285,7 @@ pub(crate) fn backend(
     reason = "the shell's hooks into the table; tests use them"
 )]
 pub(crate) use table::{
-    connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
+    answered, connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
     screen_closed, tick, work_ended, writable,
 };
 

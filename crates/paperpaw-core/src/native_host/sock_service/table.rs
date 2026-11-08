@@ -8,7 +8,10 @@ use super::{
     READ_MAX, SockHost, TIMEOUT_DEFAULT_MS, TIMEOUT_MAX_MS, kind, reason,
     wire::{self, Record},
 };
+mod cast;
 mod file;
+pub(crate) use cast::answered;
+
 use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{RefCell, RefMut};
@@ -109,6 +112,7 @@ pub(super) struct Inner {
     ledger: u32,
     next_id: u32,
     socks: Vec<Sock>,
+    casts: Vec<cast::Cast>,
     demand: bool,
 }
 
@@ -117,6 +121,8 @@ pub(super) struct Inner {
 pub(crate) struct SockTable {
     inner: RefCell<Inner>,
     pool: Rc<NetPool>,
+    /// Answers dropped as malformed since the last [`Self::take_dropped`].
+    dropped: core::cell::Cell<u32>,
 }
 
 impl SockTable {
@@ -125,7 +131,15 @@ impl SockTable {
         Self {
             inner: RefCell::new(Inner::default()),
             pool,
+            dropped: core::cell::Cell::new(0),
         }
+    }
+
+    /// How many broadcast answers the transport sent that core dropped (over
+    /// 1,024 bytes, or a `from` over 64 bytes or not UTF-8) since the last
+    /// call: the kernel logs them.
+    pub(crate) fn take_dropped(&self) -> u32 {
+        self.dropped.replace(0)
     }
 
     /// The pool this table charges.
@@ -203,7 +217,7 @@ impl Inner {
 
     /// `network_demand` follows whether any socket is live.
     fn sync_demand(&mut self, host: &dyn SockHost) {
-        let active = self.socks.iter().any(Sock::live);
+        let active = self.socks.iter().any(Sock::live) || self.casts.iter().any(cast::Cast::live);
         if active != self.demand {
             self.demand = active;
             // The shell hears the OR of NET and SOCK, once per change.
@@ -214,13 +228,21 @@ impl Inner {
     }
 
     fn admit(&self, host: &dyn SockHost, owner: u64) -> Result<(), i32> {
-        let live = self.socks.iter().filter(|s| s.live()).count();
+        // A broadcast is one of the plugin's sockets while it runs (3).
+        let live = self.socks.iter().filter(|s| s.live()).count()
+            + self.casts.iter().filter(|c| c.live()).count();
         let mine_live = self
             .socks
             .iter()
             .filter(|s| s.owner == owner && s.live())
-            .count();
-        let mine = self.socks.iter().filter(|s| s.owner == owner).count();
+            .count()
+            + self
+                .casts
+                .iter()
+                .filter(|c| c.owner() == owner && c.live())
+                .count();
+        let mine = self.socks.iter().filter(|s| s.owner == owner).count()
+            + self.casts.iter().filter(|c| c.owner() == owner).count();
         if mine_live >= PLUGIN_SOCKETS
             || mine >= PLUGIN_ENTRIES
             || live >= host.profile().sockets as usize
@@ -527,6 +549,9 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     Ok(id)
 }
 
+/// `broadcast` (3).
+pub(in crate::native_host::sock_service) use cast::broadcast;
+
 /// `send` (2.2).
 pub(super) fn send(
     host: &dyn SockHost,
@@ -604,10 +629,12 @@ pub(super) fn data(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let inner = table(host)?;
-    let index = inner
+    let Some(index) = inner
         .index(at.socket)
         .filter(|&i| inner.socks[i].owner == owner)
-        .ok_or(ERR_NOT_FOUND)?;
+    else {
+        return cast::data(&inner, owner, at, out);
+    };
     let sock = &inner.socks[index];
     if !sock.held {
         return Err(ERR_STATE);
@@ -632,6 +659,9 @@ pub(super) fn close(host: &dyn SockHost, owner: u64, socket: u32) -> Result<(), 
     let mut inner = table(host)?;
     if let Ok(index) = inner.mine(owner, socket) {
         inner.end(host, index, kind::CLOSED, reason::NONE, true);
+        inner.sync_demand(host);
+    } else if let Some(index) = inner.cast_mine(owner, socket) {
+        inner.cast_end(host, index, cast::cast_kind::DONE, reason::NONE, true);
         inner.sync_demand(host);
     }
     Ok(())
@@ -741,6 +771,7 @@ pub(crate) fn failed(host: &dyn SockHost, id: u32, why: u32) -> Result<(), i32> 
 pub(crate) fn tick(host: &dyn SockHost) -> Result<(), i32> {
     let mut inner = table(host)?;
     inner.expire(host);
+    inner.cast_expire(host);
     inner.pump(host);
     inner.sync_demand(host);
     Ok(())
@@ -756,6 +787,7 @@ pub(crate) fn network_lost(host: &dyn SockHost) -> Result<(), i32> {
     for index in 0..inner.socks.len() {
         inner.end(host, index, kind::FAILED, reason::NO_NETWORK, true);
     }
+    inner.cast_end_all(host, cast::cast_kind::DONE, reason::NO_NETWORK, |_| true);
     inner.sync_demand(host);
     Ok(())
 }
@@ -772,6 +804,8 @@ pub(crate) fn screen_closed(host: &dyn SockHost, owner: u64, instance: u64) -> R
             inner.end(host, index, kind::CLOSED, reason::SCREEN_CLOSED, true);
         }
     }
+    let shown = |c: &cast::Cast| c.screen_is(owner, instance);
+    inner.cast_end_all(host, cast::cast_kind::DONE, reason::SCREEN_CLOSED, shown);
     inner.sync_demand(host);
     Ok(())
 }
@@ -788,6 +822,8 @@ pub(crate) fn work_ended(host: &dyn SockHost, owner: u64, run: u64) -> Result<()
             inner.end(host, index, kind::CLOSED, reason::WORK_ENDED, true);
         }
     }
+    let ran = |c: &cast::Cast| c.run_is(owner, run);
+    inner.cast_end_all(host, cast::cast_kind::DONE, reason::WORK_ENDED, ran);
     inner.sync_demand(host);
     Ok(())
 }
@@ -835,6 +871,15 @@ pub(crate) fn next_event(
                 best = Some((stamp, index, pick));
             }
         }
+    }
+    let cast_best = cast::scan(&inner, owner);
+    let sock_first = match (best, cast_best) {
+        (Some((a, _, _)), Some((b, _, _))) => a < b,
+        (None, None) => return Ok(None),
+        (sock, _) => sock.is_some(),
+    };
+    if !sock_first && let Some((_, index, pick)) = cast_best {
+        return cast::encode(&mut inner, index, pick, out).map(Some);
     }
     let Some((_, index, pick)) = best else {
         return Ok(None);
@@ -899,6 +944,7 @@ pub(crate) fn event_delivered(host: &dyn SockHost, owner: u64) -> Result<(), i32
             inner.free_inbox(host, index);
         }
     }
+    inner.cast_delivered(host, owner);
     // An ended socket with nothing left to tell is gone.
     let mut index = 0;
     while index < inner.socks.len() {
@@ -936,6 +982,7 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
             .saturating_add(s.charge_read);
         inner.socks.remove(index);
     }
+    freed = freed.saturating_add(inner.cast_owner_stopped(host, owner));
     inner.release(host, freed);
     inner.sync_demand(host);
     Ok(())
