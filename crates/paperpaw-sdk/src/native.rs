@@ -345,6 +345,7 @@ pub mod registrations;
 /// Borrowed registry rows and lossless generation-bound paging.
 pub mod registry;
 pub mod reply;
+pub mod secrets;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
