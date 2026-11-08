@@ -80,15 +80,30 @@ fn setting(name: &str) -> [Record<'_>; 2] {
     ]
 }
 
-/// The plugin `reader`'s batches, committed and checked at the end.
-fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
+/// The plugin `reader`'s batches, committed and checked at the end: kept as
+/// owned copies, or (`image`) as offsets into one image that holds them all.
+fn finish_as(batches: &[&[Record<'_>]], image: bool) -> Result<(), i32> {
+    let encoded: alloc::vec::Vec<alloc::vec::Vec<u8>> = batches
+        .iter()
+        .map(|records| {
+            let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+            let len = records_encode(records, &mut bytes).unwrap();
+            bytes.truncate(len);
+            bytes
+        })
+        .collect();
+    let whole: alloc::vec::Vec<u8> = encoded.concat();
     let mut raw = RawDeclarations::default();
-    for records in batches {
-        let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
-        let len = records_encode(records, &mut bytes).unwrap();
-        bytes.truncate(len);
+    let mut at = 0;
+    for bytes in &encoded {
+        let (image, wire) = if image {
+            (Some(&whole[..]), &whole[at..at + bytes.len()])
+        } else {
+            (None, &bytes[..])
+        };
+        at += bytes.len();
         let pending = raw
-            .prepare(None, Some(&bytes), &records_decode(&bytes).unwrap())
+            .prepare(image, Some(wire), &records_decode(wire).unwrap())
             .unwrap();
         raw.commit(pending);
     }
@@ -97,10 +112,17 @@ fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
     View {
         raw: &raw,
         owned: &owned,
-        image: None,
+        image: image.then_some(&whole[..]),
         plugin: "reader",
     }
     .finish()
+}
+
+/// Both storage paths must answer alike.
+fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
+    let owned = finish_as(batches, false);
+    assert_eq!(finish_as(batches, true), owned, "the image path differs");
+    owned
 }
 
 #[test]

@@ -418,8 +418,23 @@ fn unloading_drops_the_catalog_rows_with_the_owner() {
 
 #[test]
 fn every_reg_allocation_refusal_leaves_the_store_unpublished() {
+    // The seven rows and a setup step: a full batch of eight.
+    let mut batch = rows().to_vec();
+    batch.push(Record::SetupStep(SetupStep {
+        name: "setup",
+        title: "Setup",
+        help: "",
+        order: 0,
+        page_kind: 0,
+        page: "fixture.page",
+        applies_key: "",
+        applies_value: "",
+        need: 0,
+        capability: 0,
+        flags: 1,
+    }));
     for owned in [false, true] {
-        let source = source(&rows());
+        let source = source(&batch);
         let mut succeeded = false;
         for fail_after in 0..40 {
             let mut store = DeclarationStore::default();
@@ -434,7 +449,7 @@ fn every_reg_allocation_refusal_leaves_the_store_unpublished() {
             });
             match result {
                 Ok(len) => {
-                    assert_eq!(len, 7);
+                    assert_eq!(len, 8);
                     succeeded = true;
                     break;
                 }
