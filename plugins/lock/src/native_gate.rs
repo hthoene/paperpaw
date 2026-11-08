@@ -233,3 +233,12 @@ pub fn recover<I: Copy + PartialEq>(
     bare.forget(instance);
     Ok(())
 }
+
+/// Whether the guard policy of a screen is to be set now: an unlock screen
+/// that has none yet, in a callback that has a command stage (`draw` has none,
+/// so it only makes the view; the policy is set when the screen shows or takes
+/// an input).
+#[must_use]
+pub const fn guard_due(unlock: bool, guarded: bool, commands: bool) -> bool {
+    unlock && !guarded && commands
+}

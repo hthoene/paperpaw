@@ -133,7 +133,9 @@ impl Plugin for NativeLock {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
-        self.recover(host)?;
+        // No command stage here: the view alone, the policy comes with the next
+        // `shown` or input.
+        self.recover(host, false)?;
         let now_ms = snapshot::capture_snapshot(host)?.instant().millis();
         let wait_left = if self.lock.attempts.waiting(now_ms) {
             self.lock.attempts.seconds_left(now_ms)
@@ -189,10 +191,18 @@ impl Plugin for NativeLock {
 
 impl NativeLock {
     fn take(&mut self, host: &Host<'_>, token: u32, input: &Input<'_>) -> Result<Handled, Error> {
-        self.recover(host)?;
+        self.recover(host, true)?;
         let Some(instance) = self.screens.top_instance(token) else {
             return Ok(Handled::No);
         };
+        // A policy the host refused (or that `draw` could not set) is set again;
+        // the input goes on either way, the next one tries again.
+        let due = self.screens.get(instance).is_some_and(|view| {
+            gate::guard_due(view.flow.step() == Step::Unlock, view.guarded, true)
+        });
+        if due {
+            let _ = guard(host, &mut self.screens, instance);
+        }
         let read = Read::new(host)?;
         let ctx = read.context(now_of(input));
         let mut fx = Effects::default();
@@ -223,20 +233,24 @@ fn guard(host: &Host<'_>, screens: &mut Screens<View>, instance: Instance) -> Re
     Ok(())
 }
 
-/// The view of a screen the host opened. A refusal of the guard policy comes
-/// after the view is made: it is set again when the screen shows.
+/// The view of a screen the host opened (in `draw`, with no command stage, the
+/// view alone). A refusal of the guard policy comes after the view is made: it
+/// is set again when the screen shows or takes an input.
 fn make_view(
     host: &Host<'_>,
     screens: &mut Screens<View>,
     door: &mut Door,
     instance: Instance,
     unlock: bool,
+    commands: bool,
 ) -> Result<(), Error> {
     let read = Read::new(host)?;
     let flow = Flow::new(unlock, read.active, !read.touch);
     screens.open(instance, View::new(flow))?;
     if unlock {
         door.opening = false;
+    }
+    if gate::guard_due(unlock, false, commands) {
         guard(host, screens, instance)?;
     }
     Ok(())
@@ -457,11 +471,11 @@ impl NativeLock {
         // Noted before anything can fail: whatever fails below, the view is made
         // when the screen shows, draws or takes an input.
         self.bare.note(instance, unlock);
-        self.recover(host)
+        self.recover(host, true)
     }
 
     /// Makes the view of a screen that has none.
-    fn recover(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    fn recover(&mut self, host: &Host<'_>, commands: bool) -> Result<(), Error> {
         let Some((instance, _)) = self.bare.needs() else {
             return Ok(());
         };
@@ -470,17 +484,16 @@ impl NativeLock {
         }
         let (screens, door) = (&mut self.screens, &mut self.door);
         gate::recover(&mut self.bare, |instance, unlock| {
-            make_view(host, screens, door, instance, unlock)
+            make_view(host, screens, door, instance, unlock, commands)
         })
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
-        self.recover(host)?;
-        let unguarded = self
-            .screens
-            .get(instance)
-            .is_some_and(|view| view.flow.step() == Step::Unlock && !view.guarded);
+        self.recover(host, true)?;
+        let unguarded = self.screens.get(instance).is_some_and(|view| {
+            gate::guard_due(view.flow.step() == Step::Unlock, view.guarded, true)
+        });
         if unguarded {
             guard(host, &mut self.screens, instance)?;
         }

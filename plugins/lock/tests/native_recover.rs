@@ -5,7 +5,7 @@
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
 use core::cell::RefCell;
-use paperpaw_plugin_lock::native_gate::{Bare, recover};
+use paperpaw_plugin_lock::native_gate::{Bare, guard_due, recover};
 use paperpaw_sdk::native::Error;
 
 #[global_allocator]
@@ -62,4 +62,17 @@ fn a_refusal_keeps_the_screen_waiting_for_each_occasion() {
         );
         assert_eq!(bare.needs(), Some((5, true)));
     }
+}
+
+#[test]
+fn draw_has_no_command_stage_so_the_policy_waits_for_shown_or_input() {
+    // (unlock, guarded, commands): the policy is due only for an unlock screen
+    // that has none, in a callback that can stage a command.
+    assert!(guard_due(true, false, true));
+    // `draw`: the view alone.
+    assert!(!guard_due(true, false, false));
+    // Already set, or not an unlock screen: nothing to do.
+    assert!(!guard_due(true, true, true));
+    assert!(!guard_due(false, false, true));
+    assert!(!guard_due(false, true, false));
 }

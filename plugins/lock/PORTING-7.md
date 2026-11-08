@@ -98,3 +98,8 @@ freed at the end of the draw. The secrets calls use two 2 KiB buffers, the passw
 - A screen the host opened whose view could not be made (a refused allocation or read in `opened`)
   is made when it shows, draws or takes an input (`native_gate::Bare`, `recover`): it never stays
   blank.
+- A code kept that cannot be read (the secret store refuses) locks nothing, as on interface 6: the
+  start, *Lock now* and waking read it again, so it is retried there. The error is reported; no screen
+  is staged for a device whose code is unknown.
+- `draw` has no command stage: it only makes a missing view. The guard policy is set when the screen
+  shows or takes an input (`native_gate::guard_due`), and again there where the host refused it.
