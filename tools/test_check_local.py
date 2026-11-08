@@ -129,6 +129,43 @@ class CheckLocal(unittest.TestCase):
         summary = run.stdout.split("check-local summary:")[1]
         self.assertIn("NOT CHECKED: shells/x/ (separate workspace", summary)
 
+    def test_a_badly_formatted_firmware_file_fails_fmt_shells(self):
+        shell = self.repo / "shells/xteink/src"
+        shell.mkdir(parents=True)
+        (shell / "main.rs").write_text("fn main() {}\n")
+        (self.repo / "shells/xteink/Cargo.toml").write_text(
+            '[package]\nname = "xteink"\nversion = "0.1.0"\nedition = "2024"\n[workspace]\n')
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "shell")
+        self.git("branch", "-f", "base")
+        (shell / "main.rs").write_text("fn   main( ) {  }\n")
+        run = self.run_script("--only", "fmt-shells")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-shells\s+FAILED")
+        (shell / "main.rs").write_text("fn main() {}\n\nfn more() {}\n")
+        run = self.run_script("--only", "fmt-shells")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-shells\s+ok")
+
+    def test_a_badly_formatted_fuzz_file_fails_fmt_fuzz(self):
+        fuzz = self.repo / "fuzz/fuzz_targets"
+        fuzz.mkdir(parents=True)
+        (fuzz / "t.rs").write_text("fn t() {}\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fuzz")
+        self.git("branch", "-f", "base")
+        (fuzz / "t.rs").write_text("fn   t( ) {  }\n")
+        run = self.run_script("--only", "fmt-fuzz")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-fuzz\s+FAILED")
+
+    def test_unchanged_shells_and_fuzz_are_listed_as_skipped(self):
+        (self.repo / "crates/good/src/lib.rs").write_text("#[test]\nfn it_works() {}\n")
+        run = self.run_script("--only", "fmt")
+        summary = run.stdout.split("check-local summary:")[1]
+        self.assertIn("SKIPPED: fmt-shells (no changed .rs file", summary)
+        self.assertIn("SKIPPED: fmt-fuzz (no changed .rs file", summary)
+
     def test_skipped_steps_are_named_in_the_summary(self):
         run = self.run_script("--only", "test", "good")
         summary = run.stdout.split("check-local summary:")[1]

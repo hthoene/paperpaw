@@ -8,7 +8,8 @@
 # none given: the packages with files changed against the merge base with
 # origin/abi7/integration (--base REV for another base).
 #
-# Steps, in this order: fmt, clippy (-D warnings), test, doc (-D warnings),
+# Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
+# for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test, doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
 # Every step runs whatever the one before did; each one's own exit code is
 # what counts. The summary at the end lists them, and the script exits 1
@@ -45,7 +46,7 @@ lock_args="--offline"
 base="origin/abi7/integration"
 jobs=4
 crates=()
-known=" fmt clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -206,6 +207,27 @@ pkg_step() {
 }
 
 pkg_step fmt cargo fmt "${pkgs[@]}" -- --check
+# The firmware and the fuzz targets are workspaces of their own, which
+# `cargo fmt` here does not reach; CI runs rustfmt on the firmware's crate root
+# (it follows the modules), so the same here when a file of it changed.
+shell_changed=""
+fuzz_files=()
+if [[ -f "$logs/changed.txt" ]]; then
+    grep -q '^shells/xteink/.*\.rs$' "$logs/changed.txt" && shell_changed=1
+    while IFS= read -r changed_file; do
+        [[ -f "$changed_file" ]] && fuzz_files+=("$changed_file")
+    done < <(grep '^fuzz/.*\.rs$' "$logs/changed.txt" || true)
+fi
+if [[ -n "$shell_changed" ]]; then
+    step fmt-shells rustfmt --edition 2024 --check shells/xteink/src/main.rs
+else
+    skipped+=("fmt-shells (no changed .rs file under shells/xteink, or no base to compare)")
+fi
+if ((${#fuzz_files[@]} > 0)); then
+    step fmt-fuzz rustfmt --edition 2024 --check "${fuzz_files[@]}"
+else
+    skipped+=("fmt-fuzz (no changed .rs file under fuzz, or no base to compare)")
+fi
 pkg_step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
 if [[ -n "$features" ]]; then
     pkg_step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings

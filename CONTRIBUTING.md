@@ -48,7 +48,9 @@ before 1.0.
    so that crates.io dependencies are compiled once for every build folder.
    For a change to a few crates, `tools/check-local.sh [crate ...]` is the
    quick local part (fmt, clippy `-D warnings`, tests, rustdoc `-D warnings`,
-   changelog, lockfiles, licences, `paperpaw-checks`; `--features` adds a
+   changelog, lockfiles, licences, `paperpaw-checks`, and `rustfmt` on changed
+   files of `shells/xteink` and `fuzz`, which `cargo fmt` does not reach;
+   `--features` adds a
    feature set). It runs every step, prints a summary and exits non-zero if
    any step failed: do not pipe it through `grep`, and read the exit code or
    the summary, not a marker line.
