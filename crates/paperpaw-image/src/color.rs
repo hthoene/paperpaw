@@ -121,11 +121,11 @@ impl<'a> ColorWriter<'a> {
 
 impl ImageSink for ColorWriter<'_> {
     fn start(&mut self, width: u32, height: u32) -> Result<(), ImageError> {
-        // A fixed array: nothing here can fail to allocate.
+        // On the stack: an allocation here aborted on a full heap.
         let mut header = [0_u8; HEADER as usize];
         header[..4].copy_from_slice(MAGIC);
         header[4..8].copy_from_slice(&width.to_le_bytes());
-        header[8..12].copy_from_slice(&height.to_le_bytes());
+        header[8..].copy_from_slice(&height.to_le_bytes());
         self.storage
             .write(self.path, &header)
             .map_err(|_| ImageError::Io)?;
@@ -189,6 +189,28 @@ mod tests {
         fn remove(&self, _: &str) -> Result<(), StorageError> {
             Ok(())
         }
+    }
+
+    /// A row longer than the room taken at the start is written as it is,
+    /// not grown into, and the file reads back whole.
+    #[test]
+    fn a_longer_row_is_written_without_growing() {
+        let storage = OneFile::default();
+        let mut gray = crate::GrayWriter::new(&storage, "g.gray");
+        gray.start(10, 3).unwrap();
+        let room = gray.buffer.capacity();
+        gray.row(&[1; 10]).unwrap();
+        gray.row(&alloc::vec![2; room + 1]).unwrap();
+        gray.row(&[3; 10]).unwrap();
+        assert_eq!(gray.buffer.capacity(), room);
+        gray.finish().unwrap();
+        let data = storage.0.borrow();
+        assert_eq!(&data[..4], b"PPGI");
+        assert_eq!(&data[4..12], &[10, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(data.len(), 12 + 10 + room + 1 + 10);
+        assert!(data[12..22].iter().all(|b| *b == 1));
+        assert!(data[22..22 + room + 1].iter().all(|b| *b == 2));
+        assert!(data[22 + room + 1..].iter().all(|b| *b == 3));
     }
 
     /// The writers take the room for their rows once, at the start, and

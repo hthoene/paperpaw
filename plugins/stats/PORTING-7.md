@@ -142,9 +142,87 @@ events) is still in place. It is removed in the PR that finishes the port.
   the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin
   of this port until the host admits icons.
 
+## Ported: the books and book screens (slice 2)
+
+- `src/native_screens.rs`: `stats.books` (token 21) and `stats.book` (token 22), declared in
+  `declarations.rs`, kept per instance in the kit's `Screens`. Views are built when the screen
+  opens (`ScreenOpened`) from owned data over the data folder, with the host-free rows of
+  `book_list`/`book_rows`; the draw callback only replays prepared drawing. A failed read (bad
+  UTF-8 in `books.ini`, a refused allocation) is the event's error and the screen stays without
+  a view (`draw` then fails with `State`), as interface 6 showed nothing; the list is never
+  built from a partial read.
+- The books list is the kit's `ItemList` (paging, focus, header with back/pager on touch); an
+  empty list says `stats.no-books` (the title of the kit's empty footer, no second text).
+  Choosing a book makes a hand-over with `id=<book id>` (`core.ui` op 16) and opens
+  `stats.book` with it; the book screen reads the id from its hand-over (op 17).
+- The book screen draws its rows at four fifths of a row (no focus, only back does anything) and
+  below them the last 10 days read as bars, when there is room for 2 rows (`native_chart.rs`:
+  the layout is plain numbers and tested, the painter measures with the font). The bar chart is
+  shared with the overview. A book that is not in `books.ini` shows `stats.no-books`.
+- Days are UTC days until draft 25 (as in the recorder). Dates and plural forms come from the
+  catalog through `Messages` (the host's `Arg::Count` must pick the catalog's plural form; checked
+  for the rows in `screens_tests.rs` with the catalog's own `plural()`).
+- Sweeps refuse each allocation of both builders (`native_screens/tests.rs`). Pixel goldens of
+  these screens need a kernel-backed harness like Battery's (`native_battery_pixel_tests.rs`)
+  and are not made here.
+
+- **Memory (review of #470).** Metadata names the service the screens use (`core.ui`) and the host
+  calls behind it (`services.query`, `blob.read`, `blob.release`). The books screen keeps at most
+  the 200 books read last (`book_list::MAX_ROWS`, most recent first; interface 6 listed every
+  book), each title and author line cut to 80 bytes with `…` (`book_list::cut`, at a character).
+  The calendar holds no list of books at all.
+  A book older than the 200th is not listed (a difference from interface 6, on purpose: the list
+  lives as long as the screen is open on a 256 KiB heap). `book_list.rs` tests the cut, the cap and
+  the order.
+- **`books.ini` is streamed (follow-up of #470).** `store::each_book` makes one `Book` at a time
+  (with an 8 KiB `IdSet` of the ids made, for the "first section of an id wins" rule), by the rules
+  `load_books` has, which now collects from it. The books screen reads the log once for the ids with
+  reading time, then the file once, holding only the 200 most recently opened of them cut to a row's
+  texts (`store::most_recent`, `book_list::recent`); a book's screen keeps the one book
+  (`find_book`), the overview only counts (`count_books`), and the calendar looks up the titles of the
+  at most 3 books of the chosen day as the file streams (`store::titles`). The peak no longer grows
+  with the library: `book_list.rs` measures it for 300 and 3,000 books (`testing::heap::peak`).
+  The merge and the recorder still load the whole list (they change it and write it back).
+
+## Ported: the overview and the action that opens it (slice 3)
+
+- `src/native_overview.rs`: `stats.overview` (token 20), the action `stats.open` (token 30) with its
+  menu entries (tools 35, reader-more 30) and chart icon. `stats.open` records the page being read so
+  far (`Recorder::settle`) and opens the overview with the book being read as the hand-over `id`
+  (interface 6: a screen parameter); that book becomes the first way on.
+- Tiles side by side (today, week, streak: label, value at the largest size that fits, note), the last
+  14 days as bars with today framed, the totals line, then the ways on as rows; the geometry is
+  interface 6's (`Layout`). Where a tile's words do not fit whole at 0.85 of the small size, or the
+  chart has less than six small lines, the screen is one column: the tiles as rows of the kit's
+  `ItemList` above the ways, the totals as its footer note.
+- **Differences from interface 6** (on purpose): in one column the chart is left out (the kit's list
+  has no custom rows; interface 6 kept the chart as a row there, with hardly any room at that size);
+  the sync row is not shown until its screen is on interface 7; no pixel goldens yet (a kernel-backed harness is needed,
+  see slice 2); the focus is always drawn (interface 6 drew it on button devices only).
+- The menu entries and the icon of the action wait for the host (`tests/declarations.rs` pins the list
+  of declarations that are refused).
+- Not yet: sync.
+
+## Ported: the calendar (slice 4)
+
+- `src/native_calendar.rs`: `stats.calendar` (token 23), reached from the overview's calendar row. The
+  contents are `calendar_model.rs`'s (month, shading, chosen day, books); this lays out and draws:
+  the month with arrows, weekday names, the days shaded by minutes (and a bar, an hour at most),
+  today framed, the chosen day boxed, and below it its date, time, pages and up to three books.
+  Taps choose a day or turn the month; left/right/previous/next move a day, up/down a week, the page
+  keys and swipes a month, as in interface 6. Choosing reads the day's pages from the log again
+  (fallible, the chosen day is kept where that fails).
+- The first day of the week is `core.week-start` (`core.week.sunday`/`monday`), else the language's
+  `core.week-start-day`.
+- **Differences from interface 6** (on purpose): no "close" layout for the largest text on a small
+  screen (the days are as large as the room holds, the books of the chosen day fewer, down to its
+  date and time); the month's name is one line (smaller, then shortened), never two; the streak note
+  is drawn at the right end of the header where there is room (the kit's header has no note);
+  the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
+  slice 2); days are UTC days until draft 25.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- Screens (overview, calendar, books, book) on `core.ui`.
 - Widgets (today, week, ring, streak, calendar, year) and the status item (`left.rs`) on the
   widget and status stages (host call, Core todo 76).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets

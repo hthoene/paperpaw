@@ -56,7 +56,6 @@ pub(crate) struct Facts<'a> {
     pub days: &'a [Day],
     pub books: usize,
     pub today_pages: u32,
-    pub current_book: Option<u16>,
 }
 
 /// The tiles; none without the time.

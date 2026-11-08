@@ -120,11 +120,11 @@ impl<'a> GrayWriter<'a> {
 
 impl ImageSink for GrayWriter<'_> {
     fn start(&mut self, width: u32, height: u32) -> Result<(), ImageError> {
-        // A fixed array: nothing here can fail to allocate.
+        // On the stack: an allocation here aborted on a full heap.
         let mut header = [0_u8; HEADER as usize];
         header[..4].copy_from_slice(MAGIC);
         header[4..8].copy_from_slice(&width.to_le_bytes());
-        header[8..12].copy_from_slice(&height.to_le_bytes());
+        header[8..].copy_from_slice(&height.to_le_bytes());
         self.storage
             .write(self.path, &header)
             .map_err(|_| ImageError::Io)?;
@@ -139,6 +139,14 @@ impl ImageSink for GrayWriter<'_> {
     fn row(&mut self, gray: &[u8]) -> Result<(), ImageError> {
         if self.buffer.len() + gray.len() > self.buffer.capacity() {
             self.flush()?;
+        }
+        if gray.len() > self.buffer.capacity() {
+            // Longer than the room taken at `start`: written as it is
+            // rather than grown into.
+            return self
+                .storage
+                .append(self.path, gray)
+                .map_err(|_| ImageError::Io);
         }
         self.buffer.extend_from_slice(gray);
         Ok(())

@@ -8,7 +8,8 @@
 # none given: the packages with files changed against the merge base with
 # origin/abi7/integration (--base REV for another base).
 #
-# Steps, in this order: fmt, clippy (-D warnings), test, doc (-D warnings),
+# Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
+# for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test, doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
 # Every step runs whatever the one before did; each one's own exit code is
 # what counts. The summary at the end lists them, and the script exits 1
@@ -28,14 +29,22 @@
 #   --base REV        base for finding the changed packages
 #   --jobs N          cargo -j (default 4)
 #
-# Run it from inside the worktree to check (a copy of the script elsewhere
-# works too), with CARGO_TARGET_DIR of that worktree.
+# Run the tools/check-local.sh of the worktree to check, from inside it, with
+# CARGO_TARGET_DIR of that worktree. A copy elsewhere is refused (exit 2).
 set -uo pipefail
 
-# The worktree it is run in (so a copy of this file anywhere works), else the
-# one it lives in.
+# Only the script of the tree it checks counts: a copy elsewhere (or an empty
+# one) can be stale or "pass" without checking anything. Exit 2 if this file is
+# not tools/check-local.sh of the worktree it is run in.
 root="$(git rev-parse --show-toplevel 2> /dev/null)" \
-    || root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    || { echo "check-local: not inside a git worktree" >&2; exit 2; }
+root="$(cd "$root" && pwd -P)" || exit 2
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+if [[ "$self" != "$root/tools/check-local.sh" ]]; then
+    echo "check-local: this is '$self', not tools/check-local.sh of the worktree '$root'." >&2
+    echo "check-local: merge origin/abi7/integration and run the in-tree script; delete copies." >&2
+    exit 2
+fi
 cd "$root" || exit 2
 
 features=""
@@ -45,7 +54,7 @@ lock_args="--offline"
 base="origin/abi7/integration"
 jobs=4
 crates=()
-known=" fmt clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -62,7 +71,7 @@ while (($#)); do
         --online) lock_args=""; shift ;;
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a number}"; shift 2 ;;
-        -h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^set -uo/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "check-local: unknown option $1" >&2; exit 2 ;;
         *) crates+=("$1"); shift ;;
     esac
@@ -206,6 +215,27 @@ pkg_step() {
 }
 
 pkg_step fmt cargo fmt "${pkgs[@]}" -- --check
+# The firmware and the fuzz targets are workspaces of their own, which
+# `cargo fmt` here does not reach; CI runs rustfmt on the firmware's crate root
+# (it follows the modules), so the same here when a file of it changed.
+shell_changed=""
+fuzz_files=()
+if [[ -f "$logs/changed.txt" ]]; then
+    grep -q '^shells/xteink/.*\.rs$' "$logs/changed.txt" && shell_changed=1
+    while IFS= read -r changed_file; do
+        [[ -f "$changed_file" ]] && fuzz_files+=("$changed_file")
+    done < <(grep '^fuzz/.*\.rs$' "$logs/changed.txt" || true)
+fi
+if [[ -n "$shell_changed" ]]; then
+    step fmt-shells rustfmt --edition 2024 --check shells/xteink/src/main.rs
+else
+    skipped+=("fmt-shells (no changed .rs file under shells/xteink, or no base to compare)")
+fi
+if ((${#fuzz_files[@]} > 0)); then
+    step fmt-fuzz rustfmt --edition 2024 --check "${fuzz_files[@]}"
+else
+    skipped+=("fmt-fuzz (no changed .rs file under fuzz, or no base to compare)")
+fi
 pkg_step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
 if [[ -n "$features" ]]; then
     pkg_step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings
