@@ -542,6 +542,7 @@ impl FormatProvider {
             return Err(Error::State);
         }
         // The table's column weights, as little-endian u16s: a record borrows them.
+        let mut tag = [0u8; 16];
         let mut weights = Vec::new();
         if let Some(table) = &block.table {
             weights
@@ -552,7 +553,7 @@ impl FormatProvider {
             }
         }
         let mut list = Vec::new();
-        records(&block, cache, &weights, &mut list)?;
+        records(&block, cache, &weights, &mut tag, &mut list)?;
         let last = document
             .block_at(io, Locator::new(call.section, block.end))
             .map_err(|e| document_error(&e))?
@@ -610,6 +611,7 @@ fn records<'a>(
     block: &'a Block,
     cache: &'a str,
     weights: &'a [u8],
+    tag: &'a mut [u8; 16],
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (kind, level) = match block.kind {
@@ -630,8 +632,9 @@ fn records<'a>(
             + block.annotations.len(),
     )
     .map_err(|_| Error::NoMemory)?;
-    // GAP: `dir`, `writing_mode` and `lang` (and the inline languages) wait
-    // for the ruling on their encodings.
+    // GAP: `dir` and `writing_mode` (encodings ruled in draft 29: dir 0/1/2,
+    // writing_mode 0..4) and the inline languages wait for the SDK to
+    // re-export `Direction`/`WritingMode` with draft 29; `lang` is sent.
     list.push(Record::FmtBlock(stage::FmtBlock::new(
         kind,
         level,
@@ -651,7 +654,7 @@ fn records<'a>(
         block.line_height.map_or(u32::MAX, u32::from),
         0,
         0,
-        "",
+        lang_tag(block.lang, tag),
         u32::from(block.drop_cap),
         u32::try_from(block.text.len()).map_err(|_| Error::Invalid)?,
     )));
@@ -765,4 +768,29 @@ fn fragment(
             Err(_) => take -= 1,
         }
     }
+}
+
+/// A language as BCP 47 text (`language[-Script][-Region]`, at most
+/// 3 + 1 + 4 + 1 + 3 bytes) written into `buf`; empty where unknown.
+fn lang_tag(lang: paperpaw_sdk::Lang, buf: &mut [u8; 16]) -> &str {
+    let mut len = 0;
+    let code = lang.language();
+    let parts = [Some(code.as_str()), lang.script(), lang.region()];
+    for part in parts.into_iter().flatten().filter(|p| !p.is_empty()) {
+        if len > 0 {
+            if let Some(b) = buf.get_mut(len) {
+                *b = b'-';
+            }
+            len += 1;
+        }
+        let end = len + part.len();
+        match buf.get_mut(len..end) {
+            Some(to) => to.copy_from_slice(part.as_bytes()),
+            None => return "",
+        }
+        len = end;
+    }
+    buf.get(..len)
+        .and_then(|b| core::str::from_utf8(b).ok())
+        .unwrap_or_default()
 }

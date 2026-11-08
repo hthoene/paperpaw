@@ -352,6 +352,22 @@ fn is_epub(head: &[u8]) -> bool {
         && head.get(data..data + MIME.len()) == Some(MIME)
 }
 
+/// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn html_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-html.html",
+        |storage, name, options| {
+            HtmlDocument::open(storage, name, options.publisher_styles)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
 /// The `core.format` provider of Markdown files (`md`, `markdown`): a
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
