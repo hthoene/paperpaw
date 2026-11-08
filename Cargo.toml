@@ -30,6 +30,7 @@ members = [
     "crates/paperpaw-update",
     "crates/paperpaw-digest",
     "crates/paperpaw-native",
+    "crates/paperpaw-scripted-host",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
     "crates/paperpaw-ui-kit",
