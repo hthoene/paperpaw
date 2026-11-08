@@ -125,12 +125,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "rules"
-path = "src/bin/rules.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "stats"
 path = "src/bin/stats.rs"
 test = false
@@ -259,7 +253,6 @@ paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
-paperpaw-plugin-rules = { path = "../../plugins/rules" }
 paperpaw-plugin-stats = { path = "../../plugins/stats" }
 paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }

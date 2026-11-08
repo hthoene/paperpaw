@@ -105,8 +105,7 @@ def main():
             dir = library(book, name in ONLINE)
             shot = out / f"{profile}-{name}.png"
             command = [str(EMULATOR), "--profile", profile, "--headless",
-                       "--library", str(dir), "--screenshot", str(shot),
-                       "--set", "help.show=false"]
+                       "--library", str(dir), "--screenshot", str(shot)]
             if not book:
                 command += ["--set", "reader.open-last=false"]
             if lang:

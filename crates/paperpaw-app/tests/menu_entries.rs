@@ -183,10 +183,7 @@ impl App {
         plugins: impl FnOnce(paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder,
     ) -> Self {
         let storage = MemoryStorage::new()
-            .with(
-                "paperpaw.ini",
-                format!("[help]\nshow = false\n[core]\nlanguage = en\n{config}"),
-            )
+            .with("paperpaw.ini", format!("[core]\nlanguage = en\n{config}"))
             .with(".paperpaw/plugins/setup/done", "");
         let builder = paperpaw_app::install(
             Kernel::builder(DEVICE).storage(storage),

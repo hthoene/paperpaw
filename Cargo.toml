@@ -168,7 +168,7 @@ paperpaw-plugin-kosync = { path = "plugins/kosync", version = "1.0.5" }
 paperpaw-plugin-calibre = { path = "plugins/calibre", version = "1.0.7" }
 paperpaw-plugin-stats = { path = "plugins/stats", version = "1.0.4" }
 paperpaw-plugin-battery = { path = "plugins/battery", version = "1.0.6" }
-paperpaw-plugin-help = { path = "plugins/help", version = "1.0.2" }
+paperpaw-plugin-help = { path = "plugins/help", version = "1.0.4" }
 paperpaw-plugin-reading-goal = { path = "plugins/reading-goal", version = "1.0.3" }
 paperpaw-plugin-end-of-book = { path = "plugins/end-of-book", version = "1.0.2" }
 paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1.0.2" }
@@ -186,7 +186,7 @@ paperpaw-plugin-browser = { path = "plugins/browser", version = "1.0.3" }
 paperpaw-plugin-opds = { path = "plugins/opds", version = "1.0.3" }
 paperpaw-plugin-fonts-browser = { path = "plugins/fonts-browser", version = "1.0.5" }
 paperpaw-plugin-store = { path = "plugins/store", version = "1.0.2" }
-paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.6" }
+paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.8" }
 paperpaw-plugin-lock = { path = "plugins/lock", version = "1.0.3" }
 paperpaw-plugin-mail = { path = "plugins/mail", version = "1.0.0" }
 paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.10" }

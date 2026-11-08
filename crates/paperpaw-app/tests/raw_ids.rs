@@ -58,9 +58,7 @@ impl App {
         let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
         let builder = Kernel::builder(DEVICE)
             .storage(storage)
-            .user_config(format!(
-                "[core]\nlanguage = {language}\n[help]\nshow = false\n"
-            ));
+            .user_config(format!("[core]\nlanguage = {language}\n"));
         let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
         let effects = kernel.start(Instant(0));
         let mut namespaces: BTreeSet<String> = kernel

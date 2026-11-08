@@ -343,7 +343,7 @@ fn a_tool_added_upright_is_on_the_side_too_where_that_layout_is_its_own() {
 /// A card with a right to left language.
 fn card_ar() -> Shared {
     Shared::memory(
-        &format!("[core]\nlanguage = ar\n[help]\nshow = false\n{TOOLS}"),
+        &format!("[core]\nlanguage = ar\n{TOOLS}"),
         &[
             (
                 "plugins/language-ar/plugin.ini",

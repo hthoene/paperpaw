@@ -153,7 +153,7 @@ impl App {
             .storage(storage())
             .network(true)
             .catalog_device("x4")
-            .user_config("[core]\nlanguage = en\n[help]\nshow = false\n");
+            .user_config("[core]\nlanguage = en\n");
         let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
         let effects = kernel.start(Instant(0));
         let pixels = usize::from(DEVICE.display.width) * usize::from(DEVICE.display.height);
