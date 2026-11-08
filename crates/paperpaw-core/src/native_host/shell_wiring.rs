@@ -18,8 +18,8 @@ use super::{
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
-use alloc::rc::Rc;
-use paperpaw_native::host_glue::ERR_STATE;
+use alloc::{rc::Rc, vec::Vec};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
 
 /// What a shell wires into the device's host views. Nothing is wired for a
@@ -90,6 +90,15 @@ impl core::fmt::Debug for HyphenTables {
 }
 
 impl HyphenTables {
+    pub(crate) fn over(tables: Rc<CardTables>) -> Self {
+        Self(tables)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn card(&self) -> &CardTables {
+        &self.0
+    }
+
     /// Replaces the declared tables: `(language tag, card path, plugin id)`
     /// for each installed plugin's `resource.hyphenation` entry, in any order
     /// (the greatest plugin id wins a tag). All or nothing: on an error the
@@ -102,6 +111,44 @@ impl HyphenTables {
         declared: impl Iterator<Item = (&'a str, &'a str, u64)>,
     ) -> Result<(), i32> {
         self.0.replace(declared)
+    }
+
+    /// As [`declare`](Self::declare), with the plugin named by its id: the
+    /// plugin whose id wins ([`paperpaw_sdk::plugin_wins`], D4) gets a tag
+    /// several declare, as the kernel's own tables decide it. The
+    /// iterator is walked twice.
+    ///
+    /// # Errors
+    /// As [`declare`](Self::declare).
+    pub fn declare_plugins<'a>(
+        &self,
+        declared: impl Iterator<Item = (&'a str, &'a str, &'a str)> + Clone,
+    ) -> Result<(), i32> {
+        // The SDK's own rule (D4), so the host and the SDK cannot diverge.
+        let order = |a: &str, b: &str| {
+            if paperpaw_sdk::plugin_wins(a, b) {
+                core::cmp::Ordering::Greater
+            } else if paperpaw_sdk::plugin_wins(b, a) {
+                core::cmp::Ordering::Less
+            } else {
+                core::cmp::Ordering::Equal
+            }
+        };
+        let mut plugins: Vec<&str> = Vec::new();
+        for (_, _, plugin) in declared.clone() {
+            plugins.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            plugins.push(plugin);
+        }
+        plugins.sort_unstable_by(|a, b| order(a, b));
+        plugins.dedup_by(|a, b| order(a, b).is_eq());
+        let rank = |plugin: &str| {
+            let at = plugins
+                .binary_search_by(|probe| order(probe, plugin))
+                .unwrap_or(0);
+            at as u64 + 1
+        };
+        self.0
+            .replace(declared.map(|(tag, path, plugin)| (tag, path, rank(plugin))))
     }
 
     /// The card was inserted, removed or written: open tables are checked
@@ -143,7 +190,7 @@ impl HostResources {
         if let Some(storage) = wiring.hyphenation {
             let tables = Rc::new(CardTables::new(storage));
             hosts.wire_hyphen(tables.clone())?;
-            wired.hyphen = Some(HyphenTables(tables));
+            wired.hyphen = Some(HyphenTables::over(tables));
         }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;

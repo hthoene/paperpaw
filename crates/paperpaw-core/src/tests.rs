@@ -3270,6 +3270,7 @@ mod frames;
 mod free_count;
 mod guard;
 mod hosting;
+mod hyphenation_feed;
 mod hyphenation_tables;
 mod input;
 mod input_kinds;

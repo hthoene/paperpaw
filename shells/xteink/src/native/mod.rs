@@ -424,6 +424,25 @@ impl CodeLoader for Loader {
         self.load_file(storage, code)
     }
 
+    /// `text.hyphenate` is served to interface-7 plugins: the data plugins'
+    /// tables are files on the card.
+    #[cfg(feature = "ppn5")]
+    fn hyphenation_sink(
+        &mut self,
+        storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::{HostResources, HostWiring};
+        if self.resources.is_none() {
+            self.resources = HostResources::try_new().ok();
+        }
+        let wired = self
+            .resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+            .ok()?;
+        wired.hyphen().cloned()
+    }
+
     fn finish(&mut self, storage: &dyn Storage) {
         self.place.finish();
         // For the store and the plugin manager: how much room is left.
