@@ -17,13 +17,16 @@ use paperpaw_sdk::native::Error;
 
 use crate::{mem, text};
 
+pub mod view;
+pub use view::{StatusItemsView, Texts};
+
 /// An item or line that can be shown. Not `Clone`: a copy would allocate
 /// without a way to refuse.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry {
     /// Its id, as the setting keeps it.
     pub id: String,
-    /// The translation key of its name.
+    /// Its name as the user reads it.
     pub title: String,
     /// The id a line had before, which a setting may still hold.
     pub also: Option<String>,
@@ -196,6 +199,12 @@ impl Chooser {
     pub fn can_move(&self, focus: usize, focus_shown: bool) -> Result<bool, Error> {
         let shown = self.chosen()?.len();
         Ok(focus_shown && focus < shown && shown > 1)
+    }
+
+    /// Picks the focused item up (a hold of it): the next place it is put
+    /// is where it goes.
+    pub fn pick_up(&mut self) {
+        self.moving = true;
     }
 
     /// Drops what the buttons held, as a finger takes over from them.
