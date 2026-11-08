@@ -103,13 +103,19 @@ impl ImagesDocument {
         &self,
         storage: &dyn Storage,
         index: u32,
+        side: u32,
     ) -> Result<Option<ImageRef>, DocumentError> {
+        let fit = if side == 0 {
+            self.image_fit
+        } else {
+            Fit::side(side)
+        };
         let index = index as usize;
         let Some((name, size)) = self.pages.get(index) else {
             return Ok(None);
         };
         let base = pictures::base(&self.cache, index, name, *size)?;
-        self.picture(storage, index, &base, self.image_fit)
+        self.picture(storage, index, &base, fit)
     }
 
     /// Page `index` decoded into the picture `base`, if it can be.
@@ -169,10 +175,21 @@ impl Document for ImagesDocument {
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {
+        self.cover_at(storage, self.cover_fit)
+    }
+}
+
+impl ImagesDocument {
+    /// The cover no larger than `fit` (the side the opener asked for).
+    pub(crate) fn cover_at(
+        &self,
+        storage: &dyn Storage,
+        fit: Fit,
+    ) -> Result<Option<ImageRef>, DocumentError> {
         let mut digits = [0u8; 20];
-        let long = pictures::decimal(u64::from(self.cover_fit.long), &mut digits);
+        let long = pictures::decimal(u64::from(fit.long), &mut digits);
         let base = pictures::join(&self.cache, &["cover-", long])?;
-        self.picture(storage, 0, &base, self.cover_fit)
+        self.picture(storage, 0, &base, fit)
     }
 }
 

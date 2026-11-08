@@ -153,7 +153,7 @@ fn a_folder_reads_like_interface_6_page_by_page() {
         let reply = run(&mut p, &io, &call(18, 1, |c| c.index = page)).unwrap();
         assert!(matches!(rows(&reply)[0], stage::Record::FmtImage(i) if i.path == image.path));
     }
-    let reply = run(&mut p, &io, &call(17, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(17, 1, |c| c.cover_side = 120)).unwrap();
     assert!(matches!(rows(&reply)[0], stage::Record::FmtImage(i) if i.index == u32::MAX));
     let reply = run(&mut p, &io, &call(5, 1, |_| {})).unwrap();
     assert!(
