@@ -86,7 +86,7 @@ build() { # name rev sha features
     [ -n "$tool" ] || die "$name: no toolchain channel in shells/xteink/rust-toolchain.toml"
     echo "== $name: $sha, features $features, toolchain $tool" >&2
     local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-    local remap="target.$target.rustflags=[\"--remap-path-prefix=$ours/tree=/build\",\"--remap-path-prefix=$cargo_home=/cargo\"]"
+    local remap="target.$target.rustflags=[\"--remap-path-prefix=$ours/tree=/build\",\"--remap-path-prefix=$ours/target-$name=/target\",\"--remap-path-prefix=$cargo_home=/cargo\"]"
     (cd "$ours/tree/shells/xteink" &&
         env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/target-$name" \
             cargo +"$tool" build --locked -j"$jobs" --release --target "$target" --config "$remap" \
@@ -99,7 +99,7 @@ build() { # name rev sha features
         [ -x "$ours/tree/tools/plugin-files/build.sh" ] || die "$name: no tools/plugin-files/build.sh"
         # The remap is set here too: Beta 3's build.sh does not do it itself.
         env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn-target-$name" \
-            CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$cargo_home=/cargo" \
+            CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$ours/ppn-target-$name=/target --remap-path-prefix=$cargo_home=/cargo" \
             "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
             { echo "plugin files failed: $name" >&2; exit 2; }
         rm -rf "$ours/ppn-target-$name"

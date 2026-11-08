@@ -64,7 +64,7 @@ done
 # debug paths in the code). The target's rustflags variable is joined with
 # .cargo/config.toml's flags, unlike RUSTFLAGS, which would replace them.
 flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
-remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_TARGET_DIR:-$here/target}=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
 case " ${!flags_var:-} " in
     *" --remap-path-prefix=$root=/build "*) ;; # the caller has done it
     *) export "$flags_var=${!flags_var:+${!flags_var} }$remap" ;;
