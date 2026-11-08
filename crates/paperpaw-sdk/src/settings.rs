@@ -1038,6 +1038,18 @@ impl Settings {
         }
     }
 
+    /// Forgets the settings and groups of `plugin` (ids `<plugin>.…`) and the
+    /// defaults it set, e.g. when a plugin unloads. The values the reader
+    /// chose stay in their store, for the plugin's next load.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn remove_plugin(&mut self, plugin: &str) {
+        self.specs.remove_plugin(plugin);
+        self.groups.retain(|group| group.id.namespace() != plugin);
+        self.defaults_by
+            .retain(|setting, owner| setting.namespace() != plugin && owner.namespace() != plugin);
+    }
+
     /// Registers a setting. Its default must be valid.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]

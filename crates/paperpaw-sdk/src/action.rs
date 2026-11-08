@@ -442,6 +442,18 @@ impl Actions {
         }
     }
 
+    /// Removes every action of `plugin` (those whose id it is the namespace
+    /// of) and the handlers it put in place of others'.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn remove_plugin(&mut self, plugin: &str) {
+        self.specs.retain(|spec| spec.id.namespace() != plugin);
+        self.fixed.retain(|fixed| fixed.id.namespace() != plugin);
+        self.overrides.retain(|(action, _, owner, _)| {
+            action.namespace() != plugin && owner.as_str() != plugin
+        });
+    }
+
     fn find(&self, id: &str) -> Result<usize, usize> {
         self.specs.binary_search_by(|spec| spec.id.as_str().cmp(id))
     }
