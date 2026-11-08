@@ -6,7 +6,7 @@ use super::*;
 
 /// Where the short entry of name `short` (as FAT keeps it) is on `card`:
 /// the only one.
-fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
+pub(super) fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
     let image = card.image();
     let mut found = image
         .chunks(32)
@@ -20,14 +20,21 @@ fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
 
 /// The first cluster of the entry at `at` (its high half 0 on FAT12
 /// and FAT16).
-fn first_cluster(card: &Cut, at: usize) -> u32 {
+pub(super) fn first_cluster(card: &Cut, at: usize) -> u32 {
     let image = card.image();
     u32::from(u16::from_le_bytes([image[at + 26], image[at + 27]]))
         | u32::from(u16::from_le_bytes([image[at + 20], image[at + 21]])) << 16
 }
 
 /// Overwrites the entry at `at`: name, attributes, first cluster, size.
-fn garble(card: &Cut, at: usize, name: &[u8; 11], attributes: u8, first: u32, size: u32) {
+pub(super) fn garble(
+    card: &Cut,
+    at: usize,
+    name: &[u8; 11],
+    attributes: u8,
+    first: u32,
+    size: u32,
+) {
     let mut data = card.image();
     data[at..at + 11].copy_from_slice(name);
     data[at + 11] = attributes;
@@ -346,5 +353,48 @@ fn a_damaged_folder_moved_settles_after_any_cut() {
         assert_eq!(s.remove_dir_all("Other/Sub"), Ok(()), "{n}");
         assert_eq!(s.remove_dir_all("Books/Sub"), Ok(()), "{n}");
         assert_eq!(whole(&s, "Other/e.txt").unwrap(), b"d", "{n}");
+    }
+}
+
+/// A damaged data folder that is kept (`remove_tree_step` with `keep_root`)
+/// is cut off and made again, empty; one that is not kept is gone. What its
+/// entries point at, another folder's file, stays whole.
+#[test]
+fn a_damaged_kept_folder_is_there_again_empty() {
+    for keep in [true, false] {
+        let card = Cut::formatted(FormatVolumeOptions::new());
+        let s = card.storage();
+        s.write("keep/other.bin", &kept()).unwrap();
+        for name in ["aaaa.bin", "bbbb.bin"] {
+            s.write(&format!("Data/{name}"), b"cached").unwrap();
+        }
+        s.sync().unwrap();
+        let other = first_cluster(&card, short_entry(&card, b"OTHER   BIN"));
+        let mut name = [0xbd; 11];
+        name[9] = b'@';
+        name[10] = 0;
+        garble(
+            &card,
+            short_entry(&card, b"AAAA    BIN"),
+            &name,
+            0,
+            other,
+            2_499_805_184,
+        );
+        let s = card.storage();
+        for _ in 0..10 {
+            if s.remove_tree_step("Data", keep, 0).unwrap().done {
+                break;
+            }
+        }
+        let mut left = Vec::new();
+        let listed = s.list("Data", &mut |e| left.push(e.name.to_string()));
+        assert_eq!(listed.is_ok(), keep, "keep {keep}");
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(
+            whole(&s, "keep/other.bin").as_deref(),
+            Ok(&kept()[..]),
+            "keep {keep}"
+        );
     }
 }

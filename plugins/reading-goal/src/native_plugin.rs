@@ -6,7 +6,7 @@
 //! tick. See `PORTING-7.md`.
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
-    events::{BookKind, Event},
+    events::{BookKind, Event, Incoming, kinds},
     registrations,
     reply::Reply,
     stages::Stage,
@@ -15,6 +15,20 @@ use paperpaw_sdk::native::{
 
 use crate::model::{Kept, parse_stage};
 use crate::store;
+
+/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
+macro_rules! read_event {
+    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
+        let incoming = &$incoming;
+        let mut found = ::core::option::Option::None;
+        $(
+            if found.is_none() {
+                found = incoming.decode_as::<$kind>()?;
+            }
+        )+
+        found
+    }};
+}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reading_goal_declarations.rs"));
@@ -53,9 +67,13 @@ impl Plugin for NativeReadingGoal {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping)
+        else {
+            return Ok(());
+        };
         let Some(edge) = edge(token, &event) else {
             return Ok(());
         };

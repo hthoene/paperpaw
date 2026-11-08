@@ -361,7 +361,14 @@ pub fn with_unit(value: i64, unit: &str) -> Result<String, Error> {
     if unit.is_empty() {
         return Ok(number);
     }
-    match unit.split_once("{count}") {
+    // A byte search and `get`, not `split_once("{count}")`: a `&str` pattern search links
+    // the slice panic that prints a character (Debug and Unicode tables, 4 KB).
+    const MARK: &[u8] = b"{count}";
+    let at = unit
+        .as_bytes()
+        .windows(MARK.len())
+        .position(|window| window == MARK);
+    match at.and_then(|at| Some((unit.get(..at)?, unit.get(at + MARK.len()..)?))) {
         Some((before, after)) => concat(&[before, &number, after]),
         None => concat(&[&number, " ", unit]),
     }

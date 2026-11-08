@@ -85,7 +85,7 @@ pub(crate) fn pages_from(
     let keep = |pages: &mut Vec<Page>| {
         // Unstable: the order is total, and the stable sort takes scratch room
         // (about 19 KB above 128 names) that a refusal would abort.
-        pages.sort_unstable_by(|a, b| order(&a.0, &b.0));
+        paperpaw_sdk::sort::sort_by(pages, |a, b| order(&a.0, &b.0));
         pages.truncate(MAX_PAGES);
     };
     let listed = storage.list(dir, &mut |entry| {

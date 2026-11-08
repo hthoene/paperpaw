@@ -43,11 +43,12 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - run: cargo fmt --all --check
@@ -60,7 +61,7 @@ jobs:
       # mirror fails here, never passes); the conformance test needs them too.
       # This step fails where the files cannot be had: it never skips.
       - name: Unicode data for the line-break table
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ucd
           key: ucd-17.0.0-${{ hashFiles('tools/linebreak-table.py') }}
@@ -95,9 +96,11 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - run: cargo build --release -p paperpaw-dev
@@ -128,11 +131,13 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The workspace's `rust-version`; `+1.88` wins over
       # rust-toolchain.toml.
-      - uses: dtolnay/rust-toolchain@1.88
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88 (branch head)
+        with:
+          toolchain: "1.88"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - run: cargo +1.88 check --workspace --all-targets
@@ -148,15 +153,23 @@ jobs:
       # the same on every machine.
       NIGHTLY: nightly-2026-10-17
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
       - run: rustup toolchain install "$NIGHTLY" --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
-      - uses: taiki-e/install-action@v2
+      # Each tool from the cache, else the release, else crates.io.
+      - uses: ./.github/actions/cargo-tool
         with:
-          tool: cargo-semver-checks@0.51.0,cargo-public-api@0.52.0
+          tool: cargo-semver-checks
+          version: 0.51.0
+      - uses: ./.github/actions/cargo-tool
+        with:
+          tool: cargo-public-api
+          version: 0.52.0
       - name: No change that breaks plugins unless the version says so
         # Against each crate's last release on crates.io; a crate joins
         # once it has one.
@@ -201,10 +214,12 @@ jobs:
       # Event metadata selects the reviewed parent, never the candidate lock.
       ABI_BASE_REV: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
       - name: Extract the trusted lock without executing base code
         env:
           ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock
@@ -233,12 +248,13 @@ jobs:
       matrix:
         target: [riscv32imc-unknown-none-elf, wasm32-unknown-unknown]
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - name: Build kernel and first-party plugins
@@ -285,13 +301,13 @@ jobs:
     env:
       DEVICE: ${{ matrix.device }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
           # A slow Ubuntu mirror must not fail a source check (#876); a release does not do this.
           clang-fallback: "true"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           # The firmware, the sample code plugin and paperpaw-sign.
@@ -328,7 +344,7 @@ jobs:
         with:
           out: ${{ runner.temp }}/install.bin
       # For the update path (job update-path).
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: install-image-${{ matrix.device }}
           path: ${{ runner.temp }}/install.bin
@@ -407,13 +423,15 @@ jobs:
     needs: [firmware]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           key: update-path
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: install-image-*
           path: ${{ runner.temp }}/images
@@ -431,11 +449,12 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
         with:
+          toolchain: stable
           targets: riscv32imc-unknown-none-elf
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           workspaces: |
@@ -462,6 +481,12 @@ jobs:
         # by tools/licences/build.py: a crate added, removed or updated
         # without them fails here.
         run: python3 tools/licences/build.py --check
+      - name: Every Cargo.lock agrees with its manifests
+        # `cargo metadata --locked` at the root reads the root's lock only.
+        # tools/check-lockfiles.py runs it for each lockfile in git and also
+        # finds entries nothing needs any more (a bumped plugin or a removed
+        # crate left in shells/xteink, tools/plugin-files or fuzz).
+        run: python3 tools/check-lockfiles.py
       - name: A plugin's own stage codec is its schema's
         # plugins/about/src/stages.rs from plugins/about/stages/*.def by
         # tools/stage-codec.py (needs rustfmt, which this job has).
@@ -507,11 +532,13 @@ jobs:
     # names the raise's commit (the raise changes it).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           workspaces: |
@@ -533,7 +560,7 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The history and the tags, for the plugins' versions.
           fetch-depth: 0
@@ -560,6 +587,10 @@ jobs:
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback
         run: python3 -m unittest discover -s tools -p "test_ci_tools.py"
+      - name: The local check script fails when a step fails
+        run: python3 -m unittest discover -s tools -p "test_check_local.py"
+      - name: The lockfile check finds a stale version and a left-over entry
+        run: python3 -m unittest discover -s tools -p "test_check_lockfiles.py"
       - name: Android takes each version over the ones before it, as the update plugin orders them
         # The order itself against compare_versions: crates/paperpaw-sdk/tests/android_codes.rs.
         run: |
@@ -580,9 +611,11 @@ jobs:
         # A PR runs Linux; Windows and macOS run on main and integration.
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - run: cargo build -p paperpaw-emulator
@@ -621,7 +654,7 @@ jobs:
           printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
           py="$(command -v python3 || command -v python)"
           "$py" tools/handbook.py out/registry.json ci out/handbook.zip
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.os == 'ubuntu-latest'
         with:
           name: emulator-screenshots
@@ -632,12 +665,13 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
         with:
+          toolchain: stable
           targets: aarch64-linux-android
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
       - run: cargo install cargo-ndk --locked
@@ -649,7 +683,7 @@ jobs:
         run: cargo ndk -t arm64-v8a --platform 26 clippy -p paperpaw-android
       - name: Build the APK
         run: shells/android/build-apk.sh
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: paperpaw-android-apk
           path: target/android/paperpaw.apk
@@ -660,9 +694,11 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly (branch head)
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           workspaces: fuzz
@@ -678,7 +714,7 @@ jobs:
           for target in epub txt xml hyphen image lua bidi wrap; do
             cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=1024
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: fuzz-crashes
@@ -689,13 +725,21 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
-      # The firmware pins its own compiler (rust-toolchain.toml), which the
-      # action's container cannot install: cargo-deny runs on the runner.
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # cargo-deny runs on the runner, not in EmbarkStudios/cargo-deny-action's
+      # container: the firmware pins its own compiler (rust-toolchain.toml),
+      # which that container cannot install, and its image build pipes an
+      # unchecked `curl | tar` (a broken download failed this job). The
+      # install action checks the release archive against its published
+      # checksum; if GitHub's release downloads are down, cargo-deny is built
+      # from crates.io instead (the cargo-tool action, which also caches
+      # it). The version is the one the container had.
+      - uses: ./.github/actions/cargo-tool
         with:
           tool: cargo-deny
+          version: 0.20.2
+      - name: The workspace's dependencies
+        run: cargo deny --log-level warn --manifest-path Cargo.toml --all-features check
       - name: The X4 firmware's dependencies too
         run: cargo deny --manifest-path shells/xteink/Cargo.toml --all-features check
       - name: Bluetooth host-test dependencies too
@@ -715,12 +759,12 @@ jobs:
     env:
       DEVICE: x4
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/xteink-tools
         with:
           device: x4
           clang-fallback: "true"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' }}
           workspaces: |

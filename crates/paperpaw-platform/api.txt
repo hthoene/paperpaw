@@ -252,12 +252,15 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::Mounted<B, M>::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -273,12 +276,15 @@ pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::NoStorage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::NoStorage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::NoStorage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -293,12 +299,15 @@ pub fn paperpaw_platform::storage::Storage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Storage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Storage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::Storage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Storage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::Storage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::Storage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Storage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Storage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -313,12 +322,15 @@ pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::NoStorage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::NoStorage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::NoStorage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -333,12 +345,15 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::Mounted<B, M>::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -349,6 +364,26 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::write_at(&self, &str, u64, &[u
 pub fn paperpaw_platform::storage::is_reserved_name(&str) -> bool
 pub fn paperpaw_platform::storage::is_valid_path(&str) -> bool
 pub fn paperpaw_platform::storage::list_counted<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::remove_listed_by_path<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub mod paperpaw_platform::tree
+#[non_exhaustive] pub enum paperpaw_platform::tree::Kind
+pub paperpaw_platform::tree::Kind::File
+pub paperpaw_platform::tree::Kind::Folder
+pub paperpaw_platform::tree::Kind::Missing
+#[non_exhaustive] pub struct paperpaw_platform::tree::TreeStep
+pub paperpaw_platform::tree::TreeStep::done: bool
+pub paperpaw_platform::tree::TreeStep::next: u64
+pub paperpaw_platform::tree::TreeStep::removed: u32
+impl paperpaw_platform::tree::TreeStep
+pub const fn paperpaw_platform::tree::TreeStep::new(u32, bool, u64) -> Self
+pub const paperpaw_platform::tree::DESCENT: u32
+pub const paperpaw_platform::tree::MAX_DEPTH: usize
+pub const paperpaw_platform::tree::MAX_NAME: usize
+pub const paperpaw_platform::tree::MAX_READS: u32
+pub const paperpaw_platform::tree::MAX_REMOVALS: u32
+pub fn paperpaw_platform::tree::is_usable_name(&str) -> bool
+pub fn paperpaw_platform::tree::kind<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str) -> core::result::Result<paperpaw_platform::tree::Kind, paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::tree::remove_tree_step<S: paperpaw_platform::storage::Storage + ?core::marker::Sized>(&S, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 #[non_exhaustive] pub enum paperpaw_platform::ButtonState
 pub paperpaw_platform::ButtonState::Pressed
 pub paperpaw_platform::ButtonState::Released
@@ -527,12 +562,15 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::Mounted<B, M>::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -548,12 +586,15 @@ pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::NoStorage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::NoStorage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::NoStorage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -629,12 +670,15 @@ pub fn paperpaw_platform::Storage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::Storage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::Storage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::Storage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::Storage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::Storage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::Storage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::Storage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::Storage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -649,12 +693,15 @@ pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::NoStorage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::NoStorage::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::NoStorage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
@@ -669,12 +716,15 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::list_bounded(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::list_from(&self, &str, u64, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>) -> bool) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::local_path(&self, &str, &mut dyn core::ops::function::FnMut(&str))
 pub fn paperpaw_platform::storage::Mounted<B, M>::modified(&self, &str) -> core::option::Option<i64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>

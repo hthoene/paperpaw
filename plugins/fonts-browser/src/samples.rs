@@ -61,7 +61,7 @@ fn characters(env: &Env<'_>, font: &Font) -> String {
         .chain(sentence(env).chars())
         .chain(['…'])
         .collect();
-    chars.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut chars);
     chars.dedup();
     chars.into_iter().filter(|c| !c.is_control()).collect()
 }

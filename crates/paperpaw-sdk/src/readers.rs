@@ -315,7 +315,7 @@ fn chosen_past<'e>(env: &'e Env<'_>, path: &str, past: &[&str]) -> Option<&'e Re
     }
     // The nearest folder with a choice.
     let mut kept = folders(env.storage()).unwrap_or_default();
-    kept.sort_by_cached_key(|(_, folder)| core::cmp::Reverse(folder.len()));
+    paperpaw_sort::sort_by_cached_key(&mut kept, |(_, folder)| core::cmp::Reverse(folder.len()));
     let in_folder = kept.iter().find(|(_, folder)| {
         path.strip_prefix(folder.as_str())
             .is_some_and(|rest| rest.starts_with('/'))
