@@ -3823,6 +3823,194 @@ impl<'a> paperpaw_sdk::native::device::WifiNetwork<'a>
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::signal(self) -> i32
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::ssid(self) -> &'a str
 pub mod paperpaw_sdk::native::events
+pub mod paperpaw_sdk::native::events::kinds
+pub struct paperpaw_sdk::native::events::kinds::ActionRun
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ActionRun
+pub const paperpaw_sdk::native::events::kinds::ActionRun::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Answered
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Answered
+pub const paperpaw_sdk::native::events::kinds::Answered::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BatteryMeasured
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BatteryMeasured
+pub const paperpaw_sdk::native::events::kinds::BatteryMeasured::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Bluetooth
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Bluetooth
+pub const paperpaw_sdk::native::events::kinds::Bluetooth::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BookClosed
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookClosed
+pub const paperpaw_sdk::native::events::kinds::BookClosed::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BookFinished
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookFinished
+pub const paperpaw_sdk::native::events::kinds::BookFinished::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BookMoved
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookMoved
+pub const paperpaw_sdk::native::events::kinds::BookMoved::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BookOpened
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookOpened
+pub const paperpaw_sdk::native::events::kinds::BookOpened::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::BookRemoved
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookRemoved
+pub const paperpaw_sdk::native::events::kinds::BookRemoved::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ChargeChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
+pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::HttpDone
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpDone
+pub const paperpaw_sdk::native::events::kinds::HttpDone::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::HttpProgress
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpProgress
+pub const paperpaw_sdk::native::events::kinds::HttpProgress::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PageTurned
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PageTurned
+pub const paperpaw_sdk::native::events::kinds::PageTurned::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PluginAnswered
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginAnswered
+pub const paperpaw_sdk::native::events::kinds::PluginAnswered::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PluginsChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginsChanged
+pub const paperpaw_sdk::native::events::kinds::PluginsChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PluginsRequested
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginsRequested
+pub const paperpaw_sdk::native::events::kinds::PluginsRequested::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PowerChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PowerChanged
+pub const paperpaw_sdk::native::events::kinds::PowerChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::PreviewChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PreviewChanged
+pub const paperpaw_sdk::native::events::kinds::PreviewChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::RegistryChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::RegistryChanged
+pub const paperpaw_sdk::native::events::kinds::RegistryChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Resume
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Resume
+pub const paperpaw_sdk::native::events::kinds::Resume::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ScreenClosed
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenClosed
+pub const paperpaw_sdk::native::events::kinds::ScreenClosed::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ScreenOpened
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenOpened
+pub const paperpaw_sdk::native::events::kinds::ScreenOpened::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ScreenReady
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenReady
+pub const paperpaw_sdk::native::events::kinds::ScreenReady::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ScreenShown
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenShown
+pub const paperpaw_sdk::native::events::kinds::ScreenShown::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::SettingChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::SettingChanged
+pub const paperpaw_sdk::native::events::kinds::SettingChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Spoken
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Spoken
+pub const paperpaw_sdk::native::events::kinds::Spoken::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::StackChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StackChanged
+pub const paperpaw_sdk::native::events::kinds::StackChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::StageCall
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StageCall
+pub const paperpaw_sdk::native::events::kinds::StageCall::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Started
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Started
+pub const paperpaw_sdk::native::events::kinds::Started::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::StatusChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StatusChanged
+pub const paperpaw_sdk::native::events::kinds::StatusChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Stopping
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Stopping
+pub const paperpaw_sdk::native::events::kinds::Stopping::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Suspend
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Suspend
+pub const paperpaw_sdk::native::events::kinds::Suspend::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Tick
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Tick
+pub const paperpaw_sdk::native::events::kinds::Tick::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::WidgetChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetChanged
+pub const paperpaw_sdk::native::events::kinds::WidgetChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::WidgetDropped
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetDropped
+pub const paperpaw_sdk::native::events::kinds::WidgetDropped::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::WidgetMade
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetMade
+pub const paperpaw_sdk::native::events::kinds::WidgetMade::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::WifiChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WifiChanged
+pub const paperpaw_sdk::native::events::kinds::WifiChanged::TAG: u32
+pub trait paperpaw_sdk::native::events::kinds::Kind: paperpaw_sdk::native::events::kinds::sealed::Sealed
+pub const paperpaw_sdk::native::events::kinds::Kind::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ActionRun
+pub const paperpaw_sdk::native::events::kinds::ActionRun::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Answered
+pub const paperpaw_sdk::native::events::kinds::Answered::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BatteryMeasured
+pub const paperpaw_sdk::native::events::kinds::BatteryMeasured::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Bluetooth
+pub const paperpaw_sdk::native::events::kinds::Bluetooth::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookClosed
+pub const paperpaw_sdk::native::events::kinds::BookClosed::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookFinished
+pub const paperpaw_sdk::native::events::kinds::BookFinished::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookMoved
+pub const paperpaw_sdk::native::events::kinds::BookMoved::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookOpened
+pub const paperpaw_sdk::native::events::kinds::BookOpened::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::BookRemoved
+pub const paperpaw_sdk::native::events::kinds::BookRemoved::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
+pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpDone
+pub const paperpaw_sdk::native::events::kinds::HttpDone::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpProgress
+pub const paperpaw_sdk::native::events::kinds::HttpProgress::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PageTurned
+pub const paperpaw_sdk::native::events::kinds::PageTurned::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginAnswered
+pub const paperpaw_sdk::native::events::kinds::PluginAnswered::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginsChanged
+pub const paperpaw_sdk::native::events::kinds::PluginsChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PluginsRequested
+pub const paperpaw_sdk::native::events::kinds::PluginsRequested::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PowerChanged
+pub const paperpaw_sdk::native::events::kinds::PowerChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::PreviewChanged
+pub const paperpaw_sdk::native::events::kinds::PreviewChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::RegistryChanged
+pub const paperpaw_sdk::native::events::kinds::RegistryChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Resume
+pub const paperpaw_sdk::native::events::kinds::Resume::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenClosed
+pub const paperpaw_sdk::native::events::kinds::ScreenClosed::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenOpened
+pub const paperpaw_sdk::native::events::kinds::ScreenOpened::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenReady
+pub const paperpaw_sdk::native::events::kinds::ScreenReady::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenShown
+pub const paperpaw_sdk::native::events::kinds::ScreenShown::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::SettingChanged
+pub const paperpaw_sdk::native::events::kinds::SettingChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Spoken
+pub const paperpaw_sdk::native::events::kinds::Spoken::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StackChanged
+pub const paperpaw_sdk::native::events::kinds::StackChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StageCall
+pub const paperpaw_sdk::native::events::kinds::StageCall::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Started
+pub const paperpaw_sdk::native::events::kinds::Started::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::StatusChanged
+pub const paperpaw_sdk::native::events::kinds::StatusChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Stopping
+pub const paperpaw_sdk::native::events::kinds::Stopping::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Suspend
+pub const paperpaw_sdk::native::events::kinds::Suspend::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Tick
+pub const paperpaw_sdk::native::events::kinds::Tick::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetChanged
+pub const paperpaw_sdk::native::events::kinds::WidgetChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetDropped
+pub const paperpaw_sdk::native::events::kinds::WidgetDropped::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetMade
+pub const paperpaw_sdk::native::events::kinds::WidgetMade::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WifiChanged
+pub const paperpaw_sdk::native::events::kinds::WifiChanged::TAG: u32
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::AnswerOutcome
 pub paperpaw_sdk::native::events::AnswerOutcome::Answered
 pub paperpaw_sdk::native::events::AnswerOutcome::Cancelled
@@ -4006,6 +4194,14 @@ pub fn paperpaw_sdk::native::events::ChargeFlags::battery_low(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::charging(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::external_power(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::from_bits(u32) -> Self
+pub struct paperpaw_sdk::native::events::Incoming<'a>
+impl<'a> paperpaw_sdk::native::events::Incoming<'a>
+pub fn paperpaw_sdk::native::events::Incoming<'a>::decode(&self) -> core::result::Result<paperpaw_sdk::native::events::Event<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::events::Incoming<'a>::decode_as<K: paperpaw_sdk::native::events::kinds::Kind>(&self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::events::Event<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::events::Incoming<'a>::is<K: paperpaw_sdk::native::events::kinds::Kind>(&self) -> bool
+pub fn paperpaw_sdk::native::events::Incoming<'a>::new(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl core::fmt::Debug for paperpaw_sdk::native::events::Incoming<'_>
+pub fn paperpaw_sdk::native::events::Incoming<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_sdk::native::events::PluginRequestId(_)
 impl paperpaw_sdk::native::events::PluginRequestId
 pub const fn paperpaw_sdk::native::events::PluginRequestId::get(self) -> u32
@@ -5783,7 +5979,7 @@ pub const paperpaw_sdk::native::LAYOUT: u64
 pub const paperpaw_sdk::native::TOOLCHAIN: &str
 pub trait paperpaw_sdk::native::Plugin: core::marker::Sized + 'static
 pub fn paperpaw_sdk::native::Plugin::draw(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::Plugin::event(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::events::Event<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::Plugin::event(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::events::Incoming<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::Plugin::input(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::callbacks::Input<'_>) -> core::result::Result<paperpaw_sdk::Handled, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::Plugin::make(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::author(&dyn paperpaw_platform::storage::Storage, &str, &[u8; 32]) -> paperpaw_sdk::native::Author

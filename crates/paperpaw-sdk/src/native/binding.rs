@@ -142,7 +142,11 @@ pub trait Plugin: Sized + 'static {
     /// Returns a host refusal; a failed instance is never activated.
     fn make(host: &Host<'_>) -> Result<Self, Error>;
 
-    /// Handle one decoded event for a committed callback token.
+    /// Handle one event for a committed callback token. The event is framed and its
+    /// body is not read: read the kinds the plugin handles with
+    /// [`Incoming::decode_as`](super::events::Incoming::decode_as), or any kind with
+    /// [`Incoming::decode`](super::events::Incoming::decode) (which links every
+    /// event decoder). A malformed body is an error where it is read.
     /// The default implementation returns Unsupported.
     ///
     /// # Errors
@@ -151,7 +155,7 @@ pub trait Plugin: Sized + 'static {
         &mut self,
         _host: &Host<'_>,
         _token: u32,
-        _event: super::events::Event<'_>,
+        _event: super::events::Incoming<'_>,
         _reply: &mut super::reply::Reply<'_>,
     ) -> Result<(), Error> {
         Err(Error::Unsupported)

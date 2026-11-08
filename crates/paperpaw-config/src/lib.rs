@@ -87,6 +87,7 @@ impl<'a> Value<'a> {
                     let rest = chars.as_str();
                     if let Some((c, len)) = parse_unicode_escape(rest) {
                         out.push(c);
+                        debug_assert!(rest.is_char_boundary(len));
                         chars = rest.get(len..).unwrap_or_default().chars();
                     }
                 }
@@ -281,6 +282,8 @@ fn parse_value(text: &str) -> Result<Value<'_>, ErrorKind> {
     while let Some((index, c)) = chars.next() {
         match c {
             '"' => {
+                // `index` is where the one-byte quote is: both cuts are on boundaries.
+                debug_assert!(inner.is_char_boundary(index) && inner.is_char_boundary(index + 1));
                 if !inner.get(index + 1..).unwrap_or_default().trim().is_empty() {
                     return Err(ErrorKind::InvalidLine);
                 }

@@ -234,7 +234,6 @@ pub fn install_with(
     }
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_bluetooth::Bluetooth)
         .plugin(paperpaw_plugin_file_manager::FileManager)
         .plugin(paperpaw_plugin_transfer::Transfer)
         .plugin(paperpaw_plugin_opds::Opds);
@@ -264,9 +263,7 @@ pub fn install_with(
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    builder
-        .plugin(paperpaw_plugin_update::Update)
-        .plugin(paperpaw_plugin_setup::Setup)
+    builder.plugin(paperpaw_plugin_update::Update)
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are

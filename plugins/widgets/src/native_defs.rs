@@ -15,6 +15,9 @@ pub enum Tap {
     /// It opens the widget's settings: for widgets that show what the reader
     /// chose (a date, places).
     Settings,
+    /// Its items tick off on a tap (a target for each); the heading, "more"
+    /// and an empty list open the list's screen.
+    TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
     /// It asks for the text of the setting `key` on the keyboard.
@@ -116,7 +119,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_quote::shows,
         tap: Tap::TurnQuote,
     };
+    static TODO: Behaviour = Behaviour {
+        height: crate::native_todo::height,
+        draw: crate::native_todo::draw,
+        shows: crate::native_todo::shows,
+        tap: Tap::TickItems,
+    };
     match token {
+        112 => Some(&TODO),
         111 => Some(&QUOTE),
         110 => Some(&NOTE),
         109 => Some(&GREETING),
