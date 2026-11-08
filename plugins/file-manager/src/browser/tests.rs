@@ -234,7 +234,7 @@ fn names_that_work_on_the_card() {
 /// What a browser's call left as a result: a refusal is its note.
 fn outcome(browser: &Browser) -> Result<(), Error> {
     match &browser.note {
-        Some(Note::Failed(error)) => Err(error.clone()),
+        Some(Note::Failed(error)) => Err(*error),
         _ => Ok(()),
     }
 }
