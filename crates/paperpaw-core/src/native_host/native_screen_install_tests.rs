@@ -13,7 +13,8 @@ std::thread_local! {
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     /// The callback registrations `make` submits: 1 an event; 2 the same event
     /// twice; 3 a draw of the screen's token; 4 a draw of a token nobody
-    /// declared; 5 the same draw twice; 6 an event and a draw.
+    /// declared; 5 the same draw twice; 6 an event and a draw; 7 and 8 the same event or
+    /// draw in two batches; 9 an event and a draw in a batch each.
     static REGS: Cell<u8> = const { Cell::new(0) };
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
     static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
@@ -114,20 +115,30 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         token,
     };
     let draw = |token| wire::Registration::Draw { token };
-    let mut bytes = [0; 128];
-    let len = match REGS.with(Cell::get) {
+    let batches: &[&[wire::Registration]] = match REGS.with(Cell::get) {
         0 => return None,
-        1 => wire::registrations_encode(&[event(91)], &mut bytes),
-        2 => wire::registrations_encode(&[event(91), event(92)], &mut bytes),
-        3 => wire::registrations_encode(&[draw(91)], &mut bytes),
-        4 => wire::registrations_encode(&[draw(77)], &mut bytes),
-        5 => wire::registrations_encode(&[draw(91), draw(91)], &mut bytes),
-        _ => wire::registrations_encode(&[event(91), draw(91)], &mut bytes),
+        1 => &[&[event(91)]],
+        2 => &[&[event(91), event(92)]],
+        3 => &[&[draw(91)]],
+        4 => &[&[draw(77)]],
+        5 => &[&[draw(91), draw(91)]],
+        6 => &[&[event(91), draw(91)]],
+        // The same event in two batches; the same draw in two batches.
+        7 => &[&[event(91)], &[event(92)]],
+        8 => &[&[draw(91)], &[draw(91)]],
+        // An event and a draw, each in a batch of its own.
+        _ => &[&[event(91)], &[draw(91)]],
+    };
+    for batch in batches {
+        let mut bytes = [0; 128];
+        let len = wire::registrations_encode(batch, &mut bytes).unwrap();
+        // SAFETY: the encoded registrations remain readable for the call.
+        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return Some(status);
+        }
     }
-    .unwrap();
-    // SAFETY: the encoded registrations remain readable for the call.
-    let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
-    (status != OK).then_some(status)
+    None
 }
 
 unsafe extern "C" fn screen_make(
@@ -540,7 +551,7 @@ fn regs_kernel(regs: u8) -> (crate::Kernel, Result<(), Error>) {
 
 #[test]
 fn event_and_draw_registrations_are_admitted_and_dropped_with_the_owner() {
-    for regs in [1, 3, 6] {
+    for regs in [1, 3, 6, 9] {
         let (mut kernel, result) = regs_kernel(regs);
         result.unwrap();
         let key = kernel.shared.native_instances.find("factory").unwrap();
@@ -568,6 +579,9 @@ fn registrations_that_do_not_fit_the_declarations_refuse_the_whole_install() {
         (2, host_glue::ERR_INVALID),
         (4, host_glue::ERR_INVALID),
         (5, host_glue::ERR_INVALID),
+        // Across batches the same tag or token is still the same.
+        (7, host_glue::ERR_INVALID),
+        (8, host_glue::ERR_INVALID),
     ] {
         let (kernel, result) = regs_kernel(regs);
         assert!(
