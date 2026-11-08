@@ -419,9 +419,9 @@ fn find(env: &Env<'_>, kind: Kind, name: &str) -> (Vec<Entry>, usize) {
     });
     let mut entries: Vec<Entry> = kept.into_iter().map(|r| r.0).collect();
     if kind == Kind::Series {
-        entries.sort_unstable_by_key(|e| (e.number, e.key, e.offset));
+        paperpaw_sdk::sort::sort_by_key(&mut entries, |e| (e.number, e.key, e.offset));
     } else {
-        entries.sort_unstable_by_key(|e| (e.key, e.offset));
+        paperpaw_sdk::sort::sort_by_key(&mut entries, |e| (e.key, e.offset));
     }
     (entries, total)
 }

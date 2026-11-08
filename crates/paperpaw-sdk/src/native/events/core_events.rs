@@ -37,103 +37,90 @@ macro_rules! book {
     }};
 }
 
-pub(super) fn decode(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
-    Ok(match raw.tag() {
-        wire::EVENT_SETTING_CHANGED_TAG => {
-            let r: wire::EventSettingChanged<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::SettingChanged {
-                now_ms: r.now_ms,
-                key: r.key,
-                old: old_value(r.old)?,
-            }
-        }
-        wire::EVENT_BOOK_OPENED_TAG => {
-            let r: wire::EventBookOpened<'_> = raw.decode().map_err(Error::from_status)?;
-            book!(r, Opened)
-        }
-        wire::EVENT_BOOK_CLOSED_TAG => {
-            let r: wire::EventBookClosed<'_> = raw.decode().map_err(Error::from_status)?;
-            book!(r, Closed)
-        }
-        wire::EVENT_BOOK_FINISHED_TAG => {
-            let r: wire::EventBookFinished<'_> = raw.decode().map_err(Error::from_status)?;
-            book!(r, Finished)
-        }
-        wire::EVENT_BOOK_MOVED_TAG => {
-            let r: wire::EventBookMoved<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::BookMoved {
-                now_ms: r.now_ms,
-                from: r.from,
-                path: r.path,
-            }
-        }
-        wire::EVENT_BOOK_REMOVED_TAG => {
-            let r: wire::EventBookRemoved<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::BookRemoved {
-                now_ms: r.now_ms,
-                path: r.path,
-            }
-        }
-        wire::EVENT_PLUGINS_CHANGED_TAG => {
-            let r: wire::EventPluginsChanged = raw.decode().map_err(Error::from_status)?;
-            Event::PluginsChanged { now_ms: r.now_ms }
-        }
-        wire::EVENT_WIFI_CHANGED_TAG => {
-            let r: wire::EventWifiChanged = raw.decode().map_err(Error::from_status)?;
-            Event::WifiChanged {
-                now_ms: r.now_ms,
-                state: WifiLinkState::decode(r.state),
-            }
-        }
-        wire::EVENT_POWER_CHANGED_TAG => {
-            let r: wire::EventPowerChanged<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::PowerChanged(PowerChange {
-                now_ms: r.now_ms,
-                level: match r.level {
-                    1 => PowerLevel::Saving,
-                    2 => PowerLevel::Offline,
-                    _ => PowerLevel::Normal,
-                },
-                automatic: r.flags & 1 != 0,
-                stretch: r.stretch,
-                mode: r.mode,
-            })
-        }
-        wire::EVENT_STATUS_CHANGED_TAG => {
-            let r: wire::EventStatusChanged = raw.decode().map_err(Error::from_status)?;
-            Event::StatusChanged { now_ms: r.now_ms }
-        }
-        wire::EVENT_CHARGE_CHANGED_TAG => {
-            let r: wire::EventChargeChanged = raw.decode().map_err(Error::from_status)?;
-            Event::ChargeChanged {
-                now_ms: r.now_ms,
-                flags: ChargeFlags::from_bits(r.flags),
-            }
-        }
-        wire::EVENT_BLUETOOTH_TAG => {
-            let r: wire::EventBluetooth<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::Bluetooth(BluetoothChange {
-                now_ms: r.now_ms,
-                kind: r.kind,
-                device: r.device,
-                name: r.name,
-                device_kind: r.device_kind,
-                signal: r.signal,
-                reason: r.reason,
-            })
-        }
-        wire::EVENT_HTTP_DONE_TAG => {
-            let r: wire::EventHttpDone = raw.decode().map_err(Error::from_status)?;
-            Event::HttpDone(HttpDone::decode(r)?)
-        }
-        wire::EVENT_HTTP_PROGRESS_TAG => {
-            let r: wire::EventHttpProgress = raw.decode().map_err(Error::from_status)?;
-            Event::HttpProgress(HttpProgress::decode(r)?)
-        }
-        _ => return Err(Error::Unsupported),
-    })
-}
+event_fn!(setting_changed, wire::EventSettingChanged<'_>, |r| {
+    Event::SettingChanged {
+        now_ms: r.now_ms,
+        key: r.key,
+        old: old_value(r.old)?,
+    }
+});
 
+event_fn!(book_opened, wire::EventBookOpened<'_>, |r| book!(r, Opened));
+
+event_fn!(book_closed, wire::EventBookClosed<'_>, |r| book!(r, Closed));
+
+event_fn!(book_finished, wire::EventBookFinished<'_>, |r| book!(
+    r, Finished
+));
+
+event_fn!(book_moved, wire::EventBookMoved<'_>, |r| Event::BookMoved {
+    now_ms: r.now_ms,
+    from: r.from,
+    path: r.path,
+});
+
+event_fn!(book_removed, wire::EventBookRemoved<'_>, |r| {
+    Event::BookRemoved {
+        now_ms: r.now_ms,
+        path: r.path,
+    }
+});
+
+event_fn!(plugins_changed, wire::EventPluginsChanged, |r| {
+    Event::PluginsChanged { now_ms: r.now_ms }
+});
+
+event_fn!(wifi_changed, wire::EventWifiChanged, |r| {
+    Event::WifiChanged {
+        now_ms: r.now_ms,
+        state: WifiLinkState::decode(r.state),
+    }
+});
+
+event_fn!(power_changed, wire::EventPowerChanged<'_>, |r| {
+    Event::PowerChanged(PowerChange {
+        now_ms: r.now_ms,
+        level: match r.level {
+            1 => PowerLevel::Saving,
+            2 => PowerLevel::Offline,
+            _ => PowerLevel::Normal,
+        },
+        automatic: r.flags & 1 != 0,
+        stretch: r.stretch,
+        mode: r.mode,
+    })
+});
+
+event_fn!(status_changed, wire::EventStatusChanged, |r| {
+    Event::StatusChanged { now_ms: r.now_ms }
+});
+
+event_fn!(charge_changed, wire::EventChargeChanged, |r| {
+    Event::ChargeChanged {
+        now_ms: r.now_ms,
+        flags: ChargeFlags::from_bits(r.flags),
+    }
+});
+
+event_fn!(bluetooth, wire::EventBluetooth<'_>, |r| Event::Bluetooth(
+    BluetoothChange {
+        now_ms: r.now_ms,
+        kind: r.kind,
+        device: r.device,
+        name: r.name,
+        device_kind: r.device_kind,
+        signal: r.signal,
+        reason: r.reason,
+    }
+));
+
+event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
+    HttpDone::decode(r)?
+));
+
+event_fn!(http_progress, wire::EventHttpProgress, |r| {
+    Event::HttpProgress(HttpProgress::decode(r)?)
+});
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);

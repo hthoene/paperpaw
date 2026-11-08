@@ -124,3 +124,21 @@ reading and by the kit's own sweeps.
   language the English, and the quotation marks follow the tag. "Another each time it shows" counts showings in
   memory, once for all made within a minute.
 
+## To-do list (widget)
+
+- The widget shows the first items of `todo.txt` (data folder) with boxes; a tap
+  on an item ticks it off or on (a target for each, named by what the item says
+  and whether it is done, so a tap meets the item that was shown even if the list
+  changed since). The file is read up to 32 KiB, written back whole (replaced
+  atomically); a file that is no text or too large is left as it is and the widget
+  says so. The settings (`count` is the first number setting of the pack) are
+  checked by `settings_parity`.
+- **Not ported yet:** the list's own screen (add, edit, move, remove). The heading,
+  "more" and the empty list are the targets that open it; until it exists a tap on
+  them does nothing (`Handled::No`). The widget screen of interface 6 stays until
+  removal.
+- Pure model (`native_todo_list`) is tested with the interface-6 properties (round
+  trip, any bytes, huge years, version 1 file); drawing and file calls need a host
+  and have no refusal sweep until a mock host exists. Ignored case
+  `widgets-todo-ticks-on-tap` (H1/H3/H4).
+

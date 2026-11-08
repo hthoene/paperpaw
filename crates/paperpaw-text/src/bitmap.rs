@@ -582,7 +582,7 @@ impl PackBuilder {
 
     /// Adds a strike; glyphs may come in any order.
     pub fn add_strike(&mut self, size: f32, metrics: LineMetrics, mut glyphs: Vec<(char, Glyph)>) {
-        glyphs.sort_by_key(|(ch, _)| *ch);
+        paperpaw_sort::sort_by_key(&mut glyphs, |(ch, _)| *ch);
         glyphs.dedup_by_key(|(ch, _)| *ch);
         self.strikes.push(StrikeData {
             size,

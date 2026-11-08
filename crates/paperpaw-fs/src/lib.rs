@@ -483,7 +483,7 @@ impl Storage for DirStorage {
             };
             entries.push((name, metadata.is_dir(), size, seconds(&metadata)));
         }
-        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        paperpaw_sort::sort_by(&mut entries, |a, b| a.0.cmp(&b.0));
         for (name, is_dir, size, modified) in &entries {
             visit(DirEntry::new(name, *is_dir, *size).with_modified(*modified));
         }

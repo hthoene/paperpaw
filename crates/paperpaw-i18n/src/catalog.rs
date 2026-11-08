@@ -675,7 +675,9 @@ impl Catalog {
             .iter()
             .map(|&at| (key_of(source, &escaped, &others, at), at))
             .collect();
-        keyed.sort_unstable_by(|a, b| a.0.cmp(b.0).then_with(|| line(a.1).cmp(&line(b.1))));
+        paperpaw_sort::sort_by(&mut keyed, |a, b| {
+            a.0.cmp(b.0).then_with(|| line(a.1).cmp(&line(b.1)))
+        });
         index.clear();
         let mut sorted = keyed.iter().peekable();
         while let Some(&(key, at)) = sorted.next() {
