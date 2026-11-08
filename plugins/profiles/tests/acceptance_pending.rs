@@ -1,14 +1,14 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin has no desktop golden; `tests/apply.rs` and `tests/names.rs` pin its
-//! behaviour with the interface-6 plugin on a kernel. These cases are the same
-//! behaviours through the production loader with the native plugin; they never
-//! pass by themselves.
+//! plugin had no desktop golden; kernel tests (`apply.rs`, `names.rs`) pinned its
+//! behaviour and went with it. These cases are those behaviours through the
+//! production loader with the native plugin; they never pass by themselves.
+//! What needs no host (the file, names, values) is pinned by the `store` unit tests.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 4] = [
+const CASES: [Case; 6] = [
     // Save as new profile asks for a name, refuses a name in use, keeps the settings.
     Case {
         name: "profiles-save-new",
@@ -32,6 +32,18 @@ const CASES: [Case; 4] = [
         name: "profiles-next",
         golden: None,
         blocked_by: &["H1"],
+    },
+    // Next follows a rename and starts at the first when the last is gone.
+    Case {
+        name: "profiles-next-follows-rename",
+        golden: None,
+        blocked_by: &["H1", "H2"],
+    },
+    // Hostile values apply as far as they are valid; a storage error is survived.
+    Case {
+        name: "profiles-hostile-values-and-storage-errors",
+        golden: None,
+        blocked_by: &["H1", "H4"],
     },
 ];
 
@@ -66,4 +78,16 @@ fn profiles_hold_options() {
 #[ignore = "BLOCKED H1: native screen commands are not qualified"]
 fn profiles_next() {
     CASES[3].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H2: native screen commands and dialogs are not qualified"]
+fn profiles_next_follows_rename() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: native screen commands and input are not qualified"]
+fn profiles_hostile_values_and_storage_errors() {
+    CASES[5].refuse().unwrap();
 }

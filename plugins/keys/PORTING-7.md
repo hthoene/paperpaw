@@ -1,6 +1,6 @@
 # Interface-7 port
 
-Version 1.0.8. Native plugin: `src/native_plugin.rs` (`NativeKeys`), registry
+Version 1.0.9. Native plugin: `src/native_plugin.rs` (`NativeKeys`), registry
 reads in `src/native_data.rs`, the decisions that need no host in
 `src/model.rs` (places, sections of inputs, what a change may take away). Built-in
 descriptor `NATIVE_ENTRY` (feature `linked`), declarations in `declarations.rs` built
@@ -30,8 +30,7 @@ registration (`tests/abi7_declarations.rs`), linked entry.
 
 ## Acceptance pending on the host
 
-There is no desktop golden for this plugin. `tests/keys.rs` and `tests/remap.rs`
-pin its behaviour with the interface-6 plugin on a kernel. The native cases in
+There is no desktop golden for this plugin. The native cases in
 `tests/acceptance_pending.rs` are refusals (never pass): rebind applies (H1, H2,
 H3, H4), buttons-only refusal (H1, H3, H4), reset all (H1, H2, H4).
 
@@ -58,3 +57,7 @@ H3, H4), buttons-only refusal (H1, H3, H4), reset all (H1, H2, H4).
 - Peak memory on the X4 (buffers, paint operations, rows) is not measured: device gate open.
 - Search words are read whole (all parts, at most 256 bytes) or the dialog's answer is
   refused with `NoSpace`; nothing is searched on a prefix.
+- The interface-6 plugin is removed: `Keys`, the legacy screens in `lib.rs`, the kernel tests that pinned them (`keys.rs`, `remap.rs`), the app's `offered(.., Keys)` wiring and
+  `STORE_PLUGINS` entry, and the plugin-file build (`tools/plugin-files` bin, `plugins.txt`).
+  It does not run in the app until the host activates native plugins. The behaviour it pinned
+  is covered by the model/store unit tests above; the golden stays for the native acceptance.
