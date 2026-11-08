@@ -267,7 +267,7 @@ fn value_text(source: &str, value: config::Value<'_>) -> Result<String, Error> {
                 let rest = chars.as_str();
                 if let Some((c, len)) = unicode_escape(rest) {
                     out.put_char(c)?;
-                    chars = rest[len..].chars();
+                    chars = rest.get(len..).unwrap_or_default().chars();
                 }
             }
             Some(other) => out.put_char(other)?,
@@ -281,7 +281,7 @@ fn value_text(source: &str, value: config::Value<'_>) -> Result<String, Error> {
 fn unicode_escape(s: &str) -> Option<(char, usize)> {
     let body = s.strip_prefix('{')?;
     let end = body.find('}')?;
-    let hex = &body[..end];
+    let hex = body.get(..end)?;
     if hex.is_empty() || hex.len() > 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
