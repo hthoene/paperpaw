@@ -2,7 +2,9 @@
 //! book: the catalog is passed one page at a time, and each book's
 //! annotations are paged just far enough to count them by kind. Only the
 //! books of the list (200 at most, [`MOST_BOOKS`]) are kept, however many
-//! books there are; a library of thousands costs host calls, not memory.
+//! books there are; a library of thousands costs host calls, not memory. The
+//! walk ends at the first book past the 200 (it only sets `more`), so the
+//! books listed are the first 200 with notes in the catalog's title order.
 //!
 //! The scan is written over [`Source`], which the library service fills in
 //! ([`crate::native_library`]) and the tests with a scripted library. A page
@@ -104,6 +106,12 @@ fn scan_once<S: Source>(source: &mut S) -> Result<Listing, Error> {
         }
         for book in page {
             noted(source, &mut listing, book)?;
+            // One more book than the list holds is all that `more` needs: the
+            // rest of the catalog is not walked.
+            if listing.more() {
+                listing.sort();
+                return Ok(listing);
+            }
         }
         match end.next {
             Some(next) => cursor = next,
@@ -167,7 +175,7 @@ fn counted<S: Source>(source: &mut S, book: S::Book, any: bool) -> Result<(u16, 
             if seen > u64::from(end.total) || end.next.is_some() && rows == 0 {
                 return Err(Error::Invalid);
             }
-            if any && highlights + bookmarks > 0 {
+            if any && (highlights > 0 || bookmarks > 0) {
                 return Ok((highlights, bookmarks));
             }
             match end.next {
