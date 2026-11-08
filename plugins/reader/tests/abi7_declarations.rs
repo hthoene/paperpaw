@@ -84,7 +84,11 @@ fn the_decoded_batches_say_what_the_registration_says() {
     entries.sort();
     assert_eq!(native.menu_entries, entries);
     assert_eq!(native.menu_entries.len(), 34);
-    assert!(old.menu_entries.iter().all(|e| native.menu_entries.contains(e)));
+    assert!(
+        old.menu_entries
+            .iter()
+            .all(|e| native.menu_entries.contains(e))
+    );
     assert_eq!(native.icons, old.icons);
     assert_eq!(native.icons.len(), 13);
     assert_eq!(native.needs, old.needs);
@@ -104,7 +108,10 @@ fn the_decoded_batches_say_what_the_registration_says() {
 fn the_keys_that_hold_while_a_switch_is_on_match() {
     let mut old = Vec::new();
     for contribution in legacy() {
-        if let Contribution::KeymapWhen { setting, source, .. } = contribution {
+        if let Contribution::KeymapWhen {
+            setting, source, ..
+        } = contribution
+        {
             let mut layer = String::new();
             for line in source.lines().map(str::trim).filter(|l| !l.is_empty()) {
                 if let Some(name) = line
