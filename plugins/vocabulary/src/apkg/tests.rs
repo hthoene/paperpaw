@@ -286,7 +286,7 @@ fn a_deck_of_an_anki_file_is_not_saved_over_it() {
     put(&storage, "Spanish.apkg", &zip);
     run(&storage, false, true);
     let deck = deck_id(&storage, "Spanish");
-    let mut saver = Saver::new(FOLDER, deck);
+    let mut saver = Saver::new(FOLDER, deck).unwrap();
     let report = loop {
         if let Saving::Done(report) = saver.step(&storage) {
             break report;

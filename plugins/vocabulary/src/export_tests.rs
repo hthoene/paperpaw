@@ -4,11 +4,13 @@ use crate::sync::tests::{
     FOLDER, Wrapped, cards_of, deck_id, fronts, heap, learn, ledger_text, put, run,
 };
 use crate::sync::{self, FileReport, Mode};
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use paperpaw_sdk::MemoryStorage;
 
 /// A save run through, with the steps it took.
 fn save(storage: &dyn Storage, deck: u32) -> (Report, usize) {
-    let mut saver = Saver::new(FOLDER, deck);
+    let mut saver = Saver::new(FOLDER, deck).unwrap();
     for steps in 1..100_000 {
         if let Step::Done(report) = saver.step(storage) {
             return (report, steps);
@@ -20,7 +22,7 @@ fn save(storage: &dyn Storage, deck: u32) -> (Report, usize) {
 /// What the screen does: the file read first where it changed, then the save.
 fn save_as_the_screen(storage: &dyn Storage, deck: u32) -> (Vec<FileReport>, Option<Report>) {
     let mut reports = Vec::new();
-    if let Some(mut job) = update_first(storage, FOLDER, deck) {
+    if let Some(mut job) = update_first(storage, FOLDER, deck).unwrap() {
         loop {
             match job.step(storage) {
                 sync::Step::Done => break,
@@ -222,11 +224,11 @@ fn a_save_that_is_stopped_leaves_no_part_behind() {
     put(&storage, "W.tsv", "gato\tcat\n");
     run(&storage, false, true);
     let deck = deck_id(&storage, "W");
-    let mut saver = Saver::new(FOLDER, deck);
+    let mut saver = Saver::new(FOLDER, deck).unwrap();
     assert_eq!(saver.step(&storage), Step::Working);
-    assert!(storage.exists(&saver.part()));
+    assert!(storage.exists(&saver.part));
     saver.cancel(&storage);
-    assert!(!storage.exists(&saver.part()));
+    assert!(!storage.exists(&saver.part));
     assert_eq!(read(&storage, "W.tsv"), "gato\tcat\n");
 }
 
@@ -334,7 +336,7 @@ fn a_field_with_a_line_break_a_quote_or_the_separator_is_in_quotes() {
         ("", '\t'),
     ] {
         out.clear();
-        field(&mut out, text, sep);
+        field(&mut out, text, sep).unwrap();
         let quoted = out.starts_with('"');
         assert_eq!(
             quoted,
@@ -343,7 +345,7 @@ fn a_field_with_a_line_break_a_quote_or_the_separator_is_in_quotes() {
         );
     }
     out.clear();
-    field(&mut out, "a\r\nb \"q\"", '\t');
+    field(&mut out, "a\r\nb \"q\"", '\t').unwrap();
     assert_eq!(out, "\"a\r\nb \"\"q\"\"\"");
 }
 
@@ -358,11 +360,14 @@ fn file_names_are_made_safe() {
         ("__", "Deck.tsv"),
         ("Gr\u{fc}\u{df}e", "Gr\u{fc}\u{df}e.tsv"),
     ] {
-        assert_eq!(file_name_of(deck), file, "{deck:?}");
+        assert_eq!(file_name_of(deck).unwrap(), file, "{deck:?}");
     }
-    assert_eq!(file_name_of(&"x".repeat(200)).len(), cards::MAX_NAME + 4);
-    assert_eq!(backup_name("W.tsv"), "_W.bak.tsv");
-    assert_eq!(backup_name("W"), "_W.bak");
+    assert_eq!(
+        file_name_of(&"x".repeat(200)).unwrap().len(),
+        cards::MAX_NAME + 4
+    );
+    assert_eq!(backup_name("W.tsv").unwrap(), "_W.bak.tsv");
+    assert_eq!(backup_name("W").unwrap(), "_W.bak");
 }
 
 #[test]
