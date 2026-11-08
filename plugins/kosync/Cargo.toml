@@ -23,7 +23,6 @@ paperpaw-ui-kit.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
-paperpaw-plugin-power.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
