@@ -76,6 +76,27 @@ struct Widget {
     private: bool,
 }
 
+/// A dropped widget instance its owner has yet to hear of (`event.widget_dropped`,
+/// 85, at the owner's token): 16 bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Dropped {
+    /// The owner's host owner id.
+    pub(crate) owner: u64,
+    /// The widget's callback token of the owner.
+    pub(crate) token: u32,
+    pub(crate) instance: u32,
+}
+
+impl Widget {
+    fn notice(&self) -> Dropped {
+        Dropped {
+            owner: self.owner,
+            token: self.token,
+            instance: self.id,
+        }
+    }
+}
+
 /// A status handle, valid for one callback of `caller`.
 #[derive(Clone, Copy, Debug)]
 struct Status {
@@ -108,6 +129,9 @@ pub(crate) struct Target {
 #[derive(Debug)]
 pub(crate) struct UiHandles {
     widgets: Vec<Widget>,
+    /// Drops the owners have not been told of yet: never lost, so a full
+    /// list refuses new instances (`ERR_FULL`) until Core delivers some.
+    dropped: Vec<Dropped>,
     status: Vec<Status>,
     next_widget: u32,
     next_status: u32,
@@ -120,6 +144,7 @@ impl UiHandles {
     pub(crate) const fn new(x4: bool) -> Self {
         Self {
             widgets: Vec::new(),
+            dropped: Vec::new(),
             status: Vec::new(),
             next_widget: 1,
             next_status: 1,
@@ -143,7 +168,7 @@ impl UiHandles {
         if screen == 0 {
             return Err(ERR_INVALID);
         }
-        if self.widgets.len() >= self.widget_cap {
+        if self.widgets.len() >= self.widget_cap || self.dropped.len() >= self.widget_cap {
             return Err(ERR_FULL);
         }
         let id = self.next_widget;
@@ -176,17 +201,42 @@ impl UiHandles {
         if self.widgets[at].maker != maker {
             return Err(ERR_DENIED);
         }
-        self.widgets.swap_remove(at);
+        // The owner's notice first: a refusal leaves the instance as it was.
+        self.dropped.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        let gone = self.widgets.swap_remove(at);
+        self.dropped.push(gone.notice());
         Ok(())
     }
 
-    /// The screen instance closed: its widgets go (the owners get
-    /// `widget_dropped`; the caller reads them first with
-    /// [`Self::dropped_by_screen`]).
-    pub(crate) fn drop_screen(&mut self, screen: u32) -> usize {
-        let before = self.widgets.len();
-        self.widgets.retain(|w| w.screen != screen);
-        before - self.widgets.len()
+    /// The screen instance closed: its widgets go and their owners are to be
+    /// told ([`Self::next_dropped`]). `ERR_NO_MEMORY` leaves everything as it
+    /// was, for the sweep of closed screens to try again.
+    pub(crate) fn drop_screen(&mut self, screen: u32) -> Result<usize, i32> {
+        let count = self.widgets.iter().filter(|w| w.screen == screen).count();
+        self.dropped.try_reserve(count).map_err(|_| ERR_NO_MEMORY)?;
+        let dropped = &mut self.dropped;
+        self.widgets.retain(|w| {
+            let gone = w.screen == screen;
+            if gone {
+                dropped.push(w.notice());
+            }
+            !gone
+        });
+        Ok(count)
+    }
+
+    /// The first drop `owner` has not been told of, and leaves it listed
+    /// until [`Self::dropped_delivered`] (a delivery that failed is tried
+    /// again).
+    pub(crate) fn next_dropped(&self, owner: u64) -> Option<Dropped> {
+        self.dropped.iter().find(|d| d.owner == owner).copied()
+    }
+
+    /// `notice` was delivered: it leaves the list.
+    pub(crate) fn dropped_delivered(&mut self, notice: &Dropped) {
+        if let Some(at) = self.dropped.iter().position(|d| d == notice) {
+            self.dropped.remove(at);
+        }
     }
 
     /// The lowest screen above `after` that still has widgets (the sweep of
@@ -199,22 +249,29 @@ impl UiHandles {
             .min()
     }
 
-    /// `(instance, owner)` of the widgets `screen` made, to tell their owners.
-    #[allow(dead_code, reason = "read by the applier when a screen closes")]
-    pub(crate) fn dropped_by_screen(&self, screen: u32) -> impl Iterator<Item = (u32, u64)> + '_ {
-        self.widgets
-            .iter()
-            .filter(move |w| w.screen == screen)
-            .map(|w| (w.id, w.owner))
-    }
-
     /// A plugin stopped: whatever it made or owns is gone, as are its status
-    /// handles.
-    pub(crate) fn drop_plugin(&mut self, plugin: u64) {
-        self.widgets
-            .retain(|w| w.maker != plugin && w.owner != plugin);
+    /// handles and what it was yet to be told. The owners of what it made are
+    /// to be told; if the heap cannot list those drops they are lost and the
+    /// status is `ERR_NO_MEMORY` (the rest is dropped all the same).
+    pub(crate) fn drop_plugin(&mut self, plugin: u64) -> Result<(), i32> {
+        self.dropped.retain(|d| d.owner != plugin);
+        let count = self
+            .widgets
+            .iter()
+            .filter(|w| w.maker == plugin && w.owner != plugin)
+            .count();
+        let room = self.dropped.try_reserve(count).map_err(|_| ERR_NO_MEMORY);
+        let dropped = &mut self.dropped;
+        self.widgets.retain(|w| {
+            let gone = w.maker == plugin || w.owner == plugin;
+            if gone && room.is_ok() && w.owner != plugin {
+                dropped.push(w.notice());
+            }
+            !gone
+        });
         self.status
             .retain(|s| s.caller != plugin && s.owner != plugin);
+        room
     }
 
     /// Ops 14 and 15: grants `caller` a handle for a drawn status item or line

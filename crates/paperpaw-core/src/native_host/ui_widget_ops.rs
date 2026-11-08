@@ -35,7 +35,7 @@
 use super::{
     registrations::{self as wire, Record},
     ui_guard,
-    ui_handles::UiHandles,
+    ui_handles::{Dropped, UiHandles},
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
@@ -181,12 +181,51 @@ impl WidgetState {
 impl UiServices {
     /// A screen instance closed: the widget instances it made go.
     pub(crate) fn screen_closed(&self, screen: u32) -> Result<usize, i32> {
-        Ok(self
-            .widgets
+        self.widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
-            .drop_screen(screen))
+            .drop_screen(screen)
+    }
+
+    /// The next drop `owner` has not heard of, as the `event.widget_dropped`
+    /// record for its token (ui.md section 5.2), in `out`; the length, with
+    /// the notice to give back to [`Self::widget_dropped_delivered`]. `None`
+    /// when there is none. Core's dispatcher calls these two: the notice
+    /// stays listed until the owner's callback took it.
+    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
+    pub(crate) fn next_widget_dropped(
+        &self,
+        owner: u64,
+        now_ms: u64,
+        out: &mut [u8],
+    ) -> Result<Option<(Dropped, usize)>, i32> {
+        let Some(notice) = self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_dropped(owner)
+        else {
+            return Ok(None);
+        };
+        let record = Record::EventWidgetDropped(wire::EventWidgetDropped {
+            now_ms,
+            instance: notice.instance,
+        });
+        let len = wire::records_encode(&[record], out)?;
+        Ok(Some((notice, len)))
+    }
+
+    /// The owner's callback took the notice: it is not listed any more.
+    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
+    pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
+        self.widgets
+            .handles
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .dropped_delivered(notice);
+        Ok(())
     }
 
     /// The lowest screen above `after` that still has widget instances.
@@ -243,8 +282,11 @@ impl UiServices {
     }
 
     /// A plugin stopped: what it made or owns goes (widgets, status handles).
+    /// The owners of what it made are told; `ERR_NO_MEMORY` when the heap
+    /// could not list those drops (the rest went all the same).
     pub(crate) fn plugin_stopped(&self, plugin: u64) -> Result<(), i32> {
-        self.widgets
+        let dropped = self
+            .widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
@@ -255,7 +297,7 @@ impl UiServices {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .clear();
-        Ok(())
+        dropped
     }
 }
 

@@ -105,18 +105,70 @@ fn a_closed_screen_and_a_stopped_plugin_take_their_instances_along() {
     let a = table.make_widget(OWNER, ME, 7, 1, false).unwrap();
     let b = table.make_widget(OWNER, ME, 8, 1, true).unwrap();
     let c = table.make_widget(OWNER, OTHER, 9, 1, false).unwrap();
-    let told: Vec<_> = table.dropped_by_screen(7).collect();
-    assert_eq!(told, [(a, OWNER)]);
-    assert_eq!(table.drop_screen(7), 1);
-    assert_eq!(table.drop_screen(7), 0);
+    assert_eq!(table.drop_screen(7), Ok(1));
+    assert_eq!(table.drop_screen(7), Ok(0));
     assert_eq!(table.drop_widget(ME, a), Err(ERR_NOT_FOUND));
-    // The private flag does not leak into the owner index.
-    assert_eq!(table.dropped_by_screen(8).collect::<Vec<_>>(), [(b, OWNER)]);
-    table.drop_plugin(ME);
+    // The maker stopped: its instance goes; the owner is told of it.
+    assert_eq!(table.drop_plugin(ME), Ok(()));
     assert_eq!(table.widgets(), 1);
-    table.drop_plugin(OWNER);
+    assert_eq!(table.next_dropped(OWNER).map(|d| d.instance), Some(a));
+    assert_eq!(table.drop_plugin(OWNER), Ok(()));
     assert_eq!(table.widgets(), 0);
+    // The owner stopped: nobody is left to tell.
+    assert_eq!(table.next_dropped(OWNER), None);
     assert_eq!(table.drop_widget(OTHER, c), Err(ERR_NOT_FOUND));
+    let _ = b;
+}
+
+#[test]
+fn an_owner_hears_of_every_drop_once_in_order_and_a_failed_delivery_is_tried_again() {
+    let mut table = UiHandles::new(false);
+    let a = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
+    let b = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
+    let c = table.make_widget(OTHER, ME, 7, 5, false).unwrap();
+    // One by its maker (op 5), the rest with their screen.
+    table.drop_widget(ME, a).unwrap();
+    assert_eq!(table.drop_screen(7), Ok(2));
+    let first = table.next_dropped(OWNER).unwrap();
+    assert_eq!(
+        first,
+        Dropped {
+            owner: OWNER,
+            token: 4,
+            instance: a
+        }
+    );
+    // Not told yet: still the first.
+    assert_eq!(table.next_dropped(OWNER), Some(first));
+    table.dropped_delivered(&first);
+    table.dropped_delivered(&first);
+    let second = table.next_dropped(OWNER).unwrap();
+    assert_eq!(second.instance, b);
+    table.dropped_delivered(&second);
+    assert_eq!(table.next_dropped(OWNER), None);
+    // Another owner's is its own, with its own token.
+    assert_eq!(
+        table.next_dropped(OTHER),
+        Some(Dropped {
+            owner: OTHER,
+            token: 5,
+            instance: c
+        })
+    );
+}
+
+#[test]
+fn undelivered_drops_stop_new_instances_instead_of_being_lost() {
+    let mut table = UiHandles::new(true);
+    // Fill and drop the cap's worth without Core delivering any.
+    for _ in 0..MAX_WIDGETS_X4 {
+        table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+    }
+    assert_eq!(table.drop_screen(7), Ok(MAX_WIDGETS_X4));
+    assert_eq!(table.make_widget(OWNER, ME, 8, 1, false), Err(ERR_FULL));
+    let first = table.next_dropped(OWNER).unwrap();
+    table.dropped_delivered(&first);
+    assert!(table.make_widget(OWNER, ME, 8, 1, false).is_ok());
 }
 
 #[test]
