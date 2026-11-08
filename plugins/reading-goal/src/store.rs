@@ -40,6 +40,10 @@ fn storage_error(error: StorageError) -> Error {
 /// [`Error::Full`] for a full card, [`Error::Io`] for any other failure; the
 /// file is as it was then.
 pub fn flush(storage: &dyn Storage, kept: &Kept) -> Result<bool, Error> {
+    // Nothing told since the start: nothing to write, and the card is not read.
+    if kept.to_write(None).is_none() {
+        return Ok(false);
+    }
     let Some((day, seconds)) = kept.to_write(read_told(storage)) else {
         return Ok(false);
     };
@@ -76,6 +80,43 @@ mod tests {
         // A day before 1970 is written with its sign.
         assert_eq!(flush(&storage, &kept(-3, 5)), Ok(true));
         assert_eq!(read_told(&storage), Some((-3, 5)));
+    }
+
+    #[test]
+    fn nothing_told_does_not_read_the_card() {
+        use core::cell::Cell;
+        struct Counts(MemoryStorage, Cell<u32>);
+        impl Storage for Counts {
+            fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+                self.1.set(self.1.get() + 1);
+                self.0.read_at(p, o, b)
+            }
+            fn size(&self, p: &str) -> Result<u64, StorageError> {
+                self.1.set(self.1.get() + 1);
+                self.0.size(p)
+            }
+            fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+                self.0.write(p, d)
+            }
+            fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+                self.0.append(p, d)
+            }
+            fn list(
+                &self,
+                d: &str,
+                v: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+            ) -> Result<(), StorageError> {
+                self.0.list(d, v)
+            }
+            fn remove(&self, p: &str) -> Result<(), StorageError> {
+                self.0.remove(p)
+            }
+        }
+        let card = Counts(MemoryStorage::new(), Cell::new(0));
+        assert_eq!(flush(&card, &Kept::new()), Ok(false));
+        assert_eq!(card.1.get(), 0, "the card was read");
+        assert_eq!(flush(&card, &kept(1, 2)), Ok(true));
+        assert!(card.1.get() > 0);
     }
 
     #[test]
