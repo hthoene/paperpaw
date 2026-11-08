@@ -211,9 +211,6 @@ pub(crate) struct HostCard<'h, 'cb> {
     input: RefCell<Vec<u8>>,
     output: RefCell<Vec<u8>>,
     ignores_case: bool,
-    /// The host ran out of memory in a call: [`Storage`] has no word for it
-    /// (it says [`StorageError::Io`]), so it is kept for [`with_card`].
-    out_of_memory: Cell<bool>,
 }
 
 impl<'h, 'cb> HostCard<'h, 'cb> {
@@ -248,31 +245,12 @@ impl<'h, 'cb> HostCard<'h, 'cb> {
                 input: RefCell::new(input),
                 output: RefCell::new(output),
                 ignores_case,
-                out_of_memory: Cell::new(false),
             }),
             Err(error) => {
                 files.release(host).ok();
                 Err(error)
             }
         }
-    }
-
-    /// Both buffers; [`Error::Busy`] where a call is already using them (a
-    /// nested call must not panic).
-    #[allow(clippy::type_complexity, reason = "two guards")]
-    fn buffers(&self) -> Result<(RefMut<'_, Vec<u8>>, RefMut<'_, Vec<u8>>), Error> {
-        match (self.input.try_borrow_mut(), self.output.try_borrow_mut()) {
-            (Ok(input), Ok(output)) => Ok((input, output)),
-            _ => Err(Error::Busy),
-        }
-    }
-
-    /// `result`, with the host's lack of memory noted.
-    fn noted<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
-        if matches!(result, Err(Error::NoMemory)) {
-            self.out_of_memory.set(true);
-        }
-        result
     }
 
     /// Gives the service back.
@@ -284,39 +262,124 @@ impl<'h, 'cb> HostCard<'h, 'cb> {
     }
 }
 
+/// Both buffers of a call; [`Error::Busy`] where a call is already using them
+/// (a nested call must not panic).
+pub(crate) fn take_buffers<'a>(
+    input: &'a RefCell<Vec<u8>>,
+    output: &'a RefCell<Vec<u8>>,
+) -> Result<(RefMut<'a, Vec<u8>>, RefMut<'a, Vec<u8>>), Error> {
+    match (input.try_borrow_mut(), output.try_borrow_mut()) {
+        (Ok(input), Ok(output)) => Ok((input, output)),
+        _ => Err(Error::Busy),
+    }
+}
+
+/// A [`Card`] that notes whether the host ran out of memory in a call:
+/// [`Storage`] has no word for it (it says [`StorageError::Io`]), so the flag
+/// is how a caller tells the reader.
+pub(crate) struct Watch<C> {
+    inner: C,
+    out_of_memory: Cell<bool>,
+}
+
+impl<C> Watch<C> {
+    pub(crate) fn new(inner: C) -> Self {
+        Self {
+            inner,
+            out_of_memory: Cell::new(false),
+        }
+    }
+
+    /// Whether any call ran out of memory.
+    pub(crate) fn ran_out_of_memory(&self) -> bool {
+        self.out_of_memory.get()
+    }
+
+    fn noted<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        if matches!(result, Err(Error::NoMemory)) {
+            self.out_of_memory.set(true);
+        }
+        result
+    }
+}
+
+impl<C: Card> Card for Watch<C> {
+    fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
+        self.noted(self.inner.list(dir, cursor, visit))
+    }
+    fn stat(&self, path: &str) -> Result<Meta, Error> {
+        self.noted(self.inner.stat(path))
+    }
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        self.noted(self.inner.read_at(path, offset, buf))
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), Error> {
+        self.noted(self.inner.write(path, data))
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
+        self.noted(self.inner.append(path, data))
+    }
+    fn remove(&self, path: &str) -> Result<(), Error> {
+        self.noted(self.inner.remove(path))
+    }
+    fn make_dir(&self, path: &str) -> Result<(), Error> {
+        self.noted(self.inner.make_dir(path))
+    }
+    fn remove_tree(&self, path: &str) -> Result<(), Error> {
+        self.noted(self.inner.remove_tree(path))
+    }
+    fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error> {
+        self.noted(self.inner.move_entry(from, to, replace))
+    }
+    fn sync(&self) -> Result<(), Error> {
+        self.noted(self.inner.sync())
+    }
+    fn ignores_case(&self) -> bool {
+        self.inner.ignores_case()
+    }
+}
+
 /// Runs `work` on the card as a [`Storage`]; the service is given back after,
-/// whatever `work` says.
+/// whatever `work` says. With whether the host ran out of memory on the way:
+/// `work` may have kept that as a storage error ([`StorageError::Io`]) in
+/// what it returns.
 ///
 /// # Errors
 /// What opening, `work` or closing says; the first.
+pub(crate) fn with_card_noted<T>(
+    host: &Host<'_>,
+    work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
+) -> Result<(T, bool), Error> {
+    let card = CardStorage(Watch::new(HostCard::open(host)?));
+    let done = work(&card);
+    let memory = card.0.ran_out_of_memory();
+    let closed = card.0.inner.close();
+    // A storage error cannot tell "no memory"; the host's call did.
+    let value = match done {
+        Err(Error::Io) if memory => return Err(Error::NoMemory),
+        done => done?,
+    };
+    closed?;
+    Ok((value, memory))
+}
+
+/// [`with_card_noted`] without the flag.
+///
+/// # Errors
+/// As [`with_card_noted`].
 pub(crate) fn with_card<T>(
     host: &Host<'_>,
     work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let card = CardStorage(HostCard::open(host)?);
-    let done = work(&card);
-    // A storage error cannot tell "no memory"; the host's call did.
-    let done = match done {
-        Err(Error::Io) if card.0.out_of_memory.get() => Err(Error::NoMemory),
-        other => other,
-    };
-    let closed = card.0.close();
-    let value = done?;
-    closed?;
-    Ok(value)
+    with_card_noted(host, work).map(|(value, _)| value)
 }
 
 impl Card for HostCard<'_, '_> {
     fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
-        let (mut input, mut output) = self.buffers()?;
-        let listing = self.noted(self.files.list(
-            self.host,
-            Root::Files,
-            dir,
-            cursor,
-            &mut input,
-            &mut output,
-        ))?;
+        let (mut input, mut output) = take_buffers(&self.input, &self.output)?;
+        let listing =
+            self.files
+                .list(self.host, Root::Files, dir, cursor, &mut input, &mut output)?;
         for entry in listing.entries() {
             // A name the host cannot address again is not shown.
             if entry.unaddressable() {
@@ -333,12 +396,10 @@ impl Card for HostCard<'_, '_> {
     }
 
     fn stat(&self, path: &str) -> Result<Meta, Error> {
-        let (mut input, mut output) = self.buffers()?;
-        let entry =
-            self.noted(
-                self.files
-                    .stat(self.host, Root::Files, path, &mut input, &mut output),
-            )?;
+        let (mut input, mut output) = take_buffers(&self.input, &self.output)?;
+        let entry = self
+            .files
+            .stat(self.host, Root::Files, path, &mut input, &mut output)?;
         Ok(Meta {
             is_dir: entry.is_folder(),
             size: entry.size(),
@@ -347,41 +408,37 @@ impl Card for HostCard<'_, '_> {
     }
 
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
-        self.noted(storage::read_at(self.host, Root::Files, path, offset, buf))
+        storage::read_at(self.host, Root::Files, path, offset, buf)
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.noted(storage::write(self.host, Root::Files, path, data))
+        storage::write(self.host, Root::Files, path, data)
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.noted(storage::append(self.host, Root::Files, path, data))
+        storage::append(self.host, Root::Files, path, data)
     }
 
     fn remove(&self, path: &str) -> Result<(), Error> {
-        self.noted(storage::remove(self.host, Root::Files, path))
+        storage::remove(self.host, Root::Files, path)
     }
 
     fn make_dir(&self, path: &str) -> Result<(), Error> {
-        let (mut input, mut output) = self.buffers()?;
-        self.noted(
-            self.files
-                .make_dir(self.host, Root::Files, path, &mut input, &mut output),
-        )
+        let (mut input, mut output) = take_buffers(&self.input, &self.output)?;
+        self.files
+            .make_dir(self.host, Root::Files, path, &mut input, &mut output)
     }
 
     fn remove_tree(&self, path: &str) -> Result<(), Error> {
-        let (mut input, mut output) = self.buffers()?;
-        self.noted(
-            self.files
-                .remove_tree(self.host, Root::Files, path, &mut input, &mut output),
-        )
-        .map(|_| ())
+        let (mut input, mut output) = take_buffers(&self.input, &self.output)?;
+        self.files
+            .remove_tree(self.host, Root::Files, path, &mut input, &mut output)
+            .map(|_| ())
     }
 
     fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error> {
-        let (mut input, mut output) = self.buffers()?;
-        self.noted(self.files.move_entry(
+        let (mut input, mut output) = take_buffers(&self.input, &self.output)?;
+        self.files.move_entry(
             self.host,
             Root::Files,
             from,
@@ -390,11 +447,11 @@ impl Card for HostCard<'_, '_> {
             replace,
             &mut input,
             &mut output,
-        ))
+        )
     }
 
     fn sync(&self) -> Result<(), Error> {
-        self.noted(storage::sync(self.host))
+        storage::sync(self.host)
     }
 
     fn ignores_case(&self) -> bool {

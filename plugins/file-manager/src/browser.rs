@@ -341,6 +341,14 @@ impl Browser {
         true
     }
 
+    /// The card said the host had no memory for a call: where that was kept
+    /// as a general failure, the line says so.
+    pub(crate) fn lacked_memory(&mut self) {
+        if self.note == Some(Note::Failed(Error::Io)) {
+            self.note = Some(Note::Failed(Error::NoMemory));
+        }
+    }
+
     /// Picks the entry at `path` to be moved or copied.
     pub(crate) fn pick(&mut self, storage: &dyn Storage, path: &str, copy_it: bool) {
         if !copy_it && is_own_data(storage, path) {

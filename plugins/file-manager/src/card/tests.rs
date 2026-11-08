@@ -10,7 +10,8 @@ use std::vec::Vec;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::{Storage, StorageError};
 
-use super::{Card, CardStorage, Meta, Visit};
+use super::{Card, CardStorage, Meta, Visit, Watch, take_buffers};
+use crate::model::testing::{fixture, sweep_on};
 
 const PAGE: usize = 3;
 
@@ -25,6 +26,8 @@ pub(crate) struct Fake {
     stat_fails: Cell<Option<Error>>,
     /// Calls of `append` still taken; the next one fails.
     appends_left: Cell<Option<usize>>,
+    /// What `list` says instead of the entries.
+    list_fails: Cell<Option<Error>>,
 }
 
 impl Fake {
@@ -39,6 +42,11 @@ impl Fake {
                 .insert((*path).to_string(), Some(data.as_bytes().to_vec()));
         }
         fake
+    }
+
+    /// The bytes of the file there.
+    pub(crate) fn data(&self, path: &str) -> Option<Vec<u8>> {
+        self.nodes.borrow().get(path).cloned().flatten()
     }
 
     fn parent_exists(&self, path: &str) -> bool {
@@ -60,6 +68,9 @@ impl Fake {
 impl Card for Fake {
     fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
         self.pages.set(self.pages.get() + 1);
+        if let Some(error) = self.list_fails.get() {
+            return Err(error);
+        }
         let nodes = self.nodes.borrow();
         if !dir.is_empty() && !matches!(nodes.get(dir), Some(None)) {
             return Err(Error::NotFound);
@@ -352,4 +363,155 @@ fn host_errors_are_told_as_storage_errors() {
     for other in [Error::Io, Error::NoMemory, Error::Busy, Error::State] {
         assert_eq!(storage_error(other), StorageError::Io);
     }
+}
+
+#[test]
+fn a_call_while_another_uses_the_buffers_is_busy_not_a_panic() {
+    let (input, output) = (RefCell::new(Vec::new()), RefCell::new(Vec::new()));
+    {
+        let _held = take_buffers(&input, &output).unwrap();
+        assert!(matches!(take_buffers(&input, &output), Err(Error::Busy)));
+    }
+    // One of the two held is as busy.
+    let _one = output.borrow_mut();
+    assert!(matches!(take_buffers(&input, &output), Err(Error::Busy)));
+    drop(_one);
+    assert!(take_buffers(&input, &output).is_ok(), "free again");
+}
+
+#[test]
+fn the_host_running_out_of_memory_is_noted_and_reaches_the_reader() {
+    use crate::browser::{Browser, Note};
+    let watch = Watch::new(Fake::with(&[("a.txt", "1")], &[]));
+    let card = CardStorage(watch);
+    let mut browser = Browser::new(String::new(), false, 10);
+    browser.reload(&card, None);
+    assert!(!card.0.ran_out_of_memory());
+    assert_eq!(browser.note, None);
+    card.0.inner.list_fails.set(Some(Error::NoMemory));
+    browser.reload(&card, None);
+    // The storage's word for it is a general failure ...
+    assert_eq!(browser.note, Some(Note::Failed(crate::model::Error::Io)));
+    assert!(card.0.ran_out_of_memory());
+    // ... which the flag makes into "not enough memory".
+    browser.lacked_memory();
+    assert_eq!(
+        browser.note,
+        Some(Note::Failed(crate::model::Error::NoMemory))
+    );
+    // Another failure stays what it was.
+    card.0.inner.list_fails.set(Some(Error::NotFound));
+    browser.reload(&card, None);
+    browser.lacked_memory();
+    assert_eq!(
+        browser.note,
+        Some(Note::Failed(crate::model::Error::NotFound))
+    );
+}
+
+/// The fake card whose own allocations are not the plugin's (they are out of
+/// the count and never refused).
+pub(crate) struct QuietCard(pub(crate) Fake);
+
+impl Card for QuietCard {
+    fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
+        let mut seen: Vec<(String, Meta)> = Vec::new();
+        let next = fixture(|| {
+            self.0.list(dir, cursor, &mut |name, meta| {
+                seen.push((name.to_string(), meta));
+            })
+        })?;
+        for (name, meta) in &seen {
+            visit(name, *meta);
+        }
+        Ok(next)
+    }
+    fn stat(&self, path: &str) -> Result<Meta, Error> {
+        fixture(|| self.0.stat(path))
+    }
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        fixture(|| self.0.read_at(path, offset, buf))
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), Error> {
+        fixture(|| self.0.write(path, data))
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
+        fixture(|| self.0.append(path, data))
+    }
+    fn remove(&self, path: &str) -> Result<(), Error> {
+        fixture(|| self.0.remove(path))
+    }
+    fn make_dir(&self, path: &str) -> Result<(), Error> {
+        fixture(|| self.0.make_dir(path))
+    }
+    fn remove_tree(&self, path: &str) -> Result<(), Error> {
+        fixture(|| self.0.remove_tree(path))
+    }
+    fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error> {
+        fixture(|| self.0.move_entry(from, to, replace))
+    }
+    fn sync(&self) -> Result<(), Error> {
+        Ok(())
+    }
+    fn ignores_case(&self) -> bool {
+        self.0.ignores_case()
+    }
+}
+
+pub(crate) fn quiet_card() -> CardStorage<QuietCard> {
+    let big = "x".repeat(9_000);
+    CardStorage(QuietCard(fixture(|| {
+        Fake::with(
+            &[
+                ("src/a.txt", "alpha"),
+                ("src/big.bin", &big),
+                ("src/sub/b.txt", "beta"),
+                ("keep/old.txt", "old"),
+            ],
+            &["src", "src/sub", "keep"],
+        )
+    })))
+}
+
+/// No part is left, the source is whole, and a file at the target is whole or
+/// not there.
+fn card_is_intact(card: &CardStorage<QuietCard>) {
+    let fake = &card.0.0;
+    fixture(|| {
+        let big = "x".repeat(9_000).into_bytes();
+        assert!(!fake.nodes.borrow().keys().any(|k| k.ends_with(".part")));
+        assert_eq!(fake.data("keep/old.txt").unwrap(), b"old");
+        let moved = fake.data("dst/big.bin");
+        let source = fake.data("src/big.bin");
+        assert!(
+            source.as_ref() == Some(&big) || (source.is_none() && moved.as_ref() == Some(&big)),
+            "one whole copy of the file is there"
+        );
+        if let Some(got) = &moved {
+            assert_eq!(got, &big, "a half file looks whole");
+        }
+    });
+}
+
+#[test]
+fn a_refused_allocation_on_the_card_leaves_the_files_as_they_were() {
+    use crate::model::ops::{copy, rename};
+    sweep_on(
+        "copy a tree",
+        quiet_card,
+        |card| copy(card, "src", "dst"),
+        card_is_intact,
+    );
+    sweep_on(
+        "rename",
+        quiet_card,
+        |card| rename(card, "src/a.txt", "z.txt").map(|_| ()),
+        |card| {
+            let fake = &card.0.0;
+            fixture(|| {
+                let (old, new) = (fake.data("src/a.txt"), fake.data("src/z.txt"));
+                assert!(old.is_some() != new.is_some(), "the file is in one place");
+            });
+        },
+    );
 }

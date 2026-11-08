@@ -7,7 +7,8 @@ use paperpaw_sdk::MemoryStorage;
 
 use super::*;
 use crate::card::CardStorage;
-use crate::card::tests::Fake;
+use crate::card::tests::{Fake, QuietCard, quiet_card};
+use crate::model::testing::{Quiet, fixture, sweep, sweep_on};
 
 fn card() -> MemoryStorage {
     let mut storage = MemoryStorage::new()
@@ -227,5 +228,152 @@ fn names_that_work_on_the_card() {
     assert_eq!(valid_name("a.b"), Some("a.b"));
     for bad in ["", ".", "a\\b", "a\nb", "end.", "<x>"] {
         assert_eq!(valid_name(bad), None, "{bad:?}");
+    }
+}
+
+/// What a browser's call left as a result: a refusal is its note.
+fn outcome(browser: &Browser) -> Result<(), Error> {
+    match &browser.note {
+        Some(Note::Failed(error)) => Err(error.clone()),
+        _ => Ok(()),
+    }
+}
+
+fn quiet() -> Quiet {
+    Quiet::new(card())
+}
+
+/// Nothing of the user's is lost: the files are whole, where they were or
+/// where they went, and no part is left.
+fn kept(q: &Quiet) {
+    let files = q.files();
+    assert!(files.iter().all(|f| !f.ends_with(".part")), "{files:?}");
+    assert_eq!(q.get("Notes/n.txt").unwrap(), b"n");
+    assert_eq!(q.get(".paperpaw/plugins/stats/books.ini").unwrap(), b"keep");
+    // The book "a" is there, wherever it went.
+    assert!(
+        files.iter().any(|f| q.get(f).as_deref() == Some(b"a")),
+        "{files:?}"
+    );
+}
+
+#[test]
+fn a_refused_allocation_in_the_browser_loses_nothing() {
+    let shown = |q: &Quiet, dir: &str| {
+        fixture(|| {
+            let mut b = Browser::new(dir.to_string(), false, 3);
+            b.reload(q, None);
+            b
+        })
+    };
+    sweep(
+        "reload",
+        quiet,
+        |q| {
+            let mut b = fixture(|| Browser::new("Many".to_string(), false, 3));
+            b.reload(q, None);
+            outcome(&b)
+        },
+        kept,
+    );
+    sweep(
+        "copy",
+        quiet,
+        |q| {
+            let mut b = shown(q, "Books");
+            b.pick(q, "Books/a.epub", true);
+            let mut b2 = fixture(|| shown(q, "Many"));
+            b2.picked = b.picked.take();
+            b2.paste(q);
+            outcome(&b).and(outcome(&b2))
+        },
+        kept,
+    );
+    sweep(
+        "move",
+        quiet,
+        |q| {
+            let mut b = shown(q, "Books");
+            b.pick(q, "Books/a.epub", false);
+            let mut b2 = fixture(|| shown(q, "Many"));
+            b2.picked = b.picked.take();
+            b2.paste(q);
+            outcome(&b).and(outcome(&b2))
+        },
+        kept,
+    );
+    sweep(
+        "rename",
+        quiet,
+        |q| {
+            let mut b = shown(q, "Books");
+            b.rename(q, "Books/a.epub", "z.epub");
+            outcome(&b)
+        },
+        |q| {
+            kept(q);
+            let (old, new) = (q.get("Books/a.epub"), q.get("Books/z.epub"));
+            assert!(old.is_some() != new.is_some(), "the file is in one place");
+        },
+    );
+    sweep(
+        "delete",
+        quiet,
+        |q| {
+            let mut b = shown(q, "Books");
+            b.delete(q, "Books/sub/c.txt");
+            outcome(&b)
+        },
+        |q| assert_eq!(q.get("Books/a.epub").unwrap(), b"a"),
+    );
+    sweep(
+        "new folder",
+        quiet,
+        |q| {
+            let mut b = shown(q, "Books");
+            b.new_folder(q, "More");
+            outcome(&b)
+        },
+        kept,
+    );
+}
+
+#[test]
+fn a_refused_allocation_in_the_browser_on_the_card_loses_nothing() {
+    let shown = |card: &CardStorage<QuietCard>, dir: &str| {
+        fixture(|| {
+            let mut b = Browser::new(dir.to_string(), false, 3);
+            b.reload(card, None);
+            b
+        })
+    };
+    let whole = |card: &CardStorage<QuietCard>| {
+        let fake = &card.0.0;
+        fixture(|| {
+            assert_eq!(fake.data("keep/old.txt").unwrap(), b"old");
+            let big = "x".repeat(9_000).into_bytes();
+            let places = ["src/big.bin", "keep/big.bin", "keep/big (2).bin"];
+            let got: Vec<_> = places.iter().filter_map(|p| fake.data(p)).collect();
+            assert!(
+                !got.is_empty() && got.iter().all(|d| *d == big),
+                "{}",
+                got.len()
+            );
+        });
+    };
+    for copy_it in [true, false] {
+        sweep_on(
+            if copy_it { "copy" } else { "move" },
+            quiet_card,
+            |card| {
+                let mut from = shown(card, "src");
+                from.pick(card, "src/big.bin", copy_it);
+                let mut to = shown(card, "keep");
+                to.picked = from.picked.take();
+                to.paste(card);
+                outcome(&from).and(outcome(&to))
+            },
+            whole,
+        );
     }
 }
