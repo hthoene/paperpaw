@@ -209,14 +209,27 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] `facets` (`lib_query.facet`: 0 authors, 1 series, 2 tags, 3 first letters, 4 folders; the
   other query fields filter): rows `lib_facet` (`text: str 256`, `count`, `first`: the index of its
   first book in the same query sorted by that facet, for jumping).
-- [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`): the
-  host walks the catalog in the query's order and keeps, per asking plugin, up to 8 checkpoints
-  (`generation`, position, the last row's sort key); `cursor` names one. A cursor of an older
-  catalog generation is `ERR_STATE`: ask again from 0. `end.total` counts every match, not only
-  the pages read. Sort 4 (recently opened) orders by the opened rank first, then title, then path,
-  so equal ranks keep one order. Facets page the same way; for tags and folders `first` is
-  `0xFFFF_FFFF` (no jump: a book can carry several). Where a device cap stops a walk early (a cap
-  of the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
+- [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`):
+  `cursor` is the index in the result of the page's first row (0 for the first page). Under one
+  catalog generation the result's order is fixed, so every page is reachable from the cursor alone:
+  the host walks the catalog in the query's order and skips `cursor` matches. A cursor of an older
+  catalog generation is `ERR_STATE`: ask again from 0. `end.total` counts every match, not only the
+  pages read. Sort 4 (recently opened) orders by the opened rank first, then title, then path, so
+  equal ranks keep one order. Facets page the same way; for tags and folders `first` is
+  `0xFFFF_FFFF` (no jump: a book can carry several). Where a device cap stops a walk early (a cap of
+  the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
+- [D] **Checkpoints are a cache, never needed.** To spare the skip, the host may keep checkpoints in
+  **one fixed device-wide table: 16 entries on the X4, 64 elsewhere**, allocated once and fallibly
+  at the first paged call (without it, every page walks from the start). An entry is 96 bytes: the
+  asking plugin (`u64` owner), a 32-bit FNV-1a hash of the query's fields but `cursor` and
+  `generation` (each text field preceded by its length as `u16` little-endian), the catalog
+  generation, the result index the entry resumes at, the walk position there and the last row's sort
+  key cut to **at most 64 bytes** (a longer key makes no checkpoint: that page's successor walks
+  from the start). A plugin holds at most 4 entries on the X4 (8 elsewhere). A new entry replaces,
+  in order: one of an older generation, then the asker's own least recently used one when it is at
+  its share, then the table's least recently used one. A cursor with no matching entry (evicted,
+  hash differs, never made) is walked from the start: slower, the same rows, never an error. A
+  stopped plugin's entries are cleared.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
   the screen's long side; the default is interface 6 `cover_fit`, the larger of 300 and 3/8 of the
   screen's long side): the catalog's cover as an image id of the caller, made from the book's format
@@ -495,8 +508,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 - The catalog, the walk and its sorted index are the host's library of interface 6 (#280, #328,
   #98), measured there; LIB adds none of it.
-- Calls: one reply on the host scratch, freed after the call; cursors are offsets into the sorted
-  index under the generation (no state per caller).
+- Calls: one reply on the host scratch, freed after the call.
+- Paging checkpoints (section 2.1): one fixed table, 16 × 96 bytes = **1.5 KiB on the X4** (64 ×
+  96 = 6 KiB elsewhere), allocated fallibly once; at most 4 entries per plugin on the X4. It is a
+  cache: without it (allocation refused) paging still works, walking from the start.
 - Transactions: staged edits go to a host temp file on the card (no heap beyond a 4 KiB buffer
   while a call writes them); at most 2 open device-wide.
 - Edits: one transaction's annotation file is rewritten in a streaming copy (read old, write temp
@@ -504,9 +519,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - Covers: image ids as DOC (24 bytes each).
 - Journal: one entry in memory while a move or delete runs (about 1.1 KiB for two paths).
 - Keys: the key file is read through the 4 KiB buffer when a key is given out; nothing kept.
-- **X4 worst case for LIB's host side: about 6 KiB beyond today's library** (edit buffer 4, journal
-  1.1, scratch shared; fields and keys on the card), all fallible; an activation-gate item measured
-  with the files and reader ports.
+- **X4 worst case for LIB's host side: about 7.5 KiB beyond today's library** (edit buffer 4,
+  checkpoints 1.5, journal 1.1, scratch shared; fields and keys on the card), all fallible; an
+  activation-gate item measured with the files and reader ports.
 
 ## 8. Interface-6 calls and their interface-7 form
 
