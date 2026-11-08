@@ -10,6 +10,9 @@ std::thread_local! {
     /// 1: the batch also declares a group, a setting, its extra and an action;
     /// 2: and a secret setting the host does not map (the batch is refused).
     static ARMS: Cell<u8> = const { Cell::new(0) };
+    /// Another drawable the batch declares: 1 a status item of token 93; 2 a
+    /// status line of token 94; 3 a status item of the screen's token 91.
+    static DRAWABLE: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     /// The callback registrations `make` submits: 1 an event; 2 the same event
     /// twice; 3 a draw of the screen's token; 4 a draw of a token nobody
@@ -97,7 +100,33 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
         flags: 0,
     });
     let all = [records[0], records[1], flag, extra, action, records[2]];
+    let item = |token| {
+        wire::Record::StatusItem(wire::StatusItem {
+            name: "item",
+            title: "factory.item",
+            tap: "",
+            priority: 0,
+            min_width: 0,
+            token,
+            flags: 0,
+        })
+    };
+    let line = wire::Record::StatusLine(wire::StatusLine {
+        name: "line",
+        title: "factory.line",
+        height: 1,
+        token: 94,
+        flags: 0,
+    });
     match arms {
+        0 if DRAWABLE.with(Cell::get) != 0 => {
+            let more = match DRAWABLE.with(Cell::get) {
+                1 => item(93),
+                2 => line,
+                _ => item(91),
+            };
+            wire::records_encode(&[records[0], more], bytes)
+        }
         0 => wire::records_encode(&records[..count], bytes),
         // The group, the setting and its extra, the action and the screen;
         // the secret setting last when the batch must be refused.
@@ -120,6 +149,11 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         1 => &[&[event(91)]],
         2 => &[&[event(91), event(92)]],
         3 => &[&[draw(91)]],
+        // The draws of a status item and of a status line.
+        10 => &[&[draw(93)]],
+        11 => &[&[draw(94)]],
+        // A token that two declarations claim.
+        12 => &[&[draw(91)]],
         4 => &[&[draw(77)]],
         5 => &[&[draw(91), draw(91)]],
         6 => &[&[event(91), draw(91)]],
@@ -547,6 +581,41 @@ fn regs_kernel(regs: u8) -> (crate::Kernel, Result<(), Error>) {
     let result = install(&mut kernel, 0);
     REGS.with(|value| value.set(0));
     (kernel, result)
+}
+
+#[test]
+fn the_draws_of_status_items_and_lines_are_admitted() {
+    for (regs, drawable) in [(10, 1), (11, 2)] {
+        DRAWABLE.with(|value| value.set(drawable));
+        let (mut kernel, result) = regs_kernel(regs);
+        DRAWABLE.with(|value| value.set(0));
+        result.unwrap();
+        assert!(kernel.unload_plugin(&Id::new_static("factory")));
+        assert_eq!(DESTROYED.with(Cell::get), 1, "mode {regs}");
+    }
+}
+
+#[test]
+fn a_draw_of_a_token_two_declarations_claim_or_none_refuses_the_install() {
+    // 91 is the screen's and the status item's; 93 is nobody's here.
+    for (regs, drawable) in [(12, 3), (10, 0)] {
+        DRAWABLE.with(|value| value.set(drawable));
+        let (kernel, result) = regs_kernel(regs);
+        DRAWABLE.with(|value| value.set(0));
+        assert!(
+            matches!(result, Err(Error::Status(host_glue::ERR_INVALID))),
+            "mode {regs}: {result:?}"
+        );
+        assert!(
+            !kernel
+                .shared
+                .registry
+                .screens
+                .contains_key("factory.screen")
+        );
+        assert!(kernel.shared.native_instances.find("factory").is_none());
+        assert_eq!(DESTROYED.with(Cell::get), 1, "mode {regs}");
+    }
 }
 
 #[test]

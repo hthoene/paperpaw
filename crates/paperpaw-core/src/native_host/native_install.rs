@@ -79,7 +79,7 @@ impl crate::Kernel {
             Retained::make_native_stored(host, map_declarations)?;
         // The callback registrations are admitted whole or the owner is not:
         // none is dropped unrouted.
-        check_registrations(&retained, &depth, &tokens)?;
+        let events = check_registrations(&retained, &depth, &tokens)?;
         let key = self
             .shared
             .native_instances
@@ -95,7 +95,7 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, (owned, raw), &owner, report);
+        let result = self.bind_native(key, retained, depth, (owned, raw, events), &owner, report);
         if result.is_err() {
             self.shared
                 .native_instances
@@ -230,11 +230,15 @@ impl crate::Kernel {
         key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
-        mapped: (Vec<Owned>, super::raw_declarations::RawDeclarations),
+        mapped: (
+            Vec<Owned>,
+            super::raw_declarations::RawDeclarations,
+            super::event_tags::EventTags,
+        ),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let (owned, raw) = mapped;
+        let (owned, raw, events) = mapped;
         let mut flat_host = self.flat_host();
         flat_host.directory = self
             .shared
@@ -243,7 +247,7 @@ impl crate::Kernel {
             .as_ref()
             .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
             .transpose()?;
-        let instance = NativeLease::try_new(NativeDispatch::new(
+        let instance = NativeLease::try_new(NativeDispatch::with_events(
             retained,
             depth,
             flat_host,
@@ -252,6 +256,7 @@ impl crate::Kernel {
                 .native_instances
                 .identity(key)
                 .map_err(shell::Error::Status)?,
+            events,
         ))
         .map_err(shell::Error::Status)?;
         let mut staging = crate::registry::Staging::default();
@@ -406,17 +411,17 @@ fn duplicate(id: &Id) -> RegisterError {
 
 /// Admits the callback registrations of a committed batch: an event needs a
 /// tag the host encodes (`ERR_UNSUPPORTED` otherwise) and one entry for each
-/// tag, a draw the token of a screen or widget the plugin declared and one
-/// entry for each token (`ERR_INVALID` otherwise). The registrations stay in
-/// the batch, which teardown drops before the owner stops; nothing is copied.
+/// tag, a draw the token of exactly one screen, widget, status item or status line
+/// the plugin declared and one entry for each token (`ERR_INVALID` otherwise). The registrations stay in
+/// the batch, which teardown drops before the owner stops. The admitted event
+/// tags are returned, for the instance to deliver by.
 fn check_registrations<S: Services + 'static, M: 'static>(
     retained: &Retained<S, M>,
     depth: &FlatDepth,
     tokens: &[u32],
-) -> Result<(), shell::Error> {
+) -> Result<super::event_tags::EventTags, shell::Error> {
     let mut events = super::event_tags::EventTags::default();
-    let mut drawn = [0_u32; super::registrations::REGISTRATION_MAX_RECORDS];
-    let mut draws = 0;
+    let mut drawn: Vec<u32> = Vec::new();
     let mut verdict = Ok(());
     retained
         .registrations(depth.as_depth(), &mut |_, record| {
@@ -434,20 +439,23 @@ fn check_registrations<S: Services + 'static, M: 'static>(
                     }
                 }
                 Registration::Draw { token } => {
-                    if !tokens.contains(&token) || drawn[..draws].contains(&token) {
+                    // The token of exactly one drawable declaration, named once.
+                    if tokens.iter().filter(|&&other| other == token).count() != 1
+                        || drawn.contains(&token)
+                    {
                         Err(ERR_INVALID)
-                    } else if draws == drawn.len() {
-                        Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+                    } else if drawn.try_reserve(1).is_err() {
+                        Err(ERR_NO_MEMORY)
                     } else {
-                        drawn[draws] = token;
-                        draws += 1;
+                        drawn.push(token);
                         Ok(())
                     }
                 }
             };
         })
         .map_err(shell::Error::from)?;
-    verdict.map_err(shell::Error::Status)
+    verdict.map_err(shell::Error::Status)?;
+    Ok(events)
 }
 
 fn map_declarations(
@@ -458,7 +466,8 @@ fn map_declarations(
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
-    // The tokens of the screens and widgets, which draws may name.
+    // The tokens of what the plugin draws itself (screens, widgets, status
+    // items and status lines), which draws may name.
     let mut tokens = Vec::new();
     let mut any = false;
     let mut result: Result<(), i32> = Ok(());
@@ -468,7 +477,9 @@ fn map_declarations(
         }
         result = (|| {
             if let Record::ScreenSpec(wire::ScreenSpec { token, .. })
-            | Record::WidgetSpec(wire::WidgetSpec { token, .. }) = record
+            | Record::WidgetSpec(wire::WidgetSpec { token, .. })
+            | Record::StatusItem(wire::StatusItem { token, .. })
+            | Record::StatusLine(wire::StatusLine { token, .. }) = record
             {
                 tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 tokens.push(token);
