@@ -624,11 +624,139 @@ fn a_folder_book_is_there_while_its_directory_is() {
     assert!(card.storage.size("books/comic").is_err());
     assert!(!card.storage.exists("books/comic"));
     assert_eq!(book(&reads, comic).unwrap().flags & MISSING, 0);
-    // Its pictures gone: the folder is gone.
+    // `MemoryStorage` has no empty folders: with its last picture removed the
+    // folder is gone (on FAT an emptied folder still exists, and is there).
     card.storage.remove("books/comic/p1.png").unwrap();
     assert_eq!(book(&reads, comic).unwrap().flags & MISSING, 0);
     card.storage.remove("books/comic/p2.png").unwrap();
     assert_eq!(book(&reads, comic).unwrap().flags & MISSING, MISSING);
+}
+
+/// A storage that tells a directory's `modified` without a walk, as FAT does,
+/// and counts the `list_from` it is asked for.
+struct Stats(Rc<MemoryStorage>, std::cell::Cell<u32>);
+impl paperpaw_platform::Storage for Stats {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        self.1.set(self.1.get() + 1);
+        self.0.list_from(dir, from, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(path)
+    }
+    fn modified(&self, path: &str) -> Option<i64> {
+        (path == "books/comic").then_some(1_760_000_000)
+    }
+}
+
+/// The catalog on one storage, the books on another that is `NoStorage`:
+/// everything under `.paperpaw` answers, the rest is empty.
+struct Split(Rc<MemoryStorage>);
+impl Split {
+    fn ours(path: &str) -> bool {
+        path.starts_with(".paperpaw")
+    }
+}
+impl paperpaw_platform::Storage for Split {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        if Self::ours(path) {
+            self.0.read_at(path, offset, buf)
+        } else {
+            paperpaw_platform::NoStorage.read_at(path, offset, buf)
+        }
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        if Self::ours(path) {
+            self.0.size(path)
+        } else {
+            paperpaw_platform::NoStorage.size(path)
+        }
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        if Self::ours(dir) {
+            self.0.list(dir, visit)
+        } else {
+            paperpaw_platform::NoStorage.list(dir, visit)
+        }
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_directory_that_tells_its_modified_is_not_walked() {
+    const MISSING: u32 = 1 << 8;
+    let card = card();
+    card.storage
+        .append(
+            ".paperpaw/library/catalog.txt",
+            "books/comic\tCo\tComic\t\t\t\t\t\t\t\t1\n".as_bytes(),
+        )
+        .unwrap();
+    card.storage
+        .write("books/comic/p1.png", &[1_u8; 10])
+        .unwrap();
+    let stats = Rc::new(Stats(card.storage.clone(), std::cell::Cell::new(0)));
+    let reads = CatalogReads::new(stats.clone(), card.env.clone());
+    let flags = book(&reads, BookRef::Path("books/comic")).unwrap().flags;
+    assert_eq!(flags & MISSING, 0);
+    assert_eq!(stats.1.get(), 0, "no walk where `modified` tells");
+}
+
+#[test]
+fn books_on_a_storage_that_is_nothing_are_an_error_not_removed() {
+    let card = card();
+    let split = Split(card.storage.clone());
+    let reads = CatalogReads::new(Rc::new(split), card.env.clone());
+    // The catalog still answers; the books' storage has nothing at all.
+    assert_eq!(
+        book(&reads, BookRef::Path("books/a.epub")).unwrap_err(),
+        ERR_IO
+    );
 }
 
 #[test]
