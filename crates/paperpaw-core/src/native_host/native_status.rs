@@ -25,7 +25,7 @@ impl StatusAsk for StatusCalls<'_> {
         context: &[u8],
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        if self.frame.env.device().id == "xteink-x4" {
+        if super::ui_store::is_x4(self.frame.env.device().id) {
             return Err(ERR_UNSUPPORTED);
         }
         self.frame.callback_epoch()?;
