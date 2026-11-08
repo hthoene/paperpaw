@@ -35,6 +35,7 @@
 extern crate alloc;
 
 pub mod model;
+pub mod store;
 
 mod mood;
 mod pictures;
