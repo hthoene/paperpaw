@@ -197,12 +197,27 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.specs, old.specs);
     assert_eq!(native.extras, old.extras);
     assert_eq!(native.screens, old.screens);
-    // The icon, the needs, the offer and the two places of widgets.
-    for kind in ["IconSpec", "MenuNeed", "SlotOffer", "WidgetPlace"] {
-        assert!(
-            native.others.iter().any(|k| k == kind),
-            "{kind} in {:?}",
-            native.others
-        );
-    }
+    // The navigation records, decoded: the offer, the two places of widgets
+    // (their settings, the layout, the condition), the icon and the ten needs.
+    assert_eq!(native.slots, old.slots);
+    assert_eq!(native.slots, ["core.sleep|sleep.screen|0"]);
+    assert_eq!(native.widget_places, old.widget_places);
+    assert_eq!(native.widget_places.len(), 2);
+    assert!(
+        native
+            .widget_places
+            .iter()
+            .all(|p| p.contains("|Stack|sleep.show="))
+    );
+    assert_eq!(native.icons, old.icons);
+    assert_eq!(native.icons, ["sleep.group|moon"]);
+    assert_eq!(native.needs, old.needs);
+    assert_eq!(native.needs.len(), 10);
+    assert!(native.needs.iter().all(|n| n.ends_with("|Sleep")));
+    assert_eq!(native.status_places, old.status_places);
+    assert_eq!(native.keys, old.keys);
+    assert_eq!(native.menu_entries, old.menu_entries);
+    assert_eq!(native.actions, old.actions);
+    assert!(native.events.is_empty());
+    assert!(native.others.is_empty(), "{:?}", native.others);
 }
