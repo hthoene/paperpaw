@@ -107,8 +107,10 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
         | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
-        // Checked, then refused until the host admits it (the setup-step
-        // arm follows: `setup.step`'s own contract, `registry.md` section 6).
+        // The one registry declaration not admitted yet: checked, then
+        // refused until the host admits it together with its own cross-checks
+        // (a step's name against the plugin's actions, screens, settings and
+        // menu items, `registry.md` section 6).
         Record::SetupStep(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
         }
