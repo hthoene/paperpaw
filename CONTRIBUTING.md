@@ -85,7 +85,14 @@ before 1.0.
   install from the store as files, for every release (its README). Each
   plugin has a version of its own: one that changed gets a newer one
   (CI checks it), or its commits say `Plugin-unchanged: <id>` where no
-  reader sees the change.
+  reader sees the change. A bump (or a removed or added dependency)
+  changes every `Cargo.lock` that lists the crate: the root, `shells/xteink`,
+  `tools/plugin-files`, `fuzz` and the samples. Run
+  `python3 tools/check-lockfiles.py` before pushing: it checks each lock
+  against its own manifests (a root-level `cargo metadata --locked` reads
+  only the root's lock) and finds entries nothing needs any more. Fix a
+  stale lock with `cargo metadata --manifest-path <dir>/Cargo.toml` and
+  commit it; then run `python3 tools/licences/build.py --check`.
 - **`tools/xtensa-std`** builds and installs the X4 Pro's core libraries
   for code plugins (its README).
 - **`tools/fontgen`** converts fonts into bitmap font packs (`.ppfp`) for

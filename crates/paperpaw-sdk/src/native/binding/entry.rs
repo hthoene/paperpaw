@@ -46,6 +46,18 @@ impl Linked {
     pub const fn entry(&'static self) -> &'static PpEntry {
         &self.0.0
     }
+
+    /// The metadata the entry names, as the safe slice the host's admission
+    /// checks against the entry's view (`Kernel::register_linked`).
+    #[cfg(any(test, feature = "kernel"))]
+    #[must_use]
+    pub const fn metadata(&'static self) -> &'static [u8] {
+        let view = &self.0.0.metadata;
+        // SAFETY: `Entry::new` is the only constructor of `Entry` (its field is
+        // private), and it takes the view from a `&'static [u8]`: pointer and
+        // length are that slice's, valid and immutable for the program.
+        unsafe { core::slice::from_raw_parts(view.ptr, view.len) }
+    }
 }
 
 impl core::fmt::Debug for Linked {
@@ -204,7 +216,7 @@ unsafe extern "C" fn event<T: Plugin>(
 type EventCall<'a> = dyn FnMut(
         &Host<'_>,
         u32,
-        super::super::events::Event<'_>,
+        super::super::events::Incoming<'_>,
         &mut super::super::reply::Reply<'_>,
     ) -> Result<(), Error>
     + 'a;
@@ -236,7 +248,7 @@ unsafe fn event_core(
         Ok(out) => out,
         Err(e) => return e,
     };
-    let event = match super::super::events::Event::decode(input) {
+    let event = match super::super::events::Incoming::new(input) {
         Ok(event) => event,
         Err(e) => return e.status(),
     };

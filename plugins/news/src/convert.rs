@@ -351,7 +351,7 @@ impl Reader<'_> {
 /// (Atom, ISO 8601) or `Sat, 24 Oct 2026 14:32:44 GMT` (RSS, RFC 822,
 /// the weekday and the year in two digits optional). The day as it is
 /// written, not moved to the reader's time zone. `None` where it is neither.
-fn read_date(text: &str) -> Option<(i32, u8, u8)> {
+pub(crate) fn read_date(text: &str) -> Option<(i32, u8, u8)> {
     let text = text.trim();
     let (year, month, day) = iso_date(text).or_else(|| rfc822_date(text))?;
     let real = (1..=12).contains(&month) && (1..=days_in_month(year, month)).contains(&day);
@@ -388,7 +388,7 @@ fn rfc822_date(text: &str) -> Option<(i32, u8, u8)> {
 }
 
 /// `text` cut to at most `max` bytes, at a character boundary.
-fn cut(text: &str, max: usize) -> String {
+pub(crate) fn cut(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_string();
     }
@@ -400,7 +400,7 @@ fn cut(text: &str, max: usize) -> String {
 }
 
 /// Whitespace collapsed to single spaces.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -411,7 +411,7 @@ fn text_of(markup: &str) -> Option<String> {
 }
 
 /// Elements that start a new paragraph.
-fn is_block(name: &str) -> bool {
+pub(crate) fn is_block(name: &str) -> bool {
     matches!(
         name,
         "p" | "div"
@@ -491,7 +491,7 @@ fn paragraphs(markup: &str, max: usize) -> Option<Vec<String>> {
 }
 
 /// `text` safe in HTML.
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     paperpaw_sdk::xml::escape(text, &mut out);
     out

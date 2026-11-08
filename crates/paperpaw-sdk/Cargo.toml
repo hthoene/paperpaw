@@ -16,6 +16,7 @@ paperpaw-platform.workspace = true
 paperpaw-graphics.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-config.workspace = true
+paperpaw-sort.workspace = true
 paperpaw-text.workspace = true
 paperpaw-document.workspace = true
 paperpaw-layout.workspace = true

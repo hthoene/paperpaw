@@ -545,7 +545,7 @@ fn balanced_paragraph(
     // two letters, a dash's break after the dash, and a space's break
     // ends before its spaces and goes on after them. A point given twice
     // makes two equal breaks. So sorting in place gives the same order.
-    breaks.sort_unstable_by_key(|b| (b.end, b.next));
+    paperpaw_sort::sort_by_key(&mut breaks, |b| (b.end, b.next));
     let last = breaks.len();
     push_break(&mut breaks, at(range.end, range.end, x, x, 0.0))?;
     if breaks.len() > MAX_BREAKS {

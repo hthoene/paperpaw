@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceCapability},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         formatting::Arg,
         registrations,
@@ -28,6 +28,7 @@ use paperpaw_sdk::{
         },
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, Style, geometry,
     mem::{SERVICE_BUFFER, buffer, push, wipe_text},
@@ -134,10 +135,14 @@ impl Plugin for NativeKeyboard {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,

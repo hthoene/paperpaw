@@ -132,6 +132,7 @@ pub(crate) fn backend(
         host: &*services.0,
         storage,
         who: &who,
+        scope: caller.hosts.format_scope(),
     };
     let record = wire::records_decode_single(input)?;
     match op.id {
@@ -150,6 +151,8 @@ struct View<'a> {
     host: &'a dyn FilesHost,
     storage: &'a dyn Storage,
     who: &'a Caller<'a>,
+    /// The format calls under way: root 3 is the book of the caller's own.
+    scope: &'a super::format_scope::FormatScope,
 }
 
 /// A record the host built, framed into `out`; its length.
