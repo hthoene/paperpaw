@@ -94,6 +94,17 @@ services it needs are not there. It is removed in the PR that finishes the port.
   quoted text + 64 B of note + 16 B of detail suffix + 24 B of allocator headers, at most 350 B;
   100 rows are 35 KB plus the vector grown to 128 items (10 KB), about 45 KiB (a test holds it
   under 48 KiB). The first draft (300 rows of 512 + 512 B) was about 330 KiB.
+- **Book screens open at once.** Both screens are per parameters, as in interface 6, so the kit
+  keeps one state per instance with no cap of its own. In this slice a book screen is reached only
+  from a row of the list (the list is one instance, it has no parameters), and a book's own rows
+  open nothing (they refuse plainly until the reader's open-at-place exists), so the stack holds the
+  list and **one** book screen: at most about 30 KiB + 45 KiB = **75 KiB** of rows, and a real
+  library about half that. Nothing frees the list's rows under a book screen: the host sends no
+  event when a screen is covered, and making the list again on each return would walk the library
+  again. When the notes open the reader (slice 3), the book screen stays under the reader, still
+  one book at a time; if the stack can ever hold two books, a hidden book's rows are to be freed
+  and read again when it is shown (the cursor is not kept, so paging comes with that). 75 KiB of
+  the 256 KiB heap is an X4 risk to measure (memory gate), not measured.
 - **Open parity item (slice 3, with the export):** interface 6 showed all of a book's notes, this
   port the first 100. Paging would close it within the 45 KiB: a last row "more" that loads the next
   100 from the annotation query (the page's cursor kept, the old rows freed) and a way back; it
