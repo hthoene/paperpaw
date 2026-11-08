@@ -165,6 +165,14 @@ pub fn page_at(source: &mut impl Source, word: &str, cursor: usize) -> Result<Op
     Ok(hit.map(|found| Page { found, more: false }))
 }
 
+/// Whether a lookup page the broker gave is no entry: a provider with nothing
+/// to say is turned into an empty `lookup_entry` (empty title and text). The
+/// panel and the reader's selection menu skip such pages.
+#[must_use]
+pub fn is_no_entry(title: &str, text: &str) -> bool {
+    title.is_empty() && text.is_empty()
+}
+
 /// `text` cut to at most `max` bytes at a character boundary; whether it
 /// was cut says the entry is shortened (`…` is not added: the bytes are the
 /// contract's).
@@ -364,6 +372,14 @@ mod tests {
         assert_eq!(page_at(&mut source, "w", 0).err(), Some(Error::NoMemory));
         let mut none = Fake(vec![]);
         assert_eq!(page_at(&mut none, "w", 0).unwrap(), None);
+    }
+
+    #[test]
+    fn an_empty_title_and_text_is_no_entry_and_anything_else_is_shown() {
+        assert!(is_no_entry("", ""));
+        assert!(!is_no_entry("Dict", ""));
+        assert!(!is_no_entry("", "text"));
+        assert!(!is_no_entry("Dict", "text"));
     }
 
     #[test]

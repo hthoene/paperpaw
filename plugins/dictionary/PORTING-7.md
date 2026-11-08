@@ -26,6 +26,10 @@ list) is still in place beside the native one. It is removed in the PR that fini
 - "No entry" is `NotFound` from the stage call; whether the host reads that as no row is Kernel's
   to confirm (document.md section 7).
 
+- The broker turns a provider's "no entry" into an empty `lookup_entry` (Kernel's ruling, todo 123):
+  the panel (slice 2) and the reader's selection menu skip pages for which
+  `native_model::is_no_entry` is true.
+
 ## What the slice loses (each returns in a later slice or with its host piece)
 
 - **Every lookup**: dictionaries cannot be read until `core.files` (#384/#339) and StarDict on native
