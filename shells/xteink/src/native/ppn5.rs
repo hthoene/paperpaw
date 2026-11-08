@@ -124,6 +124,8 @@ pub fn load(
     }
 }
 
+#[cfg(all(feature = "static-native", feature = "esp32c3"))]
+pub(crate) use x4::register_linked_probe;
 #[cfg(feature = "esp32c3")]
 pub(super) use x4::{StorageSource, entry_check_failed};
 
@@ -393,6 +395,50 @@ mod x4 {
         // A hit restarts the X4 by a panic with the id still set.
         crate::stack::check();
         crate::safe_mode::returned();
+    }
+
+    /// Registers the linked plugins through the kernel (`Kernel::register_linked`)
+    /// so the image carries the host's code that hosts them. MEASUREMENT ONLY
+    /// (`static-native`): the caller never takes this branch, because the stack
+    /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
+    #[cfg(feature = "static-native")]
+    #[inline(never)]
+    pub(crate) fn register_linked_probe(kernel: &mut paperpaw_core::Kernel) {
+        fn linked_report(_: &X4Services, tag: u32, status: i32) {
+            warn!("native: linked: call {tag} ended with {status}");
+        }
+        let offered = metadata::Host {
+            abi_major: HOST.abi_major,
+            minor: HOST.minor,
+            profile: paperpaw_native::header5::X4_PROFILE,
+            services: shell::DATA_SERVICES,
+            features: X4_FEATURES,
+        };
+        let (Ok(depth), Ok(resources)) = (FlatDepth::try_new(), HostResources::try_new()) else {
+            return;
+        };
+        for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
+            let Some(share) = resources.try_clone() else {
+                return;
+            };
+            // SAFETY: `linked` comes from `native_plugin!(..., linked = NAME)` of
+            // a crate linked into this firmware: its factory obeys the SDK's
+            // native factory contract and its code stays for the whole run.
+            let status = unsafe {
+                kernel.register_linked(
+                    linked.entry(),
+                    linked.metadata(),
+                    &offered,
+                    id,
+                    X4Services,
+                    share,
+                    &depth,
+                    report,
+                    linked_report,
+                )
+            };
+            warn!("native: linked {id}: {status:?}");
+        }
     }
 
     /// The owner's fallback report of a teardown step that failed (called
