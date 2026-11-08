@@ -303,6 +303,12 @@ impl HtmlText {
 
     /// Whether `bytes` more still fit the limit; if not, the text is cut.
     fn room(&mut self, bytes: usize) -> bool {
+        // Once text was dropped the rest is dropped too: what is kept is a
+        // prefix, never a later, smaller character after a larger one that
+        // did not fit.
+        if self.cut {
+            return false;
+        }
         match self.made.checked_add(bytes) {
             Some(total) if total <= self.limit => {
                 self.made = total;

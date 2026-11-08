@@ -1,4 +1,4 @@
-# Mail on interface 7 (slices 1 to 3, partly ported)
+# Mail on interface 7 (slices 1 to 4, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
 store and the widgets) is still in place beside the native one. It is removed in the PR that
@@ -64,7 +64,32 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
 - The SMTP reply bounds are as they were (line 1,000 bytes, reply 4,096, 64 lines). `smtp::data` leaves
   the bound of the message to the caller, who holds it whole.
 
-## What the session slice must do with these (slice 4)
+## Ported in slice 4
+
+- `src/native_model/render.rs` (`tests/native_render_store.rs`): the message renderer (headers, MIME
+  structure, quoted-printable, base64, charsets, HTML, attachments) made fallible and bounded, and
+  `src/native_model/store.rs`: what Mail keeps (paths, the index with its serial, counts, folders and
+  their sort, the letter) and `fail.rs` (`Fail`: `NoMemory` or the card's `StorageError`; a refused
+  allocation is never taken for a card that is gone). Same text, same headers, same files as
+  interface 6 on fixed mails, 3,000 random mails of every structure the renderer knows, the same
+  index, counts, folders and letters (compared byte for byte); `tests/native_model_alloc_refusal.rs`
+  refuses each allocation of rendering and of the store in turn on a card double that never allocates;
+  hostile bytes are rendered without a panic.
+- Differences from interface 6, on purpose, each tested: `read_index` returns at most 50 rows and `read_folders` at most 64 (what a write keeps; interface 6 read every line of a file under its size cap); the paths are relative to the plugin's data
+  folder (`a1/f<name>-<hash>/index.txt`, not `.paperpaw/plugins/mail/…` on the card; what an
+  interface-6 Mail kept there is not read, see "The interface-6 files on the card" below); no `.part` file of Mail's own (the data
+  folder's `write` makes the parent folders and is the old file or the new one whole); the scratch
+  file of a letter is `m<uid>.txt.tmp`; the HTML reader of a part is made with
+  `HtmlText::with_limit` for the room the text has left, as slice 2 asked; folders are sorted by
+  lower-case characters without a lower-case copy per comparison (a word-final sigma sorts as `σ`,
+  where `to_lowercase` made it `ς`); an index over 64 KiB, a list of folders over 32 KiB and a letter
+  over its bound read as nothing, as before; `Row`, `Counts`, `Folder`, `Letter` and `Rendered` are
+  `#[non_exhaustive]` and cannot be cloned without asking (`Row::parse` and `Folder::new` make them).
+- `HtmlText` (slice 2) now drops everything after the first text that did not fit the limit: what is
+  kept is a prefix. It kept a later, smaller character before; interface 6 cut the text as a prefix,
+  and the renderer now gives the same text. Tests of slice 2 are unchanged.
+
+## What the session slice must do with these (slice 5)
 
 - Cap the `{n}` literals it accepts (a body part is read in chunks into the card, never whole; an
   `n` over the cap ends the fetch of that message), since `Token::Literal(n)` is only a number here.
@@ -75,12 +100,24 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   buffer that wipes itself (`Secret`), send it from there, and wipe it; the same for `AUTH PLAIN`
   (`smtp::auth_plain` already makes it so). No `format!` with the password.
 
+## The interface-6 files on the card
+
+Interface-6 Mail keeps its files on the card under `.paperpaw/plugins/mail/` (`aN/…`). The folders, lists,
+counts and messages in them are a cache that comes again from the server, but **the drafts
+(`aN/draft.txt`) and the outbox (`aN/outbox.eml`) are the user's own writing**, so cleaning the folder
+at the first native start would lose mail not yet sent. Neither a migration nor a clean-up fits this
+slice: it has no start code, and reading the card's files needs `uses.storage` (root 1) in the
+metadata, which only the slice that makes the first start can justify. It is a gap, with an ignored
+case (`the_interface_6_cache_and_drafts_are_migrated_or_cleaned_once` in `tests/acceptance_pending.rs`):
+the slice with the first start must copy the drafts and outboxes into the data folder, then remove the
+old folder (cache and all), once, and say so here. Until then the old files stay on the card.
+
 ## Still interface 6
 
-- `session.rs`, `driver.rs`, `job.rs` (the connection and the commands, on the sockets host and facade
-  of `docs/abi/sockets.md`), `render.rs` and `store.rs` (with the card through `core.files`; `render` must
-  make the HTML reader with `HtmlText::with_limit` and flush in chunks, see slice 2), then the screens.
-  They are the next slices; the pieces above are what they will call.
+- `session.rs`, `driver.rs`, `job.rs` (the connection and the commands, on the sockets host and the SDK
+  facade it still lacks; Services has it assigned), `render.rs` and `store.rs` (the interface-6 ones stay
+  as the old sessions and screens use them; the native ones of slice 4 take their place with the sessions),
+  then the screens. They are the next slices; the pieces above are what they will call.
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
@@ -91,7 +128,7 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
 | The connection of a screen ending with it | the work service (`docs/abi/work.md`) |
 | Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
 | Folders, list, reader, compose (`browser.rs`, `reader.rs`, `writer.rs`, `compose.rs`) | `core.ui` compose; the card through `core.files` |
-| The store of what was fetched (`store.rs`, `render.rs`) | `core.files` and the card root |
+| The store of what was fetched, called by the sessions (`store.rs`, `render.rs` are native since slice 4) | the sessions and the screens that call them |
 | The five home widgets and their settings | the widget host call (Core todo 76) |
 | The question *Trust this server?* | `Question::choice` and the sockets certificate event |
 
