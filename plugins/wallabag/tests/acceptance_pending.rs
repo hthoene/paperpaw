@@ -53,7 +53,7 @@ fn wallabag_setup() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET/FS/JSON-stream: network, files and a fallible JSON stream reader are not on integration"]
+#[ignore = "BLOCKED NET/FS: network and files are not qualified for the native plugin"]
 fn wallabag_fetch() {
     CASES[1].refuse().unwrap();
 }
