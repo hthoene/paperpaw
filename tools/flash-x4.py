@@ -157,6 +157,31 @@ def problems(device, spec, need_clang):
     return found
 
 
+# One cargo feature name: letters, digits, `_` and `-`, not starting with `-`
+# (cargo would read it as a flag).
+FEATURE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_\-]*")
+
+
+def check_features(spec, features):
+    """Why `features` (the --features text) cannot be used, or None."""
+    names = features.split(",")
+    for name in names:
+        if not FEATURE.fullmatch(name):
+            return (
+                "--features takes a comma list of feature names (letters, digits, _ and -, "
+                f"none starting with -), not {features!r}."
+            )
+    # The interface-7 loader on the S3 refuses every file until its stack
+    # guard is built (#228): the feature would only make a firmware that
+    # cannot load a plugin.
+    if spec["xtensa"] and "ppn5" in names:
+        return (
+            "--features ppn5 is for the X4 and the X3: the interface-7 plugin loader of the "
+            "X4 Pro and the X4 Classic is not open yet."
+        )
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Builds the checked-out PaperPaw and flashes it to an Xteink reader.",
@@ -176,6 +201,12 @@ def main():
     parser.add_argument("--backup", metavar="FILE", help="save the reader's flash to FILE first")
     args = parser.parse_args()
     spec = DEVICES[args.device]
+    # Before anything is printed, saved or asked.
+    if args.features:
+        why = check_features(spec, args.features)
+        if why:
+            print(f"\n{why}")
+            return 1
 
     env = dict(os.environ)
     # mbedTLS is built by CMake and Ninja (shells/xteink/README.md).
@@ -188,6 +219,8 @@ def main():
     print(f"Source:  {branch} @ {commit}" + ("  (with changes not committed)" if dirty else ""))
     if args.port:
         print(f"Port:    {args.port}")
+    if args.features:
+        print(f"Features: {args.features} (on top of the device's own)")
 
     missing = problems(args.device, spec, need_clang=not spec["xtensa"])
     if missing:
@@ -209,7 +242,10 @@ def main():
 
     if not args.yes and not args.dry_run:
         print(
-            "\nThis replaces the firmware on the reader (the card is not touched). "
+            f"\nThis replaces the firmware on the {spec['name']}"
+            + (f" on {args.port}" if args.port else " (the port espflash finds)")
+            + (f", built with the features {args.features}" if args.features else "")
+            + " (the card is not touched). "
             "To be able to go back, save its flash first (--backup)."
         )
         if args.device == "x4-pro":
@@ -220,9 +256,6 @@ def main():
 
     command = list(spec["cargo"])
     if args.features:
-        if not re.fullmatch(r"[A-Za-z0-9_\-]+(,[A-Za-z0-9_\-]+)*", args.features):
-            print(f"\n--features takes a comma list of feature names, not {args.features!r}.")
-            return 1
         command += ["--features", args.features]
     if args.no_monitor:
         # The runner of `cargo run` is `espflash flash --monitor ...`
