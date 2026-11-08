@@ -302,6 +302,8 @@ pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
         let literal = json_string(extension)?;
         extensions = concat(&[&extensions, if at == 0 { "" } else { ", " }, &literal])?;
     }
+    // TODO(#421): wipe the SHA-1 state, the hex array and the hash with
+    // `mem::wipe` once it lands; the password is secret.
     let mut digits = [0; 40];
     let hash = match device.password {
         Some(password) if !device.challenge.is_empty() => {

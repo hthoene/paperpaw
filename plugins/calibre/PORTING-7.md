@@ -14,9 +14,16 @@ commands) is still in place beside the native one. It is removed in the PR that 
   SHA-1 password hash) and `GET_DEVICE_INFORMATION`, book paths that cannot leave the library
   folder or reach hidden data, a book's metadata without its thumbnail, and Calibre's answer to the
   broadcast. `tests/native_alloc_refusal.rs` refuses each allocation of the writers and the framing.
-- Members of the arguments are read with `paperpaw_sdk::json` until Kernel's fallible reader (#414)
-  is on integration. It has no refusal path, so what it takes is bounded by the framing's longest
-  message (64 KiB on a small device), not by this crate (marked in `native_model.rs`, not swept).
+- The setting is compared with interface 6's field by field (`src/native_parity_tests.rs`: name,
+  title, group, help, kind, default, advanced, kept on reset). The one difference is the section
+  the setting is shown in (`calibre.plugin.name`): the native plugin declares none yet.
+- **Gate before the session slice is wired:** `member`, `text`, `strings` and `without_member` read
+  with `paperpaw_sdk::json` (`raw_member`, `unquote`, `string_array`), which allocates without a
+  refusal path and without a bound of its own: a hostile 64 KiB key costs about 200 KiB for one
+  message. The session slice must use Kernel's fallible reader (#414) or a bound proven on the X4
+  first. These readers are not in the refusal sweep (`tests/native_alloc_refusal.rs`).
+- `initialization` has a `TODO(#421)`: wipe the SHA-1 state, the hex array and the hash with
+  `mem::wipe` once it lands.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
