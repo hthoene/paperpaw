@@ -2739,6 +2739,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-scripted-host"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-sdk"
 version = "0.6.0-beta.3"
 dependencies = [
