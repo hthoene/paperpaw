@@ -14,7 +14,11 @@
 # what counts. The summary at the end lists them, and the script exits 1
 # if any step failed (or could not run), 0 only if all passed. Nothing is
 # piped through grep: read the full log of a failed step under the log
-# directory it prints.
+# directory it prints. What was NOT checked is listed in the summary too:
+# steps left out by --only/--skip, package steps when no package changed, and
+# changed files in workspaces of their own (shells/xteink, fuzz, patches,
+# samples ...), which this script does not build. Exit 2: bad usage, an
+# unknown step name, or a base revision that is not there.
 #
 # Options:
 #   --features LIST   also clippy and test with --features LIST (e.g. linked)
@@ -41,11 +45,20 @@ lock_args="--offline"
 base="origin/abi7/integration"
 jobs=4
 crates=()
+known=" fmt clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
+
+check_names() { # LIST OPTION: every name must be a known step
+    local name
+    for name in $(tr ',' ' ' <<< "$1"); do
+        [[ "$known" == *" $name "* ]] || { echo "check-local: unknown step '$name' for $2 (known:$known)" >&2; exit 2; }
+    done
+}
+
 while (($#)); do
     case "$1" in
         --features) features="${2:?--features needs a list}"; shift 2 ;;
-        --only) only=",${2:?--only needs a list},"; shift 2 ;;
-        --skip) skip=",${2:?--skip needs a list},"; shift 2 ;;
+        --only) check_names "${2:?--only needs a list}" --only; only=",$2,"; shift 2 ;;
+        --skip) check_names "${2:?--skip needs a list}" --skip; skip=",$2,"; shift 2 ;;
         --online) lock_args=""; shift ;;
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a number}"; shift 2 ;;
@@ -60,36 +73,79 @@ if [[ -z "${RUSTC_WRAPPER:-}" && -x tools/sccache-wrap.sh ]] && command -v sccac
     export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
 fi
 
-# The packages changed against the base: the nearest Cargo.toml above each file.
-changed_packages() {
-    local merge_base
-    merge_base="$(git merge-base "$base" HEAD 2> /dev/null)" || return 0
-    { git diff --name-only "$merge_base"; git ls-files --others --exclude-standard; } | python3 -I -c '
-import re, sys
-from pathlib import Path
-names = []
-for line in sys.stdin:
-    for parent in Path(line.strip()).parents:
-        manifest = Path(parent, "Cargo.toml")
-        if not manifest.is_file():
-            continue
-        text = manifest.read_text(encoding="utf-8")
-        name = re.search(r"^\[package\][^\[]*?^name\s*=\s*\"([^\"]+)\"", text, re.M | re.S)
-        # A manifest with a [workspace] of its own (shells/xteink, samples) is no
-        # member of the root workspace: -p cannot name it.
-        if name and not re.search(r"^\[workspace\]", text, re.M) and name.group(1) not in names:
-            names.append(name.group(1))
-        break
-print(" ".join(names))
-'
-}
+not_checked=()
+warnings=()
+detected=()
+merge_base=""
+explicit=0
+((${#crates[@]} > 0)) && explicit=1
+if ! git rev-parse --verify -q "$base^{commit}" > /dev/null; then
+    if ((${#crates[@]} == 0)); then
+        echo "check-local: base '$base' not found, so the changed packages are unknown (git fetch, or --base REV, or name the crates)" >&2
+        exit 2
+    fi
+    warnings+=("base '$base' not found: no changelog fragment check")
+elif ! merge_base="$(git merge-base "$base" HEAD 2> /dev/null)"; then
+    echo "check-local: no merge base of '$base' and HEAD" >&2
+    exit 2
+fi
 
-if ((${#crates[@]} == 0)); then
-    read -r -a crates <<< "$(changed_packages)"
+# The changed files against the merge base, and the packages and workspaces
+# of their own among them. A file belongs to the nearest Cargo.toml above it;
+# the manifests of `cargo metadata --no-deps` are the root workspace's members.
+if [[ -n "$merge_base" ]]; then
+    changed_files="$({ git diff --name-only "$merge_base"; git ls-files --others --exclude-standard; } | sort -u)"
+    metadata="$(cargo metadata --no-deps --format-version 1 2> /dev/null)" \
+        || { echo "check-local: cargo metadata failed in $root" >&2; exit 2; }
+    classified="$(printf '%s\n' "$changed_files" | python3 -I -c '
+import json, sys
+from pathlib import Path
+members = {}
+for package in json.loads(sys.argv[1])["packages"]:
+    members[str(Path(package["manifest_path"]).parent)] = package["name"]
+root = Path.cwd()
+packages, separate = [], []
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    path = (root / line.strip())
+    for parent in path.parents:
+        if parent == root.parent:
+            break
+        if (parent / "Cargo.toml").is_file():
+            if str(parent) in members:
+                if members[str(parent)] not in packages:
+                    packages.append(members[str(parent)])
+            elif parent != root:
+                where = str(parent.relative_to(root))
+                if where not in separate:
+                    separate.append(where)
+            break
+for name in packages:
+    print("PKG", name)
+for where in separate:
+    print("SEPARATE", where)
+' "$metadata")"
+    while read -r kind value; do
+        case "$kind" in
+            PKG) detected+=("$value") ;;
+            SEPARATE) not_checked+=("NOT CHECKED: $value/ (separate workspace; build it there)") ;;
+        esac
+    done <<< "$classified"
+fi
+if ((explicit == 0)) && ((${#detected[@]} > 0)); then
+    crates=("${detected[@]}")
 fi
 pkgs=()
 for crate in "${crates[@]}"; do pkgs+=(-p "$crate"); done
 echo "check-local: packages: ${crates[*]:-(none: workspace-wide steps only)}"
+for line in "${not_checked[@]}"; do echo "check-local: $line"; done
+
+# A changed crate wants a changelog fragment (or a No-changelog trailer).
+if [[ -n "$merge_base" ]] && ((${#crates[@]} > 0)); then
+    fragments="$({ git diff --name-only --diff-filter=A "$merge_base" -- changelog.d; git ls-files --others --exclude-standard -- changelog.d; } | grep -v 'README.md' || true)"
+    [[ -n "$fragments" ]] || warnings+=("crates changed but no new changelog.d fragment (add one, or a No-changelog: <reason> trailer on the head commit)")
+fi
 
 logs="$(mktemp -d "${TMPDIR:-/tmp}/check-local.XXXXXX")"
 echo "check-local: logs in $logs"
@@ -97,6 +153,7 @@ echo "check-local: logs in $logs"
 names=()
 results=()
 seconds=()
+skipped=()
 failed=0
 
 wanted() {
@@ -108,7 +165,10 @@ wanted() {
 step() {
     local name="$1"
     shift
-    wanted "$name" || return 0
+    if ! wanted "$name"; then
+        skipped+=("$name (left out by --only/--skip)")
+        return 0
+    fi
     local log="$logs/$name.log" started=$SECONDS code
     echo "== $name: $*"
     "$@" 2>&1 | tee "$log"
@@ -123,18 +183,30 @@ step() {
     fi
 }
 
-has_packages() { ((${#pkgs[@]} > 0)); }
+# pkg_step NAME COMMAND...: a step on the packages; none to check is a skip, said so.
+pkg_step() {
+    local name="$1"
+    if ((${#pkgs[@]} == 0)); then
+        if wanted "$name"; then
+            skipped+=("$name (no package changed or named)")
+        else
+            skipped+=("$name (left out by --only/--skip)")
+        fi
+        return 0
+    fi
+    step "$@"
+}
 
-if has_packages; then
-    step fmt cargo fmt "${pkgs[@]}" -- --check
-    step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
-    [[ -n "$features" ]] \
-        && step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings
-    step test cargo test -j"$jobs" "${pkgs[@]}"
-    [[ -n "$features" ]] \
-        && step test-features cargo test -j"$jobs" "${pkgs[@]}" --features "$features"
-    step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
+pkg_step fmt cargo fmt "${pkgs[@]}" -- --check
+pkg_step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
+if [[ -n "$features" ]]; then
+    pkg_step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings
 fi
+pkg_step test cargo test -j"$jobs" "${pkgs[@]}"
+if [[ -n "$features" ]]; then
+    pkg_step test-features cargo test -j"$jobs" "${pkgs[@]}" --features "$features"
+fi
+pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
 step changelog python3 tools/changelog.py check
 # shellcheck disable=SC2086 # lock_args is one option or nothing
 step lockfiles python3 tools/check-lockfiles.py $lock_args
@@ -142,14 +214,18 @@ step licences python3 tools/licences/build.py --check
 # paperpaw-checks bakes the repository path: no compiler cache for it.
 touch tools/checks/src/lib.rs 2> /dev/null || true
 step checks env SCCACHE_DISABLE=1 cargo test -j"$jobs" -p paperpaw-checks
-[[ -f tools/tests/test_abi_plugin_metadata.py ]] \
-    && step abi-metadata python3 tools/tests/test_abi_plugin_metadata.py
+if [[ -f tools/tests/test_abi_plugin_metadata.py ]]; then
+    step abi-metadata python3 tools/tests/test_abi_plugin_metadata.py
+fi
 
 echo
 echo "check-local summary:"
 for i in "${!names[@]}"; do
     printf '  %-16s %-18s %4ss\n' "${names[$i]}" "${results[$i]}" "${seconds[$i]}"
 done
+for line in "${skipped[@]}"; do echo "  SKIPPED: $line"; done
+for line in "${not_checked[@]}"; do echo "  $line"; done
+for line in "${warnings[@]}"; do echo "  WARNING: $line"; done
 if ((${#names[@]} == 0)); then
     echo "check-local: no step ran (--only/--skip left nothing)" >&2
     exit 2

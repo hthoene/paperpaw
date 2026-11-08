@@ -24,6 +24,12 @@ class CheckLocal(unittest.TestCase):
             (crate / "src").mkdir(parents=True)
             (crate / "Cargo.toml").write_text(f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n')
             (crate / "src/lib.rs").write_text(f"#[test]\nfn it_works() {{\n    {test}\n}}\n")
+        (self.repo / ".gitignore").write_text("target/\n")
+        separate = self.repo / "shells/x"
+        (separate / "src").mkdir(parents=True)
+        (separate / "Cargo.toml").write_text(
+            '[package]\nname = "x"\nversion = "0.1.0"\nedition = "2021"\n[workspace]\n')
+        (separate / "src/lib.rs").write_text("")
         self.git("init", "-q", "-b", "main")
         self.git("add", ".")
         self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
@@ -81,9 +87,53 @@ class CheckLocal(unittest.TestCase):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertRegex(run.stdout, r"test\s+FAILED")
 
+    def test_a_missing_base_is_an_error_not_an_empty_package_set(self):
+        run = self.run_script("--base", "origin/nowhere", "--only", "test")
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("not found", run.stderr)
+
+    def test_a_missing_base_with_named_crates_only_warns(self):
+        run = self.run_script("--base", "origin/nowhere", "--only", "test", "good")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("WARNING: base 'origin/nowhere' not found", run.stdout)
+
+    def test_a_change_in_a_separate_workspace_is_listed_as_not_checked(self):
+        (self.repo / "shells/x/src/lib.rs").write_text("pub fn changed() {}\n")
+        (self.repo / "crates/good/src/lib.rs").write_text("#[test]\nfn it_works() {}\n")
+        run = self.run_script("--only", "test")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("packages: good", run.stdout)
+        summary = run.stdout.split("check-local summary:")[1]
+        self.assertIn("NOT CHECKED: shells/x/ (separate workspace", summary)
+
+    def test_skipped_steps_are_named_in_the_summary(self):
+        run = self.run_script("--only", "test", "good")
+        summary = run.stdout.split("check-local summary:")[1]
+        self.assertIn("SKIPPED: fmt (left out by --only/--skip)", summary)
+        self.assertIn("SKIPPED: clippy (left out by --only/--skip)", summary)
+
+    def test_package_steps_without_a_package_are_skipped_and_said_so(self):
+        (self.repo / "README.md").write_text("only docs changed\n")
+        run = self.run_script("--only", "test,fmt")
+        self.assertEqual(run.returncode, 2)  # nothing ran
+        self.assertIn("SKIPPED: test (no package changed or named)", run.stdout)
+
+    def test_changed_crates_without_a_changelog_fragment_warn(self):
+        (self.repo / "crates/good/src/lib.rs").write_text("#[test]\nfn it_works() {}\n")
+        run = self.run_script("--only", "test")
+        self.assertIn("WARNING: crates changed but no new changelog.d fragment", run.stdout)
+        (self.repo / "changelog.d").mkdir()
+        (self.repo / "changelog.d/228-x.md").write_text("### Fixed\n\n- x\n")
+        run = self.run_script("--only", "test")
+        self.assertNotIn("no new changelog.d fragment", run.stdout)
+
+    def test_an_unknown_step_name_is_refused(self):
+        self.assertEqual(self.run_script("--only", "tset").returncode, 2)
+        self.assertEqual(self.run_script("--skip", "frobnicate").returncode, 2)
+
     def test_nothing_selected_is_no_pass(self):
-        run = self.run_script("--only", "nonsense")
-        self.assertEqual(run.returncode, 2)
+        run = self.run_script("--only", "test")
+        self.assertEqual(run.returncode, 2)  # no package changed: test is skipped
 
     def test_unknown_option_is_refused(self):
         self.assertEqual(self.run_script("--frobnicate").returncode, 2)
