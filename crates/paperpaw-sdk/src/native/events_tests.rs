@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
 use crate::native::declare::records_wire::Record;
+use alloc::format;
 use wire::{
     EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
 };
@@ -533,9 +534,15 @@ fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
         Event::decode(&encode(0)),
         Ok(Event::TextTyped {
             now_ms: 4,
-            text: "héllo wörld",
+            text: TypedText::new("héllo wörld"),
             done: false
         })
+    );
+    // The text may be a password: `Debug` shows its length, never the text.
+    let shown = format!("{:?}", Event::decode(&encode(0)).unwrap());
+    assert!(
+        shown.contains("len: 13") && !shown.contains("llo"),
+        "{shown}"
     );
     assert!(matches!(
         Event::decode(&encode(1)),

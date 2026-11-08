@@ -1,5 +1,7 @@
 //! The host's own events: lifecycle, pages, screens, actions, registry and plugin requests.
-use super::{Error, Event, PluginRequestId, ReadingView, RegistryChanges, RequestedPlugins, wire};
+use super::{
+    Error, Event, PluginRequestId, ReadingView, RegistryChanges, RequestedPlugins, TypedText, wire,
+};
 
 pub(super) mod tick {
     use super::{Error, Event, wire};
@@ -82,7 +84,7 @@ event_fn!(text_typed, wire::EventTextTyped<'_>, |r| {
     }
     Event::TextTyped {
         now_ms: r.now_ms,
-        text: r.text,
+        text: TypedText::new(r.text),
         done: r.flags & 1 != 0,
     }
 });

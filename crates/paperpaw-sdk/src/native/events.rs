@@ -256,6 +256,31 @@ impl<'a> ReadingView<'a> {
     }
 }
 
+/// Text typed from outside (`event.text_typed`). It may be a password, so `Debug`
+/// shows only its length; read it with [`TypedText::as_str`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TypedText<'a>(&'a str);
+
+impl<'a> TypedText<'a> {
+    pub(super) const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The typed text, borrowed from the callback input.
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+impl core::fmt::Debug for TypedText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TypedText")
+            .field("len", &self.0.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// One event, borrowing its callback's bytes. The scalar variants carry the
 /// emission time on the snapshot's monotonic millisecond clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,7 +318,7 @@ pub enum Event<'a> {
     /// set only on the last, and confirms the dialog.
     TextTyped {
         now_ms: u64,
-        text: &'a str,
+        text: TypedText<'a>,
         done: bool,
     },
     /// An extension stage calls this subscription's token. Answer through
