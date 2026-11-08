@@ -1,4 +1,4 @@
-# Interface-7 port (slice 1: the declarations)
+# Interface-7 port (slices 1 and 2: the declarations and the decisions)
 
 Version 1.0.2. Partial: what the plugin declares, without the host. No native screen and no
 `NATIVE_ENTRY` yet; the interface-6 `PictureHome` and everything of it stays until the host
@@ -12,6 +12,18 @@ activates native plugins (then it goes together, no shim).
   `core.home` offer at the priority of a replacing plugin, the pages as a place of widgets in a
   grid, the bar's place of status items, and the no-touch need of the focus setting.
   `tests/abi7_declarations.rs` compares each with the interface-6 registration.
+
+- `src/native_picture.rs` (slice 2): what the screen decides, without the host, with fallible
+  allocation and the facts given by the caller. The picture's recipe from the settings (`Asked`,
+  `Recipe::new`: fit, place, zoom 100-300, paler 0-60, brightness and contrast steps, dots) and its
+  note (`key`), the plan (size and offset on the screen), the crop of the decoded picture that the
+  screen shows (`visible`, with `Turn` and `Crop`), the tone curve, ordered dither and paleness, a
+  JPEG's size and EXIF turn read through `ReadAt` (offsets, no file name), which files of the
+  folder are pictures and the first 300 of them sorted without regard to case (`pictures`), and the
+  status bar: when it shows, its look and plate, its place (`Placing`, `plate_area`; 55 percent
+  wide as a pill, in `u32` so that a wide screen cannot wrap) and the ink over a picture. Every
+  function is compared with the interface-6 one on the same inputs (`src/native_picture/tests.rs`),
+  and sweeps refuse each allocation.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
