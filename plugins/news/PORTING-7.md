@@ -1,4 +1,4 @@
-# Interface-7 port (slice 1: the decisions and the declarations)
+# Interface-7 port (slice 2: the decisions, the declarations and the feed converter)
 
 Version 1.0.10. Partial: what the plugin decides and what it declares, without the host. No native
 list screen and no `NATIVE_ENTRY` yet; the interface-6 `News` and everything of it stays until the
@@ -28,10 +28,21 @@ host activates native plugins (then it goes together, no shim).
   icons. `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each
   with the interface-6 registration, including the screen's instance policy from the decoded flags.
 
+- `src/native_convert.rs`: a feed (RSS 2.0, RSS 1.0, Atom) made into a page (`Converter`: `feed` in
+  pieces, `taken`/`clear` to write the page as it comes, `finish` for the count and the headlines).
+  The XML is read by the SDK's `Tokenizer::try_feed`; everything kept is reserved first; one article
+  is in memory at a time. After a refused allocation the converter is spent (every later `feed` and
+  `finish` say the same; the caller ends the fetch and throws the page away, so a feed that fails
+  keeps the old book). Caps as in interface 6: `max_text` per article (64 KiB, or 8 KiB on small
+  devices, given by the caller), 400 bytes a title/date/link, five headlines named at the top; the
+  4 MiB limit on the feed file (`MAX_FEED_FILE`) is the fetch's, not the converter's.
+  `src/native_convert_tests.rs` compares the page and the result byte for byte with `convert.rs` at
+  piece sizes from 1 byte up, and sweeps refusals. (`convert::paragraphs` became `pub(crate)` for
+  that; `native_news` gained `escape_len` and `HEADLINES_SHOWN`.)
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- A feed made into a page (`convert.rs`: the XML reader, the page writer with one article in memory
-  at a time) and the book's name (`Feed::file_name`/`book`, which need a fallible `clean_name`: a gap
+- The book's name (`Feed::file_name`/`book`, which need a fallible `clean_name`: a gap
   for Kernel, the SDK's allocates and the reserved-name list is in `paperpaw-platform`). Next slice.
 - The fetch itself (one feed after the other, the network and files, the page's rename, the
   retirement of version 1's book) and its notices.

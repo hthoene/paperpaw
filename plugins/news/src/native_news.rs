@@ -26,6 +26,8 @@ pub const MAX_TEXT_SMALL: usize = 8 * 1024;
 pub const MAX_TEXT: usize = 64 * 1024;
 /// Titles, dates and links are cut at this many bytes.
 pub const MAX_FIELD: usize = 400;
+/// The headlines of a feed that the page names at its top.
+pub const HEADLINES_SHOWN: usize = 5;
 /// Articles a feed keeps: the setting is clamped to this.
 pub const ARTICLES: core::ops::RangeInclusive<i64> = 1..=200;
 
@@ -305,20 +307,25 @@ pub fn one_line(text: &str) -> Result<String, Error> {
     Ok(out)
 }
 
-/// `text` safe in HTML: `&`, `<`, `>` and `"` as entities.
-///
-/// # Errors
-/// `NoMemory` when the text cannot be kept.
-pub fn escape(text: &str) -> Result<String, Error> {
-    let size = text
-        .chars()
+/// The size of `text` once it is safe in HTML (see [`escape`]).
+#[must_use]
+pub fn escape_len(text: &str) -> usize {
+    text.chars()
         .map(|c| match c {
             '&' => 5,
             '"' => 6,
             '<' | '>' => 4,
             c => c.len_utf8(),
         })
-        .sum();
+        .sum()
+}
+
+/// `text` safe in HTML: `&`, `<`, `>` and `"` as entities.
+///
+/// # Errors
+/// `NoMemory` when the text cannot be kept.
+pub fn escape(text: &str) -> Result<String, Error> {
+    let size = escape_len(text);
     let mut out = String::new();
     out.try_reserve_exact(size).map_err(|_| Error::NoMemory)?;
     for c in text.chars() {

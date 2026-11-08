@@ -2268,6 +2268,8 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-plugin-about",
+ "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -2275,14 +2277,18 @@ dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
+ "paperpaw-plugin-help",
  "paperpaw-plugin-home",
  "paperpaw-plugin-hyphenation",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-power",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
+ "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
@@ -2408,6 +2414,22 @@ name = "paperpaw-platform"
 version = "0.6.0-beta.3"
 
 [[package]]
+name = "paperpaw-plugin-about"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-bluetooth"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-dictionary"
 version = "1.0.3"
 dependencies = [
@@ -2463,6 +2485,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-help"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-home"
 version = "1.0.6"
 dependencies = [
@@ -2511,6 +2541,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-plugin-manager"
+version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-power"
+version = "1.1.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-reader"
 version = "1.0.10"
 dependencies = [
@@ -2521,6 +2566,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-settings"
 version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-setup"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
