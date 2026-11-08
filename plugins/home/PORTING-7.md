@@ -133,16 +133,20 @@ parts without the host:
   pages turn.
 - `native_focus.rs`: the buttons' focus over the page's targets (tools, what each widget answers with
   `widget_targets`, the footer's actions): the first press only shows the focus, left/right and
-  next/previous go round, up/down go to the nearest target (round where the arrows stay on the page),
-  confirm runs the target.
+  next/previous go round, up/down go to the nearest target (round where the arrows stay on the page:
+  `core.arrows-stay-on-page`, read at every layout like `ui::list::stays_on_page`), confirm runs the
+  target.
 
 What it does: the page's items are fitted to the grid (`native_grid::fit`); each tool shows its name
 in its cell (`home.tool-labels`), each widget is made (`widget_make` at the place `home.pages`),
 placed and composed into its cell (`ui.compose`, after the tools and the footer, the focus ring
 over it). *Next page* / *Previous page* turn the page (a swipe is the host's key map turning it to
-those actions), a tap runs the tool, the footer's action, or is forwarded to the widget
-(`widget_input`, a long press too; a press of *Confirm* on a widget's target is a tap in its
-middle). A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
+those actions; at the first or last page the press is taken, nothing turns), a tap runs the tool,
+the footer's action, or is forwarded to the widget (`widget_input`; a press of *Confirm* on a widget's
+target is a tap in its middle). A long press is taken and runs nothing (on interface 6 it edits; it
+waits for editing, `home-edit`). A widget the host cannot compose is left out of the draw, the rest
+of the page shows; widgets made when a layout fails are let go. At every show the focus is drawn
+only if `home.focus-at-once` is on. A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
 not ported) is not drawn.
 
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)

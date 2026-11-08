@@ -64,6 +64,8 @@ struct Laid {
     dots: bool,
     tool_labels: bool,
     focus_at_once: bool,
+    /// The arrow keys stay on the page.
+    arrows_stay: bool,
 }
 
 /// The dashboard.
@@ -74,6 +76,8 @@ pub struct Dashboard {
     laid: Option<Laid>,
     /// What shows changed (a setting, the screen turned): laid out anew first.
     stale: bool,
+    /// Shown (again): whether the focus shows is decided anew once laid out.
+    reshow: bool,
 }
 
 impl Dashboard {
@@ -82,6 +86,7 @@ impl Dashboard {
     pub fn new() -> Self {
         Self {
             stale: true,
+            reshow: true,
             ..Self::default()
         }
     }
@@ -94,6 +99,7 @@ impl Dashboard {
     /// Shown again (above another screen closed, a book left).
     pub fn shown(&mut self) {
         self.stale = true;
+        self.reshow = true;
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -111,11 +117,17 @@ impl Dashboard {
         let made = self.lay_out(host, ui, &display, &font);
         let released = font.release();
         let laid = made?;
-        released?;
+        if let Err(error) = released {
+            release_cells(host, ui, laid.cells);
+            return Err(error);
+        }
         self.drop_widgets(host, ui);
         self.focus.clamp(laid.targets.len());
-        if laid.focus_at_once && self.laid.is_none() {
-            self.focus.show(true);
+        if self.reshow {
+            // As on interface 6: at every show the focus is drawn only if the
+            // reader chose to see it at once.
+            self.focus.show(laid.focus_at_once);
+            self.reshow = false;
         }
         self.laid = Some(laid);
         self.stale = false;
@@ -160,16 +172,15 @@ impl Dashboard {
             },
         )?;
         let mut cells = Vec::new();
-        for item in &shown {
-            if let Some(cell) = Self::cell(host, ui, &src, &frame.geometry, item)? {
-                push(&mut cells, cell)?;
+        let made = Self::fill(host, ui, &src, &frame, &shown, &footer, &mut cells);
+        let (targets, actions) = match made {
+            Ok(made) => made,
+            Err(error) => {
+                // The widgets already made are let go, none is leaked.
+                release_cells(host, ui, cells);
+                return Err(error);
             }
-        }
-        let targets = Self::targets(host, ui, &cells, &footer)?;
-        let mut actions = Vec::new();
-        for (action, _, _) in src.footer.iter().take(footer.actions.len()) {
-            push(&mut actions, text::copy(action)?)?;
-        }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -179,7 +190,32 @@ impl Dashboard {
             dots: src.dots,
             tool_labels: src.tool_labels,
             focus_at_once: src.focus_at_once,
+            arrows_stay: src.arrows_stay,
         })
+    }
+
+    /// The cells of the items shown, what the buttons reach and the footer's
+    /// actions. On an error the caller lets the cells made so far go.
+    fn fill(
+        host: &Host<'_>,
+        ui: &Ui,
+        src: &HostSource,
+        frame: &Frame,
+        shown: &[grid::Item],
+        footer: &Footer,
+        cells: &mut Vec<Cell>,
+    ) -> Result<(Vec<Target>, Vec<String>), Error> {
+        for item in shown {
+            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, item)? {
+                push(cells, cell)?;
+            }
+        }
+        let targets = Self::targets(host, ui, cells, footer)?;
+        let mut actions = Vec::new();
+        for (action, _, _) in src.footer.iter().take(footer.actions.len()) {
+            push(&mut actions, text::copy(action)?)?;
+        }
+        Ok((targets, actions))
     }
 
     /// The cell of an item: a tool's name, or a widget made and placed.
@@ -200,13 +236,17 @@ impl Dashboard {
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                 match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
                     Ok(handle) => {
-                        ui.widget_place(
+                        let placed = ui.widget_place(
                             host,
                             handle,
                             paint::frame_rect(rect),
                             &mut input,
                             &mut out,
-                        )?;
+                        );
+                        if let Err(error) = placed {
+                            drop_widget(host, ui, handle);
+                            return Err(error);
+                        }
                         (String::new(), Some(handle))
                     }
                     // A widget that is gone, or not for this screen: no cell.
@@ -215,8 +255,17 @@ impl Dashboard {
                 }
             }
         };
+        let what = match item.what.try_clone() {
+            Ok(what) => what,
+            Err(error) => {
+                if let Some(widget) = widget {
+                    drop_widget(host, ui, widget);
+                }
+                return Err(error.into());
+            }
+        };
         Ok(Some(Cell {
-            what: item.what.try_clone()?,
+            what,
             rect,
             name,
             widget,
@@ -290,15 +339,8 @@ impl Dashboard {
     /// The widgets of the page before are let go; a refusal is of no matter
     /// (the host drops them when the screen closes).
     fn drop_widgets(&mut self, host: &Host<'_>, ui: &Ui) {
-        let Some(laid) = self.laid.take() else {
-            return;
-        };
-        for cell in laid.cells {
-            if let Some(widget) = cell.widget
-                && let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64))
-            {
-                let _ = ui.widget_drop(host, widget, &mut input, &mut out);
-            }
+        if let Some(laid) = self.laid.take() {
+            release_cells(host, ui, laid.cells);
         }
     }
 
@@ -356,7 +398,9 @@ impl Dashboard {
         paint::replay(frame, font, below.iter())?;
         for cell in &laid.cells {
             if let Some(widget) = cell.widget.filter(|w| !w.is_own()) {
-                Ui::compose(host, Compose::Widget(widget), paint::frame_rect(cell.rect))?;
+                // One widget the host cannot compose is left out: the rest of
+                // the home still shows (as on interface 6).
+                let _ = Ui::compose(host, Compose::Widget(widget), paint::frame_rect(cell.rect));
             }
         }
         paint::replay(frame, font, above.iter())
@@ -371,16 +415,14 @@ impl Dashboard {
         self.ensure(host, ui)?;
         match *input {
             Input::Action { action, .. } => self.action(host, ui, action),
-            Input::Gesture {
-                position,
-                kind: InputGestureKind::Tap,
-                ..
-            } => self.tapped(host, ui, position, WidgetInputKind::Tap),
-            Input::Gesture {
-                position,
-                kind: InputGestureKind::LongPress,
-                ..
-            } => self.tapped(host, ui, position, WidgetInputKind::LongPress),
+            Input::Gesture { position, kind, .. } => match touch_of(kind) {
+                Touch::Tap => self.tapped(host, ui, position, WidgetInputKind::Tap),
+                // A long press edits the home screen on interface 6; until
+                // editing is ported it is taken and runs nothing (no tool, no
+                // footer action, no widget).
+                Touch::Held => Ok(Handled::Yes),
+                Touch::Pass => Ok(Handled::No),
+            },
             _ => Ok(Handled::No),
         }
     }
@@ -395,7 +437,7 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
-        match self.focus.press(press, &laid.targets, false) {
+        match self.focus.press(press, &laid.targets, laid.arrows_stay) {
             Step::Ignored => Ok(Handled::No),
             Step::Held => Ok(Handled::Yes),
             Step::Shown(_) | Step::Moved(_) => {
@@ -415,7 +457,8 @@ impl Dashboard {
             return Ok(Handled::No);
         };
         if !nav.turn(forward) {
-            return Ok(Handled::No);
+            // The first or last page: taken, nothing turns (as on interface 6).
+            return Ok(Handled::Yes);
         }
         self.focus.reset();
         self.stale = true;
@@ -510,6 +553,42 @@ impl Dashboard {
 impl Laid {
     fn footer_area(&self) -> Rect {
         self.frame.footer
+    }
+}
+
+/// What a touch gesture is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Touch {
+    /// Runs the tool, the footer action or the widget under it.
+    Tap,
+    /// Taken; nothing runs.
+    Held,
+    /// Not for the dashboard.
+    Pass,
+}
+
+fn touch_of(kind: InputGestureKind) -> Touch {
+    match kind {
+        InputGestureKind::Tap => Touch::Tap,
+        InputGestureKind::LongPress => Touch::Held,
+        _ => Touch::Pass,
+    }
+}
+
+/// Lets a widget go; a refusal is of no matter (the host drops them when the
+/// screen closes).
+fn drop_widget(host: &Host<'_>, ui: &Ui, widget: WidgetHandle) {
+    if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
+        let _ = ui.widget_drop(host, widget, &mut input, &mut out);
+    }
+}
+
+/// Lets the widgets of these cells go.
+fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
+    for cell in cells {
+        if let Some(widget) = cell.widget {
+            drop_widget(host, ui, widget);
+        }
     }
 }
 
@@ -646,6 +725,12 @@ mod tests {
         assert!(!inside(r, Point::new(40, 59)));
         assert!(!inside(r, Point::new(39, 60)));
         assert!(!inside(r, Point::new(9, 30)));
+    }
+
+    #[test]
+    fn a_long_press_is_taken_and_runs_nothing() {
+        assert_eq!(touch_of(InputGestureKind::LongPress), Touch::Held);
+        assert_eq!(touch_of(InputGestureKind::Tap), Touch::Tap);
     }
 
     #[test]

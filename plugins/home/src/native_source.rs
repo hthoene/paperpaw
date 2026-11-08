@@ -38,6 +38,8 @@ const PENCIL: &str = "home.footer.pencil";
 const DOTS: &str = "home.footer.dots";
 const TOOL_LABELS: &str = "home.tool-labels";
 const FOCUS_AT_ONCE: &str = "home.focus-at-once";
+/// The reader's choice that the arrow keys stay on the page.
+const ARROWS_STAY: &str = "core.arrows-stay-on-page";
 /// The menu of the footer's actions.
 const FOOTER: &str = "home.footer";
 /// The registry's menu row flag: chosen now (else faint).
@@ -61,6 +63,8 @@ pub struct HostSource {
     pub dots: bool,
     pub tool_labels: bool,
     pub focus_at_once: bool,
+    /// The arrow keys stay on the page (go round at its edges).
+    pub arrows_stay: bool,
     widgets: Vec<String>,
     /// The tools' actions and their names.
     tools: Vec<(String, String)>,
@@ -113,6 +117,7 @@ impl HostSource {
         let dots = on(DOTS, true)?;
         let tool_labels = on(TOOL_LABELS, true)?;
         let focus_at_once = on(FOCUS_AT_ONCE, false)?;
+        let arrows_stay = on(ARROWS_STAY, false)?;
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);
@@ -127,6 +132,7 @@ impl HostSource {
             dots,
             tool_labels,
             focus_at_once,
+            arrows_stay,
             widgets,
             tools,
             footer,
