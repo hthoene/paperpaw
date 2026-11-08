@@ -312,6 +312,12 @@ pub(crate) fn gate() -> Result<(), i32> {
     })
 }
 
+/// Makes the `n`th next [`gate`] (counting from 1) fail; 0 clears it.
+#[cfg(test)]
+pub(crate) fn fail_nth(n: u32) {
+    tests::FAIL_NTH.with(|nth| nth.set(n));
+}
+
 #[cfg(not(test))]
 #[inline]
 pub(crate) const fn gate() -> Result<(), i32> {

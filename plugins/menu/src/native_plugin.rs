@@ -14,13 +14,14 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
-        events::Event,
+        events::{Event, Incoming, kinds},
         registrations,
         reply::Reply,
         settings::SettingValue,
         ui::{HandoverId, Instance, Open, Param, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -90,10 +91,14 @@ impl Plugin for NativeMenu {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::PluginsChanged, kinds::RegistryChanged)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 instance, handover, ..

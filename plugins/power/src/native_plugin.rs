@@ -7,7 +7,7 @@ use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::{CommandSender, PowerAction},
     device::{Device, DeviceCapability, PowerLevel},
-    events::{AnswerOutcome, Event},
+    events::{AnswerOutcome, Event, Incoming, kinds},
     formatting::copy_message,
     registrations,
     reply::Reply,
@@ -66,9 +66,25 @@ impl Plugin for NativePower {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        // Only the kinds this plugin handles are read, so only their decoders are linked.
+        let Some(event) = [
+            incoming.decode_as::<kinds::Started>()?,
+            incoming.decode_as::<kinds::Resume>()?,
+            incoming.decode_as::<kinds::BatteryMeasured>()?,
+            incoming.decode_as::<kinds::ChargeChanged>()?,
+            incoming.decode_as::<kinds::SettingChanged>()?,
+            incoming.decode_as::<kinds::Answered>()?,
+            incoming.decode_as::<kinds::ActionRun>()?,
+            incoming.decode_as::<kinds::StageCall>()?,
+        ]
+        .into_iter()
+        .flatten()
+        .next() else {
+            return Ok(());
+        };
         match (token, event) {
             (EVENTS_TOKEN, Event::Started { .. } | Event::Resume { .. })
             | (EVENTS_TOKEN, Event::BatteryMeasured { .. } | Event::ChargeChanged { .. }) => {
