@@ -138,11 +138,18 @@ pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
 mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 

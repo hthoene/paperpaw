@@ -23,6 +23,13 @@ pub const FOLDER: &str = "Exports";
 pub const NAME: &str = "My Clippings.txt";
 /// Books listed at most (the rest are not shown, but are exported).
 pub const MOST_BOOKS: usize = 200;
+/// A listed title is cut to this many bytes, at a character's end (the
+/// library's own list rows are cut at the same length).
+pub const TITLE_MAX: usize = 128;
+/// The longest path of a book that is listed: the library names a book by a
+/// path of at most this many bytes (`BookRef::path`), so a longer one could
+/// not be opened from the list anyway.
+pub const PATH_MAX: usize = 512;
 /// Written out when the text held is this long, so a book with many notes
 /// does not fill the memory.
 pub const FLUSH: usize = 6 * 1024;
@@ -149,7 +156,10 @@ impl Listing {
     }
 
     /// Adds a book with `highlights` and `bookmarks`; a book without notes is
-    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`].
+    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`]. The
+    /// title is cut to [`TITLE_MAX`] bytes; a book with a path over
+    /// [`PATH_MAX`] is left out. The most the list holds is therefore 200
+    /// books of 128 + 512 bytes of text.
     ///
     /// # Errors
     /// [`Error::NoMemory`]; the list is unchanged then.
@@ -167,9 +177,16 @@ impl Listing {
             self.more = true;
             return Ok(());
         }
+        if path.len() > PATH_MAX {
+            return Ok(());
+        }
+        let mut end = title.len().min(TITLE_MAX);
+        while !title.is_char_boundary(end) {
+            end -= 1;
+        }
         let book = Counted {
             path: copy(path)?,
-            title: copy(title)?,
+            title: copy(&title[..end])?,
             highlights,
             bookmarks,
         };

@@ -32,10 +32,40 @@ services it needs are not there. It is removed in the PR that finishes the port.
   four places.
 - `model::put_detail`: the second line of a note's row (`what · 42 %`).
 
+## Ported (over the library service, slice 2): `src/native_scan.rs`, `src/native_library.rs`
+
+- Which books have notes: `native_scan::scan` passes the catalog (by title) a page at a time and
+  counts each book's highlights and bookmarks by paging its annotations (`core.library` op 15, one
+  4,096-byte reply at a time; kinds only, the 512 B previews are not kept). Only the books of the
+  list are kept (200, `MOST_BOOKS`); once it is full, a further book with notes is looked at until
+  its first highlight or bookmark and only sets `more`, so a library of thousands costs host calls,
+  not memory. The interface-6 scan listed the folder of notes files first; there is no such folder
+  on interface 7.
+- Memory of the list, worst case: a listed title is cut to `TITLE_MAX` = 128 bytes (at a
+  character's end), and a book with a path over `PATH_MAX` = 512 bytes (the most the library names
+  a book by; `BookRef::path` refuses longer ones) is left out, since it could not be opened from
+  the list. So 200 books hold at most 200 x (128 + 512) = 128,000 bytes of text, plus 200 x 56
+  bytes of headers (about 139 KiB; a library of ordinary paths and titles needs about 30 KiB).
+  Interface 6 cut neither.
+- The walk ends at the first book past the 200 (it only sets `more`), without walking the rest of
+  the catalog. So the books listed are the first 200 with notes **in the catalog's title order**;
+  interface 6 took the first 200 in the order of its walk of the library and then sorted them
+  (deliberate; accepted in review). The list is sorted again by title without regard to case, ties
+  by path, as before.
+- The scan is written over a `Source` trait; `native_library::HostSource` fills it in from the SDK's
+  `Library` (`query`, `annotations`, `book`; key and catalog generation make a `BookRef`). Tested
+  over a scripted library (`src/native_scan_tests.rs`): order and counts, any page size, a full list,
+  stale pages (a book's notes are read again, the whole scan after that, `RESTARTS` = 3 each, then
+  `State`), replies that do not add up (rows over the total, a next page without rows: `Invalid`, so
+  a host that never ends cannot hold the scan), a book gone meanwhile (left out), and every
+  allocation refused in turn. `HostSource` itself is thin and not covered without a host (no SDK
+  mock host): it compiles against the SDK and is exercised by the acceptance cases below.
+- Not read here: the cut texts (op 4) and the notes' own texts; the export slice does that.
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
-- Annotations from `core.library` op 15 (Services todo 93): counts by first-page
-  `end.total`, rows with 512 B previews, cut values by op 4 in 1,024 B parts.
+- The notes' rows with 512 B previews and the cut values by op 4 in 1,024 B parts (the export
+  and the book's screen).
 - Files (PR #339): `Exports/` folder, `.part` file, append and rename.
 - Native screens (core.ui compose, Input H3) and the draft-22 `doc_open` to open
   a book at a note.

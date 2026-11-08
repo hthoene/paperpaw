@@ -14,6 +14,11 @@ use paperpaw_sdk::native::Error;
 pub const DAYS: usize = 8;
 /// Places found by name, at most.
 pub const PLACES: usize = 10;
+/// A place's name is cut at this many bytes (interface 6 kept it whole, up to
+/// the parser's 4 KiB).
+pub const PLACE_NAME_CAP: usize = 120;
+/// So are its region and its country.
+pub const PLACE_PART_CAP: usize = 80;
 /// The most of the kept weather's file read, as in interface 6 (4 KiB): a
 /// larger file counts as none and is written over.
 pub const KEPT_CAP: usize = 4 * 1024;
@@ -223,7 +228,8 @@ pub fn days_from_civil(year: i32, month: u8, day: u8) -> i64 {
 
 /// The weekday of a day since 1970, 0 (Sunday) to 6.
 pub fn weekday(date: i32) -> u8 {
-    (date + 4).rem_euclid(7) as u8
+    // In 64 bits: a date near `i32::MAX` (a bad answer) must not overflow.
+    (i64::from(date) + 4).rem_euclid(7) as u8
 }
 
 /// `text` for a query: letters, digits and `-_.~` as they are, spaces as `+`,

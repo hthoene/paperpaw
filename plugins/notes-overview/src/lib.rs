@@ -29,6 +29,10 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod export_file;
 pub mod model;
+pub mod native_library;
+pub mod native_scan;
+#[cfg(test)]
+mod native_scan_tests;
 
 mod clippings;
 mod scan;

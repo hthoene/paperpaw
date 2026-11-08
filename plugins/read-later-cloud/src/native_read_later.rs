@@ -17,6 +17,16 @@ pub const READ_PPM: u32 = 950_000;
 pub const TAIL: &str = "</body></html>";
 /// The most of an article taken, in bytes: more is left off.
 pub const MAX_TEXT: usize = 1024 * 1024;
+/// The most `articles.txt` is read to change, as in interface 6 (64 KiB).
+pub const ARTICLES_CAP: usize = 64 * 1024;
+/// The most `finished.txt` is read to change, as in interface 6 (16 KiB).
+pub const FINISHED_CAP: usize = 16 * 1024;
+/// The most of an answer that holds an article (`doc.json`) is read, as in
+/// interface 6 (4 MiB): more is refused, the whole answer is left.
+pub const MAX_ANSWER: usize = 4 * 1024 * 1024;
+/// The most of an answer that holds a list or one article's data is read,
+/// as in interface 6 (512 KiB).
+pub const MAX_LIST: usize = 512 * 1024;
 /// The key whose string is the article.
 const KEY: &[u8] = b"\"html_content\"";
 
@@ -130,14 +140,38 @@ fn push<T>(list: &mut Vec<T>, item: T) -> Result<(), Error> {
     Ok(())
 }
 
-/// The articles fetched, kept as `id<TAB>path` lines (lines of another shape
-/// are left out).
+/// Whether an answer of `size` bytes is read at all: not over `cap`
+/// ([`MAX_ANSWER`] for an article, [`MAX_LIST`] for a list or one article's
+/// data). Interface 6 took no answer over it (`max_file`); the caller asks
+/// with the file's size before it reads.
 ///
 /// # Errors
-/// `NoMemory` when the list cannot be kept.
+/// `NoSpace` over `cap`.
+pub fn fits(size: u64, cap: usize) -> Result<(), Error> {
+    if size > cap as u64 {
+        return Err(Error::NoSpace);
+    }
+    Ok(())
+}
+
+/// `text`, the file as read, without a UTF-8 byte order mark; `NoSpace` over
+/// `cap` bytes. A list too large is not an empty one: the caller must not
+/// write the file then (what it holds would be lost), as in interface 6.
+fn within(text: &str, cap: usize) -> Result<&str, Error> {
+    if text.len() > cap {
+        return Err(Error::NoSpace);
+    }
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
+/// The articles fetched, kept as `id<TAB>path` lines (lines of another shape
+/// are left out). `text` is the file as read, at most [`ARTICLES_CAP`] bytes.
+///
+/// # Errors
+/// `NoSpace` over [`ARTICLES_CAP`]; `NoMemory` when the list cannot be kept.
 pub fn articles(text: &str) -> Result<Vec<Article>, Error> {
     let mut list = Vec::new();
-    for line in text.lines() {
+    for line in within(text, ARTICLES_CAP)?.lines() {
         if let Some((id, path)) = line.split_once('\t') {
             push(
                 &mut list,
@@ -168,13 +202,17 @@ pub fn articles_text(list: &[Article]) -> Result<String, Error> {
     Ok(out)
 }
 
-/// The ids of articles read to the end, to archive: one a line.
+/// The ids of articles read to the end, to archive: one a line. `text` is
+/// the file as read, at most [`FINISHED_CAP`] bytes.
 ///
 /// # Errors
-/// `NoMemory` when the list cannot be kept.
+/// `NoSpace` over [`FINISHED_CAP`]; `NoMemory` when the list cannot be kept.
 pub fn finished(text: &str) -> Result<Vec<String>, Error> {
     let mut ids = Vec::new();
-    for line in text.lines().filter(|l| !l.is_empty()) {
+    for line in within(text, FINISHED_CAP)?
+        .lines()
+        .filter(|l| !l.is_empty())
+    {
         push(&mut ids, copy(line)?)?;
     }
     Ok(ids)
@@ -223,6 +261,12 @@ pub struct Copier {
     taken: usize,
     /// The string has begun (the answer was not just `null`).
     text: bool,
+    /// Bytes of the answer fed so far.
+    fed: usize,
+    /// Why the copier is spent: memory was refused or the answer is too
+    /// long. Its state stopped half-way through a piece, so every later
+    /// `feed` says the same and the fetch ends.
+    spent: Option<Error>,
 }
 
 impl Default for Copier {
@@ -233,6 +277,8 @@ impl Default for Copier {
             out: Vec::new(),
             taken: 0,
             text: false,
+            fed: 0,
+            spent: None,
         }
     }
 }
@@ -268,9 +314,27 @@ impl Copier {
     /// # Errors
     /// `NoMemory` when the text taken cannot be kept: write and clear it
     /// more often (the text of one piece is at most four times as long).
+    /// The copier is spent then, as its state stopped inside the piece: the
+    /// fetch must end (every later `feed` says `NoMemory` again, and
+    /// `outcome` is of no use). `NoSpace` when more than [`MAX_ANSWER`]
+    /// bytes were fed: the same (see [`fits`] for the file's size, which
+    /// the caller asks first).
     pub fn feed(&mut self, piece: &[u8]) -> Result<(), Error> {
+        if let Some(error) = self.spent {
+            return Err(error);
+        }
+        if self.state != State::End {
+            self.fed = self.fed.saturating_add(piece.len());
+            if self.fed > MAX_ANSWER {
+                self.spent = Some(Error::NoSpace);
+                return Err(Error::NoSpace);
+            }
+        }
         for &b in piece {
-            self.byte(b)?;
+            if let Err(error) = self.byte(b) {
+                self.spent = Some(error);
+                return Err(error);
+            }
             self.text |= matches!(self.state, State::Text);
             if self.state == State::End {
                 break;
