@@ -176,6 +176,23 @@ fn fixtures() -> Vec<Vec<u8>> {
                 total: 10,
                 flags: 0,
             }),
+            Record::EventSocket(EventSocket {
+                now_ms: 42,
+                socket: 3,
+                token: 9,
+                kind: 3,
+                reason: 0,
+                len: 12,
+            }),
+            Record::EventBroadcast(EventBroadcast {
+                now_ms: 42,
+                socket: 4,
+                token: 9,
+                kind: 0,
+                reason: 0,
+                len: 20,
+                from: "192.168.0.7:9090",
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",

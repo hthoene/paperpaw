@@ -388,6 +388,11 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
+    /// Something happened to a socket of this plugin (`core.sockets`); read
+    /// arrived bytes in this callback.
+    Socket(super::sockets::SocketEvent),
+    /// Something happened to a broadcast of this plugin.
+    Broadcast(super::sockets::BroadcastEvent<'a>),
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
