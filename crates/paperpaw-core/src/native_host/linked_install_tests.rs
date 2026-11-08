@@ -297,7 +297,17 @@ fn metadata_the_kernel_refuses_is_unsupported_before_make() {
 #[test]
 fn an_unparseable_id_is_refused_before_make() {
     let mut kernel = kernel();
-    for id in ["", "Not An Id", "a b", "a..b", "a@x"] {
+    let long = "a".repeat(41);
+    for id in [
+        "",
+        "Not An Id",
+        "a b",
+        "a..b",
+        "a@x",
+        "x@2",
+        "a.b",
+        long.as_str(),
+    ] {
         assert_eq!(
             status(install(&mut kernel, entry(|_| {}), METADATA, id)),
             ERR_INVALID
