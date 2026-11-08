@@ -20,6 +20,13 @@
 # delta (they cannot be separated from it). `--image-only`
 # measures the image alone, as before.
 #
+# The head's files are the interface-7 (format 5) builds of
+# `tools/plugin-files7/build.sh` for every plugin that has a native entry and
+# ships as a file (a Beta 3 file or a current head file; not a plugin linked
+# into the image); a plugin without one counts with its current file, listed.
+# A Beta 3 built-in that is nowhere on the head (not in the image, no file,
+# not counted at its Beta 3 size) fails the gate with exit 2.
+#
 # `--plugin-elf FILE` (any number; the ELF a `.ppn` is packed from) also runs
 # `tools/plugin-symbols.sh` on it: a plugin that links the whole records codec or
 # the text-escaping tables fails the gate (exit 1) whatever the delta.
@@ -121,6 +128,21 @@ build() { # name rev sha features
             "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
             { echo "plugin files failed: $name" >&2; exit 2; }
         rm -rf "$ours/ppn-target-$name"
+        # The interface-7 (format 5) files of the plugins that have a native
+        # entry (`tools/plugin-files7/build.sh`), where the tree has the
+        # pipeline: the head counts them in place of the current builds. A
+        # plugin the packer refuses is named on stderr (exit 1) and stays on
+        # its current file; any other failure ends the gate.
+        mkdir -p "$ours/ppn7-$name"
+        if [ -x "$ours/tree/tools/plugin-files7/build.sh" ]; then
+            echo "== $name: the interface-7 plugin files (tools/plugin-files7/build.sh x4)" >&2
+            rc=0
+            env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn7-target-$name" \
+                CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$ours/ppn7-target-$name=/target --remap-path-prefix=$cargo_home=/cargo" \
+                "$ours/tree/tools/plugin-files7/build.sh" x4 "$ours/ppn7-$name" >&2 || rc=$?
+            [ "$rc" -le 1 ] || { echo "interface-7 plugin files failed: $name" >&2; exit 2; }
+            rm -rf "$ours/ppn7-target-$name"
+        fi
     fi
 }
 
@@ -137,9 +159,10 @@ if [ "$image_only" = 0 ]; then
     python3 -I - "$ours" "$target" <<'PY' || die "the plugin table failed"
 import os, re, subprocess, sys
 ours = sys.argv[1]
-def files(name):
+def files(name, prefix="ppn-"):
     out = {}
-    d = os.path.join(ours, "ppn-" + name)
+    d = os.path.join(ours, prefix + name)
+    if not os.path.isdir(d): return out
     for f in sorted(os.listdir(d)):
         # <id>-<version>-x4.ppn; a pre-release may contain '-' (1.0.0-beta-2).
         m = re.match(r"(.+?)-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?-x4\.ppn$", f)
@@ -151,17 +174,23 @@ def builtin(name):
     if not nm.strip(): sys.exit(f"nm found no symbols in {name}.elf (stripped?)")
     return {m.replace("_", "-") for m in set(re.findall(r"\bpaperpaw_plugin_(\w+?)::", nm))}
 bf, hf, bb, hb = files("base"), files("head"), builtin("base"), builtin("head")
+# The interface-7 files of the head (format 5). One counts only for a plugin that
+# ships as a file today (a Beta 3 file or a current head file) and is not linked
+# into the head's image: a linked built-in has a file here too, which is not shipped.
+hf7 = {k: v for k, v in files("head", "ppn7-").items() if (k in bf or k in hf) and k not in hb}
+eff = {**hf, **hf7}
 if not bb: sys.exit("no built-in plugin symbols in base.elf: Beta 3 has some, so the symbols are missing")
 ids = sorted(set(bf) | set(hf) | bb | hb)
 pb = sum(bf.values())
 # A plugin with a Beta 3 file but no head file is not shipped as a file on head
 # yet (waiting for its interface-7 build). It is counted at its Beta 3 size, as
 # the rule for plugins that are not ported says; dropping it would flatter the head.
-pending = {k: v for k, v in bf.items() if k not in hf and k not in hb}
-ph = sum(v for k, v in hf.items() if k in bf or k in bb) + sum(pending.values())
+pending = {k: v for k, v in bf.items() if k not in eff and k not in hb}
+ph = sum(v for k, v in eff.items() if k in bf or k in bb) + sum(pending.values())
 rows = []
 for i in ids:
-    if i in bf and i in hf: st = "file in both"
+    if i in bf and i in hf7: st = "file in both (interface 7)"
+    elif i in bf and i in hf: st = "file in both (current build, not interface 7)"
     elif i in bb and i in hf: st = "ported (image -> file)"
     elif i in bb and i in hb and i not in hf: st = "NOT PORTED (in the image, counted there)"
     elif i in hf and i not in bf and i not in bb: st = "NEW since Beta 3 (left out of the gate)"
@@ -170,12 +199,25 @@ for i in ids:
     elif i in bf and i not in hf: st = ("no head file yet (counted at its Beta 3 size)" if i in pending
                                          else "file in Beta 3 only (built into the image now)")
     else: st = "other"
-    rows.append((i, bf.get(i), hf.get(i), st))
+    rows.append((i, bf.get(i), eff.get(i), st))
 print()
 print(f"{'plugin':28} {'Beta 3 .ppn':>12} {'head .ppn':>12}  status")
 for i, b, h, st in rows:
     print(f"{i:28} {b if b is not None else '-':>12} {h if h is not None else '-':>12}  {st}")
-print(f"{'sum of files':28} {pb:>12} {sum(hf.values()):>12}  (head counted in the gate: {ph}, of which {sum(pending.values())} pending at Beta 3 size)")
+print(f"{'sum of files':28} {pb:>12} {sum(eff.values()):>12}  (head counted in the gate: {ph}, of which {sum(pending.values())} pending at Beta 3 size)")
+# A Beta 3 built-in must still be somewhere on the head: in the image (linked or
+# not yet ported), as a file, or counted at its Beta 3 size. One that is nowhere
+# would make the head look smaller than it is.
+missing = sorted(i for i in bb if i not in hb and i not in eff and i not in pending)
+if missing:
+    print("MISSING: built into Beta 3 and on the head nowhere (not in the image, "
+          "no file, not pending): " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+cur = sorted(i for i in eff if i in bf and i not in hf7)
+print(f"head files built for interface 7 (format 5): {len(hf7)}"
+      + (f"; still on the current build (counted as that file): {', '.join(cur)}" if cur else ""))
+if pending:
+    print("not built yet, counted at the Beta 3 file size: " + ", ".join(sorted(pending)))
 open(os.path.join(ours, "ppn-sums"), "w").write(f"{pb} {ph}\n")
 PY
     read -r pb ph < "$ours/ppn-sums"
