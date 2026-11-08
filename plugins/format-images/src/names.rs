@@ -6,16 +6,20 @@ use core::cmp::Ordering;
 
 use paperpaw_sdk::Storage;
 
-use crate::{MAX_NAME, MAX_PAGES};
+use paperpaw_sdk::document::DocumentError;
+
+use crate::{MAX_NAME, MAX_PAGES, pictures};
 
 /// Whether `name` is a picture PaperPaw shows (hidden files, such as the
 /// `._` copies macOS leaves on cards, are not).
 pub(crate) fn is_picture(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    !lower.starts_with('.')
-        && [".jpg", ".jpeg", ".png", ".gif"]
-            .iter()
-            .any(|extension| lower.ends_with(extension))
+    !name.starts_with('.')
+        && [".jpg", ".jpeg", ".png", ".gif"].iter().any(|extension| {
+            name.len()
+                .checked_sub(extension.len())
+                .and_then(|at| name.get(at..))
+                .is_some_and(|tail| tail.eq_ignore_ascii_case(extension))
+        })
 }
 
 /// Names in reading order: numbers within them by value, so `2.jpg` comes
@@ -61,18 +65,32 @@ fn order(a: &str, b: &str) -> Ordering {
 /// A page: the name of its file, and its size.
 pub(crate) type Page = (String, u64);
 
+/// A copy of `text`; an error instead of an abort when memory is short.
+pub(crate) fn copy(text: &str) -> Result<String, DocumentError> {
+    pictures::text(&[text])
+}
+
 /// The pictures of the folder `dir` that come from the picture `first` on
 /// (it first), in reading order: at most [`MAX_PAGES`], the first of them,
 /// whatever the folder holds. Names wait in no more than twice that many
-/// pieces of memory; a folder that cannot be read has `first` alone.
-pub(crate) fn pages_from(storage: &dyn Storage, dir: &str, first: &Page) -> Vec<Page> {
+/// pieces of memory; a folder that cannot be read has `first` alone; memory
+/// that runs out is an error.
+pub(crate) fn pages_from(
+    storage: &dyn Storage,
+    dir: &str,
+    first: &Page,
+) -> Result<Vec<Page>, DocumentError> {
     let mut pages: Vec<Page> = Vec::new();
+    let mut short = false;
     let keep = |pages: &mut Vec<Page>| {
-        pages.sort_by(|a, b| order(&a.0, &b.0));
+        // Unstable: the order is total, and the stable sort takes scratch room
+        // (about 19 KB above 128 names) that a refusal would abort.
+        pages.sort_unstable_by(|a, b| order(&a.0, &b.0));
         pages.truncate(MAX_PAGES);
     };
     let listed = storage.list(dir, &mut |entry| {
-        if entry.is_dir
+        if short
+            || entry.is_dir
             || entry.name.len() > MAX_NAME
             || !is_picture(entry.name)
             || order(entry.name, &first.0) == Ordering::Less
@@ -80,15 +98,29 @@ pub(crate) fn pages_from(storage: &dyn Storage, dir: &str, first: &Page) -> Vec<
         {
             return;
         }
-        pages.push((String::from(entry.name), entry.size));
+        // Room for this one name, as the list grows: a folder of three
+        // pictures takes three entries, not the most there can be.
+        match (pages.try_reserve(1), copy(entry.name)) {
+            (Ok(()), Ok(name)) => pages.push((name, entry.size)),
+            _ => {
+                short = true;
+                return;
+            }
+        }
         if pages.len() > 2 * MAX_PAGES {
             keep(&mut pages);
         }
     });
+    if short {
+        return Err(DocumentError::OutOfMemory);
+    }
     if listed.is_err() {
         pages.clear();
     }
-    pages.push(first.clone());
-    keep(&mut pages);
     pages
+        .try_reserve(1)
+        .map_err(|_| DocumentError::OutOfMemory)?;
+    pages.push((copy(&first.0)?, first.1));
+    keep(&mut pages);
+    Ok(pages)
 }

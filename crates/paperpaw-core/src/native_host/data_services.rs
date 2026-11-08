@@ -1,6 +1,7 @@
 //! Service-key validation and direct encoding of scoped host views.
 use super::registrations as wire;
 use crate::abi7::context::{Frame, PluginRow};
+use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 
@@ -117,7 +118,7 @@ pub(crate) fn encode(frame: &dyn Frame, query: Query<'_>, out: &mut [u8]) -> Res
     match query {
         Query::Usage => {
             let view = frame.device_usage()?;
-            wire::record_encode_one(
+            codec::encode_one(
                 &wire::Record::ServiceUsage(wire::ServiceUsage {
                     fast: view.fast,
                     partial: view.partial,
@@ -135,7 +136,7 @@ pub(crate) fn encode(frame: &dyn Frame, query: Query<'_>, out: &mut [u8]) -> Res
         Query::Plugin(plugin) => {
             let mut result = Err(ERR_NOT_FOUND);
             frame.plugin_name(plugin, &mut |name| {
-                result = wire::record_encode_one(
+                result = codec::encode_one(
                     &wire::Record::ServicePlugin(wire::ServicePlugin {
                         name: clipped(name, wire::SERVICE_PLUGIN_NAME_MAX_BYTES),
                     }),
@@ -147,7 +148,7 @@ pub(crate) fn encode(frame: &dyn Frame, query: Query<'_>, out: &mut [u8]) -> Res
         Query::WorkNote(plugin) => {
             let mut result = Err(ERR_NOT_FOUND);
             frame.work_note(plugin, &mut |at_ms, text| {
-                result = wire::record_encode_one(
+                result = codec::encode_one(
                     &wire::Record::ServiceWorkNote(wire::ServiceWorkNote { at_ms, text }),
                     out,
                 );
@@ -165,7 +166,7 @@ fn encode_rows(frame: &dyn Frame, from: u32, out: &mut [u8]) -> Result<usize, i3
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&wire::Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&wire::Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut used = 0;
     let mut failure = None;
@@ -175,7 +176,7 @@ fn encode_rows(frame: &dyn Frame, from: u32, out: &mut [u8]) -> Result<usize, i3
             return ControlFlow::Continue(());
         }
         let record = row_record(row);
-        let length = match wire::record_framed_len(&record) {
+        let length = match codec::framed_len(&record) {
             Ok(length) => length,
             Err(error) => {
                 failure = Some(error);
@@ -185,7 +186,7 @@ fn encode_rows(frame: &dyn Frame, from: u32, out: &mut [u8]) -> Result<usize, i3
         if length > available - used {
             return ControlFlow::Break(());
         }
-        match wire::record_encode_one(&record, &mut out[used..available]) {
+        match codec::encode_one(&record, &mut out[used..available]) {
             Ok(length) => {
                 used += length;
                 ControlFlow::Continue(())
@@ -205,7 +206,7 @@ fn encode_rows(frame: &dyn Frame, from: u32, out: &mut [u8]) -> Result<usize, i3
     if end.next < end.total {
         end.flags |= 1;
     }
-    let written = wire::record_encode_one(&wire::Record::ServiceEnd(end), &mut out[used..])?;
+    let written = codec::encode_one(&wire::Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + written)
 }
 

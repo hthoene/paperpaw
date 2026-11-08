@@ -21,6 +21,7 @@
 
 use super::registrations as wire;
 use crate::io::WifiEvent;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::fmt;
 use paperpaw_native::host_glue::{
@@ -561,7 +562,7 @@ impl Delivery<'_> {
     /// # Errors
     /// The codec's status, e.g. `ERR_NO_SPACE` when `out` is too small.
     pub fn encode(self, now_ms: u64, out: &mut [u8]) -> Result<usize, i32> {
-        wire::records_encode(
+        codec::encode_batch(
             &[wire::Record::EventWifiDone(wire::EventWifiDone {
                 now_ms,
                 request: self.request,

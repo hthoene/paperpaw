@@ -36,7 +36,7 @@ pub enum Root {
     UserCss,
 }
 impl Root {
-    const fn wire(self) -> u32 {
+    pub(super) const fn wire(self) -> u32 {
         match self {
             Self::Data => 0,
             Self::Files => 1,

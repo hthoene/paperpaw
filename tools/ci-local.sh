@@ -340,8 +340,6 @@ g_emulator() {
         $emu --headless --profile two-buttons \
           --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
           --screenshot out/two-buttons-settings.png
-        $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-          --script "page-forward,long-tap:600:800"
         $emu --registry out/registry.json
         printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
         py="$(command -v python3 || command -v python)"
@@ -432,6 +430,8 @@ g_miri() {
     for model in stacked tree; do
         flags="-Zmiri-strict-provenance"
         [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        run "miri: $model shared ownership and weak teardown" \
+            "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shared::tests::"
         for test_name in token_tests tests; do
             run "miri: $model $test_name" \
                 "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"

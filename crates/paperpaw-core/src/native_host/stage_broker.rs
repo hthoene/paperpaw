@@ -5,6 +5,7 @@ use super::{
     native_screen::Dispatch,
     registrations::{self as wire, Record},
 };
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
@@ -25,6 +26,35 @@ pub(crate) struct Schema {
     pub(crate) reply_rows: u32,
     pub(crate) input: fn(&[u8]) -> Result<(), i32>,
     pub(crate) reply: fn(&[u8]) -> Result<(), i32>,
+}
+
+impl Schema {
+    /// The schema of a plugin-defined stage: the host sees only the framing of
+    /// its input and reply (up to 64 records each way, within the byte bounds),
+    /// never the payload, which belongs to the stage's own schema.
+    #[allow(
+        dead_code,
+        reason = "plugin-defined stages join the broker when the production stage path is wired"
+    )]
+    pub(crate) fn plugin_defined(
+        key: &'static str,
+        major: u32,
+        max_subscribers: usize,
+        max_input: usize,
+        max_reply: usize,
+        reply_rows: u32,
+    ) -> Self {
+        Self {
+            key,
+            major,
+            max_subscribers,
+            max_input,
+            max_reply,
+            reply_rows,
+            input: super::stage_wire::validate_plugin_input,
+            reply: |_| Ok(()),
+        }
+    }
 }
 
 /// One committed registration, with identity resolved through NativeInstances.
@@ -144,12 +174,12 @@ impl<'a> Run<'a> {
             payload: input,
         });
         // A one-record batch has a one-byte count followed by its framed record.
-        let capacity = wire::record_framed_len(&record)?
+        let capacity = codec::framed_len(&record)?
             .checked_add(1)
             .filter(|length| *length <= CALL_BYTES)
             .ok_or(ERR_NO_SPACE)?;
         let mut call = scratch(capacity)?;
-        if wire::records_encode(&[record], &mut call)? != capacity {
+        if codec::encode_batch(&[record], &mut call)? != capacity {
             return Err(ERR_INVALID);
         }
         let reply = scratch(schema.max_reply)?;

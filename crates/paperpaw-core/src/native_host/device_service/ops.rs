@@ -6,6 +6,7 @@ use super::{
     NotInstalledRow, Reading, WifiFacts, caps,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
@@ -75,7 +76,7 @@ fn no_input(input: &[u8]) -> Result<(), i32> {
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 /// `text` cut at a UTF-8 boundary to at most `limit` bytes.
@@ -223,9 +224,7 @@ fn bluetooth(facts: BluetoothFacts, out: &mut [u8]) -> Result<usize, i32> {
 /// Normal, times `stretch` in Saving (cut at `u32::MAX`), and 0 in Offline
 /// ("never": a plugin reads `level` first) and for no base.
 fn power(host: &dyn DeviceHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDevInterval(interval) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let interval: wire::ServiceDevInterval = codec::single(input)?;
     let mut slot: Option<Result<usize, i32>> = None;
     host.power(&mut |power| {
         set(&mut slot, || {
@@ -266,9 +265,7 @@ impl Query {
     /// that is not the host's, or generation 0 with a non-zero cursor, is
     /// `ERR_STATE`; reserved `flags` are `ERR_INVALID`.
     fn decode(host: &dyn DeviceHost, input: &[u8]) -> Result<Self, i32> {
-        let Record::ServiceRegQuery(query) = wire::records_decode_single(input)? else {
-            return Err(ERR_INVALID);
-        };
+        let query: wire::ServiceRegQuery<'_> = codec::single(input)?;
         if query.flags != 0 {
             return Err(ERR_INVALID);
         }
@@ -310,7 +307,7 @@ impl<'o> Rows<'o> {
             next: 0,
             cursor: None,
         };
-        let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+        let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
         let limit = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
         Ok(Self {
             out,

@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod dead;
+
 const SP: u32 = 2;
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -879,22 +881,27 @@ const S1: u32 = 9;
 const X0: u32 = 0;
 
 /// A function that jumps by a table after a compare has bounded the index to
-/// two entries. `check` is the code from 8 on (`li`, the compare, perhaps more)
-/// and must go to the default when the index is out of bounds; `to_default`
-/// builds that compare from the offset it needs. The cases follow the jump,
-/// then the default, then a case of another table that takes a frame of 2,048
-/// bytes. Returns the code and the table's words (two cases, then the other
+/// two entries. `check` is the code from 12 on (`li`, the compare, perhaps
+/// more) and must go to the default when the index is out of bounds;
+/// `to_default` builds that compare from the offset it needs. The cases follow
+/// the jump, then the default, then a case of another table that takes a frame
+/// of 2,048 bytes with the table's `sp` (16 below the start) and 2,032 from a
+/// path that reaches it at the start (a branch at 0 that no table is in). The
+/// probe is reached by the table's jump only if the table is read past its
+/// bound. Returns the code and the table's words (two cases, then the other
 /// table's).
 fn bounded_table_function(check: &[u32], to_default: impl Fn(i32) -> u32) -> (Vec<u8>, [u32; 4]) {
-    // The compare at 12 jumps over the rest of `check`, the slli, add, lw, jr,
+    // The compare at 16 jumps over the rest of `check`, the slli, add, lw, jr,
     // a nop, and the two cases to the default.
     let shift = 4 * (check.len() as u32 - 1);
-    let default = 52 + shift;
+    let default = 56 + shift;
+    let probe = 64 + shift;
     let mut items = vec![
-        W(addi(SP, SP, -16)),               // 0
-        W(lui(S1, 0x3c000)),                // 4
-        W(check[0]),                        // 8
-        W(to_default(default as i32 - 12)), // 12
+        W(beq_to(X0, X0, probe as i32)),    // 0: also on to 4
+        W(addi(SP, SP, -16)),               // 4
+        W(lui(S1, 0x3c000)),                // 8
+        W(check[0]),                        // 12
+        W(to_default(default as i32 - 16)), // 16
     ];
     items.extend(check[1..].iter().map(|c| W(*c)));
     items.extend([
@@ -909,16 +916,16 @@ fn bounded_table_function(check: &[u32], to_default: impl Fn(i32) -> u32) -> (Ve
         W(RET),
         W(addi(SP, SP, 16)), // the default
         W(RET),
-        W(addi(SP, SP, -2032)), // a case of the next table
+        W(addi(SP, SP, -2032)), // the probe: a case of the next table
         W(addi(SP, SP, 2032)),
         W(addi(SP, SP, 16)),
         W(RET),
     ]);
     let words = [
-        TEXT + 36 + shift,
-        TEXT + 44 + shift,
-        TEXT + 60 + shift,
-        TEXT + 60 + shift,
+        TEXT + 40 + shift,
+        TEXT + 48 + shift,
+        TEXT + probe,
+        TEXT + probe,
     ];
     (code(&items), words)
 }
@@ -960,11 +967,11 @@ fn a_bound_is_lost_where_the_register_changes_or_a_path_skips_the_compare() {
         with_table(&f, &words, &relocated),
         Some(Finding::Large { bytes: 2048, .. })
     ));
-    // A path that enters after the compare (instruction 8, `li a2, 1`, becomes
+    // A path that enters after the compare (instruction 12, `li a2, 1`, becomes
     // `beq x0, x0, +8` to the `slli`): the bound does not hold on it.
     let (mut f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
     assert_eq!(with_table(&f, &words, &relocated), None);
-    f[8..12].copy_from_slice(&beq_to(X0, X0, 8).to_le_bytes());
+    f[12..16].copy_from_slice(&beq_to(X0, X0, 8).to_le_bytes());
     assert!(matches!(
         with_table(&f, &words, &relocated),
         Some(Finding::Large { bytes: 2048, .. })
@@ -976,11 +983,11 @@ fn a_bounded_table_still_ends_at_the_first_word_that_is_no_label() {
     // The bound says two entries; the second word points out of the function
     // (a compare before the index was scaled can be looser than the table):
     // the run ends there, and the case read is the first.
-    let (f, _) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
-    assert_eq!(with_table(&f, &[TEXT + 36, TEXT + 4096], &[0, 4]), None);
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(with_table(&f, &[words[0], TEXT + 4096], &[0, 4]), None);
     // The first word out of the function: no entry at all, as without a bound.
     assert!(matches!(
-        with_table(&f, &[TEXT + 4096, TEXT + 36], &[0, 4]),
+        with_table(&f, &[TEXT + 4096, words[0]], &[0, 4]),
         Some(Finding::Table { .. })
     ));
 }

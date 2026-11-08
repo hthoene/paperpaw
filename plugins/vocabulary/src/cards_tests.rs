@@ -181,6 +181,49 @@ fn a_deck_cut_off_while_written_is_put_right() {
     assert_eq!(page(&storage, deck, 0, 9).1, 1);
 }
 
+/// A read error on an intact deck is not a missing deck: the unfinished
+/// copy is kept, never put over the deck, and goes once the deck can be told.
+#[test]
+fn a_deck_that_cannot_be_told_keeps_its_place_and_the_unfinished_copy() {
+    let storage = Unreadable::default();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("a", "1")]).unwrap();
+    let file = deck_path(deck).unwrap();
+    let temporary = deck_temporary(deck).unwrap();
+    let whole = storage.inner.get(&file);
+    storage
+        .write(&temporary, b"paperpaw-cards 1\n1\t0")
+        .unwrap();
+    storage.unsized_.borrow_mut().push(file.clone());
+    recover(&storage);
+    assert_eq!(storage.inner.get(&file), whole, "the deck stays");
+    assert!(storage.inner.exists(&temporary), "the part is kept");
+    storage.unsized_.borrow_mut().clear();
+    recover(&storage);
+    assert_eq!(storage.inner.get(&file), whole);
+    assert!(
+        !storage.inner.exists(&temporary),
+        "the deck was there: part goes"
+    );
+}
+
+/// The same for the whole files (list of decks, state, index).
+#[test]
+fn a_file_that_cannot_be_told_is_not_replaced_by_its_part() {
+    let storage = Unreadable::default();
+    add_deck(&storage, "Words").unwrap();
+    let part = part_of(DECKS).unwrap();
+    let whole = storage.inner.get(DECKS);
+    storage.write(&part, b"unfinished").unwrap();
+    storage.unsized_.borrow_mut().push(DECKS.into());
+    recover_whole(&storage, DECKS, &part);
+    assert_eq!(storage.inner.get(DECKS), whole);
+    assert!(storage.inner.exists(&part));
+    storage.unsized_.borrow_mut().clear();
+    recover_whole(&storage, DECKS, &part);
+    assert!(!storage.inner.exists(&part));
+}
+
 #[test]
 fn new_cards_are_counted_by_day() {
     let storage = MemoryStorage::new();
@@ -265,6 +308,8 @@ fn cuts_leave_nothing_lost_nor_overwritten() {
 struct Unreadable {
     inner: MemoryStorage,
     unreadable: core::cell::RefCell<Vec<String>>,
+    /// Files whose size cannot be told (a read error, not a missing file).
+    unsized_: core::cell::RefCell<Vec<String>>,
 }
 
 impl Unreadable {
@@ -281,6 +326,9 @@ impl Storage for Unreadable {
         self.inner.read_at(path, offset, buf)
     }
     fn size(&self, path: &str) -> Result<u64, StorageError> {
+        if self.unsized_.borrow().iter().any(|p| p == path) {
+            return Err(StorageError::Io);
+        }
         self.inner.size(path)
     }
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
