@@ -209,6 +209,14 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] `facets` (`lib_query.facet`: 0 authors, 1 series, 2 tags, 3 first letters, 4 folders; the
   other query fields filter): rows `lib_facet` (`text: str 256`, `count`, `first`: the index of its
   first book in the same query sorted by that facet, for jumping).
+- [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`): the
+  host walks the catalog in the query's order and keeps, per asking plugin, up to 8 checkpoints
+  (`generation`, position, the last row's sort key); `cursor` names one. A cursor of an older
+  catalog generation is `ERR_STATE`: ask again from 0. `end.total` counts every match, not only
+  the pages read. Sort 4 (recently opened) orders by the opened rank first, then title, then path,
+  so equal ranks keep one order. Facets page the same way; for tags and folders `first` is
+  `0xFFFF_FFFF` (no jump: a book can carry several). Where a device cap stops a walk early (a cap
+  of the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
   the screen's long side; the default is interface 6 `cover_fit`, the larger of 300 and 3/8 of the
   screen's long side): the catalog's cover as an image id of the caller, made from the book's format
@@ -247,6 +255,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `conversion: u64`, `start: str 1024`, `end: str 1024`) for every annotation that has them. An
   annotation's offsets belong to its own conversion; the host never remaps them, and a reader whose
   conversion differs relocates them through the XPointers (DOC ops 10, 11) and writes them back.
+  An XPointer longer than 1,024 bytes in a book's annotation file (interface 6 had no cap) is
+  read as absent (`flags` bit 1 clear), never cut: a cut XPointer would point elsewhere.
 - [D] **Ids** are stable for the book's life: a `u32` from the book's own counter, never reused,
   kept in the annotation file, unchanged by edits of other annotations and across generations.
   `client_key` (optional, at most 64 bytes, unique per book) is the caller's own identity for an
