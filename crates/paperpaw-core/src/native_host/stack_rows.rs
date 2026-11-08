@@ -83,10 +83,18 @@ impl StackRows {
         }
     }
 
-    /// The screen instance whose callback runs for `owner`, if it is showing:
-    /// on the snapshot, the owner's own (never a host row), and nothing but
-    /// overlays (dialogs) above it. `None` elsewhere, also for a stale or
-    /// missing snapshot (fail closed). No allocation.
+    /// The screen instance whose callback runs for `owner`, if it is showing
+    /// (`network.md` 5: no server the user cannot see). It is on the snapshot,
+    /// the owner's own non-host row, and nothing above it covers it:
+    /// - a row above that is no overlay, is a host row (sleep screen, device
+    ///   state) or guards (`ui.md` 4.3) covers it; rows above a guard are
+    ///   covered along with everything at or below it;
+    /// - an overlay of another owner covers a screen that is `secret`
+    ///   (`ui.md` 1.2) or itself guards;
+    /// - the owner's own non-guarding dialogs above it do not.
+    ///
+    /// `None` elsewhere, also for a stale, missing or overflowed snapshot (fail
+    /// closed). No allocation.
     #[allow(dead_code, reason = "the core.net adapter reads it; tests do today")]
     pub(crate) fn showing_screen(&self, owner: u64) -> Option<u64> {
         let (running_owner, instance) = self.running.get();
@@ -101,8 +109,18 @@ impl StackRows {
         let at =
             (0..len).find(|&index| self.row(index).is_some_and(|row| row.instance == instance))?;
         let row = self.row(at)?;
-        let covered = (at + 1..len).any(|index| self.row(index).is_none_or(|above| !above.overlay));
-        (!row.host && row.owner == owner && !covered).then_some(u64::from(instance))
+        if row.host || row.owner != owner {
+            return None;
+        }
+        let covered = (at + 1..len).any(|index| {
+            self.row(index).is_none_or(|above| {
+                !above.overlay
+                    || above.host
+                    || above.guards
+                    || (above.owner != owner && (row.secret || row.guards))
+            })
+        });
+        (!covered).then_some(u64::from(instance))
     }
 
     pub(crate) fn generation(&self) -> u64 {
@@ -382,6 +400,60 @@ mod tests {
                 "the row belongs to another owner"
             );
         }
+    }
+
+    fn showing(rows: &[StackRow], owner: u64, instance: u32) -> Option<u64> {
+        let stack = StackRows::default();
+        stack.update(rows.iter().copied());
+        let _call = stack.enter_callback(owner, instance);
+        stack.showing_screen(owner)
+    }
+
+    #[test]
+    fn a_host_overlay_covers_the_screen() {
+        let sleep = row(7, 0, HOST | OVERLAY);
+        assert_eq!(showing(&[row(1, 9, 0), sleep], 9, 1), None);
+        assert_eq!(showing(&[row(1, 9, 0), row(7, 0, HOST)], 9, 1), None);
+    }
+
+    #[test]
+    fn another_plugins_guard_overlay_covers_the_screen() {
+        let guard = row(2, 8, OVERLAY | GUARDS);
+        assert_eq!(showing(&[row(1, 9, 0), guard], 9, 1), None);
+        // Everything above the guard is covered with what is at or below it.
+        let keyboard = row(3, 8, OVERLAY);
+        assert_eq!(showing(&[row(1, 9, 0), guard, keyboard], 9, 1), None);
+    }
+
+    #[test]
+    fn an_own_dialog_or_a_foreign_plain_menu_leaves_the_screen_showing() {
+        assert_eq!(showing(&[row(1, 9, 0), row(2, 9, OVERLAY)], 9, 1), Some(1));
+        assert_eq!(showing(&[row(1, 9, 0), row(2, 8, OVERLAY)], 9, 1), Some(1));
+    }
+
+    #[test]
+    fn a_secret_screen_is_covered_by_a_foreign_overlay_not_by_its_own() {
+        let secret = row(1, 9, SECRET);
+        assert_eq!(showing(&[secret, row(2, 8, OVERLAY)], 9, 1), None);
+        assert_eq!(showing(&[secret, row(2, 9, OVERLAY)], 9, 1), Some(1));
+    }
+
+    #[test]
+    fn a_guarding_own_screen_is_showing_with_its_own_dialogs_above() {
+        let lock = row(1, 9, GUARDS);
+        assert_eq!(showing(&[lock], 9, 1), Some(1));
+        assert_eq!(showing(&[lock, row(2, 9, OVERLAY)], 9, 1), Some(1));
+        assert_eq!(
+            showing(&[lock, row(2, 8, OVERLAY)], 9, 1),
+            None,
+            "fail closed"
+        );
+        assert_eq!(showing(&[lock, row(2, 9, GUARDS | OVERLAY)], 9, 1), None);
+    }
+
+    #[test]
+    fn an_unknown_row_above_covers_the_screen() {
+        assert_eq!(showing(&[row(1, 9, 0), row(2, 0, OVERLAY)], 9, 1), None);
     }
 
     #[test]
