@@ -1,8 +1,9 @@
-# Interface-7 port (slices 1 and 2: the pages' model and the declarations)
+# Interface-7 port (slices 1 to 3a: the pages' model, the declarations, the native entry)
 
-Version 1.0.6. Partial: the host-free model of the home screen's pages and its declarations. No
-native screen and no `NATIVE_ENTRY` yet; the interface-6 `Home` and everything of it stays until the
-host activates native plugins (then it goes together, no shim).
+Version 1.0.6. Partial: the host-free model of the home screen's pages, its declarations, and (slice
+3a) the native entry with the footer items' editor. The dashboard, *Add* and the drawer are still
+to come; the interface-6 `Home` and everything of it stays until the host activates native plugins
+(then it goes together, no shim).
 
 ## Ported
 
@@ -73,3 +74,45 @@ the native entry (ignored case `home-footer-items-editor`, H1/H4); the finger's 
 a hold and a tap in the kit (ignored case `home-footer-items-editor-grip-drag`, `KIT-grip-drag`).
 The native entry will need `uses core.registry` in its metadata: the view reads the registered
 items with the kit's `status_items::view::read_entries`.
+
+## Slice 3a: the native entry and the footer items' editor
+
+`src/native_plugin.rs` (`NativeHome`), `src/native_entry.rs` (`NATIVE_ENTRY`, features `linked` and
+`native-entry`), `build.rs` (the declarations of `declarations.rs` built into the image: settings,
+screens, navigation, events), `native/metadata*.json|bin` (services `core.registry` and `core.ui`;
+regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+--bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
+
+- The screen `status-items` (the editor of `home.footer.items`, opened by the settings editor with
+  `id`): the kit's `StatusItemsView` over the items `core.registry` lists, the setting's text read
+  with `settings.read`, each change `set_setting`. Any other `id` is refused (`Invalid`); the
+  setting is the only one the screen is declared as the editor of.
+- *All tools* opens the screen `home.drawer`; *Edit home screen* opens the slot `core.home` with the
+  parameter `mode` = `edit` (a handover). As on interface 6, the dashboard turns to editing when it
+  is shown; that is the dashboard's slice.
+- The dashboard, `add-widget` and `drawer` answer `Unsupported` when opened: they are declared (the
+  declaration parity test pins that) and nothing opens them while the app has the interface-6 home
+  screen.
+
+### Gaps (each an ignored acceptance case in `tests/acceptance_pending.rs`)
+
+- *The grid's columns or rows changed* (the subscription to setting changes is declared and ignored):
+  the pages are fitted to the new grid by the dashboard's slice. A widget's size in cells comes from
+  `widget_measure` of an instance, which only a screen showing it makes (docs/abi/ui.md 5.2); the
+  registry's widget rows carry no size. `native_pages::reflow` is ready for it.
+- The drawer waits for the dashboard slice (it shares the tool cell) and for icons (#517).
+- The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
+  a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
+- `make` is refused by the host today as `Unsupported` (#944, `tests/hosted_construction.rs`).
+
+### What legacy removal deletes
+
+Nothing new yet: the slice adds no interface-6 code and removes none. The activation items above
+still apply (the removal of `Home`, `blocks`, `pages`, `add`, `drawer`, `covers`, `recent`, their
+suites and the app wiring) in the last slice.
+
+### Worst-case memory
+
+The editor holds at most 128 entries (the kit's `MAX_ENTRIES`, about 100 bytes each plus the rows,
+under 40 KiB with the 4 KiB read buffers released before drawing); one editor is open at a time. Not
+measured on the device.
