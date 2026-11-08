@@ -1605,7 +1605,6 @@ dependencies = [
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-sort",
  "paperpaw-table",
  "proptest",
 ]
@@ -1625,7 +1624,6 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
- "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "png",
@@ -1719,7 +1717,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "libc",
  "paperpaw-platform",
- "paperpaw-sort",
  "proptest",
 ]
 
@@ -1763,7 +1760,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
- "paperpaw-sort",
  "paperpaw-table",
  "proptest",
 ]
@@ -2240,13 +2236,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2268,16 +2266,18 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-sleep",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2446,6 +2446,7 @@ dependencies = [
  "paperpaw-plugin-notes-vault",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2467,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-readwise"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2546,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.7"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2593,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.7"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2623,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2634,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2676,14 +2677,16 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2736,6 +2739,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-scripted-host"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-sdk"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2755,7 +2767,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sdk",
- "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
@@ -2791,13 +2802,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-sort"
-version = "0.6.0-beta.3"
-dependencies = [
- "proptest",
-]
-
-[[package]]
 name = "paperpaw-sqlite"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2830,7 +2834,6 @@ dependencies = [
  "paperpaw-hyphen",
  "paperpaw-lang",
  "paperpaw-platform",
- "paperpaw-sort",
  "paperpaw-table",
  "proptest",
  "read-fonts",
@@ -2895,7 +2898,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-platform",
- "paperpaw-sort",
  "paperpaw-zip",
  "proptest",
 ]

@@ -29,7 +29,8 @@ impl BookList {
         let top = header.area().height + style.gap();
         let area = Rect::new(0, top, display.width, display.height - top);
         let books = store::books(env.storage());
-        let seconds = totals::seconds_per_book(env.storage(), &books);
+        // Interface 6, replaced by the shell: a refused allocation lists no books.
+        let seconds = totals::seconds_per_book(env.storage(), &books).unwrap_or_default();
         let mut books: Vec<(Book, u64)> = books
             .into_iter()
             .zip(seconds)
