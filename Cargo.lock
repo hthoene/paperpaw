@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
