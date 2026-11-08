@@ -21,13 +21,13 @@ use crate::calendar_model::{self as model, DAY_BOOKS, DayText, Key, Swipe};
 use crate::files::DataFolder;
 use crate::native_overview::fit_line;
 use crate::native_screens::{failed, message, utc_day};
-use crate::store::{self, Book, Day};
+use crate::store::{self, Day};
 use crate::texts::{self, HostWords, Words};
 
 /// The calendar's contents and where it was last drawn.
 pub(crate) struct CalendarView {
     days: Vec<Day>,
-    books: Vec<Book>,
+    books: Vec<model::Named>,
     today: Option<i32>,
     /// The first day of the week, 0 being Sunday.
     week_start: u8,
@@ -99,7 +99,8 @@ impl CalendarView {
         week_start: u8,
     ) -> Result<Self, Error> {
         let days = store::days(data, utc_day).map_err(failed)?;
-        let books = store::load_books(data).map_err(failed)?;
+        // Only the names stay: the books' other fields are dropped here.
+        let books = model::names(&store::load_books(data).map_err(failed)?)?;
         let day = model::clamp_day(today.or(days.last().map(|d| d.day)).unwrap_or(0));
         let (said, title) = contents(words, data, &books, &days, day)?;
         let mut names = Vec::new();
@@ -553,7 +554,7 @@ impl CalendarView {
 fn contents(
     words: &mut impl Words,
     data: &dyn Storage,
-    books: &[Book],
+    books: &[model::Named],
     days: &[Day],
     day: i32,
 ) -> Result<(DayText, [String; 2]), Error> {

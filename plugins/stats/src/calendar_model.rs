@@ -241,11 +241,57 @@ pub(crate) struct Detail {
     pub books: Vec<(String, u32)>,
 }
 
+/// What the calendar needs of a book to name it.
+pub(crate) trait Titled {
+    fn id(&self) -> u16;
+    fn title(&self) -> &str;
+}
+
+impl Titled for Book {
+    fn id(&self) -> u16 {
+        self.id
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+}
+
+/// A book's id and its title cut to what a line shows: all the calendar
+/// keeps of the books (not their authors, paths or hashes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Named {
+    pub id: u16,
+    pub title: String,
+}
+
+impl Titled for Named {
+    fn id(&self) -> u16 {
+        self.id
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+}
+
+/// The names of `books`, each title cut ([`crate::book_list::MAX_TEXT`]).
+pub(crate) fn names(books: &[Book]) -> Result<Vec<Named>, Error> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(books.len())
+        .map_err(|_| Error::NoMemory)?;
+    for book in books {
+        out.push(Named {
+            id: book.id,
+            title: crate::book_list::cut(&book.title)?,
+        });
+    }
+    Ok(out)
+}
+
 /// What was read on local day `day`; `day_of` turns Unix seconds into local
 /// days. A book of the log that has no entry is `?`.
 pub(crate) fn detail(
     storage: &dyn Storage,
-    books: &[Book],
+    books: &[impl Titled],
     days: &[Day],
     day: i32,
     day_of: impl Fn(u32) -> i32,
@@ -293,8 +339,8 @@ pub(crate) fn detail(
     for (id, s, _) in per_book.iter().take(DAY_BOOKS) {
         let title = books
             .iter()
-            .find(|b| b.id == *id)
-            .map_or("?", |b| b.title.as_str());
+            .find(|b| b.id() == *id)
+            .map_or("?", |b| b.title());
         listed.push((room::string(&[title]).map_err(|_| Error::NoMemory)?, *s));
     }
     Ok(Detail {

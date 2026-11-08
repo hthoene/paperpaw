@@ -475,7 +475,7 @@ mod overview_and_calendar {
                 .summary,
             "Nicht gelesen"
         );
-        let unknown = cal::detail(&storage, &[], &days, TODAY, utc_day).unwrap();
+        let unknown = cal::detail(&storage, &[] as &[Book], &days, TODAY, utc_day).unwrap();
         assert_eq!(unknown.books[0].0, "?");
     }
 

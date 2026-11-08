@@ -166,6 +166,16 @@ events) is still in place. It is removed in the PR that finishes the port.
   these screens need a kernel-backed harness like Battery's (`native_battery_pixel_tests.rs`)
   and are not made here.
 
+- **Memory (review of #470).** Metadata names the service the screens use (`core.ui`) and the host
+  calls behind it (`services.query`, `blob.read`, `blob.release`). The books screen keeps at most
+  the 200 books read last (`book_list::MAX_ROWS`, most recent first; interface 6 listed every
+  book), each title and author line cut to 80 bytes with `…` (`book_list::cut`, at a character).
+  The calendar keeps only each book's id and cut title (`calendar_model::Named`), not authors, paths
+  or hashes; `detail` takes any `Titled` list so the interface-6 calendar still passes its own.
+  A book older than the 200th is not listed (a difference from interface 6, on purpose: the list
+  lives as long as the screen is open on a 256 KiB heap). `book_list.rs` tests the cut, the cap and
+  the order.
+
 ## Ported: the overview and the action that opens it (slice 3)
 
 - `src/native_overview.rs`: `stats.overview` (token 20), the action `stats.open` (token 30) with its

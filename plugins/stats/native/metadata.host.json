@@ -115,6 +115,18 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -131,7 +143,9 @@
       "name": "input"
     }
   ],
-  "services": [],
+  "services": [
+    "core.ui"
+  ],
   "features": [
     "uses.storage"
   ]
