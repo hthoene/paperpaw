@@ -508,7 +508,8 @@ fn book_answers_are_checked() {
     assert_eq!(book(|b| b.generation = 0), Err(ERR_INVALID));
     assert_eq!(book(|b| b.path = "../x"), Err(ERR_INVALID));
     assert_eq!(book(|b| b.progress = 150), Err(ERR_INVALID));
-    assert_eq!(book(|b| b.flags = 0x1ff), Err(ERR_INVALID));
+    assert!(book(|b| b.flags = 0x1ff).is_ok(), "bit 8 is `missing`");
+    assert_eq!(book(|b| b.flags = 0x2ff), Err(ERR_INVALID));
     // The whole length is never shorter than the text, and says when it is cut.
     assert_eq!(book(|b| b.title_bytes = 1), Err(ERR_INVALID));
     assert_eq!(book(|b| b.author_bytes = 900), Err(ERR_INVALID));

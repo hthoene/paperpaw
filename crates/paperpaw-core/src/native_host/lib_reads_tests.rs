@@ -66,7 +66,10 @@ pub(crate) fn card() -> Card {
                 ".paperpaw/library/catalog.txt",
                 format!("{HEADER}{a}{b}{c}{d}{e}").into_bytes(),
             )
-            .with("books/a.epub", vec![7_u8; 3000]),
+            .with("books/a.epub", vec![7_u8; 3000])
+            .with("books/c.epub", vec![7_u8; 10])
+            .with("books/d.txt", vec![7_u8; 10])
+            .with("books/e.epub", vec![7_u8; 10]),
     );
     catalog::note(
         &*storage,
@@ -271,7 +274,8 @@ fn a_long_title_is_cut_at_a_character_and_says_so() {
     // 700 × 3 bytes; 512 holds 170 characters.
     assert_eq!(b.title, "€".repeat(170));
     assert_eq!(b.bytes, (2100, 3, 6));
-    assert_eq!(b.flags, 1 << 5);
+    // Cut title; its file is not on the card (bit 8).
+    assert_eq!(b.flags, 1 << 5 | 1 << 8);
     assert_eq!((b.series.as_str(), b.number.as_str()), ("Series", "3"));
     assert_eq!(b.counts, (3, 2));
     assert_eq!(b.progress, 255);
@@ -504,6 +508,68 @@ fn position(reads: &CatalogReads, book: BookRef<'_>) -> Result<[u64; 7], i32> {
         ]);
     })?;
     Ok(got.unwrap())
+}
+
+/// A card that cannot say whether one file is there (a failing card).
+struct Failing(Rc<MemoryStorage>, &'static str);
+impl paperpaw_platform::Storage for Failing {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        if path == self.1 {
+            Err(paperpaw_platform::StorageError::Io)
+        } else {
+            self.0.size(path)
+        }
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_book_whose_file_is_gone_says_missing() {
+    const MISSING: u32 = 1 << 8;
+    let card = card();
+    let reads = card.reads();
+    let flags = |path| book(&reads, BookRef::Path(path)).unwrap().flags;
+    // The file is there: no bit; the other flags are as they were.
+    assert_eq!(flags("books/a.epub"), 0b11);
+    // Gone from the card: bit 8, and only that changes.
+    card.storage.remove("books/a.epub").unwrap();
+    assert_eq!(flags("books/a.epub"), 0b11 | MISSING);
+    card.storage.remove("books/c.epub").unwrap();
+    assert_eq!(flags("books/c.epub"), 0b110 | MISSING);
+    // Back again: clear. The catalog line is untouched throughout.
+    card.storage.write("books/a.epub", &[7_u8; 10]).unwrap();
+    assert_eq!(flags("books/a.epub"), 0b11);
+    // A card that fails for the file is the card's error, never "gone".
+    let failing = Failing(card.storage.clone(), "books/e.epub");
+    let reads = CatalogReads::new(Rc::new(failing), card.env.clone());
+    assert_eq!(
+        book(&reads, BookRef::Path("books/e.epub")).unwrap_err(),
+        ERR_IO
+    );
+    assert!(book(&reads, BookRef::Path("books/b.epub")).is_ok());
 }
 
 #[test]

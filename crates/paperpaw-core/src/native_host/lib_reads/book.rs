@@ -5,6 +5,7 @@ use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
+use paperpaw_platform::StorageError;
 use paperpaw_sdk::library::{self, catalog};
 
 /// Bytes of the long forms `lib_book` carries.
@@ -29,6 +30,8 @@ mod flag {
     pub(super) const INDEXED: u32 = 1 << 4;
     /// Title, author, series cut: bits 5-7.
     pub(super) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
+    /// The book's file is not on the card now (`lib_book` only).
+    pub(super) const MISSING: u32 = 1 << 8;
 }
 
 /// What of a line `book` keeps beyond the path and the number (copied into
@@ -128,6 +131,7 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
         None => "",
     };
     let indexed = indexed(reads, path, line.size)?;
+    let missing = file_is_gone(reads, path)?;
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
     let mut flags = 0;
@@ -137,6 +141,7 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
         (status.progress == Some(100), flag::FINISHED),
         (is_new(reads, line.added, opened), flag::NEW),
         (indexed, flag::INDEXED),
+        (missing, flag::MISSING),
         (bytes(title) < line.title_bytes, flag::CUT[0]),
         (bytes(author) < line.author_bytes, flag::CUT[1]),
         (bytes(series) < line.series_bytes, flag::CUT[2]),
@@ -165,6 +170,17 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
         series_bytes: line.series_bytes,
     }));
     Ok(())
+}
+
+/// Whether the book's file is gone from the card: one lookup of the path
+/// (a folder book, which has no size, is looked up as a directory). A
+/// card that fails is the card's error, never "gone".
+fn file_is_gone(reads: &CatalogReads, path: &str) -> Result<bool, i32> {
+    match reads.storage.size(path) {
+        Ok(_) => Ok(false),
+        Err(StorageError::NotFound) => Ok(!reads.storage.exists(path)),
+        Err(error) => Err(fail(error.into())),
+    }
 }
 
 /// Whether the library read title, author and cover from the book (its
