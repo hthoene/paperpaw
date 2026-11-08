@@ -832,6 +832,9 @@ its caps (hand-off).
 
 ### 8.2 Memory (X4)
 
+"The X4" in the limits of this section and of `core.ui` means the 256 KiB heap profile: the X4
+and every device of that profile (the X3 too), not the model.
+
 - Instances: one entry per open instance (about 16 bytes; the stack is at most 16 deep, deeper opens
   are `ERR_FULL`) plus its hand-over's params, kept while it is open, stored encoded (at most 1,313
   bytes each). On the X4 the params of all instances share 1,536 bytes (op 16 `ERR_FULL` beyond):
@@ -882,7 +885,10 @@ its caps (hand-off).
   answer `ERR_UNSUPPORTED` on the X4 until it passes.
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
-  bytes); each table is one allocation of its cap, made at its first use.
+  bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
+  listed for its owner until `event.widget_dropped` (85) is delivered at the widget's token, so
+  live instances and drops not yet delivered share the cap: op 4 answers `ERR_FULL` while the
+  waiting drops fill it (#599), and makes again once they are delivered.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
 - Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4
