@@ -30,9 +30,6 @@ store-plugins = [
     "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-rules",
-    "dep:paperpaw-plugin-profiles",
-    "dep:paperpaw-plugin-keys",
-    "dep:paperpaw-plugin-menu-editor",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
@@ -102,7 +99,6 @@ paperpaw-plugin-hyphenation-sv = { workspace = true, optional = true }
 paperpaw-plugin-hyphenation-uk = { workspace = true, optional = true }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-menu-editor = { workspace = true, optional = true }
 paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
@@ -124,8 +120,6 @@ paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
 paperpaw-plugin-rules = { workspace = true, optional = true }
 paperpaw-plugin-lock.workspace = true
-paperpaw-plugin-profiles = { workspace = true, optional = true }
-paperpaw-plugin-keys = { workspace = true, optional = true }
 paperpaw-plugin-wikipedia.workspace = true
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
