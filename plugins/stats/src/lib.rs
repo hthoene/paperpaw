@@ -37,8 +37,20 @@ pub use native_entry::NATIVE_ENTRY;
 pub mod native_plugin;
 
 mod book;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_list;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_rows;
 mod books;
 mod calendar;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod calendar_model;
 mod chart;
 mod extsort;
 mod files;
@@ -47,13 +59,19 @@ mod koreader;
 mod left;
 mod merge;
 mod overview;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod overview_rows;
 mod recorder;
 mod room;
 mod store;
 mod sync;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod texts;
 mod totals;
 mod widget;
 
+#[cfg(test)]
+mod screens_tests;
 #[cfg(test)]
 mod testing;
 

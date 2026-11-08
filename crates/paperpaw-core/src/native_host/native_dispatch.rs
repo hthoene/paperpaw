@@ -14,6 +14,7 @@ pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     host: FlatHost,
     report: fn(&S, u32, i32),
     identity: super::native_instances::NativeIdentity,
+    events: super::event_tags::EventTags,
 }
 
 impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
@@ -24,12 +25,14 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         report: fn(&S, u32, i32),
         identity: super::native_instances::NativeIdentity,
     ) -> Self {
+        let events = event_tags(&instance, &depth);
         Self {
             instance,
             depth,
             host,
             report,
             identity,
+            events,
         }
     }
 
@@ -67,6 +70,13 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        // A screen's callback is on the stack until this returns (`core.net`
+        // asks whether the screen is showing).
+        let _screen = instance.map(|key| {
+            self.host
+                .stack_rows
+                .enter_callback(self.identity.owner(), key.serial())
+        });
         shell::dispatch_token(
             batch,
             token,
@@ -166,6 +176,21 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 }
 
+/// The event tags the committed registrations name, read once at the start.
+/// A failed read or a tag beyond the set leaves the owner unsubscribed to it.
+fn event_tags<S: Services + 'static, M: 'static>(
+    instance: &Retained<S, M>,
+    depth: &FlatDepth,
+) -> super::event_tags::EventTags {
+    let mut tags = super::event_tags::EventTags::default();
+    let _ = instance.registrations(depth.as_depth(), &mut |_, record| {
+        if let super::registrations::Registration::Event { event_tag, .. } = record {
+            let _ = tags.insert(event_tag);
+        }
+    });
+    tags
+}
+
 fn status(error: shell::Error) -> i32 {
     match error {
         shell::Error::Status(code) | shell::Error::Factory(code) => code,
@@ -190,6 +215,9 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     }
     fn callback_depth(&self) -> u8 {
         self.depth.as_depth().0.current()
+    }
+    fn subscribed(&self, tag: u32) -> bool {
+        self.events.contains(tag)
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
