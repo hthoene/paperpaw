@@ -13,7 +13,9 @@ use paperpaw_sdk::{native::Error, widgets::grid::Geometry};
 use paperpaw_ui_kit::{mem::push, text::copy};
 
 use crate::native_grid::{self as grid, Item, What};
-use crate::native_pages::{self as pages, FILL, MAX_PAGES, Page, SPACE, STATUS, Source, TOOLS, Write};
+use crate::native_pages::{
+    self as pages, FILL, MAX_PAGES, Page, SPACE, STATUS, Source, TOOLS, Write,
+};
 
 /// The kind standing for the tools.
 pub const TOOLS_KIND: &str = "home.edit.tools";
@@ -132,7 +134,9 @@ pub fn kinds(entries: &[Entry]) -> Result<Vec<(String, usize)>, Error> {
         }
         tools
     };
-    kinds.try_reserve(tools.len()).map_err(|_| Error::NoMemory)?;
+    kinds
+        .try_reserve(tools.len())
+        .map_err(|_| Error::NoMemory)?;
     kinds.extend(tools);
     Ok(kinds)
 }
@@ -213,7 +217,9 @@ pub fn add_item(
     let in_layout = layout.wide.then_some(layout.grid);
     let mut writes = pages::store(src, on.slot, &added, in_layout)?;
     let other = pages::add_to_other(src, layout.wide, on.slot, what, layout.wide_grid)?;
-    writes.try_reserve(other.len()).map_err(|_| Error::NoMemory)?;
+    writes
+        .try_reserve(other.len())
+        .map_err(|_| Error::NoMemory)?;
     writes.extend(other);
     Ok(Plan::Writes(writes))
 }

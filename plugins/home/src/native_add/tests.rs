@@ -91,7 +91,11 @@ fn the_grids_own_widgets_and_the_tools_on_the_page_are_not_offered() {
     // Without the bar the status line is a widget like the others.
     let without = entries(&widgets, &tools, false, &on_page).unwrap();
     assert_eq!(without.len(), 3);
-    assert!(without.iter().any(|e| e.what.text().unwrap() == "home.status"));
+    assert!(
+        without
+            .iter()
+            .any(|e| e.what.text().unwrap() == "home.status")
+    );
 }
 
 #[test]
@@ -147,7 +151,10 @@ fn the_first_step_lists_kinds_and_the_page_actions_by_what_is_possible() {
 fn the_second_step_lists_the_things_of_the_kind() {
     let widgets = [widget("a.one", "k.time"), widget("a.two", "k.books")];
     let found = entries(&widgets, &[tool("core.library")], false, &[]).unwrap();
-    assert_eq!(rows(Some("k.books"), &found, 1, false).unwrap(), [Row::Add(1)]);
+    assert_eq!(
+        rows(Some("k.books"), &found, 1, false).unwrap(),
+        [Row::Add(1)]
+    );
     assert_eq!(
         rows(Some(TOOLS_KIND), &found, 1, false).unwrap(),
         [Row::Add(2)]
@@ -169,8 +176,13 @@ fn an_added_tool_goes_into_the_first_free_cell_and_is_kept() {
     let fake = Fake::new(&["a.b 0/0 4x1", ""]);
     let g = grid4();
     let pages = crate::native_pages::pages(&fake).unwrap();
-    let plan = add_item(&fake, &layout(&g, &pages), 0, What::Tool("core.library".to_string()))
-        .unwrap();
+    let plan = add_item(
+        &fake,
+        &layout(&g, &pages),
+        0,
+        What::Tool("core.library".to_string()),
+    )
+    .unwrap();
     let Plan::Writes(writes) = plan else {
         panic!("not written")
     };
@@ -185,12 +197,22 @@ fn a_full_page_has_no_room() {
     let fake = Fake::new(&["a.b 0/0 4x2"]);
     let g = grid4();
     let pages = crate::native_pages::pages(&fake).unwrap();
-    let plan = add_item(&fake, &layout(&g, &pages), 0, What::Tool("core.library".to_string()))
-        .unwrap();
+    let plan = add_item(
+        &fake,
+        &layout(&g, &pages),
+        0,
+        What::Tool("core.library".to_string()),
+    )
+    .unwrap();
     assert_eq!(plan, Plan::NoRoom);
     // No such page: nothing.
-    let plan = add_item(&fake, &layout(&g, &pages), 5, What::Tool("core.library".to_string()))
-        .unwrap();
+    let plan = add_item(
+        &fake,
+        &layout(&g, &pages),
+        5,
+        What::Tool("core.library".to_string()),
+    )
+    .unwrap();
     assert_eq!(plan, Plan::Nothing);
 }
 
@@ -250,7 +272,10 @@ fn a_placement_is_the_first_number_not_held_and_without_values() {
     // Held ones are not asked about.
     assert_eq!(asked, ["a.b@4", "a.b@5"]);
     // A placed id gives another placement of the same widget.
-    assert_eq!(placement(&Fake::new(&[]), "a.b@7", |_| Ok(false)).unwrap(), "a.b@1");
+    assert_eq!(
+        placement(&Fake::new(&[]), "a.b@7", |_| Ok(false)).unwrap(),
+        "a.b@1"
+    );
     // A host refusal is passed on.
     assert_eq!(
         placement(&Fake::new(&[]), "a.b", |_| Err(Error::Busy)),

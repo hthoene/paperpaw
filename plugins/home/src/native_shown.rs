@@ -4,11 +4,7 @@
 //! *Add* screen changes them.
 use alloc::vec::Vec;
 use paperpaw_sdk::{
-    native::{
-        Error, Host,
-        fonts::Font,
-        snapshot::Snapshot,
-    },
+    native::{Error, Host, fonts::Font, snapshot::Snapshot},
     widgets::grid::Geometry,
 };
 use paperpaw_ui_kit::Style;
@@ -101,4 +97,3 @@ fn metrics(
         status: line.saturating_add(style.gap / 2),
     })
 }
-

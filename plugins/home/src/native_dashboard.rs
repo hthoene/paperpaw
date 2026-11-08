@@ -203,7 +203,15 @@ impl Dashboard {
             plus: editing,
             pencil: pencil_on,
         };
-        let made = Self::fill(host, ui, &src, &frame, &shown, (&footer, buttons), &mut cells);
+        let made = Self::fill(
+            host,
+            ui,
+            &src,
+            &frame,
+            &shown,
+            (&footer, buttons),
+            &mut cells,
+        );
         let (targets, actions) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -905,7 +913,10 @@ mod tests {
             plus: false,
             pencil: true,
         };
-        assert_eq!(owners(&f, pencil).last(), Some(&Owner::Button(Button::Pencil)));
+        assert_eq!(
+            owners(&f, pencil).last(),
+            Some(&Owner::Button(Button::Pencil))
+        );
     }
 
     #[test]

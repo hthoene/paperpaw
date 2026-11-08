@@ -233,7 +233,11 @@ impl NativeHome {
 
     /// The *Add* screen for the page and kind the handover names; opened with
     /// none it adds to the first page.
-    fn add_screen(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<AddScreen, Error> {
+    fn add_screen(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<AddScreen, Error> {
         let (page, kind) = match handover {
             Some(handover) => {
                 let mut input = buffer(SERVICE_BUFFER)?;

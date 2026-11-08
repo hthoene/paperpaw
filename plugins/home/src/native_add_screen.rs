@@ -93,7 +93,12 @@ pub fn open(host: &Host<'_>, ui: &Ui, page: usize, kind: Option<&str>) -> Result
     let mut digits = [0u8; 20];
     let page = Param::new(PAGE, decimal(page, &mut digits))?;
     let handover: HandoverId = match kind {
-        Some(kind) => ui.handover(host, &[page, Param::new(KIND, kind)?], &mut scratch, &mut out)?,
+        Some(kind) => ui.handover(
+            host,
+            &[page, Param::new(KIND, kind)?],
+            &mut scratch,
+            &mut out,
+        )?,
         None => ui.handover(host, &[page], &mut scratch, &mut out)?,
     };
     CommandSender::new(host, &mut scratch).open(Open::screen(SCREEN)?.handover(handover))
@@ -162,7 +167,10 @@ impl AddScreen {
             let (name, value) = match row {
                 Row::Kind(kind, count) => {
                     let mut digits = [0u8; 20];
-                    (messages.copy(host, kind)?, copy(decimal(*count, &mut digits))?)
+                    (
+                        messages.copy(host, kind)?,
+                        copy(decimal(*count, &mut digits))?,
+                    )
                 }
                 Row::Add(index) => {
                     let title = entries.get(*index).map_or("", |e| e.title.as_str());
@@ -182,8 +190,14 @@ impl AddScreen {
     /// # Errors
     /// Allocation, font, canvas and host errors.
     pub fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
-        self.renderer
-            .draw(host, frame, &self.title, &self.labels, self.focus.focus(), true)
+        self.renderer.draw(
+            host,
+            frame,
+            &self.title,
+            &self.labels,
+            self.focus.focus(),
+            true,
+        )
     }
 
     /// Takes an input: the list moves, a chosen row opens the kind or changes
@@ -223,7 +237,9 @@ impl AddScreen {
         let mut resets = Vec::new();
         let plan = match row {
             Row::Add(entry) => match self.entries.get(*entry) {
-                Some(entry) => add::add_item(src, &layout, self.page, Self::placed(host, src, entry)?)?,
+                Some(entry) => {
+                    add::add_item(src, &layout, self.page, Self::placed(host, src, entry)?)?
+                }
                 None => Plan::Nothing,
             },
             Row::AddPage => add::add_page(src, &layout)?,
@@ -238,7 +254,11 @@ impl AddScreen {
     }
 
     /// What an entry is added as: a widget as a placement of its own.
-    fn placed(host: &Host<'_>, src: &impl native_pages::Source, entry: &Entry) -> Result<What, Error> {
+    fn placed(
+        host: &Host<'_>,
+        src: &impl native_pages::Source,
+        entry: &Entry,
+    ) -> Result<What, Error> {
         let What::Widget(id) = &entry.what else {
             return entry.what.try_clone();
         };

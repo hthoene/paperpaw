@@ -8,7 +8,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 12] = [
+const CASES: [Case; 13] = [
     // The dashboard draws its pages of widgets and tools as before (widgets
     // composed with `ui.compose`), pages by swipe or buttons.
     Case {
