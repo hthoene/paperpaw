@@ -316,7 +316,6 @@ mod overview_and_calendar {
             days,
             books: 3,
             today_pages: 12,
-            current_book: Some(7),
         }
     }
 

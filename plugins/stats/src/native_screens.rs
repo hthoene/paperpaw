@@ -109,12 +109,17 @@ impl BooksView {
 
 /// Opens the screen of book `id`, which reads the id from its hand-over.
 pub(crate) fn open_book(host: &Host<'_>, ui: &Ui, id: u16) -> Result<(), Error> {
+    open_with_book(host, ui, "stats.book", id)
+}
+
+/// Opens `screen` with the id of a book as its hand-over.
+pub(crate) fn open_with_book(host: &Host<'_>, ui: &Ui, screen: &str, id: u16) -> Result<(), Error> {
     let mut digits = [0u8; 20];
     let id = text::decimal(usize::from(id), &mut digits);
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
     let handover = ui.handover(host, &[Param::new(ID, id)?], &mut input, &mut output)?;
-    CommandSender::new(host, &mut input).open(Open::screen("stats.book")?.handover(handover))
+    CommandSender::new(host, &mut input).open(Open::screen(screen)?.handover(handover))
 }
 
 /// The id of the book a hand-over names.

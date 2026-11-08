@@ -144,8 +144,26 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Sweeps refuse each allocation of both builders (`native_screens/tests.rs`). Pixel goldens of
   these screens need a kernel-backed harness like Battery's (`native_battery_pixel_tests.rs`)
   and are not made here.
-- Not yet: the overview, the calendar, the action `stats.open` and its menu entries (the books
-  are reachable from the overview), sync.
+
+## Ported: the overview and the action that opens it (slice 3)
+
+- `src/native_overview.rs`: `stats.overview` (token 20), the action `stats.open` (token 30) with its
+  menu entries (tools 35, reader-more 30) and chart icon. `stats.open` records the page being read so
+  far (`Recorder::settle`) and opens the overview with the book being read as the hand-over `id`
+  (interface 6: a screen parameter); that book becomes the first way on.
+- Tiles side by side (today, week, streak: label, value at the largest size that fits, note), the last
+  14 days as bars with today framed, the totals line, then the ways on as rows; the geometry is
+  interface 6's (`Layout`). Where a tile's words do not fit whole at 0.85 of the small size, or the
+  chart has less than six small lines, the screen is one column: the tiles as rows of the kit's
+  `ItemList` above the ways, the totals as its footer note.
+- **Differences from interface 6** (on purpose): in one column the chart is left out (the kit's list
+  has no custom rows; interface 6 kept the chart as a row there, with hardly any room at that size);
+  the calendar and sync rows are not shown until their screens are on interface 7 (the rows
+  and screens come back with those slices); no pixel goldens yet (a kernel-backed harness is needed,
+  see slice 2); the focus is always drawn (interface 6 drew it on button devices only).
+- The menu entries and the icon of the action wait for the host (`tests/declarations.rs` pins the list
+  of declarations that are refused).
+- Not yet: the calendar, sync.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 

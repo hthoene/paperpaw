@@ -11,12 +11,13 @@ use paperpaw_sdk::native::{
     settings::{self, SettingValue},
     snapshot::{Snapshot, capture_snapshot},
     storage::{self as host_storage, DataStorage, Root},
-    ui::{Notify, Ui},
+    ui::{Notify, Open, Ui},
 };
 use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
 use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
+use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
@@ -30,7 +31,12 @@ const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 const READ_TODAY: &str = "stats.read-today";
 
 /// An open screen's view.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one view per open screen, in a list that grows fallibly; a box would allocate infallibly"
+)]
 enum View {
+    Overview(OverviewView),
     Books(BooksView),
     Book(BookView),
 }
@@ -87,6 +93,10 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         match event {
+            Event::ActionRun {
+                action: "stats.open",
+                ..
+            } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
             Event::ScreenOpened {
                 screen,
                 instance,
@@ -156,6 +166,7 @@ impl Plugin for NativeStats {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         match self.screens.top(token).ok_or(Error::State)? {
+            View::Overview(view) => view.draw(host, &mut frame),
             View::Books(view) => view.draw(host, &mut frame),
             View::Book(view) => view.draw(host, &mut frame),
         }
@@ -167,6 +178,10 @@ impl Plugin for NativeStats {
             return Ok(Handled::No);
         };
         match view {
+            View::Overview(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
             View::Books(view) => {
                 let ui = self.ui.as_ref().ok_or(Error::State)?;
                 view.input(host, ui, &input)
@@ -184,6 +199,24 @@ impl NativeStats {
         self.ui.as_ref().ok_or(Error::State)
     }
 
+    /// Opens the overview, on the book being read where there is one (the page
+    /// being read is recorded first, so that the figures include it).
+    fn open_overview(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let current = with_cx(host, 0, |cx| {
+            self.recorder.settle(cx);
+            self.recorder.current_book()
+        });
+        match current {
+            Some(book) => {
+                native_screens::open_with_book(host, self.ui(host)?, "stats.overview", book)
+            }
+            None => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.overview")?)
+            }
+        }
+    }
+
     /// Builds the view of an opened screen over the data folder.
     fn opened(
         &mut self,
@@ -195,6 +228,17 @@ impl NativeStats {
         let storage = DataStorage::new(host);
         let data = DataFolder(&storage);
         let view = match screen {
+            "stats.overview" => {
+                let current = match handover {
+                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+                    None => None,
+                };
+                let today = capture_snapshot(host)?
+                    .unix_seconds()
+                    .and_then(|unix| u32::try_from(unix).ok())
+                    .map(native_screens::utc_day);
+                View::Overview(OverviewView::new(host, &data, today, current)?)
+            }
             "stats.books" => View::Books(BooksView::new(host, &data)?),
             "stats.book" => {
                 let id = match handover {

@@ -32,6 +32,7 @@ extern crate std;
 mod declarations;
 mod native_chart;
 mod native_entry;
+mod native_overview;
 mod native_screens;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
@@ -53,7 +54,6 @@ mod koreader;
 mod left;
 mod merge;
 mod overview;
-#[allow(dead_code, reason = "the native screens use it, in the next slice")]
 mod overview_rows;
 mod recorder;
 mod room;
