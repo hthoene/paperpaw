@@ -3,12 +3,12 @@ use super::{Error, HandoverId, Host, Param, Ui, UiPage, expect, one, params, sch
 
 impl Ui {
     /// Make a handover with at most 32 unique params and 1,024 content bytes.
-    /// The temporary record list is allocated fallibly and freed before the
-    /// host call; no large record array is placed on the X4 callback stack.
+    /// The params are encoded straight into `input`: nothing is allocated
+    /// and no record array is placed on the X4 callback stack.
     ///
     /// # Errors
-    /// Invalid for duplicate keys; NoSpace above caps; NoMemory for the
-    /// temporary list; otherwise the host's refusal.
+    /// Invalid for duplicate keys; NoSpace above caps; otherwise the host's
+    /// refusal.
     pub fn handover(
         &self,
         host: &Host<'_>,

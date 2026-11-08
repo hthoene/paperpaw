@@ -163,7 +163,7 @@ paperpaw-fs = { path = "crates/paperpaw-fs", version = "0.6.0-beta.3" }
 paperpaw-plugin-diagnostics = { path = "plugins/diagnostics", version = "1.0.4" }
 paperpaw-plugin-dictionary = { path = "plugins/dictionary", version = "1.0.2" }
 paperpaw-plugin-menu = { path = "plugins/menu", version = "1.0.2" }
-paperpaw-plugin-menu-editor = { path = "plugins/menu-editor", version = "1.0.5" }
+paperpaw-plugin-menu-editor = { path = "plugins/menu-editor", version = "1.0.9" }
 paperpaw-plugin-kosync = { path = "plugins/kosync", version = "1.0.5" }
 paperpaw-plugin-calibre = { path = "plugins/calibre", version = "1.0.7" }
 paperpaw-plugin-stats = { path = "plugins/stats", version = "1.0.4" }
@@ -189,8 +189,8 @@ paperpaw-plugin-store = { path = "plugins/store", version = "1.0.2" }
 paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.8" }
 paperpaw-plugin-lock = { path = "plugins/lock", version = "1.0.3" }
 paperpaw-plugin-mail = { path = "plugins/mail", version = "1.0.0" }
-paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.7" }
-paperpaw-plugin-keys = { path = "plugins/keys", version = "1.0.6" }
+paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.10" }
+paperpaw-plugin-keys = { path = "plugins/keys", version = "1.0.9" }
 paperpaw-plugin-wikipedia = { path = "plugins/wikipedia", version = "1.0.1" }
 paperpaw-plugin-aids = { path = "plugins/aids", version = "1.1.2" }
 paperpaw-plugin-vocabulary = { path = "plugins/vocabulary", version = "1.0.5" }

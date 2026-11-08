@@ -375,3 +375,66 @@ proptest! {
         place.untouched();
     }
 }
+
+/// `remove_tree_step` on the host's file system: a big folder goes in pieces
+/// within the limits, a tree 256 levels deep is removed, one level more is
+/// refused (`InvalidData`, what the service answers `ERR_STATE`), the root is
+/// kept when asked, and nothing outside the tree is touched.
+#[test]
+fn trees_are_removed_in_bounded_pieces_to_the_depth_limit() {
+    use paperpaw_platform::tree::{MAX_READS, MAX_REMOVALS};
+    let place = Place::new();
+    let s = &place.storage;
+    for n in 0..300 {
+        s.write(&format!("Big/f{n:03}.txt"), b"x").unwrap();
+    }
+    s.write("Keep/k.txt", b"keep").unwrap();
+    let mut calls = 0;
+    loop {
+        let step = s.remove_tree_step("Big", true, 1).unwrap();
+        assert!(step.removed <= MAX_REMOVALS && MAX_READS >= 256);
+        calls += 1;
+        assert!(calls < 100);
+        if step.done {
+            break;
+        }
+    }
+    assert!(calls >= 300 / 64, "{calls}");
+    let mut left = 0;
+    s.list("Big", &mut |_| left += 1).unwrap();
+    assert_eq!(left, 0, "kept root, empty");
+    assert_eq!(s.size("Keep/k.txt"), Ok(4));
+    s.remove_tree_step("Big", false, 0).unwrap();
+    assert_eq!(s.size("Big/x"), Err(StorageError::NotFound));
+
+    let mut deep = place.base.join("root");
+    for levels in [256usize, 257] {
+        let mut dir = deep.join(format!("T{levels}"));
+        for _ in 0..levels {
+            dir.push("a");
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("leaf.txt"), b"leaf").unwrap();
+        let name = format!("T{levels}");
+        let mut outcome = Ok(());
+        for _ in 0..5000 {
+            match s.remove_tree_step(&name, false, 1) {
+                Ok(step) if step.done => break,
+                Ok(_) => {}
+                Err(e) => {
+                    outcome = Err(e);
+                    break;
+                }
+            }
+        }
+        match levels {
+            256 => {
+                assert_eq!(outcome, Ok(()));
+                assert!(!deep.join(&name).exists());
+            }
+            _ => assert_eq!(outcome, Err(StorageError::InvalidData)),
+        }
+    }
+    deep.push("x");
+    assert_eq!(s.size("Keep/k.txt"), Ok(4));
+}

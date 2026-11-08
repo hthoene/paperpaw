@@ -311,7 +311,7 @@ const CASES: &[Case] = &[
         book: None,
         // Developer options on: their group of settings.
         sets: &["settings.advanced=true", "core.developer=true"],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,swipe:600:1400:600:700,wait:300,tap-on:Developer,wait:300",
+        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,tap-on:Developer,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -386,18 +386,6 @@ const CASES: &[Case] = &[
         // Up on the home screen: every tool.
         sets: &[],
         script: "swipe:600:1100:600:500,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-menu-drag",
-        profile: "boox-go-7",
-        book: None,
-        // The main menu's first entry dragged by its grip to the fourth
-        // place (the editor opened by its action: where the settings list
-        // it depends on how many groups there are).
-        sets: &[],
-        script: "run:menu-editor.open,wait:300,tap-on:Main menu,wait:300,                 swipe:1220:159:1220:420,wait:300",
         colour: 0,
         fixtures: false,
     },

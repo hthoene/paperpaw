@@ -24,8 +24,12 @@ commands) is still in place beside the native one. It is removed in the PR that 
   first. These readers are not in the refusal sweep (`tests/native_alloc_refusal.rs`).
 - `initialization` zeroes the hash's hex array and its quoted copy with `mem::wipe` (tested); the
   SHA-1 state wipes itself when dropped (#451). `Device`'s `Debug` never shows the password
-  (tested). The answer carries the hash by design; the sending slice must `wipe_text` it after the
-  write.
+  (tested). The raw SHA-1 bytes are wiped after the hex is made (the digest crate's own
+  `finish()` temporary stays unwiped, as for kosync; Kernel todo 140 tracks it), and the quoted copy of the hash is
+  zeroed in place (tested). The answer carries the hash by design; the sending slice must
+  `wipe_text` it after the write.
+- **Removal checklist:** the interface-6 `protocol::Device` derives `Debug` and holds the password;
+  it goes when interface 6 is removed in the final slice (the native `Device` hides it).
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
