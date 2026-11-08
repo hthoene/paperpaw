@@ -90,7 +90,7 @@ impl Overview {
         // The ways on right below.
         let list_top = (totals.y + totals.height + gap * 2).min(lowest);
         let today = fmt::today(env);
-        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix));
+        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix)).unwrap_or_default();
         let today_pages = today.map_or(0, |day| distinct_pages(env, day));
         let mut overview = Self {
             list: ListView::new(

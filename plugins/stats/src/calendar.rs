@@ -140,7 +140,7 @@ impl Calendar {
             display.height.saturating_sub(detail_top),
         );
         let today = fmt::today(env);
-        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix));
+        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix)).unwrap_or_default();
         let day = today.or(days.last().map(|d| d.day)).unwrap_or(0);
         let mut calendar = Self {
             style,

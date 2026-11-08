@@ -37,6 +37,7 @@ pub mod screens;
 pub mod style;
 pub mod text;
 pub mod uitext;
+pub mod widget;
 
 pub use dialog::Dialog;
 pub use focus::{ListFocus, ListInput, Step};
