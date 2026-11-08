@@ -1,8 +1,5 @@
 //! Synchronous extension stages with one borrowed reply buffer.
-use super::{
-    Error, Host,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, Host, declare::records_wire as wire};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, PpBuffer, PpBytes};
 
 /// A callback-bound extension stage owned by the calling plugin.
@@ -151,11 +148,11 @@ impl StageRun<'_> {
         }
         let n = usize::try_from(n).map_err(|_| Error::from_status(n))?;
         let bytes = self.out.get(..n).ok_or(Error::Invalid)?;
-        let Record::StageReply(reply) =
-            wire::record_decode_one(bytes).map_err(Error::from_status)?
-        else {
+        let raw = wire::RawRecord::one(bytes).map_err(Error::from_status)?;
+        if raw.tag() != wire::STAGE_REPLY_TAG {
             return Err(Error::Invalid);
-        };
+        }
+        let reply: wire::StageReply<'_> = raw.decode().map_err(Error::from_status)?;
         if reply.index != self.cursor || (reply.status < 0 && !reply.payload.is_empty()) {
             return Err(Error::Invalid);
         }
