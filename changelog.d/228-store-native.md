@@ -1,3 +1,3 @@
 ### Changed
 
-- **The plugin store starts its move to interface 7** (#228). Its two settings and the rules that read an untrusted plugin library (the index line of a plugin, what a build needs of the firmware, the library's address, revoked keys), now written so that a refused allocation never aborts, exist natively beside the old code; the list, the install and the screens follow when the network host and the install design for native plugins arrive.
+- **The plugin store starts its move to interface 7** (#228). Its two settings and the rules that read an untrusted plugin library (the index line of a plugin, the reading of a plugin's keys from the library's JSON with long texts cut, what a build needs of the firmware, the library's address, revoked keys), now written so that a refused allocation never aborts, exist natively beside the old code; the list, the install and the screens follow when the network host and the install design for native plugins arrive.

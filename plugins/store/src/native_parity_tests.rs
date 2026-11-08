@@ -122,8 +122,8 @@ proptest! {
     fn hex_is_read_as_before(text in "[0-9a-fA-F]{0,70}|\\PC{0,70}") {
         let old32: Option<[u8; 32]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
         let old64: Option<[u8; 64]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
-        prop_assert_eq!(native::hex_array::<32>(&text), old32);
-        prop_assert_eq!(native::hex_array::<64>(&text), old64);
+        prop_assert_eq!(paperpaw_sdk::digest::hex::decode_array::<32>(&text), old32);
+        prop_assert_eq!(paperpaw_sdk::digest::hex::decode_array::<64>(&text), old64);
     }
 
     #[test]

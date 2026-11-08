@@ -1,4 +1,4 @@
-# Plugin store on interface 7 (slice 1, partly ported)
+# Plugin store on interface 7 (slices 1 and 2, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the library's list and plugin
 pages, the index kept on the card, the downloads, the install with its checks
@@ -17,14 +17,35 @@ finishes the port; until then nothing is dropped.
   plugin (written and read back, tabs and line ends of the list made spaces); what
   a build needs of the firmware and whether it fits (`Needs`, `Provides`, `Fit`);
   the address of the list (`list_url`, `encode`); hexadecimal keys and signatures
-  read without allocating (`hex_array`, the form that `decode_array` takes in #507,
-  to which the old calls move); the revocations a library names, kept only if
+  read without allocating (`paperpaw_digest::hex::decode_array`, #507); the revocations a library names, kept only if
   they could hold (of a plugin here, naming its author's key, not stopped yet),
   with a bound on the entries read (4,096) and on those kept (256).
   `tests/native_alloc_refusal.rs` refuses each allocation of these. A library is
   untrusted (community plugins too): every text is cut or refused at a limit (a line, name or summary past its cap is not read; runs and sections stop growing) named in the
   file, and nothing indexes text or bytes in a way that can panic.
 - Declarations the host refuses for now are left out of the batch (none here).
+
+## Ported in slice 2 (`src/native_item.rs`, host-free)
+
+- The reading of a plugin of the library's JSON into an `Entry`: the keys of the
+  plugin and of its `latest` version that make the index line and say whether this
+  device lists it (`Item::read`: id, name, summary, author, licence, group, kind,
+  waits, built_in, official, unreviewed, added, `devices`, `latest.version`, `sdk`,
+  `formats`, `size`, `date`), with `cut` and `date`. Tested to give what the
+  interface-6 `Item::read` gives for any path, value and device
+  (`src/catalog/native_parity.rs`), with a refusal sweep and long, multi-byte and
+  odd-path inputs (`tests/native_item.rs`, `tests/native_alloc_refusal.rs`).
+- **Long values are cut, not refused.** As in interface 6, a text of the JSON is
+  cut at its field's cap (80 bytes; the summary 300), at a character's end, and
+  the plugin stays listed. Refusing at a cap applies to **index lines only**
+  (`Entry::parse`: a line over 1,024 bytes, a name over 80 or a summary over 300 is
+  not the store's line). The fetch must keep this split: JSON values are cut when
+  read, and the lines written from them are then always within the caps.
+- Not in this slice (the fetch, with `core.net` and the files facade): what lies
+  below `builds`, `files`, `rotations` and `screenshots`, the plugin's page
+  (`more`), the fit of a plugin to this device (`Item::fits`: it needs the build
+  chosen for the device and `may_install` over the installed plugins), and the
+  streaming of the JSON itself with `paperpaw_sdk::json::stream::try_feed`.
 
 ## Pending host (come back before activation, keeping parity)
 
