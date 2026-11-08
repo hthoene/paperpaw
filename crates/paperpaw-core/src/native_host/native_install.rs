@@ -19,6 +19,7 @@ enum Owned {
     Action(Callback),
     Setting(paperpaw_sdk::SettingSpec),
     Group(paperpaw_sdk::SettingGroupSpec),
+    Resource(super::native_resources::Resource),
 }
 
 fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
@@ -35,6 +36,11 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // The extras (section, editor, check) are presentation the settings
         // page reads from the declaration store; the store keeps the record.
         Record::SettingExtra(_) => Ok(None),
+        Record::ResourceFontFace(_)
+        | Record::ResourceFontExtension(_)
+        | Record::ResourceHyphenation(_) => {
+            Ok(super::native_resources::map(owner, record)?.map(Owned::Resource))
+        }
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
@@ -59,6 +65,56 @@ impl crate::Kernel {
         depth: &FlatDepth,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        self.register_native_in(host, depth, None, report)
+    }
+
+    /// [`Self::register_native`] for a plugin that lives in `folder` (the loader
+    /// of its `.ppn` knows it): the font and hyphenation files its records name
+    /// are relative to it. A plugin with such records and no folder (a linked
+    /// built-in) is refused whole with `ERR_UNSUPPORTED`; so is one with an
+    /// empty folder (a folder written with a trailing `/` is the same folder).
+    ///
+    /// When it brings fonts the choices of reading font and status font are
+    /// offered anew and the fonts chosen applied, as `plugins_changed` does.
+    /// The refresh never aborts on a short heap: where it cannot be made the
+    /// plugin stays installed, the choices and fonts in use stay and a
+    /// warning says so. It may stage a command (the font size, if the reading
+    /// font has none so large): the next round of commands runs it, so the
+    /// caller does nothing about it.
+    ///
+    /// # Errors
+    /// As [`Self::register_native`].
+    pub fn register_native_in<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
+        let fonts_before = self.shared.fonts.ids().count();
+        self.admit_native(host, depth, folder, report)?;
+        if self.shared.fonts.ids().count() != fonts_before {
+            // The families it brought are offered, and a font chosen that was
+            // waiting for it is in use. This is the kernel's own refresh, the
+            // one `plugins_changed` runs for every plugin and the builder at
+            // start-up; it is not part of the admission, whose allocation
+            // faults the tests sweep ([`Self::admit_native`]).
+            self.offer_font_choices();
+            self.apply_reading_font();
+            self.apply_status_font();
+        }
+        Ok(())
+    }
+
+    /// The admission of [`Self::register_native_in`], without the refresh of
+    /// the font choices: all or nothing, and every allocation fallible.
+    pub(crate) fn admit_native<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
         self.shared
             .native_instances
             .adopt_pool(
@@ -75,8 +131,19 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        let folder = folder
+            .map(|folder| folder.trim_end_matches('/'))
+            .filter(|folder| !folder.is_empty());
         let (retained, (owner, owned, tokens), raw) =
             Retained::make_native_stored(host, map_declarations)?;
+        if folder.is_none()
+            && owned
+                .iter()
+                .any(|value| matches!(value, Owned::Resource(_)))
+        {
+            self.warn_runtime("a plugin with font or hyphenation files needs its folder");
+            return Err(shell::Error::Status(ERR_UNSUPPORTED));
+        }
         // The callback registrations are admitted whole or the owner is not:
         // none is dropped unrouted.
         let events = check_registrations(&retained, &depth, &tokens)?;
@@ -95,7 +162,14 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, (owned, raw, events), &owner, report);
+        let result = self.bind_native(
+            key,
+            retained,
+            depth,
+            (owned, raw, events, folder.unwrap_or_default()),
+            &owner,
+            report,
+        );
         if result.is_err() {
             self.shared
                 .native_instances
@@ -234,11 +308,12 @@ impl crate::Kernel {
             Vec<Owned>,
             super::raw_declarations::RawDeclarations,
             super::event_tags::EventTags,
+            &str,
         ),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let (owned, raw, events) = mapped;
+        let (owned, raw, events, folder) = mapped;
         let mut flat_host = self.flat_host();
         flat_host.directory = self
             .shared
@@ -260,8 +335,12 @@ impl crate::Kernel {
         ))
         .map_err(shell::Error::Status)?;
         let mut staging = crate::registry::Staging::default();
+        let mut resources = super::native_resources::Resources::default();
         for value in owned {
             match value {
+                Owned::Resource(resource) => resources
+                    .add(resource, folder)
+                    .map_err(shell::Error::Status)?,
                 Owned::Screen(callback) => {
                     let screen = instance
                         .try_clone()
@@ -328,7 +407,7 @@ impl crate::Kernel {
             .map_err(shell::Error::Status)?;
         // Every contribution at once (all or nothing): the refusals come
         // before anything is published, and the room is made first.
-        self.publish_native(staging)
+        self.publish_native(staging, owner, folder, resources)
             .map_err(|error| shell::Error::Status(merge_status(&error)))?;
         publication.commit();
         Ok(())
@@ -342,8 +421,12 @@ impl crate::Kernel {
     /// publication starts, so a failure leaves no trace.
     fn publish_native(
         &mut self,
-        mut staging: crate::registry::Staging,
+        staging: crate::registry::Staging,
+        owner: &Id,
+        folder: &str,
+        resources: super::native_resources::Resources,
     ) -> Result<(), RegisterError> {
+        self.check_resources(&resources)?;
         for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));
@@ -381,6 +464,23 @@ impl crate::Kernel {
             .settings
             .try_reserve(settings, groups)
             .map_err(|_| no_room())?;
+        self.reserve_resources(owner, folder, &resources)?;
+        // Whatever refuses from here on takes the hyphenation tables out
+        // again (nothing else is published before the merge).
+        let published = self.publish_rest(staging, owner, resources);
+        if published.is_err() {
+            self.undo_resources(owner);
+        }
+        published
+    }
+
+    /// The part of the publication after the room is made.
+    fn publish_rest(
+        &mut self,
+        mut staging: crate::registry::Staging,
+        owner: &Id,
+        resources: super::native_resources::Resources,
+    ) -> Result<(), RegisterError> {
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
             // Checked above (no duplicate, a default that fits, a place
@@ -395,7 +495,7 @@ impl crate::Kernel {
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
         }
-        Ok(())
+        self.publish_fonts(owner, resources)
     }
 }
 

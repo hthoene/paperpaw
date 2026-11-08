@@ -132,5 +132,17 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(waiting, ["ui: IconSpec", "stages: StageSpec"]);
+    // Icons, the menu entries of the action that opens the overview, and the
+    // stage wait for the host to admit them; screens, the action and the
+    // settings are valid now.
+    assert_eq!(
+        waiting,
+        [
+            "ui: IconSpec",
+            "ui: MenuEntry",
+            "ui: MenuEntry",
+            "ui: IconSpec",
+            "stages: StageSpec"
+        ]
+    );
 }

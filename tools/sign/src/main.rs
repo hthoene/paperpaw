@@ -18,6 +18,7 @@ mod elf;
 mod firmware;
 mod framelist;
 mod frames;
+mod frames_xtensa;
 mod hot;
 mod image;
 mod pack;
@@ -78,9 +79,9 @@ USAGE:
         signs it as sign-plugin does. A plugin linked with
         paperpaw-plugin7.x (it defines PAPERPAW_METADATA) is an interface-7
         plugin and gets the file of format 5 (abi/ppn5.md), read back as
-        the X4's loader reads it, with the same refusals for the X4 Pro
-        (target 9, refused until an Xtensa profile exists), a symbol
-        exported besides the entry and the metadata, and more than 8192
+        its loader reads it (target 9 for a plugin built for the X4 Pro and
+        X4 Classic: no hot code, no patches, frames and call0 checked), with
+        the same refusals: a symbol exported besides the entry and the metadata, and more than 8192
         patches. The plugin, sign-plugin and check-plugin commands read
         both formats.
     paperpaw-sign catalog <catalog.ini> <catalog.ppcat>

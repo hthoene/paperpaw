@@ -1,4 +1,4 @@
-# Screen lock on interface 7 (slice 1, partly ported)
+# Screen lock on interface 7 (slices 1 and 2a, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the lock screen with its PIN pad,
 pattern and password, *Lock now*, the touch lock with its input filter, status item
@@ -24,6 +24,25 @@ dropped.
   compare the hashes with the old code's for random salts and codes, read random
   bytes as tries as the old reader did, and test the rules by property.
   `tests/native_alloc_refusal.rs` refuses each allocation.
+
+## Slice 2a: the screen's steps and layout (`src/native_flow.rs`, `src/native_pad.rs`)
+
+- `native_flow` is the interface-6 `LockScreen` without the kernel: the steps (unlock,
+  check the code in use, list the kinds, a new code, the same again), the messages
+  (wrong, too short, mismatch), the wrong-tries rules (`Attempts` of slice 1) and what a key, a
+  dot, a finger, a typed password, *Back* or a finished wait does. Each input returns a
+  short list of **effects** (draw, close, ask for the password, notice, forget or keep the code,
+  set the kind, wake at the end of the wait, keep the tries) that the plugin carries out in
+  order; nothing here calls the host. A code is wiped as soon as it is done with; every
+  allocation is fallible (`tests/native_alloc_refusal.rs` refuses each one).
+  `tests/native_flow.rs` has the cases of the interface-6 `locking.rs` that concern the steps.
+- `native_pad` is the layout of the interface-6 screen: the clock or header at the top,
+  the title, the code's dots and a message, the round keys of the keypad and the nine dots of
+  the pattern with their reach, the pattern's *OK* where there is no touch, the password's
+  button. Sizes in, rectangles out; it saturates on any screen size.
+- Not wired yet: the screen's drawing and input, the events, *Lock now* and the code's
+  place in the secrets facade follow in slice 2b, with the touch lock after. The interface-6
+  plugin stays until then.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
