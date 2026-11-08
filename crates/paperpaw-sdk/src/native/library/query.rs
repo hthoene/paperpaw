@@ -132,11 +132,11 @@ impl<'a> Query<'a> {
         self.cursor = cursor;
         self
     }
-    pub(super) fn record(self) -> Record<'a> {
+    pub(super) fn record(self) -> wire::ServiceLibQuery<'a> {
         let mut row = self.row;
         row.cursor = self.cursor.offset;
         row.generation = self.cursor.generation;
-        Record::ServiceLibQuery(row)
+        row
     }
 }
 macro_rules! filter {

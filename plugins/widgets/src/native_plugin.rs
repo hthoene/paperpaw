@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -21,6 +21,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::paint;
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::widget::Cx;
 
 mod image {
@@ -200,9 +201,13 @@ impl Plugin for NativeWidgets {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::WidgetMade {
                 widget,

@@ -10,7 +10,7 @@ use super::storage::Root;
 use super::wire::services_wire::core_files_v1 as schema;
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    declare::records_wire::{self as wire, WireEncode},
     services::Service,
 };
 
@@ -56,10 +56,8 @@ pub struct Entry<'a> {
 
 impl<'a> Entry<'a> {
     /// `root` is true for the one row that may have no name: `stat` of a root.
-    fn decode(record: Record<'a>, root: bool) -> Result<Self, Error> {
-        let Record::ServiceFsEntry(row) = record else {
-            return Err(Error::Invalid);
-        };
+    fn decode(record: wire::RawRecord<'a>, root: bool) -> Result<Self, Error> {
+        let row: wire::ServiceFsEntry<'a> = typed(record)?;
         let nameless = row.name.is_empty() || matches!(row.name, "." | "..");
         if row.flags & !(ENTRY_FOLDER | ENTRY_UNADDRESSABLE) != 0
             || row.name.contains('/')
@@ -117,10 +115,10 @@ impl<'a> Listing<'a> {
         let mut rest = bytes;
         let mut count = 0;
         let end = loop {
-            let (record, n) = wire::record_decode_prefix(rest).map_err(|_| Error::Invalid)?;
+            let (record, n) = wire::RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
             rest = rest.get(n..).ok_or(Error::Invalid)?;
-            if let Record::ServiceEnd(end) = record {
-                break end;
+            if record.tag() == wire::SERVICE_END_TAG {
+                break typed::<wire::ServiceEnd>(record)?;
             }
             count += 1;
             if count > PAGE_MAX_ROWS {
@@ -157,7 +155,7 @@ impl<'a> Listing<'a> {
                 return None;
             }
             left -= 1;
-            let (record, n) = wire::record_decode_prefix(rest).ok()?;
+            let (record, n) = wire::RawRecord::prefix(rest).ok()?;
             rest = rest.get(n..)?;
             Entry::decode(record, false).ok()
         })
@@ -253,8 +251,13 @@ fn check(root: Root, path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn one(bytes: &[u8]) -> Result<Record<'_>, Error> {
-    wire::record_decode_one(bytes).map_err(|_| Error::Invalid)
+fn one(bytes: &[u8]) -> Result<wire::RawRecord<'_>, Error> {
+    wire::RawRecord::one(bytes).map_err(|_| Error::Invalid)
+}
+
+/// The record `raw` holds as `T`; another tag is as malformed as a bad body.
+fn typed<'a, T: wire::WireRecord<'a>>(raw: wire::RawRecord<'a>) -> Result<T, Error> {
+    raw.decode().map_err(|_| Error::Invalid)
 }
 
 impl Files {
@@ -274,17 +277,17 @@ impl Files {
         self.service.release(host)
     }
 
-    fn call(
+    fn call<R: WireEncode + Copy>(
         &self,
         host: &Host<'_>,
         op: u32,
-        record: &Record<'_>,
+        record: R,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
-        let len = wire::records_encode_counted(
-            core::slice::from_ref(record),
+        let len = wire::records_encode_counted_of(
+            core::iter::once(record),
             usize::from(operation.input_rows),
             operation.max_input,
             input,
@@ -300,11 +303,11 @@ impl Files {
         Ok(n)
     }
 
-    fn mutate(
+    fn mutate<R: WireEncode + Copy>(
         &self,
         host: &Host<'_>,
         op: u32,
-        record: &Record<'_>,
+        record: R,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
@@ -333,13 +336,13 @@ impl Files {
         out: &'a mut [u8],
     ) -> Result<Listing<'a>, Error> {
         check(root, path)?;
-        let record = Record::ServiceFsList(wire::ServiceFsList {
+        let record = wire::ServiceFsList {
             root: root.wire(),
             path,
             cursor,
             flags: 0,
-        });
-        let n = self.call(host, schema::OP_LIST, &record, input, out)?;
+        };
+        let n = self.call(host, schema::OP_LIST, record, input, out)?;
         Listing::decode(out.get(..n).ok_or(Error::Invalid)?, cursor)
     }
 
@@ -356,11 +359,11 @@ impl Files {
         out: &'a mut [u8],
     ) -> Result<Entry<'a>, Error> {
         check(root, path)?;
-        let record = Record::ServiceFsPath(wire::ServiceFsPath {
+        let record = wire::ServiceFsPath {
             root: root.wire(),
             path,
-        });
-        let n = self.call(host, schema::OP_STAT, &record, input, out)?;
+        };
+        let n = self.call(host, schema::OP_STAT, record, input, out)?;
         Entry::decode(one(out.get(..n).ok_or(Error::Invalid)?)?, path.is_empty())
     }
 
@@ -376,14 +379,12 @@ impl Files {
         out: &mut [u8],
     ) -> Result<Space, Error> {
         check(root, "")?;
-        let record = Record::ServiceFsPath(wire::ServiceFsPath {
+        let record = wire::ServiceFsPath {
             root: root.wire(),
             path: "",
-        });
-        let n = self.call(host, schema::OP_SPACE, &record, input, out)?;
-        let Record::ServiceFsSpace(row) = one(out.get(..n).ok_or(Error::Invalid)?)? else {
-            return Err(Error::Invalid);
         };
+        let n = self.call(host, schema::OP_SPACE, record, input, out)?;
+        let row: wire::ServiceFsSpace = typed(one(out.get(..n).ok_or(Error::Invalid)?)?)?;
         if row.flags & !(SPACE_FREE_KNOWN | SPACE_TOTAL_KNOWN | SPACE_IGNORES_CASE) != 0 {
             return Err(Error::Invalid);
         }
@@ -409,11 +410,11 @@ impl Files {
         out: &mut [u8],
     ) -> Result<(), Error> {
         check(root, path)?;
-        let record = Record::ServiceFsPath(wire::ServiceFsPath {
+        let record = wire::ServiceFsPath {
             root: root.wire(),
             path,
-        });
-        self.mutate(host, schema::OP_MAKE_DIR, &record, input, out)
+        };
+        self.mutate(host, schema::OP_MAKE_DIR, record, input, out)
     }
 
     /// One bounded step of removing the folder (or file) at `path` and all in
@@ -433,16 +434,14 @@ impl Files {
         out: &mut [u8],
     ) -> Result<Progress, Error> {
         check(root, path)?;
-        let record = Record::ServiceFsList(wire::ServiceFsList {
+        let record = wire::ServiceFsList {
             root: root.wire(),
             path,
             cursor,
             flags: 0,
-        });
-        let n = self.call(host, schema::OP_REMOVE_TREE, &record, input, out)?;
-        let Record::ServiceFsProgress(row) = one(out.get(..n).ok_or(Error::Invalid)?)? else {
-            return Err(Error::Invalid);
         };
+        let n = self.call(host, schema::OP_REMOVE_TREE, record, input, out)?;
+        let row: wire::ServiceFsProgress = typed(one(out.get(..n).ok_or(Error::Invalid)?)?)?;
         if row.flags & !PROGRESS_DONE != 0 || row.removed > REMOVED_MAX {
             return Err(Error::Invalid);
         }
@@ -523,14 +522,14 @@ impl Files {
     ) -> Result<(), Error> {
         check(from_root, from)?;
         check(to_root, to)?;
-        let record = Record::ServiceFsMove(wire::ServiceFsMove {
+        let record = wire::ServiceFsMove {
             from_root: from_root.wire(),
             from,
             to_root: to_root.wire(),
             to,
             flags: if replace { MOVE_REPLACE } else { 0 },
-        });
-        self.mutate(host, schema::OP_MOVE, &record, input, out)
+        };
+        self.mutate(host, schema::OP_MOVE, record, input, out)
     }
 }
 
