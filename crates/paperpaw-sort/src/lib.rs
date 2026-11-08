@@ -33,6 +33,18 @@
 //! no allocation. [`sort_by_cached_key`] also keeps its `n` keys and, when
 //! the heap refuses those, compares by calling the key function instead.
 //! Nothing here aborts or panics on a full heap.
+//!
+//! **A comparison that is no total order** (it contradicts itself: `a < b`,
+//! `b < c` and `c < a`, or it differs from one call to the next) gives an
+//! order that is not said, and never loses or repeats an item. Lists of up to
+//! 12 items, lists from 2,048 items on and lists sorted without memory run
+//! on loops that never panic on it. A list of 13 to 2,048 items is ordered
+//! through its positions by the standard library's `sort_unstable_by`, which
+//! **may panic** ("user-provided comparison function does not correctly
+//! implement a total order", Rust 1.81 and later), as `slice::sort_by` itself
+//! may; the X4 aborts on a panic. So write the comparison as a total order:
+//! compare the same fields in the same direction, a float by `total_cmp`,
+//! never by anything that changes while sorting.
 #![no_std]
 
 extern crate alloc;
@@ -87,7 +99,9 @@ impl<T, K: Ord> Ops for Cached<'_, T, K> {
     }
 }
 
-/// Sorts `items` by `compare`, stably.
+/// Sorts `items` by `compare`, stably. `compare` must be a total order
+/// (see the crate documentation): where it is not, the order is not said and,
+/// for 13 to 2,048 items, the sort may panic.
 pub fn sort_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> Ordering) {
     let len = items.len();
     stable(len, &mut ByCompare { items, compare });
@@ -314,6 +328,56 @@ mod tests {
         });
         assert_eq!(calls, 20);
         assert!(items.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    /// A comparison that is no total order gives some order of the same items,
+    /// without a panic, where the module says so: up to 12 items, from 2,048
+    /// items on, and in place.
+    #[test]
+    fn a_comparison_that_is_no_total_order_loses_no_item_where_it_does_not_panic() {
+        let cycle = |a: &u32, b: &u32| match (a + 3 - b % 3) % 3 {
+            0 => Ordering::Equal,
+            1 => Ordering::Less,
+            _ => Ordering::Greater,
+        };
+        for len in [0, 1, 5, 12, 13, 40, 300, 2_049, 3_000] {
+            let items: Vec<u32> = (0..len as u32)
+                .map(|at| at.wrapping_mul(2_654_435_761))
+                .collect();
+            let mut all = items.clone();
+            all.sort_unstable();
+            let same_items = |sorted: &[u32]| {
+                let mut left = sorted.to_vec();
+                left.sort_unstable();
+                left == all
+            };
+            let mut place = items.clone();
+            in_place_by(&mut place, cycle);
+            assert!(same_items(&place), "in place, len {len}");
+            if len <= BLOCK || len > POSITIONS_MAX {
+                let mut sorted = items.clone();
+                sort_by(&mut sorted, cycle);
+                assert!(same_items(&sorted), "len {len}");
+                // Always less, always greater, and a coin that flips.
+                let mut flips = 0_u32;
+                for compare in [0_u8, 1, 2] {
+                    let mut again = items.clone();
+                    sort_by(&mut again, |_, _| match compare {
+                        0 => Ordering::Less,
+                        1 => Ordering::Greater,
+                        _ => {
+                            flips = flips.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                            if (flips >> 16) & 1 == 0 {
+                                Ordering::Less
+                            } else {
+                                Ordering::Greater
+                            }
+                        }
+                    });
+                    assert!(same_items(&again), "len {len}, compare {compare}");
+                }
+            }
+        }
     }
 
     proptest! {
