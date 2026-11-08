@@ -262,12 +262,15 @@ impl<'h, 'cb> HostCard<'h, 'cb> {
     }
 }
 
+/// The two buffers of a call, held.
+pub(crate) type Buffers<'a> = (RefMut<'a, Vec<u8>>, RefMut<'a, Vec<u8>>);
+
 /// Both buffers of a call; [`Error::Busy`] where a call is already using them
 /// (a nested call must not panic).
 pub(crate) fn take_buffers<'a>(
     input: &'a RefCell<Vec<u8>>,
     output: &'a RefCell<Vec<u8>>,
-) -> Result<(RefMut<'a, Vec<u8>>, RefMut<'a, Vec<u8>>), Error> {
+) -> Result<Buffers<'a>, Error> {
     match (input.try_borrow_mut(), output.try_borrow_mut()) {
         (Ok(input), Ok(output)) => Ok((input, output)),
         _ => Err(Error::Busy),
