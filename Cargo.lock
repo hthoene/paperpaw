@@ -1861,8 +1861,10 @@ version = "0.6.0-beta.3"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
+ "libc",
  "paperpaw-core",
  "paperpaw-native",
+ "windows-sys 0.59.0",
  "zeroize",
 ]
 
