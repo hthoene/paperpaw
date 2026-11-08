@@ -129,6 +129,8 @@ proptest! {
     #[test]
     fn a_build_fits_as_before(
         interface in proptest::option::of(0u16..12),
+        minor in proptest::option::of(0u16..6),
+        have_minor in proptest::option::of(0u16..6),
         api in proptest::option::of(0u32..800),
         families in proptest::option::of(any::<[u16; 8]>()),
         provides_api in 0u32..800,
@@ -140,10 +142,10 @@ proptest! {
         let have = have.map(|r| r % 6);
         let oldest = oldest.map(|r| r % 6);
         let families = families.map(|_| fam);
-        let n = native::Needs { interface, api, families };
-        let o = crate::needs::Needs { interface, api, families };
-        let np = native::Provides { api: provides_api, families: have, oldest, checks_families: checks };
-        let op = crate::needs::Provides { api: provides_api, families: have, oldest, checks_families: checks };
+        let n = native::Needs { interface, minor, api, families };
+        let o = crate::needs::Needs { interface, minor, api, families };
+        let np = native::Provides { minor: have_minor, api: provides_api, families: have, oldest, checks_families: checks };
+        let op = crate::needs::Provides { minor: have_minor, api: provides_api, families: have, oldest, checks_families: checks };
         let new = match np.fit(&n) {
             native::Fit::Yes => "yes",
             native::Fit::Newer => "newer",
@@ -244,4 +246,24 @@ fn a_long_list_of_revocations_is_bounded() {
     list.field("key", &"é".repeat(100_000)).unwrap();
     list.entry_done(&here, &author, &stopped).unwrap();
     assert!(list.pending().is_empty());
+}
+
+#[test]
+fn an_abi_is_a_fingerprint_or_major_dot_minor() {
+    use crate::native_model::Abi;
+    let f = paperpaw_sdk::native::Fingerprint::of(7, 0x1234);
+    assert_eq!(Abi::parse(&f.to_string()), Some(Abi::Fingerprint(f)));
+    assert_eq!(
+        Abi::parse(" 7.2 "),
+        Some(Abi::Dotted { major: 7, minor: 2 })
+    );
+    assert_eq!(Abi::parse("0.0"), Some(Abi::Dotted { major: 0, minor: 0 }));
+    assert_eq!(Abi::parse("7.65535").and_then(Abi::minor), Some(65535));
+    assert_eq!(Abi::parse("7.1").map(Abi::interface), Some(7));
+    for bad in [
+        "", ".", "7", "7.", ".1", "7.1.2", "07.1", "7.01", "7.-1", "+7.1", "7.x", "7.65536",
+        "70000.1", "7 .1", "٧.١", "7,1",
+    ] {
+        assert_eq!(Abi::parse(bad), None, "{bad:?}");
+    }
 }

@@ -33,7 +33,13 @@ fn pick<T: Clone + core::fmt::Debug + 'static>(of: &[T]) -> impl Strategy<Value 
 }
 
 fn build() -> impl Strategy<Value = String> {
-    let abis = [abi(), String::from("zz"), String::new()];
+    let abis = [
+        "7.0", "7.2", "7.3", "6.1", "8.0", "7.x", "07.1", "7.", "7.1.2", "zz", "",
+    ]
+    .map(String::from)
+    .into_iter()
+    .chain([abi()])
+    .collect::<Vec<_>>();
     (
         pick(&["x4", "x4-pro"]),
         pick(&abis),
@@ -159,6 +165,7 @@ fn plugin_json(s: &Spec) -> String {
 
 fn old_provides(p: Provides) -> crate::needs::Provides {
     crate::needs::Provides {
+        minor: p.minor,
         api: p.api,
         families: p.families,
         oldest: p.oldest,
@@ -168,6 +175,7 @@ fn old_provides(p: Provides) -> crate::needs::Provides {
 
 fn provides(on: bool) -> Option<Provides> {
     on.then_some(Provides {
+        minor: Some(2),
         api: 400,
         families: [3, 2, 0, 0, 0, 0, 0, 0],
         oldest: [2, 1, 0, 0, 0, 0, 0, 0],

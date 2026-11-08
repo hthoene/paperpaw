@@ -21,6 +21,9 @@ pub(crate) const FAMILIES: usize = 8;
 pub(crate) struct Needs {
     /// The plugin interface it was built for.
     pub interface: Option<u16>,
+    /// The newest minor of that interface it uses, where `abi` is
+    /// `7.<minor>`.
+    pub minor: Option<u16>,
     /// The bytes of the firmware's table it uses.
     pub api: Option<u32>,
     /// The revision of each family it uses, 0 for the others; whole, or
@@ -44,6 +47,9 @@ pub(crate) enum Fit {
 /// What the firmware here provides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Provides {
+    /// The newest minor of the interface it speaks; `None` where it is not
+    /// known yet (`Native::minor`, draft 29): the minor is not checked.
+    pub minor: Option<u16>,
     /// The bytes of its table.
     pub api: u32,
     /// The revision of each family it has (0: none).
@@ -59,6 +65,7 @@ pub(crate) struct Provides {
 impl Provides {
     pub(crate) fn of(native: &Native) -> Self {
         Self {
+            minor: None,
             api: native.api_size,
             families: native.family_revs,
             oldest: native.family_min,
@@ -75,7 +82,12 @@ impl Provides {
             return Fit::Older;
         }
         let mut older = false;
-        let mut newer = interface > INTERFACE || needs.api.is_some_and(|api| api > self.api);
+        let mut newer = interface > INTERFACE
+            || needs.api.is_some_and(|api| api > self.api)
+            || needs
+                .minor
+                .zip(self.minor)
+                .is_some_and(|(need, have)| need > have);
         let used = needs.families.filter(|_| self.checks_families);
         if let Some(used) = used {
             for (i, &rev) in used.iter().enumerate().filter(|(_, rev)| **rev != 0) {
@@ -102,6 +114,7 @@ mod tests {
 
     fn provides() -> Provides {
         Provides {
+            minor: Some(2),
             api: 400,
             families: [3, 2, 0, 0, 0, 0, 0, 0],
             oldest: [2, 1, 0, 0, 0, 0, 0, 0],
@@ -112,6 +125,7 @@ mod tests {
     fn needing(api: u32, families: [u16; 8]) -> Needs {
         Needs {
             interface: Some(INTERFACE),
+            minor: None,
             api: Some(api),
             families: Some(families),
         }

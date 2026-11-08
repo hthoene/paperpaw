@@ -72,6 +72,14 @@ finishes the port; until then nothing is dropped.
   source goes before the home), `repository` (`https://`, 200), `author_since`
   (date), `description` (4,000), `author_plugins` (number) and `rotations.*`
   (`to` 80, `signature` 160).
+- Format-5 builds (#188, Kernel todo 169): a build's `abi` is either the
+  format-4 fingerprint (16 hex digits) or `7.<needs_minor>` (`Abi::parse`:
+  decimal, no sign, no leading zeros, 16 bits each, nothing else). The order is
+  target (`device`) → major (below 7: built for an older PaperPaw and not offered;
+  above: needs a newer one) → `needs_minor` at most the host's minor (else a newer
+  PaperPaw); no draft check. **Pending Kernel draft 29:** `Native::minor` is not in
+  the SDK yet, so `Provides::minor` is `None` and the minor is not checked; switch
+  `Provides::of` to the field when it lands.
 
 ## Not yet (the install and the fetch)
 

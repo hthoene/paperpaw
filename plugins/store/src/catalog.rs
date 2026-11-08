@@ -55,6 +55,7 @@ use paperpaw_sdk::web::{encode, join_url};
 use paperpaw_sdk::{Env, PluginKind, Plugins, Storage, Version};
 
 use crate::PLUGIN;
+use crate::native_model::Abi;
 use crate::needs::{Fit, Needs, Provides};
 use crate::revoked::Revocations;
 use crate::trust::{Named, Rotation};
@@ -583,17 +584,17 @@ impl Item {
     /// PaperPaw is noted (see [`Entry::needs_newer`]).
     fn build_done(&mut self, device: &Device<'_>) {
         let mut build = core::mem::take(&mut self.build);
+        let abi = Abi::parse(&build.abi);
         let right = build.device == device.name
             && !device.code_file.is_empty()
-            && device
-                .fingerprint
-                .is_some_and(|f| Fingerprint::parse(&build.abi) == Some(f));
+            && abi.is_some_and(|abi| abi.is_for(device.fingerprint));
         if !right || self.code.is_some() {
             return;
         }
-        // The interface is the fingerprint's own (the library's `interface`
-        // field says the same, and is not taken twice).
-        build.needs.interface = Fingerprint::parse(&build.abi).map(Fingerprint::interface);
+        // The interface and the minor are the `abi`'s own (the library's
+        // `interface` field says the same, and is not taken twice).
+        build.needs.interface = abi.map(Abi::interface);
+        build.needs.minor = abi.and_then(Abi::minor);
         // Eight revisions, each a number: else the list is not read.
         build.needs.families = <[u16; crate::needs::FAMILIES]>::try_from(build.families.as_slice())
             .ok()

@@ -11,7 +11,9 @@
 //!
 //! What the install does with the files (the package's validity, the paths, the
 //! digests checked, the key pinned) stays with the install (`PORTING-7.md`).
-use crate::native_model::{Entry, FAMILIES, Fit, MAX_NAME, MAX_SUMMARY, Needs, Provides, group};
+use crate::native_model::{
+    Abi, Entry, FAMILIES, Fit, MAX_NAME, MAX_SUMMARY, Needs, Provides, group,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::Version;
@@ -447,16 +449,16 @@ impl Item {
     /// `NoMemory` when it cannot be kept.
     pub fn build_done(&mut self, device: &Device<'_>) -> Result<(), Error> {
         let mut build = core::mem::take(&mut self.build);
+        let abi = Abi::parse(&build.abi);
         let right = build.device == device.name
             && !device.code_file.is_empty()
-            && device
-                .fingerprint
-                .is_some_and(|f| Fingerprint::parse(&build.abi) == Some(f));
+            && abi.is_some_and(|abi| abi.is_for(device.fingerprint));
         if !right || self.code.is_some() {
             return Ok(());
         }
-        // The interface is the fingerprint's own.
-        build.needs.interface = Fingerprint::parse(&build.abi).map(Fingerprint::interface);
+        // The interface and the minor are the `abi`'s own.
+        build.needs.interface = abi.map(Abi::interface);
+        build.needs.minor = abi.and_then(Abi::minor);
         // Eight revisions, each a number: else the list is not read.
         build.needs.families = <[u16; FAMILIES]>::try_from(build.families.as_slice())
             .ok()
