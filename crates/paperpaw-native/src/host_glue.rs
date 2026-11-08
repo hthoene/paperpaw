@@ -357,6 +357,36 @@ unsafe extern "C" fn unsupported_ui_compose(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_image_info(_: *mut c_void, _: u32, _: PpBuffer) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_canvas_draw_image(
+    _: *mut c_void,
+    _: u32,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_text_hyphenate(
+    _: *mut c_void,
+    _: PpBytes,
+    _: PpBytes,
+    _: u32,
+    _: u32,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_text_covers(_: *mut c_void, _: u32, _: PpBytes) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_icon_glyph(_: *mut c_void, _: PpBytes, _: PpBuffer) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -468,6 +498,11 @@ pub const fn host_table() -> PpHost {
         service_open: unsupported_services_query,
         service_call: unsupported_service_call,
         ui_compose: unsupported_ui_compose,
+        image_info: unsupported_image_info,
+        canvas_draw_image: unsupported_canvas_draw_image,
+        text_hyphenate: unsupported_text_hyphenate,
+        text_covers: unsupported_text_covers,
+        icon_glyph: unsupported_icon_glyph,
     }
 }
 

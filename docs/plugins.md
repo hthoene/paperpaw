@@ -2724,7 +2724,7 @@ Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
 and `Declarations::book_field`; `.in_catalog()` also keeps short values in the
 catalog. `Declarations::book_badge(name, token)` registers the owner callback.
 The host supplies each name's plugin prefix. Badge stage payload codecs follow
-Kernel's `core.book_badge` schema.
+Kernel's `core.book-badge` schema.
 
 Read all owners' fields with `native::library::Library::fields`, passing a
 `BookRef` and `FieldCursor::start()` for the first page. `FieldPage::rows()`

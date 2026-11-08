@@ -122,7 +122,7 @@ file's size, 2.1).
   root-1 exclusions) another of the plugin's unfinished requests saves to ends that older one at
   once with reason `replaced`; the new one goes on (interface 6). If **another plugin's** unfinished
   request saves to it (only possible on root 1), the new request is `ERR_BUSY`: a plugin never ends
-  another's download. While a request saves, its target and its `.part` file are in the host's
+  another's download. While a request saves, its target and its `.pp-staged` file are in the host's
   paths-in-use table (`files.md` section 3): a `core.files` `move` or `remove_tree` and the file
   slots' `write`, `append`, `rename`, `remove` over them are `ERR_BUSY`.
 
@@ -177,7 +177,9 @@ file's size, 2.1).
 - [D] A request made while no network is up waits for one: the host tells the network manager
   (`event.network_wanted`, `device.md`) and ends the request with reason `no_network` if none came
   within 30,000 ms. When the last request, server and socket ends, the manager gets
-  `event.network_idle`. The host never turns the radio on by itself.
+  `event.network_idle`. The host never turns the radio on by itself. NET and `core.sockets`
+  share one demand in the host: `network_wanted` and `network_idle` follow the combined state, so
+  one service going idle never cancels the other's wait, and each change sends exactly one event.
 - [D] **Power saving** (ADR 0025) ends a request at once, before any byte goes out, with:
   `offline` when the device is in the offline power mode (except a request started within 2,000 ms
   of the user's input, as DEV's window); `saving` when the user put this plugin's network use on
@@ -188,11 +190,12 @@ file's size, 2.1).
 
 ### 3.3 Files, power cuts and the card
 
-- [D] A saved answer is written to `<path>.part` beside the target in 4 KiB appends and renamed over
-  the target only when it is whole (2xx, not over `max_file`); on any failure, a cancel or a
-  `replaced`, the `.part` file is removed and **the old file stays as it was**. A power cut leaves
-  at most a stray `.part`, which the next request to that path replaces. The plugin's own file is
-  never half written. `net_file` paths may not end in `.part` (`ERR_INVALID`).
+- [D] A saved answer is written to `<path>.pp-staged` beside the target in 4 KiB appends and renamed
+  over the target only when it is whole (2xx, not over `max_file`); on any failure, a cancel or a
+  `replaced`, the `.pp-staged` file is removed and **the old file stays as it was**. A power cut
+  leaves at most a stray `.pp-staged` file, which the next request to that path replaces. The
+  plugin's own file is never half written. `net_file` paths may not end in `.pp-staged` in any case
+  (`ERR_INVALID`); `.part` is an ordinary name, so a user's own `x.part` is never overwritten.
 - [D] A card that goes away ends the request with reason `io`; a full card with reason `full`.
 
 ### 3.4 Concurrency and memory
@@ -430,7 +433,7 @@ file's size, 2.1).
   `serve`, 120 s answer time), and tests for each status and reason. Interface 6's `io/http.rs`
   and `io/servers.rs` logic moves over; the shells' `HttpCall` / `ServerCall` stay.
 - **Firmware (with H10):** the shell transport. The X4 shell keeps its HTTP client and server
-  (`.part` renames, the 20-port probe, the cable server), the emulator and Android shells keep
+  (`.pp-staged` renames, the 20-port probe, the cable server), the emulator and Android shells keep
   theirs, and the shells advertise `uses.network`. The servers keep the 8 KiB head cap, the 30 s
   head and stall times and stop a body at `max_body`. Firmware measures the X4 worst case
   (a full `NET_POOL`, the receive and send buffers of NET's and SOCK's connections, one TLS

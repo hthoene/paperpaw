@@ -8,7 +8,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 8] = [
+const CASES: [Case; 12] = [
     // The dashboard draws its pages of widgets and tools as before (widgets
     // composed with `ui.compose`), pages by swipe or buttons.
     Case {
@@ -62,6 +62,33 @@ const CASES: [Case; 8] = [
         name: "home-footer-items-editor-grip-drag",
         golden: None,
         blocked_by: &["KIT-grip-drag"],
+    },
+    // The status line above the grid (its items, drawn by their owners and
+    // composed), tapped for the item's action.
+    Case {
+        name: "home-status-line",
+        golden: None,
+        blocked_by: &["H1", "HOME-status-line-slice"],
+    },
+    // The icons of tools and of the footer's buttons (the pencil, the actions).
+    Case {
+        name: "home-tool-icons",
+        golden: None,
+        blocked_by: &["517"],
+    },
+    // The widgets show new content: the minute tick and `widget_changed` lay
+    // the page out anew and draw it (not subscribed to yet), and the screen
+    // turned.
+    Case {
+        name: "home-widget-updates",
+        golden: None,
+        blocked_by: &["HOME-subscriptions-slice", "H3"],
+    },
+    // Adding a widget or tool to a page (the gallery).
+    Case {
+        name: "home-add",
+        golden: None,
+        blocked_by: &["HOME-add-slice", "H1", "H4"],
     },
 ];
 
@@ -121,4 +148,28 @@ fn home_help_hints() {
 #[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
 fn home_footer_items_editor_grip_drag() {
     CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED HOME-status-line-slice: the status line above the grid is not drawn yet"]
+fn home_status_line() {
+    CASES[8].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED 517: icons are not admitted in the native host yet"]
+fn home_tool_icons() {
+    CASES[9].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED HOME-subscriptions-slice: the tick and widget changes are not subscribed to yet"]
+fn home_widget_updates() {
+    CASES[10].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED HOME-add-slice: the Add screen is not ported yet"]
+fn home_add() {
+    CASES[11].refuse().unwrap();
 }
