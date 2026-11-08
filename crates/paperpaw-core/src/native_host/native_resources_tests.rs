@@ -85,6 +85,16 @@ pub(super) fn batch(
             ],
             bytes,
         ),
+        // Offers whose priority the contract allows and the kernel's i16 does
+        // not: counted as the nearest end.
+        9 => wire::records_encode(
+            &[
+                screen,
+                offer("core.translate", 100_000),
+                offer("core.lookup", -100_000),
+            ],
+            bytes,
+        ),
         // A face and an extension of the same name.
         _ => wire::records_encode(&[screen, face("Serif", pack, 0), extension("serif")], bytes),
     }

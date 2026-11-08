@@ -363,6 +363,12 @@ impl Registry {
         self.candidates.len()
     }
 
+    /// The priority of each offer, in the order made (for tests).
+    #[cfg(test)]
+    pub(crate) fn offer_priorities(&self) -> impl Iterator<Item = Priority> + '_ {
+        self.candidates.iter().map(|c| c.priority)
+    }
+
     /// Forgets the offers of `owner`'s screens, when it is unloaded.
     pub(crate) fn remove_native_offers(&mut self, owner: &str) {
         self.candidates
@@ -389,6 +395,11 @@ impl Registry {
     /// has no room for the list (the caller keeps the list it has).
     pub(crate) fn try_bound_slots(&self) -> Option<Vec<Id>> {
         let mut slots: Vec<Id> = Vec::new();
+        // At most one slot for each offer and binding: reserved once, so the
+        // list never grows by doubling.
+        slots
+            .try_reserve_exact(self.candidates.len() + self.user_bindings.len())
+            .ok()?;
         for slot in self
             .candidates
             .iter()
@@ -396,11 +407,17 @@ impl Registry {
             .chain(self.user_bindings.iter().map(|(slot, _)| slot))
         {
             if !slots.contains(slot) && self.resolve_slot(slot.as_str()).is_some() {
-                slots.try_reserve(1).ok()?;
                 slots.push(slot.try_clone()?);
             }
         }
         Some(slots)
+    }
+
+    /// Keeps of `slots` those some screen is still bound to, without
+    /// allocating: where the list cannot be made anew, a slot whose last offer
+    /// went must not stay in it.
+    pub(crate) fn retain_bound(&self, slots: &mut Vec<Id>) {
+        slots.retain(|slot| self.resolve_slot(slot.as_str()).is_some());
     }
 
     /// The screen bound to `slot`: the user's choice if that screen exists,

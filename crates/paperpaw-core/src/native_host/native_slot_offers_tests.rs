@@ -66,3 +66,100 @@ fn every_allocation_of_an_install_with_offers_refuses_whole() {
     }
     assert!(reached_success, "the fault walk reached an admitted owner");
 }
+
+#[test]
+fn a_priority_outside_i16_counts_as_the_nearest_end_and_the_plugin_installs() {
+    let mut kernel = fresh();
+    install_resources(&mut kernel, 9, FOLDER).unwrap();
+    for slot in ["core.translate", "core.lookup"] {
+        assert!(has_slot(&kernel, slot), "{slot}");
+    }
+    let priorities: Vec<_> = kernel
+        .shared
+        .registry
+        .offer_priorities()
+        .map(|priority| priority.0)
+        .collect();
+    // The kernel's own offers come first; the plugin's were last made.
+    assert!(
+        priorities.ends_with(&[i16::MAX, i16::MIN]),
+        "{priorities:?}"
+    );
+}
+
+/// A plugin of the program offering `core.translate` at `priority`.
+struct Other(i16);
+impl paperpaw_sdk::Plugin for Other {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("other"),
+            "Other",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        struct Empty;
+        impl paperpaw_sdk::Screen for Empty {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+            fn on_action(
+                &mut self,
+                _: &Id,
+                _: &mut paperpaw_sdk::Cx<'_, '_>,
+            ) -> paperpaw_sdk::Handled {
+                paperpaw_sdk::Handled::No
+            }
+        }
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("other.screen"),
+            "other.title",
+            Box::new(|_, _| Box::new(Empty)),
+        ))?;
+        r.bind_slot(
+            Id::new_static("core.translate"),
+            Id::new_static("other.screen"),
+            paperpaw_sdk::Priority(self.0),
+        )
+    }
+}
+
+#[test]
+fn two_plugins_offering_one_slot_leave_the_other_when_one_unloads() {
+    // The native offer is at priority 4: the other plugin's wins at 10, and
+    // is the one left at -5 when the native plugin goes.
+    for (priority, first) in [(10, "other.screen"), (-5, "factory.screen")] {
+        reset(NORMAL);
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Other(priority))
+            .build()
+            .unwrap();
+        install_resources(&mut kernel, 8, FOLDER).unwrap();
+        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        assert_eq!(
+            env.slot_screen("core.translate").map(Id::as_str),
+            Some(first)
+        );
+        assert!(kernel.unload_plugin(&Id::new_static("factory")));
+        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        assert_eq!(
+            env.slot_screen("core.translate").map(Id::as_str),
+            Some("other.screen")
+        );
+        assert!(!env.has_slot(&Id::new_static("core.lookup")));
+    }
+}
+
+#[test]
+fn the_list_that_stays_when_it_cannot_be_made_anew_drops_slots_without_an_offer() {
+    let mut kernel = fresh();
+    install_resources(&mut kernel, 8, FOLDER).unwrap();
+    let mut slots = core::mem::take(&mut kernel.shared.slots);
+    assert!(slots.iter().any(|slot| slot.as_str() == "core.translate"));
+    kernel.shared.registry.retain_bound(&mut slots);
+    assert!(slots.iter().any(|slot| slot.as_str() == "core.translate"));
+    kernel.shared.registry.remove_native_offers("factory");
+    kernel.shared.registry.retain_bound(&mut slots);
+    for slot in ["core.translate", "core.lookup", "factory.own"] {
+        assert!(!slots.iter().any(|s| s.as_str() == slot), "{slot}");
+    }
+}
