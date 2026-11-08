@@ -76,3 +76,6 @@ senders and event 98 of the SDK (PR #363).
 - `shells/desktop/tests/memory.rs` `bluetooth_stays_within_the_x4_pro_budget` drives
   the interface-6 plugin (the page, `bluetooth.remotes`, a remote's keys); it is
   `#[ignore]`d with "re-enable at Bluetooth activation".
+- The headless step `a_plugin_switched_on_applies_after_the_restart`
+  (`shells/desktop/tests`) is ignored: the interface-7 plugin manager has no
+  restart row until the DEV command senders (#342). Re-enable it with them.
