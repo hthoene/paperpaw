@@ -1,5 +1,5 @@
 //! The interface-7 Stats plugin: what the host tells it about reading goes to
-//! the [`Recorder`], over the plugin's data folder and the user's files.
+//! the `Recorder`, over the plugin's data folder and the user's files.
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
