@@ -4,7 +4,7 @@ Status: **not complete.** The interface-6 plugin (`Translate`, the panel, the re
 answer in `lib.rs`) is still in place beside the native one. It is removed in the PR that finishes
 the port.
 
-Version 1.0.7. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
+Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
 `declarations.rs` built into the image by `build.rs`, the host-free parts in
 `src/native_model.rs`, metadata in `native/` (regenerate with
 `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
