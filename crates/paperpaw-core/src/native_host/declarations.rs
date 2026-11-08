@@ -82,16 +82,14 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
         Record::ScreenSpec(screen) => screen_check(plugin_id, screen),
         Record::ActionSpec(action) => action_check(plugin_id, action),
-        // Checked, then refused until the host's menus and icons take them
-        // (`docs/abi/screens-input.md` section 1): never accepted and dropped.
-        Record::MenuEntry(entry) => menu_entry_check(entry).and(Err(ERR_UNSUPPORTED)),
-        Record::IconSpec(icon) => icon_check(icon).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuNeed(need) => need_check(need).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuSection(section) => section_check(plugin_id, section).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuHide(hide) => hide_check(hide).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuDescribe(describe) => {
-            describe_check(plugin_id, describe).and(Err(ERR_UNSUPPORTED))
-        }
+        // Menus and icons (`docs/abi/screens-input.md` section 1): checked here,
+        // the items of the plugin's own resolved at commit (`declaration_checks`).
+        Record::MenuEntry(entry) => menu_entry_check(entry),
+        Record::IconSpec(icon) => icon_check(icon),
+        Record::MenuNeed(need) => need_check(need),
+        Record::MenuSection(section) => section_check(plugin_id, section),
+        Record::MenuHide(hide) => hide_check(hide),
+        Record::MenuDescribe(describe) => describe_check(plugin_id, describe),
         // Checked, then refused until the host runs stages
         // (`docs/abi/stages-services.md` section 1).
         Record::StageSpec(spec) => stage_spec_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),

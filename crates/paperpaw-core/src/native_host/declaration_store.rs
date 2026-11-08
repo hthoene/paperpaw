@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 20;
+const KIND_COUNT: usize = 26;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -87,6 +87,12 @@ pub(crate) enum Kind {
     StatusItem,
     StatusLine,
     StatusPlace,
+    MenuEntry,
+    Icon,
+    MenuNeed,
+    MenuSection,
+    MenuHide,
+    MenuDescribe,
     // REG declarations (`registry.md` section 6). `setup.step` (category 8)
     // joins as the next variant, with `KIND_COUNT` one higher, when the host
     // admits it.
@@ -115,6 +121,12 @@ impl Kind {
             Self::StatusItem => 20,
             Self::StatusLine => 21,
             Self::StatusPlace => 22,
+            Self::MenuEntry => 23,
+            Self::Icon => 24,
+            Self::MenuNeed => 25,
+            Self::MenuSection => 26,
+            Self::MenuHide => 27,
+            Self::MenuDescribe => 28,
             Self::SlotSpec => 9,
             Self::SlotOffer => 10,
             Self::KeyBind => 11,
@@ -140,6 +152,12 @@ impl Kind {
             Record::StatusItem(_) => Self::StatusItem,
             Record::StatusLine(_) => Self::StatusLine,
             Record::StatusPlace(_) => Self::StatusPlace,
+            Record::MenuEntry(_) => Self::MenuEntry,
+            Record::IconSpec(_) => Self::Icon,
+            Record::MenuNeed(_) => Self::MenuNeed,
+            Record::MenuSection(_) => Self::MenuSection,
+            Record::MenuHide(_) => Self::MenuHide,
+            Record::MenuDescribe(_) => Self::MenuDescribe,
             Record::SlotSpec(_) => Self::SlotSpec,
             Record::SlotOffer(_) => Self::SlotOffer,
             Record::KeyBind(_) => Self::KeyBind,
@@ -331,10 +349,10 @@ impl PendingDeclarations {
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
             if let Some(kind) = Kind::of(&record) {
-                // Composite keys (slot offers, key bindings, choices, preset
-                // values) hash every key field: two offers of one slot are two keys.
-                let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
-                kinds[index] = Some((kind, hash));
+                kinds[index] = Some((
+                    kind,
+                    super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?,
+                ));
                 counts[kind as usize] += 1;
             }
         }
@@ -428,6 +446,13 @@ impl PendingDeclarations {
                 FONT_EXTENSIONS_MAX,
                 // Screen, action and UIX copies share the aggregate byte cap.
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // Menus and icons share the aggregate byte cap too.
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
@@ -815,7 +840,11 @@ fn check_indexed_name(
             let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
                 continue;
             };
-            if same_record_name(record, other) {
+            if name_key(other).is_some_and(|(other_kind, _)| {
+                other_kind == category
+                    && record_hash(other) == Some(hash)
+                    && same_record_name(record, other)
+            }) {
                 return Err(ERR_INVALID);
             }
         }

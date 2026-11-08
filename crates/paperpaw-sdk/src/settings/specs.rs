@@ -123,6 +123,41 @@ impl Specs {
         true
     }
 
+    /// Forgets every spec whose id belongs to `plugin`; the places of the
+    /// others move down over the gaps. Allocates nothing.
+    pub(super) fn remove_plugin(&mut self, plugin: &str) {
+        let Self {
+            owned,
+            lists,
+            order,
+            by_id,
+        } = self;
+        let belongs = |owned: &[SettingSpec], place: u16| {
+            let spec = if place & FIXED == 0 {
+                &owned[usize::from(place)]
+            } else {
+                let place = place & !FIXED;
+                let list = lists.partition_point(|(_, first)| *first <= place) - 1;
+                let (specs, first) = lists[list];
+                &specs[usize::from(place - first)]
+            };
+            spec.id.namespace() == plugin
+        };
+        order.retain(|&place| !belongs(owned, place));
+        by_id.retain(|&place| !belongs(owned, place));
+        // A made spec's place drops by the gaps before it.
+        for place in order.iter_mut().chain(by_id.iter_mut()) {
+            if *place & FIXED == 0 {
+                let gaps = owned[..usize::from(*place)]
+                    .iter()
+                    .filter(|spec| spec.id.namespace() == plugin)
+                    .count();
+                *place -= gaps as u16;
+            }
+        }
+        owned.retain(|spec| spec.id.namespace() != plugin);
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = &SettingSpec> {
         self.order.iter().map(|&place| self.at(place))
     }

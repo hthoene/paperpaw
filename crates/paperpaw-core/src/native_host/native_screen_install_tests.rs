@@ -8,6 +8,7 @@ std::thread_local! {
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
+    static MENUS: Cell<u8> = const { Cell::new(0) };
     static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
     static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
@@ -50,6 +51,14 @@ unsafe extern "C" fn screen_make(
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
         let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return status;
+        }
+    }
+    let menus = MENUS.with(Cell::get);
+    if menus != 0 {
+        // SAFETY: the same live host table and context as the submit above.
+        let status = unsafe { menu_records::submit(host, ctx, menus) };
         if status != OK {
             return status;
         }
@@ -872,3 +881,6 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     drop(dispatch);
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
+
+#[path = "native_menu_install_tests.rs"]
+mod menu_records;
