@@ -1,6 +1,6 @@
 # Interface-7 port (slices 1 to 3: the radio policy, the declarations, the phone setup, the own network and the kept networks)
 
-Version 1.0.5. Partial: the decisions of the plugin and what it declares, without the host. No
+Version 1.0.4. Partial: the decisions of the plugin and what it declares, without the host. No
 native screen and no `NATIVE_ENTRY` yet; the interface-6 `Wifi` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
 
@@ -44,8 +44,10 @@ host activates native plugins (then it goes together, no shim).
   where none is left). Same rules and answers as the SDK's `Random`, `wifi::join_code` and
   `device_name::ssid` (compared on the same byte streams and at random). The bytes come from a `draw`
   the screen backs with `core.secrets` `random` (up to 256 bytes a call, `strong` when the source was
-  fully random; **no weaker draw is substituted**: the caller decides what a weak one is worth, the
-  own network's password is best drawn once the radio is on, `secrets.md`); the bytes and the
+  fully random; **no weaker draw is substituted**; a weak draw (`strong == false`) never becomes the own network's
+  password or the page's token: the screen takes the text only through `Drawn::into_strong`, which
+  wipes a weak one and gives `None`; the own network's password is best drawn once the radio is on,
+  `secrets.md`); the bytes and the
   intermediate text are wiped, the result is a `Password` (wiped when dropped, never printed).
 - `src/native_known.rs` (slice 3): the networks joined before as secrets of the plugin's own: one for
   each, named by the network's name (interface 6: `wifi.<name>`; the own name has no prefix,

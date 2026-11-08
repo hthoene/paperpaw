@@ -35,6 +35,16 @@ pub struct Drawn {
     pub strong: bool,
 }
 
+impl Drawn {
+    /// The text, only where the whole draw was fully random: a weak draw is
+    /// dropped (wiped) and gives `None`. The own network's password and the
+    /// page's token are taken only through this.
+    #[must_use]
+    pub fn into_strong(self) -> Option<Password> {
+        self.strong.then_some(self.text)
+    }
+}
+
 impl core::fmt::Debug for Drawn {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Drawn")

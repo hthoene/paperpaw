@@ -114,6 +114,27 @@ fn a_weak_draw_is_told_and_a_refused_one_is_the_error() {
     start(4);
     let drawn = own::readable(40, &mut weak).unwrap().unwrap();
     assert!(!drawn.strong);
+    assert!(drawn.into_strong().is_none());
+    let mut strong_draw = |buf: &mut [u8]| {
+        fill(buf);
+        Ok(true)
+    };
+    assert!(
+        own::token(13, &mut strong_draw)
+            .unwrap()
+            .into_strong()
+            .is_some()
+    );
+    let mut weak_token = |buf: &mut [u8]| {
+        fill(buf);
+        Ok(false)
+    };
+    assert!(
+        own::token(13, &mut weak_token)
+            .unwrap()
+            .into_strong()
+            .is_none()
+    );
     let mut refused = |_: &mut [u8]| Err(Error::Unsupported);
     assert_eq!(
         own::token(13, &mut refused).unwrap_err(),
