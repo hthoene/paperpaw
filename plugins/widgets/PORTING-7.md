@@ -10,7 +10,7 @@ time) and built into the image by `build.rs`. Metadata in `native/`
 (`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
 --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise
 `metadata.host.*`). `src/native_defs.rs` maps a token to the widget's
-`height`, `draw` and `shows`; `src/native_cx.rs` is what a widget draws with in
+`height`, `draw` and `shows`; `paperpaw_ui_kit::widget::Cx` is what a widget draws with in
 one callback (settings of its placement, the interface font, the shared look,
 the clock in the chosen zone, the catalog). Nothing of a callback is retained.
 
@@ -19,18 +19,31 @@ time with the placement id, the frame/paper/ink/corners/line/shadow/padding
 look, fitted and wrapped text, stacks, packs): every widget plugin of the
 interface-7 port uses it, none builds its own.
 
-## Ported (this slice)
+## Ported
 
 - Day and date (`widgets.day`): the three styles (weekday large, the day's
   number large, a calendar sheet), the shared look settings, size, date format,
   year and week number; redrawn when the day changes (`live`, the minute tick
   sends `command.widget_changed` only when what it shows changed).
 
+- The time family: analogue clock (hands as capsules, dial ticks), word clock
+  (words and dot grid), tiles (digits as tiles), world clock (places, days
+  ahead), calendar (month grid, week start, sheet), year progress (bar, day,
+  week, days left), countdown (title and date; settable) and moon phase. A
+  widget that shows what the reader chose (countdown, world) opens its settings
+  on a tap (`Behaviour::settable`). `shows` of every widget takes the host and
+  the widget id and returns a number that changes with what is shown (the
+  day, the minute, a hash of a text), so the minute tick opens no drawing
+  context and keeps no text.
+- The settings parity test (`tests/settings_parity.rs`) compares every native
+  widget's settings (ids, kinds, defaults, choices, titles, help keys) with the
+  interface-6 registration.
+
 ## Not ported yet (explicit)
 
-The rest of the time family (analogue, word clock, tiles, world, calendar,
-year, countdown, moon), the words family (quote, note, to-do, picture,
-greeting) and the books family. The interface-6 pack stays in `src/` until
+The words family's quote, to-do, picture and logo widgets, and the books
+family. Ported from the words family so far: greeting (by time of day) and
+note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
 every widget is ported; then the last commit deletes it, its app wiring and
 its tests together (no shim).
 
@@ -51,7 +64,9 @@ its tests together (no shim).
 ## Acceptance pending on the host
 
 `tests/acceptance_pending.rs` holds refusals (never pass): day in each style
-(H1, H3) and the minute update (H1, H3). `tests/hosted_construction.rs`
+(H1, H3) and the minute update (H1, H3). The time family is covered by the
+same two cases for its widgets once the host composes widgets (H1, H3);
+what the toolkit lays out is unit-tested without the host. `tests/hosted_construction.rs`
 constructs in the kernel's real registered scope; the host refuses that with
 `Unsupported` until it admits every family (#310), so the positive case is an
 ignored refusal.
@@ -67,3 +82,45 @@ are 448 bytes (`Settings::align`, `Settings::shows`, in the kit), then 352
 176 KB SDK (record encode/decode of the declarations), 42 KB this port (kit
 22 KB, plugin 20 KB), 25 KB core float formatting. The SDK share is not this
 port's; it is the same for every plugin that submits declarations.
+
+With the time family (all nine time widgets, `native-entry`, no default
+features): file 421,236 bytes (67,472 data, 349,212 code, 1,114 relocated
+words); the pack-time frame scan passes, largest frames 560 bytes
+(`paperpaw_ui_kit::style::setting_text`), then 528 (`native_tiles::draw`,
+`chosen_name`), 512 (SDK `draw` entry). The code includes about 25 KB of
+core float formatting (where it comes from is not traced yet).
+
+After the review of the time family (fallible allocation everywhere, the float
+formatting removed, `shows` as numbers): file 396,840 bytes (60,896 data,
+331,612 code, 1,059 relocated words); no float formatting is left (12
+`flt2dec` symbols before, none now). The float formatting came from
+`f32::clamp` in `native_day::sheet`: its panic message formats the two bounds
+with `Debug`, which links the float formatter; use `.max(min).min(max)` on
+floats in plugin code (integer `clamp` has a fixed message and is fine).
+With `opt-level = "z"` for `paperpaw-plugin-widgets` and `paperpaw-ui-kit`
+only (not adopted): 373,116 bytes (57,584 data, 311,372 code), 23,724 bytes
+smaller. Refusal sweeps (`src/refusals_tests.rs`) cover the pure widget
+calls (tiles, word clock text and grid, moon rows, the kit's joins); the
+calls that need a host (drawing, measuring, settings reads) have no refusal
+sweep until the SDK has a mock host; their allocations are fallible by
+reading and by the kit's own sweeps.
+
+## Words family: greeting, note, quote
+
+- Greeting draws its sun and moon as shapes (discs, rays and a bite), not with
+  the icon font. Pure calls (`Part`, `short_date`, `draw_icon`, the quote's
+  `parse`, `marks`, `of_the_day`) are tested directly; calls that need the host
+  (settings, fonts, storage) have no refusal sweep until the SDK has a mock host.
+- Text settings are read up to 4096 bytes (the editor holds 4084): a long note,
+  heading, name or title is read whole.
+- Note: a tap asks for the text on the keyboard (`core.ui`), the old text first
+  (written in parts after the request is made); a second tap while a request is
+  open does nothing, the first answer counts.
+- Quote: PaperPaw's quotes come from `data/quotes.<language>.txt` in the install
+  folder (else those the app carries), the reader's own from `quotes.txt` in the
+  data folder; both are streamed a line at a time (a line over 4096 bytes is cut, a file of any size is read to its end). The turns are kept in
+  `quote.txt` of the data folder. The UI language is the setting `core.language`
+  (read when drawing, nothing cached): `de` picks the German quotes, any other
+  language the English, and the quotation marks follow the tag. "Another each time it shows" counts showings in
+  memory, once for all made within a minute.
+

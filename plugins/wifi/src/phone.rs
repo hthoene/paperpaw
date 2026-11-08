@@ -539,7 +539,7 @@ fn draw_opening(ui: &mut ui::Ui<'_>, room: Rect) {
 }
 
 /// Field `name` of a form sent, decoded.
-fn field(form: &str, name: &str) -> Option<String> {
+pub(crate) fn field(form: &str, name: &str) -> Option<String> {
     form.split('&')
         .filter_map(|pair| pair.split_once('='))
         .find(|(key, _)| *key == name)
@@ -548,7 +548,7 @@ fn field(form: &str, name: &str) -> Option<String> {
 
 /// The network and password sent from the page: a network listed, or
 /// one named in the field below them.
-fn chosen(form: &str) -> Option<(String, String)> {
+pub(crate) fn chosen(form: &str) -> Option<(String, String)> {
     let field = |name: &str| field(form, name);
     let other = field("other").unwrap_or_default();
     let ssid = if other.trim().is_empty() {

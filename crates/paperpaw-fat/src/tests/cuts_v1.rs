@@ -86,7 +86,7 @@ impl Card {
 /// leaks it (`Box::leak`, as on the device), so a whole image per cut costs
 /// gigabytes on the 40 MB card; this costs the changed blocks only.
 #[derive(Clone)]
-struct Overlay {
+pub(super) struct Overlay {
     base: Rc<Vec<u8>>,
     changed: BTreeMap<u32, [u8; BLOCK]>,
     at: u64,
@@ -155,19 +155,19 @@ impl std::io::Seek for Overlay {
 }
 
 /// The storage on a card of [`Overlay`].
-fn mounted(card: Overlay) -> FatStorage<StdIoWrapper<Overlay>> {
+pub(super) fn mounted(card: Overlay) -> FatStorage<StdIoWrapper<Overlay>> {
     let fs = FileSystem::new(StdIoWrapper::from(card), FsOptions::new()).unwrap();
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
 /// Every state a card can be left in by `op`: the image before it and after
 /// each block it writes.
-struct Cuts {
+pub(super) struct Cuts {
     base: Rc<Vec<u8>>,
     writes: Vec<Written>,
 }
 
-fn cuts_of(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> Cuts {
+pub(super) fn cuts_of(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> Cuts {
     let card = Cut::new(image);
     let s = card.storage();
     let base = Rc::new(card.image());
@@ -178,7 +178,7 @@ fn cuts_of(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> Cut
 }
 
 impl Cuts {
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.writes.len() + 1
     }
 
@@ -191,7 +191,7 @@ impl Cuts {
     }
 
     /// The cards in order, each built when asked for.
-    fn iter(&self) -> impl Iterator<Item = Overlay> + '_ {
+    pub(super) fn iter(&self) -> impl Iterator<Item = Overlay> + '_ {
         let mut changed = BTreeMap::new();
         let mut next = 0;
         core::iter::once(self.overlay(BTreeMap::new())).chain(core::iter::from_fn(move || {

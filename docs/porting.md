@@ -267,11 +267,11 @@ every part one page at a time, with buttons alone or by touch:
 Each page ends with *Fail*, *Skip* and *Pass*, the answer its
 measurements suggest standing out. Pages for parts a device lacks are
 skipped, with the reason. After each answer the check writes its report
-to `.paperpaw/device-check.txt` on the card, and it goes on where it was
+to `.paperpaw/plugins/diagnostics/device-check.txt` on the card, and it goes on where it was
 when opened again.
 
 `tools/x4-remote.py` takes screenshots and fetches the log and the
-report. `--get .paperpaw/device-check.txt device-check.txt` copies the
+report. `--get .paperpaw/plugins/diagnostics/device-check.txt device-check.txt` copies the
 report. `--script heap` says the heap's peak and the stack never used,
 and `--help` lists all it does.
 
@@ -293,7 +293,7 @@ A pull request that adds a device is ready for review when it has:
       radio on, and the stack never used (the device check's Memory
       page, `x4-remote.py`).
 - [ ] **The device check's report**, the whole of
-      `.paperpaw/device-check.txt`.
+      `.paperpaw/plugins/diagnostics/device-check.txt`.
 - [ ] **Photos of the Screen page**: one as it opens, to show the
       grays; one after flipping the pattern a few times, to show
       ghosting; and one after a full refresh.
