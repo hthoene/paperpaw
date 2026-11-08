@@ -202,8 +202,10 @@ impl FileSealer {
             sync_dir(&self.path)
         })();
         record.zeroize();
-        // Whatever the outcome, the temporary name goes (after a rename it
-        // is already gone).
+        // Whatever the outcome, THIS call's temporary name goes (after a rename
+        // it is already gone). Nothing else is ever deleted here: a leftover
+        // temporary file of an earlier power cut may hold a key that was written
+        // and not yet published, and is not swept without looking at the key.
         let _ = fs::remove_file(&temp);
         result.map_err(|_| ERR_IO)
     }
@@ -366,8 +368,11 @@ fn rename_new(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-// Android too: its apps' seccomp filter may kill the process on `renameat2`
-// (older releases), and an app-private folder has hard links anyway.
+// Android too, on purpose: its apps' seccomp filter may kill the process on
+// `renameat2` (older releases). The app-private folder (ext4/f2fs) takes hard
+// links, so the link is what publishes the key there; and the app is one
+// process, so the lock of `publish_locked` is only a last resort that no second
+// creator can race (the two-remover case needs a second process).
 #[cfg(not(any(target_os = "linux", windows)))]
 fn rename_new(_from: &Path, _to: &Path) -> std::io::Result<()> {
     Err(std::io::ErrorKind::Unsupported.into())

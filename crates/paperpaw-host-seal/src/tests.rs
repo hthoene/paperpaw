@@ -421,3 +421,20 @@ fn the_rename_that_never_replaces_leaves_a_file_that_is_there() {
     assert_eq!(fs::read(&to).unwrap(), b"new");
     assert!(!from.exists());
 }
+
+/// A temporary file left by an earlier power cut is not this call's: it is
+/// neither deleted nor read as the key, whatever the outcome of a write.
+#[test]
+fn a_leftover_temporary_file_of_an_earlier_cut_is_left_alone() {
+    let dir = Dir::new("leftover-temp");
+    let mut name = dir.key_file().into_os_string();
+    name.push(".new-1-1");
+    let leftover = PathBuf::from(name);
+    fs::write(&leftover, record(&[9u8; KEY])).unwrap();
+    let s = FileSealer::new(dir.key_file());
+    // No key yet: a seal makes its own, not the leftover's.
+    let sealed = seal(&s, AAD, b"v").unwrap();
+    assert_ne!(fs::read(dir.key_file()).unwrap(), record(&[9u8; KEY]));
+    assert_eq!(open(&s, AAD, &sealed).unwrap(), b"v");
+    assert_eq!(fs::read(&leftover).unwrap(), record(&[9u8; KEY]));
+}
