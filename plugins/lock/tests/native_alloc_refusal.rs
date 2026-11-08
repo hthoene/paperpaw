@@ -37,3 +37,38 @@ fn the_keypad_and_the_pattern_survive_refused_allocations() {
         Ok(())
     });
 }
+
+#[test]
+fn the_steps_of_the_screen_survive_refused_allocations() {
+    use paperpaw_plugin_lock::native_flow::{Context, Effects, Flow, Lockstate};
+    use paperpaw_ui_kit::text::copy;
+    fail_alloc::sweep(|| {
+        let stored = model::kept_value("pin", "v2.abcdefghijklmnop", "1234")?;
+        let room = Context {
+            stored: Some(&stored),
+            active: Some("pin"),
+            now_ms: 0,
+            touch: true,
+        };
+        let mut lock = Lockstate {
+            locked: true,
+            ..Lockstate::default()
+        };
+        let mut fx = Effects::default();
+        let mut flow = Flow::new(true, Some("pin"), false);
+        for key in [0, 1, 2, 3, 11] {
+            flow.press(key, &mut lock, &room, &mut fx)?;
+        }
+        let mut setup = Flow::new(false, None, false);
+        setup.choose_kind("pattern", &mut fx);
+        for dot in [4, 0, 8] {
+            setup.finger_moved(1, paperpaw_sdk::Point::new(0, 0), Some(dot), &mut fx)?;
+        }
+        setup.finger_up(&mut lock, &room, &mut fx)?;
+        setup.submit(copy("12")?, &mut lock, &room, &mut fx)?;
+        setup.submit(copy("1234")?, &mut lock, &room, &mut fx)?;
+        setup.submit(copy("1234")?, &mut lock, &room, &mut fx)?;
+        fx.take().for_each(drop);
+        Ok(())
+    });
+}
