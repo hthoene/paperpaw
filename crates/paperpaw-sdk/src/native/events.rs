@@ -10,7 +10,7 @@ mod core_events;
 mod states;
 pub use states::{
     BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
-    InstallDone, PowerChange, WifiDone, WifiFailure, WifiLinkState,
+    InstallDone, LibraryChanges, PowerChange, WifiDone, WifiFailure, WifiLinkState,
 };
 
 /// A host-issued plugin installation request, obtained from a decoded event.
@@ -302,6 +302,16 @@ pub enum Event<'a> {
     },
     /// A root-1 book was removed.
     BookRemoved { now_ms: u64, path: &'a str },
+    /// The library changed (`event.library_changed`): a hint, coalesced per
+    /// plugin, so reread what you show. `generation` is the catalog generation;
+    /// `path` is the one book the change was about, empty for several. The
+    /// plugin's own changes arrive too.
+    LibraryChanged {
+        now_ms: u64,
+        what: LibraryChanges,
+        generation: u32,
+        path: &'a str,
+    },
     /// Installed plugin state changed; read inventory through its owning service.
     PluginsChanged { now_ms: u64 },
     /// The radio connection state changed.

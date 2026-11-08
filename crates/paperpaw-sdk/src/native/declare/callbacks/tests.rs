@@ -8,6 +8,7 @@ use alloc::{vec, vec::Vec};
 use records_wire::{Record, records_decode, records_encode, registrations_encode};
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table row per event kind")]
 fn every_event_kind_matches_its_generated_registration_bytes() {
     let kinds = [
         (
@@ -39,6 +40,10 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         ),
         (EventKind::BookMoved, records_wire::EVENT_BOOK_MOVED_TAG),
         (EventKind::BookRemoved, records_wire::EVENT_BOOK_REMOVED_TAG),
+        (
+            EventKind::LibraryChanged,
+            records_wire::EVENT_LIBRARY_CHANGED_TAG,
+        ),
         (
             EventKind::PluginsChanged,
             records_wire::EVENT_PLUGINS_CHANGED_TAG,

@@ -667,3 +667,17 @@ fn firmware_progress_and_install_outcomes_are_typed() {
     assert_eq!(end.kind(), InstallKind::Unknown(77));
     assert_eq!(end.outcome(), DeviceOutcome::Other);
 }
+
+#[test]
+fn a_library_hint_for_several_books_has_an_empty_path() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 1,
+        what: 1 << 5,
+        generation: 0,
+        path: "",
+    });
+    assert!(matches!(
+        decode(&encode(record)),
+        Ok(Event::LibraryChanged { path: "", .. })
+    ));
+}
