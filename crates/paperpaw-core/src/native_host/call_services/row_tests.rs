@@ -161,6 +161,48 @@ fn unpaged_reply_row_limit_accepts_exact_and_refuses_one_more() {
     assert_eq!(validate_reply(&targets(0, end(0)), op), Ok(()));
 }
 
+/// One frame by hand: tag and length as LEB128, then `body`.
+fn frame(tag: u32, body: &[u8]) -> Vec<u8> {
+    fn leb(mut value: u32, out: &mut Vec<u8>) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value == 0 {
+                out.push(byte);
+                return;
+            }
+            out.push(byte | 0x80);
+        }
+    }
+    let mut out = Vec::new();
+    leb(tag, &mut out);
+    leb(u32::try_from(body.len()).unwrap(), &mut out);
+    out.extend_from_slice(body);
+    out
+}
+
+#[test]
+fn a_malformed_non_end_row_is_invalid_like_any_other() {
+    let op = targets_op();
+    // A listed row whose framing is sound but whose body ends inside its fields.
+    let mut reply = frame(registrations::SERVICE_UI_TARGET_TAG, &[0]);
+    reply.extend_from_slice(&targets(0, end(1)));
+    assert_eq!(validate_reply(&reply, op), Err(ERR_INVALID));
+    // The same reply with the row whole is accepted.
+    assert_eq!(validate_reply(&targets(1, end(1)), op), Ok(()));
+}
+
+#[test]
+fn a_row_of_an_unlisted_tag_is_invalid_before_its_body_is_read() {
+    let op = targets_op();
+    // `echo`: a known record the op does not reply with; and a tag no record has.
+    for tag in [registrations::SERVICE_ECHO_TAG, 0x3fff_ff00] {
+        let mut reply = frame(tag, &[0]);
+        reply.extend_from_slice(&targets(0, end(1)));
+        assert_eq!(validate_reply(&reply, op), Err(ERR_INVALID));
+    }
+}
+
 #[test]
 fn list_reply_requires_one_terminal_end_and_canonical_frames() {
     let op = targets_op();

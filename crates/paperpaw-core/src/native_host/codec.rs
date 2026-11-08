@@ -11,11 +11,10 @@ use super::registrations::{
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_native::host_glue::ERR_NO_SPACE;
 
-/// `raw` as the record type `R`; another tag is `ERR_INVALID`.
+/// `raw` as the record type `R`. A tag the op does not expect is
+/// `ERR_UNSUPPORTED`, as an unknown tag is; `ERR_INVALID` is for an expected
+/// tag with a bad body.
 pub(crate) fn decode<'a, R: WireRecord<'a>>(raw: RawRecord<'a>) -> Result<R, i32> {
-    if raw.tag() != R::TAG {
-        return Err(ERR_INVALID);
-    }
     raw.decode()
 }
 

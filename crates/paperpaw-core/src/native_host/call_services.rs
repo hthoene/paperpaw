@@ -148,9 +148,10 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             .iter()
             .position(|expected| *expected == tag)
             .ok_or(ERR_INVALID)?;
-        // Only the end row's body is read; a row of another tag is framed and
-        // listed by the op, and its body is the backend's own encoding.
+        // Every row is read by its own record type (and dropped): a bad body is
+        // `ERR_INVALID` whatever the row.
         let raw = registrations::RawRecord::one(framed).map_err(|_| ERR_INVALID)?;
+        rows::check(&raw)?;
         if op.reply_rows == 0 {
             if tag == registrations::SERVICE_END_TAG || index < next_tag {
                 return Err(ERR_INVALID);
@@ -250,6 +251,8 @@ pub(super) unsafe fn call(
     })();
     result.unwrap_or_else(|error| error)
 }
+
+mod rows;
 
 #[cfg(test)]
 #[path = "call_services/tests.rs"]
