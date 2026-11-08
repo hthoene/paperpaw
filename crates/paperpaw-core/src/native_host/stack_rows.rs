@@ -38,6 +38,8 @@ pub(crate) struct StackRows {
     closes: [Cell<PendingUi>; STACK_MAX],
     close_error: Cell<i32>,
     cleanup_sweep: Cell<bool>,
+    /// The screen callback on the stack: `(owner, instance)`, `(0, 0)` for none.
+    running: Cell<(u64, u32)>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -48,6 +50,7 @@ impl Default for StackRows {
             closes: [const { Cell::new(NO_PENDING) }; STACK_MAX],
             close_error: Cell::new(0),
             cleanup_sweep: Cell::new(false),
+            running: Cell::new((0, 0)),
         }
     }
 }
@@ -58,7 +61,50 @@ impl core::fmt::Debug for StackRows {
             .finish_non_exhaustive()
     }
 }
+/// See [`StackRows::enter_callback`].
+pub(crate) struct ScreenCallback<'a> {
+    rows: &'a StackRows,
+    previous: (u64, u32),
+}
+impl Drop for ScreenCallback<'_> {
+    fn drop(&mut self) {
+        self.rows.running.set(self.previous);
+    }
+}
+
 impl StackRows {
+    /// A callback of the screen `instance` of `owner` begins on the stack; the
+    /// guard ends it. Host-only: the pair comes from the dispatcher, never from
+    /// plugin bytes.
+    pub(crate) fn enter_callback(&self, owner: u64, instance: u32) -> ScreenCallback<'_> {
+        ScreenCallback {
+            previous: self.running.replace((owner, instance)),
+            rows: self,
+        }
+    }
+
+    /// The screen instance whose callback runs for `owner`, if it is showing:
+    /// on the snapshot, the owner's own (never a host row), and nothing but
+    /// overlays (dialogs) above it. `None` elsewhere, also for a stale or
+    /// missing snapshot (fail closed). No allocation.
+    #[allow(dead_code, reason = "the core.net adapter reads it; tests do today")]
+    pub(crate) fn showing_screen(&self, owner: u64) -> Option<u64> {
+        let (running_owner, instance) = self.running.get();
+        if owner == 0
+            || running_owner != owner
+            || instance == 0
+            || !self.valid(self.generation.get())
+        {
+            return None;
+        }
+        let len = self.len();
+        let at =
+            (0..len).find(|&index| self.row(index).is_some_and(|row| row.instance == instance))?;
+        let row = self.row(at)?;
+        let covered = (at + 1..len).any(|index| self.row(index).is_none_or(|above| !above.overlay));
+        (!row.host && row.owner == owner && !covered).then_some(u64::from(instance))
+    }
+
     pub(crate) fn generation(&self) -> u64 {
         self.generation.get()
     }
@@ -275,6 +321,89 @@ mod tests {
             flags: 0,
         }]);
         assert!(!rows.valid(0));
+    }
+
+    fn row(instance: u32, owner: u64, flags: u8) -> StackRow {
+        StackRow {
+            instance,
+            owner,
+            flags,
+        }
+    }
+
+    #[test]
+    fn a_showing_screen_is_the_running_one_with_only_overlays_above() {
+        let rows = StackRows::default();
+        rows.update([row(1, 8, 0), row(2, 9, 0), row(3, 9, OVERLAY)]);
+        assert_eq!(rows.showing_screen(9), None, "no callback runs");
+        let guard = rows.enter_callback(9, 2);
+        assert_eq!(
+            rows.showing_screen(9),
+            Some(2),
+            "a dialog above does not hide it"
+        );
+        assert_eq!(
+            rows.showing_screen(8),
+            None,
+            "another owner's view is empty"
+        );
+        assert_eq!(rows.showing_screen(0), None);
+        drop(guard);
+        assert_eq!(rows.showing_screen(9), None, "the guard ended the callback");
+    }
+
+    #[test]
+    fn a_covered_missing_host_or_foreign_screen_is_not_showing() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0), row(2, 8, 0)]);
+        {
+            let _call = rows.enter_callback(9, 1);
+            assert_eq!(rows.showing_screen(9), None, "another screen covers it");
+        }
+        {
+            let _call = rows.enter_callback(9, 7);
+            assert_eq!(rows.showing_screen(9), None, "not on the stack");
+        }
+        rows.update([row(4, 9, HOST)]);
+        {
+            let _call = rows.enter_callback(9, 4);
+            assert_eq!(
+                rows.showing_screen(9),
+                None,
+                "a host row is no plugin screen"
+            );
+        }
+        rows.update([row(5, 8, 0)]);
+        {
+            let _call = rows.enter_callback(9, 5);
+            assert_eq!(
+                rows.showing_screen(9),
+                None,
+                "the row belongs to another owner"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_callbacks_restore_the_outer_one() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0)]);
+        let outer = rows.enter_callback(9, 1);
+        {
+            let _inner = rows.enter_callback(8, 6);
+            assert_eq!(rows.showing_screen(9), None);
+        }
+        assert_eq!(rows.showing_screen(9), Some(1));
+        drop(outer);
+        assert_eq!(rows.showing_screen(9), None);
+    }
+
+    #[test]
+    fn an_overflowed_snapshot_has_no_showing_screen() {
+        let rows = StackRows::default();
+        rows.update((1..=17).map(|instance| row(instance, 9, 0)));
+        let _call = rows.enter_callback(9, 3);
+        assert_eq!(rows.showing_screen(9), None);
     }
 }
 
