@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 36] = [
+pub const STORE_PLUGINS: [&str; 35] = [
     "aids",
     "browser",
     "calibre",
@@ -113,7 +113,6 @@ pub const STORE_PLUGINS: [&str; 36] = [
     "translate",
     "vocabulary",
     "wallabag",
-    "weather",
     "widgets",
 ];
 
@@ -191,7 +190,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "update",
     "vocabulary",
     "wallabag",
-    "weather",
     "wifi",
     "wikipedia",
 );
@@ -289,7 +287,6 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_translate::Translate);
         b = offered(b, store, paperpaw_plugin_news::News);
-        b = offered(b, store, paperpaw_plugin_weather::Weather);
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
         b = offer_shipped_off(b, store);
     }

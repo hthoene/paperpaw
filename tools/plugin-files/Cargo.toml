@@ -143,12 +143,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "weather"
-path = "src/bin/weather.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "widgets"
 path = "src/bin/widgets.rs"
 test = false
@@ -250,7 +244,6 @@ paperpaw-plugin-stats = { path = "../../plugins/stats" }
 paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
-paperpaw-plugin-weather = { path = "../../plugins/weather" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
 paperpaw-plugin-hyphenation-da = { path = "../../plugins/hyphenation-da" }
 paperpaw-plugin-hyphenation-es = { path = "../../plugins/hyphenation-es" }
