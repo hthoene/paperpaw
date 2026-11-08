@@ -9,8 +9,8 @@
 //! and its annotation transactions.
 use super::{
     doc_service::{self, DocHost, DocServices},
-    hyphen_service::HyphenServices,
     files_service::{FilesHost, FilesServices},
+    hyphen_service::HyphenServices,
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
