@@ -71,3 +71,5 @@ with its texts), so the same screen serves picture-home and the reader. What is 
 compared with the interface-6 registration (only the editor's name differs). Its callbacks wait for
 the native entry (ignored case `home-footer-items-editor`, H1/H4); the finger's drag of a grip is
 a hold and a tap in the kit (ignored case `home-footer-items-editor-grip-drag`, `KIT-grip-drag`).
+The native entry will need `uses core.registry` in its metadata: the view reads the registered
+items with the kit's `status_items::view::read_entries`.
