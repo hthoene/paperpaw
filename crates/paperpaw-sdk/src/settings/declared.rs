@@ -24,11 +24,18 @@ impl Settings {
     /// setting is another plugin's).
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_by(&mut self, id: &str, text: &str, by: Id) -> Result<(), SettingError> {
+        let was = self.specs.get(id).map(|spec| spec.default.clone());
         self.set_default_from_text(id, text)?;
         let setting = self.specs.get_mut(id)?.id.clone();
-        // A plugin's own settings: their own default, nothing to tell.
-        if setting.namespace() != by.as_str() {
-            self.defaults_by.insert(setting, by);
+        if setting.namespace() == by.as_str() {
+            // A plugin's own settings: their own default, nothing to tell.
+            self.defaults_by.remove(&setting);
+        } else if let Some(set) = self.defaults_by.get_mut(&setting) {
+            // The default before the first of them is what comes back.
+            set.by = by;
+        } else if let Some(was) = was {
+            self.defaults_by
+                .insert(setting, super::DefaultBy { by, was });
         }
         Ok(())
     }
