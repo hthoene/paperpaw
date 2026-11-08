@@ -16,7 +16,11 @@ the host activates native plugins (then it goes together, no shim).
 - `declarations.rs`: the group (order 94), the three settings (the server's address in the developers'
   group, looking by itself, betas), the page (one at a time), the actions `open` and `check`, the
   page's row first in the group, the icons, the `Firmware` need of the group and four items, and the
-  first-run step (order 57, the `look` setting, only where PaperPaw updates the firmware).
+  first-run step (order 57, page `update.look`, only where PaperPaw updates the firmware). **One change:**
+  the interface-6 step left its title and help empty, to take the setting's; the native step names them
+  (`update.setting.look`, `update.setting.look.help`), the same texts. `tests/abi7_declarations.rs`
+  compares the decoded step field by field (name, page and kind, order, title and help as the setting's,
+  no condition, the `Firmware` need standing for the interface-6 closure).
   `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each with the
   interface-6 registration.
 

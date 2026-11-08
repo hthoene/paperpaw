@@ -106,3 +106,76 @@ fn the_page_opens_one_at_a_time() {
     assert_eq!(new, old);
     assert_eq!(new, [("update.page".to_string(), 1)]);
 }
+
+/// The first-run step, field by field: the name, the page and its kind, the
+/// order, and the title and help (which the interface-6 step left empty to
+/// take the setting's, so they are the setting's keys here). Its
+/// applicability, a closure on the environment there, is the `Firmware`
+/// need here: set, and no condition on a setting.
+#[test]
+fn the_first_run_step_is_the_registrations() {
+    let mut steps = Vec::new();
+    let mut look = None;
+    for contribution in legacy() {
+        match contribution {
+            Contribution::SetupStep(step) => steps.push(step),
+            Contribution::FixedSettings(list) => {
+                look = list
+                    .iter()
+                    .find(|s| s.id.as_str() == "update.look")
+                    .map(|s| {
+                        (
+                            s.title.to_string(),
+                            s.description.as_deref().map(str::to_string),
+                        )
+                    });
+            }
+            _ => {}
+        }
+    }
+    let [old] = steps.as_slice() else {
+        panic!("one step expected");
+    };
+    let (look_title, look_help) = look.unwrap();
+    let mut found = Vec::new();
+    for batch in batches(|d| declarations::navigation(d).unwrap()) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::SetupStep(s) = record {
+                found.push((
+                    s.name.to_string(),
+                    s.title.to_string(),
+                    s.help.to_string(),
+                    s.order,
+                    s.page_kind,
+                    s.page.to_string(),
+                    s.applies_key.to_string(),
+                    s.applies_value.to_string(),
+                    s.need,
+                    s.flags,
+                ));
+            }
+        }
+    }
+    let [new] = found.as_slice() else {
+        panic!("one step expected");
+    };
+    assert_eq!(format!("update.{}", new.0), old.id.as_str());
+    // An empty title or help in the old step stood for the setting's.
+    assert_eq!(old.title, "");
+    assert_eq!(old.help, "");
+    assert_eq!(new.1, look_title);
+    assert_eq!(Some(new.2.clone()), look_help);
+    assert_eq!(new.3, old.order);
+    match &old.page {
+        paperpaw_sdk::setup::SetupPage::Setting(id) => {
+            assert_eq!((new.4, new.5.as_str()), (0, id.as_str()));
+        }
+        other => panic!("{other:?}"),
+    }
+    // Applicability: a closure there, the `Firmware` need here, no condition
+    // on a setting; the host applies it (flags: bit 0 applies, bit 1 a need).
+    assert!(old.applies.is_some());
+    assert_eq!((new.6.as_str(), new.7.as_str()), ("", ""));
+    assert_eq!(new.9, 0b11);
+    assert_eq!(new.8, 8, "the Firmware need");
+}

@@ -74,13 +74,15 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.icon("update.check", "cloud-download")?;
     d.icon("update.open", "circle-arrow-up")?;
     d.menu_entry(MenuEntryDecl::new(GROUP, "update.open"))?;
-    // The look setting asked as the setting it is, where PaperPaw updates
+    // The look setting asked as the setting it is (its title and its help,
+    // which the interface-6 step left empty to take), where PaperPaw updates
     // the firmware.
     let mut step = SetupStepDecl::new(
         "setup",
         "update.setting.look",
         SetupPage::Setting("update.look"),
     );
+    step.help = "update.setting.look.help";
     step.order = 57;
     step.need = Some(MenuNeed::Firmware);
     d.setup_step(step)?;
