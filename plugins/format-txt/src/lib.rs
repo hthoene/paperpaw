@@ -17,7 +17,7 @@
 extern crate alloc;
 
 mod document;
-#[cfg(test)]
+pub mod preparation;
 mod utf16;
 
 use alloc::borrow::Cow;
