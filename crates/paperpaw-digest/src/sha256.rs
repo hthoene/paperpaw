@@ -124,8 +124,9 @@ impl Sha256 {
             self.used += take;
             data = &data[take..];
             if self.used == 64 {
-                let block = self.block;
+                let mut block = self.block;
                 self.compress(&block);
+                crate::wipe::wipe(&mut block, [0; 64]);
                 self.used = 0;
             }
         }
@@ -140,8 +141,9 @@ impl Sha256 {
         }
         // The length goes in without counting itself.
         self.block[56..].copy_from_slice(&bits.to_be_bytes());
-        let block = self.block;
+        let mut block = self.block;
         self.compress(&block);
+        crate::wipe::wipe(&mut block, [0; 64]);
         let mut out = [0u8; 32];
         for (chunk, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(self.state) {
             chunk.copy_from_slice(&word.to_be_bytes());
@@ -188,6 +190,8 @@ impl Sha256 {
             b = a;
             a = t1.wrapping_add(t2);
         }
+        // The message, as words, is what was hashed.
+        crate::wipe::wipe(&mut w, [0; 64]);
         for (s, v) in self.state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
             *s = s.wrapping_add(v);
         }
@@ -210,17 +214,32 @@ pub fn hex(data: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    /// What `Drop` runs leaves no trace of what was hashed.
+    /// After `Drop`, the state keeps nothing of what was hashed: the
+    /// dropped value's memory is read field by field.
     #[test]
     fn the_state_is_wiped() {
         let mut digest = Sha256::new();
         digest
             .update(b"a password, and more than a block of it to fill the state: ................");
         assert!(digest.length != 0 && digest.state.iter().any(|w| *w != 0));
-        digest.wipe();
-        assert!(digest.state.iter().all(|w| *w == 0));
-        assert!(digest.block.iter().all(|b| *b == 0));
-        assert_eq!((digest.used, digest.length), (0, 0));
+        let mut slot = core::mem::MaybeUninit::new(digest);
+        let at = slot.as_mut_ptr();
+        // SAFETY: `slot` holds a live digest, dropped once here and never
+        // used as one again.
+        unsafe { core::ptr::drop_in_place(at) };
+        // SAFETY: the fields are plain integers and arrays of them, still
+        // in `slot`'s memory: reading them after the drop is reading bytes.
+        let (state, block, used, length) = unsafe {
+            (
+                core::ptr::addr_of!((*at).state).read(),
+                core::ptr::addr_of!((*at).block).read(),
+                core::ptr::addr_of!((*at).used).read(),
+                core::ptr::addr_of!((*at).length).read(),
+            )
+        };
+        assert!(state.iter().all(|w| *w == 0));
+        assert!(block.iter().all(|b| *b == 0));
+        assert_eq!((used, length), (0, 0));
     }
 
     #[test]

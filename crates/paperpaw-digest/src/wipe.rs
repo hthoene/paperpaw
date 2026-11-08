@@ -1,6 +1,8 @@
-//! Clearing a digest's state when it goes: what was hashed (a password
-//! for KOReader's sync key, a secret for Calibre) is not left on the stack
-//! or heap where the state lay.
+//! Clearing what a digest held of what it hashed (a password for
+//! KOReader's sync key, a secret for Calibre): its state when it goes, and
+//! the block copies and message words each compression makes. Not
+//! covered: registers and spilled locals of the rounds, and the digest
+//! the caller gets.
 
 /// Writes `zero` over `value` so that the store is not left out as dead.
 pub(crate) fn wipe<T: Copy>(value: &mut T, zero: T) {
@@ -30,7 +32,7 @@ macro_rules! wiped_on_drop {
         }
 
         /// The state is wiped when it goes, also after `finish`, `hex` and
-        /// their kind, which take it: what was hashed is not left behind.
+        /// their kind, which take it (see the module for what is not).
         impl Drop for $digest {
             fn drop(&mut self) {
                 self.wipe();

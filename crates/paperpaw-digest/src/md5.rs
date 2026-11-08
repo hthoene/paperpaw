@@ -58,8 +58,9 @@ impl Md5 {
             self.used += take;
             data = &data[take..];
             if self.used == 64 {
-                let block = self.block;
+                let mut block = self.block;
                 self.compress(&block);
+                crate::wipe::wipe(&mut block, [0; 64]);
                 self.used = 0;
             }
         }
@@ -122,6 +123,8 @@ impl Md5 {
             c = b;
             b = b.wrapping_add(rotated);
         }
+        // The message, as words, is what was hashed.
+        crate::wipe::wipe(&mut m, [0; 16]);
         for (state, value) in self.state.iter_mut().zip([a, b, c, d]) {
             *state = state.wrapping_add(value);
         }
@@ -182,17 +185,32 @@ fn partial_md5(storage: &dyn Storage, path: &str) -> Option<Md5> {
 mod tests {
     use super::*;
 
-    /// What `Drop` runs leaves no trace of what was hashed.
+    /// After `Drop`, the state keeps nothing of what was hashed: the
+    /// dropped value's memory is read field by field.
     #[test]
     fn the_state_is_wiped() {
         let mut digest = Md5::new();
         digest
             .update(b"a password, and more than a block of it to fill the state: ................");
         assert!(digest.length != 0 && digest.state.iter().any(|w| *w != 0));
-        digest.wipe();
-        assert!(digest.state.iter().all(|w| *w == 0));
-        assert!(digest.block.iter().all(|b| *b == 0));
-        assert_eq!((digest.used, digest.length), (0, 0));
+        let mut slot = core::mem::MaybeUninit::new(digest);
+        let at = slot.as_mut_ptr();
+        // SAFETY: `slot` holds a live digest, dropped once here and never
+        // used as one again.
+        unsafe { core::ptr::drop_in_place(at) };
+        // SAFETY: the fields are plain integers and arrays of them, still
+        // in `slot`'s memory: reading them after the drop is reading bytes.
+        let (state, block, used, length) = unsafe {
+            (
+                core::ptr::addr_of!((*at).state).read(),
+                core::ptr::addr_of!((*at).block).read(),
+                core::ptr::addr_of!((*at).used).read(),
+                core::ptr::addr_of!((*at).length).read(),
+            )
+        };
+        assert!(state.iter().all(|w| *w == 0));
+        assert!(block.iter().all(|b| *b == 0));
+        assert_eq!((used, length), (0, 0));
     }
     use alloc::vec::Vec;
     use paperpaw_platform::{DirEntry, StorageError};
