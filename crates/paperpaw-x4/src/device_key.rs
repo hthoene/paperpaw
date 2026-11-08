@@ -198,9 +198,69 @@ fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
+/// What the start-up re-save of Beta 3's veiled values came to (the host's
+/// `SecretsHost::upgrade`, run once at start on a device that seals).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartupUpgrade {
+    /// The file was rewritten sealed.
+    Rewritten,
+    /// Nothing to re-save.
+    Nothing,
+    /// The partition table has no place for the key (an X4 Classic still on
+    /// CrossPoint's table): skipped, with one note in the log at most. The
+    /// veiled values stay as they are and every start is the same, so it is
+    /// not an error and not worth a line on each start.
+    NoKeyPlace,
+    /// Anything else (the card, the flash, memory): a real failure.
+    Failed(i32),
+}
+
+/// Sorts the result of the start-up re-save. `unsupported` is the status
+/// `ERR_UNSUPPORTED` that the sealer answers when [`locate`] finds no place.
+#[must_use]
+pub fn startup_upgrade(result: Result<bool, i32>, unsupported: i32) -> StartupUpgrade {
+    match result {
+        Ok(true) => StartupUpgrade::Rewritten,
+        Ok(false) => StartupUpgrade::Nothing,
+        Err(status) if status == unsupported => StartupUpgrade::NoKeyPlace,
+        Err(status) => StartupUpgrade::Failed(status),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_table_without_a_key_place_skips_the_start_up_re_save_quietly() {
+        const UNSUPPORTED: i32 = -1;
+        assert_eq!(
+            startup_upgrade(Err(UNSUPPORTED), UNSUPPORTED),
+            StartupUpgrade::NoKeyPlace
+        );
+        assert_eq!(
+            startup_upgrade(Ok(true), UNSUPPORTED),
+            StartupUpgrade::Rewritten
+        );
+        assert_eq!(
+            startup_upgrade(Ok(false), UNSUPPORTED),
+            StartupUpgrade::Nothing
+        );
+        // A real failure is still one.
+        assert_eq!(
+            startup_upgrade(Err(-5), UNSUPPORTED),
+            StartupUpgrade::Failed(-5)
+        );
+        // The table that gives no place is what makes the sealer answer so.
+        assert_eq!(
+            locate(
+                Place::Outside,
+                None,
+                core::iter::once((0xFF_0000, 0x1_0000))
+            ),
+            None
+        );
+    }
 
     /// The web flasher keeps the key through a reinstall (decision 139):
     /// paperpaw.org `static/flash/device.js` has `NVS_AT = 0x9000` and

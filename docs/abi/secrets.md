@@ -117,6 +117,13 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   `value` is a value (an open Wi-Fi network's).
 - [D] `OK` means saved on the card. Otherwise nothing changed and the call answers `ERR_IO` (card
   away or unwritable) or `ERR_FULL` (1.2); the old value stays.
+  On a device that seals (section 3.1) two more statuses can refuse the save, again with nothing
+  changed: `ERR_STATE` when the random numbers are weak now (the host asks to turn Wi-Fi on, then
+  the call can be repeated) and `ERR_UNSUPPORTED` when the device has no place for its key (an X4
+  Classic still on CrossPoint's partition table): it cannot keep passwords until it is flashed with
+  PaperPaw's table, and repeating does not help. Neither is `ERR_NOT_FOUND`, which only means that a
+  value is absent. The start-up re-save of Beta 3's veiled values (3.1) skips quietly on
+  `ERR_UNSUPPORTED`: one note in the log, no error on each start; the values stay veiled.
 
 ### 2.4 `remove`
 

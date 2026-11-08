@@ -213,6 +213,23 @@ impl DeviceSealer {
     }
 }
 
+/// Sorts the result of the host's start-up re-save of veiled values and logs
+/// it: a table without a place for the key is one `info` line, never a
+/// warning on each start; the caller treats only `Failed` as an error.
+#[allow(
+    dead_code,
+    reason = "the start-up call is wired with the shell wiring (todo 107)"
+)]
+pub fn log_startup_upgrade(result: Result<bool, i32>) -> dk::StartupUpgrade {
+    let outcome = dk::startup_upgrade(result, ERR_UNSUPPORTED);
+    if outcome == dk::StartupUpgrade::NoKeyPlace {
+        log::info!(
+            "secrets: no place for the device key on this partition table; veiled values kept"
+        );
+    }
+    outcome
+}
+
 impl ShellSealer for DeviceSealer {
     fn seals(&self) -> bool {
         true
