@@ -17,6 +17,12 @@ pub(super) struct File {
     first: bool,
 }
 
+/// Whether `path` is a `.part` name (any case): the host's own temporary,
+/// never a target (as for `net_file`, `network.md` 3.1).
+fn has_part_suffix(path: &str) -> bool {
+    path.len() >= 5 && path.as_bytes()[path.len() - 5..].eq_ignore_ascii_case(b".part")
+}
+
 /// `read` mode 1. Everything that can fail comes before the first change.
 pub(super) fn read(
     host: &dyn SockHost,
@@ -29,6 +35,7 @@ pub(super) fn read(
         || r.len > LEN_MAX
         || r.path.is_empty()
         || !matches!(r.root, 0 | 1)
+        || has_part_suffix(r.path)
     {
         return Err(ERR_INVALID);
     }
@@ -40,6 +47,14 @@ pub(super) fn read(
         return Err(ERR_STATE);
     }
     if s.want.is_some() || s.received.is_some() || s.file.is_some() {
+        return Err(ERR_BUSY);
+    }
+    // One writer per target, the same plugin's second socket included.
+    if inner.socks.iter().any(|o| {
+        o.file
+            .as_ref()
+            .is_some_and(|f| f.root == r.root && f.path.eq_ignore_ascii_case(r.path))
+    }) {
         return Err(ERR_BUSY);
     }
     host.root_access(who, r.root, r.path)?;

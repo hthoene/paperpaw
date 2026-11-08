@@ -101,6 +101,9 @@ fn every_refusal_changes_nothing() {
     assert_eq!(ask(5, 2, "a"), Err(ERR_INVALID), "root 2 is read-only");
     assert_eq!(ask(5, 3, "a"), Err(ERR_INVALID));
     assert_eq!(ask(5, 0, ""), Err(ERR_INVALID));
+    for name in ["a.part", "dir/A.PART", "x.Part", ".part"] {
+        assert_eq!(ask(5, 0, name), Err(ERR_INVALID), "{name}: the host's own");
+    }
     let hosts = HostServices::new();
     for (flags, max) in [(1, 0), (0, 1)] {
         let r = wire::ServiceSockRead {
@@ -302,4 +305,27 @@ fn an_allocation_that_fails_in_a_file_read_claims_nothing() {
         assert_eq!(f.used(), 0);
     }
     assert_eq!(refused, 1, "the path's copy is the one allocation");
+}
+
+#[test]
+fn a_target_already_claimed_is_busy_for_everyone_the_same_plugin_too() {
+    let f = Fake::new(SockProfile::OTHER, 0);
+    let a = open(&f, OWNER, 1);
+    let b = open(&f, OWNER, 2);
+    let c = open(&f, OTHER, 3);
+    read_file(&f, OWNER, a, 5, 0, "book.epub").unwrap();
+    // The same plugin's second socket, the other plugin's, any case.
+    assert_eq!(read_file(&f, OWNER, b, 5, 0, "book.epub"), Err(ERR_BUSY));
+    assert_eq!(read_file(&f, OWNER, b, 5, 0, "BOOK.EPUB"), Err(ERR_BUSY));
+    assert_eq!(read_file(&f, OTHER, c, 5, 0, "book.epub"), Err(ERR_BUSY));
+    assert_eq!(f.claims.borrow().len(), 1, "the refusals claimed nothing");
+    assert!(
+        read_file(&f, 9, open(&f, 9, 4), 5, 0, "book.parts").is_ok(),
+        "only the suffix .part is the host's"
+    );
+    // Another root's file of the same name is another file.
+    assert!(read_file(&f, 10, open(&f, 10, 5), 5, 1, "book.epub").is_ok());
+    // Once the first read is gone the target is free again.
+    close(&f, OWNER, a).unwrap();
+    assert!(read_file(&f, OTHER, c, 5, 0, "book.epub").is_ok());
 }

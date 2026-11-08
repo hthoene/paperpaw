@@ -159,7 +159,13 @@ impl SockHost for Fake {
         extra <= self.free.get()
     }
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32> {
-        if self.in_use.borrow().contains(&(root, path.to_string())) {
+        if self.in_use.borrow().contains(&(root, path.to_string()))
+            || self
+                .claims
+                .borrow()
+                .iter()
+                .any(|c| (c.1, &c.2) == (root, &path.to_string()))
+        {
             return Err(ERR_BUSY);
         }
         self.claims
