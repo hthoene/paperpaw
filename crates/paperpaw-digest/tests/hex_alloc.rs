@@ -73,4 +73,12 @@ fn a_refused_reservation_is_an_error_not_an_abort() {
         (0, None),
         "odd text reserves nothing"
     );
+    for bad in ["zz", "00ffzz"] {
+        let (count, result) = allocations(true, || hex::try_decode(bad));
+        assert_eq!(
+            (count, result.unwrap()),
+            (0, None),
+            "{bad:?}: bad digits reserve nothing"
+        );
+    }
 }
