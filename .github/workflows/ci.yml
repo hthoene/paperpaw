@@ -468,6 +468,12 @@ jobs:
         # by tools/licences/build.py: a crate added, removed or updated
         # without them fails here.
         run: python3 tools/licences/build.py --check
+      - name: Every Cargo.lock agrees with its manifests
+        # `cargo metadata --locked` at the root reads the root's lock only.
+        # tools/check-lockfiles.py runs it for each lockfile in git and also
+        # finds entries nothing needs any more (a bumped plugin or a removed
+        # crate left in shells/xteink, tools/plugin-files or fuzz).
+        run: python3 tools/check-lockfiles.py
       - name: A plugin's own stage codec is its schema's
         # plugins/about/src/stages.rs from plugins/about/stages/*.def by
         # tools/stage-codec.py (needs rustfmt, which this job has).
@@ -566,6 +572,8 @@ jobs:
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback
         run: python3 -m unittest discover -s tools -p "test_ci_tools.py"
+      - name: The lockfile check finds a stale version and a left-over entry
+        run: python3 -m unittest discover -s tools -p "test_check_lockfiles.py"
       - name: Android takes each version over the ones before it, as the update plugin orders them
         # The order itself against compare_versions: crates/paperpaw-sdk/tests/android_codes.rs.
         run: |

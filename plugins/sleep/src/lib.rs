@@ -370,7 +370,7 @@ pub(crate) fn next_from_folder(env: &Env<'_>) -> Option<String> {
     if pictures.is_empty() {
         return None;
     }
-    pictures.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pictures);
     // One after the other, from where the last sleep left off.
     let next = next_picture(env.storage());
     let name = &pictures[next % pictures.len()];
