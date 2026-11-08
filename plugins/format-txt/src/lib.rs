@@ -18,6 +18,7 @@ extern crate alloc;
 
 mod document;
 pub mod preparation;
+pub mod provider;
 mod utf16;
 
 use alloc::borrow::Cow;

@@ -91,6 +91,25 @@ pub struct TxtDocument {
 
 impl TxtDocument {
     pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
+        Self::open_with(storage, path, None)
+    }
+
+    /// Opens the book on `path` where a UTF-16 file is read from its UTF-8
+    /// copy `utf8` (made beforehand by `Preparation`), never made here: the
+    /// native provider's form, which writes nothing.
+    pub fn open_converted(
+        storage: &dyn Storage,
+        path: &str,
+        utf8: &str,
+    ) -> Result<Self, DocumentError> {
+        Self::open_with(storage, path, Some(utf8))
+    }
+
+    fn open_with(
+        storage: &dyn Storage,
+        path: &str,
+        converted: Option<&str>,
+    ) -> Result<Self, DocumentError> {
         let mut size = file_size(storage, path)?;
         let mut head = read(storage, path, 0, size.min(SNIFF))?;
         // UTF-16 is read from a copy in UTF-8, made when it is first opened.
@@ -101,7 +120,10 @@ impl TxtDocument {
             _ => None,
         };
         if let Some(big_endian) = big_endian {
-            text = utf8_copy(storage, path, size, big_endian)?;
+            text = match converted {
+                Some(copy) => copy_text(copy)?,
+                None => utf8_copy(storage, path, size, big_endian)?,
+            };
             size = file_size(storage, &text)?;
             head = read(storage, &text, 0, size.min(SNIFF))?;
         }
@@ -150,7 +172,11 @@ impl TxtDocument {
         if document.metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
             let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
-            document.metadata.title = Some(copy_text(stem)?);
+            // A book with no name (the native root 3) has none: the library
+            // names it by its file.
+            if !stem.is_empty() {
+                document.metadata.title = Some(copy_text(stem)?);
+            }
         }
         Ok(document)
     }
@@ -372,6 +398,17 @@ impl TxtDocument {
             i += len;
         }
         Ok((text, map))
+    }
+}
+
+impl TxtDocument {
+    /// How far `offset` is through the text, in millionths.
+    #[must_use]
+    pub fn progress_ppm(&self, offset: u32) -> u32 {
+        let length = u64::from(self.end.saturating_sub(self.start).max(1));
+        let done = u64::from(offset.saturating_sub(self.start)).min(length);
+        // At most 1,000,000.
+        u32::try_from(done * 1_000_000 / length).unwrap_or(1_000_000)
     }
 }
 

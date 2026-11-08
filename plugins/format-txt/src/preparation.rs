@@ -45,6 +45,12 @@ impl Preparation {
         })
     }
 
+    /// How far the conversion is, in millionths.
+    #[must_use]
+    pub fn progress_ppm(&self) -> u32 {
+        u32::try_from(self.offset.saturating_mul(1_000_000) / self.size.max(1)).unwrap_or(1_000_000)
+    }
+
     /// Convert at most 1 KiB per callback. The host owns the `.complete` stamp.
     /// An I/O refusal poisons this preparation: restart with a new instance,
     /// which truncates any partially appended cache before retrying.
@@ -61,7 +67,11 @@ impl Preparation {
         )
     }
 
-    fn advance(
+    /// One piece through any reader and writer (`write` gets `true` first).
+    ///
+    /// # Errors
+    /// What `read` or `write` refuse; the preparation is then spent.
+    pub fn advance(
         &mut self,
         mut read: impl FnMut(u64, &mut [u8]) -> Result<usize, Error>,
         mut write: impl FnMut(bool, &[u8]) -> Result<(), Error>,
