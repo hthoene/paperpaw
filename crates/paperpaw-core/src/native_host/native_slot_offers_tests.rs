@@ -81,7 +81,10 @@ fn a_priority_outside_i16_counts_as_the_nearest_end_and_the_plugin_installs() {
         .map(|priority| priority.0)
         .collect();
     // The kernel's own offers come first; the plugin's were last made.
-    assert!(priorities.ends_with(&[i16::MAX, i16::MIN]), "{priorities:?}");
+    assert!(
+        priorities.ends_with(&[i16::MAX, i16::MIN]),
+        "{priorities:?}"
+    );
 }
 
 /// A plugin of the program offering `core.translate` at `priority`.
