@@ -19,7 +19,21 @@ pub(crate) fn base(cache: &str, index: usize, name: &str, size: u64) -> String {
     let mut bytes = alloc::vec::Vec::from(name.as_bytes());
     bytes.extend_from_slice(&size.to_le_bytes());
     let tag = paperpaw_sdk::digest::fnv1a64(bytes) as u32;
-    format!("{cache}/p{index}-{tag:08x}")
+    join(cache, &format!("p{index}-{tag:08x}"))
+}
+
+/// The prefix of the paths of the document cache (root 6) among the paths of
+/// the book's folder (root 3) in the native provider's one storage: a colon is
+/// no part of a name on the card.
+pub const CACHE: &str = "cache:";
+
+/// `leaf` in the folder `cache` (a path, or [`CACHE`] for the host's).
+pub(crate) fn join(cache: &str, leaf: &str) -> String {
+    if cache.ends_with(':') {
+        format!("{cache}{leaf}")
+    } else {
+        format!("{cache}/{leaf}")
+    }
 }
 
 fn file(base: &str, color: bool) -> String {

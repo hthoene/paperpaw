@@ -40,6 +40,7 @@ use paperpaw_sdk::{
 
 pub const PLUGIN: Id = Id::new_static("format-xtc");
 pub const FORMAT: Id = Id::new_static("format-xtc.xtc");
+pub mod provider;
 
 const XTC: &[u8; 4] = b"XTC\0";
 const XTCH: &[u8; 4] = b"XTCH";
@@ -186,6 +187,24 @@ pub struct XtcDocument {
 
 impl XtcDocument {
     pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
+        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
+        Self::open_in(storage, path, Some(cache))
+    }
+
+    /// Opens the book on root 3 (path `""`), its pages decoded into the
+    /// document cache (root 6, whose stamp is the host's): the native
+    /// provider's form, which keeps no cache of its own.
+    pub fn open_native(storage: &dyn Storage) -> Result<Self, DocumentError> {
+        Self::open_in(storage, "", None)
+    }
+
+    /// `cache` is the folder of the pages in the plugin's own folder, `None`
+    /// for the root-relative cache of the host.
+    fn open_in(
+        storage: &dyn Storage,
+        path: &str,
+        cache: Option<String>,
+    ) -> Result<Self, DocumentError> {
         let mut head = [0u8; HEADER];
         read_exact(storage, path, 0, &mut head)?;
         if &head[..4] != XTC && &head[..4] != XTCH {
@@ -250,18 +269,23 @@ impl XtcDocument {
         }
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
+            let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
+            // A book with no name (the native root 3) is named by the library.
+            if !stem.is_empty() {
+                metadata.title = Some(stem.to_string());
+            }
         }
-        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-        // Pages decoded from another file of the same name go.
-        let stamp = format!("{} {pages}\n", fingerprint(storage, path, size)?);
-        let stamp_path = format!("{cache}/source");
-        if paperpaw_sdk::read_file(storage, &stamp_path, 64).ok()
-            != Some(stamp.clone().into_bytes())
-        {
-            let _ = storage.remove_dir_all(&cache);
-            let _ = storage.create_dir(&cache);
-            storage.write(&stamp_path, stamp.as_bytes())?;
+        if let Some(cache) = &cache {
+            // Pages decoded from another file of the same name go.
+            let stamp = format!("{} {pages}\n", fingerprint(storage, path, size)?);
+            let stamp_path = format!("{cache}/source");
+            if paperpaw_sdk::read_file(storage, &stamp_path, 64).ok()
+                != Some(stamp.clone().into_bytes())
+            {
+                let _ = storage.remove_dir_all(cache);
+                let _ = storage.create_dir(cache);
+                storage.write(&stamp_path, stamp.as_bytes())?;
+            }
         }
         Ok(Self {
             path: path.to_string(),
@@ -272,18 +296,27 @@ impl XtcDocument {
             chapters_at,
             chapters,
             cover,
-            cache,
+            cache: cache.unwrap_or_default(),
         })
+    }
+
+    /// A file of the pages' folder (`name`), root-relative where it is empty.
+    fn cached(&self, name: &str) -> String {
+        if self.cache.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}/{name}", self.cache)
+        }
     }
 
     /// Page `page` as a gray picture in the cache, decoded if needed. A
     /// page that cannot be decoded is marked, so it is not decoded again
     /// each time it is shown (until the book changes, and its cache with
     /// it).
-    fn page(&self, storage: &dyn Storage, page: u32) -> Result<ImageRef, DocumentError> {
-        let cache = format!("{}/p{page}.gray", self.cache);
+    pub(crate) fn page(&self, storage: &dyn Storage, page: u32) -> Result<ImageRef, DocumentError> {
+        let cache = self.cached(&format!("p{page}.gray"));
         if GrayFile::open(storage, &cache).is_none() {
-            let broken = format!("{}/p{page}.broken", self.cache);
+            let broken = self.cached(&format!("p{page}.broken"));
             if storage.exists(&broken) {
                 return Err(malformed("page cannot be decoded"));
             }

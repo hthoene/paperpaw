@@ -44,13 +44,37 @@ impl ImagesDocument {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Self, DocumentError> {
+        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
+        Self::open_in(storage, path, options, cache)
+    }
+
+    /// Opens the picture `name` of the book's folder (root 3) as the first
+    /// page, its decoded pictures in the document cache (root 6, reached by
+    /// the paths that start with [`pictures::CACHE`]): the native provider's
+    /// form.
+    pub fn open_native(
+        storage: &dyn Storage,
+        name: &str,
+        options: &OpenOptions,
+    ) -> Result<Self, DocumentError> {
+        if name.contains('/') {
+            return Err(malformed("not a name in the book's folder"));
+        }
+        Self::open_in(storage, name, options, String::from(pictures::CACHE))
+    }
+
+    fn open_in(
+        storage: &dyn Storage,
+        path: &str,
+        options: &OpenOptions,
+        cache: String,
+    ) -> Result<Self, DocumentError> {
         let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
         if !is_picture(name) {
             return Err(malformed("not a picture"));
         }
         let first = (name.to_string(), storage.size(path)?);
         let pages = pages_from(storage, dir, &first);
-        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
         let metadata = Metadata::default().title(stem.to_string());
         Ok(Self {
@@ -71,6 +95,14 @@ impl ImagesDocument {
         } else {
             format!("{}/{name}", self.dir)
         })
+    }
+
+    /// Page `index` as shown in its page, decoded now if it is not yet.
+    pub(crate) fn page_picture(&self, storage: &dyn Storage, index: u32) -> Option<ImageRef> {
+        let index = index as usize;
+        let (name, size) = self.pages.get(index)?;
+        let base = pictures::base(&self.cache, index, name, *size);
+        self.picture(storage, index, &base, self.image_fit)
     }
 
     /// Page `index` decoded into the picture `base`, if it can be.
@@ -128,7 +160,7 @@ impl Document for ImagesDocument {
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {
-        let base = format!("{}/cover-{}", self.cache, self.cover_fit.long);
+        let base = pictures::join(&self.cache, &format!("cover-{}", self.cover_fit.long));
         Ok(self.picture(storage, 0, &base, self.cover_fit))
     }
 }
