@@ -3,18 +3,21 @@
 //! places found by a search ([`Places`]). The same rules as the interface-6
 //! readers (`parse_forecast` and `parse_places` in `data.rs`), with fallible
 //! allocation: the JSON is read by `paperpaw_sdk::json::stream::Parser`'s
-//! `try_feed` and `try_finish`, what the plugin keeps of it is allocated with
-//! `try_reserve`, and a refused allocation ends the reading in
-//! [`Error::NoMemory`] with nothing returned in part. After an error the
-//! reading is over: every later `feed` says the same.
+//! `try_feed`, what the plugin keeps of it is allocated with `try_reserve`,
+//! and a refused allocation ends the reading in [`Error::NoMemory`] with
+//! nothing returned in part. After an error the reading is over: every later
+//! `feed` says the same. As in interface 6 the parser is never finished: a
+//! body cut inside a number (`12` of `12.5`) gives no value for it, not a
+//! wrong one. A place's name, region and country are cut at
+//! [`PLACE_NAME_CAP`] and [`PLACE_PART_CAP`] bytes (at a character's end).
 //!
 //! The caller gives the answer's body in pieces (`feed`), then asks for the
 //! result (`finish`); [`Forecast::read`] and [`Places::read`] do both for a
 //! body already in memory. Interface 6 took the body whole, as the host
 //! bounds it; no cap of the plugin's applies.
 use crate::native_weather::{
-    Current, DAYS, Day, PLACES, Place, Weather, parse_date, parse_minutes, short_coordinate,
-    split_coordinates, tenths,
+    Current, DAYS, Day, PLACE_NAME_CAP, PLACE_PART_CAP, PLACES, Place, Weather, parse_date,
+    parse_minutes, short_coordinate, split_coordinates, tenths,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -58,12 +61,8 @@ impl<S: Sink> Feed<S> {
         self.check()
     }
 
-    fn finish(mut self) -> Result<S, Error> {
-        self.check()?;
-        let Self { parser, sink, .. } = &mut self;
-        if parser.try_finish(&mut |e| sink.event(e)).is_err() {
-            self.spent = Some(Error::NoMemory);
-        }
+    /// The reading is over. The parser is not finished (see the top).
+    fn finish(self) -> Result<S, Error> {
         self.check()?;
         Ok(self.sink)
     }
@@ -82,6 +81,15 @@ fn copy(text: &str) -> Result<String, Error> {
         .map_err(|_| Error::NoMemory)?;
     out.push_str(text);
     Ok(out)
+}
+
+/// `text` cut to at most `max` bytes, at a character's end, kept fallibly.
+fn copy_cut(text: &str, max: usize) -> Result<String, Error> {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    copy(&text[..end])
 }
 
 fn percent(text: &str) -> Option<u8> {
@@ -289,9 +297,9 @@ impl PlacesSink {
             Event::Value(path, text) if path.len() == 3 && path[0] == "results" => {
                 let text = text.trim();
                 match path[2].as_str() {
-                    "name" => self.place.name = copy(text)?,
-                    "admin1" => self.place.region = copy(text)?,
-                    "country" => self.place.country = copy(text)?,
+                    "name" => self.place.name = copy_cut(text, PLACE_NAME_CAP)?,
+                    "admin1" => self.place.region = copy_cut(text, PLACE_PART_CAP)?,
+                    "country" => self.place.country = copy_cut(text, PLACE_PART_CAP)?,
                     "latitude" => self.place.latitude = short_coordinate(text)?,
                     "longitude" => self.place.longitude = short_coordinate(text)?,
                     _ => {}

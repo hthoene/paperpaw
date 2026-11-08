@@ -22,9 +22,12 @@ stays until the host activates native plugins (then it goes together, no shim).
   are read in the next slice.
 - `src/native_answers.rs` (slice 2): the forecast (`Forecast`: the conditions now and up to 8 days)
   and the places a search found (`Places`: at most 10, with a name and coordinates in range), read
-  with `paperpaw_sdk::json::stream::Parser`'s `try_feed`/`try_finish`, so a refused allocation of
-  the parser's path or text ends in `NoMemory` and nothing is returned in part; what the plugin
-  keeps is allocated with `try_reserve`. The caller feeds the reply's body in pieces (`feed`, then
+  with `paperpaw_sdk::json::stream::Parser`'s `try_feed`, so a refused allocation of the parser's path or
+  text ends in `NoMemory` and nothing is returned in part; what the plugin keeps is allocated with
+  `try_reserve`. The parser is never finished, as in interface 6: a body cut inside a number
+  (`12` of `12.5`) gives no value (tested at every cut of the recorded answers). A place's name is
+  cut at 120 bytes, its region and country at 80 (`PLACE_NAME_CAP`, `PLACE_PART_CAP`; interface 6
+  kept them whole up to the parser's 4 KiB; a new cap, at a character's end, the place stays). The caller feeds the reply's body in pieces (`feed`, then
   `finish`); after an error the reading is over and every later `feed` says the same.
   `src/native_answers_tests.rs` compares each with `parse_forecast`/`parse_places` at piece sizes
   from 1 byte to 2 KiB, on the recorded answers and on odd ones, and sweeps every allocation.

@@ -198,3 +198,60 @@ fn refused_allocations_end_in_no_memory() {
     });
     sweep(|| Places::read(SEARCH.as_bytes()).map(|p| p.len()));
 }
+
+#[test]
+fn a_body_cut_inside_a_number_gives_no_value_as_before() {
+    // `12` of `12.5` is not a temperature: the parser is never finished.
+    let cut = r#"{"current":{"temperature_2m":12"#;
+    let old = data::parse_forecast(cut.as_bytes(), "1,2", 5);
+    let new = Forecast::read(cut.as_bytes(), "1,2", 5).unwrap();
+    assert_eq!(old.is_some(), new.is_some());
+    assert!(new.is_none_or(|w| w.current.is_none()));
+    // The same at every length of the forecast and the search answers.
+    for end in 0..FORECAST.len() {
+        if !FORECAST.is_char_boundary(end) {
+            continue;
+        }
+        let body = &FORECAST[..end];
+        let old = data::parse_forecast(body.as_bytes(), "1,2", 5);
+        let new = Forecast::read(body.as_bytes(), "1,2", 5).unwrap();
+        assert_eq!(old.is_some(), new.is_some(), "forecast cut at {end}");
+        if let (Some(o), Some(n)) = (&old, &new) {
+            same_weather(o, n);
+        }
+    }
+    for end in 0..SEARCH.len() {
+        if !SEARCH.is_char_boundary(end) {
+            continue;
+        }
+        let body = &SEARCH[..end];
+        let old = data::parse_places(body.as_bytes());
+        let new = Places::read(body.as_bytes()).unwrap();
+        assert_eq!(old.len(), new.len(), "search cut at {end}");
+    }
+    let places = r#"{"results":[{"name":"Ok","latitude":5.5,"longitude":6"#;
+    assert!(Places::read(places.as_bytes()).unwrap().is_empty());
+}
+
+#[test]
+fn a_places_name_region_and_country_are_cut() {
+    // Multi-byte letters, so that a cut falls inside a character if made
+    // carelessly.
+    let long = "\u{e4}".repeat(2000);
+    let body = format!(
+        r#"{{"results":[{{"name":"{long}","admin1":"{long}","country":"{long}","latitude":1,"longitude":2}}]}}"#
+    );
+    let places = Places::read(body.as_bytes()).unwrap();
+    assert_eq!(places.len(), 1);
+    let place = &places[0];
+    assert!(!place.name.is_empty());
+    assert!(place.name.len() <= native::PLACE_NAME_CAP);
+    assert!(place.region.len() <= native::PLACE_PART_CAP);
+    assert!(place.country.len() <= native::PLACE_PART_CAP);
+    assert!(place.name.chars().all(|c| c == '\u{e4}'));
+    // Names under the caps are untouched.
+    let short = Places::read(SEARCH.as_bytes()).unwrap();
+    let old = data::parse_places(SEARCH.as_bytes());
+    assert_eq!(old.len(), short.len());
+    sweep(|| Places::read(body.as_bytes()).map(|p| p.len()));
+}
