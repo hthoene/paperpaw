@@ -110,6 +110,24 @@ impl HostResources {
         &self.0.hosts
     }
 
+    /// A device with memory to spare (desktop, the emulator, Android, web): one
+    /// image draw may take 1 MiB of heap instead of the X4's 32 KiB
+    /// (`document.md` 5). Call it once at setup, before plugins draw; copies
+    /// made with [`try_clone`](Self::try_clone) share the setting. The X4
+    /// never calls it.
+    pub fn use_large_image_scratch(&self) {
+        self.0
+            .hosts
+            .images()
+            .set_scratch_max(super::image_service::SCRATCH_LARGE);
+    }
+
+    /// The most heap one image draw may take on this device.
+    #[must_use]
+    pub fn image_scratch_max(&self) -> usize {
+        self.0.hosts.images().scratch_max()
+    }
+
     /// The main loop's retry for owners whose retirement was busy when their
     /// handle table dropped: call it again after `Ok(true)` (some are left) and
     /// after `Err(ERR_BUSY)` (one is still busy).
@@ -431,6 +449,23 @@ mod tests {
         resources.0.next_owner.set(u64::MAX);
         assert_eq!(resources.try_owner().unwrap_err(), ERR_NO_SPACE);
         assert_eq!(resources.0.next_owner.get(), u64::MAX);
+    }
+
+    #[test]
+    fn the_image_scratch_is_the_x4s_until_a_large_device_says_otherwise() {
+        use super::super::image_service::{SCRATCH_LARGE, SCRATCH_X4};
+        let resources = HostResources::try_new().unwrap();
+        assert_eq!(resources.image_scratch_max(), SCRATCH_X4);
+        let clone = resources.try_clone().unwrap();
+        resources.use_large_image_scratch();
+        assert_eq!(resources.image_scratch_max(), SCRATCH_LARGE);
+        // A copy shares the device's table.
+        assert_eq!(clone.image_scratch_max(), SCRATCH_LARGE);
+        // Another device's table is its own.
+        assert_eq!(
+            HostResources::try_new().unwrap().image_scratch_max(),
+            SCRATCH_X4
+        );
     }
 
     /// Review of #308 (SF1): a busy handle table must not keep the owner's
