@@ -472,15 +472,12 @@ fn replies_are_held_to_the_contract_even_with_a_big_buffer() {
     let mut big = vec![0u8; cap + 64];
     let at_cap = vec![0u8; cap];
     state.replies.replace(vec![at_cap]);
-    let record = Record::ServiceFsPath(wire::ServiceFsPath { root: 0, path: "a" });
+    let record = wire::ServiceFsPath { root: 0, path: "a" };
     let op = schema::OP_MAKE_DIR;
-    assert_eq!(
-        files.call(&host, op, &record, &mut input, &mut big),
-        Ok(cap)
-    );
+    assert_eq!(files.call(&host, op, record, &mut input, &mut big), Ok(cap));
     state.replies.replace(vec![vec![0u8; cap + 1]]);
     assert_eq!(
-        files.call(&host, op, &record, &mut input, &mut big),
+        files.call(&host, op, record, &mut input, &mut big),
         Err(Error::Invalid)
     );
 }
