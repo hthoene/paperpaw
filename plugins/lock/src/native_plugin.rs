@@ -27,6 +27,7 @@ use paperpaw_ui_kit::{
 use crate::declarations::{NOW, RESUME, SCREEN, STARTED};
 use crate::native_clock;
 use crate::native_flow::{Context, Effect, Effects, Flow, Lockstate, Step};
+use crate::native_gate::{self as gate, Device, Door};
 use crate::native_input::Act;
 use crate::native_model::{self as model, Code};
 use crate::native_screen::{Clock, View, prepare};
@@ -78,6 +79,7 @@ impl Read {
 pub struct NativeLock {
     lock: Lockstate,
     screens: Screens<View>,
+    door: Door,
 }
 
 impl Plugin for NativeLock {
@@ -108,11 +110,8 @@ impl Plugin for NativeLock {
             Event::ActionRun { .. } if token == NOW => self.lock_now(host),
             Event::Started { now_ms } if token == STARTED => self.started(host, now_ms),
             Event::Resume { .. } if token == RESUME => {
-                repair_kind(host)?;
-                if store::on_wake(host)? {
-                    self.lock_now(host)?;
-                }
-                Ok(())
+                self.sync_door();
+                gate::woke(&HostDevice(host), &mut self.lock, &mut self.door)
             }
             Event::ScreenOpened {
                 instance, handover, ..
@@ -147,7 +146,7 @@ impl Plugin for NativeLock {
             let display = snapshot::capture_snapshot(host)?;
             let style = Style::read(host, &display, &font)?;
             let clock = if view.flow.step() == Step::Unlock {
-                native_clock::now(host, &mut messages)?
+                native_clock::now(host, &mut messages).unwrap_or_default()
             } else {
                 Clock::default()
             };
@@ -289,52 +288,44 @@ fn draw_kinds(
         .draw_with(host, frame, &title, view.flow.shown, Footer::None)
 }
 
-/// The kind goes with the code kept: changed without it (a plain list of
-/// choices, *Reset all settings*), it goes back. Interface 6 did this when the
-/// setting changed; the host does not take that subscription yet, so it is done
-/// at the start and when the device wakes, before the lock is asked for.
-fn repair_kind(host: &Host<'_>) -> Result<(), Error> {
-    let stored = store::stored(host)?;
-    let Some(kept) = model::kept_kind(stored.as_deref()) else {
-        return Ok(());
-    };
-    let value = paperpaw_ui_kit::text::concat(&[model::KIND_PREFIX, kept])?;
-    if store::kind_setting(host)? == value {
-        return Ok(());
-    }
-    let mut scratch = [0; 256];
-    CommandSender::new(host, &mut scratch).set_setting(store::KIND, SettingValue::Text(&value))?;
-    notify(host, "lock.on-its-page")
-}
+/// The host as the gate's device.
+struct HostDevice<'a, 'h>(&'a Host<'h>);
 
-/// A notice with the text of `key`.
-fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
-    let text = Messages::new()?.copy(host, key)?;
-    let mut scratch = buffer(SERVICE_BUFFER)?;
-    CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
-}
-
-impl NativeLock {
-    /// PaperPaw started: a wait due when it stopped is waited anew, then the
-    /// device locks.
-    fn started(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        repair_kind(host)?;
-        self.lock.attempts.restore(store::tries(host)?, now_ms);
-        self.lock_now(host)
+impl Device for HostDevice<'_, '_> {
+    fn stored(&self) -> Result<Option<Code>, Error> {
+        store::stored(self.0)
     }
 
-    /// Locks, if a lock is set and the device is not locked yet.
-    fn lock_now(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if self.lock.locked || Read::new(host)?.active.is_none() {
+    /// The kind goes with the code kept: changed without it (a plain list of
+    /// choices, *Reset all settings*), it goes back. Interface 6 did this when
+    /// the setting changed; the host does not take that subscription yet, so
+    /// it is done at the start and when the device wakes, after the lock is
+    /// asked for (the command takes effect when the callback ends).
+    fn repair_kind(&self, stored: Option<&str>) -> Result<(), Error> {
+        let host = self.0;
+        let Some(kept) = model::kept_kind(stored) else {
+            return Ok(());
+        };
+        let value = paperpaw_ui_kit::text::concat(&[model::KIND_PREFIX, kept])?;
+        if store::kind_setting(host)? == value {
             return Ok(());
         }
-        self.open_unlock(host)?;
-        self.lock.locked = true;
-        Ok(())
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .set_setting(store::KIND, SettingValue::Text(&value))?;
+        notify(host, "lock.on-its-page")
     }
 
-    /// Opens the lock screen to unlock.
-    fn open_unlock(&self, host: &Host<'_>) -> Result<(), Error> {
+    fn tries(&self) -> Result<u8, Error> {
+        store::tries(self.0)
+    }
+
+    fn on_wake(&self) -> Result<bool, Error> {
+        store::on_wake(self.0)
+    }
+
+    fn open_unlock(&self) -> Result<(), Error> {
+        let host = self.0;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let ui = Ui::open(host)?;
         let opened = (|| {
@@ -347,6 +338,50 @@ impl NativeLock {
         let released = ui.release(host);
         opened?;
         released
+    }
+}
+
+/// A notice with the text of `key`.
+fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
+    let text = Messages::new()?.copy(host, key)?;
+    let mut scratch = buffer(SERVICE_BUFFER)?;
+    CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+}
+
+impl NativeLock {
+    /// Whether an unlock screen is open: what the gate needs to know.
+    fn sync_door(&mut self) {
+        self.door.shown = self
+            .screens
+            .all()
+            .any(|view| view.flow.step() == Step::Unlock);
+    }
+
+    /// PaperPaw started: the device locks first, then the rest.
+    fn started(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
+        self.sync_door();
+        gate::started(&HostDevice(host), &mut self.lock, &mut self.door, now_ms)
+    }
+
+    /// Locks, if a lock is set and the device is not locked yet; locked
+    /// without a screen to unlock, the screen is opened again.
+    fn lock_now(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.sync_door();
+        gate::lock_now(&HostDevice(host), &mut self.lock, &mut self.door)
+    }
+
+    /// The guard policy of an unlock screen: nothing above it but its own
+    /// (the keyboard of a password); others wait below until it is unlocked.
+    fn guard(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).screen_policy(
+            Some(instance),
+            ScreenPolicy::new().guards().secret().holds_edges(),
+        )?;
+        if let Some(view) = self.screens.get(instance) {
+            view.guarded = true;
+        }
+        Ok(())
     }
 
     /// Whether the handover says the screen is to unlock.
@@ -381,19 +416,22 @@ impl NativeLock {
         let flow = Flow::new(unlock, read.active, !read.touch);
         self.screens.open(instance, View::new(flow))?;
         if unlock {
-            // Locked, no screen shows above it but its own (the keyboard of a
-            // password): others wait below until it is unlocked.
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).screen_policy(
-                Some(instance),
-                ScreenPolicy::new().guards().secret().holds_edges(),
-            )?;
+            self.door.opening = false;
+            // Refused here, it is set again when the screen shows.
+            self.guard(host, instance)?;
         }
         Ok(())
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        let unguarded = self
+            .screens
+            .get(instance)
+            .is_some_and(|view| view.flow.step() == Step::Unlock && !view.guarded);
+        if unguarded {
+            self.guard(host, instance)?;
+        }
         let read = Read::new(host)?;
         let now_ms = snapshot::capture_snapshot(host)?.instant().millis();
         let ctx = read.context(now_ms);
@@ -423,8 +461,12 @@ impl NativeLock {
             .is_some_and(|view| view.flow.step() == Step::Unlock)
             && self.lock.locked;
         self.screens.close(instance);
+        self.door.opening = false;
         if reopen {
-            self.open_unlock(host)?;
+            // Refused, the device stays locked and the next occasion (waking,
+            // *Lock now*) opens it again.
+            self.sync_door();
+            gate::reopen(&HostDevice(host), &self.lock, &mut self.door)?;
         }
         Ok(())
     }

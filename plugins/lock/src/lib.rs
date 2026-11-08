@@ -35,6 +35,7 @@ mod native_clock;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_flow;
+pub mod native_gate;
 #[doc(hidden)]
 pub mod native_input;
 #[doc(hidden)]

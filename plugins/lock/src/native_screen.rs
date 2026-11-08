@@ -32,6 +32,9 @@ pub struct View {
     pub asked: Option<RequestId>,
     /// The geometry of the last frame.
     pub drawn: Option<Drawn>,
+    /// The guard policy (nothing but this screen above it) was set; one the
+    /// host refused is set again when the screen shows.
+    pub guarded: bool,
 }
 
 impl View {
@@ -42,6 +45,7 @@ impl View {
             list: ItemList::default(),
             asked: None,
             drawn: None,
+            guarded: false,
         }
     }
 }
