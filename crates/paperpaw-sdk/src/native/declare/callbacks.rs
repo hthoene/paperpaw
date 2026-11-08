@@ -82,6 +82,12 @@ pub enum EventKind {
     /// Something happened to a broadcast of this plugin. Needed before the
     /// first `broadcast`.
     Broadcast,
+    /// Work of this plugin came due (`core.work`).
+    WorkDue,
+    /// Work of this plugin was taken out for good.
+    WorkRefused,
+    /// What held work back no longer does (a hint, coalesced).
+    WorkAllowed,
 }
 
 impl EventKind {
@@ -124,6 +130,9 @@ impl EventKind {
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
+            Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
+            Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
+            Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
         }
     }
 }

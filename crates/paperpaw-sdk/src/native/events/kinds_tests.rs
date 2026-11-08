@@ -227,6 +227,19 @@ fn fixtures() -> Vec<Vec<u8>> {
                 len: 20,
                 from: "192.168.0.7:9090",
             }),
+            Record::EventWorkDue(EventWorkDue {
+                now_ms: 42,
+                token: 7,
+                why: 3,
+                key: "mail.sync",
+            }),
+            Record::EventWorkRefused(EventWorkRefused {
+                now_ms: 42,
+                token: 7,
+                reason: 13,
+                key: "mail.sync",
+            }),
+            Record::EventWorkAllowed(EventWorkAllowed { now_ms: 42 }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",
