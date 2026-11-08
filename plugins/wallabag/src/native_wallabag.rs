@@ -11,6 +11,12 @@ use paperpaw_sdk::native::Error;
 
 /// Unread articles fetched at most.
 pub const MAX_ARTICLES: usize = 30;
+/// The most UTF-16 units of a book's name made of an article's title.
+pub const NAME_UNITS: usize = 80;
+/// The most `articles.txt` is read to change, as in interface 6 (64 KiB).
+pub const ARTICLES_CAP: usize = 64 * 1024;
+/// The most `finished.txt` is read to change, as in interface 6 (16 KiB).
+pub const FINISHED_CAP: usize = 16 * 1024;
 /// Reading progress, in millionths (the native event's), from which an
 /// article counts as read where its pages are not counted yet: 95 %.
 pub const READ_PPM: u32 = 950_000;
@@ -103,14 +109,24 @@ fn push<T>(list: &mut Vec<T>, item: T) -> Result<(), Error> {
     Ok(())
 }
 
+/// `text`, the file as read, without a UTF-8 byte order mark; `NoSpace` over
+/// `cap` bytes. A list too large is not an empty one: the caller must not
+/// write the file then (what it holds would be lost), as in interface 6.
+fn within(text: &str, cap: usize) -> Result<&str, Error> {
+    if text.len() > cap {
+        return Err(Error::NoSpace);
+    }
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
 /// The articles fetched, kept as `id<TAB>path` lines (lines of another shape
-/// are left out).
+/// are left out). `text` is the file as read, at most [`ARTICLES_CAP`] bytes.
 ///
 /// # Errors
-/// `NoMemory` when the list cannot be kept.
+/// `NoSpace` over [`ARTICLES_CAP`]; `NoMemory` when the list cannot be kept.
 pub fn articles(text: &str) -> Result<Vec<Article>, Error> {
     let mut list = Vec::new();
-    for line in text.lines() {
+    for line in within(text, ARTICLES_CAP)?.lines() {
         if let Some((id, path)) = line.split_once('\t') {
             push(
                 &mut list,
@@ -141,13 +157,17 @@ pub fn articles_text(list: &[Article]) -> Result<String, Error> {
     Ok(out)
 }
 
-/// The ids of articles read to the end, to archive: one a line.
+/// The ids of articles read to the end, to archive: one a line. `text` is
+/// the file as read, at most [`FINISHED_CAP`] bytes.
 ///
 /// # Errors
-/// `NoMemory` when the list cannot be kept.
+/// `NoSpace` over [`FINISHED_CAP`]; `NoMemory` when the list cannot be kept.
 pub fn finished(text: &str) -> Result<Vec<String>, Error> {
     let mut ids = Vec::new();
-    for line in text.lines().filter(|l| !l.is_empty()) {
+    for line in within(text, FINISHED_CAP)?
+        .lines()
+        .filter(|l| !l.is_empty())
+    {
         push(&mut ids, copy(line)?)?;
     }
     Ok(ids)

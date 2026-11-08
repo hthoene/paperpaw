@@ -36,6 +36,9 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 mod answers;
 pub mod html;
+pub mod native_answers;
+#[cfg(test)]
+mod native_answers_tests;
 #[cfg(test)]
 mod native_parity_tests;
 pub mod native_read_later;
