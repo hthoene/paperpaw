@@ -140,13 +140,32 @@ native screens replace these callers.
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The rest of the native shell: the actions, menu entries, icons, screens, events and help.
-- Screens (word list, decks, card files, review, sleep card) on `core.ui`.
+- Screens (word list, card files, review, sleep card) on `core.ui`; the decks' screen is a view (above), not yet registered.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (decorations).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: `core.files` (#339).
+
+## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
+
+- The rows of the screen (*Review* with the cards due, *Edit with your phone*, *Cards on the SD card*
+  with what its folder holds, then the decks with their sizes) are made from owned `Numbers` over a
+  `Words` trait (the host's catalog behind `HostWords`), so they are tested in both languages without a
+  host; the texts and the five states of the files row are those of interface 6's `decks.rs`. The decks
+  and sizes are read by `Numbers::read` over `cards::decks` and `cards::sizes` (a refused allocation is
+  `TooLarge`, as there); the cards due, the folder and what it holds are the shell's to give (they depend
+  on the clock, the settings and `sdcard`, which are still interface 6).
+- `DecksView` draws the list (`ItemList`, title `vocabulary.cards.title`) and, on a chosen row, opens the
+  screen of its `Target` with a hand-over (a deck is named under `deck`); `tests` pin that the screen ids
+  and the key are those of the interface-6 screens. `native_decks_tests.rs` refuses each allocation of the
+  rows and of the numbers in turn.
+- Not in the image: the view is not registered (the screen declaration, the menu entry and the `on_show`
+  refresh that reloads the numbers come with the shell), and the screens it opens (review, phone, SD menu)
+  are interface 6. Differences from interface 6, on purpose: no `take_lookups` at opening (the shell calls it
+  where it loads the numbers), and the automatic update of the decks at opening (`SD_AUTO`) is the shell's.
+  `paperpaw-ui-kit` joins the dependencies (the lock files of the plugin's three workspaces).
 
 ## Ported: save to card (`export.rs`, host-free over `Storage`)
 
