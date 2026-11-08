@@ -92,6 +92,13 @@ fn the_file_read_last_is_not_read_from_a_pulled_volume() {
     let mut buf = [0; 3];
     assert_eq!(storage.read_at("books/a.epub", 0, &mut buf), Ok(3));
     std::fs::remove_dir_all(&card).unwrap();
+    // The open file is looked at again after a short while, not every read.
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert_eq!(
+        storage.read_at("books/a.epub", 3, &mut buf),
+        Err(StorageError::CARD_GONE)
+    );
+    // And the handle is gone: a volume that is back is read afresh.
     assert_eq!(
         storage.read_at("books/a.epub", 3, &mut buf),
         Err(StorageError::CARD_GONE)

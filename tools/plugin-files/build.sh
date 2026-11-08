@@ -63,18 +63,24 @@ done
 # plugin files do not depend on where they are built (panic locations and
 # debug paths in the code). The target's rustflags variable is joined with
 # .cargo/config.toml's flags, unlike RUSTFLAGS, which would replace them.
-# The variable is split at spaces, so a path with one cannot be remapped.
-for dir in "$root" "${CARGO_TARGET_DIR:-$here/target}" "${CARGO_HOME:-$HOME/.cargo}"; do
+# The variable is split at spaces, so with a space in one of the paths the
+# remap is left out (with a warning): the build works, but its files then
+# depend on where it ran.
+remap_paths=("$root" "${CARGO_TARGET_DIR:-$here/target}" "${CARGO_HOME:-$HOME/.cargo}")
+remappable=1
+for dir in "${remap_paths[@]}"; do
     case "$dir" in
-        *[[:space:]]*) echo "$dir has a space or tab in it: build from a path without one" >&2; exit 2 ;;
+        *[[:space:]]*) remappable=0; echo "warning: $dir has a space or tab in it; the paths are not remapped, so the plugin files depend on where they are built" >&2 ;;
     esac
 done
-flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
-remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_TARGET_DIR:-$here/target}=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
-case " ${!flags_var:-} " in
-    *" --remap-path-prefix=$root=/build "*) ;; # the caller has done it
-    *) export "$flags_var=${!flags_var:+${!flags_var} }$remap" ;;
-esac
+if [[ $remappable = 1 ]]; then
+    flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
+    remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_TARGET_DIR:-$here/target}=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+    case " ${!flags_var:-} " in
+        *" --remap-path-prefix=$root=/build "*) ;; # the caller has done it
+        *) export "$flags_var=${!flags_var:+${!flags_var} }$remap" ;;
+    esac
+fi
 (cd "$here" && env -u RUSTFLAGS "${build[@]}")
 target_dir="${CARGO_TARGET_DIR:-$here/target}"
 sign() { (cd "$root" && cargo run -q --release -p paperpaw-sign -- "$@"); }

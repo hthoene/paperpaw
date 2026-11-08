@@ -70,6 +70,10 @@ base_sha="$(git rev-parse --verify "$base^{commit}")"
 # Everything goes into a directory of its own inside --work, made here; only
 # that directory is ever removed, never --work itself.
 mkdir -p "$work" || die "cannot make $work"
+# The plugin builds take their path remaps from a variable split at spaces.
+case "$(cd "$work" && pwd)" in
+    *[[:space:]]*) die "--work has a space or tab in its path: use another" ;;
+esac
 # A fixed name: the path is part of what the compiler sees (the crates' hashes
 # and so the layout), so a random name would move the sizes by a little.
 ours="$work/flash-gate"
@@ -80,9 +84,10 @@ cleanup() {
     if [ "$keep" = 0 ]; then rm -rf "$ours"; else echo "kept: $ours" >&2; fi
 }
 trap cleanup EXIT
-# A worktree record left by an earlier run that was killed would refuse the path.
-git worktree prune
-git worktree add -q --detach "$ours/tree" "$base_sha"
+# `-f`: a record of this very path left by an earlier run that was killed
+# (its folder gone) is taken over. Not `git worktree prune`, which would clean
+# the records of everybody else's worktrees in this repository too.
+git worktree add -q -f --detach "$ours/tree" "$base_sha"
 
 # What the chip's flash holds: code, read-only data and the initial values of
 # data (the sections the ELF loads into flash).
@@ -115,6 +120,13 @@ build() { # name rev sha features
             "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
             { echo "plugin files failed: $name" >&2; exit 2; }
         rm -rf "$ours/ppn-target-$name"
+        # As many files as the tree's list has plugins: a plugin left out
+        # (or one the build did not make) would lower the sum.
+        local listed made
+        listed="$(sed -e 's/#.*//' "$ours/tree/tools/plugin-files/plugins.txt" | awk 'NF { n++ } END { print n + 0 }')"
+        made="$(find "$ours/ppn-$name" -maxdepth 1 -name '*.ppn' | wc -l)"
+        [ "$listed" -gt 0 ] && [ "$made" = "$listed" ] ||
+            { echo "$name: $made plugin files for $listed plugins in plugins.txt" >&2; exit 2; }
     fi
 }
 
@@ -136,8 +148,13 @@ def files(name):
     d = os.path.join(ours, "ppn-" + name)
     for f in sorted(os.listdir(d)):
         # <id>-<version>-x4.ppn; a pre-release may contain '-' (1.0.0-beta-2).
+        # A file that is not named so cannot be counted, and a gate must not
+        # undercount: stop (the caller exits 2).
+        if not f.endswith(".ppn"): continue
         m = re.match(r"(.+?)-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?-x4\.ppn$", f)
-        if m: out[m.group(1)] = os.path.getsize(os.path.join(d, f))
+        if not m: sys.exit(f"{name}: the plugin file {f} does not match <id>-<version>-x4.ppn")
+        if m.group(1) in out: sys.exit(f"{name}: two files for the plugin {m.group(1)}")
+        out[m.group(1)] = os.path.getsize(os.path.join(d, f))
     return out
 def builtin(name):
     nm = subprocess.run(["nm", "-C", "--defined-only", os.path.join(ours, name + ".elf")],
