@@ -405,7 +405,9 @@ def built_problems(then, now, identity=lambda path: ()):
 def build_store(root, out, device, target=None):
     """build.sh's files for `device` of the tree at `root` into `out`
     (unsigned); raises with the end of its output where it fails."""
-    env = {k: v for k, v in os.environ.items() if k != "RUSTFLAGS"}
+    # Never the trial-build override of build.sh: these files are hashed
+    # against the release's, so they must be built with the paths remapped.
+    env = {k: v for k, v in os.environ.items() if k not in ("RUSTFLAGS", "PAPERPAW_ALLOW_UNREMAPPED")}
     if target:
         env["CARGO_TARGET_DIR"] = str(target)
     done = subprocess.run(["bash", "tools/plugin-files/build.sh", device, str(out)], cwd=root,
