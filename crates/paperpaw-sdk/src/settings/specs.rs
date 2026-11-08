@@ -125,6 +125,14 @@ impl Specs {
         true
     }
 
+    /// Whether `additional` more made specs find a place.
+    pub(super) fn has_room_for(&self, additional: usize) -> bool {
+        self.owned
+            .len()
+            .checked_add(additional)
+            .is_some_and(|total| total <= PLACES)
+    }
+
     /// Makes room for `additional` more made specs; nothing changes when the
     /// heap refuses.
     pub(super) fn try_reserve(
