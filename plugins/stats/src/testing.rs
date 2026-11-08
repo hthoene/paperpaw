@@ -9,6 +9,8 @@ use core::cell::{Cell, RefCell};
 
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
+use crate::store::{self, Book, PageStat};
+
 #[derive(Default)]
 pub(crate) struct Faulty {
     pub inner: MemoryStorage,
@@ -269,6 +271,69 @@ impl Storage for Quiet {
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         fixture(|| self.0.rename(from, to))
+    }
+}
+
+/// A card with `n` books, each read once, opened in the order of their ids
+/// (the last one last); titles of 100 and authors of 40 bytes.
+pub(crate) fn library(n: u16) -> MemoryStorage {
+    let storage = MemoryStorage::new();
+    let books: Vec<Book> = (1..=n)
+        .map(|id| Book {
+            id,
+            title: alloc::format!("{id:0>100}"),
+            authors: alloc::format!("{id:0>20}\n{id:0>19}"),
+            md5: "0123456789abcdef0123456789abcdef".to_string(),
+            pages: 300,
+            language: "en".to_string(),
+            path: alloc::format!("Books/{id:0>40}.epub"),
+            last_open: i64::from(id) * 100,
+            ..Book::default()
+        })
+        .collect();
+    store::save_books(&storage, &books).unwrap();
+    for id in 1..=n {
+        store::append(
+            &storage,
+            PageStat {
+                book: id,
+                page: 1,
+                start: 1_000_000 + u32::from(id),
+                duration: 30,
+                pages: 300,
+            },
+        )
+        .unwrap();
+    }
+    storage
+}
+
+/// A storage that counts the bytes read from it.
+pub(crate) struct Counting<'a> {
+    pub inner: &'a MemoryStorage,
+    pub read: Cell<u64>,
+}
+
+impl Storage for Counting<'_> {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        let n = self.inner.read_at(path, offset, buf)?;
+        self.read.set(self.read.get() + n as u64);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.inner.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.remove(path)
     }
 }
 
