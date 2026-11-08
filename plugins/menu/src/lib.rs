@@ -29,6 +29,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 mod native_data;
 mod native_entry;
 pub mod native_model;
+pub mod native_panel;
 pub mod native_plugin;
 
 #[cfg(feature = "linked")]
