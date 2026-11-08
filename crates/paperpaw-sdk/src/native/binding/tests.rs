@@ -84,11 +84,14 @@ impl Plugin for TestPlugin {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: super::super::events::Event<'_>,
+        event: super::super::events::Incoming<'_>,
         reply: &mut super::super::reply::Reply<'_>,
     ) -> Result<(), Error> {
         assert_eq!(token, 42);
-        assert_eq!(event, super::super::events::Event::Started { now_ms: 7 });
+        assert_eq!(
+            event.decode(),
+            Ok(super::super::events::Event::Started { now_ms: 7 })
+        );
         if reply.remaining() > 0 {
             reply.write(b"reply")?;
         }

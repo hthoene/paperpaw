@@ -24,6 +24,7 @@ mod fail_alloc;
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod dialog;
+pub mod event;
 pub mod files;
 pub mod focus;
 pub mod geometry;

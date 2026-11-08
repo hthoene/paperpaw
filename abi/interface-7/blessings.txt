@@ -56,3 +56,4 @@
 24 additive: paperpaw_digest Drop for Md5, Sha1 and Sha256: hasher state is wiped when dropped (#228)
 24 additive: records_wire::record_tag_known (whether a tag names a record of the codec, from a sorted tag table, without linking a decoder) (#228)
 25 paperpaw_platform::Storage gains list_bounded, remove_listed and remove_tree_step; new paperpaw_platform::tree (Kind, TreeStep, kind, remove_tree_step, is_usable_name, limits) and storage::remove_listed_by_path for the core.files host (#339) (#228)
+26 lever 3 and typed facades (#490, carrying #464): Plugin::event takes events::Incoming (decode, decode_as, is), new events::kinds markers and sealed Kind, read_event!, and the decode field of DevicePage, DeviceRows and LibraryPage takes a RawRecord, so a plugin links only the event and record decoders it uses (#228)
