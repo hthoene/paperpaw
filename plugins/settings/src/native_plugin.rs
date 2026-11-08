@@ -70,6 +70,7 @@ enum Link {
     Advanced,
     Search,
     Reset,
+    Restart,
 }
 
 /// The main page.
@@ -149,6 +150,7 @@ impl Link {
             Self::Advanced => Self::Advanced,
             Self::Search => Self::Search,
             Self::Reset => Self::Reset,
+            Self::Restart => Self::Restart,
         })
     }
 }
@@ -253,6 +255,8 @@ impl View {
 enum Asked {
     /// Reset the settings of a group (empty: all).
     Reset(String),
+    /// Restart PaperPaw.
+    Restart,
     /// A new text for setting `key`.
     Text(String),
     /// What to search for.
@@ -664,6 +668,7 @@ impl NativeSettings {
                 self.ask(host, Question::text(&title, "")?, Asked::Search)
             }
             Link::Reset => self.ask_reset(host, "", ""),
+            Link::Restart => self.ask_restart(host),
         }
     }
 
@@ -971,6 +976,22 @@ impl NativeSettings {
         )
     }
 
+    /// Asks whether to restart PaperPaw (what plugins saved goes along).
+    fn ask_restart(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut messages = Messages::new()?;
+        let question = messages.copy(host, "settings.restart.question")?;
+        let heading = messages.copy(host, "settings.title")?;
+        let yes = messages.copy(host, "settings.option.restart")?;
+        let no = messages.copy(host, "settings.option.cancel")?;
+        // Cancel first: it is what the dialog starts on.
+        let choices = concat(&[&no, "\n", &yes])?;
+        self.ask(
+            host,
+            Question::choice(&heading, &question, &choices)?,
+            Asked::Restart,
+        )
+    }
+
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
         let Some((request, _)) = &self.asked else {
             return Ok(());
@@ -987,6 +1008,16 @@ impl NativeSettings {
         match asked {
             Asked::Reset(group) if answer.choice() == 0 => self.reset(host, &group),
             Asked::Reset(_) => Ok(()),
+            Asked::Restart if answer.choice() == 1 => {
+                let mut scratch = buffer(256)?;
+                // Refused where the shell does not allow it (`uses.power` is
+                // not required): say so, and let that notice fail silently.
+                if CommandSender::new(host, &mut scratch).restart().is_err() {
+                    Self::notify(host, "settings.restart.refused").unwrap_or(());
+                }
+                Ok(())
+            }
+            Asked::Restart => Ok(()),
             Asked::Text(key) => {
                 let text = uitext::read_all(self.ui()?, host, request.text(), TEXT_LIMIT)?;
                 let mut scratch = buffer(TEXT_LIMIT + 256)?;

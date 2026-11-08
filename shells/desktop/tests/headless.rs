@@ -343,6 +343,7 @@ fn turning_the_screen_trades_the_panels_width_and_height() {
 /// A plugin switched on in the plugin manager applies after the restart
 /// it offers: the emulated device builds its kernel anew, the plugin on.
 #[test]
+#[ignore = "BLOCKED (#228): the interface-7 plugin manager waits for the host (H1/H3/H4) and has no restart row until the DEV command senders (#342)"]
 fn a_plugin_switched_on_applies_after_the_restart() {
     let run = run(
         "restart",

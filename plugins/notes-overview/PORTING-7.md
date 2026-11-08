@@ -19,6 +19,19 @@ services it needs are not there. It is removed in the PR that finishes the port.
 - Tests of the interface-6 `clippings.rs` moved over unchanged (date, entries,
   book line); texts (en/de) are unchanged.
 
+## Ported (over `Storage`, no host service needed): `src/export_file.rs`
+
+- `PartFile` is a `Sink` over the platform `Storage`: `Exports/My Clippings.txt.part`
+  made anew, appended to in 6 KiB pieces from one reserved buffer, renamed into place
+  when whole (`finish`). A refusal (memory: `NoMemory`, full card: `Full`, other: `Io`)
+  or a drop before the end removes the part and leaves the old file; where a failed
+  rename took the old file (FAT), the part is kept (it is all there is).
+- The rename must replace an existing file: the `core.files` adapter the shell builds
+  must offer it (`move_entry` with replace). Tested on a storage that allocates nothing,
+  every allocation refused in turn (old file kept, no part left), and a full card at
+  four places.
+- `model::put_detail`: the second line of a note's row (`what · 42 %`).
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
 - Annotations from `core.library` op 15 (Services todo 93): counts by first-page
