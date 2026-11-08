@@ -271,6 +271,10 @@ fn text_field(fields: &[&str]) -> usize {
     }
 }
 
+/// The annotation of a line. **A second row rule:** this and [`fields`] still
+/// decide what a row is for the plain readers and writers here, apart from
+/// [`is_row`]. They stay until the writes slice replaces them with that one
+/// definition (todo: one rule, then ids on write cannot drift from the reads).
 fn parse(line: &str, version: u32) -> Option<Annotation> {
     parse_anchored(line, version).map(|(a, _)| a)
 }

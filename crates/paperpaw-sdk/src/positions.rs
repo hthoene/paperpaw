@@ -151,13 +151,14 @@ fn try_file(book: &str) -> Result<String, TryReserveError> {
 
 /// The longest XPointer (as the file writes it, escapes and all) that
 /// [`try_load`] holds: the bound of `doc_xpointer`, 1,024 bytes. A longer one
-/// is [`StorageError::TooLarge`], never held and never cut.
+/// (only a hand-edited file has one) is treated as absent: never held and
+/// never cut, and the rest of the position is read.
 pub const XPOINTER_MAX: usize = 1024;
 
 /// [`Position::parse`] with the memory error: the XPointer is the only
 /// thing held, in one fallible reservation of its length (resolved at once,
 /// so that an escaped one is not copied twice). With `limit`, a longer one
-/// (as written) is `TooLarge` before anything is reserved.
+/// (as written) is left out before anything is reserved.
 fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error> {
     let (mut section, mut offset, mut percent) = (None, None, 0.0);
     let mut position = Position::new(Locator::START, 0.0);
@@ -172,7 +173,9 @@ fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error
             "conversion" => position.conversion = u64::from_str_radix(entry.value.raw(), 16).ok(),
             "xpointer" => {
                 if limit.is_some_and(|limit| entry.value.raw().len() > limit) {
-                    return Err(StorageError::TooLarge.into());
+                    // Treated as absent (a later, shorter one may still come).
+                    position.xpointer = None;
+                    continue;
                 }
                 let owned = match entry.value.try_as_str().map_err(|_| Error::OutOfMemory)? {
                     alloc::borrow::Cow::Owned(owned) => owned,
@@ -205,8 +208,8 @@ fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error
 ///
 /// # Errors
 /// [`Error::OutOfMemory`] where either cannot be had; [`Error::Unreadable`]
-/// for a file that is no position; `TooLarge` for an XPointer past
-/// [`XPOINTER_MAX`]; the storage's error otherwise.
+/// for a file that is no position; the storage's error otherwise. An
+/// XPointer past [`XPOINTER_MAX`] is not an error: the position has none.
 pub fn try_load(storage: &dyn Storage, book: &str) -> Result<Option<Position>, Error> {
     let file = try_file(book).map_err(|_| Error::OutOfMemory)?;
     let data = match crate::read_file(storage, &file, LIMIT) {
@@ -339,7 +342,7 @@ mod tests {
         }
         // The name, the text and the XPointer.
         assert!(allocations >= 3, "{allocations}");
-        // An XPointer past the bound is refused before it is held (the plain
+        // An XPointer past the bound is left out before it is held (the plain
         // read still has it), and one at the bound is read.
         let longest =
             Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(XPOINTER_MAX)));
@@ -350,7 +353,7 @@ mod tests {
         save(&storage, book, &too_long).unwrap();
         assert_eq!(
             try_load(&storage, book),
-            Err(Error::Storage(StorageError::TooLarge))
+            Ok(Some(Position::new(Locator::new(1, 2), 1.0)))
         );
         assert_eq!(load(&storage, book), Some(too_long));
         // A file that is no position is unreadable, never none.
