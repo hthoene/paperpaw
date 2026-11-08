@@ -82,6 +82,17 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
+- [D] **Opening a book at a place** (interface 6: open, then the reader's `goto`; notes-overview,
+  vocabulary, stats, search, todo 167): the hand-over may also carry `section` and `offset` (decimal
+  `u32`, the format's text coordinates as in `lib_position` and `lib_annotation`'s start) and
+  optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
+  opens the book there instead of at its last position, as if the user had jumped there (the place
+  is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
+  is not the document's (the book was prepared again since), or the place is past the section's end,
+  the reader opens at the last position as without them: never an error, never a wrong place. A
+  `section` without `offset` (or the reverse), or a value that is not a decimal number, is ignored
+  the same way. The host passes the params through unchecked (`ui.md` section 1); the readers read
+  them (Plugin's reader ports). No host change, no new record.
 
 ## 2. The service `core.document` (major 1)
 

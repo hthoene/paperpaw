@@ -241,7 +241,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   | Slot | Shows | Hand-over params |
   | --- | --- | --- |
   | `core.home` | the start screen | none |
-  | `core.reader` | a book | `path` (required), `root` |
+  | `core.reader` | a book | `path` (required), `root`, `page`, `section`, `offset`, `conversion` (`document.md` 1) |
   | `core.library` | the library | none |
   | `core.menu` | a menu, an overlay | `menu` (required: the menu id, rows by `core.registry` op 12), `depth`, `mode` (the menu screen's own) |
   | `core.panel` | a menu as a panel of controls, an overlay | `menu` (required), as `core.menu` |
