@@ -31,7 +31,8 @@ fn rows_and_notes_survive_refused_allocations() {
 
 #[test]
 fn the_networks_of_the_file_survive_refused_allocations() {
-    let file = b"ssid = Home\npassword = secret\nssid = Cafe\nssid = Bar\npassword = x\n";
+    let file = b"ssid = Home\npassword = secret\nssid = Cafe\nssid = Bar\npassword = x\n\
+                 ssid = 0123456789012345678901234567890123\npassword = lost\n";
     fail_alloc::sweep(|| {
         native_ini::networks(file)?;
         Ok(())

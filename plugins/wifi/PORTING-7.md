@@ -103,7 +103,7 @@ until the host activates native plugins (then it goes together, no shim).
   `wifi.file-too-large`), lines `ssid = …` and `password = …` read as the old plugin read them
   (compared on samples with the old function). The networks are kept among the secrets (a network
   without a password does not take the password kept; a name over 32 bytes or a password over 63
-  cannot be a network and is dropped), then the file is removed. Where the device keeps no passwords
+  cannot be a network and is skipped at parse time, with its network, before anything is copied: a 16 KiB file costs no large copies), then the file is removed. Where the device keeps no passwords
   (`Unsupported`) the file stays for the next start and the user is told (`core.secrets-unsupported`);
   after any other failure it stays and nothing is said. Differences: a line that is not UTF-8 is skipped
   (the old reading replaced the bad bytes); at most 64 networks are taken (no more can be kept); the

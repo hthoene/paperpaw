@@ -13,7 +13,7 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::native_known::MAX_KNOWN;
+use crate::native_known::{MAX_KNOWN, MAX_PASSWORD, MAX_SSID};
 use crate::native_policy::Password;
 
 /// The name of the file, in the plugin's data folder.
@@ -50,12 +50,19 @@ pub enum Content {
 /// The networks of a file: lines `ssid = …` and `password = …`, a password
 /// going with the `ssid` line before it (the last one counts). Lines that are
 /// not text are skipped; at most [`MAX_KNOWN`] networks are taken (no more can
-/// be kept).
+/// be kept). A name over [`MAX_SSID`] bytes or a password over
+/// [`MAX_PASSWORD`] cannot belong to a network: it is skipped before it is
+/// copied (with its network), so that a large file costs no large copies.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn networks(bytes: &[u8]) -> Result<Vec<FileNetwork>, Error> {
     let mut networks: Vec<FileNetwork> = Vec::new();
+    // The name of the last ssid line was too long: its passwords go nowhere.
+    let mut dropped = false;
+    // The last password of the last network was too long (a later one may
+    // still be right, as the last password counts).
+    let mut too_long = false;
     for line in bytes.split(|byte| *byte == b'\n') {
         let Ok(line) = core::str::from_utf8(line) else {
             continue;
@@ -69,6 +76,14 @@ pub fn networks(bytes: &[u8]) -> Result<Vec<FileNetwork>, Error> {
                 if networks.len() == MAX_KNOWN {
                     break;
                 }
+                if too_long {
+                    networks.pop();
+                    too_long = false;
+                }
+                dropped = value.len() > MAX_SSID;
+                if dropped {
+                    continue;
+                }
                 push(
                     &mut networks,
                     FileNetwork {
@@ -77,13 +92,21 @@ pub fn networks(bytes: &[u8]) -> Result<Vec<FileNetwork>, Error> {
                     },
                 )?;
             }
-            "password" => {
-                if let Some(network) = networks.last_mut() {
+            "password" if !dropped => {
+                if value.len() > MAX_PASSWORD {
+                    // Not copied; the network cannot be kept with it unless a
+                    // later password replaces it.
+                    too_long = true;
+                } else if let Some(network) = networks.last_mut() {
                     network.password = Password::new(value)?;
+                    too_long = false;
                 }
             }
             _ => {}
         }
+    }
+    if too_long {
+        networks.pop();
     }
     Ok(networks)
 }
@@ -100,9 +123,8 @@ pub fn read(host: &Host<'_>) -> Result<Content, Error> {
         Err(Error::NoMemory) => return Err(Error::NoMemory),
         Err(_) => return Ok(Content::Nothing),
     };
-    let Ok(size) = usize::try_from(size) else {
-        return Ok(Content::TooLarge);
-    };
+    // A size beyond the machine's words is too large as well.
+    let size = usize::try_from(size).unwrap_or(usize::MAX);
     if size > MOST_BYTES {
         let _ = storage::remove(host, Root::Data, FILE);
         return Ok(Content::TooLarge);
@@ -188,6 +210,32 @@ mod tests {
             [
                 ("A".to_string(), String::new()),
                 ("B".to_string(), String::new())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_or_a_password_too_long_for_a_network_is_skipped_with_its_network() {
+        let long_name = "n".repeat(MAX_SSID + 1);
+        let long_pass = "p".repeat(MAX_PASSWORD + 1);
+        let exact_name = "n".repeat(MAX_SSID);
+        let exact_pass = "p".repeat(MAX_PASSWORD);
+        let text = std::format!(
+            "ssid = {long_name}\npassword = x\nssid = A\npassword = {long_pass}\npassword = y\n\
+             ssid = B\npassword = z\nssid = {exact_name}\npassword = {exact_pass}\n"
+        );
+        // A password too long that is the last of its network drops it.
+        assert_eq!(
+            pairs(std::format!("ssid = C\npassword = {long_pass}\nssid = D\n").as_bytes()),
+            [("D".to_string(), String::new())]
+        );
+        assert_eq!(
+            pairs(text.as_bytes()),
+            [
+                // The last password counts: the long one before it is gone.
+                ("A".to_string(), "y".to_string()),
+                ("B".to_string(), "z".to_string()),
+                (exact_name, exact_pass)
             ]
         );
     }
