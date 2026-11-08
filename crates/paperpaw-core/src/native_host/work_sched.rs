@@ -783,6 +783,16 @@ impl WorkSched {
         self.in_run.get().is_some_and(|(o, _)| o == owner)
     }
 
+    /// The run whose callback is on the stack for `owner` (`core.net` ties a
+    /// request to it); `None` outside a run callback or for another owner. A
+    /// read of one cell: no allocation, no borrow of the table.
+    pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
+        self.in_run
+            .get()
+            .filter(|&(running, _)| running == owner)
+            .map(|(_, run)| u64::from(run))
+    }
+
     /// The run's `work_due` callback returned.
     pub(crate) fn callback_returned(&self, run: u32, now_ms: u64) {
         self.with_run(run, |r| r.callback_open = false);

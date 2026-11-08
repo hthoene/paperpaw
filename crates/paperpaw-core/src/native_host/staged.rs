@@ -22,9 +22,14 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Most setting groups one plugin may declare.
 pub const GROUPS_MAX: usize = 32;
-/// Most setting specs one plugin may declare (provisional, Q7).
+/// Most setting specs one plugin may declare (provisional, Q7). Bounds owned
+/// copies only, i.e. loads without an image (tests, `(null, 0)`); declarations
+/// read from the plugin's image are bounded by [`IMAGE_DECLARATIONS_MAX`] and
+/// [`IMAGE_INDEX_MAX_BYTES`] instead. Every production shell passes the image
+/// (the X4's flash mapping, `.rodata` on the desktop).
 pub const SPECS_MAX: usize = 128;
-/// Most setting extras one plugin may declare (provisional, Q7).
+/// Most setting extras one plugin may declare (provisional, Q7). Bounds owned
+/// copies only, as [`SPECS_MAX`].
 pub const EXTRAS_MAX: usize = 128;
 /// Most hyphenation resources one plugin may declare.
 pub const HYPHENATIONS_MAX: usize = 8;
@@ -34,7 +39,9 @@ pub const FONT_FACES_MAX: usize = 16;
 pub const FONT_EXTENSIONS_MAX: usize = 16;
 /// Byte budget for everything one plugin's staged declarations own: each entry
 /// counts its struct size plus every owned string and byte copy. Provisional
-/// until the X4 heap gate has measured it.
+/// until the X4 heap gate has measured it. Bounds owned copies only, as
+/// [`SPECS_MAX`]; image-backed declarations keep offsets and are counted in
+/// [`IMAGE_INDEX_MAX_BYTES`].
 pub const DECLARATIONS_MAX_BYTES: usize = 32 * 1024;
 
 /// Most declarations one plugin may borrow from its immutable image.

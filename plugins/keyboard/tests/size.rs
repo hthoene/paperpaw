@@ -67,9 +67,7 @@ const SIZES: [&str; 3] = [
 fn keyboard(device: DeviceInfo, config: &str) -> Vec<Part> {
     let mut kernel = Kernel::builder(device)
         .storage(MemoryStorage::new())
-        .user_config(format!(
-            "[core]\nlanguage = en\n[help]\nshow = false\n{config}"
-        ))
+        .user_config(format!("[core]\nlanguage = en\n{config}"))
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .plugin(Keyboard)
         .build()

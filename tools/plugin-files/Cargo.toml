@@ -29,12 +29,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "diagnostics"
-path = "src/bin/diagnostics.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "fonts-browser"
 path = "src/bin/fonts-browser.rs"
 test = false
@@ -139,12 +133,6 @@ bench = false
 [[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "rules"
-path = "src/bin/rules.rs"
 test = false
 bench = false
 
@@ -268,7 +256,6 @@ paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
-paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
 paperpaw-plugin-keys = { path = "../../plugins/keys" }
@@ -280,7 +267,6 @@ paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
-paperpaw-plugin-rules = { path = "../../plugins/rules" }
 paperpaw-plugin-stats = { path = "../../plugins/stats" }
 paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }

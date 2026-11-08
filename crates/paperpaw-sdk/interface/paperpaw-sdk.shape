@@ -1478,6 +1478,11 @@ const paperpaw_sdk::native::declare::settings_value::SETTINGS_HEADER_BYTES: usiz
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_LAYOUT: u32 = 1u32
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
+const paperpaw_sdk::native::files::INPUT_BYTES: usize = 1_536usize
+const paperpaw_sdk::native::files::MAX_NAME: usize = 765usize
+const paperpaw_sdk::native::files::MAX_PATH: usize = 512usize
+const paperpaw_sdk::native::files::OUTPUT_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::files::PAGE_MAX_ROWS: usize = 32usize
 const paperpaw_sdk::native::formatting::MAX_ARGUMENT_BYTES: usize = 1_024usize
 const paperpaw_sdk::native::formatting::MAX_DIGIT_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::formatting::MAX_KEY_BYTES: usize = 128usize
@@ -2600,6 +2605,7 @@ struct paperpaw_sdk::native::declare::FontFaceDecl<'a> { name: &'a str, path: &'
 struct paperpaw_sdk::native::declare::GroupDecl<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
 struct paperpaw_sdk::native::declare::ScreenDecl<'a> { name: &'a str, title: &'a str, token: u32, full_refresh_on_open: bool, policy_flags: u32 }
 struct paperpaw_sdk::native::declare::SpecDecl<'a> { name: &'a str, kind: paperpaw_sdk::native::declare::Kind<'a>, group: &'a str, title: &'a str, help: &'a str, scoped: bool, guarded: bool, kept_on_reset: bool, secret: bool, advanced: bool }
+struct paperpaw_sdk::native::declare::format::FormatDecl<'a> { name: &'a str, title: &'a str, extensions: &'a str, priority: i32, token: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::library::BookFieldDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::BookFieldSpec<'a>)
 struct paperpaw_sdk::native::declare::lookup::LookupProviderDecl<'a> { name: &'a str, title: &'a str, languages: &'a str, network: bool, token: u32 }
 struct paperpaw_sdk::native::declare::menus::MenuEntryDecl<'a> { menu: &'a str, item: &'a str, order: i16, place: paperpaw_sdk::native::declare::menus::EntryPlacement<'a> }
@@ -2917,6 +2923,11 @@ struct paperpaw_sdk::native::events::states::BluetoothChange<'a> { now_ms: u64, 
 struct paperpaw_sdk::native::events::states::ChargeFlags(0: u32)
 struct paperpaw_sdk::native::events::states::PowerChange<'a> { now_ms: u64, level: paperpaw_sdk::power::PowerLevel, automatic: bool, stretch: u32, mode: &'a str }
 struct paperpaw_sdk::native::events::uix_events::Answered { request: paperpaw_sdk::native::ui::types::RequestId, kind: paperpaw_sdk::native::ui::types::QuestionKind, outcome: paperpaw_sdk::native::events::uix_events::AnswerOutcome, choice: u32, length: u32, flags: u32 }
+struct paperpaw_sdk::native::files::Entry<'a> { name: &'a str, flags: u32, size: u64, modified: core::option::Option<u64> }
+struct paperpaw_sdk::native::files::Files { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::files::Listing<'a> { bytes: &'a [u8], count: usize, next: core::option::Option<u64> }
+struct paperpaw_sdk::native::files::Progress { removed: u32, done: bool, next: u64 }
+struct paperpaw_sdk::native::files::Space { free: u64, total: u64, flags: u32 }
 struct paperpaw_sdk::native::fonts::Font<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
 struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
