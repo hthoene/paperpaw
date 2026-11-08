@@ -20,6 +20,14 @@ are reported as [SECURITY.md](../SECURITY.md) says.
 - **Passwords and keys** (Wi-Fi, catalogs, sync accounts) are kept in
   `.paperpaw/secrets.txt`. They are veiled so that they do not show at a
   glance, but they are **not encrypted**: whoever has the card has them.
+  On the X4 (interface-7 plugins) they are sealed with AES-256-GCM under a
+  per-device key kept in the chip's flash, never on the card: a card in
+  another device opens none of them (the values count as absent and are
+  entered again). The key is the 4 KiB sector at `0xC000` (the last of the
+  `nvs` partition); **a full-image flash or an erase of the whole flash
+  erases it**, and then the sealed values cannot be read any more. Flash
+  the app partitions and the partition table without touching
+  `[0xC000, 0xD000)` (`tools/flash-x4.py` does not).
   On Android the file is in the app's private folder, which only
   PaperPaw reads. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the
