@@ -93,7 +93,7 @@ fn bold(edit: &mut TextEdit, limit: usize) -> Result<(), Error> {
     for run in edit.runs() {
         push(&mut runs, *run, limit)?;
     }
-    runs.sort_unstable_by_key(|run| run.start);
+    paperpaw_sdk::sort::sort_by_key(&mut runs, |run| run.start);
     edit.try_set_runs(&runs)?;
     Ok(())
 }

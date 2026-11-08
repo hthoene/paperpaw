@@ -45,6 +45,14 @@
 extern crate alloc;
 
 pub mod lua;
+mod native_entry;
+#[doc(hidden)]
+pub mod native_model;
+/// The interface-7 KOReader exchange (slice 1; see `PORTING-7.md`).
+pub mod native_plugin;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::format;
@@ -359,7 +367,7 @@ fn read_items(
         })
         .collect::<Option<Vec<_>>>()
         .ok_or(Unreadable)?;
-    items.sort_by_key(|(n, _)| *n);
+    paperpaw_sdk::sort::sort_by_key(&mut items, |(n, _)| *n);
     Ok(Some((
         items.into_iter().map(|(_, item)| item).collect(),
         true,
@@ -1063,5 +1071,7 @@ impl Plugin for KoReader {
     }
 }
 
+#[cfg(test)]
+mod native_parity_tests;
 #[cfg(test)]
 mod tests;

@@ -536,7 +536,7 @@ impl NoteWidget {
     /// The tags with most notes.
     fn tags(&self, env: &Env<'_>) -> Vec<Line> {
         let (mut tags, _) = index::tag_counts(env.storage());
-        tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        paperpaw_sdk::sort::sort_by(&mut tags, |a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         tags.into_iter()
             .take(self.count(env, 5, 12))
             .map(|(tag, n)| Line {
