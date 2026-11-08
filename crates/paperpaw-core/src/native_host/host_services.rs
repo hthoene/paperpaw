@@ -227,7 +227,6 @@ impl HostServices {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `text.hyphenate` once.
     pub(crate) fn wire_hyphen(
         &self,
@@ -259,7 +258,6 @@ impl HostServices {
         self.ui.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
