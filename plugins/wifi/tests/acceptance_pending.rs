@@ -9,11 +9,15 @@ use pending::Case;
 
 const CASES: [Case; 6] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
-    // network, typing its password and forgetting one work.
+    // network, typing its password and forgetting one work. The screens are
+    // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
+    // device and the secrets. The scripted host does not answer
+    // `i18n.copy` and `i18n.format` yet, so the rows' texts, the drawing and
+    // the answers to the password question are not run.
     Case {
         name: "wifi-pages",
         golden: None,
-        blocked_by: &["H1", "H2", "H4"],
+        blocked_by: &["SCRIPTED-i18n"],
     },
     // The radio follows the policy: on when a plugin wants the network, joins
     // the network joined before, off after the idle time. Needs the events
@@ -34,22 +38,24 @@ const CASES: [Case; 6] = [
         blocked_by: &["NET-serve"],
     },
     // Networks and passwords kept and forgotten through `core.secrets`, and a
-    // `wifi.ini` on the card read once at a start. The secrets facade is on
-    // integration (PR 367): what the plugin keeps and asks for is
-    // `native_known`; the calls that use the service are not run without a
-    // native entry to load in a scripted host.
+    // `wifi.ini` on the card read once at a start. What the plugin keeps and
+    // asks for is `native_known`; the screens read the names kept (run in
+    // `tests/scripted_networks.rs`); keeping a password once the device is in
+    // the network and the `wifi.ini` wait for the radio's events and
+    // `core.files`.
     Case {
         name: "wifi-passwords",
         golden: None,
-        blocked_by: &["native-entry", "FS"],
+        blocked_by: &["FS", "EVT-wifi-radio"],
     },
     // The own network opened for the phone: its name and drawn password, the
     // token of its page, the join code (`native_own`), with the bytes from
-    // `core.secrets` `random`.
+    // `core.secrets` `random`. The setup screen prepares them from a fully
+    // random draw only; opening the network and the served page wait.
     Case {
         name: "wifi-own-network",
         golden: None,
-        blocked_by: &["native-entry", "NET-serve"],
+        blocked_by: &["NET-serve"],
     },
     // The status item shows the sign while the device is in a network.
     Case {
@@ -70,7 +76,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H2/H4: native screen commands, dialogs and input are not qualified"]
+#[ignore = "BLOCKED SCRIPTED-i18n: the scripted host does not answer i18n.copy and i18n.format"]
 fn wifi_pages() {
     CASES[0].refuse().unwrap();
 }
@@ -88,13 +94,13 @@ fn wifi_phone() {
 }
 
 #[test]
-#[ignore = "BLOCKED native-entry/FS: no native entry to run the secrets calls in a scripted host, core.files is not on integration"]
+#[ignore = "BLOCKED FS/EVT-wifi-radio: no core.files for wifi.ini, no radio events to keep a password when the device is in the network"]
 fn wifi_passwords() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED native-entry, NET-serve: the own network needs the native screen and the served page"]
+#[ignore = "BLOCKED NET-serve: opening the own network and the served page"]
 fn wifi_own_network() {
     CASES[4].refuse().unwrap();
 }

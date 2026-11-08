@@ -1,0 +1,886 @@
+//! The interface-7 Wi-Fi plugin, the screens slice: the Wi-Fi page, the
+//! networks in reach (choosing one, its password asked for and kept, forgetting
+//! one) and the setup with a phone up to what the host cannot do yet. What
+//! waits (the radio's own events, the served page, `wifi.ini`) is in
+//! `PORTING-7.md`.
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use paperpaw_sdk::Handled;
+use paperpaw_sdk::native::{
+    Error, Host, Plugin,
+    callbacks::{DrawFrame, Input},
+    commands::{CommandSender, RedrawMode},
+    device::{Device, DeviceCursor, WifiState},
+    events::{AnswerOutcome, Answered, Event, Incoming},
+    formatting::Arg,
+    registrations,
+    reply::Reply,
+    secrets::Secrets,
+    settings::{self, SettingValue},
+    ui::{Instance, Notify, Open, Question, RequestId, Ui},
+};
+use paperpaw_ui_kit::{
+    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    mem::{SERVICE_BUFFER, buffer, push, wipe},
+    text::{concat, copy},
+};
+
+use crate::declarations::{
+    NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN, PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN,
+    SCREEN_SHOWN, WIFI_CHANGED,
+};
+use crate::native_known::{self, Remember};
+use crate::native_model::{
+    self, Link, Network, PageRow, Pick, is_kept, next_idle, note_keys, page_rows, pick,
+};
+use crate::native_own::Own;
+use crate::native_policy::{Password, Policy, Radio, Step};
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/wifi_declarations.rs"));
+}
+
+const ON_DEMAND: &str = "wifi.on-demand";
+const IDLE_OFF: &str = "wifi.idle-off";
+const WHILE_CHARGING: &str = "wifi.while-charging";
+/// Pages of networks read at most, and networks kept from them.
+const MOST_PAGES: usize = 4;
+const MOST_NETWORKS: usize = 64;
+/// A password is at most this long (WPA).
+const PASSWORD_MOST: usize = native_known::MAX_PASSWORD;
+
+/// Where the radio is and what it is in.
+#[derive(Debug, Default)]
+struct Info {
+    /// The device has a radio.
+    present: bool,
+    radio: Radio,
+    ssid: String,
+    address: String,
+    scanning: bool,
+}
+
+#[derive(Debug)]
+struct Page {
+    rows: Vec<PageRow>,
+    list: ItemList,
+}
+
+#[derive(Debug)]
+struct Networks {
+    networks: Vec<Network>,
+    list: ItemList,
+}
+
+#[derive(Debug)]
+enum View {
+    Page(Page),
+    Networks(Networks),
+    Phone(ItemList),
+}
+
+/// The interface-7 Wi-Fi plugin.
+#[derive(Debug, Default)]
+pub struct NativeWifi {
+    device: Option<Device>,
+    ui: Option<Ui>,
+    secrets: Option<Secrets>,
+    screens: Screens<View>,
+    policy: Policy,
+    /// The password being asked for, and the network it is for.
+    asked: Option<(RequestId, String)>,
+    /// The number of the last join asked for.
+    request: u32,
+}
+
+impl Plugin for NativeWifi {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
+            registrations::submit(host, batch)?;
+        }
+        // The services are opened by the first callback: opening needs a live frame.
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        _: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let event = incoming.decode()?;
+        match event {
+            Event::ActionRun { .. } if token == OPEN_TOKEN => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
+            }
+            Event::WifiChanged { .. } if token == WIFI_CHANGED => self.radio_changed(host),
+            Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::ScreenOpened { instance, .. }
+                if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN =>
+            {
+                self.opened(host, token, instance)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN => {
+                self.screens.shown(token, instance)?;
+                self.reread(host)
+            }
+            Event::ScreenShown { .. } if token == SCREEN_SHOWN => Ok(()),
+            Event::ScreenClosed { instance, .. } => {
+                // The setup screen showed a password: wiped, not just dropped.
+                if let Some(View::Phone(list)) = self.screens.get(instance) {
+                    list.wipe();
+                }
+                self.screens.close(instance);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let mut messages = Messages::new()?;
+        match self.screens.top(token).ok_or(Error::State)? {
+            View::Page(view) => {
+                let title = messages.copy(host, "wifi.title")?;
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+            View::Networks(view) => {
+                let title = messages.copy(host, "wifi.networks.title")?;
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+            View::Phone(list) => {
+                let title = messages.copy(host, "wifi.phone.title")?;
+                list.draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        let list = match view {
+            View::Page(view) => &mut view.list,
+            View::Networks(view) => &mut view.list,
+            View::Phone(list) => list,
+        };
+        let step = list.input(host, &input)?;
+        match step {
+            ItemStep::Chosen(index) => self.chosen(host, token, index)?,
+            ItemStep::Held(index) => self.held(host, token, index)?,
+            _ => {}
+        }
+        Ok(ItemList::handled(step))
+    }
+}
+
+impl NativeWifi {
+    fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.device.is_none() {
+            self.device = Some(Device::open(host)?);
+        }
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
+    /// The secrets service, `None` where the device has none to give (the
+    /// networks are then not kept, nor asked for).
+    fn secrets(&mut self, host: &Host<'_>) -> Result<Option<&Secrets>, Error> {
+        if self.secrets.is_none() {
+            match Secrets::open(host) {
+                Ok(secrets) => self.secrets = Some(secrets),
+                Err(Error::Unsupported | Error::NotFound | Error::Denied) => return Ok(None),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(self.secrets.as_ref())
+    }
+
+    /// Where the radio is; no radio gives `present == false`.
+    fn read_info(&self, host: &Host<'_>) -> Result<Info, Error> {
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let info = match device.wifi(host, &mut input, &mut out) {
+            Ok(info) => info,
+            Err(Error::NotFound | Error::Unsupported) => return Ok(Info::default()),
+            Err(error) => return Err(error),
+        };
+        Ok(Info {
+            present: true,
+            radio: match info.state() {
+                WifiState::Off => Radio::Off,
+                WifiState::Joining => Radio::Joining,
+                WifiState::Online => Radio::Online,
+                WifiState::Hosting => Radio::Hosting,
+                _ => Radio::On,
+            },
+            ssid: copy(info.ssid())?,
+            address: copy(info.address())?,
+            scanning: info.scanning(),
+        })
+    }
+
+    /// The networks in reach, strongest first.
+    fn read_networks(&self, host: &Host<'_>) -> Result<Vec<Network>, Error> {
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        'again: for _ in 0..2 {
+            let mut networks: Vec<Network> = Vec::new();
+            let mut cursor = DeviceCursor::start();
+            for _ in 0..MOST_PAGES {
+                let page = match device.networks(host, cursor, &mut input, &mut out) {
+                    Ok(page) => page,
+                    Err(Error::NotFound | Error::Unsupported) => return Ok(Vec::new()),
+                    // The list changed under the reading: start over.
+                    Err(Error::State) => continue 'again,
+                    Err(error) => return Err(error),
+                };
+                let room = MOST_NETWORKS - networks.len();
+                for found in native_model::collect(
+                    page.rows().map(|n| (n.ssid(), n.signal(), n.secured())),
+                    room,
+                )? {
+                    push(&mut networks, found)?;
+                }
+                match page.end().next_cursor() {
+                    Some(next) if networks.len() < MOST_NETWORKS => cursor = next,
+                    _ => return Ok(networks),
+                }
+            }
+            return Ok(networks);
+        }
+        Err(Error::State)
+    }
+
+    /// The names of the networks kept; none where the device keeps none.
+    fn read_kept(&mut self, host: &Host<'_>) -> Result<Vec<String>, Error> {
+        match self.secrets(host)? {
+            Some(secrets) => match native_known::names(secrets, host) {
+                Ok(names) => Ok(names),
+                Err(Error::Unsupported | Error::NotFound | Error::Denied) => Ok(Vec::new()),
+                Err(error) => Err(error),
+            },
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
+        let mut scratch = [0; 64];
+        Ok(matches!(
+            settings::read_setting(host, key, &mut scratch)?,
+            SettingValue::Bool(true)
+        ))
+    }
+
+    fn idle(host: &Host<'_>) -> Result<String, Error> {
+        let mut scratch = [0; 64];
+        match settings::read_setting(host, IDLE_OFF, &mut scratch)? {
+            SettingValue::Text(key) => copy(key),
+            _ => copy("wifi.idle-off.1m"),
+        }
+    }
+
+    /// Where the radio is, in words.
+    fn state_text(host: &Host<'_>, say: &mut Messages, info: &Info) -> Result<String, Error> {
+        match info.radio {
+            Radio::Off => say.copy(host, "wifi.state.off"),
+            Radio::On if info.scanning => say.copy(host, "wifi.state.searching"),
+            Radio::Joining => say.format(
+                host,
+                "wifi.state.joining",
+                &[Arg::Text {
+                    name: "ssid",
+                    value: &info.ssid,
+                }],
+            ),
+            Radio::Online => say.format(
+                host,
+                "wifi.state.online",
+                &[
+                    Arg::Text {
+                        name: "ssid",
+                        value: &info.ssid,
+                    },
+                    Arg::Text {
+                        name: "address",
+                        value: &info.address,
+                    },
+                ],
+            ),
+            _ => say.copy(host, "wifi.state.on"),
+        }
+    }
+
+    fn read_page(&mut self, host: &Host<'_>) -> Result<Page, Error> {
+        let info = self.read_info(host)?;
+        if !info.present {
+            // No radio: the page has nothing to say.
+            return Ok(Page {
+                rows: Vec::new(),
+                list: ItemList::new(Vec::new()),
+            });
+        }
+        let kept = self.read_kept(host)?;
+        let networks = if info.radio.is_on() {
+            self.read_networks(host)?
+        } else {
+            Vec::new()
+        };
+        let rows = page_rows(!kept.is_empty(), info.radio.is_on())?;
+        let mut say = Messages::new()?;
+        let mut items = Vec::new();
+        for row in &rows {
+            push(
+                &mut items,
+                Self::page_item(host, &mut say, &info, &networks, *row)?,
+            )?;
+        }
+        Ok(Page {
+            rows,
+            list: ItemList::new(items),
+        })
+    }
+
+    fn page_item(
+        host: &Host<'_>,
+        say: &mut Messages,
+        info: &Info,
+        networks: &[Network],
+        row: PageRow,
+    ) -> Result<Item, Error> {
+        let switch = |say: &mut Messages, on: bool| {
+            say.copy(
+                host,
+                if on {
+                    "wifi.switch.on"
+                } else {
+                    "wifi.switch.off"
+                },
+            )
+        };
+        match row {
+            PageRow::Radio => {
+                let title = say.copy(host, "wifi.title")?;
+                let state = Self::state_text(host, say, info)?;
+                let value = switch(say, info.radio.is_on())?;
+                Item::noted(&title, &value, &state)
+            }
+            PageRow::Networks => {
+                let title = say.copy(host, "wifi.networks.title")?;
+                let reach = if networks.is_empty() && info.scanning {
+                    say.copy(host, "wifi.state.searching")?
+                } else if networks.is_empty() {
+                    say.copy(host, "wifi.no-networks")?
+                } else {
+                    say.format(
+                        host,
+                        "wifi.networks.reach",
+                        &[Arg::Int {
+                            name: "count",
+                            value: i64::try_from(networks.len()).unwrap_or(i64::MAX),
+                        }],
+                    )?
+                };
+                let note = if info.radio == Radio::Online {
+                    concat(&[&info.ssid, " · ", &reach])?
+                } else {
+                    reach
+                };
+                Item::noted(&title, "›", &note)
+            }
+            PageRow::Phone => {
+                let title = say.copy(host, "wifi.phone.title")?;
+                let note = say.copy(host, "wifi.phone.note")?;
+                Item::noted(&title, "›", &note)
+            }
+            PageRow::OnDemand | PageRow::WhileCharging => {
+                let (key, setting) = if row == PageRow::OnDemand {
+                    ("wifi.setting.on-demand", ON_DEMAND)
+                } else {
+                    ("wifi.setting.while-charging", WHILE_CHARGING)
+                };
+                let title = say.copy(host, key)?;
+                let help = say.copy(host, &concat(&[key, ".help"])?)?;
+                let value = switch(say, Self::flag(host, setting)?)?;
+                Item::noted(&title, &value, &help)
+            }
+            PageRow::IdleOff => {
+                let title = say.copy(host, "wifi.setting.idle-off")?;
+                let help = say.copy(host, "wifi.setting.idle-off.help")?;
+                let value = say.copy(host, &Self::idle(host)?)?;
+                Item::noted(&title, &value, &help)
+            }
+        }
+    }
+
+    fn read_networks_view(&mut self, host: &Host<'_>) -> Result<Networks, Error> {
+        let info = self.read_info(host)?;
+        let networks = if info.radio.is_on() {
+            self.read_networks(host)?
+        } else {
+            Vec::new()
+        };
+        let kept = self.read_kept(host)?;
+        let mut say = Messages::new()?;
+        let mut items = Vec::new();
+        for network in &networks {
+            let link = if info.radio == Radio::Online && info.ssid == network.ssid {
+                Link::Connected
+            } else if info.radio == Radio::Joining && info.ssid == network.ssid {
+                Link::Connecting
+            } else {
+                Link::Apart
+            };
+            let mut note = String::new();
+            for (n, key) in note_keys(link, is_kept(&kept, &network.ssid), network)?
+                .iter()
+                .enumerate()
+            {
+                let word = say.copy(host, key)?;
+                note = if n == 0 {
+                    word
+                } else {
+                    concat(&[&note, " · ", &word])?
+                };
+            }
+            push(&mut items, Item::noted(&network.ssid, "", &note)?)?;
+        }
+        let again = say.copy(host, "wifi.search")?;
+        let note = if info.scanning {
+            say.copy(host, "wifi.state.searching")?
+        } else if networks.is_empty() {
+            say.copy(host, "wifi.no-networks")?
+        } else {
+            String::new()
+        };
+        push(&mut items, Item::noted(&again, "", &note)?)?;
+        Ok(Networks {
+            networks,
+            list: ItemList::new(items),
+        })
+    }
+
+    /// The setup with a phone, as far as the host allows: the device's own
+    /// network is prepared from a fully random draw, or not at all. Opening
+    /// it and serving the page wait for the host (`NET-serve`).
+    fn read_phone(&mut self, host: &Host<'_>) -> Result<ItemList, Error> {
+        let name = {
+            let device = self.device.as_ref().ok_or(Error::State)?;
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            copy(device.device(host, &mut input, &mut out)?.model())?
+        };
+        let own = match self.secrets(host)? {
+            Some(secrets) => {
+                let mut draw = |bytes: &mut [u8]| -> Result<bool, Error> {
+                    let (mut input, mut out) = (buffer(128)?, buffer(512)?);
+                    let drawn = secrets.random(host, bytes.len(), &mut input, &mut out);
+                    let result = drawn.map(|drawn| {
+                        bytes.copy_from_slice(drawn.bytes());
+                        drawn.strong()
+                    });
+                    wipe(&mut out);
+                    result
+                };
+                Own::draw(&name, &mut draw)?
+            }
+            None => None,
+        };
+        let mut say = Messages::new()?;
+        let mut items = Vec::new();
+        match own {
+            Some(own) => {
+                let title = say.copy(host, "wifi.phone.name")?;
+                push(&mut items, Item::row(&title, own.ssid())?)?;
+                let title = say.copy(host, "wifi.phone.password")?;
+                let grouped = crate::native_own::grouped(own.password().as_str())?;
+                let item = Item::row(&title, &grouped);
+                paperpaw_ui_kit::mem::wipe_text(grouped);
+                push(&mut items, item?)?;
+            }
+            None => {
+                let text = say.copy(host, "wifi.phone.no-random")?;
+                push(&mut items, Item::noted(&text, "", "")?)?;
+            }
+        }
+        Ok(ItemList::new(items))
+    }
+
+    fn opened(&mut self, host: &Host<'_>, token: u32, instance: Instance) -> Result<(), Error> {
+        self.ensure(host)?;
+        let view = if token == PAGE_TOKEN {
+            self.search_if_idle(host)?;
+            View::Page(self.read_page(host)?)
+        } else if token == NETWORKS_TOKEN {
+            View::Networks(self.read_networks_view(host)?)
+        } else {
+            View::Phone(self.read_phone(host)?)
+        };
+        self.screens.open(instance, view)
+    }
+
+    /// Looks for networks if the radio is on and nothing else goes on (a scan
+    /// takes the radio's time).
+    fn search_if_idle(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let info = self.read_info(host)?;
+        if info.radio.is_on()
+            && !info.scanning
+            && self.policy.goal == crate::native_policy::Goal::Nothing
+        {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).wifi_scan()?;
+        }
+        Ok(())
+    }
+
+    /// The rows as they are now: the radio and the networks change while a
+    /// screen is open.
+    fn reread(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.screens.top(PAGE_TOKEN).is_some() {
+            let fresh = self.read_page(host)?;
+            if let Some(View::Page(old)) = self.screens.top(PAGE_TOKEN) {
+                let focus = old.list.focus();
+                *old = fresh;
+                old.list.set_focus(focus);
+            }
+        }
+        if self.screens.top(NETWORKS_TOKEN).is_some() {
+            let info = self.read_info(host)?;
+            if !info.radio.is_on() {
+                // Nothing to choose from here: this page goes, not what
+                // lies above it.
+                let mut scratch = [0; 64];
+                return CommandSender::new(host, &mut scratch).back();
+            }
+            let fresh = self.read_networks_view(host)?;
+            if let Some(View::Networks(old)) = self.screens.top(NETWORKS_TOKEN) {
+                let focus = old.list.focus();
+                *old = fresh;
+                old.list.set_focus(focus);
+            }
+        }
+        redraw(host)
+    }
+
+    /// The radio changed: the network just joined keeps its password, then the
+    /// policy says what next.
+    fn radio_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        let info = self.read_info(host)?;
+        if info.radio == Radio::Online {
+            self.keep_joined(host, &info.ssid)?;
+        }
+        let steps = self.policy.changed(info.radio)?;
+        self.run(host, steps)?;
+        self.reread(host)
+    }
+
+    /// Keeps the password typed for the network `ssid` the device is in now.
+    /// Where the device cannot keep it (no secrets service, or `Unsupported`
+    /// from the one that is there: owner decision 141, the X4 Classic's
+    /// table has no room for passwords), the user is told with a text of
+    /// Wi-Fi's own (`wifi.password.not-saved`, to be replaced by the shared
+    /// text of todo 183) and asked again next time.
+    fn keep_joined(&mut self, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
+        let Some((pending, password)) = self.policy.pending.take() else {
+            return Ok(());
+        };
+        if pending != ssid {
+            self.policy.pending = Some((pending, password));
+            return Ok(());
+        }
+        if password.is_empty() {
+            return Ok(());
+        }
+        let remember = Remember::new(ssid, password.as_str())?;
+        let saved = match self.secrets(host)? {
+            Some(secrets) => native_known::remember(secrets, host, &remember),
+            None => Err(Error::Unsupported),
+        };
+        match saved {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            // Not saved: said, best effort.
+            Err(_) => {
+                native_model::best_effort(Self::tell(host, "wifi.password.not-saved", ssid));
+                Ok(())
+            }
+        }
+    }
+
+    /// Does what the policy says to the radio.
+    fn run(&mut self, host: &Host<'_>, steps: Vec<Step>) -> Result<(), Error> {
+        for step in steps {
+            let mut scratch = [0; 512];
+            let mut sender = CommandSender::new(host, &mut scratch);
+            match step {
+                Step::On => sender.wifi_on()?,
+                Step::Scan => sender.wifi_scan()?,
+                Step::Join { ssid, password } => {
+                    self.request = self.request.wrapping_add(1).max(1);
+                    let result = sender.wifi_join(self.request, &ssid, password.as_str(), false);
+                    // The command buffer held the password.
+                    wipe(&mut scratch);
+                    result?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn radio_for_policy(&self, host: &Host<'_>) -> Result<Radio, Error> {
+        Ok(self.read_info(host)?.radio)
+    }
+
+    fn chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        self.ensure(host)?;
+        match self.screens.top(token) {
+            Some(View::Page(view)) => {
+                let Some(row) = view.rows.get(index).copied() else {
+                    return Ok(());
+                };
+                self.page_row(host, row)
+            }
+            Some(View::Networks(view)) => {
+                // A copy: the choice reads the services, which borrow the plugin.
+                if let Some(network) = view.networks.get(index).map(Network::try_clone) {
+                    self.network(host, &network?)
+                } else {
+                    // The last row: look again, unless a scan runs.
+                    if !self.read_info(host)?.scanning {
+                        let mut scratch = [0; 64];
+                        CommandSender::new(host, &mut scratch).wifi_scan()?;
+                    }
+                    redraw(host)
+                }
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn page_row(&mut self, host: &Host<'_>, row: PageRow) -> Result<(), Error> {
+        let mut scratch = [0; 128];
+        match row {
+            PageRow::Radio => {
+                let on = self.read_info(host)?.radio.is_on();
+                self.policy.manual = !on;
+                let mut sender = CommandSender::new(host, &mut scratch);
+                if on {
+                    sender.wifi_off()?
+                } else {
+                    sender.wifi_on()?
+                }
+            }
+            PageRow::Networks => {
+                return CommandSender::new(host, &mut scratch).open(Open::screen("wifi.networks")?);
+            }
+            PageRow::Phone => {
+                return CommandSender::new(host, &mut scratch).open(Open::screen("wifi.phone")?);
+            }
+            PageRow::OnDemand | PageRow::WhileCharging => {
+                let key = if row == PageRow::OnDemand {
+                    ON_DEMAND
+                } else {
+                    WHILE_CHARGING
+                };
+                let on = Self::flag(host, key)?;
+                CommandSender::new(host, &mut scratch).set_setting(key, SettingValue::Bool(!on))?;
+            }
+            PageRow::IdleOff => {
+                let next = next_idle(&Self::idle(host)?);
+                CommandSender::new(host, &mut scratch)
+                    .set_setting(IDLE_OFF, SettingValue::Text(next))?;
+            }
+        }
+        // The rows follow the radio's and the settings' events; drawn at once too.
+        self.reread(host)
+    }
+
+    /// A network was chosen: joined (a kept one at once, an open one once,
+    /// a secured one after its password is typed).
+    fn network(&mut self, host: &Host<'_>, network: &Network) -> Result<(), Error> {
+        let info = self.read_info(host)?;
+        let kept = self.read_kept(host)?;
+        let saved = is_kept(&kept, &network.ssid);
+        let at = matches!(info.radio, Radio::Online | Radio::Joining).then_some(info.ssid.as_str());
+        match pick(at, saved, network) {
+            Pick::Nothing => Ok(()),
+            Pick::Kept => {
+                let password = match self.secrets(host)? {
+                    Some(secrets) => native_known::password_of(secrets, host, &network.ssid)?,
+                    None => None,
+                };
+                let password = match password {
+                    Some(password) => password,
+                    None => Password::new("")?,
+                };
+                let steps = self
+                    .policy
+                    .choose(info.radio, &network.ssid, password.as_str())?;
+                self.run(host, steps)?;
+                redraw(host)
+            }
+            Pick::Open => {
+                let steps = self.policy.choose(info.radio, &network.ssid, "")?;
+                self.run(host, steps)?;
+                redraw(host)
+            }
+            Pick::Ask => self.ask_password(host, &network.ssid),
+        }
+    }
+
+    /// Asks for the password of `ssid` (typed masked), offering the one typed
+    /// before and not taken.
+    fn ask_password(&mut self, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let title = say.format(
+            host,
+            "wifi.password",
+            &[Arg::Text {
+                name: "ssid",
+                value: ssid,
+            }],
+        )?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let question = Question::text(&title, "")?.secret()?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let asked = ui
+            .ask(host, question, &mut input, &mut out)
+            .and_then(|request| {
+                if let Some((pending, typed)) = &self.policy.pending
+                    && pending == ssid
+                {
+                    ui.text_write(
+                        host,
+                        request.text(),
+                        0,
+                        typed.as_str(),
+                        paperpaw_sdk::native::ui::TextWrite::Last,
+                        &mut input,
+                        &mut out,
+                    )?;
+                }
+                Ok(request)
+            });
+        // The typed password went through both buffers: wiped on every path.
+        wipe(&mut input);
+        wipe(&mut out);
+        let request = asked?;
+        let ssid = copy(ssid)?;
+        self.asked = Some((request, ssid));
+        Ok(())
+    }
+
+    /// The password was typed: the network is joined with it, and it is
+    /// kept once the device is in the network.
+    fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        let Some((request, _)) = &self.asked else {
+            return Ok(());
+        };
+        if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
+            return Ok(());
+        }
+        let Some((request, ssid)) = self.asked.take() else {
+            return Ok(());
+        };
+        if answer.outcome() != AnswerOutcome::Answered {
+            return Ok(());
+        }
+        let Some(password) = self.read_password(host, request)? else {
+            // Longer than a network's password can be: said, not joined.
+            native_model::best_effort(Self::tell(host, "wifi.password.too-long", &ssid));
+            return Ok(());
+        };
+        let radio = self.radio_for_policy(host)?;
+        let steps = self.policy.choose(radio, &ssid, password.as_str())?;
+        self.policy.pending = Some((ssid, password));
+        self.run(host, steps)?;
+        redraw(host)
+    }
+
+    /// The password typed, read with buffers that are wiped; `None` for one
+    /// longer than a network's password can be.
+    fn read_password(
+        &self,
+        host: &Host<'_>,
+        request: RequestId,
+    ) -> Result<Option<Password>, Error> {
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let result = ui
+            .text_read(host, request.text(), 0, &mut input, &mut out)
+            .and_then(|part| {
+                let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
+                if total > PASSWORD_MOST {
+                    return Ok(None);
+                }
+                if part.data().len() != total {
+                    return Err(Error::Invalid);
+                }
+                Password::new(part.data()).map(Some)
+            });
+        wipe(&mut input);
+        wipe(&mut out);
+        result
+    }
+
+    /// A long press (or the menu button) forgets a network that is kept.
+    fn held(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        if token != NETWORKS_TOKEN {
+            return Ok(());
+        }
+        let Some(View::Networks(view)) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let Some(ssid) = view.networks.get(index).map(|n| copy(&n.ssid)) else {
+            return Ok(());
+        };
+        let ssid = ssid?;
+        if !is_kept(&self.read_kept(host)?, &ssid) {
+            return Ok(());
+        }
+        if let Some(secrets) = self.secrets(host)? {
+            native_known::forget(secrets, host, &ssid)?;
+        }
+        if self.read_info(host)?.ssid == ssid {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).wifi_leave()?;
+        }
+        native_model::best_effort(Self::tell(host, "wifi.forgotten", &ssid));
+        self.reread(host)
+    }
+
+    /// A notice with the network's `ssid`.
+    fn tell(host: &Host<'_>, key: &str, ssid: &str) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let text = say.format(
+            host,
+            key,
+            &[Arg::Text {
+                name: "ssid",
+                value: ssid,
+            }],
+        )?;
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+}
+
+fn redraw(host: &Host<'_>) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+}
