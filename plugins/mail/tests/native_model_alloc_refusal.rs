@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
-use paperpaw_plugin_mail::native_model::{codec, header, mem};
+use paperpaw_plugin_mail::native_model::{codec, header, html, mem};
 use paperpaw_sdk::native::Error;
 
 #[global_allocator]
@@ -83,5 +83,33 @@ fn credentials_and_secrets_survive_refused_allocations() {
         secret.push_str("hunter2")?;
         mem::wipe_text(secret.into_string());
         Ok(())
+    });
+}
+
+#[test]
+fn the_html_reader_survives_refused_allocations() {
+    swept("html", || {
+        let text = html::to_text(
+            "<p>Hello &amp; welcome &unknown; &#x1F600;</p><ul><li>one</li><li>two</li></ul>\
+             <style>p { color: red }</style><!-- note --><br>caf\u{e9} <b>bold</b> &am",
+        )?;
+        assert!(text.starts_with("Hello & welcome"));
+        Ok(())
+    });
+    swept("html in pieces", || {
+        let mut parser = html::HtmlText::with_limit(64);
+        let mut out = String::new();
+        for piece in [
+            "<p>He",
+            "llo &a",
+            "mp; <scr",
+            "ipt>x</script>",
+            "<li>a",
+            "b",
+            "</li>",
+        ] {
+            parser.push(piece, &mut out)?;
+        }
+        parser.finish(&mut out)
     });
 }

@@ -1,4 +1,4 @@
-# Mail on interface 7 (slice 1, partly ported)
+# Mail on interface 7 (slices 1 and 2, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
 store and the widgets) is still in place beside the native one. It is removed in the PR that
@@ -27,8 +27,26 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   Content-Type 32 parameters, a header 32 addresses, and a date is read for the years 1 to 9999
   only. `tests/native_model_alloc_refusal.rs` refuses each allocation in turn;
   `hostile_bytes_are_read_without_a_panic` feeds random bytes to every reader.
-- Still interface 6, to be made fallible next: `html`, `imap` (the response parser) and `smtp`
-  (the reply parser); then `render` and `store`.
+## Ported in slice 2
+
+- `src/native_model/html.rs` (`tests/native_html.rs`): the HTML-to-text reader made fallible and
+  bounded. Same text as interface 6 on fixed mails, 4,000 random mails of tags, entities and
+  comments, and the same mail cut into pieces anywhere; the intended differences, each tested:
+  the text is cut at `MAX_TEXT` (24 KiB, as interface 6's `store::MAX_TEXT`; `HtmlText::with_limit` for another, `is_cut` tells);
+  a non-ASCII character inside `<style>` or `<script>` is no panic (interface 6 cut its watch for
+  the end tag in the middle of a character); a comment longer than 1,024 bytes ends at its `-->`
+  (interface 6 never found the end and dropped the rest of the mail). The entity name and the
+  watch for the end tag are fixed arrays, the tag keeps its room from one tag to the next, and the
+  tag name is compared without a copy. `tests/native_model_alloc_refusal.rs` refuses each
+  allocation of whole and piecewise reading.
+- `render` still uses the interface-6 `html` until it is ported with the store. In slice 3 it must
+  make the reader with `HtmlText::with_limit` (the room the store has left) and flush the text in
+  chunks as it comes, never building a String of the whole mail.
+
+## Slice 3 (still interface 6)
+
+- `imap` (the response parser) and `smtp` (the reply parser) and the connection code that uses
+  them need the sockets host (SOCK), which is not there yet; then `render` and `store`.
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 

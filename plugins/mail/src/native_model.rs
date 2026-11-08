@@ -5,11 +5,12 @@
 //! end) and free of indexing that could panic. Each is tested to give the same
 //! answers as the old one on what both take (`tests/native_model.rs`),
 //! to survive any bytes (the same file) and every refused allocation
-//! (`tests/native_model_alloc_refusal.rs`). `html`, `imap` and `smtp` follow
-//! (`PORTING-7.md`).
+//! (`tests/native_model_alloc_refusal.rs`). `html` follows the same rules;
+//! `imap` and `smtp` follow (`PORTING-7.md`).
 //!
 //! The interface-6 modules stay until the port is complete (`PORTING-7.md`).
 
 pub mod codec;
 pub mod header;
+pub mod html;
 pub mod mem;
