@@ -632,16 +632,31 @@ impl Fb2Document {
 
 /// Unpacks the first `.fb2` of the archive at `zip` into `to`.
 fn unpack(storage: &dyn Storage, zip: &str, to: &str) -> Result<(), DocumentError> {
-    use paperpaw_sdk::zip::ZipArchive;
-    let bad = |_| DocumentError::Malformed(alloc::borrow::Cow::Borrowed("zip"));
-    let archive = ZipArchive::open(storage, zip).map_err(bad)?;
-    let entry = archive
-        .entries(storage)
-        .filter_map(Result::ok)
-        .find(|e| e.name.to_ascii_lowercase().ends_with(".fb2"))
-        .ok_or(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
-            "no FictionBook in the archive",
-        )))?;
+    use paperpaw_sdk::zip::{ZipArchive, ZipError};
+    let archive = ZipArchive::open(storage, zip).map_err(crate::package::error)?;
+    let mut found = None;
+    for entry in archive.entries(storage) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error @ (ZipError::Storage(_) | ZipError::OutOfMemory)) => {
+                return Err(crate::package::error(error));
+            }
+            // Unrelated unsupported or damaged members must not hide a readable book.
+            Err(_) => continue,
+        };
+        if entry
+            .name
+            .as_bytes()
+            .get(entry.name.len().saturating_sub(4)..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b".fb2"))
+        {
+            found = Some(entry);
+            break;
+        }
+    }
+    let entry = found.ok_or(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
+        "no FictionBook in the archive",
+    )))?;
     storage.write(to, &[])?;
     let mut failed = None;
     archive
@@ -649,7 +664,7 @@ fn unpack(storage: &dyn Storage, zip: &str, to: &str) -> Result<(), DocumentErro
             failed = storage.append(to, chunk).err();
             failed.is_none()
         })
-        .map_err(bad)?;
+        .map_err(crate::package::error)?;
     match failed {
         Some(e) => Err(DocumentError::Storage(e)),
         None => Ok(()),
@@ -1111,3 +1126,6 @@ mod tests {
         assert_eq!(out, b"hello");
     }
 }
+
+#[cfg(test)]
+mod allocation_tests;
