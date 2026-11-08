@@ -571,17 +571,28 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   follow and clears whatever the provider set; the provider's own paging stays inside its page.
 - [D] **A provider that must fetch** (wikipedia, translate) never blocks the asker: its stage call
   answers at once with its `lookup_entry` flagged bit 1 `pending` (empty `text`), starts its own
-  request (`core.net`, as itself) and keeps the result in its own data. The host then records one
-  **pending ask** (the asker, the provider, a hash of `text` and `language`, a deadline 60 s on), in
-  a fixed table without allocation: at most 4 per asker and 16 device-wide on the X4 (32
-  elsewhere). With no room, the provider's page is answered as an empty entry (the empty-answer
-  rule above) and the host logs it, so a full table never blocks or fails the lookup.
+  request (`core.net`, as itself) and keeps the result in its own data. If the asker subscribes
+  to `event.lookup_ready` (110), the host records one **pending ask**; for an asker that does not,
+  it records nothing (the asker sees `pending` and may ask again itself).
+- [D] **The pending table** is fixed and allocates nothing: **16 entries on the X4, 32
+  elsewhere**, 32 bytes each (the asker and the provider as `u64` owners, the ask's hash, the
+  deadline as `u64` ms, 60 s after the ask): 512 bytes on the X4. The hash is 64-bit FNV-1a over
+  the length of `language` as one byte, the `language` bytes and the `text` bytes, so the pair
+  (`language`, `text`) maps to one input without ambiguity. One entry per (asker, provider, hash):
+  asking again refreshes its deadline. At most 4 entries per asker and **at most 8 per provider
+  on the X4** (16 elsewhere), so one provider cannot fill the table for the others. With no room
+  (table, asker's or provider's share full), the provider's page is answered as an empty entry
+  (the empty-answer rule above) and the host logs it, so a full table never blocks or fails the
+  lookup. Two asks whose hashes collide are matched together: the extra asker gets an event,
+  asks again and sees `pending` or the answer; nothing worse.
 - [D] When its result is kept, the provider stages `command.lookup_ready` (1593: `text: str 1024`,
   `language: str 35`, the ask it answered). The host matches it against the pending asks naming
   that provider, removes them and sends each asker `event.lookup_ready` (110: `now_ms`, `provider:
   str 64`; the asker subscribes to it like any event). The asker calls `lookup` again with the same
   `text` and `language` (from 0 or at that provider's cursor) and the provider answers from what it
-  kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing (logged).
+  kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing but
+  count: the host adds 1 to a counter of unmatched ready commands and logs at most one line a
+  minute about them; the command is accepted (never an error to the provider).
 - [D] A pending ask ends without an event when its deadline passes, the asker stops or the
   provider stops; an asker that wants the answer later asks again. The host never starts a
   stopped plugin for a lookup and never holds a provider's answer itself. No provider sees
@@ -643,12 +654,14 @@ reply 4,096 bytes, stage payload 3,840.
 - Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
   interface 6's card tables, which the reader held; the same bytes, now counted to the host.
-- Lookup: one stage call on the scratch; nothing kept.
-- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
-  queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
-  X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB, `de` about 20
-  KB; interface 6's reader held the same)**, all fallible; an activation-gate item beside UIX's,
-  measured with the reader port. The format plugins' own heaps are gated by their ports.
+- Lookup: one stage call on the scratch; the pending table (section 7) of 16 × 32 bytes = **512
+  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept.
+- **X4 worst case for DOC's host side: about 6.5 KiB at rest** (documents 0.13, images 1.5, band 4,
+  pending lookups 0.5, queue), **plus the decoder's transient peak while an image decodes (PNG at
+  most 48 KiB on the X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB,
+  `de` about 20 KB; interface 6's reader held the same)**, all fallible; an activation-gate item
+  beside UIX's, measured with the reader port. The format plugins' own heaps are gated by their
+  ports.
 
 ## 9. Interface-6 calls and their interface-7 form
 
