@@ -246,3 +246,36 @@ fn raw_records_and_stream_carry_keep_secrets_out_of_debug() {
         .unwrap();
     assert_eq!(seen, 1);
 }
+
+/// A bare record of `tag` with an empty body.
+fn empty_record(tag: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut value = tag;
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(byte);
+            break;
+        }
+        out.push(byte | 0x80);
+    }
+    out.push(0);
+    out
+}
+
+#[test]
+fn known_tags_are_exactly_the_tags_the_enum_decoder_does_not_refuse_as_unknown() {
+    let tags = (0..=4096).chain([65_535, 65_536, 65_536 + 1024, u32::MAX >> 4, u32::MAX]);
+    let mut known = 0;
+    for tag in tags {
+        let bytes = empty_record(tag);
+        let raw = wire::RawRecord::one(&bytes).unwrap();
+        let unknown = raw.record() == Err(ERR_UNSUPPORTED);
+        assert_eq!(wire::record_tag_known(tag), !unknown, "tag {tag}");
+        known += usize::from(!unknown);
+    }
+    assert!(known > 200, "only {known} known tags");
+    assert!(wire::record_tag_known(wire::SERVICE_END_TAG));
+    assert!(wire::record_tag_known(wire::EVENT_PAGE_TURNED_TAG));
+}

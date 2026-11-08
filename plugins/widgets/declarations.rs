@@ -4,7 +4,7 @@
 //! run time.
 use paperpaw_sdk::native::declare::{Declarations, DeclareError, EventKind, GroupDecl, WidgetDecl};
 pub use paperpaw_ui_kit::widget::options::Opt;
-use paperpaw_ui_kit::widget::options::{declare_all, shared_look};
+use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
@@ -12,6 +12,8 @@ pub const TICK: u32 = 1;
 /// The widget categories of the host's catalogue.
 pub mod category {
     pub const TIME: &str = "core.widgets.time";
+    pub const PERSONAL: &str = "core.widgets.personal";
+    pub const WORDS: &str = "core.widgets.words";
 }
 
 /// A widget of the pack.
@@ -27,7 +29,9 @@ pub struct Def {
     /// padding, paper, ink, corners, line, shadow) are the shared ones, and
     /// come first.
     pub align: &'static str,
-    /// The settings after the shared look.
+    /// Whether the shared look comes after the widget's own settings.
+    pub look_last: bool,
+    /// The widget's own settings.
     pub options: &'static [Opt],
 }
 
@@ -38,9 +42,15 @@ impl Def {
         reason = "the tests read it; the build script reads the same file and does not"
     )]
     pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
-        shared_look(self.align)
-            .into_iter()
-            .chain(self.options.iter().copied())
+        let look = shared_look(self.align);
+        let (own, last) = (self.options, self.look_last);
+        (0..look.len() + own.len()).filter_map(move |n| {
+            if last {
+                own.get(n).or_else(|| look.get(n - own.len())).copied()
+            } else {
+                look.get(n).or_else(|| own.get(n - look.len())).copied()
+            }
+        })
     }
 }
 
@@ -358,6 +368,87 @@ const WORD_CLOCK_OPTIONS: &[Opt] = &[
     Opt::Part("dots", "widgets.setting.minute-dots", false),
 ];
 
+const GREETING_OPTIONS: &[Opt] = &[
+    Opt::Text(
+        "name",
+        "widgets.greeting.setting.name",
+        "",
+        "widgets.greeting.setting.name.help",
+    ),
+    Opt::Choice(
+        "line",
+        "widgets.greeting.setting.line",
+        &["widgets.greeting.line.none", "widgets.greeting.line.date"],
+        "widgets.greeting.line.date",
+        "widgets.greeting.line.help",
+    ),
+    Opt::Part("icon", "widgets.greeting.setting.icon", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+];
+
+const NOTE_OPTIONS: &[Opt] = &[
+    Opt::Text(
+        "text",
+        "widgets.note.setting.text",
+        "",
+        "widgets.note.setting.text.help",
+    ),
+    Opt::Text(
+        "heading",
+        "widgets.note.setting.heading",
+        "",
+        "widgets.note.setting.heading.help",
+    ),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+];
+
+const QUOTE_OPTIONS: &[Opt] = &[
+    Opt::Choice(
+        "source",
+        "widgets.quote.setting.source",
+        &[
+            "widgets.quote.source.shipped",
+            "widgets.quote.source.own",
+            "widgets.quote.source.both",
+        ],
+        "widgets.quote.source.both",
+        "widgets.quote.setting.source.help",
+    ),
+    Opt::Choice(
+        "change",
+        "widgets.setting.change",
+        &["widgets.change.daily", "widgets.change.shown"],
+        "widgets.change.daily",
+        "widgets.setting.change.help",
+    ),
+    Opt::Part("author", "widgets.quote.setting.author", true),
+    Opt::Part("marks", "widgets.quote.setting.marks", true),
+    Opt::Part("mark", "widgets.quote.setting.mark", false),
+    Opt::Part("caption", "widgets.quote.setting.caption", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.italic",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.fit", true),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -366,6 +457,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: DAY_OPTIONS,
     },
     Def {
@@ -374,6 +466,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.center",
+        look_last: false,
         options: TILES_OPTIONS,
     },
     Def {
@@ -382,6 +475,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.center",
+        look_last: false,
         options: CALENDAR_OPTIONS,
     },
     Def {
@@ -390,6 +484,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: COUNTDOWN_OPTIONS,
     },
     Def {
@@ -398,6 +493,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: YEAR_OPTIONS,
     },
     Def {
@@ -406,6 +502,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.center",
+        look_last: false,
         options: ANALOGUE_OPTIONS,
     },
     Def {
@@ -414,6 +511,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: MOON_OPTIONS,
     },
     Def {
@@ -422,6 +520,7 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: WORLD_OPTIONS,
     },
     Def {
@@ -430,7 +529,35 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         align: "core.align.left",
+        look_last: false,
         options: WORD_CLOCK_OPTIONS,
+    },
+    Def {
+        name: "greeting",
+        token: 109,
+        category: category::PERSONAL,
+        live: true,
+        align: "core.align.center",
+        look_last: true,
+        options: GREETING_OPTIONS,
+    },
+    Def {
+        name: "note",
+        token: 110,
+        category: category::PERSONAL,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: NOTE_OPTIONS,
+    },
+    Def {
+        name: "quote",
+        token: 111,
+        category: category::WORDS,
+        live: true,
+        align: "core.align.center",
+        look_last: true,
+        options: QUOTE_OPTIONS,
     },
 ];
 
@@ -451,12 +578,7 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
             spec.previews(&group)
                 .map_err(|_| DeclareError::TooLong("widget preview"))?,
         )?;
-        declare_all(
-            d,
-            widget.name,
-            &group,
-            shared_look(widget.align).iter().chain(widget.options),
-        )?;
+        declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
     Ok(())
