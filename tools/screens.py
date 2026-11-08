@@ -50,10 +50,7 @@ SCREENS = [
     ("vocabulary", "run:vocabulary.open", []),
     ("browser", "run:browser.open", []),
     ("rules", "run:rules.open", []),
-    ("buttons", "run:keys.open", []),
     ("plugins", "run:plugin-manager.open", []),
-    ("menu-editor", "run:menu-editor.open", []),
-    ("profiles", "run:profiles.open", []),
     ("setup", "run:setup.open", []),
 ]
 
