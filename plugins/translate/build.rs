@@ -43,6 +43,7 @@ fn main() -> Result<(), String> {
     // `declarations::settings` is not built yet: the choice has 33 values and a
     // `setting.spec` takes 32 (draft 29 raises it; see PORTING-7.md).
     emit!(source, "SCREEN", declarations::screen);
+    emit!(source, "EVENTS", declarations::events);
     emit!(source, "OFFER", declarations::offer);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("translate_declarations.rs"), source)
