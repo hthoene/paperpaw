@@ -307,6 +307,63 @@ impl Smtp {
         self.fail(io, events, Failure::Login(text))
     }
 
+    /// The two `AUTH LOGIN` prompts: the user name, then the password.
+    fn login_step(
+        &mut self,
+        reply: &Reply,
+        io: &mut dyn Io,
+        events: &mut Vec<Event>,
+    ) -> Result<(), Fail> {
+        if reply.code != 334 {
+            return self.login_refused(io, events, reply);
+        }
+        if self.step == Step::LoginUser {
+            let user = codec::base64_line(self.endpoint.user.as_bytes())?;
+            return self.say(io, events, Step::LoginName, &[&user]);
+        }
+        let password = codec::base64_line(self.endpoint.password.as_str().as_bytes())?;
+        let said = self.say(io, events, Step::LoginPassword, &[&password]);
+        wipe_text(password);
+        said
+    }
+
+    /// A refused or deferred `RCPT TO`.
+    fn rcpt_refused(
+        &mut self,
+        n: usize,
+        reply: &Reply,
+        io: &mut dyn Io,
+        events: &mut Vec<Event>,
+    ) -> Result<(), Fail> {
+        let who = match self.message.to.get(n) {
+            Some(who) => copy(who)?,
+            None => String::new(),
+        };
+        let text = copy(reply.text())?;
+        let failure = if reply.is_temporary() {
+            Failure::Temporary(text)
+        } else {
+            Failure::Recipient(who, text)
+        };
+        self.fail(io, events, failure)
+    }
+
+    /// A refused or deferred end of the message data.
+    fn body_refused(
+        &mut self,
+        reply: &Reply,
+        io: &mut dyn Io,
+        events: &mut Vec<Event>,
+    ) -> Result<(), Fail> {
+        let text = copy(reply.text())?;
+        let failure = if reply.is_temporary() {
+            Failure::Temporary(text)
+        } else {
+            Failure::Refused(text)
+        };
+        self.fail(io, events, failure)
+    }
+
     fn reply(
         &mut self,
         reply: &Reply,
@@ -367,22 +424,7 @@ impl Smtp {
                     self.login_refused(io, events, reply)
                 }
             }
-            Step::LoginUser => {
-                if reply.code != 334 {
-                    return self.login_refused(io, events, reply);
-                }
-                let user = codec::base64_line(self.endpoint.user.as_bytes())?;
-                self.say(io, events, Step::LoginName, &[&user])
-            }
-            Step::LoginName => {
-                if reply.code != 334 {
-                    return self.login_refused(io, events, reply);
-                }
-                let password = codec::base64_line(self.endpoint.password.as_str().as_bytes())?;
-                let said = self.say(io, events, Step::LoginPassword, &[&password]);
-                wipe_text(password);
-                said
-            }
+            Step::LoginUser | Step::LoginName => self.login_step(reply, io, events),
             Step::MailFrom => {
                 if !reply.is_ok() {
                     return self.refused(io, events, reply);
@@ -391,17 +433,7 @@ impl Smtp {
             }
             Step::Rcpt(n) => {
                 if !reply.is_ok() {
-                    let who = match self.message.to.get(n) {
-                        Some(who) => copy(who)?,
-                        None => String::new(),
-                    };
-                    let text = copy(reply.text())?;
-                    let failure = if reply.is_temporary() {
-                        Failure::Temporary(text)
-                    } else {
-                        Failure::Recipient(who, text)
-                    };
-                    return self.fail(io, events, failure);
+                    return self.rcpt_refused(n, reply, io, events);
                 }
                 self.rcpt(n + 1, io, events)
             }
@@ -417,13 +449,7 @@ impl Smtp {
             }
             Step::Body => {
                 if !reply.is_ok() {
-                    let text = copy(reply.text())?;
-                    let failure = if reply.is_temporary() {
-                        Failure::Temporary(text)
-                    } else {
-                        Failure::Refused(text)
-                    };
-                    return self.fail(io, events, failure);
+                    return self.body_refused(reply, io, events);
                 }
                 self.say(io, events, Step::Quit, &["QUIT"])
             }

@@ -1036,11 +1036,12 @@ impl Imap {
             |(_, unseen)| unseen,
         );
         let messages = self.counts.map_or(self.exists, |(messages, _)| messages);
-        let mut counts = Counts::default();
-        counts.messages = messages;
-        counts.unseen = unseen;
-        counts.uid_validity = self.uid_validity;
-        counts.checked = *now;
+        let counts = Counts {
+            messages,
+            unseen,
+            uid_validity: self.uid_validity,
+            checked: *now,
+        };
         let written = store::write_index(storage, index, &rows)
             .and_then(|()| store::write_atomic(storage, status, counts.line()?.as_bytes()));
         if !self.stored(io, events, written)? {

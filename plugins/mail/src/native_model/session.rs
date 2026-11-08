@@ -18,7 +18,7 @@
 //!   built in a buffer that wipes itself and is wiped as soon as [`Io::send`]
 //!   returns, which copies what it keeps (and wipes that copy when it is
 //!   sent); no `format!` ever holds it;
-//! - a `{n}` literal of a message's body over [`store::MAX_FETCH`] (with a
+//! - a `{n}` literal of a message's body over `store::MAX_FETCH` (with a
 //!   little over) ends the fetch as [`Failure::Protocol`] (interface 6 did the
 //!   same), a literal of headers over 16 KiB is skipped, never kept; and a line
 //!   or response past the bounds of `imap` or `smtp` (`Fault::TooLong`) closes
