@@ -15,10 +15,8 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, ResetTarget},
-        fonts::{Font, FontRole},
         registry::{PageCursor, Registry, ValuesQuery},
         settings::SettingValue,
-        snapshot,
         ui::{HandoverId, Notify, Open, Param, Ui},
     },
 };
@@ -30,6 +28,7 @@ use paperpaw_ui_kit::{
 
 use crate::native_add::{self as add, Entry, Layout, Plan, Row};
 use crate::native_grid::What;
+use crate::native_measure as measure;
 use crate::native_pages::{self, Write};
 use crate::native_shown::Shown;
 
@@ -111,7 +110,7 @@ impl AddScreen {
     /// # Errors
     /// [`Error::NoMemory`] and the host's refusals.
     pub fn new(host: &Host<'_>, page: usize, kind: Option<String>) -> Result<Self, Error> {
-        let shown = Self::read(host)?;
+        let shown = Shown::current(host)?;
         let on = match shown.pages.get(page) {
             Some(on) => native_pages::expand(&shown.src, &on.items)?,
             None => Vec::new(),
@@ -141,16 +140,6 @@ impl AddScreen {
             focus: ListFocus::default(),
             renderer: ListRenderer::default(),
         })
-    }
-
-    fn read(host: &Host<'_>) -> Result<Shown, Error> {
-        let display = snapshot::capture_snapshot(host)?;
-        let font = Font::acquire_role(host, FontRole::Ui)?;
-        let read = Shown::read(host, &display, &font);
-        let released = font.release();
-        let shown = read?;
-        released?;
-        Ok(shown)
     }
 
     fn labels(
@@ -225,7 +214,25 @@ impl AddScreen {
         if let Row::Kind(kind, _) = row {
             return self.open_kind(host, ui, kind);
         }
-        let shown = Self::read(host)?;
+        let mut shown = Shown::current(host)?;
+        // What is added is measured at the grid's width, so it gets the rows it
+        // needs.
+        let added = match row {
+            Row::Add(entry) => match self.entries.get(*entry) {
+                Some(entry) => Some(Self::placed(host, &shown.src, entry)?),
+                None => None,
+            },
+            _ => None,
+        };
+        if let Some(What::Widget(id)) = &added {
+            match measure::measure_widget(host, ui, id, measure::PLACE, &shown.frame.geometry) {
+                Ok(Some((rows, least))) => shown.src.measured(id, rows, least)?,
+                // Not measured (gone, refused): the grid's default of one row.
+                Ok(None) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
         let wide_grid = shown.wide_grid();
         let layout = Layout {
             wide: shown.wide,
@@ -236,10 +243,8 @@ impl AddScreen {
         let src = &shown.src;
         let mut resets = Vec::new();
         let plan = match row {
-            Row::Add(entry) => match self.entries.get(*entry) {
-                Some(entry) => {
-                    add::add_item(src, &layout, self.page, Self::placed(host, src, entry)?)?
-                }
+            Row::Add(_) => match added {
+                Some(what) => add::add_item(src, &layout, self.page, what)?,
                 None => Plan::Nothing,
             },
             Row::AddPage => add::add_page(src, &layout)?,
@@ -287,54 +292,72 @@ impl AddScreen {
         open(host, ui, self.page, Some(kind))
     }
 
-    /// Stages a plan: the settings, the placements reset, a message, and the way
-    /// back to the page (past the kinds too). No room keeps the screen.
+    /// Stages a plan and the way back to the page (past the kinds too). No room,
+    /// and a change too big for one callback, say so and keep the screen.
     fn stage(&self, host: &Host<'_>, plan: Plan, resets: &[String]) -> Result<(), Error> {
         let writes = match plan {
             Plan::Nothing => return Ok(()),
-            Plan::NoRoom => return Self::say(host, "home.grid.no-room"),
-            // Over the host's budget for one callback: nothing is staged, the old
-            // layout stays.
-            Plan::Writes(writes) if !add::fits(&writes, resets) => {
-                return Self::say(host, "home.grid.too-big");
-            }
+            Plan::NoRoom => return say(host, "home.grid.no-room"),
             Plan::Writes(writes) => writes,
         };
-        let longest = writes
-            .iter()
-            .map(|write| match write {
-                Write::Set { text, .. } => text.len(),
-                Write::Notify(_) => 0,
-            })
-            .max()
-            .unwrap_or(0);
-        let mut scratch = buffer(OVERHEAD + longest)?;
+        if !apply(host, &writes, resets)? {
+            return Ok(());
+        }
+        let mut scratch = [0; OVERHEAD];
         let mut sender = CommandSender::new(host, &mut scratch);
-        for write in &writes {
-            if let Write::Set { setting, text } = write {
-                sender.set_setting(setting, SettingValue::Text(text))?;
-            }
-        }
-        for id in resets {
-            sender.reset_setting(ResetTarget::Placement(id))?;
-        }
-        for write in &writes {
-            if let Write::Notify(key) = write {
-                Self::say(host, key)?;
-            }
-        }
         sender.back()?;
         if self.kind.is_some() {
             sender.back()?;
         }
         Ok(())
     }
+}
 
-    fn say(host: &Host<'_>, key: &str) -> Result<(), Error> {
-        let text = Messages::new()?.copy(host, key)?;
-        let mut scratch = buffer(OVERHEAD + text.len())?;
-        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+/// Stages the settings written and the placements reset, then the messages.
+/// Over the host's budget for one callback nothing is staged: the old layout
+/// stays, the reader is told, and `false` comes back.
+///
+/// # Errors
+/// Allocation and host errors; an error return drops everything staged.
+pub fn apply(host: &Host<'_>, writes: &[Write], resets: &[String]) -> Result<bool, Error> {
+    if !add::fits(writes, resets) {
+        say(host, "home.grid.too-big")?;
+        return Ok(false);
     }
+    let longest = writes
+        .iter()
+        .map(|write| match write {
+            Write::Set { text, .. } => text.len(),
+            Write::Notify(_) => 0,
+        })
+        .max()
+        .unwrap_or(0);
+    let mut scratch = buffer(OVERHEAD + longest)?;
+    let mut sender = CommandSender::new(host, &mut scratch);
+    for write in writes {
+        if let Write::Set { setting, text } = write {
+            sender.set_setting(setting, SettingValue::Text(text))?;
+        }
+    }
+    for id in resets {
+        sender.reset_setting(ResetTarget::Placement(id))?;
+    }
+    for write in writes {
+        if let Write::Notify(key) = write {
+            say(host, key)?;
+        }
+    }
+    Ok(true)
+}
+
+/// Says the message of the catalog key `key`.
+///
+/// # Errors
+/// Allocation and host errors.
+pub fn say(host: &Host<'_>, key: &str) -> Result<(), Error> {
+    let text = Messages::new()?.copy(host, key)?;
+    let mut scratch = buffer(OVERHEAD + text.len())?;
+    CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
 }
 
 #[cfg(test)]

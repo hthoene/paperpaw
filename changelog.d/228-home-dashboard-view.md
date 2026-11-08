@@ -11,3 +11,7 @@
   the pages, the placement of a widget added and the values a removed page's widgets set. Moving,
   sizing and removing items, the gallery of widgets as they would show, the ready-made layouts and
   icons follow.
+
+- **Home screen: arranging items with the buttons on interface 7** (#228). While editing, an item
+  offers *Move*, *Change the size*, *Remove*; the buttons move or size it a cell at a time and
+  *Select* sets it down. The finger's drag and the options' *Settings* entry follow.

@@ -90,14 +90,17 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
+        blocked_by: &["HOME-add-gallery", "517", "H1", "H4", "KERNEL-cell-hints"],
     },
-    // Arranging while editing: select, move, resize and remove an item with the
-    // buttons, the grip drag, the tools drawer.
+    // Arranging while editing: moving and sizing an item with a finger (drag by
+    // the item, by its corner), and the options' *Settings* entry. Moving,
+    // sizing and removing with the buttons are done (unit-tested). A widget's
+    // least width and square hint (`KERNEL-cell-hints`, draft 29) have no ABI
+    // field yet, so sizing may make a widget narrower than it wants.
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["HOME-arrange-slice", "H2", "H4"],
+        blocked_by: &["H4", "HOME-item-settings", "KERNEL-cell-hints"],
     },
 ];
 
@@ -178,13 +181,13 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported"]
+#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported; KERNEL-cell-hints (draft 29): a widget's least width and square hint have no ABI field"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-arrange-slice: moving, sizing and removing items while editing is not ported"]
+#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs the pointer input; the options' Settings entry is not ported; KERNEL-cell-hints (draft 29): a widget's least width and square hint have no ABI field"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

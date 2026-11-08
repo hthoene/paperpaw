@@ -103,6 +103,12 @@ impl Focus {
         self.shown = shown;
     }
 
+    /// On the target `at`, shown (an item picked up to be moved).
+    pub fn to(&mut self, at: usize) {
+        self.at = at;
+        self.shown = true;
+    }
+
     /// A page turned: it goes back to the first target.
     pub fn reset(&mut self) {
         self.at = 0;
@@ -277,6 +283,17 @@ mod tests {
                 assert_eq!(focus.at(), 4);
             }
         }
+    }
+
+    #[test]
+    fn an_item_picked_up_has_the_focus_shown_on_it() {
+        let t = targets();
+        let mut focus = Focus::default();
+        focus.to(3);
+        assert!(focus.shown());
+        assert_eq!(focus.at(), 3);
+        // The next press moves on from there (no first press that only shows).
+        assert_eq!(focus.press(Press::Left, &t, false), Step::Moved(2));
     }
 
     #[test]
