@@ -2608,10 +2608,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
