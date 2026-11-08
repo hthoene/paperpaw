@@ -27,9 +27,13 @@ dropped.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
-- **The page's icon** (`lock`) and **the first-run step** that offers the lock
-  (`SetupStepDecl`, page = the kind setting): the builders exist, the host refuses
-  both until it takes icons and setup steps.
+- **Pending host, to come back before activation with parity:** the page's icon
+  (`lock`, an icon record: the host refuses icon records until it takes them) and the
+  first-run step that offers the lock (`SetupStepDecl`, page = the kind setting,
+  order 70; `core.registry` op 22, Host todo 99). The builders exist and the batch
+  is as the interface-6 plugin registered them, minus these two records, which are
+  left out so that the host admits the rest. Each has an ignored case in
+  `tests/acceptance_pending.rs`.
 - **The lock screen** (PIN pad, pattern, password, the kind list, drawing) and
   everything that takes input while locked: it needs UI composition (H3), input
   interception (H4), screen commands (H1), the ask service (the password) and the

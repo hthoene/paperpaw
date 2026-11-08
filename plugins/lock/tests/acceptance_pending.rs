@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 7] = [
     Case {
         name: "the-device-locks-on-start-and-on-waking",
         golden: None,
@@ -43,6 +43,16 @@ const CASES: [Case; 5] = [
             "menu-entries-host",
             "key-maps-host",
         ],
+    },
+    Case {
+        name: "the-lock-page-has-its-icon",
+        golden: None,
+        blocked_by: &["icon-records-host"],
+    },
+    Case {
+        name: "the-first-run-setup-offers-the-lock",
+        golden: None,
+        blocked_by: &["core-registry-op-22-host-todo-99"],
     },
 ];
 
@@ -81,4 +91,16 @@ fn lock_now() {
 #[ignore = "BLOCKED: the input filter (H4), the status-item stage, menu entries and key maps on the host"]
 fn the_touch_lock() {
     CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED: the host takes icon records; declare icon `lock` on `lock.group` again"]
+fn the_page_icon() {
+    CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED: core.registry op 22 (Host todo 99); declare the setup step (order 70, page = the kind setting) again"]
+fn the_setup_step() {
+    CASES[6].refuse().unwrap();
 }
