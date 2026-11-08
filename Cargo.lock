@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
