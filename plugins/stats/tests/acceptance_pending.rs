@@ -5,7 +5,7 @@
 //! missing piece.
 
 #[test]
-#[ignore = "needs the native shell (Plugin impl, declarations) and a host that runs native plugins"]
+#[ignore = "needs a host that runs native plugins end to end: it refuses icon declarations today, so make fails (the recording itself is tested in src/recorder/tests.rs)"]
 fn pages_read_are_recorded_and_the_days_summed() {
     unreachable!("page turned/book closed end a stay; append to pages.bin; days() on a new day");
 }
@@ -23,9 +23,9 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
 }
 
 #[test]
-#[ignore = "needs the stage stats.read-today (event emission) and book lifecycle events"]
+#[ignore = "needs a host that admits stage declarations, and a native reading-goal that asks stats.read-today"]
 fn reading_goal_is_told_todays_seconds() {
-    unreachable!("emit read-today(day, seconds) as the stay is recorded");
+    unreachable!("the stage answers day and seconds as the stay is recorded");
 }
 
 #[test]

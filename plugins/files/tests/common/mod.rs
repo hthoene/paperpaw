@@ -60,7 +60,7 @@ pub const DEVICES: [DeviceInfo; 2] = [X4, TOUCH];
 
 /// The configuration every test starts from: English, and on touch
 /// screens without the hints over it all.
-pub const BASE_CONFIG: &str = "[core]\nlanguage = en\n[help]\nshow = false\n";
+pub const BASE_CONFIG: &str = "[core]\nlanguage = en\n";
 
 /// Where the first-run setup notes that it was done.
 pub const SETUP_DONE: &str = ".paperpaw/plugins/setup/done";

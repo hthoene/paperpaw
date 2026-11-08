@@ -2277,7 +2277,6 @@ dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
- "paperpaw-plugin-help",
  "paperpaw-plugin-home",
  "paperpaw-plugin-hyphenation",
  "paperpaw-plugin-keyboard",
@@ -2439,9 +2438,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2470,13 +2470,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-format-xtc"
 version = "1.0.1"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-help"
-version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
