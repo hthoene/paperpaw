@@ -267,6 +267,7 @@ fn value_text(source: &str, value: config::Value<'_>) -> Result<String, Error> {
                 let rest = chars.as_str();
                 if let Some((c, len)) = unicode_escape(rest) {
                     out.put_char(c)?;
+                    debug_assert!(rest.is_char_boundary(len));
                     chars = rest.get(len..).unwrap_or_default().chars();
                 }
             }

@@ -7,7 +7,7 @@
 #
 #   tools/flash-gate.sh [--head REV] [--base TAG] [--base-features LIST]
 #                       [--head-features LIST] [--label TEXT] [--limit BYTES]
-#                       [--jobs N] [--work DIR] [--keep]
+#                       [--jobs N] [--work DIR] [--keep] [--plugin-elf FILE]...
 #
 # Defaults: head HEAD with features `x4,ppn5` (as the finished firmware
 # ships); base `v0.6.0-beta.3` with `x4`. Each tree builds with its own
@@ -17,13 +17,17 @@
 # `--label 'estimate, interface 6 still linked'`; the label is printed with
 # the result. Exit 0: within the limit. Exit 1: ONLY when the delta is over it.
 # Exit 2: every other failure (bad argument, no toolchain, failed build).
+#
+# `--plugin-elf FILE` (any number; the ELF a `.ppn` is packed from) also runs
+# `tools/plugin-symbols.sh` on it: a plugin that links the whole records codec or
+# the text-escaping tables fails the gate (exit 1) whatever the delta.
 set -Eeuo pipefail
 # Any failure that is not a measurement is exit 2 ("over the gate" is 1).
 trap 'exit 2' ERR
 die() { echo "flash-gate: $*" >&2; exit 2; }
 
 head=HEAD base=v0.6.0-beta.3 base_features=x4 head_features=x4,ppn5
-label="" limit=60000 jobs=4 keep=0
+label="" limit=60000 jobs=4 keep=0 plugin_elfs=()
 work="${TMPDIR:-/tmp}"
 target=riscv32imc-unknown-none-elf
 
@@ -38,6 +42,7 @@ while [ $# -gt 0 ]; do
         --jobs) jobs=$2; shift 2 ;;
         --work) work=$2; shift 2 ;;
         --keep) keep=1; shift ;;
+        --plugin-elf) plugin_elfs+=("$2"); shift 2 ;;
         -h|--help) sed -n 2,19p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -105,6 +110,18 @@ for n in base head; do
 done
 echo "delta $delta B over the gate of $limit B (flash-resident: .text, .rodata, .data load, .rwtext, .trap)"
 [ -n "$label" ] && echo "RESULT (${label}): $delta B"
+plugins_ok=1
+if [ ${#plugin_elfs[@]} -gt 0 ]; then
+    # Exit 2 (no symbols, no nm) ends the gate through the ERR trap; 1 is a finding.
+    if "$root/tools/plugin-symbols.sh" "${plugin_elfs[@]}"; then :; else
+        [ $? -eq 1 ] || exit 2
+        plugins_ok=0
+    fi
+fi
+if [ "$plugins_ok" = 0 ]; then
+    echo "GATE: PLUGIN CODEC (see above)"
+    exit 1
+fi
 if [ "$delta" -le "$limit" ]; then
     echo "GATE: within ($((limit - delta)) B to spare)"
 else

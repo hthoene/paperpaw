@@ -31,6 +31,12 @@ status=0
 for elf in "$@"; do
     [ -f "$elf" ] || { echo "plugin-symbols: $elf is not a file" >&2; exit 2; }
     bad=0
+    # A stripped ELF has no symbols to look for: that is no proof of anything.
+    symbols=$("$nm" "$elf" 2>/dev/null || true)
+    if [ -z "$symbols" ]; then
+        echo "plugin-symbols: $elf has no symbols (stripped?): nothing to check" >&2
+        exit 2
+    fi
     hits=$("$nm" -C "$elf" | grep -E "$pattern" || true)
     if [ -n "$hits" ]; then
         echo "$elf links the whole records codec:" >&2

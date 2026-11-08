@@ -34,6 +34,11 @@ const FORBIDDEN: &[&str] = &[
 /// (`declare/uix.rs` checks fields of a declaration and encodes through the typed row).
 const MAY_MATCH_THE_ENUM: &[&str] = &["crates/paperpaw-sdk/src/native/declare/uix.rs"];
 
+/// Files that import the enum bare today: `declare/format.rs` builds a `FormatSpec` and
+/// hands it to `accept_record`, which encodes through the enum (a plugin that declares a
+/// format links that encoder; moving it to a typed row is open).
+const MAY_IMPORT_THE_ENUM: &[&str] = &["crates/paperpaw-sdk/src/native/declare/format.rs"];
+
 fn plugin_side(path: &str) -> bool {
     path.starts_with("crates/paperpaw-sdk/src/native/")
         && !path.contains("test")
@@ -60,6 +65,52 @@ fn facades_do_not_reach_the_whole_records_codec() {
                         number + 1
                     ));
                 }
+            }
+        }
+    }
+    assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// A bare `use ...::Record;` (alone or in a list) lets a later `Record::Name(..)` or
+/// `Record<'_>` reach the whole codec without the `wire::Record::` the check above looks
+/// for. Name the enum through its module (`wire::Record`) where a file must, which this
+/// check and a reader can see.
+#[test]
+fn the_record_enum_is_not_imported_bare() {
+    let mut found = Vec::new();
+    for (path, file) in rust_files(&root()) {
+        if !plugin_side(&path) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).expect("readable");
+        let mut statement = String::new();
+        let mut first_line = 0;
+        for (number, line) in text.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or_default();
+            if statement.is_empty() {
+                let trimmed = code.trim_start();
+                let trimmed = trimmed
+                    .strip_prefix("pub(crate) ")
+                    .or_else(|| trimmed.strip_prefix("pub(super) "))
+                    .or_else(|| trimmed.strip_prefix("pub "))
+                    .unwrap_or(trimmed);
+                if !trimmed.starts_with("use ") {
+                    continue;
+                }
+                first_line = number + 1;
+            }
+            statement.push_str(code);
+            statement.push(' ');
+            if code.contains(';') {
+                let names_the_enum = statement
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|word| word == "Record");
+                if names_the_enum && !MAY_IMPORT_THE_ENUM.contains(&path.as_str()) {
+                    found.push(format!(
+                        "{path}:{first_line}: a bare `Record` import; write `wire::Record` where the enum is matched"
+                    ));
+                }
+                statement.clear();
             }
         }
     }
