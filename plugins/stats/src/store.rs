@@ -309,7 +309,9 @@ pub(crate) fn update_books(
 ) -> Result<bool, StorageError> {
     // Books waiting beside their place are put there first: a new list
     // would take their place.
-    finish_commit(storage);
+    if !finish_commit(storage) {
+        return Err(StorageError::Io);
+    }
     recover_file(storage, BOOKS, BOOKS_NEW);
     let mut books = load_books(storage)?;
     if !change(&mut books) {
@@ -357,16 +359,18 @@ pub(crate) fn commit_books(storage: &dyn Storage, books: &[Book]) -> Result<(), 
     }
 }
 
-/// Puts the staged log and the staged books in place, as a pair: a marker says
-/// that both are whole, then both are renamed. A cut between the renames leaves
-/// the marker and the books still beside their place, and [`finish_commit`]
-/// puts them there at the next start; a cut before the marker leaves the old
-/// pair (the staged files go as unfinished).
+/// Puts the staged books and the staged log in place, as a pair: a marker says
+/// that both are whole, then both are renamed, the books first. A cut between
+/// the renames leaves the marker and the log still beside its place, and
+/// [`finish_commit`] puts it there at the next start; a cut before the marker
+/// leaves the old pair (the staged files go as unfinished).
 ///
 /// # Errors
-/// Where the marker cannot be written or the log cannot be put in place the old
-/// pair stays and the staged files go; where the books cannot be put in place
-/// after the log they stay beside theirs for the next start.
+/// Where the marker cannot be written, or the books cannot be put in place
+/// while the old ones are still there, the old pair stays and the staged files
+/// go. Where the books are gone with a failed rename (FAT removes the old file
+/// first), or the log cannot be put in place after the books, nothing staged
+/// goes: the marker stays and the next start finishes the pair.
 pub(crate) fn commit_pair(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
     if let Err(e) = storage.write(COMMIT, b"1") {
         unstage_log(storage);
@@ -374,39 +378,50 @@ pub(crate) fn commit_pair(storage: &dyn Storage, books: &[Book]) -> Result<(), S
         remove_temporary(storage, COMMIT);
         return Err(e);
     }
-    if let Err(e) = commit_log(storage) {
-        unstage_books(storage);
-        remove_temporary(storage, COMMIT);
-        return Err(e);
-    }
-    // The log is the new one: the books follow, or are finished later.
     match storage.rename(BOOKS_NEW, BOOKS) {
         Ok(()) => {}
         Err(StorageError::Unsupported) => {
             unstage_books(storage);
-            let written = write_books(storage, BOOKS, books);
-            remove_temporary(storage, COMMIT);
-            return written;
+            if let Err(e) = write_books(storage, BOOKS, books) {
+                unstage_log(storage);
+                remove_temporary(storage, COMMIT);
+                return Err(e);
+            }
         }
-        Err(e) => return Err(e),
+        Err(e) => {
+            if storage.exists(BOOKS) {
+                // Nothing has changed.
+                unstage_log(storage);
+                unstage_books(storage);
+                remove_temporary(storage, COMMIT);
+            }
+            return Err(e);
+        }
     }
+    // The books are the new ones: the log follows, or is finished later. It
+    // stays beside its place, with the marker, also while the old log is
+    // there: the books cannot go back.
+    storage.rename(PAGES_NEW, PAGES)?;
     remove_temporary(storage, COMMIT);
     Ok(())
 }
 
-/// After a cut between the two renames of [`commit_pair`]: what is still
-/// beside its place is put there, and the marker goes. A file that cannot be
-/// put there now goes (the old one stays), so that this is not tried for ever.
-fn finish_commit(storage: &dyn Storage) {
+/// After a cut between the two renames of [`commit_pair`], or a rename that
+/// failed in it: what is still beside its place is put there, the books first,
+/// and the marker goes. Whether it is done. Where a rename fails now,
+/// everything stays as it is (the staged files and the marker) and the next
+/// start tries again; callers leave the files alone until then.
+fn finish_commit(storage: &dyn Storage) -> bool {
     if !storage.exists(COMMIT) {
-        return;
+        return true;
     }
-    for (new, file) in [(PAGES_NEW, PAGES), (BOOKS_NEW, BOOKS)] {
+    for (new, file) in [(BOOKS_NEW, BOOKS), (PAGES_NEW, PAGES)] {
         if storage.exists(new) && storage.rename(new, file).is_err() {
-            remove_temporary(storage, new);
+            return false;
         }
     }
     remove_temporary(storage, COMMIT);
+    true
 }
 
 /// Drops what [`stage_books`] wrote, where [`commit_books`] will not follow.
@@ -600,9 +615,11 @@ fn recover_file(storage: &dyn Storage, file: &str, new: &str) {
 /// Puts the log and the books written anew in their place where a cut
 /// left them beside it. Called at start.
 pub(crate) fn recover(storage: &dyn Storage) {
-    finish_commit(storage);
-    recover_file(storage, PAGES, PAGES_NEW);
-    recover_file(storage, BOOKS, BOOKS_NEW);
+    // A pair that cannot be finished now keeps its files for the next start.
+    if finish_commit(storage) {
+        recover_file(storage, PAGES, PAGES_NEW);
+        recover_file(storage, BOOKS, BOOKS_NEW);
+    }
 }
 
 /// An id for a new book: above those of `books` and of every stay in the
