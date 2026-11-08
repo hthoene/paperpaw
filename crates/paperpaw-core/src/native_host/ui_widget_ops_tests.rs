@@ -12,7 +12,7 @@ use crate::native_host::{
     ui_service::{self, UiDirectory},
     ui_store::{Limits, UiStore},
 };
-use alloc::{rc::Rc, string::String};
+use alloc::string::String;
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND};
@@ -258,7 +258,7 @@ fn world<R>(f: impl FnOnce(&World<'_>) -> R) -> R {
     let hosts = HostServices::new();
     hosts
         .wire_ui(UiServices::new(
-            Rc::new(UiStore::new(Limits::ELSEWHERE)),
+            Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
             false,
         ))
         .unwrap();

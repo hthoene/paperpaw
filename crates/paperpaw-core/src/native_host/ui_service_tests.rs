@@ -25,7 +25,7 @@ struct Stack {
 struct View<'a> {
     env: &'a Env<'a>,
     hosts: crate::native_host::host_services::HostServices,
-    store: Rc<UiStore>,
+    store: Shared<UiStore>,
     stack: Rc<Stack>,
     fail: Cell<u32>,
 }
@@ -162,7 +162,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
-    let store = Rc::new(UiStore::new(limits));
+    let store = Shared::try_new(UiStore::new(limits)).unwrap();
     let stack = Rc::new(Stack {
         epoch: Cell::new(1),
         instance: Cell::new(None),
@@ -173,7 +173,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
-            .wire_ui(UiServices::new(store.clone(), false))
+            .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
             .unwrap();
     }
     f(&View {

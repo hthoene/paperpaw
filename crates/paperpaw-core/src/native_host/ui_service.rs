@@ -13,6 +13,7 @@
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
+    shared::Shared,
     ui_guard::{self, Ask, OpenRequests},
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
@@ -20,7 +21,7 @@ use super::{
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
 };
@@ -49,14 +50,14 @@ pub(crate) trait StatusAsk {
 /// queued dialog close) comes from the `Frame` of each call, which the host
 /// builds per callback from host state, never from plugin bytes.
 pub(crate) struct UiServices {
-    pub(crate) store: Rc<UiStore>,
+    pub(crate) store: Shared<UiStore>,
     /// The widget and status-handle tables and the status cache (ops 4, 5, 14, 15).
     pub(crate) widgets: super::ui_widget_ops::WidgetState,
 }
 
 impl UiServices {
     /// The service for a device: `x4` sizes the tables (the X4's small caps).
-    pub(crate) fn new(store: Rc<UiStore>, x4: bool) -> Self {
+    pub(crate) fn new(store: Shared<UiStore>, x4: bool) -> Self {
         Self {
             store,
             widgets: super::ui_widget_ops::WidgetState::new(x4),

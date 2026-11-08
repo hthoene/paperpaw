@@ -447,6 +447,9 @@ impl CodeLoader for Loader {
                 return None;
             }
         };
+        if wired.ui_skipped() {
+            warn!("native: core.ui not wired (no memory for its store)");
+        }
         wired.hyphen().cloned()
     }
 

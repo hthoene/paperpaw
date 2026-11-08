@@ -143,7 +143,7 @@ fn a_guard_starting_drops_the_private_cached_status_values() {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
         .wire_ui(UiServices::new(
-            Rc::new(UiStore::new(Limits::ELSEWHERE)),
+            crate::native_host::shared::Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
             false,
         ))
         .unwrap();

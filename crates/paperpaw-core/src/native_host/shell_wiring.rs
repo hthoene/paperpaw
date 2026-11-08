@@ -15,6 +15,7 @@ use super::{
     device_service::DeviceHost,
     hyphen_card::CardTables,
     resources::HostResources,
+    shared::Shared,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
@@ -163,6 +164,7 @@ impl HyphenTables {
 #[non_exhaustive]
 pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
+    ui_skipped: bool,
 }
 
 impl WiredHosts {
@@ -170,6 +172,13 @@ impl WiredHosts {
     #[must_use]
     pub fn hyphen(&self) -> Option<&HyphenTables> {
         self.hyphen.as_ref()
+    }
+
+    /// Whether `core.ui` was asked for and not wired because its store could
+    /// not be allocated (the other families are wired): the shell says so.
+    #[must_use]
+    pub fn ui_skipped(&self) -> bool {
+        self.ui_skipped
     }
 }
 
@@ -197,7 +206,13 @@ impl HostResources {
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
-            hosts.wire_ui(UiServices::new(Rc::new(UiStore::new(limits)), x4))?;
+            // A store that cannot be allocated degrades: no `core.ui` (a plugin
+            // asks and is told the service is not there), the other families
+            // wired; the shell is told ([`WiredHosts::ui_skipped`]).
+            match Shared::try_new(UiStore::new(limits)) {
+                Ok(store) => hosts.wire_ui(UiServices::new(store, x4))?,
+                Err(_) => wired.ui_skipped = true,
+            }
         }
         Ok(wired)
     }

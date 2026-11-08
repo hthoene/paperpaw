@@ -6,21 +6,20 @@ use super::{
     ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };
-use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Id;
 
-fn pool(store: &Rc<UiStore>) -> HostResources {
+fn pool(store: &Shared<UiStore>) -> HostResources {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
-        .wire_ui(UiServices::new(Rc::clone(store), false))
+        .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
         .unwrap();
     pool
 }
 
 #[test]
 fn busy_instance_cleanup_stays_queued_until_a_later_main_loop_pass() {
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -51,7 +50,7 @@ fn busy_instance_cleanup_stays_queued_until_a_later_main_loop_pass() {
 
 #[test]
 fn busy_owner_cleanup_leaves_the_stopped_owner_for_ordered_unload_retry() {
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -148,7 +147,7 @@ fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instance
             ))
         }
     }
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)

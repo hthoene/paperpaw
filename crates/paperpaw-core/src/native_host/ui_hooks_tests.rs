@@ -5,11 +5,11 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::{
+    shared::Shared,
     HostResources,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
-use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Id;
 
@@ -25,7 +25,7 @@ fn world() -> World {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
         .wire_ui(UiServices::new(
-            Rc::new(UiStore::new(Limits::ELSEWHERE)),
+            Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
             false,
         ))
         .unwrap();

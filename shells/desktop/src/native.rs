@@ -190,6 +190,9 @@ impl CodeLoader for HostLoader {
                 return None;
             }
         };
+        if wired.ui_skipped() {
+            eprintln!("native: core.ui not wired (no memory for its store)");
+        }
         wired.hyphen().cloned()
     }
 }
