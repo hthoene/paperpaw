@@ -21,7 +21,7 @@ use paperpaw_sdk::{
     },
 };
 
-use super::{Chooser, Entry, Outcome};
+use super::{Chooser, Entry, Outcome, Snapshot};
 use crate::{Footer, Item, ItemList, ItemStep, Messages, mem, text};
 
 /// Entries read from the registry at most.
@@ -72,6 +72,20 @@ pub enum Step {
     Header(&'static str),
 }
 
+/// A step taken in the model whose rows are not in the list yet.
+struct Pending {
+    step: Step,
+    items: Option<Vec<Item>>,
+    focus: usize,
+    undo: Undo,
+}
+
+/// What puts the view back as it was.
+struct Undo {
+    chooser: Snapshot,
+    focus: usize,
+}
+
 /// The editor screen's state.
 #[derive(Debug)]
 pub struct StatusItemsView {
@@ -100,7 +114,8 @@ impl StatusItemsView {
             title,
             texts,
         };
-        view.rebuild()?;
+        let items = view.build()?;
+        view.list.replace(items);
         Ok(view)
     }
 
@@ -125,8 +140,8 @@ impl StatusItemsView {
     }
 
     /// The rows from the model: the name of each entry and whether, and as
-    /// which, it is shown.
-    fn rebuild(&mut self) -> Result<(), Error> {
+    /// which, it is shown. The list is not touched.
+    fn build(&self) -> Result<Vec<Item>, Error> {
         let rows = self.chooser.rows()?;
         let shown = self.chooser.chosen()?.len();
         let focus = self.list.focus();
@@ -159,26 +174,66 @@ impl StatusItemsView {
             };
             mem::push(&mut items, Item::row(name, &value)?)?;
         }
-        self.list.replace(items);
-        self.list.set_focus(focus);
-        Ok(())
+        Ok(items)
     }
 
     /// What `input` means to the view, with the model and the rows changed
     /// as it says; nothing is sent to the host.
     ///
     /// # Errors
-    /// [`Error::NoMemory`].
+    /// [`Error::NoMemory`]; the view is as it was.
     pub fn step(&mut self, input: &Input<'_>) -> Result<Step, Error> {
+        let pending = self.prepare(input)?;
+        Ok(self.commit(pending))
+    }
+
+    /// The model is changed as `input` says and the new rows are made, but
+    /// the list keeps its old ones until [`Self::commit`]: what the host
+    /// refuses in between is [`Self::undo`]ne.
+    fn prepare(&mut self, input: &Input<'_>) -> Result<Pending, Error> {
+        let undo = Undo {
+            chooser: self.chooser.snapshot()?,
+            focus: self.list.focus(),
+        };
+        let made = self.apply(input);
+        match made {
+            Ok((step, items)) => Ok(Pending {
+                step,
+                items,
+                focus: self.list.focus(),
+                undo,
+            }),
+            Err(error) => {
+                self.undo(undo);
+                Err(error)
+            }
+        }
+    }
+
+    fn apply(&mut self, input: &Input<'_>) -> Result<(Step, Option<Vec<Item>>), Error> {
         let step = match *input {
             Input::Action { action, .. } => self.action(input, action)?,
             Input::Gesture { kind, .. } => self.gesture(input, kind)?,
             _ => Step::Ignored,
         };
-        if matches!(step, Step::Redraw | Step::Changed(_)) {
-            self.rebuild()?;
+        let items = match step {
+            Step::Ignored => None,
+            _ => Some(self.build()?),
+        };
+        Ok((step, items))
+    }
+
+    fn commit(&mut self, pending: Pending) -> Step {
+        if let Some(items) = pending.items {
+            self.list.replace(items);
+            self.list.set_focus(pending.focus);
         }
-        Ok(step)
+        pending.step
+    }
+
+    fn undo(&mut self, undo: Undo) {
+        self.chooser.restore(undo.chooser);
+        self.list.set_focus(undo.focus);
     }
 
     fn action(&mut self, input: &Input<'_>, action: &str) -> Result<Step, Error> {
@@ -204,6 +259,17 @@ impl StatusItemsView {
     fn gesture(&mut self, input: &Input<'_>, kind: InputGestureKind) -> Result<Step, Error> {
         let shown = self.chooser.chosen()?.len();
         match (kind, self.list.decide(input)) {
+            // A tap anywhere but on a row puts a picked-up item down, as on
+            // interface 6 (a header's action still runs).
+            (InputGestureKind::Tap, step)
+                if self.chooser.moving() && !matches!(step, ItemStep::Chosen(_)) =>
+            {
+                self.chooser.put_down();
+                Ok(match step {
+                    ItemStep::Header(action) => Step::Header(action),
+                    _ => Step::Redraw,
+                })
+            }
             (_, ItemStep::Header(action)) => Ok(Step::Header(action)),
             // A hold picks a shown item up, if another is shown to move it past.
             (InputGestureKind::LongPress, ItemStep::Held(row)) => {
@@ -248,26 +314,51 @@ impl StatusItemsView {
         setting: &str,
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
-        let step = self.step(input)?;
-        match &step {
-            Step::Ignored => return Ok(Handled::No),
+        let Some(step) = self.run(input, |step| Self::send(host, setting, step))? else {
+            return Ok(Handled::No);
+        };
+        if !matches!(step, Step::Header(_)) {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        }
+        Ok(Handled::Yes)
+    }
+
+    /// As [`Self::step`], with the host's part (`send`) done before the rows
+    /// replace the old ones: what the host refuses leaves the model, the
+    /// rows and the setting as they were. `None` where the view did not take
+    /// the input.
+    fn run(
+        &mut self,
+        input: &Input<'_>,
+        send: impl FnOnce(&Step) -> Result<(), Error>,
+    ) -> Result<Option<Step>, Error> {
+        let pending = self.prepare(input)?;
+        if matches!(pending.step, Step::Ignored) {
+            return Ok(None);
+        }
+        if let Err(error) = send(&pending.step) {
+            self.undo(pending.undo);
+            return Err(error);
+        }
+        Ok(Some(self.commit(pending)))
+    }
+
+    fn send(host: &Host<'_>, setting: &str, step: &Step) -> Result<(), Error> {
+        match step {
             Step::Header(action) => {
                 let mut scratch = [0; 128];
-                CommandSender::new(host, &mut scratch).run_action(action)?;
-                return Ok(Handled::Yes);
+                CommandSender::new(host, &mut scratch).run_action(action)
             }
             Step::Changed(value) => {
                 let mut scratch = mem::buffer(512 + value.len())?;
                 CommandSender::new(host, &mut scratch).set_setting(
                     setting,
                     paperpaw_sdk::native::settings::SettingValue::Text(value),
-                )?;
+                )
             }
-            Step::Redraw => {}
+            Step::Redraw | Step::Ignored => Ok(()),
         }
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
-        Ok(Handled::Yes)
     }
 
     /// Draws the page the focus is on.

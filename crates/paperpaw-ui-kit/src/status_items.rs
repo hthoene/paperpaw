@@ -43,6 +43,13 @@ pub enum Outcome {
     Changed(usize),
 }
 
+/// What [`Chooser::snapshot`] keeps.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    ids: Vec<String>,
+    moving: bool,
+}
+
 /// The items to choose from and the ids the setting holds.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Chooser {
@@ -199,6 +206,30 @@ impl Chooser {
     pub fn can_move(&self, focus: usize, focus_shown: bool) -> Result<bool, Error> {
         let shown = self.chosen()?.len();
         Ok(focus_shown && focus < shown && shown > 1)
+    }
+
+    /// A copy of what a change would alter (the setting's ids and whether an
+    /// item is picked up), to [`Self::restore`] if the change cannot be kept.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn snapshot(&self) -> Result<Snapshot, Error> {
+        let mut ids = Vec::new();
+        ids.try_reserve_exact(self.ids.len())
+            .map_err(|_| Error::NoMemory)?;
+        for id in &self.ids {
+            ids.push(text::copy(id)?);
+        }
+        Ok(Snapshot {
+            ids,
+            moving: self.moving,
+        })
+    }
+
+    /// Goes back to a [`Self::snapshot`].
+    pub fn restore(&mut self, snapshot: Snapshot) {
+        self.ids = snapshot.ids;
+        self.moving = snapshot.moving;
     }
 
     /// Picks the focused item up (a hold of it): the next place it is put

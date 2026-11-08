@@ -1,10 +1,11 @@
 //! The view's rows and steps, and refusals of allocation. What needs a drawn
-//! frame (taps on rows) is the host's to show; here a gesture with no frame
-//! drawn hits nothing.
+//! frame (taps on rows) is shown with the geometry a drawn frame leaves
+//! behind (`draw`): rows of 40 px under a 40 px header with a back arrow; a
+//! gesture with no frame drawn hits nothing.
 use super::*;
 use crate::fail_alloc;
 use alloc::string::ToString;
-use paperpaw_sdk::{Point, native::callbacks::Input};
+use paperpaw_sdk::{Point, Rect, native::callbacks::Input};
 
 fn texts() -> Texts {
     Texts {
@@ -170,4 +171,201 @@ fn refused_allocations_are_errors_and_leave_a_valid_view() {
     v.chooser.put_down();
     assert_eq!(v.list().items().len(), 4);
     assert!(v.value().unwrap().contains("gone"));
+}
+
+#[test]
+fn refused_allocations_in_touch_steps_leave_rows_and_model_in_step() {
+    let mut v = view("clock, wifi, gone, battery");
+    draw(&mut v);
+    let gestures = [
+        (InputGestureKind::LongPress, row_y(0)),
+        (InputGestureKind::Tap, row_y(2)),
+        (InputGestureKind::Tap, row_y(3)),
+        (InputGestureKind::Tap, row_y(3)),
+    ];
+    fail_alloc::sweep(|| {
+        for (kind, y) in gestures {
+            let input = Input::Gesture {
+                now_ms: 0,
+                position: Point::new(50, y),
+                kind,
+            };
+            v.step(&input)?;
+        }
+        Ok(())
+    });
+    // Whatever was refused on the way, the rows are those of the model.
+    v.chooser.put_down();
+    let rows = v.build().unwrap();
+    v.list.replace(rows.clone());
+    assert_eq!(v.list().items(), rows.as_slice());
+    assert!(v.value().unwrap().contains("gone"));
+}
+
+/// What a drawn frame leaves: every row 40 px high under the header, and the
+/// back arrow in its corner.
+fn draw(view: &mut StatusItemsView) {
+    let rows = view.list().items().len();
+    view.list.hits = (0..rows)
+        .map(|row| (Rect::new(0, 40 + 40 * row as u16, 100, 40), row))
+        .collect();
+    view.list.header.back = Some(Rect::new(0, 0, 40, 40));
+}
+
+fn gesture(view: &mut StatusItemsView, kind: InputGestureKind, x: i32, y: i32) -> Step {
+    let input = Input::Gesture {
+        now_ms: 0,
+        position: Point::new(x, y),
+        kind,
+    };
+    view.step(&input).unwrap()
+}
+
+/// The centre of row `row` in the drawn frame.
+const fn row_y(row: i32) -> i32 {
+    60 + 40 * row
+}
+
+#[test]
+fn a_tap_on_a_drawn_row_shows_or_hides_it() {
+    let mut v = view("clock, wifi");
+    draw(&mut v);
+    // Row 2 is battery, hidden: shown, last.
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::Tap, 50, row_y(2)),
+        Step::Changed("clock, wifi, battery".to_string())
+    );
+    assert_eq!(v.list().focus(), 2);
+    assert_eq!(values(&v)[2], pair("Name of battery", "on (3)"));
+    // Row 0 is clock, shown: hidden.
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::Tap, 50, row_y(0)),
+        Step::Changed("wifi, battery".to_string())
+    );
+    assert_eq!(values(&v)[2].1, "off");
+}
+
+#[test]
+fn a_hold_picks_up_and_a_tap_puts_down_where_it_is_tapped() {
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    // A hidden row is not picked up.
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::LongPress, 50, row_y(3)),
+        Step::Ignored
+    );
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::LongPress, 50, row_y(0)),
+        Step::Redraw
+    );
+    assert!(v.chooser().moving());
+    assert_eq!(values(&v)[0], pair("Name of clock", "move (1)"));
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::Tap, 50, row_y(2)),
+        Step::Changed("wifi, battery, clock".to_string())
+    );
+    assert!(!v.chooser().moving());
+    assert_eq!(v.list().focus(), 2);
+    assert_eq!(values(&v)[2], pair("Name of clock", "on (3)"));
+    // Held and put down on the same row: nothing changes.
+    gesture(&mut v, InputGestureKind::LongPress, 50, row_y(1));
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::Tap, 50, row_y(1)),
+        Step::Redraw
+    );
+    assert_eq!(v.value().unwrap(), "wifi, battery, clock");
+}
+
+#[test]
+fn a_hold_needs_another_shown_item_to_move_past() {
+    let mut v = view("clock");
+    draw(&mut v);
+    assert_eq!(
+        gesture(&mut v, InputGestureKind::LongPress, 50, row_y(0)),
+        Step::Ignored
+    );
+    assert!(!v.chooser().moving());
+}
+
+#[test]
+fn any_tap_off_a_row_puts_the_item_down() {
+    for (x, y, step) in [
+        // Below the last row.
+        (50, 500, Step::Redraw),
+        // On a hidden row: put down, and the row is not shown.
+        (50, row_y(3), Step::Redraw),
+        // The back arrow: put down, and its action runs.
+        (10, 10, Step::Header("core.back")),
+    ] {
+        let mut v = view("clock, wifi, battery");
+        draw(&mut v);
+        gesture(&mut v, InputGestureKind::LongPress, 50, row_y(0));
+        assert!(v.chooser().moving());
+        assert_eq!(gesture(&mut v, InputGestureKind::Tap, x, y), step);
+        assert!(!v.chooser().moving(), "tap at ({x}, {y})");
+        assert_eq!(v.value().unwrap(), "clock, wifi, battery");
+        assert_eq!(values(&v)[0], pair("Name of clock", "on (1)"));
+    }
+}
+
+#[test]
+fn what_the_host_refuses_leaves_the_view_as_it_was() {
+    let refused = |_: &Step| Err(Error::NoMemory);
+    let tap = |row| Input::Gesture {
+        now_ms: 0,
+        position: Point::new(50, row_y(row)),
+        kind: InputGestureKind::Tap,
+    };
+    let hold = Input::Gesture {
+        now_ms: 0,
+        position: Point::new(50, row_y(0)),
+        kind: InputGestureKind::LongPress,
+    };
+    // A change: the setting was not set, so the model and the rows keep the
+    // old one.
+    let mut v = view("clock, wifi");
+    draw(&mut v);
+    let rows = v.list().items().to_vec();
+    assert_eq!(v.run(&tap(2), refused), Err(Error::NoMemory));
+    assert_eq!(v.value().unwrap(), "clock, wifi");
+    assert_eq!(v.list().items(), rows.as_slice());
+    assert_eq!(v.list().focus(), 0);
+    // The same input goes through when the host takes it.
+    let ok = |_: &Step| Ok(());
+    assert_eq!(
+        v.run(&tap(2), ok).unwrap(),
+        Some(Step::Changed("clock, wifi, battery".to_string()))
+    );
+    assert_eq!(v.list().focus(), 2);
+    // A move: the item stays picked up where it was.
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    v.run(&hold, ok).unwrap();
+    let rows = v.list().items().to_vec();
+    assert_eq!(v.run(&tap(2), refused), Err(Error::NoMemory));
+    assert!(v.chooser().moving());
+    assert_eq!(v.value().unwrap(), "clock, wifi, battery");
+    assert_eq!(v.list().items(), rows.as_slice());
+    assert_eq!(v.list().focus(), 0);
+    // Buttons: a move by the direction button is undone the same way.
+    let down = Input::Action {
+        now_ms: 0,
+        action: "core.down",
+    };
+    assert_eq!(v.run(&down, refused), Err(Error::NoMemory));
+    assert_eq!(v.value().unwrap(), "clock, wifi, battery");
+    assert_eq!(v.list().items(), rows.as_slice());
+    assert_eq!(v.list().focus(), 0);
+    // A header action the host refuses leaves the item picked up.
+    assert_eq!(v.run(&back_tap(), refused), Err(Error::NoMemory));
+    assert!(v.chooser().moving());
+    assert_eq!(v.list().items(), rows.as_slice());
+}
+
+fn back_tap() -> Input<'static> {
+    Input::Gesture {
+        now_ms: 0,
+        position: Point::new(10, 10),
+        kind: InputGestureKind::Tap,
+    }
 }
