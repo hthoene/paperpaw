@@ -241,28 +241,62 @@ back **one narrower word**, `PAPERPAW_HEAP`, that points at a context-free heap 
 
 ## 9. Statically linked built-ins: the host's part per plugin (todo 144, Senior on #496)
 
-A built-in linked into the firmware (`native_plugin!(…, linked = NAME)`, `Kernel::register_linked`)
-costs the X4 heap twice: the plugin's own state, which its `make` allocates and its frame owner pays
-(section 4), and the host's part, which the kernel keeps for as long as the plugin is registered.
-This section budgets the host's part.
+A built-in linked into the firmware (`native_plugin!(…, linked = NAME)`,
+`Kernel::register_linked`) costs the X4 heap twice: the plugin's own state, which its `make`
+allocates and its frame owner pays (section 4), and the host's part, which the kernel keeps for
+as long as the plugin is registered. This section budgets the host's part.
 
 - **One host table for all plugins.** The host table is a static per services type
   (`shell::SharedTable`, evaluated at compile time, in read-only data). Every hosted plugin's
-  context holds a reference to it; none holds a copy. This saves 152 bytes per plugin on the X4
-  (1,368 bytes for 9 built-ins).
+  context holds a reference to it; none holds a copy. The table is 152 bytes on the X4; the
+  reference that replaces the copy is 4, so this saves 148 bytes per plugin (1,332 bytes for 9
+  built-ins).
 - **Measured on riscv32** (compile-time pins in `native_host/shell.rs`): the host table is 152
   bytes, a plugin's context 168 bytes and its boxed owner 200 bytes (348 bytes with the copied
   table). `OWNER_BUDGET` is 224 bytes; a field that grows the owner past it fails the X4 build.
 - **The rest of the host's part** is the plugin's id, its owner resources, its row in the native
-  instance table and its declarations (screens, widgets, settings). The unit test
-  `hosted_owners_share_one_host_table_and_cost_a_bounded_heap` measures the whole part for a test
-  plugin with one screen and one action on the build host: 1,906 bytes per plugin on x86_64 (2,194
-  with the copied table), bounded at 2,048 so that growth shows in review. The X4's pointers are
-  half as wide; scaled by the riscv32 sizes above, that is roughly 1 KB per built-in there.
-- **Budget:** all built-ins together keep at most 4,096 bytes of host heap on the X4 while
-  registered, before their own state. At roughly 1 KB each, that holds about 4 built-ins kept
-  made, not 9, so **built-ins start lazily**: a built-in is registered from its declarations
-  without being kept made, and `make` runs on its first callback (a screen opened, an event it
-  subscribed to, a service called). A built-in nobody uses then keeps only its declarations and its
-  row. That is Core's work; until it lands, the X4 shell activates no more built-ins than this
-  budget holds, and the number is measured on the device before activation.
+  instance table and its declarations (screens, widgets, settings, menu and icon records). The
+  unit test `hosted_owners_share_one_host_table_and_cost_a_bounded_heap` measures the whole part
+  for a test plugin with one screen and one action: 1,906 bytes on x86_64 (2,194 with the copied
+  table), bounded at 2,048 so that growth shows in review. That number is not a built-in's: the
+  declarations grow with the plugin, and a real built-in declares many more records than the test.
+- **Declarations are copied unless they lie in the image.** Staging keeps a submitted batch that
+  lies wholly inside the plugin's read-only image as offsets and copies every other batch to the
+  heap (`declaration_store`). A card plugin's image is its mapped `.ppn`; a linked plugin has no
+  image range today (`linked_entry::hosted` passes an empty one), and the SDK's `Declarations`
+  builder encodes into a heap buffer. So every linked built-in currently copies all of its
+  declarations to the heap, and that copy, not the context, is the bulk of its host part.
+
+**Rule 1: `make` runs once, at registration; no lazy start.** Declarations reach the host only
+through `registrations.submit` while `make` runs (`Hosted::make_registered`), so the host cannot
+register a plugin without making it. Registering by making and then dropping the plugin, to make
+it again on first use, is refused: a second `make` loses whatever the first one set up (state,
+storage reads, scheduled work) and may submit different declarations than the ones published,
+and a `make` that runs late, inside a callback, can run out of memory where no caller can retry
+it. A built-in is therefore made exactly once, when it is registered, and stays made while it is
+registered, like a card plugin. Registering a plugin without `make` would need its declarations
+outside `make` (in the entry or its metadata): that is a contract change and is not part of
+interface 7 before 1.0.
+
+**Rule 2: a linked built-in's declarations stay in flash.** The heap cost is cut where it is,
+in the declaration copy:
+
+1. `register_linked` takes the firmware's read-only data range from the shell (`&'static [u8]`,
+   the linker's bounds of the flash-mapped read-only data on the X4; empty on shells without the
+   constraint) and passes it to staging as the image, so a batch inside it is kept as offsets.
+   The shell's safety contract already requires that range to stay mapped and unchanged for the
+   program's lifetime. No interface change: `registrations.submit` already accepts static
+   batches ("static declaration images can submit their encoded batch here").
+2. Each built-in submits its declarations as static, already encoded batches (`static` byte
+   data, at most `BATCH_MAX_BYTES` each), not through the runtime builder. A test of the plugin
+   rebuilds the batches with `Declarations` and compares them byte for byte (blessed with
+   `PAPERPAW_BLESS=1`), so the static bytes cannot drift from the builder or the codec. Card
+   plugins may use the same pattern; they then also keep their declarations as offsets.
+3. **Measured per built-in:** a host test registers each of the built-ins in `NATIVE_BUILTINS`
+   through `register_linked` with a counting allocator and pins its host part (owner, id,
+   resources, row, declaration index) with its own bound; riscv32 sizes come from the X4 build.
+
+**Budget:** all built-ins together keep at most 4,096 bytes of host heap on the X4 while
+registered, before their own state (section 4). The X4 shell activates a built-in only once the
+measurement of rule 2.3 shows that the activated set fits; the measured numbers, not estimates,
+decide how many built-ins the X4 starts.
