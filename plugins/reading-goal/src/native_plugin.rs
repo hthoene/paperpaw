@@ -72,15 +72,42 @@ impl Plugin for NativeReadingGoal {
     }
 }
 
+/// The plugin that answers: the reading statistics.
+const STATISTICS: &str = "stats";
+
 /// Asks the statistics for today's reading. Nothing where they do not answer:
 /// not running yet (they start afterwards, the next ask is answered), no stage
-/// for them, a day they do not know, or an answer that is not a figure.
+/// for them, a day they do not know, or an answer that is not a figure. Every
+/// subscriber is read to the end, and only the statistics' reply counts: any
+/// other plugin on the stage is not heard.
 fn ask(host: &Host<'_>) -> Option<(i32, u32)> {
     let stage = Stage::new(host, READ_TODAY).ok()?;
     let mut out = [0u8; REPLY];
     let mut run = stage.run(&[], &mut out);
-    let reply = run.next().ok()??;
-    figure(reply.status(), reply.payload())
+    let mut figure_told = None;
+    // At most 32 subscribers are active on a stage (docs/abi/stages-services.md).
+    for _ in 0..33 {
+        let Ok(Some(reply)) = run.next() else {
+            break;
+        };
+        if let Some(told) = answer_of(reply.subscriber(), reply.status(), reply.payload()) {
+            figure_told = Some(told);
+        }
+    }
+    figure_told
+}
+
+/// The figure a subscriber's reply holds: only the statistics', and only a
+/// successful, well-formed one.
+pub(crate) fn answer_of(
+    subscriber: &str,
+    status: Result<(), Error>,
+    payload: &[u8],
+) -> Option<(i32, u32)> {
+    if subscriber != STATISTICS {
+        return None;
+    }
+    figure(status, payload)
 }
 
 /// The figure a reply holds.

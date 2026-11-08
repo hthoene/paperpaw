@@ -31,7 +31,7 @@ are not there. It is removed in the PR that finishes the port.
 - `NativeReadingGoal` (`native_plugin!`, features `linked` and `native-entry`, metadata in `native/`
   — regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
   --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
-  Declares `uses.storage` (`today.txt`, root 0) and nothing else. Nothing in its paths allocates.
+  Declares `uses.storage` (`today.txt`, root 0) and nothing else. The host calls the plugin makes (heap, registrations, storage, `stage.run`) are listed in `metadata.json`; the bytes only carry the lowest ABI minor they need, so adding a call of minor 1 leaves `.bin` and `.inspected.json` as they are (`tools/tests/test_abi_plugin_metadata.py` regenerates every plugin's and fails on a stale one). Nothing in its paths allocates.
 - Settings (`declarations::settings`, pinned in `testdata/declarations.bin.v1`): `content` (5 to 95,
   50), `happy` (50 to 200, 100) in percent with steps of 5 as sliders, and `pictures` (text, the
   folder chooser slot), all advanced, in the statistics' group `stats.group` as on interface 6.
@@ -41,7 +41,7 @@ are not there. It is removed in the PR that finishes the port.
   (schema 1; input: the day as `i32`, little-endian, empty meaning today; reply: the day `i32` and
   the seconds `u32`, little-endian; `max_input` 4, `max_reply` 8, one record). The statistics
   *subscribe* and answer from memory (no card read, `ERR_NOT_FOUND` for a day they do not know);
-  nothing re-enters because the owner cannot subscribe to its own stage. Reading goal runs it when it
+  nothing re-enters because the owner cannot subscribe to its own stage. Reading goal runs it (reading every subscriber's reply, hearing only `stats`) when it
   is about to write: at a book closed, suspend and stopping (the widget and the sleep screen will
   also on drawing and on the minute tick). No answer (`ERR_CANCELLED` when the statistics have not
   started yet, `ERR_NOT_FOUND`, busy, no stage, a malformed reply) leaves what was kept: `figure()`

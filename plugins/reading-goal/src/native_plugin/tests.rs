@@ -4,7 +4,7 @@ use paperpaw_sdk::native::events::Event;
 
 use paperpaw_sdk::native::Error;
 
-use super::{EVENTS, Edge, edge, figure};
+use super::{EVENTS, Edge, answer_of, edge, figure};
 use crate::model::Kept;
 
 fn told(day: i32, seconds: u32) -> [u8; 8] {
@@ -75,4 +75,16 @@ fn it_is_written_when_no_book_is_open_when_one_closes_and_when_the_device_sleeps
     assert!(kept.apply(Edge::BookClosed));
     assert_eq!(kept.to_write(None), Some((20_000, 180)));
     assert!(kept.apply(Edge::Told(20_000, 240)));
+}
+
+#[test]
+fn only_the_statistics_are_heard() {
+    let bytes = told(20_000, 750);
+    assert_eq!(answer_of("stats", Ok(()), &bytes), Some((20_000, 750)));
+    // Another plugin on the stage (a lookalike) is not.
+    for other in ["", "stat", "stats2", "other", "Stats"] {
+        assert_eq!(answer_of(other, Ok(()), &bytes), None, "{other}");
+    }
+    // The statistics failing is no figure.
+    assert_eq!(answer_of("stats", Err(Error::NotFound), &[]), None);
 }
