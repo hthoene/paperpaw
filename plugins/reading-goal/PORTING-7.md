@@ -53,6 +53,9 @@ are not there. It is removed in the PR that finishes the port.
 
 ### Differences from interface 6 (on purpose)
 
+- The settings are compared field by field with what interface 6 registered (`tests/settings_parity.rs`).
+  The widget's own setting (its frame, `reading-goal.frame`) is not declared: it comes with the widget.
+
 - The goal default `stats.goal.20` that interface 6 set through `set_setting_default` has no
   declaration yet: until the statistics declare `stats.goal` the cat goes by the 20 minutes
   without a goal, as it did with the goal off, and only the minutes show.
