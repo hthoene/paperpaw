@@ -241,7 +241,7 @@ pub(crate) fn read(
     }
     let mut fonts = reader.fonts;
     fonts.retain(Font::usable);
-    fonts.sort_by_cached_key(|f| f.name.to_lowercase());
+    paperpaw_sdk::sort::sort_by_cached_key(&mut fonts, |f| f.name.to_lowercase());
     fonts.shrink_to_fit();
     Some(fonts)
 }

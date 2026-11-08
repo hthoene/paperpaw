@@ -14,6 +14,7 @@ pub mod category {
     pub const TIME: &str = "core.widgets.time";
     pub const PERSONAL: &str = "core.widgets.personal";
     pub const WORDS: &str = "core.widgets.words";
+    pub const DEVICE: &str = "core.widgets.device";
 }
 
 /// A widget of the pack.
@@ -235,6 +236,24 @@ const ANALOGUE_OPTIONS: &[Opt] = &[
     Opt::Part("centre", "widgets.setting.centre-dot", true),
 ];
 
+const BATTERY_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.battery.lying",
+            "widgets.battery.standing",
+            "widgets.battery.ring",
+        ],
+        "widgets.battery.lying",
+        "widgets.battery.style.help",
+    ),
+    Opt::Part("percent", "widgets.books.part.percent", true),
+    Opt::Part("charging", "widgets.books.part.charging", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
 const MOON_OPTIONS: &[Opt] = &[
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
@@ -449,6 +468,37 @@ const QUOTE_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const TODO_OPTIONS: &[Opt] = &[
+    Opt::Number(
+        "count",
+        "widgets.todo.setting.count",
+        1,
+        12,
+        5,
+        "widgets.todo.count.help",
+    ),
+    Opt::Choice(
+        "done",
+        "widgets.todo.setting.done",
+        &["widgets.todo.done.struck", "widgets.todo.done.hidden"],
+        "widgets.todo.done.struck",
+        "widgets.todo.done.help",
+    ),
+    Opt::Choice(
+        "box",
+        "widgets.todo.setting.box",
+        &[
+            "widgets.todo.box.circle",
+            "widgets.todo.box.square",
+            "widgets.todo.box.none",
+        ],
+        "widgets.todo.box.circle",
+        "widgets.todo.box.help",
+    ),
+    Opt::Part("caption", "widgets.todo.setting.caption", true),
+    Opt::Size("core.size.small", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -558,6 +608,24 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: QUOTE_OPTIONS,
+    },
+    Def {
+        name: "todo",
+        token: 112,
+        category: category::PERSONAL,
+        live: true,
+        align: "core.align.left",
+        look_last: true,
+        options: TODO_OPTIONS,
+    },
+    Def {
+        name: "battery",
+        token: 113,
+        category: category::DEVICE,
+        live: true,
+        align: "core.align.center",
+        look_last: false,
+        options: BATTERY_OPTIONS,
     },
 ];
 

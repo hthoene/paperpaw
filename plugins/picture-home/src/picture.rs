@@ -405,7 +405,7 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
 /// The part of a picture of `upright` pixels (the decoded one, upright)
 /// that the screen shows as `plan` places it, in the coordinates of the
 /// picture before it is mirrored, with a pixel to spare on each side.
-fn visible(recipe: &Recipe, plan: &Plan, upright: (u32, u32), turn: Turn) -> Crop {
+pub(crate) fn visible(recipe: &Recipe, plan: &Plan, upright: (u32, u32), turn: Turn) -> Crop {
     if recipe.fitting == Fitting::Tile {
         return Crop::all(upright);
     }

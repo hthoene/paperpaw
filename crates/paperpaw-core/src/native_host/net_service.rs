@@ -167,11 +167,11 @@ pub(crate) type Refused = u32;
 pub(crate) trait NetTransport {
     /// Begin one request (connect, send, read). Its memory body is bounded
     /// by `max_body` (reserved from the pool already); a saving request writes
-    /// `<path>.part` in 4 KiB appends and renames it over the target only when
+    /// `<path>.pp-staged` in 4 KiB appends and renames it over the target only when
     /// the answer is whole. `Err` means it could not begin.
     fn start(&self, id: u32, start: &Start<'_>) -> Result<(), i32>;
     /// Drop the transfer of `id` without any report; a saving request's
-    /// `.part` file is removed by the service ([`NetHost::release_save`]).
+    /// `.pp-staged` file is removed by the service ([`NetHost::release_save`]).
     fn abort(&self, id: u32);
     /// Listen on `port` (0: the cable), trying the next 20 ports when it is
     /// taken. The address that was got (`""` for the cable) or the reason.
@@ -200,12 +200,12 @@ pub(crate) trait NetHost {
     /// Whether two paths of the same root name the same file (case, 8.3
     /// aliases): the storage's identity, not the spelling.
     fn same_file(&self, root: u32, a: &str, b: &str) -> bool;
-    /// Put the target and its `.part` file in the paths-in-use table. Claims
+    /// Put the target and its `.pp-staged` file in the paths-in-use table. Claims
     /// are counted: the same plugin may claim a file it already has claimed (a
     /// request that replaces its older one claims first, so a refusal changes
     /// nothing), and each `release_save` gives one back.
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
-    /// Remove the `.part` file (best effort) and free the claim.
+    /// Remove the `.pp-staged` file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
@@ -312,6 +312,12 @@ pub(crate) fn gate() -> Result<(), i32> {
     })
 }
 
+/// Makes the `n`th next [`gate`] (counting from 1) fail; 0 clears it.
+#[cfg(test)]
+pub(crate) fn fail_nth(n: u32) {
+    tests::FAIL_NTH.with(|nth| nth.set(n));
+}
+
 #[cfg(not(test))]
 #[inline]
 pub(crate) const fn gate() -> Result<(), i32> {
@@ -348,7 +354,7 @@ pub(crate) use table::{
 
 /// The plugin stopped (its callbacks are revoked): its requests are
 /// cancelled without events, its servers stopped without events, held
-/// bodies freed, `.part` files removed and its `.received/` emptied.
+/// bodies freed, `.pp-staged` files removed and its `.received/` emptied.
 /// Idempotent.
 ///
 /// # Errors

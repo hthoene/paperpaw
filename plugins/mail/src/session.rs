@@ -933,7 +933,7 @@ impl Imap {
             return;
         };
         let mut rows = core::mem::take(&mut self.rows);
-        rows.sort_by_key(|r| core::cmp::Reverse(r.uid));
+        paperpaw_sdk::sort::sort_by_key(&mut rows, |r| core::cmp::Reverse(r.uid));
         let unseen = self.counts.map_or_else(
             || rows.iter().filter(|r| !r.seen()).count() as u32,
             |(_, unseen)| unseen,
