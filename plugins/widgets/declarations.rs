@@ -449,6 +449,37 @@ const QUOTE_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const TODO_OPTIONS: &[Opt] = &[
+    Opt::Number(
+        "count",
+        "widgets.todo.setting.count",
+        1,
+        12,
+        5,
+        "widgets.todo.count.help",
+    ),
+    Opt::Choice(
+        "done",
+        "widgets.todo.setting.done",
+        &["widgets.todo.done.struck", "widgets.todo.done.hidden"],
+        "widgets.todo.done.struck",
+        "widgets.todo.done.help",
+    ),
+    Opt::Choice(
+        "box",
+        "widgets.todo.setting.box",
+        &[
+            "widgets.todo.box.circle",
+            "widgets.todo.box.square",
+            "widgets.todo.box.none",
+        ],
+        "widgets.todo.box.circle",
+        "widgets.todo.box.help",
+    ),
+    Opt::Part("caption", "widgets.todo.setting.caption", true),
+    Opt::Size("core.size.small", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -558,6 +589,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: QUOTE_OPTIONS,
+    },
+    Def {
+        name: "todo",
+        token: 112,
+        category: category::PERSONAL,
+        live: true,
+        align: "core.align.left",
+        look_last: true,
+        options: TODO_OPTIONS,
     },
 ];
 

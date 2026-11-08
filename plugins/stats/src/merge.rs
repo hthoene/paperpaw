@@ -177,7 +177,7 @@ impl Side {
                 highlights: b.highlights,
             });
         }
-        known.sort_unstable_by_key(|k| k.key);
+        paperpaw_sdk::sort::sort_by_key(&mut known, |k| k.key);
         let side = Self {
             path: room::string(&[path])?,
             books: known,
@@ -397,7 +397,7 @@ fn merge_books(
     for (at, b) in books.iter().enumerate() {
         here.push((Key::of_book(b), at));
     }
-    here.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut here);
     for theirs in theirs {
         let key = Key::of_ko(&theirs);
         match here.binary_search_by_key(&key, |(k, _)| *k) {
@@ -645,7 +645,7 @@ fn write_side(
     for b in books {
         here.push((Key::of_book(b), b.id));
     }
-    here.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut here);
     let mut ids: Vec<(i64, u16)> = Vec::new();
     room::reserve(&mut ids, side.books.len())?;
     for theirs in &side.books {
@@ -655,7 +655,7 @@ fn write_side(
             ids.push((theirs.id, *id));
         }
     }
-    ids.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut ids);
     drop(here);
     let mut file = Appender::new(storage, path)?;
     let db = Database::open(storage, &side.path).map_err(Failure::Income)?;

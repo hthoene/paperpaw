@@ -188,7 +188,7 @@ fn keep_nearest(members: &mut Vec<Member>, near: Option<u64>) {
         return;
     }
     let near = near.unwrap_or(0);
-    members.sort_by(|a, b| {
+    paperpaw_sdk::sort::sort_by(members, |a, b| {
         let (ra, rb) = (series_rank(&a.number), series_rank(&b.number));
         ra.abs_diff(near)
             .cmp(&rb.abs_diff(near))
@@ -200,7 +200,7 @@ fn keep_nearest(members: &mut Vec<Member>, near: Option<u64>) {
 
 /// Puts a series' books in order: by number, then title.
 pub(crate) fn order(members: &mut [Member]) {
-    members.sort_by(|a, b| {
+    paperpaw_sdk::sort::sort_by(members, |a, b| {
         series_rank(&a.number)
             .cmp(&series_rank(&b.number))
             .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))

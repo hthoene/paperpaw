@@ -22,6 +22,23 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+pub mod native_fetch;
+#[cfg(test)]
+mod native_fetch_tests;
+#[cfg(test)]
+mod native_parity_tests;
+pub mod native_wallabag;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::format;
@@ -480,7 +497,8 @@ impl Fetch {
         let saved = list.and_then(|mut list| {
             let dir = folder(env);
             let _ = env.storage().create_dir(&dir);
-            let name = clean_name(title, 80).unwrap_or_else(|| id.to_string());
+            let name =
+                clean_name(title, native_wallabag::NAME_UNITS).unwrap_or_else(|| id.to_string());
             let path = book_path(env.storage(), &dir, &name, id, &list)?;
             env.storage().rename(&tmp, &path).ok()?;
             out.push(paperpaw_sdk::library::added(&path, PLUGIN.as_str()));

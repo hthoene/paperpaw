@@ -4,7 +4,7 @@ use crate::mem;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
-    events::Event,
+    events::{Incoming, kinds},
     services,
     settings::{self, SettingValue},
     snapshot,
@@ -40,21 +40,26 @@ impl Recorder {
     }
 
     /// Deliver a lifecycle or page event synchronously, including stop/suspend flushes.
-    pub fn event(&mut self, host: &Host<'_>, event: Event<'_>) -> Result<(), Error> {
-        match event {
-            Event::Started { .. } | Event::Resume { .. } => self.record(host, Kind::Start),
-            Event::Suspend { .. } | Event::Stopping { .. } => self.record(host, Kind::End),
-            Event::BatteryMeasured { .. } => {
-                if !self.awake {
-                    self.record(host, Kind::Start)?;
-                }
-                self.record(host, Kind::Sample)
+    /// Only these kinds are read, so only their decoders are linked.
+    pub fn event(&mut self, host: &Host<'_>, event: Incoming<'_>) -> Result<(), Error> {
+        if event.decode_as::<kinds::Started>()?.is_some()
+            || event.decode_as::<kinds::Resume>()?.is_some()
+        {
+            self.record(host, Kind::Start)
+        } else if event.decode_as::<kinds::Suspend>()?.is_some()
+            || event.decode_as::<kinds::Stopping>()?.is_some()
+        {
+            self.record(host, Kind::End)
+        } else if event.decode_as::<kinds::BatteryMeasured>()?.is_some() {
+            if !self.awake {
+                self.record(host, Kind::Start)?;
             }
-            Event::PageTurned(_) => {
-                self.pages = self.pages.saturating_add(1);
-                Ok(())
-            }
-            _ => Ok(()),
+            self.record(host, Kind::Sample)
+        } else if event.decode_as::<kinds::PageTurned>()?.is_some() {
+            self.pages = self.pages.saturating_add(1);
+            Ok(())
+        } else {
+            Ok(())
         }
     }
 

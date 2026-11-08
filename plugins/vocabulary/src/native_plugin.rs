@@ -3,7 +3,11 @@
 //! words looked up, the screens, the flash cards' review and the rest follow
 //! with their host pieces; see `PORTING-7.md`.
 use paperpaw_sdk::native::{
-    Error, Host, Plugin, events::Event, registrations, reply::Reply, storage::DataStorage,
+    Error, Host, Plugin,
+    events::{Incoming, kinds},
+    registrations,
+    reply::Reply,
+    storage::DataStorage,
 };
 
 use crate::files::DataFolder;
@@ -32,10 +36,10 @@ impl Plugin for NativeVocabulary {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        event: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        if token == EVENTS && matches!(event, Event::Started { .. }) {
+        if token == EVENTS && event.decode_as::<kinds::Started>()?.is_some() {
             recover(&DataStorage::new(host));
         }
         Ok(())

@@ -68,7 +68,7 @@ pub(crate) fn hash(key: &str) -> u32 {
 pub(crate) fn compile(meta: &str, messages: &[(&str, &str)]) -> Result<Vec<u8>, CatalogError> {
     let mut sorted: Vec<(u32, &str, &str)> =
         messages.iter().map(|&(k, m)| (hash(k), k, m)).collect();
-    sorted.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    paperpaw_sort::sort_by(&mut sorted, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
     // Each block's first hash, messages and bytes.
     let mut blocks: Vec<(u32, usize, Vec<u8>)> = Vec::new();
     let mut previous = None;

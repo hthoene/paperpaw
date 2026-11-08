@@ -87,7 +87,7 @@ pub fn books(storage: &dyn Storage, library: &str) -> Vec<u128> {
             ids.push(id);
         }
     });
-    ids.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut ids);
     ids.retain(|id| {
         metadata(storage, *id)
             .and_then(|metadata| protocol::text(&metadata, "lpath"))
