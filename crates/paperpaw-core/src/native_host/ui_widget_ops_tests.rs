@@ -312,10 +312,13 @@ fn a_widget_is_made_for_the_top_instance_dropped_by_its_maker_and_own_is_flagged
         assert_eq!(w.drop_widget(A, id).err(), Some(ERR_DENIED));
         w.drop_widget(ME, id).unwrap();
         assert_eq!(w.drop_widget(ME, id).err(), Some(ERR_NOT_FOUND));
-        // Not in a screen callback or not the top: refused.
+        // Not in a screen callback, deeper than 1, or not the top: refused.
         w.instance.set(None);
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
         w.instance.set(Some(10));
+        w.depth.set(2);
+        assert_eq!(w.make(ME, "a.w").err(), Some(ERR_BUSY));
+        w.depth.set(1);
         w.rows.borrow_mut().push(row(11, A, false));
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
     });
@@ -522,14 +525,28 @@ fn an_owner_that_runs_out_of_memory_leaves_empty_rows_and_the_op_answers() {
 }
 
 #[test]
-fn a_widget_is_made_at_any_depth_and_not_below_a_guard() {
+fn a_widget_is_made_at_depth_one_only_and_not_below_a_guard() {
     world(|w| {
         w.depth.set(2);
-        assert!(w.make(ME, "a.w").is_ok());
+        assert_eq!(w.make(ME, "a.w").err(), Some(ERR_BUSY));
         w.depth.set(1);
         // Under a guard of another plugin the caller is not the top instance
         // (kept as ERR_STATE until Kernel settles ERR_DENIED, ui.md 4.3).
         w.rows.borrow_mut().push(row(9, A, true));
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
+    });
+}
+
+#[test]
+fn a_screen_below_another_plugins_guard_gets_denied_for_status_and_may_still_drop() {
+    world(|w| {
+        let (id, _) = w.make(ME, "a.w").unwrap();
+        w.rows.borrow_mut().push(row(9, A, true));
+        assert_eq!(w.status(ME, "a.one").err(), Some(ERR_DENIED));
+        assert_eq!(w.line(ME, "a.line").err(), Some(ERR_DENIED));
+        // Op 5 has no guard rule.
+        w.drop_widget(ME, id).unwrap();
+        // The guard's own plugin is not denied.
+        assert!(w.status(A, "a.one").is_ok());
     });
 }

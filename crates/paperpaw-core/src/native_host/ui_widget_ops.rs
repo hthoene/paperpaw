@@ -10,6 +10,9 @@
 //! - **Own.** A widget, item or line of the caller's own plugin is never
 //!   called back: op 4 and 15 answer `ui_instance` with `flags` bit 0 and
 //!   instance 0, op 14 a row with `flags` bit 2 and nothing else.
+//! - **Below a guard.** A screen at or below another plugin's guard makes no
+//!   widget (op 4 `ERR_STATE`: it is not the top) and gets `ERR_DENIED` from ops
+//!   14 and 15; op 5 has no guard or depth rule (ui.md 4.3, PR #419).
 //! - **Guard.** Under a guard, a private widget, item or line of another
 //!   plugin is `ERR_DENIED` (ops 4 and 15) or a hidden row (op 14, `flags` bit
 //!   1, no text, no handle); the cache drops private values when a guard
@@ -247,6 +250,28 @@ fn nested_gate(frame: &dyn Frame) -> Result<u64, i32> {
     Ok(epoch)
 }
 
+/// Ops 14 and 15 are `ERR_DENIED` for a screen at or below another plugin's
+/// guard (ui.md 4.3); outside a screen callback there is nothing to check.
+fn below_guard_gate(frame: &dyn Frame, who: &Caller<'_>) -> Result<(), i32> {
+    let Ok(screen) = frame.calling_instance() else {
+        return Ok(());
+    };
+    let mut denied = false;
+    frame.with_stack(&mut |view| {
+        let at = (0..view.len()).find(|&i| view.row(i).is_some_and(|r| r.instance == screen));
+        denied = match (ui_guard::topmost_guard(view), at) {
+            (Some(guard), Some(at)) => {
+                at <= guard && ui_guard::guard_owner(view) != Some(who.owner)
+            }
+            _ => false,
+        };
+    })?;
+    if denied {
+        return Err(ERR_DENIED);
+    }
+    Ok(())
+}
+
 /// A widget id without its placement (`x@2` is `x`).
 fn base_of(widget: &str) -> Result<&str, i32> {
     let base = widget.split('@').next().unwrap_or("");
@@ -275,8 +300,11 @@ pub(super) fn widget_make(
         return Err(ERR_INVALID);
     };
     let base = base_of(reference.widget)?;
-    // No depth rule: op 4 runs no callback (ui.md: ops 7 and 12-15 do).
+    // Depth 1 only (ui.md, PR #419): a child holds no widgets.
     frame.callback_epoch()?;
+    if frame.callback_depth()? != 1 {
+        return Err(ERR_BUSY);
+    }
     let screen = frame.calling_instance()?;
     // Only for the caller's own top instance (the one that gets input); a
     // screen below a guard is never the top.
@@ -521,6 +549,7 @@ pub(super) fn status_values(
         return Err(ERR_INVALID);
     };
     let epoch = nested_gate(frame)?;
+    below_guard_gate(frame, who)?;
     let (items, count) = split_items(ask.items)?;
     let items = &items[..count];
     let mut rows: Vec<Value> = Vec::new();
@@ -595,6 +624,7 @@ pub(super) fn status_line(
         return Err(ERR_INVALID);
     };
     let epoch = nested_gate(frame)?;
+    below_guard_gate(frame, who)?;
     if ask.items.is_empty() || ask.items.len() > ITEM_BYTES || ask.items.contains('\n') {
         return Err(ERR_INVALID);
     }
