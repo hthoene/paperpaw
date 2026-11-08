@@ -181,3 +181,174 @@ de.name = "Koreanische Schrift, seltene Silben"
 de.description = "Die seltenen Hangul-Silben außerhalb des Alltagstexts, für Bücher, die sie brauchen. Braucht die Koreanische Schrift. Etwa 30 MiB auf der Karte."
 how = "Korean letters shows the 2,350 Hangul syllables of everyday text. A few books use rarer ones, which then show as question marks. This pack adds the other 8,822 syllables.\n\nIt needs Korean letters and about 30 MiB on the memory card (flash is not used). Install it only if a book shows question marks in Korean text; PaperPaw offers it for such books. It adds letters only and changes nothing else."
 de.how = "Die Koreanische Schrift zeigt die 2.350 Hangul-Silben des Alltagstexts. Einige Bücher brauchen seltenere Silben, die dann als Fragezeichen erscheinen. Dieses Paket ergänzt die übrigen 8.822 Silben.\n\nEs braucht die Koreanische Schrift und etwa 30 MiB auf der Speicherkarte (der Flash-Speicher bleibt unberührt). Installiere es nur, wenn ein Buch in koreanischem Text Fragezeichen zeigt; PaperPaw bietet es für solche Bücher an. Es ergänzt nur Buchstaben und ändert sonst nichts."
+
+# Interface-7 hyphenation packages contain data only (formats 5).
+
+[hyphenation]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND FSFAP"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation/patterns", "plugins/hyphenation/i18n", "plugins/hyphenation/how"]
+name = "Hyphenation (English)"
+description = "Hyphenation patterns for English, for evenly set text."
+de.name = "Silbentrennung (Englisch)"
+de.description = "Trennmuster für Englisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-da]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-da/patterns", "plugins/hyphenation-da/i18n", "plugins/hyphenation-da/how"]
+name = "Hyphenation (Danish)"
+description = "Hyphenation patterns for Danish, for evenly set text."
+de.name = "Silbentrennung (Dänisch)"
+de.description = "Trennmuster für Dänisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-de]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-de/patterns", "plugins/hyphenation-de/i18n", "plugins/hyphenation-de/how"]
+name = "Hyphenation (German)"
+description = "Hyphenation patterns for German, for evenly set text."
+de.name = "Silbentrennung (Deutsch)"
+de.description = "Trennmuster für Deutsch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-es]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-es/patterns", "plugins/hyphenation-es/i18n", "plugins/hyphenation-es/how"]
+name = "Hyphenation (Spanish)"
+description = "Hyphenation patterns for Spanish, for evenly set text."
+de.name = "Silbentrennung (Spanisch)"
+de.description = "Trennmuster für Spanisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-fr]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-fr/patterns", "plugins/hyphenation-fr/i18n", "plugins/hyphenation-fr/how"]
+name = "Hyphenation (French)"
+description = "Hyphenation patterns for French, for evenly set text."
+de.name = "Silbentrennung (Französisch)"
+de.description = "Trennmuster für Französisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-it]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-it/patterns", "plugins/hyphenation-it/i18n", "plugins/hyphenation-it/how"]
+name = "Hyphenation (Italian)"
+description = "Hyphenation patterns for Italian, for evenly set text."
+de.name = "Silbentrennung (Italienisch)"
+de.description = "Trennmuster für Italienisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-nb]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND FSFAP"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-nb/patterns", "plugins/hyphenation-nb/i18n", "plugins/hyphenation-nb/how"]
+name = "Hyphenation (Norwegian Bokmål)"
+description = "Hyphenation patterns for Norwegian Bokmål, for evenly set text."
+de.name = "Silbentrennung (Norwegisch Bokmål)"
+de.description = "Trennmuster für Norwegisch Bokmål, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-nl]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-nl/patterns", "plugins/hyphenation-nl/i18n", "plugins/hyphenation-nl/how"]
+name = "Hyphenation (Dutch)"
+description = "Hyphenation patterns for Dutch, for evenly set text."
+de.name = "Silbentrennung (Niederländisch)"
+de.description = "Trennmuster für Niederländisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-pl]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-pl/patterns", "plugins/hyphenation-pl/i18n", "plugins/hyphenation-pl/how"]
+name = "Hyphenation (Polish)"
+description = "Hyphenation patterns for Polish, for evenly set text."
+de.name = "Silbentrennung (Polnisch)"
+de.description = "Trennmuster für Polnisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-pt]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND BSD-3-Clause"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-pt/patterns", "plugins/hyphenation-pt/i18n", "plugins/hyphenation-pt/how"]
+name = "Hyphenation (Portuguese)"
+description = "Hyphenation patterns for Portuguese, for evenly set text."
+de.name = "Silbentrennung (Portugiesisch)"
+de.description = "Trennmuster für Portugiesisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-ru]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND LPPL-1.3c"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-ru/patterns", "plugins/hyphenation-ru/i18n", "plugins/hyphenation-ru/how"]
+name = "Hyphenation (Russian)"
+description = "Hyphenation patterns for Russian, for evenly set text."
+de.name = "Silbentrennung (Russisch)"
+de.description = "Trennmuster für Russisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-sv]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND LPPL-1.3c"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-sv/patterns", "plugins/hyphenation-sv/i18n", "plugins/hyphenation-sv/how"]
+name = "Hyphenation (Swedish)"
+description = "Hyphenation patterns for Swedish, for evenly set text."
+de.name = "Silbentrennung (Schwedisch)"
+de.description = "Trennmuster für Schwedisch, für ein gleichmäßiges Schriftbild."
+
+[hyphenation-uk]
+version = "2.0.0"
+group = "reading"
+licence = "Apache-2.0 AND MIT"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic", "x3"]
+build = "tools/hyphenation-data.py"
+inputs = ["tools/hyphenation-packs", "crates/paperpaw-hyphen", "plugins/hyphenation-uk/patterns", "plugins/hyphenation-uk/i18n", "plugins/hyphenation-uk/how"]
+name = "Hyphenation (Ukrainian)"
+description = "Hyphenation patterns for Ukrainian, for evenly set text."
+de.name = "Silbentrennung (Ukrainisch)"
+de.description = "Trennmuster für Ukrainisch, für ein gleichmäßiges Schriftbild."
