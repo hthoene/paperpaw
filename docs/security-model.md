@@ -29,6 +29,15 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   the app partitions and the partition table without touching
   `[0xC000, 0xD000)` (`tools/flash-x4.py` does not). The web flasher keeps it too: a reinstall
   skips `[0xC000, 0xD000)`, so saved passwords survive it (decision 139).
+  **Another firmware on the same flash** (Xteink's stock firmware, or
+  CrossPoint's table, both with an ESP-IDF NVS over `0x9000` to `0xE000`,
+  which reaches `0xC000`) can erase that sector, because to its NVS the key
+  is a page it does not know; PaperPaw's own table has no other user of
+  `nvs`. Nothing is exposed then: the sealed values cannot be opened any
+  more, count as absent and are entered again, and the next save makes a new
+  key. Whether the stock firmware does erase it is not known from sources
+  (no dump, no ESP-IDF source here); it needs one look on the owner's X4
+  (todo for dual-boot, not for this change).
   On Android the file is in the app's private folder, which only
   PaperPaw reads. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the
