@@ -44,6 +44,14 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => Ok(None),
+        // Menus and icons stay in the declaration store (charged there, removed
+        // with their owner); `native_menus` reads them.
+        Record::MenuEntry(_)
+        | Record::IconSpec(_)
+        | Record::MenuNeed(_)
+        | Record::MenuSection(_)
+        | Record::MenuHide(_)
+        | Record::MenuDescribe(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }

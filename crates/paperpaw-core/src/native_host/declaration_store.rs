@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 15;
+const KIND_COUNT: usize = 28;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -87,6 +87,22 @@ pub(crate) enum Kind {
     StatusItem,
     StatusLine,
     StatusPlace,
+    MenuEntry,
+    Icon,
+    MenuNeed,
+    MenuSection,
+    MenuHide,
+    MenuDescribe,
+    // REG declarations (`registry.md` section 6). `setup.step` (category 8)
+    // joins as the next variant, with `KIND_COUNT` one higher, when the host
+    // admits it.
+    SlotSpec,
+    SlotOffer,
+    KeyBind,
+    SettingDefault,
+    SettingChoice,
+    PresetSpec,
+    PresetValue,
     /// `stage.spec`: a stage the plugin owns.
     Stage,
     /// `registration.stage`: the plugin's token on a stage (any owner's).
@@ -109,6 +125,19 @@ impl Kind {
             Self::StatusItem => 20,
             Self::StatusLine => 21,
             Self::StatusPlace => 22,
+            Self::MenuEntry => 23,
+            Self::Icon => 24,
+            Self::MenuNeed => 25,
+            Self::MenuSection => 26,
+            Self::MenuHide => 27,
+            Self::MenuDescribe => 28,
+            Self::SlotSpec => 9,
+            Self::SlotOffer => 10,
+            Self::KeyBind => 11,
+            Self::SettingDefault => 12,
+            Self::SettingChoice => 13,
+            Self::PresetSpec => 14,
+            Self::PresetValue => 15,
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
         }
@@ -129,6 +158,19 @@ impl Kind {
             Record::StatusItem(_) => Self::StatusItem,
             Record::StatusLine(_) => Self::StatusLine,
             Record::StatusPlace(_) => Self::StatusPlace,
+            Record::MenuEntry(_) => Self::MenuEntry,
+            Record::IconSpec(_) => Self::Icon,
+            Record::MenuNeed(_) => Self::MenuNeed,
+            Record::MenuSection(_) => Self::MenuSection,
+            Record::MenuHide(_) => Self::MenuHide,
+            Record::MenuDescribe(_) => Self::MenuDescribe,
+            Record::SlotSpec(_) => Self::SlotSpec,
+            Record::SlotOffer(_) => Self::SlotOffer,
+            Record::KeyBind(_) => Self::KeyBind,
+            Record::SettingDefault(_) => Self::SettingDefault,
+            Record::SettingChoice(_) => Self::SettingChoice,
+            Record::PresetSpec(_) => Self::PresetSpec,
+            Record::PresetValue(_) => Self::PresetValue,
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
             _ => return None,
@@ -315,8 +357,10 @@ impl PendingDeclarations {
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
             if let Some(kind) = Kind::of(&record) {
-                let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
-                kinds[index] = Some((kind, hash));
+                kinds[index] = Some((
+                    kind,
+                    super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?,
+                ));
                 counts[kind as usize] += 1;
             }
         }
@@ -406,7 +450,7 @@ impl PendingDeclarations {
                 .ok_or(ERR_NO_SPACE)?;
             Ok((self.resident, index_bytes, image_entries))
         } else {
-            let limits = [
+            let limits: [usize; KIND_COUNT] = [
                 GROUPS_MAX,
                 SPECS_MAX,
                 EXTRAS_MAX,
@@ -416,6 +460,19 @@ impl PendingDeclarations {
                 // Screen, action and UIX copies share the aggregate byte cap.
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // Menus and icons share the aggregate byte cap too.
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // REG declarations share the aggregate byte cap as well.
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
@@ -629,6 +686,19 @@ impl DeclarationStore {
         name: &str,
         visit: &mut dyn for<'a> FnMut(Record<'a>),
     ) -> bool {
+        self.find_parts(plugin, kind, &[name], visit)
+    }
+
+    /// Lookup by every key field of the kind (one for a plain name; a slot
+    /// offer is `[slot, screen]`, a key binding `[layer, input, when_key,
+    /// when_value]`, a choice `[key, value]`, a preset value `[preset, key]`).
+    pub(crate) fn find_parts(
+        &self,
+        plugin: &str,
+        kind: Kind,
+        parts: &[&str],
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
         let Some((index, owner)) = self.owners.iter().enumerate().find_map(|(index, owner)| {
             owner
                 .as_ref()
@@ -638,7 +708,7 @@ impl DeclarationStore {
             return false;
         };
         let category = kind.category();
-        let hash = super::declaration_index::name_hash(category, name);
+        let hash = super::declaration_index::composite_hash(category, parts);
         let slots = &owner.kinds[kind as usize];
         let from = slots.partition_point(|slot| slot.hash < hash);
         for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
@@ -651,9 +721,7 @@ impl DeclarationStore {
             };
             let mut found = false;
             self.with_record(key, &mut |record| {
-                if super::declaration_index::key(record).is_some_and(|(_, actual)| {
-                    super::declaration_index::same_name(category, actual, name)
-                }) {
+                if super::declaration_index::matches_parts(record, category, parts) {
                     found = true;
                     visit(record);
                 }
@@ -787,7 +855,11 @@ fn check_indexed_name(
             let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
                 continue;
             };
-            if record_hash(other) == Some(hash) && same_record_name(record, other) {
+            if name_key(other).is_some_and(|(other_kind, _)| {
+                other_kind == category
+                    && record_hash(other) == Some(hash)
+                    && same_record_name(record, other)
+            }) {
                 return Err(ERR_INVALID);
             }
         }

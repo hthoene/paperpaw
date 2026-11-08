@@ -82,31 +82,35 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
         Record::ScreenSpec(screen) => screen_check(plugin_id, screen),
         Record::ActionSpec(action) => action_check(plugin_id, action),
-        // Checked, then refused until the host's menus and icons take them
-        // (`docs/abi/screens-input.md` section 1): never accepted and dropped.
-        Record::MenuEntry(entry) => menu_entry_check(entry).and(Err(ERR_UNSUPPORTED)),
-        Record::IconSpec(icon) => icon_check(icon).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuNeed(need) => need_check(need).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuSection(section) => section_check(plugin_id, section).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuHide(hide) => hide_check(hide).and(Err(ERR_UNSUPPORTED)),
-        Record::MenuDescribe(describe) => {
-            describe_check(plugin_id, describe).and(Err(ERR_UNSUPPORTED))
-        }
+        // Menus and icons (`docs/abi/screens-input.md` section 1): checked here,
+        // the items of the plugin's own resolved at commit (`declaration_checks`).
+        Record::MenuEntry(entry) => menu_entry_check(entry),
+        Record::IconSpec(icon) => icon_check(icon),
+        Record::MenuNeed(need) => need_check(need),
+        Record::MenuSection(section) => section_check(plugin_id, section),
+        Record::MenuHide(hide) => hide_check(hide),
+        Record::MenuDescribe(describe) => describe_check(plugin_id, describe),
         // Stages (`docs/abi/stages-services.md` section 1.1): checked here;
         // the whole-plugin rules (eight subscriptions, none to its own stage,
         // one name and one token per stage) are `declaration_checks`.
         Record::StageSpec(spec) => stage_spec_check(plugin_id, spec),
         Record::RegistrationStage(registration) => stage_registration_check(registration),
-        // Registry declarations (`docs/abi/registry.md` section 6): refused
-        // until the host admits them (Core, REG hand-off).
-        Record::SetupStep(_)
-        | Record::SlotSpec(_)
+        // Registry declarations (`docs/abi/registry.md` section 6): checked
+        // here, admitted into the declaration store and the catalog. Their
+        // per-plugin duplicates and own-screen references are checked over the
+        // whole declaration set at commit (`declaration_checks.rs`).
+        Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
         | Record::PresetSpec(_)
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
-        | Record::PresetValue(_) => {
+        | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
+        // The one registry declaration not admitted yet: checked, then
+        // refused until the host admits it together with its own cross-checks
+        // (a step's name against the plugin's actions, screens, settings and
+        // menu items, `registry.md` section 6).
+        Record::SetupStep(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
         }
         // Screen, widget and status declarations (`docs/abi/ui.md`): refused

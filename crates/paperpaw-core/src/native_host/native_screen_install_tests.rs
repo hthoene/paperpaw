@@ -8,6 +8,7 @@ std::thread_local! {
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
+    static MENUS: Cell<u8> = const { Cell::new(0) };
     /// 1: also a stage and a subscription to another plugin's; 2: also a
     /// subscription to its own stage.
     static STAGES: Cell<u8> = const { Cell::new(0) };
@@ -99,6 +100,14 @@ unsafe extern "C" fn screen_make(
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
         let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return status;
+        }
+    }
+    let menus = MENUS.with(Cell::get);
+    if menus != 0 {
+        // SAFETY: the same live host table and context as the submit above.
+        let status = unsafe { menu_records::submit(host, ctx, menus) };
         if status != OK {
             return status;
         }
@@ -980,3 +989,5 @@ fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_not
         .map(|directory| directory.store.borrow().stage("factory.insert"));
     assert!(stage.flatten().is_none());
 }
+#[path = "native_menu_install_tests.rs"]
+mod menu_records;
