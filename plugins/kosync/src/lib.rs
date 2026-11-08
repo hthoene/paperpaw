@@ -50,6 +50,9 @@ pub mod native_plugin;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 
+#[cfg(test)]
+mod native_parity_tests;
+
 mod account;
 mod confirm;
 

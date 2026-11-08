@@ -14,6 +14,13 @@ use paperpaw_ui_kit::text::{concat, copy, decimal};
 
 pub use crate::declarations::DEFAULT_SERVER;
 
+/// The most bytes of a server's answer to a progress fetch that are read: the
+/// request's `max_body` (the answer is a few hundred bytes; the network host's
+/// default would be 45,056 on the X4 and 1,048,576 elsewhere). A longer text is
+/// refused with `NoSpace`, so the interim JSON reader (no refusal path) never
+/// meets more than this.
+pub const MAX_ANSWER: usize = 4096;
+
 /// Another device counts as further from this much more progress (0..1).
 pub const FURTHER: f64 = 0.002;
 
@@ -64,6 +71,8 @@ pub const fn failure(status: u32) -> &'static str {
 /// # Errors
 /// `NoMemory` when the key cannot be kept.
 pub fn password_key(password: &str) -> Result<String, Error> {
+    // TODO(#421): wipe the MD5 state, the hex array and (on a refused copy) the
+    // key itself with `mem::wipe` once it lands; the password is secret.
     let mut md5 = Md5::new();
     md5.update(password.as_bytes());
     let mut digits = [0; 32];
@@ -191,36 +200,43 @@ pub struct Remote {
 /// The progress (0..1) in a sync server's answer: 0 for a book it has none
 /// of (an object without one, e.g. `{}`); `None` if the answer is no object
 /// or its progress no number from 0 to 1.
-#[must_use]
-pub fn remote_progress(text: &str) -> Option<f64> {
-    read_remote(text, &json::object(text)).map(|(progress, ())| progress)
+///
+/// # Errors
+/// `NoSpace` for an answer longer than [`MAX_ANSWER`].
+pub fn remote_progress(text: &str) -> Result<Option<f64>, Error> {
+    if text.len() > MAX_ANSWER {
+        return Err(Error::NoSpace);
+    }
+    Ok(read_remote(text, &json::object(text)))
 }
 
-fn read_remote(text: &str, body: &[(String, json::Value)]) -> Option<(f64, ())> {
+fn read_remote(text: &str, body: &[(String, json::Value)]) -> Option<f64> {
     if body.is_empty() {
         let inner = text
             .trim()
             .strip_prefix('{')
             .and_then(|t| t.strip_suffix('}'));
-        return inner
-            .is_some_and(|i| i.trim().is_empty())
-            .then_some((0.0, ()));
+        return inner.is_some_and(|i| i.trim().is_empty()).then_some(0.0);
     }
     if !body.iter().any(|(key, _)| key == "percentage") {
-        return Some((0.0, ()));
+        return Some(0.0);
     }
     let progress = json::number(body, "percentage")
         .or_else(|| json::text(body, "percentage").and_then(|p| p.trim().parse().ok()))?;
-    (0.0..=1.0).contains(&progress).then_some((progress, ()))
+    (0.0..=1.0).contains(&progress).then_some(progress)
 }
 
 /// Reads a server's answer to a progress fetch.
 ///
 /// # Errors
-/// `NoMemory` when a text cannot be kept.
+/// `NoSpace` for an answer longer than [`MAX_ANSWER`], `NoMemory` when a
+/// text cannot be kept.
 pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
+    if text.len() > MAX_ANSWER {
+        return Err(Error::NoSpace);
+    }
     let body = json::object(text);
-    let Some((progress, ())) = read_remote(text, &body) else {
+    let Some(progress) = read_remote(text, &body) else {
         return Ok(None);
     };
     let take = |key: &str| json::text(&body, key).map(copy).transpose();
@@ -439,7 +455,7 @@ mod tests {
             "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
         ] {
             assert_eq!(
-                remote_progress(text),
+                remote_progress(text).unwrap(),
                 crate::remote_progress(text, &json::object(text)),
                 "{text:?}"
             );
@@ -454,6 +470,10 @@ mod tests {
         assert_eq!(remote.device.as_deref(), Some("Boox"));
         assert_eq!(remote.xpointer.as_deref(), Some("/body"));
         assert_eq!(read_answer("[]").unwrap(), None);
+        // An answer above the cap is refused, not read.
+        let long = alloc::format!("{{\"device\":\"{}\"}}", "x".repeat(MAX_ANSWER));
+        assert_eq!(read_answer(&long).err(), Some(Error::NoSpace));
+        assert_eq!(remote_progress(&long).err(), Some(Error::NoSpace));
     }
 
     fn seen(remote: f64, local: f64) -> Seen {

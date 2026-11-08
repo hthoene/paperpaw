@@ -16,8 +16,15 @@ port.
   put-off memories and the manual sync) and the rule for a book left behind
   (`send_left_behind`). `tests/native_alloc_refusal.rs` refuses each allocation of the writers.
 - The server's JSON is read with `paperpaw_sdk::json` until Kernel's fallible reader (#414) is on
-  integration; it has no refusal path, so its allocation is bounded by the network host's reply
-  cap (marked in `native_model.rs`, not in the sweep).
+  integration; it has no refusal path, so an answer is bounded first: `MAX_ANSWER` = 4,096 bytes
+  (the request's `max_body`; the network host's default would be 45,056 on the X4 and 1,048,576
+  elsewhere, `network.md`). `read_answer` and `remote_progress` refuse a longer text with `NoSpace`
+  (tested); the reader itself is not in the sweep (marked in `native_model.rs`).
+- The settings test (`src/native_parity_tests.rs`) compares each native setting with interface 6's
+  field by field (name, title, group, help, kind, default, advanced, kept on reset) and the group.
+  The one difference is the editor that opens the account screen: the native plugin declares none.
+- `password_key` has a `TODO(#421)`: wipe the MD5 state, the hex array and the key with
+  `mem::wipe` once it lands.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
