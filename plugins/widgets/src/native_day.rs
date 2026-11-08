@@ -442,7 +442,7 @@ fn sheet(
     }
     let note = fit_size(
         &cx.font,
-        (height * 0.1).clamp(small, title),
+        (height * 0.1).max(small).min(title),
         &weekday,
         width * 0.85,
     )?;
