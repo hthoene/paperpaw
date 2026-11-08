@@ -6,6 +6,7 @@ pub(crate) mod graphics;
 pub(crate) mod handles;
 pub(crate) mod lifecycle;
 pub(crate) mod queries;
+pub(crate) mod settings_visibility;
 #[allow(
     clippy::all,
     clippy::pedantic,
@@ -46,3 +47,6 @@ pub(crate) mod commands_wire;
     reason = "generated service op tables (abi/generated/services_wire.rs, byte for byte)"
 )]
 pub(crate) mod services_wire;
+
+#[cfg(test)]
+mod settings_visibility_tests;

@@ -4,19 +4,19 @@
 //! come back as [`StorageError::TooLarge`], with the statistics here as they
 //! were and no working file left.
 //!
-//! Not covered: what `paperpaw-sqlite` allocates while it reads or writes a
-//! database (a refusal there aborts), and the 32-digit text of
-//! `Md5::hex` for a book without a usable MD5. Merges with no other
-//! side's file and no upload do not read or write a database, and books here
-//! have MD5s; those are swept.
+//! The databases are swept too: `paperpaw-sqlite` takes its memory fallibly
+//! (`Error::OutOfMemory`), so writing KOReader's file, reading the other
+//! side's and a merge with both come back as `TooLarge` or an error of the
+//! database, and leave no output behind.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use paperpaw_sdk::{Storage, StorageError};
+use paperpaw_sqlite::Database;
 
-use super::tests::{DIR, book, folder, log, md5, stay, this_device};
+use super::tests::{DIR, book, folder, log, md5, other_device, stay, this_device};
 use super::*;
 use crate::testing::Quiet;
 use crate::testing::heap::{armed, fixture};
@@ -322,6 +322,7 @@ fn a_book_that_cannot_be_named_keeps_its_names() {
     );
 }
 
+<<<<<<< HEAD
 #[test]
 fn reading_time_per_book_refuses_cleanly_never_partial() {
     use crate::totals::seconds_per_book;
@@ -339,5 +340,102 @@ fn reading_time_per_book_refuses_cleanly_never_partial() {
             Ok(())
         },
         |_, _| {},
+=======
+/// A refusal inside the database library is its `OutOfMemory`; the plugin's
+/// own refusals are `TooLarge`: both are a refused allocation.
+fn refused(error: Error) -> Result<(), StorageError> {
+    match error {
+        Error::Storage(e) => Err(e),
+        Error::OutOfMemory => Err(StorageError::TooLarge),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn writing_the_other_apps_database_refuses_cleanly() {
+    let books = alloc::vec![their_book(1, 0xa, "Eins"), their_book(2, 0xb, "Zwei")];
+    let mut records = Vec::new();
+    for i in 0..300u32 {
+        records.extend_from_slice(&koreader::stat_record([
+            1 + i % 2,
+            i % 90 + 1,
+            1000 + i,
+            20,
+            200,
+        ]));
+    }
+    sweep(
+        "koreader::write",
+        || with_file("stays", records.clone()),
+        |s| match koreader::write(s, "out.db", &books, "stays", "tmp") {
+            Ok(()) => Ok(()),
+            Err(error) => refused(error),
+        },
+        |s, ok| {
+            assert!(
+                !names(s, "").iter().any(|n| n.starts_with("tmp")),
+                "a working file is left"
+            );
+            if ok {
+                let db = fixture(|| Database::open(s, "out.db")).unwrap();
+                assert_eq!(fixture(|| koreader::books(&db)).unwrap().len(), 2);
+            }
+        },
+    );
+}
+
+#[test]
+fn a_merge_with_the_other_sides_database_refuses_cleanly() {
+    let make = || {
+        let storage = device_with(200);
+        fixture(|| {
+            other_device(
+                &storage.0,
+                "income.db",
+                &[(1, "Neu", &md5(0xc)), (2, "Alt", &md5(0xa))],
+                &[(1, 1, 50, 10), (2, 3, 60, 10)],
+            );
+        });
+        storage
+    };
+    let state = |s: &Quiet| fixture(|| (store::load_books(s).unwrap().len(), log(s)));
+    let before = state(&fixture(make));
+    // Where only the upload's own database could not be written, the local
+    // statistics are already the merged ones (as when its storage fails).
+    let merged = {
+        let s = fixture(make);
+        fixture(|| merge(&s, Some("income.db"), None, Some("out.db"), DIR)).unwrap();
+        state(&s)
+    };
+    sweep(
+        "merge with income",
+        make,
+        |s| match merge(s, Some("income.db"), None, Some("out.db"), DIR) {
+            Ok(_) => Ok(()),
+            Err(Failure::Here(error) | Failure::Income(error)) => refused(error),
+        },
+        |s, ok| {
+            if !ok {
+                let now = state(s);
+                assert!(
+                    now == before || now == merged,
+                    "neither as it was nor merged: books {} log {}; was {} {}; merged {} {}",
+                    now.0,
+                    now.1.len(),
+                    before.0,
+                    before.1.len(),
+                    merged.0,
+                    merged.1.len()
+                );
+                assert!(fixture(|| s.0.get("out.db")).is_none(), "an output is left");
+            }
+            assert!(
+                !fixture(|| folder(s))
+                    .iter()
+                    .any(|n| n.starts_with("merge-")),
+                "a working file is left"
+            );
+        },
+>>>>>>> origin/port-d/stats-shell-228
     );
 }
