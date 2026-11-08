@@ -243,7 +243,7 @@ impl Entry {
     }
 
     /// Its line in the index, tabs and line ends of the list left out.
-    fn line(&self) -> String {
+    pub(crate) fn line(&self) -> String {
         let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
         format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
@@ -266,7 +266,7 @@ impl Entry {
         )
     }
 
-    fn parse(line: &str) -> Option<Entry> {
+    pub(crate) fn parse(line: &str) -> Option<Entry> {
         let mut f = line.splitn(12, '\t');
         let group = f.next()?.parse().ok()?;
         let size = f.next()?.parse().ok()?;
