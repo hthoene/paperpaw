@@ -17,8 +17,9 @@ use paperpaw_sdk::native::Error;
 
 use crate::{mem, text};
 
-/// An item or line that can be shown.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// An item or line that can be shown. Not `Clone`: a copy would allocate
+/// without a way to refuse.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Entry {
     /// Its id, as the setting keeps it.
     pub id: String,
@@ -40,7 +41,7 @@ pub enum Outcome {
 }
 
 /// The items to choose from and the ids the setting holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Chooser {
     entries: Vec<Entry>,
     /// The ids of the setting, in order, as they were written.

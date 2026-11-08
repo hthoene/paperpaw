@@ -36,7 +36,8 @@ fn known(id: &str) -> bool {
 }
 fn ref_chosen(setting: &str) -> Vec<&str> {
     let mut chosen: Vec<&str> = Vec::new();
-    for c in setting.split(',').map(str::trim).filter(|c| !c.is_empty()) {
+    // The SDK's own reading of a list setting.
+    for c in paperpaw_sdk::status::item_ids(setting) {
         let c = canonical(c);
         if known(c) && !chosen.contains(&c) {
             chosen.push(c);
@@ -59,10 +60,7 @@ fn ref_order(setting: &str) -> Vec<&'static str> {
 }
 fn ref_keep(setting: &str, chosen: &[&str]) -> String {
     let mut left = chosen.iter();
-    let mut all: Vec<&str> = setting
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
+    let mut all: Vec<&str> = paperpaw_sdk::status::item_ids(setting)
         .filter_map(|c| {
             if known(c) {
                 left.next().copied()
@@ -90,8 +88,8 @@ fn ref_move(setting: &str, from: usize, to: usize) -> Option<String> {
     if from >= chosen.len() || to >= chosen.len() || from == to {
         return None;
     }
-    let item = chosen.remove(from);
-    chosen.insert(to, item);
+    // The SDK's own move, which the interface-6 screen calls.
+    paperpaw_sdk::ui::reorder::moved(&mut chosen, from, to);
     Some(ref_keep(setting, &chosen))
 }
 
