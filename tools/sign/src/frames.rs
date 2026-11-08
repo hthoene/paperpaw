@@ -958,22 +958,30 @@ pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
         w.work.push(0);
     }
     let mut returns = None;
+    let mut floor = None;
     loop {
         while let Some(i) = w.work.pop() {
             w.step(i);
         }
-        // What the start reaches decides whether the function returns; the
-        // code that no path reaches is read for its frames only.
+        // What the start reaches decides whether the function returns and how
+        // low `sp` goes; the code that no path reaches is read for its frames
+        // only.
         let returns = *returns.get_or_insert(w.out.returns);
+        let floor = *floor.get_or_insert(-i64::from(w.out.frame));
         // Code no path reaches (dead code after a call that does not return,
-        // or a switch's cases in a lenient walk): read from the state at the
-        // indirect jump (or the start's), no register known.
+        // or a switch's cases in a lenient walk): where it would be entered is
+        // not known, so it is read from the lowest `sp` the paths from the
+        // start reach (a block that lowers `sp` further inside a frame is not
+        // under-counted), and from the state at the indirect jump if that is
+        // lower; no register known. Each such block starts from that same
+        // floor, not from the ones read before it.
         let Some(j) = w.states.iter().position(Option::is_none) else {
             w.out.returns = returns;
             break;
         };
         let mut seed = w.indirect.clone().unwrap_or_else(State::entry);
         seed.forget_regs();
+        seed.sp = seed.sp.min(floor);
         w.states[j] = Some(seed);
         w.work.push(j);
         w.out.returns = returns;
