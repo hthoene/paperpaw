@@ -37,7 +37,6 @@ store-plugins = [
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-translate",
     "dep:paperpaw-plugin-reading-goal",
-    "dep:paperpaw-plugin-end-of-book",
     "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
@@ -106,7 +105,6 @@ paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
 paperpaw-plugin-reading-goal = { workspace = true, optional = true }
-paperpaw-plugin-end-of-book = { workspace = true, optional = true }
 paperpaw-plugin-notes-overview = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
@@ -135,12 +133,10 @@ paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-koreader = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
-paperpaw-plugin-about.workspace = true
 paperpaw-plugin-setup.workspace = true
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }
-paperpaw-plugin-plugin-manager.workspace = true
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 

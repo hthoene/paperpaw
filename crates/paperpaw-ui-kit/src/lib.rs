@@ -34,6 +34,7 @@ pub mod mem;
 pub mod messages;
 pub mod paint;
 pub mod screens;
+pub mod sheet;
 pub mod style;
 pub mod text;
 pub mod uitext;

@@ -101,12 +101,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "end-of-book"
-path = "src/bin/end-of-book.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "notes-overview"
 path = "src/bin/notes-overview.rs"
 test = false
@@ -260,7 +254,6 @@ bench = false
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
-paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
