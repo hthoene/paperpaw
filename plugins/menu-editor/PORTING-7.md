@@ -1,6 +1,6 @@
 # Interface-7 port
 
-Version 1.0.8. Native plugin: `src/native_plugin.rs` (`NativeMenuEditor`),
+Version 1.0.9. Native plugin: `src/native_plugin.rs` (`NativeMenuEditor`),
 built-in descriptor `NATIVE_ENTRY` (feature `linked`), declarations in
 `declarations.rs` (built into the image by `build.rs`), metadata in `native/`
 (`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
@@ -60,3 +60,7 @@ Pending cases are `#[ignore]`d refusals in `tests/acceptance_pending.rs`; they n
 - Handover indices are digits that fit a `usize` and are in range for the entry, else the
   screen is refused before a view is installed; moves use checked arithmetic. Candidates
   are ordered by an in-place stable insertion sort (no scratch).
+- The interface-6 plugin is removed: `MenuEditor` and its four legacy screens in `lib.rs`, the kernel tests that pinned them (`circles.rs`, `editing.rs`, `sequences.rs`, `common`), the app's `offered(.., MenuEditor)` wiring and
+  `STORE_PLUGINS` entry, and the plugin-file build (`tools/plugin-files` bin, `plugins.txt`).
+  It does not run in the app until the host activates native plugins. The behaviour it pinned
+  is covered by the model/store unit tests above; the golden stays for the native acceptance.
