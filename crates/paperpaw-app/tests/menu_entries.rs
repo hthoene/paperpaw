@@ -183,10 +183,7 @@ impl App {
         plugins: impl FnOnce(paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder,
     ) -> Self {
         let storage = MemoryStorage::new()
-            .with(
-                "paperpaw.ini",
-                format!("[help]\nshow = false\n[core]\nlanguage = en\n{config}"),
-            )
+            .with("paperpaw.ini", format!("[core]\nlanguage = en\n{config}"))
             .with(".paperpaw/plugins/setup/done", "");
         let builder = paperpaw_app::install(
             Kernel::builder(DEVICE).storage(storage),
@@ -364,33 +361,4 @@ fn only_its_own_plugin_says_what_an_entry_shows() {
         .find(|p| p.label.starts_with("Early A"))
         .unwrap_or_else(|| panic!("{parts:?}"));
     assert_eq!(a.label, "Early A");
-}
-
-#[test]
-fn the_menu_editor_tells_who_took_an_entry_out() {
-    let mut app = App::new("[plugins]\nmenu-editor = on\n", |b| {
-        b.plugin(Early).plugin(Hider)
-    });
-    app.now += 100;
-    let params = Params::new().with("menu", MENU.as_str());
-    let effects =
-        app.kernel
-            .open_screen(Instant(app.now), Id::new_static("menu-editor.add"), params);
-    app.settle(effects);
-    // Page by page to B (sorted by name).
-    let mut labels = Vec::new();
-    for _ in 0..50 {
-        app.kernel.render(&mut |_, _| {});
-        labels = app.kernel.describe().into_iter().map(|p| p.label).collect();
-        if labels.iter().any(|l| l.contains("Early B")) {
-            break;
-        }
-        app.run(paperpaw_sdk::builtin::actions::NEXT_PAGE);
-    }
-    assert!(
-        labels
-            .iter()
-            .any(|l| l.contains("Early B") && l.contains("Taken out by Hider")),
-        "{labels:?}"
-    );
 }

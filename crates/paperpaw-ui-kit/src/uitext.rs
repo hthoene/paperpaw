@@ -64,7 +64,7 @@ pub fn write_all(ui: &Ui, host: &Host<'_>, text_id: TextId, text: &str) -> Resul
             host,
             text_id,
             u32::try_from(offset).map_err(|_| Error::NoSpace)?,
-            &text[offset..end],
+            text.get(offset..end).unwrap_or_default(),
             if last {
                 TextWrite::Last
             } else {

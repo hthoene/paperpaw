@@ -50,7 +50,7 @@ fn usable(part: &Part) -> bool {
 /// screen when it shows).
 fn fresh(context: &Context, variant: &Variant) -> Result<Session, String> {
     let start = session::Start {
-        settings: vec![("help.show".into(), "false".into())],
+        settings: Vec::new(),
         ..session::Start::default()
     };
     Session::start(context, variant, &start)

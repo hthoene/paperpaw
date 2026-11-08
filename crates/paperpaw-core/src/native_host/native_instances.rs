@@ -17,6 +17,11 @@ pub(crate) trait NativeInstance: Dispatch {
     fn callback_depth(&self) -> u8 {
         0
     }
+    /// Whether the instance subscribed to the event `tag` (at the start, read
+    /// from the committed registrations; no allocation).
+    fn subscribed(&self, _tag: u32) -> bool {
+        false
+    }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(None);
     }
@@ -202,6 +207,24 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .map(|entry| &entry.id)
+    }
+
+    /// The plugin id of an enabled owner (`.received/` paths, root-0 saves).
+    /// A borrow of the entry's id: no allocation. `None` for an owner that is
+    /// unknown or stopped.
+    pub(crate) fn plugin_id(&self, key: u64) -> Option<&Id> {
+        self.id(key)
+    }
+
+    /// Whether the running instance of `key` subscribed to the event `tag`.
+    /// `false` for an owner that is unknown, stopped, not started yet or
+    /// without that subscription. No allocation, no foreign code.
+    pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.live().ok())
+            .is_some_and(|instance| instance.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -559,6 +582,62 @@ mod tests {
         assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
         assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(drops.get(), 1);
+    }
+
+    struct Subscribing(Cell<bool>);
+    impl NativeInstance for Subscribing {
+        fn running(&self) -> bool {
+            self.0.get()
+        }
+        fn stop(&self) {
+            self.0.set(false);
+        }
+        fn subscribed(&self, tag: u32) -> bool {
+            tag == 99
+        }
+    }
+    impl Dispatch for Subscribing {
+        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn draw(
+            &self,
+            _: u32,
+            _: &super::super::registrations::DrawFrame<'_>,
+            _: &Env<'_>,
+            _: &mut paperpaw_graphics::Canvas<'_>,
+        ) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn dropped(&self, _: u32, _: i32) {}
+    }
+
+    #[test]
+    fn views_answer_plugin_id_and_subscription_only_for_a_running_owner() {
+        let mut registry = NativeInstances::default();
+        let lease = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
+        let key = registry
+            .test_insert(Id::new_static("net.probe"), Some(lease), true)
+            .unwrap();
+        let lazy = registry
+            .test_insert(Id::new_static("net.lazy"), None, true)
+            .unwrap();
+        assert_eq!(registry.plugin_id(key).map(Id::as_str), Some("net.probe"));
+        assert_eq!(registry.plugin_id(lazy).map(Id::as_str), Some("net.lazy"));
+        assert!(registry.plugin_id(key + 1000).is_none(), "unknown owner");
+        assert!(registry.subscribed(key, 99));
+        assert!(!registry.subscribed(key, 101), "not that event");
+        assert!(
+            !registry.subscribed(lazy, 99),
+            "not started: no subscription"
+        );
+        assert!(!registry.subscribed(key + 1000, 99), "unknown owner");
+        registry.stop(key).unwrap();
+        assert!(!registry.subscribed(key, 99), "a stopped owner has none");
+        assert!(registry.plugin_id(key).is_none(), "nor an id");
     }
 
     #[test]

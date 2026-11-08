@@ -1,6 +1,7 @@
 //! Typed EVT producer adapters. Admission stays disabled until Core wires delivery.
 use super::registrations as wire;
 use crate::abi7::settings_wire::{SettingValueRef, settings_encode};
+use crate::native_host::codec;
 use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_UNSUPPORTED};
 use paperpaw_platform::SystemStatus;
@@ -139,7 +140,7 @@ impl Hint<'_> {
                 flags: charge.flags(),
             }),
         };
-        wire::records_encode(&[record], out)
+        codec::encode_batch(&[record], out)
     }
 }
 

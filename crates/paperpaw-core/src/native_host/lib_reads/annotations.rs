@@ -32,6 +32,15 @@ const HAS_CONVERSION: u32 = 1 << 3;
 /// is authoritative.
 const HAS_XPOINTERS: u32 = 1 << 4;
 
+/// Whether the row's XPointers fit the wire: it has a start and neither is
+/// over 1,024 bytes. One over (the file was changed by something other than a
+/// writer of ours, which refuses it) is as if the row had none: the page it is
+/// on still answers. Op 15 knows the lengths only; op 16 also needs the text
+/// to be whole UTF-8 to carry it.
+fn xpointers_fit(row: &Row<'_>) -> bool {
+    row.start_xpointer.whole > 0 && row.start_xpointer.whole.max(row.end_xpointer.whole) <= XPOINTER
+}
+
 /// The kind on the wire: 0 bookmark, 1 highlight, 2 + the letter of another.
 fn kind(kind: Kind) -> u32 {
     match kind {
@@ -63,7 +72,7 @@ fn page(
     make: &dyn for<'r> Fn(&'r Row<'_>) -> Option<Result<Record<'r>, i32>>,
 ) -> Result<RowsEnd, i32> {
     let generation = generation(storage, path, asked)?;
-    let mut scratch = zeroed(windows.scratch())?;
+    let mut scratch = zeroed(windows.scratch().ok_or(ERR_NO_SPACE)?)?;
     // Rows that count (a row without an anchor is no anchor), where the page
     // is, and why it stopped.
     let (mut counted, mut next, mut full) = (0_u32, cursor, false);
@@ -126,7 +135,7 @@ pub(super) fn annotations(
             (text_cut, TEXT_CUT),
             (note_cut, NOTE_CUT),
             (row.conversion.is_some(), HAS_CONVERSION),
-            (row.start_xpointer.whole > 0, HAS_XPOINTERS),
+            (xpointers_fit(row), HAS_XPOINTERS),
         ] {
             if set {
                 flags |= bit;
@@ -163,22 +172,24 @@ pub(super) fn anchors(
     let windows = Windows::new().xpointers(Window::new(0, XPOINTER), Window::new(0, XPOINTER));
     page(storage, path, cursor, asked, &windows, visit, &|row| {
         let conversion = row.conversion.is_some();
-        let xpointers = row.start_xpointer.whole > 0;
+        let whole = |p: annotations::Part<'_>| p.whole as usize == p.text.len();
+        let xpointers = xpointers_fit(row) && whole(row.start_xpointer) && whole(row.end_xpointer);
         if !conversion && !xpointers {
-            // Only annotations that have an anchor are rows.
+            // Only annotations that have an anchor are rows (XPointers that
+            // cannot be carried are no anchor).
             return None;
         }
-        let (start, end) = (row.start_xpointer, row.end_xpointer);
-        if start.whole as usize > start.text.len() || end.whole as usize > end.text.len() {
-            // An XPointer the wire cannot carry is never cut.
-            return Some(Err(ERR_NO_SPACE));
-        }
+        let (start, end) = if xpointers {
+            (row.start_xpointer.text, row.end_xpointer.text)
+        } else {
+            ("", "")
+        };
         Some(Ok(Record::ServiceLibAnchor(wire::ServiceLibAnchor {
             id: row.id,
             flags: u32::from(conversion) | (u32::from(xpointers) << 1),
             conversion: row.conversion.unwrap_or(0),
-            start: start.text,
-            end: end.text,
+            start,
+            end,
         })))
     })
 }
@@ -197,7 +208,7 @@ pub(super) fn text(
     } else {
         Windows::new().note(window)
     };
-    let mut scratch = zeroed(windows.scratch())?;
+    let mut scratch = zeroed(windows.scratch().ok_or(ERR_NO_SPACE)?)?;
     let mut found = None;
     annotations::try_rows(storage, path, &windows, &mut scratch, &mut |_, row| {
         if row.id != at.index {

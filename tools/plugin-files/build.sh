@@ -17,7 +17,8 @@
 # X4 Classic espup's `esp` toolchain with its environment and the
 # release's core libraries in it (tools/xtensa-std). Never set
 # RUSTFLAGS: it would replace .cargo/config.toml's flags, which link the
-# plugins.
+# plugins. The paths of the checkout and of the cargo home are remapped
+# (CARGO_TARGET_<TRIPLE>_RUSTFLAGS, which is added to those flags).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -58,6 +59,22 @@ for id in $ids; do
     [[ -n "$(version_of "$id")" ]] || { echo "plugins/$id/Cargo.toml: no version of its own" >&2; exit 1; }
 done
 
+# The build's paths (this checkout, the cargo home) are remapped, so that the
+# plugin files do not depend on where they are built (panic locations and
+# debug paths in the code). The target's rustflags variable is joined with
+# .cargo/config.toml's flags, unlike RUSTFLAGS, which would replace them.
+# The variable is split at spaces, so a path with one cannot be remapped.
+for dir in "$root" "${CARGO_TARGET_DIR:-$here/target}" "${CARGO_HOME:-$HOME/.cargo}"; do
+    case "$dir" in
+        *[[:space:]]*) echo "$dir has a space or tab in it: build from a path without one" >&2; exit 2 ;;
+    esac
+done
+flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
+remap="--remap-path-prefix=$root=/build --remap-path-prefix=${CARGO_TARGET_DIR:-$here/target}=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+case " ${!flags_var:-} " in
+    *" --remap-path-prefix=$root=/build "*) ;; # the caller has done it
+    *) export "$flags_var=${!flags_var:+${!flags_var} }$remap" ;;
+esac
 (cd "$here" && env -u RUSTFLAGS "${build[@]}")
 target_dir="${CARGO_TARGET_DIR:-$here/target}"
 sign() { (cd "$root" && cargo run -q --release -p paperpaw-sign -- "$@"); }
