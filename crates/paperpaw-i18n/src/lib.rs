@@ -259,14 +259,14 @@ impl Translator {
             .iter()
             .map(|p| (p.added, p.language(), p.name()));
         let mut all: Vec<(u32, &str, &str)> = live.chain(parked).collect();
-        all.sort_unstable_by_key(|(added, ..)| *added);
+        paperpaw_sort::sort_by_key(&mut all, |(added, ..)| *added);
         for (_, tag, name) in all {
             if !languages.iter().any(|(t, _)| *t == tag) {
                 languages.push((tag, name));
             }
         }
         let english = |tag: &str| tag == "en" || tag.starts_with("en-");
-        languages.sort_unstable_by_key(|&(tag, _)| (!english(tag), tag));
+        paperpaw_sort::sort_by_key(&mut languages, |&(tag, _)| (!english(tag), tag));
         languages
     }
 
@@ -282,7 +282,7 @@ impl Translator {
     pub fn catalogs(&self) -> Vec<Catalog> {
         let mut all: Vec<Catalog> = self.catalogs.clone();
         all.extend(self.parked.iter().cloned().map(Parked::unpark));
-        all.sort_unstable_by_key(|c| c.added);
+        paperpaw_sort::sort_by_key(&mut all, |c| c.added);
         all
     }
 
@@ -411,7 +411,7 @@ impl Translator {
                 }
             }
         }
-        kept.sort_unstable_by_key(|c| c.added);
+        paperpaw_sort::sort_by_key(&mut kept, |c| c.added);
         self.catalogs = kept;
         self.rebuild_order();
     }

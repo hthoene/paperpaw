@@ -111,6 +111,9 @@ pub mod semantics;
 pub mod served;
 pub mod services;
 pub mod setting;
+/// One shared, stable sorter: use it instead of `slice::sort_by` and its
+/// kin, which compile a copy per element type (see `paperpaw_sort`).
+pub use paperpaw_sort as sort;
 mod settings;
 pub mod setup;
 #[cfg(all(

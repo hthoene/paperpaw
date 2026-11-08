@@ -294,7 +294,9 @@ fn write_with(
             b.id,
         )
     }
-    order.sort_by(|&a, &b| index_key(&books[a]).cmp(&index_key(&books[b])));
+    paperpaw_sdk::sort::sort_by(&mut order, |&a, &b| {
+        index_key(&books[a]).cmp(&index_key(&books[b]))
+    });
     let book_index = order.iter().map(|&i| {
         let b = &books[i];
         record(&[text(&b.title), text(&b.authors), text(&b.md5), int(b.id)])

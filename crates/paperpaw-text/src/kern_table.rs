@@ -46,13 +46,13 @@ pub(crate) fn build(pairs: &[(char, char, f32)]) -> Vec<u8> {
             Some((l, r, units(em))).filter(|p| p.2 != 0)
         })
         .collect();
-    kept.sort_unstable();
+    paperpaw_sort::sort(&mut kept);
     kept.dedup_by_key(|p| (p.0, p.1));
     if kept.is_empty() {
         return Vec::new();
     }
     let mut chars: Vec<u16> = kept.iter().flat_map(|p| [p.0, p.1]).collect();
-    chars.sort_unstable();
+    paperpaw_sort::sort(&mut chars);
     chars.dedup();
     let index = |c: u16| chars.binary_search(&c).unwrap_or(0);
     // Each character's row (what it does on the left) and column.

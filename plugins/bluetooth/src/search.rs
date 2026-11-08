@@ -218,8 +218,9 @@ impl Screen for Search {
                     self.found.retain(|d| d.id != device.id);
                     self.found.push(device);
                     // The strongest first.
-                    self.found
-                        .sort_by_key(|d| core::cmp::Reverse(d.signal.unwrap_or(i8::MIN)));
+                    paperpaw_sdk::sort::sort_by_key(&mut self.found, |d| {
+                        core::cmp::Reverse(d.signal.unwrap_or(i8::MIN))
+                    });
                 }
                 BtEvent::ScanEnded => self.searching = false,
                 BtEvent::Failed(BtFailure { error, .. }) => {
