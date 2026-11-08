@@ -2415,10 +2415,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
