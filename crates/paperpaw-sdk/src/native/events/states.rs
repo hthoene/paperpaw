@@ -86,6 +86,7 @@ impl WifiFailure {
 /// this request; the current radio state is what `event.wifi_changed` and the
 /// device state read say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WifiDone<'a> {
     pub(super) now_ms: u64,
     pub(super) request: u32,
@@ -100,8 +101,9 @@ impl<'a> WifiDone<'a> {
     pub const fn now_ms(&self) -> u64 {
         self.now_ms
     }
-    /// The sender's request number, or `None` for a join the host started itself
-    /// (a remembered network at wake): its failure goes to the network manager.
+    /// The sender's own non-zero request number. `None` (wire value 0) only for a
+    /// join the host started itself (a remembered network at wake): its failure
+    /// goes to the network manager, and no plugin sent it.
     #[must_use]
     pub const fn request(&self) -> Option<crate::native::device::DeviceRequest> {
         crate::native::device::DeviceRequest::new(self.request)
@@ -147,6 +149,7 @@ impl<'a> WifiDone<'a> {
 /// (`event.install_done`): exactly once, to the plugin that sent it, only once
 /// done (`docs/abi/device.md` sections 4 and 5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct InstallDone<'a> {
     pub(super) now_ms: u64,
     pub(super) request: u32,
@@ -162,7 +165,10 @@ impl<'a> InstallDone<'a> {
     pub const fn now_ms(&self) -> u64 {
         self.now_ms
     }
-    /// The sender's request number.
+    /// The sender's own non-zero request number, the one this event answers. The
+    /// host never sends 0 here, since every install, removal, firmware or check
+    /// request has a sender; `None` would mean a host defect, so ignore such an
+    /// event.
     #[must_use]
     pub const fn request(&self) -> Option<DeviceRequest> {
         DeviceRequest::new(self.request)
