@@ -67,6 +67,13 @@ impl<'a> CommandStage<'a> {
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and
     /// the screens they replace). Without them the claims are rolled back
     /// when the stage is dropped.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
+        )
+    )]
     pub(crate) fn into_ui_output_with_opens(
         mut self,
     ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
