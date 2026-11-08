@@ -97,6 +97,8 @@ kinds! {
     Bluetooth => EVENT_BLUETOOTH_TAG, core_events::bluetooth, Bluetooth;
     HttpDone => EVENT_HTTP_DONE_TAG, core_events::http_done, HttpDone;
     HttpProgress => EVENT_HTTP_PROGRESS_TAG, core_events::http_progress, HttpProgress;
+    Socket => EVENT_SOCKET_TAG, core_events::socket, Socket;
+    Broadcast => EVENT_BROADCAST_TAG, core_events::broadcast, Broadcast;
     ScreenOpened => EVENT_SCREEN_OPENED_TAG, uix_events::screen_opened, ScreenOpened;
     ScreenClosed => EVENT_SCREEN_CLOSED_TAG, uix_events::screen_closed, ScreenClosed;
     StackChanged => EVENT_STACK_CHANGED_TAG, uix_events::stack_changed, StackChanged;

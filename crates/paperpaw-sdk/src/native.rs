@@ -350,6 +350,7 @@ pub mod secrets;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
+pub mod sockets;
 pub mod stages;
 pub mod storage;
 pub mod ui;

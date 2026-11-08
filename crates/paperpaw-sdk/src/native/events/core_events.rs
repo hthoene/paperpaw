@@ -8,6 +8,7 @@ use crate::{
         declare::settings_value as settings,
         net::{HttpDone, HttpProgress},
         settings::SettingValue,
+        sockets::{BroadcastEvent, SocketEvent},
     },
     power::PowerLevel,
 };
@@ -121,6 +122,14 @@ event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
 event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
 });
+
+event_fn!(socket, wire::EventSocket, |r| Event::Socket(
+    SocketEvent::decode(r)?
+));
+
+event_fn!(broadcast, wire::EventBroadcast<'_>, |r| Event::Broadcast(
+    BroadcastEvent::decode(r)?
+));
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);
