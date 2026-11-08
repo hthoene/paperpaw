@@ -124,7 +124,6 @@ fn a_badge_follows_the_label_and_counts_in_the_width() {
     assert_eq!(button_text(&r).unwrap(), "Run");
     r.badge = "3".to_string();
     assert_eq!(button_text(&r).unwrap(), "Run · 3");
-    assert_eq!(toggle_text(&r).unwrap(), "• Run · 3");
 }
 
 #[test]
@@ -344,13 +343,16 @@ fn controls_share_their_row() {
     assert!(row.controls[0].1.x >= 20 + 150);
     assert_eq!(row.controls[1].1.right(), 480 - 20);
 
-    // A stepper's two buttons are the whole row until its value places them.
+    // A stepper's `−` and `+` are at the ends of what follows the label.
     let area = Rect::new(0, 0, 480, 60);
     let stepper = place(&Line::Stepper(2), area, &geometry()).unwrap();
-    assert_eq!(
-        stepper.controls,
-        [(Control::Step(2, -1), area), (Control::Step(2, 1), area)]
-    );
+    let [(minus, left), (plus, right)] = stepper.controls.as_slice() else {
+        panic!("two buttons");
+    };
+    assert_eq!((*minus, *plus), (Control::Step(2, -1), Control::Step(2, 1)));
+    assert_eq!(left.x, 20 + 150);
+    assert_eq!(right.right(), 480 - 20);
+    assert!(left.right() < u32::from(right.x));
 }
 
 #[test]

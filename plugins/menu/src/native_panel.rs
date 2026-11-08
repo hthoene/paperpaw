@@ -129,8 +129,7 @@ pub struct Placed {
     pub page: usize,
     /// The setting row whose title is the label (a number's or a choice's).
     pub label: Option<usize>,
-    /// The controls and where they are (a stepper's are the whole row until
-    /// its value says where `−` and `+` go).
+    /// The controls and where they are.
     pub controls: Vec<(Control, Rect)>,
 }
 
@@ -156,11 +155,6 @@ pub fn button_text(row: &Row) -> Result<String, Error> {
     } else {
         concat(&[&row.title, " · ", &row.badge])
     }
-}
-
-/// The text a switch shows: its label with a bullet before it.
-fn toggle_text(row: &Row) -> Result<String, Error> {
-    concat(&["• ", &button_text(row)?])
 }
 
 /// `area` without the margins at its sides and a little above and below.
@@ -241,10 +235,7 @@ fn flush(
         .map_err(|_| Error::NoMemory)?;
     for control in group.iter() {
         let row = entries.get(control.row()).ok_or(Error::State)?.row;
-        texts.push(match control {
-            Control::Toggle(_) => toggle_text(row)?,
-            _ => button_text(row)?,
-        });
+        texts.push(button_text(row)?);
     }
     let per_row = (1..=PER_ROW.min(group.len()))
         .rev()
@@ -365,8 +356,17 @@ pub fn place(line: &Line, area: Rect, g: &Geometry) -> Result<Placed, Error> {
         Line::Stepper(row) => {
             label = Some(*row);
             controls.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
-            controls.push((Control::Step(*row, -1), area));
-            controls.push((Control::Step(*row, 1), area));
+            // [−] value [+] after the label; the value is drawn between.
+            let side = rest.height.min(rest.width / 3);
+            let minus = Rect::new(rest.x, rest.y, side, rest.height);
+            let plus = Rect::new(
+                rest.x.saturating_add(rest.width.saturating_sub(side)),
+                rest.y,
+                side,
+                rest.height,
+            );
+            controls.push((Control::Step(*row, -1), minus));
+            controls.push((Control::Step(*row, 1), plus));
         }
         Line::Segments(row, count) => {
             label = Some(*row);

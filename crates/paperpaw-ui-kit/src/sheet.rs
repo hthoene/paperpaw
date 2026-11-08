@@ -197,9 +197,13 @@ impl ItemList {
 }
 
 /// The pager bar: the page of pages in the middle, and on touch screens an
-/// arrow at each end (faint where there is no page that way).
+/// arrow at each end (faint where there is no page that way). The arrows'
+/// tap regions go to `header`.
+///
+/// # Errors
+/// Propagates font and allocation errors.
 #[allow(clippy::too_many_arguments, reason = "geometry, look and paging")]
-fn pager(
+pub fn pager(
     body: &mut Vec<Paint>,
     header: &mut crate::Page,
     font: &Font<'_>,
