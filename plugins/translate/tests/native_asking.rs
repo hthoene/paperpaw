@@ -1,6 +1,5 @@
-//! The plugin made and driven by the scripted host: its subscription to the end
-//! of a request is not submitted yet (a request to `core.net` is refused without
-//! it), and an end
+//! The plugin made and driven by the scripted host: its screen and its
+//! subscription to the end of a request are submitted, and an end
 //! that is not of a request of its own (none is in flight) changes nothing
 //! and asks the network for nothing. The calls that ask DeepL and keep the
 //! key are run when the panel starts them (slice 3, `tests/acceptance_pending.rs`).
@@ -49,20 +48,21 @@ fn run(host: &ScriptedHost, batch: &[u8]) -> i32 {
         .map_or_else(|status| status, |done| done.status)
 }
 
-/// The subscription is in the image but not submitted: the kernel's host refuses
-/// event declarations (#944) and a failed `make` keeps the plugin out. When this
-/// fails because `make` submits `image::EVENTS`, say so in `PORTING-7.md`.
+/// The panel's screen and the subscription to the end of a request are
+/// submitted (as Battery's and Wi-Fi's declarations are); the slot offer is not
+/// (#522, `tests/native_declarations.rs`).
 #[test]
-fn the_end_of_a_request_is_not_subscribed_to_until_the_host_admits_it() {
+fn the_screen_and_the_end_of_a_request_are_submitted() {
     let host = ScriptedHost::new();
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
     drop(plugin);
-    let subscription = host
-        .registrations()
-        .into_iter()
-        .any(|batch| batch.as_slice() == image_events());
-    assert!(!subscription);
-    assert!(!host.registrations().is_empty(), "the screen is submitted");
+    let batches = host.registrations();
+    assert!(
+        batches
+            .iter()
+            .any(|batch| batch.as_slice() == image_events())
+    );
+    assert!(batches.len() >= 2, "the screen too");
 }
 
 #[test]

@@ -1,0 +1,3 @@
+### Added
+
+- **Translation on interface 7, third slice** (#228). The translation panel now runs on the new interface: it reads the selected text, asks DeepL, shows the translation over the lower part of the page (scrolled by the page buttons or taps, closed with Select), asks for the API key on the keyboard (typed masked, kept with the passwords, used at once), offers once to go online in offline mode, and says "This device cannot save passwords yet" where the key cannot be kept. The language setting and the entry in the reader's menu stay on the old interface until the host and the contract take them.
