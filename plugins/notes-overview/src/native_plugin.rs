@@ -3,7 +3,7 @@
 //! at a note need host pieces that are not there yet: those rows refuse
 //! plainly (`PORTING-7.md`).
 use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
-use crate::model::{self, Counted};
+use crate::model::{self, Counted, Handle};
 use crate::native_library::{BUFFER, HostSource};
 use crate::native_scan::scan;
 use alloc::string::String;
@@ -19,7 +19,7 @@ use paperpaw_sdk::{
         library::{AnnotationCursor, AnnotationKind, BookRef, Library},
         registrations,
         reply::Reply,
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -33,6 +33,27 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/notes_overview_declarations.rs"));
 }
 
+/// The handover parameters that name a book: its catalog handle and the
+/// generation of the catalog it came from, as decimal numbers.
+const KEY: &str = "key";
+const GENERATION: &str = "generation";
+/// Digits of a `u32`.
+const DIGITS: usize = 10;
+
+/// `n` in decimal, written into `buf`.
+fn digits(mut n: u32, buf: &mut [u8; DIGITS]) -> &str {
+    let mut at = DIGITS;
+    loop {
+        at -= 1;
+        buf[at] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&buf[at..]).unwrap_or("0")
+}
+
 /// Notes of one book shown at most. A book has more only by the thousand;
 /// interface 6 showed them all, from a file of up to 1 MiB.
 pub const MOST_NOTES: usize = 300;
@@ -43,8 +64,8 @@ const MOST_PAGES: usize = 64;
 /// What a screen's rows stand for.
 #[derive(Debug)]
 enum Rows {
-    /// The books of the list by path, then the *Export* row.
-    Books(Vec<String>),
+    /// The books of the list by catalog handle, then the *Export* row.
+    Books(Vec<Handle>),
     /// The notes of a book.
     Notes,
 }
@@ -137,17 +158,18 @@ impl Plugin for NativeNotesOverview {
         let ItemStep::Chosen(index) = step else {
             return Ok(ItemList::handled(step));
         };
-        match &view.rows {
-            Rows::Books(paths) => match paths.get(index) {
-                Some(path) => {
-                    let path = copy(path)?;
-                    self.open_book(host, &path)?;
-                    Ok(Handled::Yes)
-                }
-                // BLOCKED (#228): the export writes through `core.files`
-                // (PORTING-7.md); the row refuses plainly until it is wired.
-                None => Err(Error::Unsupported),
-            },
+        let book = match &view.rows {
+            Rows::Books(handles) => index < handles.len(),
+            Rows::Notes => false,
+        };
+        if book {
+            self.open_chosen(host, token, index)?;
+            return Ok(Handled::Yes);
+        }
+        match view.rows {
+            // BLOCKED (#228): the export writes through `core.files`
+            // (PORTING-7.md); the row refuses plainly until it is wired.
+            Rows::Books(_) => Err(Error::Unsupported),
             // BLOCKED (#228): the book opens at the note with `command.open`
             // into `core.reader` and the goto event (draft 22 `doc_open`).
             Rows::Notes => Err(Error::Unsupported),
@@ -170,11 +192,64 @@ impl NativeNotesOverview {
         self.library.as_ref().ok_or(Error::State)
     }
 
-    /// Opens the notes of the book at `path` with the path handed over.
-    fn open_book(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+    /// Opens the notes of the book the row `index` of the list names. A
+    /// handle is good in one generation of the catalog: when the catalog has
+    /// changed (`State`) or the book is gone (`NotFound`), the list is made
+    /// again once, and the book is opened if it is still there (found by its
+    /// title, among equal titles by place); else the list shows what is there
+    /// now and says that it changed.
+    fn open_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
         self.ensure(host)?;
+        let Some(Rows::Books(handles)) = self.screens.top(token).map(|view| &view.rows) else {
+            return Err(Error::State);
+        };
+        let handle = *handles.get(index).ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
-        let params = [Param::new("path", path)?];
+        let found = BookRef::catalog(handle.key, handle.generation).and_then(|book| {
+            self.library()?
+                .book(host, book, &mut input, &mut out)
+                .map(|_| ())
+        });
+        match found {
+            Ok(()) => self.open_book(host, handle),
+            Err(Error::State | Error::NotFound) => self.refresh(host, token, index),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Makes the list again under the screen of `token`; opens the book that
+    /// row `index` of the old list was, or says the list changed.
+    fn refresh(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let (title, place) = {
+            let view = self.screens.top(token).ok_or(Error::State)?;
+            let (title, place) = place_of(view.list.items(), index).ok_or(Error::State)?;
+            (copy(title)?, place)
+        };
+        let mut messages = Messages::new()?;
+        let (handles, items) = self.list_rows(host, &mut messages)?;
+        let again = find_again(&items, &handles, &title, place);
+        let hint = messages.copy(host, "notes-overview.changed")?;
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        view.rows = Rows::Books(handles);
+        view.list.replace(items);
+        match again {
+            Some(handle) => self.open_book(host, handle),
+            None => {
+                let mut scratch = [0; 256];
+                CommandSender::new(host, &mut scratch).notify(Notify::new(&hint)?)
+            }
+        }
+    }
+
+    /// Opens the notes of the book named by `handle`, which is handed over as
+    /// two numbers; the book's path is never fetched.
+    fn open_book(&mut self, host: &Host<'_>, handle: Handle) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let (mut key, mut generation) = ([0; DIGITS], [0; DIGITS]);
+        let params = [
+            Param::new(KEY, digits(handle.key, &mut key))?,
+            Param::new(GENERATION, digits(handle.generation, &mut generation))?,
+        ];
         let handover = self
             .ui
             .as_ref()
@@ -185,18 +260,22 @@ impl NativeNotesOverview {
             .open(Open::screen("notes-overview.book")?.handover(handover))
     }
 
-    fn opened_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
-        self.ensure(host)?;
+    /// The books with notes as handles and rows: each book, then the
+    /// *Export* row.
+    fn list_rows(
+        &self,
+        host: &Host<'_>,
+        messages: &mut Messages,
+    ) -> Result<(Vec<Handle>, Vec<Item>), Error> {
         let listing = {
             let mut source = HostSource::new(host, self.library()?)?;
             scan(&mut source)?
         };
-        let mut messages = Messages::new()?;
         let mut items = Vec::new();
-        let mut paths = Vec::new();
+        let mut handles = Vec::new();
         for book in listing.books() {
-            push(&mut paths, copy(&book.path)?)?;
-            let note = counts(host, &mut messages, book)?;
+            push(&mut handles, book.handle)?;
+            let note = counts(host, messages, book)?;
             push(&mut items, Item::noted(&book.title, "", &note)?)?;
         }
         if !listing.books().is_empty() {
@@ -211,9 +290,16 @@ impl NativeNotesOverview {
             );
             push(&mut items, Item::noted(&title, "›", &note)?)?;
         }
+        Ok((handles, items))
+    }
+
+    fn opened_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        self.ensure(host)?;
+        let mut messages = Messages::new()?;
+        let (handles, items) = self.list_rows(host, &mut messages)?;
         let view = View {
             title: messages.copy(host, "notes-overview.title")?,
-            rows: Rows::Books(paths),
+            rows: Rows::Books(handles),
             list: ItemList::new(items),
             empty: empty(host, &mut messages)?,
         };
@@ -228,7 +314,7 @@ impl NativeNotesOverview {
     ) -> Result<(), Error> {
         self.ensure(host)?;
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
-        let mut path = String::new();
+        let (mut key, mut generation) = (None, None);
         if let Some(handover) = handover {
             for param in self
                 .ui
@@ -237,21 +323,27 @@ impl NativeNotesOverview {
                 .params(host, handover, &mut input, &mut out)?
             {
                 let param = param?;
-                if param.key() == "path" {
-                    path = copy(param.value())?;
+                match param.key() {
+                    KEY => key = param.value().parse().ok(),
+                    GENERATION => generation = param.value().parse().ok(),
+                    _ => {}
                 }
             }
         }
-        let mut messages = Messages::new()?;
-        let title = match self
-            .library()?
-            .book(host, BookRef::path(&path)?, &mut input, &mut out)
-        {
-            Ok(book) => copy(book.title())?,
-            Err(Error::NotFound) => copy(paperpaw_sdk::files::name(&path))?,
-            Err(error) => return Err(error),
+        // A handover without the two numbers names no book.
+        let (Some(key), Some(generation)) = (key, generation) else {
+            return Err(Error::Invalid);
         };
-        let items = self.notes(host, &mut messages, &path, &mut input, &mut out)?;
+        let book = BookRef::catalog(key, generation)?;
+        let mut messages = Messages::new()?;
+        // A list older than a change to the catalog is `State` here, as is a
+        // book that is gone (`NotFound`): the screen is not opened.
+        let title = copy(
+            self.library()?
+                .book(host, book, &mut input, &mut out)?
+                .title(),
+        )?;
+        let items = self.notes(host, &mut messages, book, &mut input, &mut out)?;
         let view = View {
             title,
             rows: Rows::Notes,
@@ -269,7 +361,7 @@ impl NativeNotesOverview {
         &self,
         host: &Host<'_>,
         messages: &mut Messages,
-        path: &str,
+        book: BookRef<'_>,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<Vec<Item>, Error> {
@@ -277,7 +369,7 @@ impl NativeNotesOverview {
         let mut items = Vec::new();
         let mut cursor = AnnotationCursor::start();
         for _ in 0..MOST_PAGES {
-            let page = library.annotations(host, BookRef::path(path)?, cursor, input, out)?;
+            let page = library.annotations(host, book, cursor, input, out)?;
             for row in page.rows() {
                 let row = row?;
                 let (kind, text) = match row.kind() {
@@ -320,6 +412,29 @@ impl NativeNotesOverview {
     }
 }
 
+/// The title of row `index` and how many rows before it have the same title.
+fn place_of(items: &[Item], index: usize) -> Option<(&str, usize)> {
+    let Some(Item::Row(row)) = items.get(index) else {
+        return None;
+    };
+    let place = items[..index]
+        .iter()
+        .filter(|item| matches!(item, Item::Row(other) if other.title == row.title))
+        .count();
+    Some((&row.title, place))
+}
+
+/// The book of the rows `items` (the first `handles.len()` are books) that is
+/// the `place`th with `title`.
+fn find_again(items: &[Item], handles: &[Handle], title: &str, place: usize) -> Option<Handle> {
+    items
+        .iter()
+        .zip(handles)
+        .filter(|(item, _)| matches!(item, Item::Row(row) if row.title == title))
+        .nth(place)
+        .map(|(_, handle)| *handle)
+}
+
 /// `3 highlights · 1 bookmark`.
 fn counts(host: &Host<'_>, messages: &mut Messages, book: &Counted) -> Result<String, Error> {
     let mut out = String::new();
@@ -339,4 +454,55 @@ fn empty(host: &Host<'_>, messages: &mut Messages) -> Result<(String, String), E
         messages.copy(host, "notes-overview.empty.title")?,
         messages.copy(host, "notes-overview.empty")?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DIGITS, Handle, Item, digits, find_again, place_of};
+    use alloc::vec::Vec;
+
+    fn rows(titles: &[&str]) -> (Vec<Item>, Vec<Handle>) {
+        let items = titles
+            .iter()
+            .map(|title| Item::noted(title, "", "").unwrap())
+            .collect();
+        let handles = (0..titles.len() as u32)
+            .map(|key| Handle {
+                key: key + 50,
+                generation: 2,
+            })
+            .collect();
+        (items, handles)
+    }
+
+    #[test]
+    fn a_book_is_found_again_by_its_title_and_its_place_among_equal_titles() {
+        // The old list: two books of one title; the second was chosen.
+        let (old, _) = rows(&["Apple", "Apple", "Pear", "Export"]);
+        assert_eq!(place_of(&old, 1), Some(("Apple", 1)));
+        assert_eq!(place_of(&old, 2), Some(("Pear", 0)));
+        assert_eq!(place_of(&old, 9), None);
+        // The new list has a book added before them: the handles are new, the
+        // book is the same.
+        let (new, handles) = rows(&["Aaa", "Apple", "Apple", "Pear", "Export"]);
+        let handles = &handles[..4];
+        assert_eq!(find_again(&new, handles, "Apple", 1), Some(handles[2]));
+        assert_eq!(find_again(&new, handles, "Pear", 0), Some(handles[3]));
+        // The second Apple is gone: not found, and so is a title never listed.
+        let (new, handles) = rows(&["Apple", "Pear", "Export"]);
+        assert_eq!(find_again(&new, &handles[..2], "Apple", 1), None);
+        // The *Export* row is not a book, even under the title of a book.
+        assert_eq!(find_again(&new, &handles[..2], "Export", 0), None);
+        assert_eq!(find_again(&new, &handles[..2], "Quince", 0), None);
+    }
+
+    #[test]
+    fn numbers_are_written_in_decimal_without_allocating() {
+        let mut buf = [0; DIGITS];
+        assert_eq!(digits(0, &mut buf), "0");
+        assert_eq!(digits(7, &mut buf), "7");
+        assert_eq!(digits(1_000, &mut buf), "1000");
+        assert_eq!(digits(u32::MAX, &mut buf), "4294967295");
+        assert_eq!("4294967295".parse::<u32>().ok(), Some(u32::MAX));
+    }
 }

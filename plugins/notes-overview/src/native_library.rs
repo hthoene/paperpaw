@@ -1,8 +1,8 @@
 //! [`Source`] over the library service (`core.library`): the catalog by
-//! title, a book's annotations by kind, a book's path and title. The buffers
+//! title, a book's annotations by kind, a book's title. The buffers
 //! of the calls are the 4,096 bytes a reply fits; nothing else is allocated
 //! but what the scan keeps.
-use crate::model::Kind;
+use crate::model::{Handle, Kind};
 use crate::native_scan::{Page, Source};
 use alloc::vec::Vec;
 use paperpaw_sdk::native::{
@@ -107,10 +107,17 @@ impl Source for HostSource<'_, '_> {
         })
     }
 
-    fn describe(
+    fn handle(&self, book: Ref) -> Handle {
+        Handle {
+            key: book.key,
+            generation: book.generation,
+        }
+    }
+
+    fn title(
         &mut self,
         book: Ref,
-        put: &mut dyn FnMut(&str, &str) -> Result<(), Error>,
+        put: &mut dyn FnMut(&str) -> Result<(), Error>,
     ) -> Result<(), Error> {
         let book = self.library.book(
             self.host,
@@ -118,6 +125,6 @@ impl Source for HostSource<'_, '_> {
             &mut self.input,
             &mut self.out,
         )?;
-        put(book.path(), book.title())
+        put(book.title())
     }
 }

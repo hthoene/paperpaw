@@ -1,5 +1,4 @@
 use super::*;
-use alloc::string::ToString;
 
 fn note(
     kind: Kind,
@@ -111,17 +110,18 @@ fn counting_skips_the_kinds_it_does_not_know() {
 fn the_list_keeps_200_books_by_title_and_says_when_it_left_some_out() {
     let mut list = Listing::new();
     assert_eq!(list.rows(), 0);
-    list.add("/b", "banana", 1, 0).unwrap();
-    list.add("/a", "Apple", 0, 2).unwrap();
-    list.add("/n", "none", 0, 0).unwrap();
-    list.add("/a2", "apple", 1, 1).unwrap();
+    let h = |key| Handle { key, generation: 1 };
+    list.add(h(2), "banana", 1, 0).unwrap();
+    list.add(h(1), "Apple", 0, 2).unwrap();
+    list.add(h(9), "none", 0, 0).unwrap();
+    list.add(h(3), "apple", 1, 1).unwrap();
     list.sort();
-    let order: Vec<_> = list.books().iter().map(|b| b.path.as_str()).collect();
-    assert_eq!(order, ["/a", "/a2", "/b"]);
+    let order: Vec<_> = list.books().iter().map(|b| b.handle.key).collect();
+    assert_eq!(order, [1, 3, 2]);
     assert_eq!(list.rows(), 4);
     assert!(!list.more());
     for i in 0..MOST_BOOKS {
-        list.add(&i.to_string(), "x", 1, 0).unwrap();
+        list.add(h(i as u32 + 100), "x", 1, 0).unwrap();
     }
     assert_eq!(list.books().len(), MOST_BOOKS);
     assert!(list.more());
@@ -130,7 +130,10 @@ fn the_list_keeps_200_books_by_title_and_says_when_it_left_some_out() {
 #[test]
 fn counts_show_only_what_there_is() {
     let book = |h, b| Counted {
-        path: String::new(),
+        handle: Handle {
+            key: 0,
+            generation: 1,
+        },
         title: String::new(),
         highlights: h,
         bookmarks: b,

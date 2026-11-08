@@ -1,7 +1,7 @@
 //! The list of books with notes over a scripted `core.library`, with the
 //! plugin made and driven by the scripted host: what it asks the library
 //! (the pages of the catalog, a book's annotations by catalog reference, the
-//! path and title of the books that have notes only), and that no refusal of
+//! title of the books that have notes only), and that no refusal of
 //! the host or of memory makes it abort.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]

@@ -42,17 +42,24 @@ services it needs are not there. It is removed in the PR that finishes the port.
   its first highlight or bookmark and only sets `more`, so a library of thousands costs host calls,
   not memory. The interface-6 scan listed the folder of notes files first; there is no such folder
   on interface 7.
-- Memory of the list, worst case: a listed title is cut to `TITLE_MAX` = 128 bytes (at a
-  character's end), and a book with a path over `PATH_MAX` = 512 bytes (the most the library names
-  a book by; `BookRef::path` refuses longer ones) is left out, since it could not be opened from
-  the list. So 200 books hold at most 200 x (128 + 512) = 128,000 bytes of text, plus 200 x 56
-  bytes of headers (about 139 KiB; a library of ordinary paths and titles needs about 30 KiB).
-  Interface 6 cut neither.
+- Memory of the list, worst case: the list keeps each book by its **catalog handle** (`lib_entry.key`
+  with the catalog generation, 8 bytes), not by its path (up to 512 bytes); the path is never
+  fetched, and the book's screen is opened by the same handle (handover parameters `key` and
+  `generation`, decimal). A listed title is cut to `TITLE_MAX` = 128 bytes (at a character's end).
+  So 200 books hold at most 200 x 128 = 25,600 bytes of text plus the headers of the entries
+  (about 30 KiB), however long the paths are (an earlier draft that kept the path was 139 KiB at
+  worst). Interface 6 cut no title. Cost: a handle is valid in one catalog generation. Choosing a
+  book first asks the library for it; on `State` (the catalog changed) or `NotFound` the list is
+  made again once under the open screen, and the book is opened if it is still there (found by its
+  title, among equal titles by its place among them; its new handle is used). If it is not, the
+  refreshed list stays and a notice says so (`notes-overview.changed`). Interface 6 kept paths,
+  which do not go stale. Tested: the matching of a book in the new list (`native_plugin` tests);
+  the refresh itself needs `i18n.copy`/`i18n.format` in the scripted host (the gap named below).
 - The walk ends at the first book past the 200 (it only sets `more`), without walking the rest of
   the catalog. So the books listed are the first 200 with notes **in the catalog's title order**;
   interface 6 took the first 200 in the order of its walk of the library and then sorted them
   (deliberate; accepted in review). The list is sorted again by title without regard to case, ties
-  by path, as before.
+  by handle (the catalog's order), where interface 6 broke ties by path.
 - The scan is written over a `Source` trait; `native_library::HostSource` fills it in from the SDK's
   `Library` (`query`, `annotations`, `book`; key and catalog generation make a `BookRef`). Tested
   over a scripted library (`src/native_scan_tests.rs`): order and counts, any page size, a full list,
@@ -76,8 +83,8 @@ services it needs are not there. It is removed in the PR that finishes the port.
   plugin of this port).
 - The list screen: the books with notes by title with `3 highlights · 1 bookmark` under each, then
   the *Export* row (with the longer help when the list is cut at 200); with no books the empty
-  text. Choosing a book opens the notes screen with the path handed over (`core.ui` handover, the
-  parameter `path`). The book's screen: its notes in reading order, bookmarks as their label,
+  text. Choosing a book opens the notes screen with the book's handle handed over (`core.ui` handover,
+  the parameters `key` and `generation`). The book's screen: its notes in reading order, bookmarks as their label,
   highlights quoted, each with its own note (else its kind) and `· 42 %` under it; kinds a newer
   reader keeps are not listed. **New cap: 300 notes shown per book** (`MOST_NOTES`; interface 6
   showed all, from a file of up to 1 MiB); a note's text is the library's 512 B preview (the
