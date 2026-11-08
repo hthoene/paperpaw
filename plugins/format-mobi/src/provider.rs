@@ -176,6 +176,10 @@ impl Storage for HostIo<'_, '_> {
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "at most 8 slots (2 on the X4); a Box would allocate where a refusal aborts (no Box::try_new)"
+)]
 enum Body {
     /// The cache is being made; the conversion keeps its place.
     Preparing(Conversion, Fit, bool),
@@ -743,7 +747,7 @@ fn clear(io: &dyn Storage) {
 /// contents, bit 6 where this call made the cache.
 fn ready_flags(document: &MobiDocument, io: &dyn Storage, made: bool) -> Result<u32, Error> {
     let toc = document.try_toc_len(io).map_err(|e| document_error(&e))? > 0;
-    Ok(u32::from(toc) * FLAG_TOC | u32::from(made) * CACHE_MADE)
+    Ok((u32::from(toc) * FLAG_TOC) | (u32::from(made) * CACHE_MADE))
 }
 
 /// Reads the book's head and starts: a ready document where the cache is
