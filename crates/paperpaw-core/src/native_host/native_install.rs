@@ -71,7 +71,16 @@ impl crate::Kernel {
     /// [`Self::register_native`] for a plugin that lives in `folder` (the loader
     /// of its `.ppn` knows it): the font and hyphenation files its records name
     /// are relative to it. A plugin with such records and no folder (a linked
-    /// built-in) is refused whole with `ERR_UNSUPPORTED`.
+    /// built-in) is refused whole with `ERR_UNSUPPORTED`; so is one with an
+    /// empty folder (a folder written with a trailing `/` is the same folder).
+    ///
+    /// When it brings fonts the choices of reading font and status font are
+    /// offered anew and the fonts chosen applied, as `plugins_changed` does.
+    /// The refresh never aborts on a short heap: where it cannot be made the
+    /// plugin stays installed, the choices and fonts in use stay and a
+    /// warning says so. It may stage a command (the font size, if the reading
+    /// font has none so large): the next round of commands runs it, so the
+    /// caller does nothing about it.
     ///
     /// # Errors
     /// As [`Self::register_native`].
@@ -90,7 +99,7 @@ impl crate::Kernel {
             // one `plugins_changed` runs for every plugin and the builder at
             // start-up; it is not part of the admission, whose allocation
             // faults the tests sweep ([`Self::admit_native`]).
-            self.offer_choices();
+            self.offer_font_choices();
             self.apply_reading_font();
             self.apply_status_font();
         }
@@ -122,6 +131,9 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        let folder = folder
+            .map(|folder| folder.trim_end_matches('/'))
+            .filter(|folder| !folder.is_empty());
         let (retained, (owner, owned, tokens), raw) =
             Retained::make_native_stored(host, map_declarations)?;
         if folder.is_none()

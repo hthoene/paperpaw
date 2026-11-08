@@ -10,6 +10,7 @@ use super::{
     native_values::{checked_id, copy, qualified},
     registrations as wire,
 };
+use crate::font_refresh::fallible_string;
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{FontFace, Id, Priority, RegisterError};
@@ -238,7 +239,7 @@ impl crate::Kernel {
     pub(super) fn publish_fonts(
         &mut self,
         owner: &Id,
-        resources: Resources,
+        mut resources: Resources,
     ) -> Result<(), RegisterError> {
         for (id, path, extends) in resources.extensions {
             self.shared.fonts.add_extension(id, path, extends)?;
@@ -253,6 +254,9 @@ impl crate::Kernel {
                         ": this device only reads fonts made for it (.ppfp)",
                     ],
                 );
+                // No role is proposed for it, no weight told of it.
+                resources.roles.retain(|(_, font, _)| *font != face.id);
+                resources.differing.retain(|id| *id != face.id);
                 continue;
             }
             if face.family.is_empty() {
@@ -323,15 +327,4 @@ impl crate::Kernel {
             self.warn(crate::WarningSource::Plugin(plugin), None, message);
         }
     }
-}
-
-/// The `parts` one after another, with fallible allocation.
-fn fallible_string(parts: &[&str]) -> Option<String> {
-    let mut text = String::new();
-    text.try_reserve_exact(parts.iter().map(|part| part.len()).sum())
-        .ok()?;
-    for part in parts {
-        text.push_str(part);
-    }
-    Some(text)
 }
