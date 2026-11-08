@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-diagnostics"
 description = "PaperPaw diagnostics screen: gray levels, focus navigation, refresh modes"
-version = "1.0.8"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,15 +10,22 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
 # Plugins depend on the SDK only, never on the kernel.
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-native.workspace = true
 
 [lints]
 workspace = true

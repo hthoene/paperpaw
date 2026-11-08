@@ -1538,7 +1538,6 @@ dependencies = [
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -1912,13 +1911,13 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

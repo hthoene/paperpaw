@@ -18,7 +18,7 @@
 //!   switch them off until the reader wants them ([`StorePlugins`]).
 //!
 //! The diagnostics screen (feature `diagnostics`) is for developer
-//! builds.
+//! builds; it is a native interface-7 plugin and not registered here yet.
 
 #![no_std]
 
@@ -273,8 +273,6 @@ pub fn install_with(
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    #[cfg(feature = "diagnostics")]
-    let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
     builder
         .plugin(paperpaw_plugin_update::Update)
         .plugin(paperpaw_plugin_setup::Setup)
