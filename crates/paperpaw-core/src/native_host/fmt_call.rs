@@ -31,6 +31,7 @@ use super::{
     registrations::{self as wire, Record},
     stages_wire::core_format_v1 as local,
 };
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED};
 use paperpaw_sdk::Env;
@@ -335,7 +336,7 @@ impl<'a> Stage<'a> {
             return Ok(put);
         };
         let mut scratch = [0_u8; 64];
-        let written = wire::record_encode_one(&Record::ServiceDocImage(doc), &mut scratch)?;
+        let written = codec::encode_one(&Record::ServiceDocImage(doc), &mut scratch)?;
         // Never over what is still to be read.
         if put + written > frame.1 {
             return Err(ERR_NO_SPACE);

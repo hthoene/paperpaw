@@ -10,7 +10,10 @@
 //! network host's reply cap, not by this crate (`PORTING-7.md`).
 use alloc::string::String;
 use paperpaw_sdk::{digest::md5::Md5, json, native::Error};
-use paperpaw_ui_kit::text::{concat, copy, decimal};
+use paperpaw_ui_kit::{
+    mem::wipe,
+    text::{concat, copy, decimal},
+};
 
 pub use crate::declarations::DEFAULT_SERVER;
 
@@ -71,12 +74,21 @@ pub const fn failure(status: u32) -> &'static str {
 /// # Errors
 /// `NoMemory` when the key cannot be kept.
 pub fn password_key(password: &str) -> Result<String, Error> {
-    // TODO(#421): wipe the MD5 state, the hex array and (on a refused copy) the
-    // key itself with `mem::wipe` once it lands; the password is secret.
+    let mut digits = [0; 32];
+    key_with(password, &mut digits)
+}
+
+/// [`password_key`] with the hex digits kept in `digits`, which are zeroed
+/// before it returns, so the key is left only in the returned text.
+///
+/// The MD5 state (it holds the password's last block) wipes itself when
+/// the digest is dropped (`paperpaw_digest`'s `Drop`, #451).
+fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<String, Error> {
     let mut md5 = Md5::new();
     md5.update(password.as_bytes());
-    let mut digits = [0; 32];
-    copy(md5.hex_into(&mut digits))
+    let key = copy(md5.hex_into(digits));
+    wipe(digits);
+    key
 }
 
 /// `text` as a JSON string literal.
@@ -353,6 +365,14 @@ mod tests {
                 "{status}"
             );
         }
+    }
+
+    #[test]
+    fn the_hex_digits_are_zeroed_once_the_key_is_made() {
+        let mut digits = [0xAA; 32];
+        let key = key_with("abc", &mut digits).unwrap();
+        assert_eq!(key, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(digits, [0; 32]);
     }
 
     #[test]
