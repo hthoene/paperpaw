@@ -80,3 +80,19 @@ fn runs_and_sections_survive_refused_allocations() {
         Ok(())
     });
 }
+
+#[test]
+fn reading_a_plugin_survives_refused_allocations() {
+    use paperpaw_plugin_store::native_item::Item;
+    let long = "é".repeat(200);
+    fail_alloc::sweep(|| {
+        let mut item = Item::new();
+        item.read(&["id"], "airy-theme", "x4")?;
+        item.read(&["name"], &long, "x4")?;
+        item.read(&["summary"], &long, "x4")?;
+        item.read(&["latest", "version"], "1.0.0", "x4")?;
+        item.read(&["devices", "[]"], "x4", "x4")?;
+        assert!(item.device);
+        Ok(())
+    });
+}
