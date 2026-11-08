@@ -403,9 +403,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-translate"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
