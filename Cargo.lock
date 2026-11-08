@@ -1581,7 +1581,6 @@ dependencies = [
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
- "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
@@ -2384,13 +2383,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2548,7 +2548,6 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-menu",
- "paperpaw-plugin-plugin-manager",
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",
