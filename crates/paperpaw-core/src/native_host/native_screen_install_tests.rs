@@ -395,8 +395,15 @@ fn unsupported_native_family_discards_every_staged_screen() {
 
 #[test]
 fn every_post_factory_host_allocation_refuses_without_partial_publication() {
+    // Also with the group, setting, extra and action of the batch (ARMS = 1).
+    for arms in 0..=1 {
+        sweep_post_factory_allocations(arms);
+    }
+}
+
+fn sweep_post_factory_allocations(arms: u8) {
     let mut reached_success = false;
-    for allocation in 1..48 {
+    for allocation in 1..400 {
         reset(NORMAL);
         DESTROYED.with(|value| value.set(0));
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -414,7 +421,9 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
         );
         let before = kernel.shared.registry.screens.list().iter().count();
         INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        ARMS.with(|value| value.set(arms));
         let result = install(&mut kernel, 0);
+        ARMS.with(|value| value.set(0));
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
         // Public lookup hides overrides of sealed actions. Unseal the fixture
@@ -440,6 +449,17 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
                 &mut |_| metadata += 1,
             );
             assert_eq!(metadata, 1);
+            if arms == 1 {
+                let shared = &kernel.shared;
+                assert!(shared.actions.contains("factory.action"));
+                assert!(shared.settings.spec("factory.flag").is_some());
+                assert!(
+                    shared
+                        .settings
+                        .groups()
+                        .any(|g| g.id.as_str() == "factory.g")
+                );
+            }
             drop(kernel);
             assert_eq!(DESTROYED.with(Cell::get), 1);
             break;
@@ -451,6 +471,19 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
                 Err(host_glue::ERR_NOT_FOUND)
             );
         }
+        let shared = &kernel.shared;
+        assert!(!shared.actions.contains("factory.action"), "{allocation}");
+        assert!(
+            shared.settings.spec("factory.flag").is_none(),
+            "{allocation}"
+        );
+        assert!(
+            !shared
+                .settings
+                .groups()
+                .any(|g| g.id.as_str() == "factory.g"),
+            "{allocation}"
+        );
         assert_eq!(DESTROYED.with(Cell::get), 1);
     }
     assert!(
@@ -989,21 +1022,63 @@ fn a_batch_with_a_family_the_host_does_not_map_is_refused_whole() {
 }
 
 #[test]
-fn a_duplicate_setting_is_refused_before_anything_is_published() {
-    let (mut kernel, result) = arms_kernel(1);
-    result.unwrap();
-    // Another plugin that claims the same setting and action ids is refused.
-    reset(NORMAL);
-    ARMS.with(|value| value.set(1));
-    let again = kernel.register_native(
-        host_named("factory", 0),
-        &FlatDepth::try_new().unwrap(),
-        |_, _, _| {},
-    );
-    ARMS.with(|value| value.set(0));
-    assert!(again.is_err());
-    assert!(kernel.shared.settings.spec("factory.flag").is_some());
-    assert!(kernel.shared.actions.contains("factory.action"));
+fn a_duplicate_setting_or_action_is_refused_before_anything_is_published() {
+    // Another plugin already holds the setting and the action ids; the
+    // screen of this batch would be published before them otherwise.
+    for held in ["factory.flag", "factory.action", "factory.g"] {
+        reset(NORMAL);
+        DESTROYED.with(|value| value.set(0));
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        match held {
+            "factory.flag" => kernel
+                .shared
+                .settings
+                .define(paperpaw_sdk::SettingSpec::new(
+                    Id::new_static("factory.flag"),
+                    "other",
+                    paperpaw_sdk::SettingKind::Bool,
+                    paperpaw_sdk::SettingValue::Bool(false),
+                    paperpaw_sdk::builtin::groups::OTHER,
+                ))
+                .unwrap(),
+            "factory.g" => kernel
+                .shared
+                .settings
+                .add_group(paperpaw_sdk::SettingGroupSpec::new(
+                    Id::new_static("factory.g"),
+                    "other",
+                ))
+                .unwrap(),
+            _ => {
+                kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
+                    Id::new_static("factory.action"),
+                    "other",
+                ));
+            }
+        }
+        ARMS.with(|value| value.set(1));
+        let result = install(&mut kernel, 0);
+        ARMS.with(|value| value.set(0));
+        assert!(result.is_err(), "{held}");
+        let shared = &kernel.shared;
+        assert!(
+            !shared.registry.screens.contains_key("factory.screen"),
+            "{held}"
+        );
+        assert!(shared.native_instances.find("factory").is_none(), "{held}");
+        assert_eq!(
+            shared.settings.spec("factory.flag").is_some(),
+            held == "factory.flag",
+            "{held}"
+        );
+        assert_eq!(
+            shared.actions.contains("factory.action"),
+            held == "factory.action"
+        );
+        assert_eq!(DESTROYED.with(Cell::get), 1, "{held}");
+    }
 }
 
 #[test]

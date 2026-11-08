@@ -364,6 +364,11 @@ impl crate::Kernel {
         let no_room = || RegisterError::Invalid {
             message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
         };
+        // A made setting needs one of the limited places: none is dropped
+        // for lack of one once publication starts.
+        if !self.shared.settings.has_room_for(settings) {
+            return Err(no_room());
+        }
         self.shared
             .actions
             .try_reserve(actions)
@@ -374,17 +379,17 @@ impl crate::Kernel {
             .map_err(|_| no_room())?;
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
-            // Cannot fail: checked above, and the room is made.
-            let _ = match setting {
+            // Checked above (no duplicate, a default that fits, a place
+            // and the room); an error here would be a mistake in those.
+            match setting {
                 crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
                 crate::registry::Staged::Fixed(list, at) => {
                     self.shared.settings.define_fixed(list, at)
                 }
-            };
+            }?;
         }
         for group in staging.setting_groups.drain(..) {
-            // Cannot fail: checked above.
-            let _ = self.shared.settings.add_group(group);
+            self.shared.settings.add_group(group)?;
         }
         Ok(())
     }
