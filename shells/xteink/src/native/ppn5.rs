@@ -124,10 +124,10 @@ pub fn load(
     }
 }
 
-#[cfg(feature = "esp32c3")]
-pub(super) use x4::{StorageSource, entry_check_failed};
 #[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use x4::register_linked_probe;
+#[cfg(feature = "esp32c3")]
+pub(super) use x4::{StorageSource, entry_check_failed};
 
 /// The ESP32-C3's part: the image is placed in flash and its entry read.
 #[cfg(feature = "esp32c3")]
@@ -414,8 +414,7 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        let (Ok(depth), Ok(resources)) = (FlatDepth::try_new(), HostResources::try_new())
-        else {
+        let (Ok(depth), Ok(resources)) = (FlatDepth::try_new(), HostResources::try_new()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
