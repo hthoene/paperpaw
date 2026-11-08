@@ -22,7 +22,7 @@ const CASES: [Case; 3] = [
         blocked_by: &["H1", "H4", "draft-22-doc_open-root-5"],
     },
     // Other plugins' lines (the `about.lines` stage) after the licences: the
-    // host refuses the stage spec until its stages are wired.
+    // host admits the stage spec but does not run stages yet (slot 32).
     Case {
         name: "about-lines-from-plugins",
         golden: None,
@@ -52,7 +52,7 @@ fn about_open_licences_in_reader() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the host does not yet admit stage specs (about.lines)"]
+#[ignore = "BLOCKED: the host does not yet run stages (about.lines; slot 32 wiring)"]
 fn about_lines_from_plugins() {
     CASES[2].refuse().unwrap();
 }

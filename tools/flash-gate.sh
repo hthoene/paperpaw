@@ -87,6 +87,10 @@ mkdir -p "$work" || die "cannot make $work"
 case "$(cd "$work" && pwd)" in
     *[[:space:]]*) die "--work has a space or tab in its path: use another" ;;
 esac
+# The cargo home's remap goes into the same split variable.
+case "${CARGO_HOME:-$HOME/.cargo}" in
+    *[[:space:]]*) die "CARGO_HOME (${CARGO_HOME:-$HOME/.cargo}) has a space or tab in its path: the build's path remaps would be split; use another" ;;
+esac
 # A fixed name: the path is part of what the compiler sees (the crates' hashes
 # and so the layout), so a random name would move the sizes by a little.
 ours="$work/flash-gate"
@@ -100,6 +104,14 @@ trap cleanup EXIT
 # `-f`: a record of this very path left by an earlier run that was killed
 # (its folder gone) is taken over. Not `git worktree prune`, which would clean
 # the records of everybody else's worktrees in this repository too.
+# The records of earlier runs of this script that were killed, whose folder is
+# gone: named by their path (`.../flash-gate/tree`) and removed one by one,
+# which leaves everybody else's records alone.
+git -C "$root" worktree list --porcelain |
+    awk '/^worktree /{p = substr($0, 10)} /^prunable/ {if (p ~ /\/flash-gate\/tree$/) print p}' |
+    while IFS= read -r stale; do
+        git -C "$root" worktree remove -f -f "$stale" >/dev/null 2>&1 || true
+    done
 git worktree add -q -f --detach "$ours/tree" "$base_sha"
 
 # What the chip's flash holds: code, read-only data and the initial values of

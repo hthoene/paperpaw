@@ -146,6 +146,21 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
                     | Record::StatusLine(_)
                     | Record::StatusPlace(_)
                     | Record::Registration(_)
+                    | Record::MenuEntry(_)
+                    | Record::IconSpec(_)
+                    | Record::MenuNeed(_)
+                    | Record::MenuSection(_)
+                    | Record::MenuHide(_)
+                    | Record::MenuDescribe(_)
+                    | Record::SlotSpec(_)
+                    | Record::SlotOffer(_)
+                    | Record::KeyBind(_)
+                    | Record::PresetSpec(_)
+                    | Record::SettingDefault(_)
+                    | Record::SettingChoice(_)
+                    | Record::PresetValue(_)
+                    | Record::StageSpec(_)
+                    | Record::RegistrationStage(_)
             );
             match validate_record(plugin, &record) {
                 Ok(()) => assert!(admitted, "{record:?}"),
