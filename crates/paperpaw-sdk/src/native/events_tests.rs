@@ -152,6 +152,7 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
     let mut bytes = [0; 256];
     let now_ms = 0x1234_5678_9abc_def0;
     let screen = Record::EventScreenShown(EventScreenShown {
+        last_input: 0,
         now_ms,
         screen: "demo.main",
         width: 0x1234_5678,
@@ -166,11 +167,12 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         width,
         height,
         instance,
+        last_input,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
-    assert_eq!(instance, None);
+    assert_eq!((instance, last_input), (None, None));
     assert_eq!(
         (got_ms, screen, width, height),
         (now_ms, "demo.main", 0x1234_5678, 0x9abc_def0)
@@ -194,9 +196,36 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
 }
 
 #[test]
+fn screen_shown_says_what_was_used_last_and_refuses_unknown_values() {
+    use crate::keys::InputMode;
+    let shown = |last_input| {
+        let mut bytes = [0; 128];
+        let record = Record::EventScreenShown(EventScreenShown {
+            last_input,
+            now_ms: 1,
+            screen: "demo.main",
+            width: 480,
+            height: 800,
+            instance: None,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        decode(&bytes[..len]).map(|event| match event {
+            Event::ScreenShown { last_input, .. } => last_input,
+            _ => panic!("not screen_shown"),
+        })
+    };
+    assert_eq!(shown(0), Ok(None));
+    assert_eq!(shown(1), Ok(Some(InputMode::Buttons)));
+    assert_eq!(shown(2), Ok(Some(InputMode::Touch)));
+    assert_eq!(shown(3), Ok(Some(InputMode::Pen)));
+    assert_eq!(shown(4), Err(Error::Invalid));
+}
+
+#[test]
 fn screen_and_action_events_refuse_bad_framing_and_utf8() {
     for record in [
         Record::EventScreenShown(EventScreenShown {
+            last_input: 0,
             now_ms: 9,
             screen: "demo.main",
             width: 800,

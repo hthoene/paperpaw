@@ -160,7 +160,8 @@ fn huge_progressive_jpegs_are_refused_before_taking_memory() {
     let data = huge_jpeg(&Jpeg::new(64, 64, &[(2, 2), (1, 1), (1, 1)], 1, true).progressive());
     for color in [false, true] {
         let (result, _, peak, largest) = measure(Format::Jpeg, &data, SCREEN, color);
-        assert_eq!(result, Err(ImageError::OutOfMemory));
+        // Over the decoder's cap from its header: too large for good.
+        assert_eq!(result, Err(ImageError::TooLarge));
         assert!(peak < 256 * KIB, "{peak} bytes held");
         assert!(largest < 256 * KIB, "{largest} bytes asked for");
     }

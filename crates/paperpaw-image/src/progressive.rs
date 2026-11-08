@@ -60,9 +60,9 @@ impl Coefficients {
         let kept = n * n;
         let bytes = blocks
             .checked_mul(kept * 2 + if n > 1 { 8 } else { 0 })
-            .ok_or(ImageError::OutOfMemory)?;
+            .ok_or(ImageError::TooLarge)?;
         if bytes > MAX_COEFFICIENT_BYTES {
-            return Err(ImageError::OutOfMemory);
+            return Err(ImageError::TooLarge);
         }
         let mut slot = [None; 64];
         for (z, &pos) in ZIGZAG.iter().enumerate() {
@@ -189,20 +189,26 @@ pub(crate) fn decode(
     );
     let color = sink.wants_color() && frame.components.len() == 3;
     let mut coefficients = None;
+    // Why the last, smallest, try failed: over the cap even at one value a
+    // block in gray is `TooLarge` for good; a refused allocation may pass later.
+    let mut last = ImageError::OutOfMemory;
     for kept in if color { [3, 1] } else { [1, 1] } {
         let mut n = largest;
         coefficients = loop {
             match keep(&frame.components[..kept], &layout, n) {
                 Ok(c) => break Some(c),
                 Err(_) if n > 1 => n /= 2,
-                Err(_) => break None,
+                Err(error) => {
+                    last = error;
+                    break None;
+                }
             }
         };
         if coefficients.is_some() {
             break;
         }
     }
-    let mut coefficients = coefficients.ok_or(ImageError::OutOfMemory)?;
+    let mut coefficients = coefficients.ok_or(last)?;
     // The first scan's header is next (its length already read).
     let mut marker = 0xda;
     let mut first = true;

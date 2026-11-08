@@ -86,6 +86,7 @@ impl native::Plugin for ScreenProbe {
         let len = crate::native_host::events::encode(
             &crate::native_host::registrations::Record::EventScreenShown(
                 crate::native_host::registrations::EventScreenShown {
+                    last_input: 0,
                     now_ms,
                     screen: "battery.screen",
                     width: 480,

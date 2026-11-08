@@ -71,6 +71,7 @@ impl native::Plugin for ScreenProbe {
         let len = paperpaw_core::native_host::events::encode(
             &paperpaw_core::native_host::registrations::Record::EventScreenShown(
                 paperpaw_core::native_host::registrations::EventScreenShown {
+                    last_input: 0,
                     now_ms,
                     screen: "battery.screen",
                     width: 480,

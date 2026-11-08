@@ -135,6 +135,8 @@ input(state: pointer, token: u32, input: bytes) -> i32
   with `done`, confirms it. Text longer than 1,024 bytes comes in several events, cut between
   characters, `done` only on the last. It needs no subscription: `registration.event` naming 109
   refuses the batch (`ERR_UNSUPPORTED`), as for 82 (`ui.md` section 3.2). Other `flags` bits are 0 (decoders refuse them).
+  `text` carries `"secret": true` (draft 30): it may be a password, so the generated record's
+  `Debug` shows neither the text nor its length, and the SDK's `TypedText` shows only its length.
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
 - [D] `event.screen_shown` (38) and `event.action_run` (39) cannot be registered for with
   `registration.event`: they go to the token of the screen or action declaration they name. A
@@ -157,6 +159,11 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] `event.screen_shown` goes to the screen's token (through `dispatch_event`) each time it
   comes to the top or its pane size changes; a plugin re-acquires stale font handles there.
   There is no "hidden" event: a screen that is not on top gets no `draw` and no `input`.
+- [D] `event.screen_shown.last_input` (draft 30; optional, ordinal 1, default 0): what the user
+  used last before the screen was shown, as the host saw it (interface 6 `Env::last_input`): 0
+  not known, 1 buttons or keys, 2 touch, 3 pen. A screen decides from it whether to show a
+  focus at once (a focus for buttons, none for a finger). Other values are refused by decoders;
+  hosts never send them.
 - [D] Unknown enum values (state, phase, kind) are refused by decoders like every wire rule;
   producers never send them.
 

@@ -71,6 +71,13 @@ event_fn!(screen_shown, wire::EventScreenShown<'_>, |r| {
             .instance
             .map(|value| crate::native::ui::Instance::new(value).ok_or(Error::Invalid))
             .transpose()?,
+        last_input: match r.last_input {
+            0 => None,
+            1 => Some(crate::keys::InputMode::Buttons),
+            2 => Some(crate::keys::InputMode::Touch),
+            3 => Some(crate::keys::InputMode::Pen),
+            _ => return Err(Error::Invalid),
+        },
     }
 });
 event_fn!(action_run, wire::EventActionRun<'_>, |r| Event::ActionRun {

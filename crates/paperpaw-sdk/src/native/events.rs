@@ -300,13 +300,16 @@ pub enum Event<'a> {
     BatteryMeasured { now_ms: u64 },
     /// The displayed page changed.
     PageTurned(ReadingView<'a>),
-    /// A screen became visible or its pane changed size.
+    /// A screen became visible or its pane changed size. `last_input` is what
+    /// the user used last before it was shown, as the host saw it (`None` where
+    /// the host does not say): a focus at once for buttons, none for a finger.
     ScreenShown {
         now_ms: u64,
         screen: &'a str,
         width: u32,
         height: u32,
         instance: Option<super::ui::Instance>,
+        last_input: Option<crate::keys::InputMode>,
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },

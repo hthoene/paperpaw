@@ -189,6 +189,12 @@ impl<D: Dispatch> NativeScreen<D> {
             width: u32::from(pane.width),
             height: u32::from(pane.height),
             instance: self.key.map(ScreenKey::serial),
+            last_input: match env.last_input() {
+                paperpaw_sdk::keys::InputMode::Buttons => 1,
+                paperpaw_sdk::keys::InputMode::Touch => 2,
+                paperpaw_sdk::keys::InputMode::Pen => 3,
+                _ => 0,
+            },
         });
         let mut bytes = [0; 192];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {

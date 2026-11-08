@@ -2314,6 +2314,15 @@
           "ordinal": 0,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "last_input",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 1,
+          "default": 0,
+          "max_bytes": 0
         }
       ]
     },
@@ -14572,7 +14581,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 1024
+          "max_bytes": 1024,
+          "secret": true
         },
         {
           "name": "flags",
