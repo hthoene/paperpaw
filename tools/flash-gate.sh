@@ -78,6 +78,7 @@ build() { # name rev sha features
             cargo +"$tool" build --locked -j"$jobs" --release --target "$target" \
             --no-default-features --features "$features" >&2) || { echo "build failed: $name" >&2; exit 2; }
     cp "$ours/target-$name/$target/release/paperpaw-xteink" "$ours/$name.elf"
+    cp "$ours/tree/shells/xteink/partitions.csv" "$ours/$name.csv"
     echo "$tool" > "$ours/$name.tool"
 }
 
@@ -96,7 +97,7 @@ fi
 # The images the chip is flashed with, for the record (not the gate).
 for n in base head; do
     if command -v espflash >/dev/null 2>&1 &&
-        espflash save-image --chip esp32c3 "$ours/$n.elf" "$ours/$n.bin" >/dev/null 2>&1; then
+        espflash save-image --chip esp32c3 --partition-table "$ours/$n.csv" --flash-size 16mb "$ours/$n.elf" "$ours/$n.bin" >/dev/null 2>&1; then
         echo "application.bin $n: $(wc -c < "$ours/$n.bin") B"
     else
         echo "application.bin $n: not made (espflash missing or failed)"
