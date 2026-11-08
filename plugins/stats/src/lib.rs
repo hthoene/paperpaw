@@ -21,17 +21,21 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 mod book;
 mod books;
 mod calendar;
 mod chart;
 mod extsort;
+mod files;
 mod fmt;
 mod koreader;
 mod left;
 mod merge;
 mod overview;
+mod room;
 mod store;
 mod sync;
 mod totals;
@@ -191,7 +195,8 @@ impl State {
         if let Some(today) = self.today.filter(|(d, _)| *d == day) {
             return Some(today);
         }
-        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix));
+        // Not read: nothing is cached (a zero would be told as today's).
+        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix)).ok()?;
         let seconds = days.iter().find(|d| d.day == day).map_or(0, |d| d.seconds);
         self.today = Some((day, seconds));
         self.today
@@ -366,13 +371,17 @@ impl State {
 /// where `books.ini` cannot be read or written: it then stays as it was,
 /// and nothing is recorded for the book.
 fn register_book(env: &Env<'_>, path: &str, now: i64, pages: u32) -> Option<u16> {
-    let md5 = md5::partial(env.storage(), path)?;
+    let mut digits = [0u8; 32];
+    let md5 = md5::partial_into(env.storage(), path, &mut digits)?;
     let mut id = None;
     store::update_books(env.storage(), |books| {
         let at = match books.iter().position(|b| b.md5 == md5) {
             Some(at) => at,
             None => {
                 let Ok(new) = store::new_id(env.storage(), books) else {
+                    return false;
+                };
+                let Ok(md5) = room::string(&[md5]) else {
                     return false;
                 };
                 let document = env.formats().open(env.storage(), path).ok();

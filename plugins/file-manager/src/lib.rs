@@ -14,8 +14,14 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
+#[cfg(test)]
+#[global_allocator]
+static COUNTING: model::testing::Counting = model::testing::Counting;
 
 mod folder;
+pub mod model;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
