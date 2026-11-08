@@ -14181,6 +14181,7 @@
           "name": "data",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "bytes"
         }
@@ -15009,6 +15010,31 @@
       ],
       "id": 108,
       "name": "event.document_closed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "generation",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1182,
+      "name": "service.lib_field_page",
       "since": 1
     }
   ],
@@ -16084,8 +16110,10 @@
           "feature": "uses.library",
           "id": 22,
           "input": [
-            "service.lib_ref"
+            "service.lib_ref",
+            "service.lib_field_page"
           ],
+          "input_rows": 2,
           "max_input": 1024,
           "max_reply": 4096,
           "name": "fields",

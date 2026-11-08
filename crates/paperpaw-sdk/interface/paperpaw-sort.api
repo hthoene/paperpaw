@@ -1,0 +1,5 @@
+pub mod paperpaw_sort
+pub fn paperpaw_sort::sort<T: core::cmp::Ord>(&mut [T])
+pub fn paperpaw_sort::sort_by<T>(&mut [T], impl core::ops::function::FnMut(&T, &T) -> core::cmp::Ordering)
+pub fn paperpaw_sort::sort_by_cached_key<T, K: core::cmp::Ord>(&mut [T], impl core::ops::function::FnMut(&T) -> K)
+pub fn paperpaw_sort::sort_by_key<T, K: core::cmp::Ord>(&mut [T], impl core::ops::function::FnMut(&T) -> K)

@@ -34,6 +34,7 @@ pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
+pub use super::device_service::DEVICE_SERVICES;
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -129,7 +130,9 @@ pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
-    table: PpHost,
+    /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
+    /// a static, never a copy per plugin (152 bytes on the X4).
+    table: &'static PpHost,
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
@@ -217,7 +220,7 @@ pub struct Hosted<S, M> {
 /// The host table with this shell's entries in it, as a plugin of `S` sees it.
 /// The shell's preflight may read it before anything is hosted.
 #[must_use]
-pub fn host_table<S: Services>() -> PpHost {
+pub const fn host_table<S: Services>() -> PpHost {
     let mut table = host_glue::host_table();
     table.heap_alloc = heap_alloc::<S>;
     table.heap_dealloc = heap_dealloc::<S>;
@@ -292,7 +295,14 @@ impl<S: Services, M> Hosted<S, M> {
         resources: super::HostResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let resources = resources.try_owner().map_err(Error::Status)?;
+        let mut resources = resources.try_owner().map_err(Error::Status)?;
+        resources.bind_caller(id).map_err(|status| {
+            if status == host_glue::ERR_NO_MEMORY {
+                Error::Allocation
+            } else {
+                Error::Status(status)
+            }
+        })?;
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
@@ -303,7 +313,7 @@ impl<S: Services, M> Hosted<S, M> {
             .map_err(|_| Error::Allocation)?;
         owned.push_str(id);
         let context = Context {
-            table: host_table::<S>(),
+            table: SharedTable::<S>::TABLE,
             id: owned.into_boxed_str(),
             report,
             resources,
@@ -340,6 +350,11 @@ impl<S: Services, M> Hosted<S, M> {
         self.owner.as_ref().context().declared_services.features()
     }
 
+    /// Retain only the pool identity and this load's authoritative owner key.
+    pub(crate) fn resource_identity(&self) -> Option<super::resources::OwnerResourceView> {
+        self.owner.as_ref().context().resources.try_view()
+    }
+
     /// The pinned owner; callers lease and finish through it. To stop the
     /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
     /// withdraws [`image`](Self::image).
@@ -350,7 +365,8 @@ impl<S: Services, M> Hosted<S, M> {
 
     /// Stops callback admission: from here a dispatch answers the owner's
     /// error and [`image`](Self::image) gives none. The module stays alive
-    /// until the drop.
+    /// until the drop. The kernel observes registered owners and completes
+    /// the same ordered unload through its main loop, retrying busy cleanup.
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
@@ -418,7 +434,7 @@ impl<S: Services, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = unsafe { (self.make)(&context.table, ctx, &mut out) };
+        let status = unsafe { (self.make)(context.table, ctx, &mut out) };
         (status, out)
     }
 
@@ -529,32 +545,6 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         })?;
         self.armed = false;
         Ok(batch)
-    }
-
-    /// Keep native output pending until all declaration mapping succeeds.
-    #[allow(
-        dead_code,
-        reason = "native built-in registry adapter follows this transaction"
-    )]
-    pub(crate) fn commit_native<R>(
-        mut self,
-        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
-    ) -> Result<(Batch<'a, S, M, T>, R), Error> {
-        let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let result = transaction
-            .staging
-            .commit_native(
-                crate::native_host::Teardown {
-                    report: report_context::<S>,
-                    cancel: cancel_context::<S>,
-                    release: release_context::<S>,
-                    destroy: destroy_context::<S>,
-                },
-                map,
-            )
-            .map_err(Error::Status)?;
-        self.armed = false;
-        Ok(result)
     }
 }
 
@@ -770,14 +760,14 @@ unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuf
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let caller = match context.resources.bound_caller() {
+        Ok(caller) => caller,
+        Err(error) => return error,
+    };
     // SAFETY: generated slot 5 requires initialized immutable readable key
     // bytes and exclusive output, disjoint from key and host state. No pointer
     // is kept. The backend's required-length and prefix semantics are kept.
-    unsafe {
-        context
-            .environment
-            .settings_read(key.ptr, key.len, out.ptr, out.cap)
-    }
+    unsafe { context.environment.settings_read_for(caller, key, out) }
 }
 
 /// Slot 9 (`canvas.fill_rect`): the foreign callback reaches [`CanvasScope`]
@@ -1490,3 +1480,10 @@ mod stage;
     reason = "stage broker consumes this checked reply hook next"
 )]
 pub(crate) use stage::dispatch_stage;
+
+#[path = "shell/native_commit.rs"]
+mod native_commit;
+
+#[path = "shell/shared_table.rs"]
+mod shared_table;
+use shared_table::SharedTable;

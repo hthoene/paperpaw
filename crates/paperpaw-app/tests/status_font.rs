@@ -47,9 +47,7 @@ fn role(kernel: &Kernel, role: &paperpaw_sdk::Id) -> String {
 #[test]
 fn the_status_lines_follow_their_setting() {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE)
-        .storage(storage)
-        .user_config("[help]\nshow = false\n");
+    let builder = Kernel::builder(DEVICE).storage(storage).user_config("");
     let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
     let _ = kernel.start(Instant(0));
     // As the menus at first.
@@ -89,9 +87,9 @@ fn the_status_lines_follow_their_setting() {
 fn a_font_chosen_as_source_sans_3_is_kept_where_the_packs_are_paperpaw_sans() {
     // Chosen by the family's name before the packs were renamed.
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE).storage(storage).user_config(
-        "[help]\nshow = false\n\n[core]\nreading-font = Source Sans 3\nstatus-font = Source Sans 3\n",
-    );
+    let builder = Kernel::builder(DEVICE)
+        .storage(storage)
+        .user_config("\n[core]\nreading-font = Source Sans 3\nstatus-font = Source Sans 3\n");
     let packs = matches!(fonts(), paperpaw_app::Fonts::Packs);
     let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
     let _ = kernel.start(Instant(0));

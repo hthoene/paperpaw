@@ -242,6 +242,7 @@ impl Kernel {
             self.online_ends(),
             self.bluetooth_deadline(),
             self.escape_due(),
+            self.native_unload_due(),
         ]
         .into_iter()
         .flatten()
@@ -290,6 +291,8 @@ impl Kernel {
     }
 
     pub(crate) fn run_commands(&mut self) {
+        self.drain_deferred_ui_closes();
+        self.retry_native_unloads();
         for _ in 0..MAX_COMMAND_ROUNDS {
             // Callbacks from the previous round have returned their borrowed
             // messages. Make room before on_show or another command translates.

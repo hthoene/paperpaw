@@ -27,6 +27,8 @@ pub(crate) enum Behavior {
     Truncated,
     /// More than 64 records.
     TooMany,
+    /// Exactly these bytes as the reply.
+    Raw(&'static [u8]),
 }
 
 pub(crate) struct Fake {
@@ -81,6 +83,13 @@ impl Dispatch for Fake {
                 out[0] = 65;
                 Ok(1)
             }
+            Behavior::Raw(bytes) if out.len() < bytes.len() => {
+                Ok(i32::try_from(bytes.len()).unwrap())
+            }
+            Behavior::Raw(bytes) => {
+                out[..bytes.len()].copy_from_slice(bytes);
+                Ok(i32::try_from(bytes.len()).unwrap())
+            }
         }
     }
 }
@@ -98,7 +107,7 @@ impl Harness {
             dropped: Rc::new(RefCell::new(Vec::new())),
         }
     }
-    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> usize {
+    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> u64 {
         let lease = NativeLease::try_new(Fake {
             seen: self.seen.clone(),
             dropped: self.dropped.clone(),
@@ -107,12 +116,12 @@ impl Harness {
         })
         .unwrap();
         self.registry
-            .insert(Id::new_static(id), Some(lease), true)
+            .test_insert(Id::new_static(id), Some(lease), true)
             .unwrap()
     }
 }
 
-fn run(h: &Harness, plugin: usize, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+fn run(h: &Harness, plugin: u64, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -205,7 +214,7 @@ fn a_lazy_format_asks_for_its_start_and_a_stopped_one_is_cancelled() {
     let mut h = Harness::new();
     let lazy = h
         .registry
-        .insert(Id::new_static("lazy"), None, true)
+        .test_insert(Id::new_static("lazy"), None, true)
         .unwrap();
     let stopped = h.add("gone", Behavior::Good);
     h.registry.stop(stopped).unwrap();

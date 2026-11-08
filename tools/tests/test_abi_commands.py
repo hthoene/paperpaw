@@ -422,6 +422,8 @@ class CommandTests(unittest.TestCase):
             lambda s: field(s, 'command.install_firmware', 'key').update(secret=True),
             lambda s: field(s, 'event.wifi_done', 'ssid').update(secret=True),
             lambda s: field(s, 'command.set_menu', 'items').update(secret=True),
+            # A bytes field may be secret only in a service record (sec_bytes.data is).
+            lambda s: field(s, 'service.sec_bytes', 'flags').update(secret=True),
         ]
         for index, mutate in enumerate(mutations):
             candidate = copy.deepcopy(self.schema)

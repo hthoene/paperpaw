@@ -6,9 +6,31 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 
+/// Host-only callback identity, never decoded from plugin bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CallbackStamp {
+    pub(crate) owner: u64,
+    pub(crate) epoch: u64,
+}
+
+impl CallbackStamp {
+    pub(crate) fn new(owner: u64, epoch: u64) -> Result<Self, i32> {
+        if epoch == 0 {
+            return Err(ERR_STATE);
+        }
+        Ok(Self { owner, epoch })
+    }
+}
+
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
 pub(crate) struct CoreFrame<'a> {
+    pub(crate) stack_rows: &'a crate::native_host::stack_rows::StackRows,
+    pub(crate) stack_generation: u64,
+    pub(crate) depth: Option<&'a crate::native_host::DispatchDepth>,
+    pub(crate) directory: Option<&'a crate::native_host::native_declarations::NativeDeclarations>,
+    pub(crate) callback: Option<CallbackStamp>,
+    pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
@@ -18,8 +40,90 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
+    fn caller(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.owner)
+            .ok_or(ERR_STATE)
+    }
+    fn callback_epoch(&self) -> Result<u64, i32> {
+        self.callback
+            .filter(|stamp| stamp.epoch != 0)
+            .map(|stamp| stamp.epoch)
+            .ok_or(ERR_STATE)
+    }
+
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.callback_epoch()?;
+        let instance = self
+            .instance
+            .filter(|instance| *instance != 0)
+            .ok_or(ERR_STATE)?;
+        self.stack_rows
+            .instance(instance, self.stack_generation)
+            .filter(|row| !row.host && row.owner != 0 && self.caller() == Ok(row.owner))
+            .map(|row| row.instance)
+            .ok_or(ERR_STATE)
+    }
+
+    fn callback_depth(&self) -> Result<u8, i32> {
+        self.callback_epoch()?;
+        self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
+    }
+
+    fn with_stack(
+        &self,
+        visit: &mut dyn FnMut(&dyn super::context::ui_guard::UiStackView),
+    ) -> Result<(), i32> {
+        self.callback_epoch()?;
+        if !self.stack_rows.valid(self.stack_generation) {
+            return Err(ERR_STATE);
+        }
+        visit(self.stack_rows);
+        Ok(())
+    }
+    fn close_dialog(&self, instance: u32) -> Result<(), i32> {
+        self.callback_epoch()?;
+        self.stack_rows.defer_close(instance, self.stack_generation)
+    }
+
+    fn ui_x4(&self) -> Result<bool, i32> {
+        self.callback_epoch()?;
+        Ok(self.env.device().id == "xteink-x4")
+    }
+
+    fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
+        self.callback_epoch()?;
+        self.directory
+            .map(|directory| directory as &dyn crate::native_host::ui_service::UiDirectory)
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    fn status_ask(
+        &self,
+        owner: u64,
+        token: u32,
+        items: &[&str],
+        context: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        use crate::native_host::ui_service::StatusAsk;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        crate::native_host::native_status::StatusCalls {
+            frame: self,
+            directory,
+        }
+        .ask(owner, token, items, context, out)
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
+    }
+    fn settings_editor(&self) -> Option<&str> {
+        self.env
+            .slot_screen(paperpaw_sdk::builtin::slots::SETTINGS.as_str())
+            .map(paperpaw_sdk::Id::namespace)
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()

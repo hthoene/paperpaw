@@ -602,7 +602,7 @@ fn host_entries_outside_their_scope_are_refused() {
     drop(hosted);
 }
 
-pub(super) fn arm_failure(nth: u32) {
+pub(in crate::native_host) fn arm_failure(nth: u32) {
     FAIL_NTH.with(|n| n.set(nth));
 }
 
@@ -790,6 +790,8 @@ mod instance_tests {
         let instance = load().unwrap();
         let host = FlatHost {
             meter: crate::meter::Meter::new(None),
+            directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
@@ -841,6 +843,8 @@ mod instance_tests {
             EVENT_ONLY.with(|e| e.set(true));
             let host = FlatHost {
                 meter: crate::meter::Meter::new(None),
+                directory: None,
+                stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
@@ -926,6 +930,8 @@ mod instance_tests {
     fn flat_host() -> crate::native_host::FlatHost {
         crate::native_host::FlatHost {
             meter: crate::meter::Meter::new(None),
+            directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
@@ -1394,8 +1400,12 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
         .unwrap();
 }
 
+#[path = "fmt_call_oom_tests.rs"]
+mod fmt_call_oom;
 #[path = "format_call_oom_tests.rs"]
 mod format_call_oom;
+#[path = "format_scope_oom_tests.rs"]
+mod format_scope_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
 

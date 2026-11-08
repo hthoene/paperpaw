@@ -76,6 +76,18 @@ impl Storage for Memory {
         Ok(())
     }
 
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let mut files = self.files.borrow_mut();
+        let at = files
+            .iter()
+            .position(|(p, _)| p == from)
+            .ok_or(StorageError::NotFound)?;
+        let (_, data) = files.remove(at);
+        files.retain(|(p, _)| p != to);
+        files.push((to.to_string(), data));
+        Ok(())
+    }
+
     fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         Ok(())
     }

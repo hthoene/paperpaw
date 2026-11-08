@@ -9,6 +9,19 @@ pub(super) fn validate_reply(bytes: &[u8], max_bytes: usize, max_records: u32) -
     visit_batch(bytes, max_records, |_, _| Ok(()))
 }
 
+/// The most records a plugin-defined stage's input may hold. The host cannot see
+/// the stage's own `input_rows` (stage-codec range 2..=64), so it checks the
+/// framing against the widest the codec allows and the schema's `max_input`;
+/// the stage's subscribers read their own schema.
+pub(super) const PLUGIN_INPUT_RECORDS: u32 = 64;
+
+/// The input check of a plugin-defined stage: canonical framing of 0 to
+/// [`PLUGIN_INPUT_RECORDS`] records, nothing after the last. More records are
+/// `ERR_INVALID`; the byte bound is the broker's (`max_input`).
+pub(super) fn validate_plugin_input(bytes: &[u8]) -> Result<(), i32> {
+    visit_batch(bytes, PLUGIN_INPUT_RECORDS, |_, _| Ok(()))
+}
+
 /// Walk opaque canonical frames. The visitor may decode a service record using
 /// the generated kernel codec; stage subscribers keep their own payload schema.
 pub(super) fn visit_batch(

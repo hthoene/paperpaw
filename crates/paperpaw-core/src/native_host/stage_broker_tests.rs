@@ -109,7 +109,7 @@ impl Harness {
             calls: Rc::new(RefCell::new(Vec::with_capacity(64))),
         }
     }
-    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> usize {
+    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> u64 {
         let lease = NativeLease::try_new(Fake {
             calls: self.calls.clone(),
             behavior,
@@ -117,11 +117,11 @@ impl Harness {
         })
         .unwrap();
         self.registry
-            .insert(Id::new_static(id), Some(lease), true)
+            .test_insert(Id::new_static(id), Some(lease), true)
             .unwrap()
     }
 }
-pub(crate) fn row(plugin: usize, token: u32, order: i16, index: u32) -> Subscription<'static> {
+pub(crate) fn row(plugin: u64, token: u32, order: i16, index: u32) -> Subscription<'static> {
     Subscription {
         stage: "core.widget",
         plugin,
@@ -309,7 +309,7 @@ fn revoked_frozen_owner_is_not_called_and_lazy_start_waits_for_run_drop() {
     let plugin = h.add("probe", Behavior::Good);
     let lazy = h
         .registry
-        .insert(Id::new_static("lazy"), None, true)
+        .test_insert(Id::new_static("lazy"), None, true)
         .unwrap();
     let InstanceState::Running(lease) = h.registry.state(plugin).unwrap() else {
         panic!("running");
@@ -417,7 +417,7 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
         &h.depth,
         &input,
         &h.registry,
-        [row(usize::MAX, 9, -1, 0), row(plugin, 1, 0, 0)],
+        [row(u64::MAX, 9, -1, 0), row(plugin, 1, 0, 0)],
     )
     .unwrap();
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -443,6 +443,50 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
 }
 
 #[test]
+fn retired_registry_keys_are_skipped_without_cancelling_live_subscribers() {
+    let mut h = Harness::new();
+    let retired = h.add("retired", Behavior::Good);
+    let live = h.add("live", Behavior::Good);
+    assert!(h.registry.retire(retired).unwrap().is_none());
+    let replacement = h.add("retired", Behavior::Good);
+    assert!(replacement > retired);
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(
+        &schema,
+        &h.depth,
+        &input,
+        &h.registry,
+        [
+            row(retired, 9, -1, 0),
+            row(live, 1, 0, 0),
+            row(replacement, 2, 0, 0),
+        ],
+    )
+    .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut target = Vec::new();
+    let outcome = run
+        .apply(
+            &mut target,
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            |target| copy_target(target),
+            apply,
+        )
+        .unwrap();
+    assert_eq!(target, [1, 2]);
+    assert_eq!(
+        outcome,
+        Outcome {
+            applied: 2,
+            refused: 1
+        }
+    );
+}
+
+#[test]
 fn prepared_call_is_exactly_one_complete_record_without_padding() {
     let h = Harness::new();
     let schema = schema();
@@ -459,4 +503,64 @@ fn prepared_call_is_exactly_one_complete_record_without_padding() {
     );
     assert_eq!(run.call.len(), run.call.capacity());
     assert!(run.call.capacity() < CALL_BYTES);
+}
+
+fn framed_records(count: usize, payload: usize) -> Vec<u8> {
+    // The count, then `count` records of tag 1 with a `payload`-byte body.
+    assert!(count < 128 && payload < 128);
+    let mut bytes = vec![count as u8];
+    for _ in 0..count {
+        bytes.extend_from_slice(&[1, payload as u8]);
+        bytes.extend(core::iter::repeat_n(0, payload));
+    }
+    bytes
+}
+
+#[test]
+fn a_plugin_defined_stage_takes_up_to_64_input_records_within_max_input() {
+    let mut h = Harness::new();
+    let plugin = h.add("probe", Behavior::Good);
+    let rows = [row(plugin, 1, 0, 0)];
+    // 64 records of 2 header bytes + 0 body, plus the count: 129 bytes.
+    let at_cap = framed_records(64, 0);
+    let schema = Schema::plugin_defined("core.widget", 1, 32, at_cap.len(), 3840, 32);
+    assert!(Run::prepare(&schema, &h.depth, &at_cap, &h.registry, rows).is_ok());
+    // Several records of any sizes are accepted, not one (todo 80).
+    for count in [0, 1, 2, 3, 63] {
+        let input = framed_records(count, 3);
+        let schema = Schema::plugin_defined("core.widget", 1, 32, 3840, 3840, 32);
+        assert!(Run::prepare(&schema, &h.depth, &input, &h.registry, rows).is_ok());
+    }
+    // 65 records are refused as invalid, within max_input.
+    let over = framed_records(65, 0);
+    let schema = Schema::plugin_defined("core.widget", 1, 32, 3840, 3840, 32);
+    assert_eq!(
+        Run::prepare(&schema, &h.depth, &over, &h.registry, rows).err(),
+        Some(ERR_INVALID)
+    );
+    // A batch over max_input is refused for its size before it is read.
+    let schema = Schema::plugin_defined("core.widget", 1, 32, at_cap.len() - 1, 3840, 32);
+    assert_eq!(
+        Run::prepare(&schema, &h.depth, &at_cap, &h.registry, rows).err(),
+        Some(ERR_NO_SPACE)
+    );
+    // Trailing bytes and truncated frames are refused.
+    let mut trailing = framed_records(2, 1);
+    trailing.push(0);
+    let schema = Schema::plugin_defined("core.widget", 1, 32, 3840, 3840, 32);
+    assert_eq!(
+        Run::prepare(&schema, &h.depth, &trailing, &h.registry, rows).err(),
+        Some(ERR_INVALID)
+    );
+    assert_eq!(
+        Run::prepare(
+            &schema,
+            &h.depth,
+            &framed_records(2, 1)[..4],
+            &h.registry,
+            rows
+        )
+        .err(),
+        Some(ERR_INVALID)
+    );
 }

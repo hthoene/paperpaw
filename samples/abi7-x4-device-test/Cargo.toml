@@ -1,0 +1,29 @@
+[package]
+name = "paperpaw-sample-abi7-x4-device-test"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "abi7_x4_device_test"
+path = "src/main.rs"
+test = false
+bench = false
+
+[features]
+# A plugin that faults while it is made / on its first event: to see safe
+# mode name it after the reset (never in the default build).
+crash-make = []
+crash-event = []
+
+[dependencies]
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

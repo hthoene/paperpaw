@@ -13,6 +13,8 @@ pub mod budget;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cable;
 pub mod device;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod device_host;
 pub mod headless;
 pub mod host;
 #[cfg(not(target_arch = "wasm32"))]

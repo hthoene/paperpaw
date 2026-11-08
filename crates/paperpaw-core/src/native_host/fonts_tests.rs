@@ -40,8 +40,14 @@ fn kernel() -> crate::Kernel {
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
     let env = kernel.shared.env(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,

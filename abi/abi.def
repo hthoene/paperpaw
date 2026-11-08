@@ -13542,7 +13542,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 256,
+          "secret": true
         }
       ]
     },
@@ -14359,6 +14360,31 @@
         },
         {
           "name": "reason",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1182,
+      "name": "service.lib_field_page",
+      "since": 1,
+      "fields": [
+        {
+          "name": "cursor",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "generation",
           "type": "u32",
           "since": 1,
           "optional": false,

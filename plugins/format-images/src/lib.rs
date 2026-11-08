@@ -24,6 +24,7 @@ extern crate alloc;
 mod document;
 mod names;
 mod pictures;
+pub mod provider;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -32,6 +33,7 @@ use alloc::vec;
 use paperpaw_sdk::{Env, FormatSpec, Id, Manifest, Plugin, RegisterError, Registrar};
 
 pub use document::ImagesDocument;
+pub use pictures::CACHE;
 
 pub const PLUGIN: Id = Id::new_static("format-images");
 pub const FORMAT: Id = Id::new_static("format-images.pictures");

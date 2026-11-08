@@ -10,6 +10,8 @@ use paperpaw_sdk::Pane;
 
 /// A screen on the navigation stack.
 pub(crate) struct ActiveScreen {
+    /// Set only by the host when authorizing a guard question dialog.
+    pub(crate) guard_dialog: bool,
     pub(crate) id: Id,
     /// Tells this opening of the screen from every other, also once it was
     /// made anew (see `Kernel::remake_screens`): e.g. the owner of a
@@ -51,6 +53,11 @@ const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 const TASKS_KEPT: usize = 8;
 const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
+fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
+    let serial = if native { next.max(1) } else { next };
+    serial.checked_add(1).map(|following| (serial, following))
+}
+
 impl Kernel {
     /// Closed room screens keep enough of the unused key space to reopen.
     pub(crate) fn screen_keys_remaining(&self) -> u32 {
@@ -66,10 +73,40 @@ impl Kernel {
         false
     }
 
+    /// Factory failure may be caused by persistent OOM. Reporting must not
+    /// allocate infallibly or expose the screen's private params.
+    fn warn_native_open_failed(&mut self) {
+        const MESSAGE: &str = "Could not open native screen";
+        let mut message = String::new();
+        if message.try_reserve_exact(MESSAGE.len()).is_err()
+            || self.warnings.try_reserve(1).is_err()
+        {
+            return;
+        }
+        message.push_str(MESSAGE);
+        self.warnings.push(Warning {
+            source: WarningSource::Runtime,
+            line: None,
+            message,
+        });
+    }
+
+    fn screen_stack_has_room(&mut self) -> bool {
+        if self.shared.stack_rows.cleanup_pending() {
+            self.warn_runtime("UI instance cleanup is still pending");
+            return false;
+        }
+        if self.stack.len() >= native_host::stack_rows::STACK_MAX {
+            self.warn_runtime("screen stack is full");
+            return false;
+        }
+        true
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
-        if !self.require_screen_keys(1) {
+        if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
         }
         let Some(spec) = self.shared.registry.screens.get(&id) else {
@@ -77,15 +114,12 @@ impl Kernel {
         };
         // Native allocation finishes before changing the serial, layout or screen.
         let Ok(native_screen) = spec.prepare_native(params) else {
+            self.warn_native_open_failed();
             return;
         };
         let on_open = spec.refresh_on_open();
-        let serial = if spec.is_native() {
-            self.next_serial.max(1)
-        } else {
-            self.next_serial
-        };
-        let Some(next_serial) = serial.checked_add(1) else {
+        let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
+        else {
             return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };
         self.next_serial = next_serial;
@@ -151,6 +185,7 @@ impl Kernel {
             }
         }
         let active = ActiveScreen {
+            guard_dialog: false,
             id,
             serial,
             slot,
@@ -380,6 +415,7 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
+            self.cleanup_ui_instance(self.stack[i].serial);
             self.stack.truncate(i);
             self.screens_changed = true;
         }
@@ -401,6 +437,32 @@ impl Kernel {
                     .guarding(active.screen.guards())
             })
             .collect();
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        self.shared
+            .stack_rows
+            .update(self.stack.iter().zip(&entries).map(|(active, entry)| {
+                use native_host::stack_rows::{
+                    GUARD_DIALOG, GUARDS, HOST, OVERLAY, SECRET, StackRow,
+                };
+                let host = active.id.namespace() == "core";
+                let owner = if host {
+                    0
+                } else {
+                    self.shared
+                        .native_instances
+                        .find(active.id.namespace())
+                        .unwrap_or(0)
+                };
+                StackRow {
+                    instance: active.serial,
+                    owner,
+                    flags: (u8::from(entry.overlay) * OVERLAY)
+                        | (u8::from(entry.guards) * GUARDS)
+                        | (u8::from(active.screen.secret()) * SECRET)
+                        | (u8::from(host) * HOST)
+                        | (u8::from(active.guard_dialog) * GUARD_DIALOG),
+                }
+            }));
         self.shared.stack.clear();
         self.shared.stack.extend(entries);
         self.sync_chromes();
@@ -432,6 +494,7 @@ impl Kernel {
             screen.on_close(cx);
             Handled::Yes
         });
+        self.cleanup_ui_instance(self.stack[index].serial);
         self.stack.remove(index);
         self.screens_changed = true;
         self.sync_stack();
@@ -444,6 +507,100 @@ impl Kernel {
         } else if index > base {
             self.invalidate(region);
             self.output.request_refresh(RefreshMode::Partial);
+        }
+    }
+
+    fn cleanup_ui_instance(&mut self, instance: u32) {
+        if let Err(status) = self.native_instance_closed(instance) {
+            if status == paperpaw_native::host_glue::ERR_BUSY {
+                if let Err(error) = self.shared.stack_rows.retry_cleanup(instance) {
+                    self.shared.stack_rows.note_close_error(error);
+                }
+            } else {
+                self.warn_runtime("UI instance cleanup failed");
+            }
+        }
+    }
+
+    pub(crate) fn drain_deferred_ui_closes(&mut self) {
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        if self.shared.stack_rows.take_close_error() != 0 {
+            self.warn_runtime("deferred UI cleanup queue is full");
+        }
+        // Snapshot the work first. Busy entries are retried next main-loop pass.
+        for action in self.shared.stack_rows.take_pending() {
+            let instance = action.instance;
+            if instance == 0 {
+                continue;
+            }
+            if action.close {
+                if let Some(index) = self
+                    .stack
+                    .iter()
+                    .position(|screen| screen.serial == instance)
+                {
+                    self.with_screen(index, |screen, cx| {
+                        screen.on_close(cx);
+                        Handled::Yes
+                    });
+                    self.cleanup_ui_instance(instance);
+                    self.stack.remove(index);
+                    self.screens_changed = true;
+                    self.sync_stack();
+                    self.stop_for_closed_screens();
+                    self.screen_changed(self.content(), false);
+                } else {
+                    self.cleanup_ui_instance(instance);
+                }
+            }
+        }
+        self.sweep_closed_ui_instances();
+    }
+
+    /// Recover closed instances not kept in the fixed cleanup queue. UiStore
+    /// is authoritative for retained resources; the real stack protects live ones.
+    fn sweep_closed_ui_instances(&mut self) {
+        if !self.shared.stack_rows.take_cleanup_sweep() {
+            return;
+        }
+        let result: Result<(), i32> = (|| {
+            let Some(store) = self.shared.native_instances.ui_store() else {
+                return Ok(());
+            };
+            let mut after = 0;
+            while let Some(instance) = store.next_retained_instance(after)? {
+                after = instance;
+                if !self.stack.iter().any(|screen| screen.serial == instance) {
+                    self.native_instance_closed(instance)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(status) = result {
+            self.shared.stack_rows.request_cleanup_sweep();
+            if status != paperpaw_native::host_glue::ERR_BUSY {
+                self.warn_runtime("UI instance cleanup sweep failed; retry pending");
+            }
+        }
+    }
+
+    /// A retired owner cannot veto removal, including its root or guard.
+    pub(crate) fn remove_retired_native_screens(&mut self, owner: &Id) {
+        let mut removed = false;
+        for index in (0..self.stack.len()).rev() {
+            if self.stack[index].id.namespace() == owner.as_str() {
+                // The owner is revoked already. Dropping its private wrapper
+                // releases the lease without calling retired plugin code.
+                self.cleanup_ui_instance(self.stack[index].serial);
+                self.stack.remove(index);
+                removed = true;
+            }
+        }
+        if removed {
+            self.screens_changed = true;
+            self.sync_stack();
+            self.stop_for_closed_screens();
+            self.screen_changed(self.content(), false);
         }
     }
 

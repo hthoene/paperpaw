@@ -265,9 +265,12 @@ fn set_stream(state: &State, records: &[wire::Record<'_>]) {
     bytes.truncate(used);
     state.reply.replace(bytes);
 }
+mod handover_alloc;
 mod paging;
 mod params;
 mod widgets;
 
 #[path = "tests/confirm.rs"]
 mod confirm;
+
+mod stages;

@@ -91,17 +91,39 @@ pub struct TxtDocument {
 
 impl TxtDocument {
     pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
+        Self::open_with(storage, path, None)
+    }
+
+    /// Opens the book on `path` where a UTF-16 file is read from its UTF-8
+    /// copy `utf8` (made beforehand by `Preparation`), never made here: the
+    /// native provider's form, which writes nothing.
+    pub fn open_converted(
+        storage: &dyn Storage,
+        path: &str,
+        utf8: &str,
+    ) -> Result<Self, DocumentError> {
+        Self::open_with(storage, path, Some(utf8))
+    }
+
+    fn open_with(
+        storage: &dyn Storage,
+        path: &str,
+        converted: Option<&str>,
+    ) -> Result<Self, DocumentError> {
         let mut size = file_size(storage, path)?;
         let mut head = read(storage, path, 0, size.min(SNIFF))?;
         // UTF-16 is read from a copy in UTF-8, made when it is first opened.
-        let mut text = String::from(path);
+        let mut text = copy_text(path)?;
         let big_endian = match head.get(..2) {
             Some([0xff, 0xfe]) => Some(false),
             Some([0xfe, 0xff]) => Some(true),
             _ => None,
         };
         if let Some(big_endian) = big_endian {
-            text = utf8_copy(storage, path, size, big_endian)?;
+            text = match converted {
+                Some(copy) => copy_text(copy)?,
+                None => utf8_copy(storage, path, size, big_endian)?,
+            };
             size = file_size(storage, &text)?;
             head = read(storage, &text, 0, size.min(SNIFF))?;
         }
@@ -125,13 +147,13 @@ impl TxtDocument {
 
         // Project Gutenberg: metadata in the header, licence around the text.
         if let Some(marker) = find(&head, b"*** START OF") {
-            document.read_header(&head[..marker]);
+            document.read_header(&head[..marker])?;
             document.start = line_after(&head, marker) as u32;
         }
         // The text's look from the head, which is let go before the end is
         // looked for: the two reads are not held at once.
         let sampled = head.len() as u32;
-        document.sample(head.get(document.start as usize..).unwrap_or_default());
+        document.sample(head.get(document.start as usize..).unwrap_or_default())?;
         drop(head);
         if let Some(end) = find_end_marker(storage, &document.path, document.start, size)? {
             document.end = end;
@@ -144,40 +166,51 @@ impl TxtDocument {
                 document.start,
                 document.end.max(document.start),
             )?;
-            document.sample(&text);
+            document.sample(&text)?;
         }
 
         if document.metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
             let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
-            document.metadata.title = Some(String::from(stem));
+            // A book with no name (the native root 3) has none: the library
+            // names it by its file.
+            if !stem.is_empty() {
+                document.metadata.title = Some(copy_text(stem)?);
+            }
         }
         Ok(document)
     }
 
     /// How paragraphs break and how long lines are, from `sample` of the
     /// text.
-    fn sample(&mut self, sample: &[u8]) {
+    fn sample(&mut self, sample: &[u8]) -> Result<(), DocumentError> {
         self.breaks = detect_breaks(sample);
-        self.wrap_width = typical_line_length(sample);
+        self.wrap_width = typical_line_length(sample)?;
+        Ok(())
     }
 
-    fn read_header(&mut self, header: &[u8]) {
+    fn read_header(&mut self, header: &[u8]) -> Result<(), DocumentError> {
         for line in header.split(|&b| b == b'\n') {
-            let (text, _) = self.decode(line, 0);
+            let (text, _) = self.decode(line, 0)?;
             let text = text.trim();
             if let Some(title) = text.strip_prefix("Title:") {
-                self.metadata.title = Some(String::from(title.trim()));
+                self.metadata.title = Some(copy_text(title.trim())?);
             } else if let Some(author) = text.strip_prefix("Author:") {
-                self.metadata.authors.push(String::from(author.trim()));
+                self.metadata
+                    .authors
+                    .try_reserve(1)
+                    .map_err(|_| DocumentError::OutOfMemory)?;
+                self.metadata.authors.push(copy_text(author.trim())?);
             } else if let Some(language) = text.strip_prefix("Language:") {
-                self.metadata.language = language_tag(language.trim()).map(String::from);
+                self.metadata.language =
+                    language_tag(language.trim()).map(copy_text).transpose()?;
             }
         }
+        Ok(())
     }
 
     /// Scans `buf` (file bytes from `w0`) for paragraphs.
-    fn paragraphs(&self, buf: &[u8], w0: u32) -> Vec<Para> {
+    fn paragraphs(&self, buf: &[u8], w0: u32) -> Result<Vec<Para>, DocumentError> {
         let mut paras: Vec<Para> = Vec::new();
         // The content start behaves like the line after a blank line.
         let mut prev_blank = w0 == self.start;
@@ -203,6 +236,9 @@ impl TxtDocument {
                 Breaks::BlankLines => {
                     if !blank {
                         if partial {
+                            paras
+                                .try_reserve(1)
+                                .map_err(|_| DocumentError::OutOfMemory)?;
                             paras.push(Para {
                                 start: w0,
                                 text_end: at(trail),
@@ -210,6 +246,9 @@ impl TxtDocument {
                                 single_line: false,
                             });
                         } else if prev_blank || self.starts_paragraph(lead, prev_len) {
+                            paras
+                                .try_reserve(1)
+                                .map_err(|_| DocumentError::OutOfMemory)?;
                             paras.push(Para {
                                 start: at(lead),
                                 text_end: at(trail),
@@ -230,6 +269,9 @@ impl TxtDocument {
                     } else {
                         (at(lead), at(trail))
                     };
+                    paras
+                        .try_reserve(1)
+                        .map_err(|_| DocumentError::OutOfMemory)?;
                     paras.push(Para {
                         start: if partial { w0 } else { start },
                         text_end,
@@ -239,7 +281,7 @@ impl TxtDocument {
                 }
             }
             if line_end == buf.len() {
-                return paras;
+                return Ok(paras);
             }
             pos = line_end + 1;
         }
@@ -314,8 +356,15 @@ impl TxtDocument {
     /// Decodes file bytes starting at source offset `base` into normalized
     /// text: `\r` before `\n` and stray BOMs are dropped, line breaks, tabs
     /// and control characters become spaces.
-    fn decode(&self, bytes: &[u8], base: u32) -> (String, OffsetMap) {
-        let mut text = String::with_capacity(bytes.len());
+    fn decode(&self, bytes: &[u8], base: u32) -> Result<(String, OffsetMap), DocumentError> {
+        let mut text = String::new();
+        // A single Windows-1252 byte expands to at most three UTF-8 bytes.
+        let capacity = bytes
+            .len()
+            .checked_mul(3)
+            .ok_or(DocumentError::OutOfMemory)?;
+        text.try_reserve_exact(capacity)
+            .map_err(|_| DocumentError::OutOfMemory)?;
         let mut map = OffsetMap::default();
         let mut i = 0;
         while i < bytes.len() {
@@ -328,23 +377,38 @@ impl TxtDocument {
                 // A line end of its own (old Macs) is a space, before `\n`
                 // it is dropped.
                 '\r' if bytes.get(i + 1) != Some(&b'\n') => text.push(' '),
-                '\r' | '\u{feff}' => map.checkpoint(text.len(), next),
+                '\r' | '\u{feff}' => map
+                    .try_checkpoint(text.len(), next)
+                    .map_err(|_| DocumentError::OutOfMemory)?,
                 c if c.is_control() => {
                     text.push(' ');
                     if len != 1 {
-                        map.checkpoint(text.len(), next);
+                        map.try_checkpoint(text.len(), next)
+                            .map_err(|_| DocumentError::OutOfMemory)?;
                     }
                 }
                 c => {
                     text.push(c);
                     if c.len_utf8() != len {
-                        map.checkpoint(text.len(), next);
+                        map.try_checkpoint(text.len(), next)
+                            .map_err(|_| DocumentError::OutOfMemory)?;
                     }
                 }
             }
             i += len;
         }
-        (text, map)
+        Ok((text, map))
+    }
+}
+
+impl TxtDocument {
+    /// How far `offset` is through the text, in millionths.
+    #[must_use]
+    pub fn progress_ppm(&self, offset: u32) -> u32 {
+        let length = u64::from(self.end.saturating_sub(self.start).max(1));
+        let done = u64::from(offset.saturating_sub(self.start)).min(length);
+        // At most 1,000,000.
+        u32::try_from(done * 1_000_000 / length).unwrap_or(1_000_000)
     }
 }
 
@@ -378,7 +442,7 @@ impl Document for TxtDocument {
             let w0 = o.saturating_sub(LIMIT + MARGIN).max(self.start);
             let w1 = o.saturating_add(LIMIT + MARGIN).min(self.end);
             let buf = self.window(storage, w0, w1)?;
-            let paras = self.paragraphs(&buf, w0);
+            let paras = self.paragraphs(&buf, w0)?;
 
             let Some(i) = paras.iter().rposition(|p| p.start <= o) else {
                 // Whitespace before the first paragraph of the window, or
@@ -442,7 +506,7 @@ impl Document for TxtDocument {
             };
 
             let rel = |x: u32| (x - w0) as usize;
-            let (text, map) = self.decode(&buf[rel(start)..rel(text_end)], start);
+            let (text, map) = self.decode(&buf[rel(start)..rel(text_end)], start)?;
             let heading =
                 self.breaks == Breaks::BlankLines && p.single_line && !long && is_heading(&text);
             return Ok(Some(
@@ -688,22 +752,28 @@ fn cp1252(byte: u8) -> char {
 
 /// The length most hard-wrapped lines reach (75th percentile), or 0 if
 /// lines are too short to tell.
-fn typical_line_length(sample: &[u8]) -> usize {
-    let mut lengths: Vec<usize> = sample
+fn typical_line_length(sample: &[u8]) -> Result<usize, DocumentError> {
+    let values = sample
         .split(|&b| b == b'\n')
         .map(|line| {
             line.iter()
                 .rposition(|&b| !is_space(b))
                 .map_or(0, |i| i + 1)
         })
-        .filter(|&len| len > 0)
-        .collect();
-    if lengths.len() < 8 {
-        return 0;
+        .filter(|&len| len > 0);
+    let mut lengths = Vec::new();
+    for len in values {
+        lengths
+            .try_reserve(1)
+            .map_err(|_| DocumentError::OutOfMemory)?;
+        lengths.push(len);
     }
-    lengths.sort_unstable();
+    if lengths.len() < 8 {
+        return Ok(0);
+    }
+    paperpaw_sdk::sort::sort(&mut lengths);
     let typical = lengths[lengths.len() * 3 / 4];
-    if typical >= 40 { typical } else { 0 }
+    Ok(if typical >= 40 { typical } else { 0 })
 }
 
 fn detect_breaks(sample: &[u8]) -> Breaks {
@@ -765,6 +835,14 @@ fn line_start(bytes: &[u8], index: usize) -> usize {
         .iter()
         .rposition(|&b| b == b'\n')
         .map_or(0, |i| i + 1)
+}
+
+fn copy_text(text: &str) -> Result<String, DocumentError> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|_| DocumentError::OutOfMemory)?;
+    copy.push_str(text);
+    Ok(copy)
 }
 
 #[cfg(test)]

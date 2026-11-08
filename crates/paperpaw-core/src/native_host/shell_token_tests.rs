@@ -16,6 +16,10 @@ std::thread_local! {
     static NO_EVENT: Cell<bool> = const { Cell::new(false) };
     static CAPACITY: Cell<usize> = const { Cell::new(0) };
     static SHORT: Cell<bool> = const { Cell::new(false) };
+    static PROBE: core::cell::RefCell<Option<(alloc::rc::Rc<crate::native_host::stack_rows::StackRows>, u64)>> =
+        const { core::cell::RefCell::new(None) };
+    static SEEN: Cell<Option<u64>> = const { Cell::new(None) };
+    static SUBSCRIBE: Cell<u32> = const { Cell::new(0) };
 }
 
 const TOKEN: u32 = 73;
@@ -83,6 +87,20 @@ unsafe extern "C" fn make(
             return status;
         }
     }
+    let tag = SUBSCRIBE.with(Cell::get);
+    if tag != 0 {
+        let record = registrations::Registration::Event {
+            event_tag: tag,
+            token: TOKEN,
+        };
+        let mut bytes = [0; 64];
+        let length = registrations::registrations_encode(&[record], &mut bytes).unwrap();
+        // SAFETY: as for the screen declaration above.
+        let status = unsafe { ((*host).registrations_submit)(context, borrowed(&bytes[..length])) };
+        if status != OK {
+            return status;
+        }
+    }
     let state = Box::into_raw(Box::new(State {
         table: PpPlugin {
             size: u32::try_from(size).unwrap(),
@@ -122,6 +140,11 @@ fn invoked(state: *mut c_void, token: u32) -> bool {
         return false;
     }
     CALLS.with(|count| count.set(count.get() + 1));
+    PROBE.with(|probe| {
+        if let Some((rows, owner)) = &*probe.borrow() {
+            SEEN.with(|seen| seen.set(rows.showing_screen(*owner)));
+        }
+    });
     true
 }
 
@@ -195,8 +218,14 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
     let env = kernel.shared.env(Instant(12));
     call(&CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
@@ -454,14 +483,17 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let mut registry = NativeInstances::default();
     let key = registry
-        .insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
+        .test_insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
         .unwrap();
     let env = kernel.shared.env(Instant(12));
     for expected in 1..=2 {
@@ -483,10 +515,14 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
     assert_eq!(CALLS.with(Cell::get), 2);
     assert_eq!(DESTROYS.with(Cell::get), 0);
     drop(frozen);
+    assert_eq!(
+        DESTROYS.with(Cell::get),
+        0,
+        "cleanup ownership stays in the pending row"
+    );
+    assert!(registry.retire(key).unwrap().is_none());
     assert_eq!(DESTROYS.with(Cell::get), 1);
-    assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-    registry.stop(key).unwrap();
-    assert_eq!(DESTROYS.with(Cell::get), 1);
+    assert!(matches!(registry.state(key), Err(host_glue::ERR_STATE)));
 }
 
 #[test]
@@ -505,9 +541,12 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
     let retained = dispatch.try_clone().unwrap();
@@ -617,4 +656,90 @@ fn stage_reply_obeys_owner_admission_and_missing_callback_without_running_plugin
         assert_eq!(output, [0xa5; 8]);
         assert_eq!(CALLS.with(Cell::get), 0);
     });
+}
+
+#[test]
+fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
+    use super::super::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+        stack_rows::StackRow,
+    };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let identity = crate::native_host::native_instances::test_identity("tokens");
+    let owner = identity.owner();
+    let rows = alloc::rc::Rc::clone(&kernel.shared.stack_rows);
+    rows.update([StackRow {
+        instance: 5,
+        owner,
+        flags: 0,
+    }]);
+    let dispatch = NativeDispatch::new(
+        Retained::make(hosted(false)).unwrap(),
+        super::super::flat::FlatDepth::try_new().unwrap(),
+        super::super::FlatHost {
+            meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&rows),
+            font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+        },
+        |_, _, _| {},
+        identity,
+    );
+    PROBE.with(|probe| *probe.borrow_mut() = Some((alloc::rc::Rc::clone(&rows), owner)));
+    let env = kernel.shared.env(Instant(12));
+    let key = paperpaw_sdk::ScreenKey::new(5);
+    SEEN.with(|seen| seen.set(Some(0)));
+    assert_eq!(
+        dispatch.screen_callback(Some(key), TOKEN, &[], &env, false),
+        Ok(0)
+    );
+    assert_eq!(
+        SEEN.with(Cell::get),
+        Some(5),
+        "the running screen is showing"
+    );
+    SEEN.with(|seen| seen.set(Some(0)));
+    assert_eq!(dispatch.event(TOKEN, &[], &env), Ok(0));
+    assert_eq!(
+        SEEN.with(Cell::get),
+        None,
+        "a plain event is no screen callback"
+    );
+    assert_eq!(rows.showing_screen(owner), None, "nothing runs afterwards");
+    PROBE.with(|probe| *probe.borrow_mut() = None);
+}
+
+#[test]
+fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
+    use super::super::{
+        native_dispatch::NativeDispatch, native_instances::NativeInstance, retained::Retained,
+    };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let make = |tag: u32| {
+        let hosted = hosted(false);
+        SUBSCRIBE.with(|value| value.set(tag));
+        NativeDispatch::new(
+            Retained::make(hosted).unwrap(),
+            super::super::flat::FlatDepth::try_new().unwrap(),
+            super::super::FlatHost {
+                meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+                directory: None,
+                stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
+                font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+            },
+            |_, _, _| {},
+            crate::native_host::native_instances::test_identity("tokens"),
+        )
+    };
+    // Only events with a host encoder can be registered today.
+    let started = make(registrations::EVENT_STARTED_TAG);
+    SUBSCRIBE.with(|value| value.set(0));
+    assert!(started.subscribed(registrations::EVENT_STARTED_TAG));
+    assert!(!started.subscribed(registrations::EVENT_PAGE_TURNED_TAG));
+    assert!(!started.subscribed(registrations::EVENT_HTTP_DONE_TAG));
+    assert!(!make(0).subscribed(registrations::EVENT_STARTED_TAG));
 }
