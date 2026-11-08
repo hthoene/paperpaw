@@ -13,10 +13,11 @@
 //!
 //! **How.** Up to 2,048 items, the positions `0..n` (as `u32`) are sorted by the items they
 //! stand for (ties by position, which makes the order stable), with one
-//! compiled `sort_unstable_by`, and the items are then moved into place by
-//! the cycles of that permutation: `4 * n` bytes, and about 1.0 to 1.6 times
-//! the time of the standard library's sort on lists of 2,000 to 10,000
-//! entries (the comparison is one indirect call).
+//! compiled in-place heapsort, and the items are then moved into place by
+//! the cycles of that permutation: `4 * n` bytes, and about 1.2 to 3 times
+//! the time of the standard library's sort on lists of 2,000 entries (the
+//! comparison is one indirect call, and a heapsort does more of them: the
+//! dearer the comparison, the smaller the difference; x86, `tests/speed.rs`).
 //!
 //! **Long lists.** From `POSITIONS_MAX` (2,048) items on, the sort goes
 //! straight to the in-place path: a list of 10,000 would hold 40 KB for the
@@ -36,15 +37,11 @@
 //!
 //! **A comparison that is no total order** (it contradicts itself: `a < b`,
 //! `b < c` and `c < a`, or it differs from one call to the next) gives an
-//! order that is not said, and never loses or repeats an item. Lists of up to
-//! 12 items, lists from 2,048 items on and lists sorted without memory run
-//! on loops that never panic on it. A list of 13 to 2,048 items is ordered
-//! through its positions by the standard library's `sort_unstable_by`, which
-//! **may panic** ("user-provided comparison function does not correctly
-//! implement a total order", Rust 1.81 and later), as `slice::sort_by` itself
-//! may; the X4 aborts on a panic. So write the comparison as a total order:
-//! compare the same fields in the same direction, a float by `total_cmp`,
-//! never by anything that changes while sorting.
+//! order that is not said, and never loses or repeats an item, and never
+//! panics: every path here keeps to its indices (the positions are ordered by
+//! an in-place heapsort, not by the standard library's unstable sort, which
+//! may panic on such a comparison). Still write it as a total order, as that
+//! is the only way to know the result.
 #![no_std]
 
 extern crate alloc;
@@ -99,9 +96,8 @@ impl<T, K: Ord> Ops for Cached<'_, T, K> {
     }
 }
 
-/// Sorts `items` by `compare`, stably. `compare` must be a total order
-/// (see the crate documentation): where it is not, the order is not said and,
-/// for 13 to 2,048 items, the sort may panic.
+/// Sorts `items` by `compare`, stably. Where `compare` is no total order the
+/// order is not said, but no item is lost or repeated and nothing panics.
 pub fn sort_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> Ordering) {
     let len = items.len();
     stable(len, &mut ByCompare { items, compare });
@@ -149,7 +145,9 @@ fn by_positions(len: usize, ops: &mut dyn Ops) -> bool {
         return false;
     }
     order.extend(0..last);
-    order.sort_unstable_by(|&a, &b| ops.compare(a as usize, b as usize).then(a.cmp(&b)));
+    heapsort(&mut order, &mut |&a, &b| {
+        ops.compare(a as usize, b as usize).then(a.cmp(&b)) == Ordering::Less
+    });
     for start in 0..len {
         let mut at = start;
         loop {
@@ -163,6 +161,45 @@ fn by_positions(len: usize, ops: &mut dyn Ops) -> bool {
         }
     }
     true
+}
+
+/// Sorts `order` by `less`, in place, whatever `less` says: a heapsort keeps
+/// to its indices, so a comparison that is no total order gives some order of
+/// the same items and never a panic (the standard library's unstable sort may
+/// panic on one since Rust 1.81). For a total order the result is the one
+/// order there is.
+fn heapsort(order: &mut [u32], less: &mut dyn FnMut(&u32, &u32) -> bool) {
+    let len = order.len();
+    for root in (0..len / 2).rev() {
+        sift_down(order, root, len, less);
+    }
+    for end in (1..len).rev() {
+        order.swap(0, end);
+        sift_down(order, 0, end, less);
+    }
+}
+
+/// Lets the item at `root` sink in the max-heap `order[..end]`.
+fn sift_down(
+    order: &mut [u32],
+    mut root: usize,
+    end: usize,
+    less: &mut dyn FnMut(&u32, &u32) -> bool,
+) {
+    loop {
+        let mut child = 2 * root + 1;
+        if child >= end {
+            return;
+        }
+        if child + 1 < end && less(&order[child], &order[child + 1]) {
+            child += 1;
+        }
+        if !less(&order[root], &order[child]) {
+            return;
+        }
+        order.swap(root, child);
+        root = child;
+    }
 }
 
 /// Items per insertion-sorted block.
@@ -330,17 +367,17 @@ mod tests {
         assert!(items.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
-    /// A comparison that is no total order gives some order of the same items,
-    /// without a panic, where the module says so: up to 12 items, from 2,048
-    /// items on, and in place.
+    /// A comparison that is no total order gives some order of the same
+    /// items, on every path: up to 12 items, 13 to 2,048 (positions), more
+    /// than that, and in place; also by key and by cached key.
     #[test]
-    fn a_comparison_that_is_no_total_order_loses_no_item_where_it_does_not_panic() {
+    fn a_comparison_that_is_no_total_order_loses_and_repeats_no_item() {
         let cycle = |a: &u32, b: &u32| match (a + 3 - b % 3) % 3 {
             0 => Ordering::Equal,
             1 => Ordering::Less,
             _ => Ordering::Greater,
         };
-        for len in [0, 1, 5, 12, 13, 40, 300, 2_049, 3_000] {
+        for len in [0, 1, 2, 5, 12, 13, 14, 40, 300, 2_047, 2_048, 2_049, 3_000] {
             let items: Vec<u32> = (0..len as u32)
                 .map(|at| at.wrapping_mul(2_654_435_761))
                 .collect();
@@ -354,29 +391,52 @@ mod tests {
             let mut place = items.clone();
             in_place_by(&mut place, cycle);
             assert!(same_items(&place), "in place, len {len}");
-            if len <= BLOCK || len > POSITIONS_MAX {
-                let mut sorted = items.clone();
-                sort_by(&mut sorted, cycle);
-                assert!(same_items(&sorted), "len {len}");
-                // Always less, always greater, and a coin that flips.
-                let mut flips = 0_u32;
-                for compare in [0_u8, 1, 2] {
-                    let mut again = items.clone();
-                    sort_by(&mut again, |_, _| match compare {
-                        0 => Ordering::Less,
-                        1 => Ordering::Greater,
-                        _ => {
-                            flips = flips.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-                            if (flips >> 16) & 1 == 0 {
-                                Ordering::Less
-                            } else {
-                                Ordering::Greater
-                            }
+            let mut sorted = items.clone();
+            sort_by(&mut sorted, cycle);
+            assert!(same_items(&sorted), "cycle, len {len}");
+            // Always less, always greater, and coins that flip.
+            let mut flips = 0_u32;
+            for compare in [0_u8, 1, 2, 3] {
+                let mut again = items.clone();
+                sort_by(&mut again, |_, _| match compare {
+                    0 => Ordering::Less,
+                    1 => Ordering::Greater,
+                    2 => Ordering::Equal,
+                    _ => {
+                        flips = flips.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                        if (flips >> 16) & 1 == 0 {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
                         }
-                    });
-                    assert!(same_items(&again), "len {len}, compare {compare}");
-                }
+                    }
+                });
+                assert!(same_items(&again), "len {len}, compare {compare}");
             }
+            // A key that changes between calls.
+            let mut calls = 0_u32;
+            let mut by_key = items.clone();
+            sort_by_key(&mut by_key, |item| {
+                calls += 1;
+                item.wrapping_mul(calls)
+            });
+            assert!(same_items(&by_key), "key, len {len}");
+        }
+    }
+
+    /// For a total order the positions heapsort gives the one order there
+    /// is, as the standard library's stable sort does.
+    #[test]
+    fn the_positions_heapsort_equals_the_standard_sort_for_a_total_order() {
+        for len in [13_usize, 14, 100, 1_000, 2_048] {
+            let items: Vec<(u32, u32)> = (0..len as u32)
+                .map(|at| (at.wrapping_mul(2_654_435_761) % 7, at))
+                .collect();
+            let mut expected = items.clone();
+            expected.sort_by_key(|item| item.0);
+            let mut mine = items.clone();
+            sort_by_key(&mut mine, |item| item.0);
+            assert_eq!(mine, expected, "len {len}");
         }
     }
 

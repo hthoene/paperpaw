@@ -144,9 +144,9 @@ pub fn replace_char(text: &str, from: char, to: char) -> Result<String, Error> {
 /// Sorts `items` stably, in the shared sorter ([`paperpaw_sdk::sort`]):
 /// order is that of `sort_by` with the same comparison. Up to 12 items it
 /// allocates nothing; beyond, it asks for at most `4 * items.len()` bytes and
-/// sorts in place when the heap refuses them. `compare` must be a total
-/// order: where it is not, the order is not said and, for 13 to 2,048 items,
-/// the sort may panic (see the `paperpaw-sort` crate documentation).
+/// sorts in place when the heap refuses them. Where `compare` is no total
+/// order the order is not said, but no item is lost or repeated and nothing
+/// panics.
 pub fn stable_sort_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> core::cmp::Ordering) {
     paperpaw_sdk::sort::sort_by(items, compare);
 }
