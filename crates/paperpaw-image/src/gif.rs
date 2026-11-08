@@ -10,6 +10,11 @@
 //! of interlaced ones the part on the screen is gathered in a buffer of
 //! its size first, which fails with [`ImageError::OutOfMemory`] where
 //! memory is short.
+//!
+//! A picture larger than its screen is refused, as the host refuses it
+//! before it decodes. If real books with such frames show up, grow the
+//! screen to the frame's size instead, with the 8-megapixel limit on the
+//! grown size.
 
 use alloc::vec::Vec;
 
@@ -345,7 +350,11 @@ fn picture(
             pixel[1] = 0;
         }
     }
-    let blank = row.clone();
+    let mut blank: Vec<u8> = Vec::new();
+    blank
+        .try_reserve_exact(row.len())
+        .map_err(|_| ImageError::OutOfMemory)?;
+    blank.extend_from_slice(&row);
     // Interlaced: every row of the picture first, as far as it shows.
     let mut gathered: Vec<u8> = if interlaced {
         zeroed(shown_w as usize * shown_h as usize)?

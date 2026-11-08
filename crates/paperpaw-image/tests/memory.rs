@@ -29,6 +29,27 @@ thread_local! {
     static LIVE: Cell<usize> = const { Cell::new(0) };
     static PEAK: Cell<usize> = const { Cell::new(0) };
     static LARGEST: Cell<usize> = const { Cell::new(0) };
+    /// Requests made on this thread (counted always).
+    static REQUESTS: Cell<usize> = const { Cell::new(0) };
+    /// The request to refuse, counted from 1; 0: none.
+    static REFUSE_NTH: Cell<usize> = const { Cell::new(0) };
+    /// The decode's request to refuse, set before [`measure`], which arms it
+    /// once the sink is ready (the test's own requests are not refused).
+    static REFUSE_IN_DECODE: Cell<usize> = const { Cell::new(0) };
+    /// What the last [`measure`] decode requested.
+    static DECODE_REQUESTS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Counts a request and says whether to refuse it, as the request chosen
+/// by [`REFUSE_NTH`].
+fn refused_by_count() -> bool {
+    let n = REQUESTS
+        .try_with(|n| {
+            n.set(n.get() + 1);
+            n.get()
+        })
+        .unwrap_or(0);
+    REFUSE_NTH.try_with(Cell::get).unwrap_or(0) == n && n != 0
 }
 
 fn grew(bytes: usize) {
@@ -51,7 +72,7 @@ fn asked(bytes: usize) {
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         asked(layout.size());
-        if layout.size() > REFUSED_ABOVE {
+        if layout.size() > REFUSED_ABOVE || refused_by_count() {
             return std::ptr::null_mut();
         }
         // SAFETY: the caller's layout, as given.
@@ -64,7 +85,7 @@ unsafe impl GlobalAlloc for Counting {
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         asked(layout.size());
-        if layout.size() > REFUSED_ABOVE {
+        if layout.size() > REFUSED_ABOVE || refused_by_count() {
             return std::ptr::null_mut();
         }
         // SAFETY: the caller's layout, as given.
@@ -83,7 +104,7 @@ unsafe impl GlobalAlloc for Counting {
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         asked(new_size);
-        if new_size > REFUSED_ABOVE {
+        if new_size > REFUSED_ABOVE || refused_by_count() {
             return std::ptr::null_mut();
         }
         // SAFETY: allocated by `System` with this layout.
@@ -118,7 +139,11 @@ fn measure(
     PEAK.with(|peak| peak.set(base));
     LARGEST.with(|largest| largest.set(0));
     let mut source = data;
+    REQUESTS.with(|n| n.set(0));
+    REFUSE_NTH.with(|n| n.set(REFUSE_IN_DECODE.with(Cell::get)));
     let result = decode(format, &mut source, fit, &mut sink);
+    REFUSE_NTH.with(|n| n.set(0));
+    DECODE_REQUESTS.with(|n| n.set(REQUESTS.with(Cell::get)));
     let peak = PEAK.with(Cell::get) - base;
     (result, sink, peak, LARGEST.with(Cell::get))
 }
@@ -227,4 +252,40 @@ fn interlaced_gif_pictures_larger_than_their_screen_ask_for_nothing() {
     assert!(data.len() < 100);
     let (_, _, _, largest) = measure(Format::Gif, &data, SCREEN, false);
     assert!(largest < MIB, "{largest} bytes asked for at once");
+}
+
+#[test]
+fn a_gif_decode_meets_every_refused_request_with_out_of_memory() {
+    // The decode of a small GIF, interlaced or not, in colour or gray, with
+    // each of its requests refused in turn: never an abort (an infallible
+    // allocation would abort here), never another error.
+    for interlaced in [false, true] {
+        for color in [false, true] {
+            let mut gif = Gif::new(6, 5, 4, 3);
+            gif.width = 9;
+            gif.height = 7;
+            gif.left = 2;
+            gif.top = 1;
+            gif.interlaced = interlaced;
+            let data = gif.encode();
+            REFUSE_IN_DECODE.with(|n| n.set(0));
+            let (result, _, _, _) = measure(Format::Gif, &data, SCREEN, color);
+            result.unwrap();
+            let requests = DECODE_REQUESTS.with(Cell::get);
+            assert!(requests > 0);
+            let mut failed = 0;
+            for nth in 1..=requests {
+                REFUSE_IN_DECODE.with(|n| n.set(nth));
+                let (result, _, _, _) = measure(Format::Gif, &data, SCREEN, color);
+                // A refusal of a request the sink makes (a row it keeps) may
+                // pass; the decoder's own end in `OutOfMemory`.
+                if let Err(e) = result {
+                    assert_eq!(e, ImageError::OutOfMemory, "request {nth} of {requests}");
+                    failed += 1;
+                }
+            }
+            REFUSE_IN_DECODE.with(|n| n.set(0));
+            assert!(failed > 0, "interlaced {interlaced}, colour {color}");
+        }
+    }
 }
