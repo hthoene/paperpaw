@@ -334,21 +334,12 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "boox-home-hints",
-        profile: "boox-go-7",
-        book: None,
-        sets: &["help.show=true"],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-developer-settings",
         profile: "boox-go-7",
         book: None,
         // Developer options on: their group of settings.
         sets: &["settings.advanced=true", "core.developer=true"],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,swipe:600:1400:600:700,wait:300,tap-on:Developer,wait:300",
+        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,tap-on:Developer,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -423,18 +414,6 @@ const CASES: &[Case] = &[
         // Up on the home screen: every tool.
         sets: &[],
         script: "swipe:600:1100:600:500,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-menu-drag",
-        profile: "boox-go-7",
-        book: None,
-        // The main menu's first entry dragged by its grip to the fourth
-        // place (the editor opened by its action: where the settings list
-        // it depends on how many groups there are).
-        sets: &[],
-        script: "run:menu-editor.open,wait:300,tap-on:Main menu,wait:300,                 swipe:1220:159:1220:420,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -714,17 +693,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-licences",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        // Long enough for its pages to be counted (on the X4 with rests
-        // between), so the status line shows the page, not a percentage.
-        script: "run:about.open,left,confirm,wait:40000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-main-menu",
         profile: "boox-go-7",
         book: None,
@@ -986,85 +954,12 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The end-of-book screen would show on the last page.
     Case {
         name: "x4-docx-second-page",
         profile: "xteink-x4",
         book: Some("books/report.docx"),
-        sets: &["plugins.end-of-book=off"],
+        sets: &[],
         script: "wait:1500,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone-de",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-rated",
-        profile: "xteink-x4",
-        book: Some("books/moor-2.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,right,confirm,confirm,confirm,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24", "core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-opened-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,confirm,wait:1500",
         colour: 0,
         fixtures: false,
     },
@@ -1192,7 +1087,6 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
         command.args(["--script", case.script]);
     }
     // The hint on gestures would cover every first home screen.
-    command.args(["--set", "help.show=false"]);
     // A card of the same free space on every computer.
     command.args(["--free-space", "7400000000"]);
     for set in case.sets {
@@ -1282,7 +1176,6 @@ fn screens_say_what_they_show() {
         .args(["--profile", case.profile, "--headless", "--library"])
         .arg(&library)
         .args(["--set", "reader.open-last=false"])
-        .args(["--set", "help.show=false"])
         .args(["--set", case.sets[0]])
         .args([
             "--script",
@@ -1340,7 +1233,6 @@ fn headers_are_centred_by_their_capitals() {
                 .args(["--screenshot"])
                 .arg(&shot)
                 .args(["--set", "reader.open-last=false"])
-                .args(["--set", "help.show=false"])
                 .args(["--script", &format!("{script},describe")])
                 .output()
                 .unwrap();

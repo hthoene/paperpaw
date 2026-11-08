@@ -12,7 +12,10 @@ pub(crate) struct Retained<S: Services + 'static, M: 'static> {
 
 impl<S: Services + 'static, M: 'static> Retained<S, M> {
     pub(crate) fn make(host: shell::Hosted<S, M>) -> Result<Self, shell::Error> {
-        let transaction = host.begin()?;
+        let mut transaction = host.begin()?;
+        // A batch lying wholly in the plugin's image is kept as offsets, not
+        // copied: that is how declarations beyond the owned-copy limits fit.
+        transaction.set_image(host.image().unwrap_or(&[]))?;
         let batch = host.make_registered(transaction)?.commit()?;
         // SAFETY: this holder retains the pinned owner and drops the raw
         // batch lease before freeing it. Only &self exposes borrowed views.
@@ -27,7 +30,10 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         host: shell::Hosted<S, M>,
         map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(Self, R), shell::Error> {
-        let transaction = host.begin()?;
+        let mut transaction = host.begin()?;
+        // A batch lying wholly in the plugin's image is kept as offsets, not
+        // copied: that is how declarations beyond the owned-copy limits fit.
+        transaction.set_image(host.image().unwrap_or(&[]))?;
         let (batch, staging) = host.make_registered(transaction)?.commit_native(map)?;
         // SAFETY: as in make, only raw pointers and lifetime markers are
         // retained; no reference into the owned allocation survives the move.
@@ -38,6 +44,30 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
                 host: ManuallyDrop::new(host),
             },
             staging,
+        ))
+    }
+
+    pub(crate) fn make_native_stored<R>(
+        host: shell::Hosted<S, M>,
+        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(Self, R, super::raw_declarations::RawDeclarations), shell::Error> {
+        let mut transaction = host.begin()?;
+        // A batch lying wholly in the plugin's image is kept as offsets, not
+        // copied: that is how declarations beyond the owned-copy limits fit.
+        transaction.set_image(host.image().unwrap_or(&[]))?;
+        let (batch, staging, raw) = host
+            .make_registered(transaction)?
+            .commit_native_stored(map)?;
+        // SAFETY: this holder retains the pinned owner and releases its batch
+        // before the owner, as in make_native.
+        let batch = unsafe { batch.into_retained() };
+        Ok((
+            Self {
+                batch: Some(batch),
+                host: ManuallyDrop::new(host),
+            },
+            staging,
+            raw,
         ))
     }
 

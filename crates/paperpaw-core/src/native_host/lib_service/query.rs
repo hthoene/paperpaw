@@ -219,9 +219,7 @@ fn catalog(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibQuery(query) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let query: wire::ServiceLibQuery<'_> = args::single(input)?;
     let facets = id == op::FACETS;
     check_query(&query, facets)?;
     let request = page::Request {

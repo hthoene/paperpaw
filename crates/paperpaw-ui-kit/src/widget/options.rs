@@ -48,6 +48,14 @@ pub const LINES: &[&str] = &[
 ];
 pub const SHADOWS: &[&str] = &["core.shadow.none", "core.shadow.hard"];
 
+/// The values of a widget's font setting: the menus' font, the book's, the
+/// book's italic.
+pub const FACES: &[&str] = &[
+    "widgets.face.ui",
+    "widgets.face.book",
+    "widgets.face.italic",
+];
+
 /// The values of a date-format setting.
 pub const DATE_FORMATS: &[&str] = &[
     "widgets.date-format.long",
@@ -81,6 +89,8 @@ pub enum Opt {
         &'static str,
         &'static str,
     ),
+    /// Free text: key, title, default, help.
+    Text(&'static str, &'static str, &'static str, &'static str),
     /// How dates are written: the default is one of [`DATE_FORMATS`].
     DateFormat(&'static str),
 }
@@ -183,6 +193,13 @@ pub fn row(option: Opt) -> Row<'static> {
         Opt::Choice(key, title, values, default, help) => {
             choice(key, (default, values), title, help)
         }
+        Opt::Text(key, title, default, help) => Row {
+            suffix: key,
+            kind: Kind::Text(default),
+            title,
+            help,
+            keeps: false,
+        },
         Opt::DateFormat(default) => choice(
             "date-format",
             (default, DATE_FORMATS),
@@ -224,10 +241,26 @@ pub fn declare_all(
     d: &mut Declarations<impl FnMut(&[u8]) -> Result<(), i32>>,
     widget: &str,
     group: &str,
-    options: &[Opt],
+    options: impl IntoIterator<Item = Opt>,
 ) -> Result<(), DeclareError> {
     for option in options {
-        declare_option(d, widget, group, *option)?;
+        declare_option(d, widget, group, option)?;
     }
     Ok(())
+}
+
+/// The look settings every widget shares, in their order: alignment (with its
+/// default), frame (none), padding, paper, ink, corners, frame line, shadow.
+#[must_use]
+pub const fn shared_look(align: &'static str) -> [Opt; 8] {
+    [
+        Opt::Align(align),
+        Opt::Frame("core.frame.none"),
+        Opt::Padding,
+        Opt::Paper,
+        Opt::Ink,
+        Opt::Corners,
+        Opt::FrameLine,
+        Opt::Shadow,
+    ]
 }
