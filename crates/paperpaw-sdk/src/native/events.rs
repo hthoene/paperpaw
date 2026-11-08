@@ -1,10 +1,7 @@
 //! Borrowed interface-7 host events and stage subscriber calls, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
-use super::{
-    Error,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, declare::records_wire as wire};
 
 mod core_events;
 mod states;
@@ -419,73 +416,109 @@ impl<'a> Event<'a> {
 /// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
 /// non-singleton batch or unsound counters/progress; Unsupported for other tags.
 fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
-    let record = match wire::records_decode_single(bytes) {
-        Ok(record) => record,
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED) => {
+    // The record's frame only; each arm decodes its own type, so a plugin links the
+    // decoders of these events, never the whole record codec.
+    let raw = wire::RawRecord::single(bytes).map_err(Error::from_status)?;
+    Ok(match raw.tag() {
+        wire::EVENT_TICK_TAG => {
             return wire::tick_decode(bytes)
                 .map(|now_ms| Event::Tick { now_ms })
                 .map_err(Error::from_status);
         }
-        Err(status) => return Err(Error::from_status(status)),
-    };
-    Ok(match record {
-        Record::StageCall(r) => Event::StageCall {
-            stage: r.stage,
-            schema: r.schema,
-            payload: r.payload,
-        },
-        Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
-        Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
-        Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
-        Record::EventStopping(r) => Event::Stopping { now_ms: r.now_ms },
-        Record::EventBatteryMeasured(r) => Event::BatteryMeasured { now_ms: r.now_ms },
-        Record::EventPageTurned(r) => Event::PageTurned(
-            ReadingView {
-                now_ms: r.now_ms,
-                section: r.section,
-                offset: r.offset,
-                insert: r.insert.unwrap_or(0),
-                progress_ppm: r.progress_ppm,
-                path: r.path,
-                title: r.title,
-                chapter: r.chapter,
-                page: r.page,
-                pages: r.pages,
+        wire::STAGE_CALL_TAG => {
+            let r: wire::StageCall<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::StageCall {
+                stage: r.stage,
+                schema: r.schema,
+                payload: r.payload,
             }
-            .validate()?,
-        ),
-        Record::EventScreenShown(r) => Event::ScreenShown {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            width: r.width,
-            height: r.height,
-            instance: r
-                .instance
-                .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
-                .transpose()?,
-        },
-        Record::EventActionRun(r) => Event::ActionRun {
-            now_ms: r.now_ms,
-            action: r.action,
-        },
-        other => decode_registry(other)?,
+        }
+        wire::EVENT_STARTED_TAG => {
+            let r: wire::EventStarted = raw.decode().map_err(Error::from_status)?;
+            Event::Started { now_ms: r.now_ms }
+        }
+        wire::EVENT_RESUME_TAG => {
+            let r: wire::EventResume = raw.decode().map_err(Error::from_status)?;
+            Event::Resume { now_ms: r.now_ms }
+        }
+        wire::EVENT_SUSPEND_TAG => {
+            let r: wire::EventSuspend = raw.decode().map_err(Error::from_status)?;
+            Event::Suspend { now_ms: r.now_ms }
+        }
+        wire::EVENT_STOPPING_TAG => {
+            let r: wire::EventStopping = raw.decode().map_err(Error::from_status)?;
+            Event::Stopping { now_ms: r.now_ms }
+        }
+        wire::EVENT_BATTERY_MEASURED_TAG => {
+            let r: wire::EventBatteryMeasured = raw.decode().map_err(Error::from_status)?;
+            Event::BatteryMeasured { now_ms: r.now_ms }
+        }
+        wire::EVENT_PAGE_TURNED_TAG => {
+            let r: wire::EventPageTurned<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::PageTurned(
+                ReadingView {
+                    now_ms: r.now_ms,
+                    section: r.section,
+                    offset: r.offset,
+                    insert: r.insert.unwrap_or(0),
+                    progress_ppm: r.progress_ppm,
+                    path: r.path,
+                    title: r.title,
+                    chapter: r.chapter,
+                    page: r.page,
+                    pages: r.pages,
+                }
+                .validate()?,
+            )
+        }
+        wire::EVENT_SCREEN_SHOWN_TAG => {
+            let r: wire::EventScreenShown<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::ScreenShown {
+                now_ms: r.now_ms,
+                screen: r.screen,
+                width: r.width,
+                height: r.height,
+                instance: r
+                    .instance
+                    .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
+                    .transpose()?,
+            }
+        }
+        wire::EVENT_ACTION_RUN_TAG => {
+            let r: wire::EventActionRun<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::ActionRun {
+                now_ms: r.now_ms,
+                action: r.action,
+            }
+        }
+        _ => decode_registry(raw)?,
     })
 }
 
-fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
-    Ok(match record {
-        Record::EventRegistryChanged(r) => Event::RegistryChanged {
-            now_ms: r.now_ms,
-            what: RegistryChanges::from_bits(r.what),
-        },
-        Record::EventPreviewChanged(r) => Event::PreviewChanged { now_ms: r.now_ms },
-        Record::EventPluginsRequested(r) => Event::PluginsRequested {
-            now_ms: r.now_ms,
-            request: PluginRequestId(r.request),
-            by: r.by,
-            plugins: RequestedPlugins::decode(r.plugins)?,
-        },
-        Record::EventPluginAnswered(r) => {
+fn decode_registry(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
+    Ok(match raw.tag() {
+        wire::EVENT_REGISTRY_CHANGED_TAG => {
+            let r: wire::EventRegistryChanged = raw.decode().map_err(Error::from_status)?;
+            Event::RegistryChanged {
+                now_ms: r.now_ms,
+                what: RegistryChanges::from_bits(r.what),
+            }
+        }
+        wire::EVENT_PREVIEW_CHANGED_TAG => {
+            let r: wire::EventPreviewChanged = raw.decode().map_err(Error::from_status)?;
+            Event::PreviewChanged { now_ms: r.now_ms }
+        }
+        wire::EVENT_PLUGINS_REQUESTED_TAG => {
+            let r: wire::EventPluginsRequested<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::PluginsRequested {
+                now_ms: r.now_ms,
+                request: PluginRequestId(r.request),
+                by: r.by,
+                plugins: RequestedPlugins::decode(r.plugins)?,
+            }
+        }
+        wire::EVENT_PLUGIN_ANSWERED_TAG => {
+            let r: wire::EventPluginAnswered<'_> = raw.decode().map_err(Error::from_status)?;
             use super::commands::PluginOutcome;
             let outcome = match r.outcome {
                 0 => PluginOutcome::Installed,
@@ -500,7 +533,7 @@ fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
                 outcome,
             }
         }
-        other => uix_events::decode(other)?,
+        _ => uix_events::decode(raw)?,
     })
 }
 

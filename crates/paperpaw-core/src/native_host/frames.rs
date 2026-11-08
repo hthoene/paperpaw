@@ -7,7 +7,7 @@
 
 use paperpaw_native::host_glue::ERR_INVALID;
 
-use super::registrations::{DrawFrame, Record, records_encode};
+use super::registrations::{DrawFrame, Record};
 
 /// `draw.frame.purpose`: what the drawing is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +79,7 @@ pub fn encode(frame: &DrawFrame<'_>, out: &mut [u8]) -> Result<usize, i32> {
     if !(top <= clip_top && clip_top < clip_bottom && clip_bottom <= bottom) {
         return Err(ERR_INVALID);
     }
-    records_encode(&[Record::DrawFrame(*frame)], out)
+    super::codec::encode_batch(&[Record::DrawFrame(*frame)], out)
 }
 
 #[cfg(test)]

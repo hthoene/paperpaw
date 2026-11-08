@@ -46,14 +46,14 @@ impl ServiceRegistry {
         // New service families add only their implemented backends here. Schema
         // presence alone is not implementation, and test schemas stay refused.
         use crate::abi7::services_wire::{
-            core_device_v1, core_document_v1, core_library_v1, core_lookup_v1, core_net_v1,
-            core_secrets_v1, core_ui_v1, core_work_v1, service_schema,
+            core_device_v1, core_document_v1, core_files_v1, core_library_v1, core_lookup_v1,
+            core_net_v1, core_secrets_v1, core_ui_v1, core_work_v1, service_schema,
         };
         use crate::native_host::{
-            device_service, doc_service, lib_service, lookup_service, net_service, secrets_service,
-            ui_service, work_service,
+            device_service, doc_service, files_service, lib_service, lookup_service, net_service,
+            secrets_service, ui_service, work_service,
         };
-        let implementations: [(&str, u16, Backend); 8] = [
+        let implementations: [(&str, u16, Backend); 9] = [
             (
                 core_device_v1::KEY,
                 core_device_v1::MAJOR,
@@ -63,6 +63,11 @@ impl ServiceRegistry {
                 core_document_v1::KEY,
                 core_document_v1::MAJOR,
                 doc_service::backend,
+            ),
+            (
+                core_files_v1::KEY,
+                core_files_v1::MAJOR,
+                files_service::backend,
             ),
             (
                 core_library_v1::KEY,
@@ -227,6 +232,12 @@ impl HostResources {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
     use super::*;
+    #[test]
+    fn the_device_serves_the_files_family() {
+        let registry = ServiceRegistry::device().unwrap();
+        assert!(registry.schema("core.files").is_some());
+    }
+
     #[test]
     fn device_registration_refuses_test_only_schema_in_code() {
         let mut registry = ServiceRegistry::device().unwrap();

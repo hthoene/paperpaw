@@ -40,7 +40,20 @@ impl Storage for Quiet {
         fixture(|| self.0.append(path, data))
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        fixture(|| self.0.list(dir, visit))
+        // The entries are collected on the storage's side; what the visitor
+        // does with them is the plugin's heap, and is counted and refused.
+        let mut entries: Vec<(String, bool, u64, Option<i64>)> = Vec::new();
+        fixture(|| {
+            self.0.list(dir, &mut |e| {
+                entries.push((String::from(e.name), e.is_dir, e.size, e.modified));
+            })
+        })?;
+        for (name, is_dir, size, modified) in &entries {
+            let mut entry = DirEntry::new(name, *is_dir, *size);
+            entry.modified = *modified;
+            visit(entry);
+        }
+        Ok(())
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         fixture(|| self.0.remove(path))
@@ -511,6 +524,143 @@ fn a_later_add_heals_duplicates_left_by_a_refused_read() {
     );
 }
 
+// ---- Cards from CSV, TSV and TXT files ---------------------------------
+
+use crate::table;
+
+/// A spreadsheet export: a header, quotes, a record over two lines, HTML.
+fn csv() -> Quiet {
+    let mut file = String::from("#paperpaw:deck 1\nId;Front;Back;Example\n");
+    for i in 0..40 {
+        file.push_str(&alloc::format!(
+            "{i};\"word {i}\";<b>the</b> meaning&amp;more;\"two\nlines, \"\"quoted\"\"\"\n"
+        ));
+    }
+    Quiet::default().with("f", file)
+}
+
+#[test]
+fn reading_a_table_refuses_cleanly() {
+    sweep("detect", csv, |s| table::detect(s, "f"), |_| {});
+    sweep(
+        "each",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut seen = 0;
+            table::each(s, "f", &layout, None, |_| {
+                seen += 1;
+                core::ops::ControlFlow::Continue(())
+            })?;
+            assert_eq!(seen, 40);
+            Ok(())
+        },
+        |_| {},
+    );
+    sweep(
+        "scan in steps",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut from = table::Resume {
+                at: layout.start,
+                line: layout.line,
+            };
+            while let Some(next) = table::scan(s, "f", &layout, from, Some(300), |_| {
+                core::ops::ControlFlow::Continue(())
+            })? {
+                from = next;
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+    let latin1 =
+        || Quiet::default().with("f", b"front;back\nstra\xdfe;b\xe4r\nh\x80llo;x\n".to_vec());
+    sweep("latin1 detect", latin1, |s| table::detect(s, "f"), |_| {});
+    // The same file read: Windows-1252 fields decoded into reserved strings.
+    sweep(
+        "latin1 each",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            assert!(layout.latin1);
+            let mut records = 0;
+            table::each(s, "f", &layout, None, |_| {
+                records += 1;
+                core::ops::ControlFlow::Continue(())
+            })?;
+            assert_eq!(records, 2);
+            Ok(())
+        },
+        |_| {},
+    );
+    sweep(
+        "latin1 scan in steps",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut from = table::Resume {
+                at: layout.start,
+                line: layout.line,
+            };
+            while let Some(next) = table::scan(s, "f", &layout, from, Some(10), |_| {
+                core::ops::ControlFlow::Continue(())
+            })? {
+                from = next;
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+    // A record read again by its offset (an error where the heap refuses:
+    // no card, never a half one).
+    sweep(
+        "record_at",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let offset = fixture(|| {
+                let (mut second, mut n) = (0, 0);
+                table::each(s, "f", &layout, None, |item| {
+                    if let table::Item::Record(record) = item {
+                        n += 1;
+                        second = record.offset;
+                    }
+                    if n == 2 {
+                        core::ops::ControlFlow::Break(())
+                    } else {
+                        core::ops::ControlFlow::Continue(())
+                    }
+                })
+                .unwrap();
+                second
+            });
+            // Whole or not there; a record is never half made.
+            if let Some(record) = table::record_at(s, "f", &layout, offset)? {
+                assert_eq!(record.front, "word 1");
+                assert!(record.back.contains("meaning"));
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+}
+
+#[test]
+fn turning_html_into_text_refuses_cleanly() {
+    let html = alloc::format!(
+        "{}<br>a &lt;b&gt; &amp; c&nbsp;d <p>x</p>",
+        "<b>word</b> ".repeat(20)
+    );
+    let make = || Quiet::default();
+    sweep("plain", make, |_| table::plain(&html), |_| {});
+    assert_eq!(
+        table::plain("<div>a</div>b <p>&lt;c&gt;</p>&amp;lt; &quot;d&quot;").unwrap(),
+        "a b <c> &lt; \"d\""
+    );
+}
+
 /// Decks and cards, but no index: it was taken away after a refusal, and
 /// is made anew from two decks, one at a time. A refusal on the second
 /// must not leave the index of the first as the index.
@@ -548,4 +698,306 @@ fn rebuilding_the_index_refuses_cleanly() {
         |s| cards::rebuild_index(s),
         healthy,
     );
+}
+
+// ---- The card folder: listing, the ledger and the job ----------------------
+
+mod folder {
+    use super::*;
+    use crate::cards;
+    use crate::sync::tests::{FOLDER, put, run};
+
+    fn put_bytes(storage: &MemoryStorage, name: &str, bytes: &[u8]) {
+        storage
+            .write(&alloc::format!("{FOLDER}/{name}"), bytes)
+            .unwrap();
+    }
+    use crate::sync::{self, Job, Mode, Outcome, Step};
+
+    /// A card folder with decks, made and merged once, then changed.
+    fn card() -> Quiet {
+        let q = Quiet::default();
+        fixture(|| {
+            put(&q.0, "Spanish.tsv", "casa\thouse\ngato\tcat\nperro\tdog\n");
+            put(&q.0, "French.csv", "maison,house\nchat,cat\n");
+            put(&q.0, "_Read me.txt", "how");
+            put(&q.0, "notes.pdf", "no deck");
+            run(&q.0, false, true);
+            // One line changed, one added, one file new.
+            put(
+                &q.0,
+                "Spanish.tsv",
+                "casa\ta house\ngato\tcat\nperro\tdog\nlibro\tbook\n",
+            );
+            put(&q.0, "Italian.tsv", "casa\thouse\n");
+        });
+        q
+    }
+
+    /// Every deck of the plugin still reads whole, and so does the ledger.
+    fn whole(q: &Quiet) {
+        fixture(|| {
+            for deck in cards::decks(q).unwrap() {
+                cards::each_card(q, deck.id, |_, _| core::ops::ControlFlow::Continue(())).unwrap();
+            }
+            sync::sources(q).unwrap();
+        });
+    }
+
+    #[test]
+    fn the_listing_refuses_cleanly() {
+        sweep(
+            "files",
+            card,
+            |s| {
+                let (there, found) = sync::files(s, FOLDER)?;
+                assert!(there && found.len() == 3);
+                Ok(())
+            },
+            |_| {},
+        );
+        sweep(
+            "pending",
+            card,
+            |s| sync::pending(s, FOLDER).map(|p| assert_eq!(p.todo, 2)),
+            |_| {},
+        );
+        sweep(
+            "make_folder",
+            Quiet::default,
+            |s| sync::make_folder(s, "Cards", "how to"),
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn names_refuse_cleanly() {
+        let listed =
+            fixture(|| alloc::vec![String::from("Spanish.csv"), String::from("Spanish.tsv")]);
+        sweep(
+            "deck names",
+            Quiet::default,
+            |_| {
+                sync::deck_name("Spanish.tsv")?;
+                sync::deck_name_among("Spanish.tsv", &listed)?;
+                sync::folder_of(" /Cards/ ")?;
+                Ok(())
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn the_ledger_refuses_cleanly_and_is_never_written_half() {
+        let before = fixture(|| {
+            let q = card();
+            sync::sources(&q).unwrap()
+        });
+        assert!(!before.sources.is_empty());
+        sweep(
+            "sources",
+            card,
+            |s| sync::sources(s).map(|l| assert_eq!(l.sources.len(), before.sources.len())),
+            |_| {},
+        );
+        sweep(
+            "write_sources",
+            card,
+            |s| {
+                let ledger = fixture(|| sync::sources(s).unwrap());
+                sync::write_sources(s, &ledger)
+            },
+            whole,
+        );
+    }
+
+    #[test]
+    fn a_job_refuses_cleanly_and_leaves_the_decks_whole() {
+        sweep(
+            "job",
+            card,
+            |s| {
+                let mut job = Job::new(s, FOLDER, Mode::Manual)?;
+                loop {
+                    match job.step(s) {
+                        Step::Working => {}
+                        Step::Ask => job.answer(s, true),
+                        Step::Done => break,
+                    }
+                }
+                // Nothing here is the file's fault: a refusal is never a verdict
+                // on the file (`Crowded` would mark it failed for good).
+                assert!(
+                    job.reports.iter().all(|r| r.outcome != Outcome::Crowded),
+                    "a refused allocation was reported as Crowded"
+                );
+                // A refusal is told, as a report or as the job's flag.
+                let unreadable = job.reports.iter().any(|r| r.outcome == Outcome::Unreadable);
+                if job.refused() || unreadable {
+                    return Err(StorageError::TooLarge);
+                }
+                assert_eq!(job.reports.len(), 2);
+                Ok(())
+            },
+            whole,
+        );
+    }
+
+    /// A save refused anywhere is cut off: the file is as it was or whole,
+    /// no part is left, and the decks and the ledger read whole.
+    fn saving(name: &str, loose: bool) {
+        use crate::export::{self, Outcome as Saved, Saver, Step as Saving};
+        let make = move || {
+            let q = card();
+            if loose {
+                fixture(|| {
+                    cards::add_deck(&q, "Loose").unwrap();
+                    put(&q.0, "Loose.tsv", "someone else's file");
+                });
+            }
+            q
+        };
+        let deck_of = |q: &Quiet| {
+            fixture(|| cards::decks(q).unwrap())
+                .into_iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .id
+        };
+        let save = |q: &Quiet| -> Result<(), StorageError> {
+            let deck = deck_of(q);
+            let mut saver = Saver::new(FOLDER, deck)?;
+            loop {
+                match saver.step(q) {
+                    Saving::Working => {}
+                    Saving::Done(report) if report.outcome == Saved::Saved => return Ok(()),
+                    // A refusal cuts the save off (or leaves it unlinked).
+                    Saving::Done(report)
+                        if matches!(
+                            report.outcome,
+                            Saved::Failed | Saved::NotLinked | Saved::Unreadable
+                        ) =>
+                    {
+                        return Err(StorageError::TooLarge);
+                    }
+                    Saving::Done(report) => panic!("{name}: {report:?}"),
+                }
+            }
+        };
+        let files = |q: &Quiet| -> Vec<(String, Option<Vec<u8>>)> {
+            let mut names = Vec::new();
+            q.0.list(FOLDER, &mut |e| {
+                names.push(alloc::string::String::from(e.name));
+            })
+            .unwrap();
+            names.sort();
+            names
+                .into_iter()
+                .map(|n| {
+                    let bytes = q.get(&alloc::format!("{FOLDER}/{n}"));
+                    (n, bytes)
+                })
+                .collect()
+        };
+        let before = files(&make());
+        let after = {
+            let q = make();
+            save(&q).unwrap();
+            files(&q)
+        };
+        sweep("save", make, save, |q| {
+            whole(q);
+            let now = files(q);
+            // No part is left; every file there was is as it was or as saved
+            // (the backup, the file, a new name).
+            assert!(now.iter().all(|(n, _)| !n.ends_with(".part")), "{now:?}");
+            for (n, bytes) in &before {
+                let there = now.iter().find(|(m, _)| m == n);
+                let saved = after.iter().find(|(m, _)| m == n);
+                assert!(
+                    there.is_some_and(|t| t.1 == *bytes || Some(t) == saved),
+                    "{name}: {n} is neither as it was nor as saved"
+                );
+            }
+        });
+        // The linked deck's file: its update first, then the save.
+        sweep(
+            "update_first",
+            make,
+            |q| export::update_first(q, FOLDER, deck_of(q)).map(|_| ()),
+            whole,
+        );
+    }
+
+    #[test]
+    fn saving_a_deck_refuses_cleanly_and_keeps_the_files() {
+        saving("Spanish", false);
+        saving("French", false);
+        // No file yet, and the name taken: a free name is looked for.
+        saving("Loose", true);
+    }
+
+    #[test]
+    fn the_names_of_a_save_refuse_cleanly() {
+        use crate::export::{backup_name, file_name_of};
+        sweep(
+            "names",
+            Quiet::default,
+            |_| {
+                assert_eq!(file_name_of("A/B: C")?, "A_B_ C.tsv");
+                assert_eq!(file_name_of("  ..")?, "Deck.tsv");
+                assert_eq!(backup_name("W.tsv")?, "_W.bak.tsv");
+                assert_eq!(backup_name("W")?, "_W.bak");
+                Ok(())
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn reading_an_anki_deck_refuses_cleanly() {
+        // Made here, not in the run: nothing of the test's own is refused.
+        let path = fixture(|| alloc::format!("{FOLDER}/de.apkg"));
+        let path = path.as_str();
+        use crate::apkg::{
+            self, Fault,
+            tests::{deck_with, note},
+        };
+        let make = || {
+            let q = Quiet::default();
+            fixture(|| {
+                let notes = [
+                    note(&[
+                        "<b>haus</b>",
+                        "the house<br>big&amp;old [sound:a.mp3]",
+                        "Das Haus.",
+                    ]),
+                    note(&["tab\there", "say \"hi\""]),
+                    note(&["gato", "cat"]),
+                ];
+                put_bytes(&q.0, "de.apkg", &deck_with("collection.anki21", &notes));
+            });
+            q
+        };
+        sweep(
+            "apkg",
+            make,
+            |s| match apkg::convert(s, path) {
+                Ok(notes) => {
+                    assert_eq!(notes.count, 3);
+                    Ok(())
+                }
+                Err(Fault::Memory) => Err(StorageError::TooLarge),
+                Err(fault) => panic!("{fault:?}"),
+            },
+            |s| {
+                // The database is only kept while it is read.
+                assert!(
+                    s.get(".paperpaw/plugins/vocabulary/cards/apkg.db")
+                        .is_none()
+                );
+                whole(s);
+            },
+        );
+    }
 }

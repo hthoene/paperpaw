@@ -232,6 +232,36 @@ pub fn count_parts(book: &Counted) -> [Option<(&'static str, u16)>; 2] {
 /// Between the highlight and the bookmark count.
 pub const COUNT_SEPARATOR: &str = " · ";
 
+/// The second line of a note's row: what it is (its own note, else the kind's
+/// name) and how far into the book it lies: `Note text · 42 %`.
+///
+/// # Errors
+/// The sink's refusal.
+pub fn put_detail(out: &mut dyn Sink, what: &str, percent: u8) -> Result<(), Error> {
+    out.put(what)?;
+    out.put(COUNT_SEPARATOR)?;
+    let mut digits = [0u8; 3];
+    let mut at = digits.len();
+    let mut rest = percent;
+    loop {
+        at -= 1;
+        if let Some(slot) = digits.get_mut(at) {
+            *slot = b'0' + rest % 10;
+        }
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.put(
+        digits
+            .get(at..)
+            .and_then(|d| core::str::from_utf8(d).ok())
+            .unwrap_or("0"),
+    )?;
+    out.put(" %")
+}
+
 /// Where the export goes: `Exports` beside the library folder `library`.
 ///
 /// # Errors
