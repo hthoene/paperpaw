@@ -23,10 +23,23 @@ extern crate alloc;
 extern crate std;
 
 mod data;
+#[path = "../declarations.rs"]
+pub mod declarations;
 mod draw;
 mod forecast;
 pub mod native_answers;
+mod native_draw;
+mod native_entry;
+mod native_fetch;
+mod native_forecast;
+mod native_now;
+mod native_place;
+pub mod native_plugin;
+pub mod native_shown;
+mod native_symbol;
 pub mod native_weather;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod now;
 mod place;
 mod symbol;

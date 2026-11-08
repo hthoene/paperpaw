@@ -9,9 +9,19 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "testdata"]
+
+[features]
+linked = []
+native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 # By path alone: the app has this plugin built in, so a version here
@@ -19,6 +29,8 @@ paperpaw-sdk.workspace = true
 # leaves a dev-dependency without one out.
 paperpaw-app = { path = "../../crates/paperpaw-app" }
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
