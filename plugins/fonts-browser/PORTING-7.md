@@ -36,3 +36,12 @@ stays until the host activates native plugins (then it goes together, no shim).
   a contract for it.
 - `paperpaw_json::stream::Parser` allocates infallibly (bounded: 64 levels, 4,096-byte strings,
   256-byte keys). Everything this plugin allocates is swept; the parser is not. Asked of Kernel.
+
+## Review fixes
+
+- Only `install_done` with status OK and reason 0 says *ready* (`native_plan::ended`); a refused,
+  dismissed or timed-out confirmation and any failure say nothing of the kind, and the
+  `staging/<plugin>` folder is removed in every case.
+- A font the plan cannot install (a file over 512 KiB for packs or 1 MiB for font files, a size of
+  0, a path that leaves the folder, a plugin id over 40 bytes) is not offered
+  (`native_plan::fits`, used by `Catalog::finish`).

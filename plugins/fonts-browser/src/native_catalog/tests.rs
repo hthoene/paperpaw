@@ -7,7 +7,10 @@ const BASE: &str = "https://fonts.example/fonts.json";
 const SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn file(id: &str, path: &str, n: usize) -> String {
-    format!(r#"{{"path": "{path}", "url": "/{id}/{n}", "size": {n}, "sha1": "{SHA1}"}}"#)
+    format!(
+        r#"{{"path": "{path}", "url": "/{id}/{n}", "size": {}, "sha1": "{SHA1}"}}"#,
+        n + 1
+    )
 }
 
 fn font(id: &str, files: usize, outline: bool) -> String {
@@ -263,4 +266,32 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     ] {
         sweep(|| join_url(base, href).map(|u| u.len()));
     }
+}
+
+#[test]
+fn fonts_over_the_caps_are_not_offered() {
+    use crate::native_plan::{MAX_OUTLINE, MAX_PACK};
+    let with_size = |id: &str, size: u64| {
+        font(id, 2, true).replace("\"size\": 2,", &format!("\"size\": {size},"))
+    };
+    let json = catalog(&[
+        font("ok", 2, true),
+        with_size("packbig", MAX_PACK + 1),
+        with_size("zero", 0),
+        with_size("outbig", MAX_OUTLINE + 1),
+    ]);
+    // The size is replaced in the packs and in the font files alike: a font
+    // over the packs' cap is still fine as font files.
+    let ids =
+        |outlines| -> Vec<String> { read(&json, outlines).into_iter().map(|f| f.id).collect() };
+    assert_eq!(ids(false), ["ok"]);
+    assert_eq!(ids(true), ["ok", "packbig"]);
+    // A font file may be larger than a pack.
+    let json = catalog(&[font("big", 2, true).replacen(
+        "\"outline\": [{\"path\": \"plugin.ini\", \"url\": \"/big/0\", \"size\": 1,",
+        "\"outline\": [{\"path\": \"plugin.ini\", \"url\": \"/big/0\", \"size\": 900000,",
+        1,
+    )]);
+    assert_eq!(read(&json, true).len(), 1);
+    assert_eq!(read(&json, false).len(), 1);
 }

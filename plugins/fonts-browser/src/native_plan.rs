@@ -8,16 +8,74 @@
 use crate::native_catalog::Font;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    install::{MAX_FILES, is_plugin_name, is_safe_path},
+    install::{MAX_FILES, is_safe_path},
     native::{Error, net::MAX_URL},
 };
 use paperpaw_ui_kit::text::concat;
 
 /// Where the files of fonts being installed are kept, in the data folder.
 pub const STAGING: &str = "staging";
+/// The longest id a plugin has.
+const MAX_PLUGIN_ID: usize = 40;
 /// The most a pack is, and a font file.
 pub const MAX_PACK: u64 = 512 * 1024;
 pub const MAX_OUTLINE: u64 = 1024 * 1024;
+
+/// The `max_file` of each request on this device.
+#[must_use]
+pub const fn max_file(outlines: bool) -> u64 {
+    if outlines { MAX_OUTLINE } else { MAX_PACK }
+}
+
+/// Whether `font` can be installed here: an id that is a plugin's, every
+/// file inside the folder with a digest and a size between 1 byte and the
+/// caps, a path once, `plugin.ini` among them. A font that does not is not
+/// offered.
+#[must_use]
+pub fn fits(font: &Font, outlines: bool) -> bool {
+    let max_file = max_file(outlines);
+    let files = &font.files;
+    // `font-` and the id make the plugin's id.
+    font.id.len() + 5 <= MAX_PLUGIN_ID
+        && !files.is_empty()
+        && files.len() <= MAX_FILES
+        && files.iter().enumerate().all(|(n, f)| {
+            is_safe_path(&f.path)
+                && !f.url.is_empty()
+                && f.url.len() <= MAX_URL
+                && !f.url.contains(['\t', '\n', '\r'])
+                && f.sha1.len() == 40
+                && f.sha1.bytes().all(|b| b.is_ascii_hexdigit())
+                && f.size > 0
+                && f.size <= max_file
+                && files[..n].iter().all(|g| g.path != f.path)
+        })
+        && files.iter().any(|f| f.path == "plugin.ini")
+        && font
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !font.id.is_empty()
+}
+
+/// What the end of an install request says (`event.install_done`,
+/// `docs/abi/device.md` §5): only a finished install is *ready*; a refused
+/// confirmation, one that timed out or was dismissed, and any failure leave
+/// nothing to use. The staging folder goes in every case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ended {
+    /// The font is installed: say so.
+    pub ready: bool,
+}
+
+/// What an `install_done` with `status` (0 is OK) and `reason` (0 is none)
+/// means for the font.
+#[must_use]
+pub fn ended(status: i32, reason: u32) -> Ended {
+    Ended {
+        ready: status == 0 && reason == 0,
+    }
+}
 
 /// One file to download.
 #[derive(Debug, PartialEq, Eq)]
@@ -51,27 +109,12 @@ impl Plan {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn new(font: &Font, outlines: bool) -> Result<Option<Self>, Error> {
-        let max_file = if outlines { MAX_OUTLINE } else { MAX_PACK };
-        let plugin = font.plugin()?;
-        let files = &font.files;
-        let fits = is_plugin_name(&plugin)
-            && !files.is_empty()
-            && files.len() <= MAX_FILES
-            && files.iter().enumerate().all(|(n, f)| {
-                is_safe_path(&f.path)
-                    && !f.url.is_empty()
-                    && f.url.len() <= MAX_URL
-                    && !f.url.contains(['\t', '\n', '\r'])
-                    && f.sha1.len() == 40
-                    && f.sha1.bytes().all(|b| b.is_ascii_hexdigit())
-                    && f.size > 0
-                    && f.size <= max_file
-                    && files[..n].iter().all(|g| g.path != f.path)
-            })
-            && files.iter().any(|f| f.path == "plugin.ini");
-        if !fits {
+        if !fits(font, outlines) {
             return Ok(None);
         }
+        let max_file = max_file(outlines);
+        let plugin = font.plugin()?;
+        let files = &font.files;
         let folder = concat(&[STAGING, "/", &plugin])?;
         let mut steps = Vec::new();
         steps

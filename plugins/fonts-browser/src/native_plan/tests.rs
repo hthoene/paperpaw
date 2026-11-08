@@ -101,3 +101,23 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     ]);
     sweep(|| Plan::new(&font, false).map(|p| p.map(|p| p.steps.len())));
 }
+
+#[test]
+fn only_a_finished_install_is_ready() {
+    assert!(ended(0, 0).ready);
+    // Refused (2), dismissed or timed out (3), failed (anything else).
+    for (status, reason) in [(-1, 2), (-2, 3), (-3, 0), (-1, 10), (0, 1)] {
+        assert!(!ended(status, reason).ready, "{status} {reason}");
+    }
+}
+
+#[test]
+fn a_font_over_the_caps_does_not_fit() {
+    let mut f = font(vec![file("plugin.ini", MAX_PACK)]);
+    assert!(fits(&f, false));
+    f.files[0].size = MAX_PACK + 1;
+    assert!(!fits(&f, false));
+    assert!(fits(&f, true));
+    f.files[0].size = MAX_OUTLINE + 1;
+    assert!(!fits(&f, true));
+}

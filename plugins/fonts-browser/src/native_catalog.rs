@@ -441,8 +441,11 @@ impl<'a> Catalog<'a> {
         if self.format != Some(FORMAT) {
             return Ok(None);
         }
+        let outlines = self.outlines;
         let mut fonts = self.fonts;
-        fonts.retain(Font::usable);
+        // Fonts this device cannot install (a file over the caps, none or a
+        // zero size) are not offered.
+        fonts.retain(|font| font.usable() && crate::native_plan::fits(font, outlines));
         stable_sort_by(&mut fonts, |a, b| cmp_lowercase(&a.name, &b.name));
         Ok(Some(fonts))
     }
