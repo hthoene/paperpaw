@@ -229,18 +229,31 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.groups, old.groups);
     assert_eq!(native.specs.len(), 24);
     assert_eq!(native.specs, old.specs);
-    // The footer items' picker is the host's screen in interface 6; Kernel's
-    // ruling (todo 121) gives it a screen of home's own, built on the kit's
-    // `status_items` (an ignored acceptance case until then). Every other
-    // editor is the same.
+    // The footer items' picker is the host's screen (`core.status-items`) in
+    // interface 6; Kernel's ruling (todo 121) gives it a screen of home's own,
+    // built on the kit's `status_items`, named as a screen of the plugin. That
+    // setting's extra and that screen are the only differences; every other
+    // editor and screen is the same.
     let (footer, others): (Vec<_>, Vec<_>) = old
         .extras
         .iter()
         .cloned()
         .partition(|e| e.starts_with("footer.items|"));
     assert_eq!(footer, ["footer.items||||=|1:core.status-items|0|0"]);
-    assert_eq!(native.extras, others);
-    assert_eq!(native.screens, old.screens);
+    let (own, native_others): (Vec<_>, Vec<_>) = native
+        .extras
+        .iter()
+        .cloned()
+        .partition(|e| e.starts_with("footer.items|"));
+    assert_eq!(own, ["footer.items||||=|1:status-items|0|0"]);
+    assert_eq!(native_others, others);
+    let (screen, screens): (Vec<_>, Vec<_>) = native
+        .screens
+        .iter()
+        .cloned()
+        .partition(|s| s.starts_with("status-items|"));
+    assert_eq!(screen, ["status-items|home.setting.footer-items"]);
+    assert_eq!(screens, old.screens);
     // The navigation records, decoded: the offer (slot, priority), the pages
     // as a place of widgets (their settings, the layout), the actions, the menu
     // places (menu, item, order), the icons and the key; and the event.
