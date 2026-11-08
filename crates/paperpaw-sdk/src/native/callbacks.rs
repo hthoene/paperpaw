@@ -1,8 +1,5 @@
 //! Borrowed input events and draw frames for flat native callbacks.
-use super::{
-    Error,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, declare::records_wire as wire};
 use paperpaw_platform::Point;
 
 /// The transition of a key in a native input callback.
@@ -102,9 +99,12 @@ impl<'a> Input<'a> {
     /// Returns generated framing, UTF-8 and field-cap errors. Unknown tags
     /// are Unsupported, and unknown state, phase or gesture values are Invalid.
     pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
-        Ok(
-            match wire::records_decode_single(bytes).map_err(Error::from_status)? {
-                Record::InputKey(r) => Self::Key {
+        // The frame only; each arm decodes its own record type.
+        let raw = wire::RawRecord::single(bytes).map_err(Error::from_status)?;
+        Ok(match raw.tag() {
+            wire::INPUT_KEY_TAG => {
+                let r: wire::InputKey<'_> = raw.decode().map_err(Error::from_status)?;
+                Self::Key {
                     now_ms: r.now_ms,
                     key: r.key,
                     state: match r.state {
@@ -113,8 +113,11 @@ impl<'a> Input<'a> {
                         2 => KeyState::Repeat,
                         _ => return Err(Error::Invalid),
                     },
-                },
-                Record::InputPointer(r) => Self::Pointer {
+                }
+            }
+            wire::INPUT_POINTER_TAG => {
+                let r: wire::InputPointer = raw.decode().map_err(Error::from_status)?;
+                Self::Pointer {
                     now_ms: r.now_ms,
                     position: Point::new(r.x, r.y),
                     phase: match r.phase {
@@ -125,8 +128,11 @@ impl<'a> Input<'a> {
                         _ => return Err(Error::Invalid),
                     },
                     contact: r.contact.unwrap_or(0),
-                },
-                Record::InputGesture(r) => Self::Gesture {
+                }
+            }
+            wire::INPUT_GESTURE_TAG => {
+                let r: wire::InputGesture = raw.decode().map_err(Error::from_status)?;
+                Self::Gesture {
                     now_ms: r.now_ms,
                     position: Point::new(r.x, r.y),
                     kind: match r.kind {
@@ -138,8 +144,11 @@ impl<'a> Input<'a> {
                         5 => InputGestureKind::SwipeDown,
                         _ => return Err(Error::Invalid),
                     },
-                },
-                Record::InputWidget(r) => Self::Widget {
+                }
+            }
+            wire::INPUT_WIDGET_TAG => {
+                let r: wire::InputWidget = raw.decode().map_err(Error::from_status)?;
+                Self::Widget {
                     now_ms: r.now_ms,
                     instance: super::ui::Instance::new(r.instance).ok_or(Error::Invalid)?,
                     target: r.target,
@@ -149,14 +158,17 @@ impl<'a> Input<'a> {
                         1 => super::ui::WidgetInputKind::LongPress,
                         _ => return Err(Error::Invalid),
                     },
-                },
-                Record::InputAction(r) => Self::Action {
+                }
+            }
+            wire::INPUT_ACTION_TAG => {
+                let r: wire::InputAction<'_> = raw.decode().map_err(Error::from_status)?;
+                Self::Action {
                     now_ms: r.now_ms,
                     action: r.action,
-                },
-                _ => return Err(Error::Unsupported),
-            },
-        )
+                }
+            }
+            _ => return Err(Error::Unsupported),
+        })
     }
 }
 
@@ -327,11 +339,9 @@ impl<'a> DrawFrame<'a> {
     /// Returns generated framing and field-cap errors, or Unsupported for a
     /// record other than draw.frame.
     pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
-        let Record::DrawFrame(r) =
-            wire::records_decode_single(bytes).map_err(Error::from_status)?
-        else {
-            return Err(Error::Unsupported);
-        };
+        let r: wire::DrawFrame<'_> = wire::RawRecord::single(bytes)
+            .and_then(|raw| raw.decode())
+            .map_err(Error::from_status)?;
         Ok(Self {
             host: None,
             purpose: match r.purpose {
