@@ -15,12 +15,16 @@
 # features (no `remote`, no `waveform-lab`), as the release image is built.
 # Until interface 6 is removed the result is an ESTIMATE: say so with
 # `--label 'estimate, interface 6 still linked'`; the label is printed with
-# the result. Exits 1 when the delta is over the limit, 2 on a build error.
-set -euo pipefail
+# the result. Exit 0: within the limit. Exit 1: ONLY when the delta is over it.
+# Exit 2: every other failure (bad argument, no toolchain, failed build).
+set -Eeuo pipefail
+# Any failure that is not a measurement is exit 2 ("over the gate" is 1).
+trap 'exit 2' ERR
+die() { echo "flash-gate: $*" >&2; exit 2; }
 
 head=HEAD base=v0.6.0-beta.3 base_features=x4 head_features=x4,ppn5
 label="" limit=60000 jobs=4 keep=0
-work="${TMPDIR:-/tmp}/flash-gate-$$"
+work="${TMPDIR:-/tmp}"
 target=riscv32imc-unknown-none-elf
 
 while [ $# -gt 0 ]; do
@@ -35,7 +39,7 @@ while [ $# -gt 0 ]; do
         --work) work=$2; shift 2 ;;
         --keep) keep=1; shift ;;
         -h|--help) sed -n 2,19p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "unknown argument: $1" >&2; exit 2 ;;
+        *) die "unknown argument: $1" ;;
     esac
 done
 
@@ -44,13 +48,16 @@ cd "$root"
 head_sha="$(git rev-parse --verify "$head^{commit}")"
 base_sha="$(git rev-parse --verify "$base^{commit}")"
 
+# Everything goes into a directory of its own inside --work, made here; only
+# that directory is ever removed, never --work itself.
+mkdir -p "$work" || die "cannot make $work"
+ours="$(mktemp -d "$work/flash-gate.XXXXXX")" || die "cannot make a directory in $work"
 cleanup() {
-    git -C "$root" worktree remove --force "$work/tree" >/dev/null 2>&1 || true
-    if [ "$keep" = 0 ]; then rm -rf "$work"; fi
+    git -C "$root" worktree remove --force "$ours/tree" >/dev/null 2>&1 || true
+    if [ "$keep" = 0 ]; then rm -rf "$ours"; else echo "kept: $ours" >&2; fi
 }
 trap cleanup EXIT
-mkdir -p "$work"
-git worktree add -q --detach "$work/tree" "$base_sha"
+git worktree add -q --detach "$ours/tree" "$base_sha"
 
 # What the chip's flash holds: code, read-only data and the initial values of
 # data (the sections the ELF loads into flash).
@@ -60,31 +67,41 @@ flash_bytes() {
 
 build() { # name rev sha features
     local name=$1 sha=$2 features=$3
-    git -C "$work/tree" checkout -q --detach "$sha"
+    git -C "$ours/tree" checkout -q --detach "$sha"
     local tool
-    tool="$(sed -n 's/^channel = "\(.*\)"/\1/p' "$work/tree/shells/xteink/rust-toolchain.toml")"
+    tool="$(sed -n 's/^channel = "\(.*\)"/\1/p' "$ours/tree/shells/xteink/rust-toolchain.toml")"
+    [ -n "$tool" ] || die "$name: no toolchain channel in shells/xteink/rust-toolchain.toml"
     echo "== $name: $sha, features $features, toolchain $tool" >&2
     # shellcheck disable=SC2086
-    (cd "$work/tree/shells/xteink" &&
-        env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$work/target-$name" \
-            cargo +"$tool" build -j"$jobs" --release --target "$target" \
+    (cd "$ours/tree/shells/xteink" &&
+        env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/target-$name" \
+            cargo +"$tool" build --locked -j"$jobs" --release --target "$target" \
             --no-default-features --features "$features" >&2) || { echo "build failed: $name" >&2; exit 2; }
-    cp "$work/target-$name/$target/release/paperpaw-xteink" "$work/$name.elf"
-    echo "$tool" > "$work/$name.tool"
+    cp "$ours/target-$name/$target/release/paperpaw-xteink" "$ours/$name.elf"
+    echo "$tool" > "$ours/$name.tool"
 }
 
 build base "$base_sha" "$base_features"
 build head "$head_sha" "$head_features"
 
-b=$(flash_bytes "$work/base.elf")
-h=$(flash_bytes "$work/head.elf")
+b=$(flash_bytes "$ours/base.elf")
+h=$(flash_bytes "$ours/head.elf")
 delta=$((h - b))
 echo
-echo "base  $base ($base_sha) features $base_features toolchain $(cat "$work/base.tool"): $b B"
-echo "head  $head ($head_sha) features $head_features toolchain $(cat "$work/head.tool"): $h B"
-if [ "$(cat "$work/base.tool")" != "$(cat "$work/head.tool")" ]; then
+echo "base  $base ($base_sha) features $base_features toolchain $(cat "$ours/base.tool"): $b B"
+echo "head  $head ($head_sha) features $head_features toolchain $(cat "$ours/head.tool"): $h B"
+if [ "$(cat "$ours/base.tool")" != "$(cat "$ours/head.tool")" ]; then
     echo "note: the two trees pin different toolchains; the delta includes the compiler's difference"
 fi
+# The images the chip is flashed with, for the record (not the gate).
+for n in base head; do
+    if command -v espflash >/dev/null 2>&1 &&
+        espflash save-image --chip esp32c3 "$ours/$n.elf" "$ours/$n.bin" >/dev/null 2>&1; then
+        echo "application.bin $n: $(wc -c < "$ours/$n.bin") B"
+    else
+        echo "application.bin $n: not made (espflash missing or failed)"
+    fi
+done
 echo "delta $delta B over the gate of $limit B (flash-resident: .text, .rodata, .data load, .rwtext, .trap)"
 [ -n "$label" ] && echo "RESULT (${label}): $delta B"
 if [ "$delta" -le "$limit" ]; then
