@@ -26,7 +26,7 @@ use paperpaw_ui_kit::{Paint, geometry, paint, text};
 /// The setting from which a charge counts as low, in percent.
 const LOW: &str = "core.battery-low";
 /// What it is without a setting.
-const LOW_DEFAULT: i64 = 15;
+const LOW_DEFAULT: i64 = 20;
 /// How the battery is drawn: lying, standing, as a ring.
 const STANDING: &str = "widgets.battery.standing";
 const RING: &str = "widgets.battery.ring";
@@ -416,4 +416,30 @@ fn draw_battery(
         charge_text(out, look, number, tx, (band, size))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::{LOW, LOW_DEFAULT};
+    use paperpaw_core::Kernel;
+    use paperpaw_platform::{
+        DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
+    };
+
+    /// The charge from which the battery counts as low, where nobody set one,
+    /// is the host's own default.
+    #[test]
+    fn a_low_charge_is_what_the_host_says_without_a_setting() {
+        let device = DeviceInfo::new(
+            "test",
+            "Test device",
+            DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Small,
+        );
+        let mut kernel = Kernel::builder(device).build().unwrap();
+        kernel.start(Instant(0));
+        assert_eq!(kernel.settings().int(LOW), LOW_DEFAULT);
+    }
 }
