@@ -11,6 +11,10 @@ use core::fmt;
 /// buffer it was given. [`Sockets::start_tls`] refuses while a reader holds
 /// bytes, so nothing read before the switch is taken as coming over TLS.
 ///
+/// Bytes used up are wiped from the buffer (a login line passes through it):
+/// the line [`Reader::next_line`] returns at the next call of the reader, the
+/// rest at once, and all of them when the reader is dropped.
+///
 /// Debug shows lengths only: the bytes may carry a password.
 #[must_use = "a reader holds bytes of its socket"]
 pub struct Reader<'b> {
@@ -18,6 +22,9 @@ pub struct Reader<'b> {
     buf: &'b mut [u8],
     start: usize,
     end: usize,
+    /// The range of the line last returned, not wiped yet (it is borrowed
+    /// until the next call).
+    spent: (usize, usize),
 }
 
 impl fmt::Debug for Reader<'_> {
@@ -27,6 +34,12 @@ impl fmt::Debug for Reader<'_> {
             .field("held", &self.held())
             .field("capacity", &self.buf.len())
             .finish()
+    }
+}
+
+impl Drop for Reader<'_> {
+    fn drop(&mut self) {
+        self.buf.fill(0);
     }
 }
 
@@ -40,6 +53,7 @@ impl<'b> Reader<'b> {
             buf,
             start: 0,
             end: 0,
+            spent: (0, 0),
         }
     }
 
@@ -55,15 +69,36 @@ impl<'b> Reader<'b> {
         self.end - self.start
     }
 
+    /// How many bytes more the buffer takes: what [`Reader::fill`] can bring
+    /// now.
+    #[must_use]
+    pub const fn room(&self) -> usize {
+        self.buf.len() - self.held()
+    }
+
+    /// The whole buffer, for the tests that look for what was wiped.
+    #[cfg(test)]
+    pub(super) fn raw(&self) -> &[u8] {
+        self.buf
+    }
+
     /// The bytes held.
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.buf[self.start..self.end]
     }
 
-    /// Uses up to `n` bytes (the first ones); how many were there.
+    fn wipe_spent(&mut self) {
+        let (from, to) = self.spent;
+        self.buf[from..to].fill(0);
+        self.spent = (0, 0);
+    }
+
+    /// Uses up to `n` bytes (the first ones), wiping them; how many were there.
     pub fn consume(&mut self, n: usize) -> usize {
+        self.wipe_spent();
         let n = n.min(self.held());
+        self.buf[self.start..self.start + n].fill(0);
         self.start += n;
         if self.start == self.end {
             self.start = 0;
@@ -75,6 +110,7 @@ impl<'b> Reader<'b> {
     /// Forgets every byte held, and wipes them.
     pub fn clear(&mut self) {
         self.buf.fill(0);
+        self.spent = (0, 0);
         self.start = 0;
         self.end = 0;
     }
@@ -82,9 +118,37 @@ impl<'b> Reader<'b> {
     fn compact(&mut self) {
         if self.start != 0 {
             self.buf.copy_within(self.start..self.end, 0);
-            self.end -= self.start;
+            // What moved down leaves no copy behind.
+            let kept = self.end - self.start;
+            self.buf[kept..self.end].fill(0);
+            self.end = kept;
             self.start = 0;
         }
+    }
+
+    /// Asks the socket for the next data, never for more than the buffer takes:
+    /// `max` is cut to [`Reader::room`], so what comes can always be taken by
+    /// [`Reader::fill`] (bytes the buffer could not take would be lost). With
+    /// `exact` the whole `max` must fit.
+    ///
+    /// # Errors
+    /// `NoSpace` for no room, or `exact` with a `max` over the room (use some
+    /// bytes first); otherwise as [`Sockets::read_bytes`].
+    pub fn read_bytes(
+        &mut self,
+        sockets: &Sockets,
+        host: &Host<'_>,
+        max: u32,
+        exact: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        self.wipe_spent();
+        let room = u32::try_from(self.room()).unwrap_or(u32::MAX);
+        if room == 0 || (exact && max > room) {
+            return Err(Error::NoSpace);
+        }
+        sockets.read_bytes(host, self.id, max.min(room), exact, input, out)
     }
 
     /// Takes the `len` bytes a `Received` event brought (its
@@ -109,11 +173,14 @@ impl<'b> Reader<'b> {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
+        self.wipe_spent();
         let len = usize::try_from(len).map_err(|_| Error::NoSpace)?;
         if len == 0 {
             return Ok(0);
         }
-        if self.held() + len > self.buf.len() {
+        // `held` never exceeds the buffer, so this cannot underflow, and `len`
+        // is not added to anything that could overflow.
+        if len > self.room() {
             return Err(Error::NoSpace);
         }
         self.compact();
@@ -133,13 +200,15 @@ impl<'b> Reader<'b> {
     }
 
     /// Uses the next line held, without its `\r\n` or `\n`, as text.
-    /// `None` while no whole line is held.
+    /// `None` while no whole line is held. The line is wiped from the buffer at
+    /// the next call of the reader (it is borrowed until then).
     ///
     /// # Errors
     /// `Utf8` for a line that is not UTF-8 (the line is used up all the same);
     /// `NoSpace` when no line end is held and the buffer is full: the line is
     /// longer than the buffer (close the socket, or [`Reader::clear`]).
     pub fn next_line(&mut self) -> Result<Option<&str>, Error> {
+        self.wipe_spent();
         let held = &self.buf[self.start..self.end];
         let Some(at) = held.iter().position(|&b| b == b'\n') else {
             if self.start == 0 && self.end == self.buf.len() {
@@ -154,9 +223,9 @@ impl<'b> Reader<'b> {
             from + at
         };
         self.start = from + at + 1;
+        self.spent = (from, self.start);
         if self.start == self.end {
-            // Nothing else is held: the next fill starts at the front. The
-            // line's bytes stay where they are until then.
+            // Nothing else is held: the next fill starts at the front.
             self.start = 0;
             self.end = 0;
         }

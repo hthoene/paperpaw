@@ -283,7 +283,7 @@ fn send_takes_one_to_a_piece_of_bytes_and_expects_an_empty_reply() {
         );
         assert_eq!(
             sockets.send(host, id(7), &[0; PIECE + 1], &mut input, &mut out),
-            Err(Error::NoSpace)
+            Err(Error::Invalid)
         );
         assert_eq!(state.count(), 2, "refused before the host");
         reply(state, &[started(1)]);
@@ -342,7 +342,7 @@ fn a_file_read_names_root_path_and_length() {
             ("a", 0, Error::Invalid),
             ("a", MAX_FILE_LEN + 1, Error::Invalid),
             ("", 1, Error::Invalid),
-            (long.as_str(), 1, Error::NoSpace),
+            (long.as_str(), 1, Error::Invalid),
         ] {
             assert_eq!(FileRead::new(Root::Data, path, len).map(|_| ()), Err(error));
         }
@@ -459,8 +459,8 @@ fn a_broadcast_is_checked_before_any_call() {
         (&b"x"[..], 10_001, &ok[..], Error::Invalid),
         (&b"x"[..], 500, &[][..], Error::Invalid),
         (&b"x"[..], 500, &[0][..], Error::Invalid),
-        (&[0; 513][..], 500, &ok[..], Error::NoSpace),
-        (&b"x"[..], 500, &[1; 9][..], Error::NoSpace),
+        (&[0; 513][..], 500, &ok[..], Error::Invalid),
+        (&b"x"[..], 500, &[1; 9][..], Error::Invalid),
     ] {
         assert_eq!(
             Broadcast::new(1, data, wait, ports).map(|_| ()),
@@ -717,7 +717,117 @@ fn a_line_longer_than_the_buffer_is_no_space_not_a_wait_for_ever() {
         assert_eq!(reader.next_line(), Err(Error::NoSpace));
         reader.clear();
         assert_eq!(reader.held(), 0);
-        assert_eq!(buf, [0; 8], "cleared bytes are wiped");
+        assert!(
+            reader.raw().iter().all(|&b| b == 0),
+            "cleared bytes are wiped"
+        );
+    });
+}
+
+#[test]
+fn an_event_length_that_could_overflow_is_no_space_without_a_call() {
+    with_host(|host, state| {
+        let sockets = Sockets::open(host).unwrap();
+        let mut buf = [0; 16];
+        let mut reader = Reader::new(id(2), &mut buf);
+        let (mut input, mut out) = ([0; IN], [0; REPLY]);
+        then(state, &[bytes(b"abcd")]);
+        reader
+            .fill(&sockets, host, 4, &mut input, &mut out)
+            .unwrap();
+        let calls = state.count();
+        for len in [u32::MAX, u32::MAX - 3, 13] {
+            assert_eq!(
+                reader.fill(&sockets, host, len, &mut input, &mut out),
+                Err(Error::NoSpace),
+                "{len}"
+            );
+        }
+        assert_eq!(state.count(), calls);
+        assert_eq!(reader.held(), 4);
+        assert_eq!(reader.room(), 12);
+    });
+}
+
+#[test]
+fn a_read_never_asks_for_more_than_the_buffer_takes() {
+    with_host(|host, state| {
+        let sockets = Sockets::open(host).unwrap();
+        let mut buf = [0; 10];
+        let mut reader = Reader::new(id(2), &mut buf);
+        let (mut input, mut out) = ([0; IN], [0; REPLY]);
+        assert_eq!(reader.room(), 10);
+        reader
+            .read_bytes(&sockets, host, 1024, false, &mut input, &mut out)
+            .unwrap();
+        assert!(matches!(rows(state, 0)[0], Record::ServiceSockRead(r) if r.max == 10));
+        // What a read of 10 brings fits, and fills the buffer.
+        then(state, &[bytes(b"0123456789")]);
+        reader
+            .fill(&sockets, host, 10, &mut input, &mut out)
+            .unwrap();
+        assert_eq!(reader.room(), 0);
+        let calls = state.count();
+        assert_eq!(
+            reader.read_bytes(&sockets, host, 4, false, &mut input, &mut out),
+            Err(Error::NoSpace)
+        );
+        // Used bytes give room back; an exact read must fit whole.
+        reader.consume(6);
+        assert_eq!(reader.room(), 6);
+        assert_eq!(
+            reader.read_bytes(&sockets, host, 7, true, &mut input, &mut out),
+            Err(Error::NoSpace)
+        );
+        assert_eq!(state.count(), calls, "refused before the host");
+        reader
+            .read_bytes(&sockets, host, 6, true, &mut input, &mut out)
+            .unwrap();
+        assert!(matches!(rows(state, calls)[0], Record::ServiceSockRead(r)
+            if (r.max, r.flags) == (6, 1)));
+        reader
+            .read_bytes(&sockets, host, 3, false, &mut input, &mut out)
+            .unwrap();
+        assert!(matches!(rows(state, calls + 1)[0], Record::ServiceSockRead(r) if r.max == 3));
+    });
+}
+
+#[test]
+fn bytes_used_up_are_wiped_from_the_buffer() {
+    with_host(|host, state| {
+        let sockets = Sockets::open(host).unwrap();
+        let (mut input, mut out) = ([0; IN], [0; REPLY]);
+        let mut buf = [0xAA; 32];
+        {
+            let mut reader = Reader::new(id(2), &mut buf);
+            reader.clear();
+            then(state, &[bytes(b"LOGIN user hunter2\r\nnext")]);
+            reader
+                .fill(&sockets, host, 24, &mut input, &mut out)
+                .unwrap();
+            assert_eq!(reader.next_line(), Ok(Some("LOGIN user hunter2")));
+            // The next call wipes the line it lent.
+            assert_eq!(reader.next_line(), Ok(None));
+            assert!(!reader.raw().windows(7).any(|w| w == b"hunter2"));
+            // Used bytes are wiped at once.
+            assert_eq!(reader.consume(2), 2);
+            assert_eq!(reader.bytes(), b"xt");
+            assert!(!reader.raw().windows(2).any(|w| w == b"ne"));
+            // What moved down by the next fill leaves no copy behind.
+            then(state, &[bytes(b"!")]);
+            reader
+                .fill(&sockets, host, 1, &mut input, &mut out)
+                .unwrap();
+            assert_eq!(reader.bytes(), b"xt!");
+            assert!(reader.raw()[3..].iter().all(|&b| b == 0));
+            then(state, &[bytes(b"pw\n")]);
+            reader
+                .fill(&sockets, host, 3, &mut input, &mut out)
+                .unwrap();
+            assert_eq!(reader.next_line(), Ok(Some("xt!pw")));
+        }
+        // A dropped reader leaves its buffer wiped.
+        assert_eq!(buf, [0; 32]);
     });
 }
 
