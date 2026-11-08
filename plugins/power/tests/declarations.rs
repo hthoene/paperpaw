@@ -120,7 +120,8 @@ fn the_events_are_the_ones_the_mode_follows() {
 }
 
 /// Every record is well formed for the host. The host does not admit menu
-/// entries, icons, key bindings, status items and stage subscriptions yet
+/// entries, icons, key bindings and stage subscriptions yet (status items are
+/// admitted now)
 /// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
 /// fail only that way, and these are the only ones that do.
 #[test]
@@ -163,7 +164,6 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             "ui: IconSpec",
             "ui: IconSpec",
             "ui: KeyBind",
-            "ui: StatusItem",
             "events: RegistrationStage"
         ]
     );

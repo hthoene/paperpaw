@@ -17,6 +17,29 @@ pub enum Paint {
     Fill(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
+    /// A straight line from one point to the other, `width` pixels thick.
+    Line {
+        /// Where it starts.
+        from: Point,
+        /// Where it ends.
+        to: Point,
+        /// Pen width in pixels.
+        width: u32,
+        /// Colour.
+        color: Color,
+    },
+    /// A text run in the bold font of the interface (a lit letter among faint
+    /// ones); drawn only by [`replay_with`] given that font.
+    Bold {
+        /// What to draw.
+        text: String,
+        /// Size in pixels.
+        size: f32,
+        /// Where the baseline starts.
+        origin: TextOrigin,
+        /// Text colour.
+        color: Color,
+    },
     /// A text run, optionally clipped.
     Text {
         /// What to draw.
@@ -86,10 +109,24 @@ pub fn frame_rect(rect: Rect) -> FrameRect {
 /// Draws `ops` in order on the frame's canvas with `font`.
 ///
 /// # Errors
-/// Propagates canvas and font errors.
+/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run.
 pub fn replay<'a>(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
+    ops: impl IntoIterator<Item = &'a Paint>,
+) -> Result<(), Error> {
+    replay_with(frame, font, None, ops)
+}
+
+/// [`replay`] with a bold font for [`Paint::Bold`] runs.
+///
+/// # Errors
+/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
+/// without a bold font.
+pub fn replay_with<'a>(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    bold: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
     let mut canvas = frame.draw_canvas()?;
@@ -107,6 +144,21 @@ pub fn replay<'a>(
                 }
                 None => canvas.fill_rounded_rectangle(frame_rect(*rect), *radius, *color)?,
             },
+            Paint::Line {
+                from,
+                to,
+                width,
+                color,
+            } => canvas.draw_segment(*from, *to, *width, *color)?,
+            Paint::Bold {
+                text,
+                size,
+                origin,
+                color,
+            } => {
+                let bold = bold.ok_or(Error::Unsupported)?;
+                bold.render_text(&canvas, *size, *origin, *color, text)?;
+            }
             Paint::Text {
                 text,
                 size,

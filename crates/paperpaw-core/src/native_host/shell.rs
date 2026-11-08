@@ -293,7 +293,14 @@ impl<S: Services, M> Hosted<S, M> {
         resources: super::HostResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let resources = resources.try_owner().map_err(Error::Status)?;
+        let mut resources = resources.try_owner().map_err(Error::Status)?;
+        resources.bind_caller(id).map_err(|status| {
+            if status == host_glue::ERR_NO_MEMORY {
+                Error::Allocation
+            } else {
+                Error::Status(status)
+            }
+        })?;
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
@@ -537,32 +544,6 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         self.armed = false;
         Ok(batch)
     }
-
-    /// Keep native output pending until all declaration mapping succeeds.
-    #[allow(
-        dead_code,
-        reason = "native built-in registry adapter follows this transaction"
-    )]
-    pub(crate) fn commit_native<R>(
-        mut self,
-        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
-    ) -> Result<(Batch<'a, S, M, T>, R), Error> {
-        let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let result = transaction
-            .staging
-            .commit_native(
-                crate::native_host::Teardown {
-                    report: report_context::<S>,
-                    cancel: cancel_context::<S>,
-                    release: release_context::<S>,
-                    destroy: destroy_context::<S>,
-                },
-                map,
-            )
-            .map_err(Error::Status)?;
-        self.armed = false;
-        Ok(result)
-    }
 }
 
 // A separate local guard survives unwinding from a staged host record's Drop.
@@ -777,14 +758,14 @@ unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuf
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let caller = match context.resources.bound_caller() {
+        Ok(caller) => caller,
+        Err(error) => return error,
+    };
     // SAFETY: generated slot 5 requires initialized immutable readable key
     // bytes and exclusive output, disjoint from key and host state. No pointer
     // is kept. The backend's required-length and prefix semantics are kept.
-    unsafe {
-        context
-            .environment
-            .settings_read(key.ptr, key.len, out.ptr, out.cap)
-    }
+    unsafe { context.environment.settings_read_for(caller, key, out) }
 }
 
 /// Slot 9 (`canvas.fill_rect`): the foreign callback reaches [`CanvasScope`]
@@ -1497,3 +1478,6 @@ mod stage;
     reason = "stage broker consumes this checked reply hook next"
 )]
 pub(crate) use stage::dispatch_stage;
+
+#[path = "shell/native_commit.rs"]
+mod native_commit;
