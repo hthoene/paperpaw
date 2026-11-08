@@ -99,7 +99,10 @@ pub trait CodeLoader {
     /// shell serves `text.hyphenate` (`storage`: the card the tables are read
     /// from). Asked once, after [`finish`](Self::finish); from then on every
     /// plugin added or removed and every change of the card reaches the sink
-    /// ([`HyphenTables`](crate::native_host::HyphenTables)).
+    /// ([`HyphenTables`](crate::native_host::HyphenTables)). A shell makes
+    /// its one `HostResources::wire` call here, so it wires its other host
+    /// views (`core.ui`) with the tables: a refused wiring leaves them all
+    /// unwired, and the shell says so.
     fn hyphenation_sink(
         &mut self,
         _storage: &alloc::rc::Rc<dyn Storage>,

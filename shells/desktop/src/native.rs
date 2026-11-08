@@ -131,6 +131,20 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 pub struct HostLoader {
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The id of the device this loader runs on (the profile's), which sizes
+    /// the `core.ui` store; empty is "not an X4".
+    device_id: String,
+}
+
+impl HostLoader {
+    /// A loader for the device `device_id` (a profile's id).
+    #[must_use]
+    pub fn for_device(device_id: &str) -> Self {
+        Self {
+            device_id: device_id.to_owned(),
+            ..Self::default()
+        }
+    }
 }
 
 impl CodeLoader for HostLoader {
@@ -151,8 +165,9 @@ impl CodeLoader for HostLoader {
         })
     }
 
-    /// `text.hyphenate` is served where interface-7 plugins run (the developer
-    /// switch): the data plugins' tables are files on the card.
+    /// `text.hyphenate` (the data plugins' tables are files on the card) and
+    /// `core.ui` (the screen stack's store, sized for the device) are served
+    /// where interface-7 plugins run (the developer switch).
     fn hyphenation_sink(
         &mut self,
         storage: &std::rc::Rc<dyn Storage>,
@@ -164,11 +179,17 @@ impl CodeLoader for HostLoader {
         if self.resources.is_none() {
             self.resources = HostResources::try_new().ok();
         }
-        let wired = self
-            .resources
-            .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
-            .ok()?;
+        let wired = match self.resources.as_ref()?.wire(
+            HostWiring::new()
+                .hyphenation(storage.clone())
+                .ui(&self.device_id),
+        ) {
+            Ok(wired) => wired,
+            Err(status) => {
+                eprintln!("native: text.hyphenate and core.ui not wired ({status})");
+                return None;
+            }
+        };
         wired.hyphen().cloned()
     }
 }
@@ -1084,5 +1105,36 @@ static INIT: extern "C" fn() = make_marker;
         assert_eq!(values, [11, 22], "the second library is the first again");
         drop(held);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Where interface-7 plugins run (the developer switch), the loader wires
+    /// `core.ui` for its device beside `text.hyphenate`, once; with the switch
+    /// off it wires nothing.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn the_loader_wires_core_ui_only_with_the_developer_switch() {
+        use paperpaw_core::native_host::HostWiring;
+        let _one = crate::one_device_at_a_time();
+        let storage: std::rc::Rc<dyn Storage> =
+            std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
+        let was = crate::native_runtime::enabled();
+        crate::native_runtime::set_enabled(false);
+        let mut off = HostLoader::for_device("xteink-x4");
+        assert!(off.hyphenation_sink(&storage).is_none());
+        assert!(off.resources.is_none(), "nothing is made, nothing wired");
+        crate::native_runtime::set_enabled(true);
+        for device in ["xteink-x4", "desktop"] {
+            let mut on = HostLoader::for_device(device);
+            assert!(on.hyphenation_sink(&storage).is_some(), "{device}");
+            let resources = on.resources.as_ref().unwrap();
+            // Wired already: a second `core.ui`, or a second `text.hyphenate`, is refused.
+            assert!(resources.wire(HostWiring::new().ui(device)).is_err());
+            assert!(
+                resources
+                    .wire(HostWiring::new().hyphenation(storage.clone()))
+                    .is_err()
+            );
+        }
+        crate::native_runtime::set_enabled(was);
     }
 }
