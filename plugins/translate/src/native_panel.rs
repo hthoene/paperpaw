@@ -534,7 +534,7 @@ fn wrap(font: &Font<'_>, style: &Style, body: &str, width: f32) -> Result<Vec<St
     wrap_with(|line| font.measure_text(style.text, line), body, width)
 }
 
-/// As [`wrap`], with `measure` giving a text's width.
+/// As `wrap`, with `measure` giving a text's width.
 pub fn wrap_with(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
     body: &str,
@@ -544,11 +544,9 @@ pub fn wrap_with(
     for paragraph in body.split('\n') {
         let room = MAX_LINES - lines.len();
         if room == 0 {
-            if let Some(last) = lines.last_mut() {
-                if !last.ends_with('…') {
-                    last.try_reserve(3).map_err(|_| Error::NoMemory)?;
-                    last.push('…');
-                }
+            if let Some(last) = lines.last_mut().filter(|last| !last.ends_with('…')) {
+                last.try_reserve(3).map_err(|_| Error::NoMemory)?;
+                last.push('…');
             }
             break;
         }

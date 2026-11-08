@@ -39,13 +39,15 @@ fn the_panel_and_the_plugin_have_every_text_they_ask_for_in_both_languages() {
         include_str!("../src/native_ask.rs"),
     ] {
         for part in source.split('"').skip(1).step_by(2) {
-            let (catalogs, count) = if part.starts_with("translate.") && !part.ends_with('.') && part != "translate.to" {
-                ([("en", EN), ("de", DE)], &mut own)
-            } else if part.starts_with("core.offline.") || part == "core.secrets-unsupported" {
-                ([("en", CORE_EN), ("de", CORE_DE)], &mut shared)
-            } else {
-                continue;
-            };
+            let (catalogs, count) =
+                if part.starts_with("translate.") && !part.ends_with('.') && part != "translate.to"
+                {
+                    ([("en", EN), ("de", DE)], &mut own)
+                } else if part.starts_with("core.offline.") || part == "core.secrets-unsupported" {
+                    ([("en", CORE_EN), ("de", CORE_DE)], &mut shared)
+                } else {
+                    continue;
+                };
             *count += 1;
             for (name, catalog) in catalogs {
                 assert!(
