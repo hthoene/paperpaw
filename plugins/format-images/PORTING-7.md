@@ -50,6 +50,10 @@ shipped build: `NativeImages` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Rem
 3. the app's `install_with`/store-offer line and the other plugins' tests that register `ImagesFormat`;
 4. list `NativeImages` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
 
+## Named step after #610 (Kernel, draft 30)
+
+Switch `pictures::open` to `ImageFile::try_open` (fallible, with the `TooLarge` split) and drop the plugin-side header parser, so there is one parser of the decoded-file header, not two.
+
 ## Left in place (intermediate)
 
 The interface-6 `ImagesFormat` registration and `ImagesDocument::open` stay until the host activates native
