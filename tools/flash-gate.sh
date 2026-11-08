@@ -15,7 +15,9 @@
 # offers) of both trees, for the same features. A plugin that Beta 3 built into
 # the image and that is a file now (ported) counts in the head's files; one
 # not ported yet stays in the image (listed, flagged NOT PORTED); one that did
-# not exist in Beta 3 is listed (NEW) and left out of the gate. `--image-only`
+# not exist in Beta 3 is listed (NEW) and, as a file, left out of the gate; a new
+# plugin built into the image is listed too, but its bytes stay in the image
+# delta (they cannot be separated from it). `--image-only`
 # measures the image alone, as before.
 #
 # `--plugin-elf FILE` (any number; the ELF a `.ppn` is packed from) also runs
@@ -84,6 +86,8 @@ cleanup() {
     if [ "$keep" = 0 ]; then rm -rf "$ours"; else echo "kept: $ours" >&2; fi
 }
 trap cleanup EXIT
+# A worktree record left by an earlier run that was killed would refuse the path.
+git worktree prune
 git worktree add -q --detach "$ours/tree" "$base_sha"
 
 # What the chip's flash holds: code, read-only data and the initial values of
@@ -137,14 +141,17 @@ def files(name):
     out = {}
     d = os.path.join(ours, "ppn-" + name)
     for f in sorted(os.listdir(d)):
-        m = re.match(r"(.+)-\d+\.\d+\.\d+[^-]*-x4\.ppn$", f)
+        # <id>-<version>-x4.ppn; a pre-release may contain '-' (1.0.0-beta-2).
+        m = re.match(r"(.+?)-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?-x4\.ppn$", f)
         if m: out[m.group(1)] = os.path.getsize(os.path.join(d, f))
     return out
 def builtin(name):
     nm = subprocess.run(["nm", "-C", "--defined-only", os.path.join(ours, name + ".elf")],
                         capture_output=True, text=True, check=True).stdout
+    if not nm.strip(): sys.exit(f"nm found no symbols in {name}.elf (stripped?)")
     return {m.replace("_", "-") for m in set(re.findall(r"\bpaperpaw_plugin_(\w+?)::", nm))}
 bf, hf, bb, hb = files("base"), files("head"), builtin("base"), builtin("head")
+if not bb: sys.exit("no built-in plugin symbols in base.elf: Beta 3 has some, so the symbols are missing")
 ids = sorted(set(bf) | set(hf) | bb | hb)
 pb = sum(bf.values())
 # A plugin with a Beta 3 file but no head file is not shipped as a file on head
@@ -158,6 +165,8 @@ for i in ids:
     elif i in bb and i in hf: st = "ported (image -> file)"
     elif i in bb and i in hb and i not in hf: st = "NOT PORTED (in the image, counted there)"
     elif i in hf and i not in bf and i not in bb: st = "NEW since Beta 3 (left out of the gate)"
+    elif i in hb and i not in hf and i not in bf and i not in bb:
+        st = "NEW since Beta 3, built into the image (its bytes are in the image delta)"
     elif i in bf and i not in hf: st = ("no head file yet (counted at its Beta 3 size)" if i in pending
                                          else "file in Beta 3 only (built into the image now)")
     else: st = "other"
