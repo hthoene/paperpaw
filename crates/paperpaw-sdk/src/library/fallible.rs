@@ -71,7 +71,7 @@ fn join(parts: &[&str]) -> Result<String, TryReserveError> {
 }
 
 /// Where the details of the book at `path` are kept (`book_file`).
-fn try_book_file(path: &str) -> Result<String, TryReserveError> {
+pub(super) fn try_book_file(path: &str) -> Result<String, TryReserveError> {
     let mut digits = [0_u8; KEY_LEN];
     let key = key_into(path, &mut digits);
     let part = key.get(..2).unwrap_or("00");
@@ -79,7 +79,7 @@ fn try_book_file(path: &str) -> Result<String, TryReserveError> {
 }
 
 /// Where earlier versions kept them (`old_book_file`).
-fn try_old_book_file(path: &str) -> Result<String, TryReserveError> {
+pub(super) fn try_old_book_file(path: &str) -> Result<String, TryReserveError> {
     let mut digits = [0_u8; KEY_LEN];
     join(&[
         DIR,

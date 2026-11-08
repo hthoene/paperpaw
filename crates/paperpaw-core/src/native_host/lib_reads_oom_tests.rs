@@ -7,6 +7,7 @@ use crate::native_host::lib_reads::CatalogReads;
 use crate::native_host::lib_reads::tests::{Card, card};
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::{self as wire, Record};
+extern crate std;
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 
 /// What a read answered, as numbers (a visitor must not allocate here).
@@ -134,5 +135,47 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
     assert!(
         counts[1] >= 4,
         "the book reserves its buffer and the view's reads: {counts:?}"
+    );
+}
+
+/// The heap one read holds at its most (the card here is read without
+/// allocating, so this is the adapter's and the SDK readers' own).
+fn peak(read: impl FnOnce(&CatalogReads), card: &Card) -> usize {
+    let reads = card.reads();
+    super::HEAP_LIVE.with(|live| live.set(0));
+    super::HEAP_PEAK.with(|peak| peak.set(0));
+    read(&reads);
+    super::HEAP_PEAK.with(core::cell::Cell::get)
+}
+
+#[test]
+fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
+    reset(NORMAL);
+    let card = card();
+    let path = BookRef::Path("books/b.epub");
+    let ask = wire::ServiceLibTextAt {
+        kind: 0,
+        index: 0,
+        offset: 0,
+    };
+    let peaks = [
+        peak(|r| r.state(&mut |_| ()).unwrap(), &card),
+        peak(|r| r.book(path, &mut |_| ()).unwrap(), &card),
+        peak(|r| r.text(path, &ask, &mut |_| ()).unwrap(), &card),
+        peak(
+            |r| {
+                r.book_key(BookRef::Path("books/a.epub"), &mut |_| ())
+                    .unwrap()
+            },
+            &card,
+        ),
+    ];
+    std::eprintln!("heap peaks (state, book, text, book_key): {peaks:?}");
+    // The book's buffers are 1,952 bytes, and the log of changes (12 bytes
+    // a line, two lines here) is held while a line is read.
+    assert!(peaks[1] <= 2_048, "{peaks:?}");
+    assert!(
+        peaks[2] <= 1_152 && peaks[0] <= 256 && peaks[3] <= 256,
+        "{peaks:?}"
     );
 }

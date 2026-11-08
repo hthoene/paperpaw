@@ -177,8 +177,7 @@ fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Result<bool, 
             Err(_) => return Ok(false),
         },
     };
-    let book = library::try_book_sized(&*reads.storage, path, size).map_err(fail)?;
-    Ok(book.is_some_and(|book| book.indexed))
+    library::try_indexed(&*reads.storage, path, size).map_err(fail)
 }
 
 /// Added within the last [`NEW_DAYS`] days and not opened.
@@ -225,11 +224,17 @@ pub(super) fn text(
     if found.first().is_some_and(|b| b & 0xc0 == 0x80) {
         return Err(ERR_INVALID);
     }
+    let shown = valid_prefix(found);
+    // Stored bytes that are not text, where text is left: an empty answer
+    // would send the caller on from the same offset for ever.
+    if shown.is_empty() && read.total > at.offset {
+        return Err(ERR_INVALID);
+    }
     visit(Record::ServiceLibText(wire::ServiceLibText {
         kind: at.kind,
         index: at.index,
         total: read.total,
-        text: valid_prefix(found),
+        text: shown,
     }));
     Ok(())
 }

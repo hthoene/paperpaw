@@ -191,8 +191,9 @@ fn the_state_counts_the_books_found_and_says_when_the_walk_is_under_way() {
     // A walk that makes the catalog: 1, the books found so far.
     card.env.walking.set(Some(400_000));
     assert_eq!(state(&reads), (1, 4, generation, 400_000));
+    // Never 100 % while walking.
     card.env.walking.set(Some(9_000_000));
-    assert_eq!(state(&reads).3, 1_000_000);
+    assert_eq!(state(&reads).3, 999_999);
     card.env.walking.set(None);
     // A change of status is a change of the catalog.
     catalog::note(
@@ -440,4 +441,26 @@ impl crate::native_host::lib_service::LibExcluded for Host {
     fn excluded(&self, _: &str) -> bool {
         false
     }
+}
+
+#[test]
+fn stored_bytes_that_are_not_text_are_an_error_not_an_empty_answer() {
+    // A title that starts with a byte that is no UTF-8: 3 bytes, none of
+    // them text.
+    let mut catalog = HEADER.as_bytes().to_vec();
+    catalog.extend_from_slice(b"books/x.epub\tAnn\t\xff\xfe\xfd\t\t\t\t\t\t\t\t1\n");
+    let storage = Rc::new(MemoryStorage::new().with(".paperpaw/library/catalog.txt", catalog));
+    let card = card();
+    let reads = CatalogReads::new(storage, card.env.clone());
+    let path = BookRef::Path("books/x.epub");
+    assert_eq!(text(&reads, path, 0, 0, 0).unwrap_err(), ERR_INVALID);
+    // Nothing is left past the end: the empty answer is right there.
+    assert_eq!(text(&reads, path, 0, 0, 3).unwrap(), (3, String::new()));
+    // The author is text; the book still reads, its title cut to nothing.
+    assert_eq!(text(&reads, path, 1, 0, 0).unwrap(), (3, "Ann".to_string()));
+    let b = book(&reads, path).unwrap();
+    assert_eq!(
+        (b.title.as_str(), b.bytes.0, b.flags & (1 << 5)),
+        ("", 3, 1 << 5)
+    );
 }

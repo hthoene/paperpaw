@@ -155,3 +155,82 @@ fn a_file_the_heap_cannot_hold_is_out_of_memory_not_too_large() {
         Err(StorageError::TooLarge)
     );
 }
+
+/// A card with `details` as the book's details file.
+fn card_with(details: &str) -> Card {
+    let card = card();
+    card.files.borrow_mut()[1].1 = details.as_bytes().to_vec();
+    card
+}
+
+#[test]
+fn indexed_is_what_the_whole_details_say_without_reading_them() {
+    let long_field = "x".repeat(300);
+    let cases: [(&str, bool); 10] = [
+        (
+            "[book]\nsize = 5\nindexed = on\nversion = 4\ntitle = T\n",
+            true,
+        ),
+        ("[book]\nsize = 5\nindexed = off\nversion = 4\n", false),
+        ("[book]\nsize = 5\nindexed = on\nversion = 3\n", false),
+        ("[book]\nsize = 6\nindexed = on\nversion = 4\n", false),
+        // A field called "indexed" is a field, not the key.
+        (
+            "[book]\nsize = 5\nversion = 4\n[field]\nindexed = on\n",
+            false,
+        ),
+        (
+            "# format 2\n[book]\nsize = 5\nindexed = on\nversion = 4\n",
+            false,
+        ),
+        (
+            "[book]\r\nsize = 5\r\nindexed = yes\r\nversion = 4\r\n",
+            true,
+        ),
+        ("\u{feff}[book]\nsize = 5\nindexed = on\nversion = 4", true),
+        ("", false),
+        // A long line before the keys is skipped, not held.
+        (
+            &format!("[book]\ntitle = {long_field}\nsize = 5\nindexed = on\nversion = 4\n"),
+            true,
+        ),
+    ];
+    for (details, expected) in cases {
+        let card = card_with(details);
+        assert_eq!(try_indexed(&card, BOOK, 5), Ok(expected), "{details:?}");
+        // The same as the whole read says.
+        let whole = try_book_sized(&card, BOOK, 5).ok().flatten();
+        assert_eq!(whole.is_some_and(|b| b.indexed), expected, "{details:?}");
+    }
+    // No details; details of 17 KiB (refused as the whole read refuses them).
+    let card = card_with("");
+    card.files.borrow_mut().remove(1);
+    assert_eq!(try_indexed(&card, BOOK, 5), Ok(false));
+    let big = format!(
+        "[book]\nsize = 5\nindexed = on\nversion = 4\n{}",
+        "#".repeat(17 * 1024)
+    );
+    assert_eq!(try_indexed(&card_with(&big), BOOK, 5), Ok(false));
+}
+
+#[test]
+fn indexed_is_read_or_refused_for_every_allocation() {
+    let details = "[book]\nsize = 5\nindexed = on\nversion = 4\n";
+    let card = card_with(details);
+    let mut allocations = 0;
+    for number in 1.. {
+        let (result, refused) = refuse_nth(number, || try_indexed(&card, BOOK, 5));
+        if !refused {
+            assert_eq!(result, Ok(true));
+            allocations = number - 1;
+            break;
+        }
+        assert_eq!(
+            result,
+            Err(crate::data::Error::OutOfMemory),
+            "refusal {number}"
+        );
+    }
+    assert!(allocations >= 1);
+    assert_eq!(*card.writes.borrow(), 0);
+}

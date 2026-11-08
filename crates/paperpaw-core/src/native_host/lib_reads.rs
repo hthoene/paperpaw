@@ -10,11 +10,14 @@
 //! The adapter is stateless: it holds the card and the three facts of the
 //! device the card cannot tell ([`CatalogEnv`]).
 //!
-//! Memory of one call, peak: `book` 1,952 bytes of text buffers (path, title,
-//! author, series, number, format) next to the details of the book for the
-//! `indexed` flag (`try_book`); `text` 1,024; `state` and `book_key` none
-//! (stack: the partial MD5's 1 KiB sample, the SDK's catalog reads below
-//! 1 KiB). Not measured on the X4 yet.
+//! Memory of one call, peak heap (measured by `lib_reads_oom_tests`, with the
+//! log of changes at two lines): `state` 57 bytes, `book` 2,005 (the six
+//! text buffers, 1,952; the flag `indexed` scans the details a line at a
+//! time and holds none of them), `text` 1,077, `book_key` 53. Every read
+//! holds the log of changes while it reads a line: 12 bytes a line, 3 KiB at
+//! the 256 lines after which the kernel folds it, 12 KiB at most. Stack: the
+//! partial MD5's 1 KiB sample for `book_key`, the SDK's catalog reads below
+//! 1 KiB. Not measured on the X4 yet.
 //!
 //! Not here yet: the book key of a book whose path hashes like another's
 //! (the writes round owns key allocation, so op 25 answers the plain
@@ -132,7 +135,8 @@ impl LibQuery for CatalogReads {
             0
         };
         let (state, walk_ppm) = match self.env.walking() {
-            Some(ppm) => (1, ppm.min(PPM)),
+            // Never 100 % while walking: that is state 2.
+            Some(ppm) => (1, ppm.min(PPM - 1)),
             None if ready => (2, PPM),
             None => (0, 0),
         };

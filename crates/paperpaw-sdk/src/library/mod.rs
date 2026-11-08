@@ -30,6 +30,7 @@ pub mod emptiness;
 mod fallible;
 mod fingerprint;
 pub mod index;
+mod indexed;
 pub mod listing;
 mod metadata;
 pub mod service;
@@ -40,6 +41,7 @@ pub mod split;
 
 pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_status};
 pub use fingerprint::Fingerprint;
+pub use indexed::try_indexed;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
