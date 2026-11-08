@@ -1834,17 +1834,16 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
-The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
-for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
-`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
-call; parameter text and transport buffers remain borrowed. This type-layout
-measurement does not replace the runtime X4 heap gate.
+The interface-7 SDK handover (`Ui::handover`) allocates nothing: it encodes
+at most 32 params and 1,024 content bytes straight into the caller's input
+buffer, and parameter text and transport buffers stay borrowed. A unit test
+counts its heap use at zero bytes with a counting allocator; the runtime X4
+heap gate stays open.
 
 Menu replacement temporarily allocates only its joined item bytes, at most
 2,048 bytes, and frees them after encoding into the caller's command buffer,
-before host submission. Empty and reset lists allocate nothing. The menu and
-handover temporaries are released before their host calls, so they do not
-overlap, including when both operations run in one callback.
+before host submission. Empty and reset lists allocate nothing. The menu
+temporary is released before its host call.
 
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
