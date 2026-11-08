@@ -150,7 +150,7 @@ impl Kernel {
         disabled: &[String],
         code: Option<CodePlugins>,
     ) {
-        found.sort_by_cached_key(|plugin| plugin.manifest().id);
+        paperpaw_sort::sort_by_cached_key(&mut found, |plugin| plugin.manifest().id);
         let Some(CodePlugins {
             mut native,
             mut loader,

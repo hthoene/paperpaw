@@ -22,7 +22,7 @@ use paperpaw_ui_kit::{
     text::{concat, copy, decimal_u64},
     widget::{
         Cx, Settings, TextSize,
-        cx::{face_font, local_time_now},
+        cx::face_font,
         layout::{break_words, caption, label, line as line_of, wrap},
         text::{fit_line, ink_room, largest_size},
     },
@@ -84,13 +84,6 @@ impl Source {
 /// Whether another quote shows each day (else each time it shows).
 fn daily(settings: &Settings<'_, '_>) -> Result<bool, Error> {
     settings.with_text("change", |value| !value.ends_with(".shown"))
-}
-
-/// The day number the time reads (0 where it is not known).
-fn day_number(host: &Host<'_>) -> Result<i64, Error> {
-    Ok(local_time_now(host)?.map_or(0, |t| {
-        crate::native_dates::days_from_civil(t.year, t.month, t.day)
-    }))
 }
 
 /// The one of `count` things shown on `day`: each of them once before any
@@ -163,7 +156,7 @@ impl Turns {
 /// The host's refusals.
 pub fn turn(host: &Host<'_>, widget: &str) -> Result<(), Error> {
     let settings = Settings::new(host, widget);
-    let day = day_number(host)?;
+    let day = crate::native_draw::epoch_day(host)?;
     let turns = Turns::load(host)?.on(day, daily(&settings)?);
     Turns {
         day,
@@ -453,7 +446,7 @@ fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
 pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
     let settings = Settings::new(host, widget);
     let daily = daily(&settings)?;
-    let day = day_number(host)?;
+    let day = crate::native_draw::epoch_day(host)?;
     let showing = if daily {
         0
     } else {
@@ -686,7 +679,7 @@ fn paint_plan(
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let day = day_number(cx.host)?;
+    let day = crate::native_draw::epoch_day(cx.host)?;
     let Some(quote) = quote_of_the_day(cx, day)? else {
         let message = cx.tr("widgets.quote.none")?;
         let small = cx.style().small;

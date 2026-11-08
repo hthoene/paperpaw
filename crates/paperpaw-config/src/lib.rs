@@ -87,6 +87,7 @@ impl<'a> Value<'a> {
                     let rest = chars.as_str();
                     if let Some((c, len)) = parse_unicode_escape(rest) {
                         out.push(c);
+                        debug_assert!(rest.is_char_boundary(len));
                         chars = rest.get(len..).unwrap_or_default().chars();
                     }
                 }
@@ -281,6 +282,8 @@ fn parse_value(text: &str) -> Result<Value<'_>, ErrorKind> {
     while let Some((index, c)) = chars.next() {
         match c {
             '"' => {
+                // `index` is where the one-byte quote is: both cuts are on boundaries.
+                debug_assert!(inner.is_char_boundary(index) && inner.is_char_boundary(index + 1));
                 if !inner.get(index + 1..).unwrap_or_default().trim().is_empty() {
                     return Err(ErrorKind::InvalidLine);
                 }
@@ -459,14 +462,14 @@ where
     }
     // In the order `set` would append them (each line in one section only).
     let mut appended: Vec<(&str, Vec<usize>)> = appended.into_iter().collect();
-    appended.sort_unstable_by_key(|(_, lines)| lines[0]);
+    paperpaw_sort::sort_by_key(&mut appended, |(_, lines)| lines[0]);
 
     let mut out = if replaced.is_empty() && inserted.is_empty() {
         String::from(source)
     } else {
         // Lines inserted at the same place keep their order: the second
         // of each pair counts up as they were pushed.
-        inserted.sort_unstable();
+        paperpaw_sort::sort(&mut inserted);
         let mut inserted = inserted.iter().peekable();
         let mut insert_before = |i: usize, out: &mut String| {
             while let Some(&(_, t)) = inserted.next_if(|&&(at, _)| at == i) {

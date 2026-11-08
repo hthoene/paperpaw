@@ -945,7 +945,7 @@ impl Settings {
                 self.limits.insert(id, value);
             }
         }
-        touched.sort_unstable();
+        paperpaw_sort::sort(&mut touched);
         touched.dedup();
         touched
     }
