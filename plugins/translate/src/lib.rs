@@ -22,6 +22,7 @@ extern crate alloc;
     reason = "the build script and the declaration tests also use the builders"
 )]
 pub mod declarations;
+pub mod native_ask;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_model;

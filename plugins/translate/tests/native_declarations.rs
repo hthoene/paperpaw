@@ -40,6 +40,7 @@ fn legacy() -> Vec<Contribution> {
 #[test]
 fn the_decoded_batches_say_what_the_registration_says() {
     let mut all = batches(|d| declarations::screen(d).unwrap());
+    all.extend(batches(|d| declarations::events(d).unwrap()));
     all.extend(batches(|d| declarations::offer(d).unwrap()));
     let native = declared::native("translate", &all);
     // Without the setting: its choice has 33 values (see below).
@@ -93,6 +94,7 @@ fn the_languages_are_the_interface_6_languages() {
 fn the_image_is_what_the_builders_make() {
     for (built, image) in [
         (batches(|d| declarations::screen(d).unwrap()), image::SCREEN),
+        (batches(|d| declarations::events(d).unwrap()), image::EVENTS),
         (batches(|d| declarations::offer(d).unwrap()), image::OFFER),
     ] {
         assert_eq!(built.len(), image.len());
@@ -103,8 +105,8 @@ fn the_image_is_what_the_builders_make() {
 }
 
 #[test]
-fn the_host_admits_the_screen() {
-    for batch in image::SCREEN {
+fn the_host_admits_the_screen_and_the_subscription_to_the_end_of_a_request() {
+    for batch in image::SCREEN.iter().chain(image::EVENTS) {
         let records = records_decode(batch).unwrap();
         assert_eq!(records.iter().count(), 1);
         validate_batch("translate", &records).unwrap();

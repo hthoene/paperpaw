@@ -28,8 +28,9 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN, PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN,
-    SCREEN_SHOWN, WIFI_CHANGED,
+    SCREEN_SHOWN, STARTED, WIFI_CHANGED,
 };
+use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
 use crate::native_model::{
     self, Link, Network, PageRow, Pick, is_kept, next_idle, note_keys, page_rows, pick,
@@ -121,6 +122,7 @@ impl Plugin for NativeWifi {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
             }
+            Event::Started { .. } if token == STARTED => self.keep_file(host),
             Event::WifiChanged { .. } if token == WIFI_CHANGED => self.radio_changed(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. }
@@ -592,9 +594,8 @@ impl NativeWifi {
     /// Keeps the password typed for the network `ssid` the device is in now.
     /// Where the device cannot keep it (no secrets service, or `Unsupported`
     /// from the one that is there: owner decision 141, the X4 Classic's
-    /// table has no room for passwords), the user is told with a text of
-    /// Wi-Fi's own (`wifi.password.not-saved`, to be replaced by the shared
-    /// text of todo 183) and asked again next time.
+    /// table has no room for passwords), the user is told with
+    /// the shared `core.secrets-unsupported` and asked again next time.
     fn keep_joined(&mut self, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
         let Some((pending, password)) = self.policy.pending.take() else {
             return Ok(());
@@ -616,10 +617,55 @@ impl NativeWifi {
             Err(Error::NoMemory) => Err(Error::NoMemory),
             // Not saved: said, best effort.
             Err(_) => {
-                native_model::best_effort(Self::tell(host, "wifi.password.not-saved", ssid));
+                native_model::best_effort(Self::notice(host, "core.secrets-unsupported"));
                 Ok(())
             }
         }
+    }
+
+    /// The networks in `wifi.ini` on the card, read once at a start: kept
+    /// among the secrets, then the file is removed. A file that cannot be kept
+    /// (the device keeps no passwords, or a call failed) stays for the next
+    /// start; a network that cannot be one (a name over 32 bytes, a password
+    /// over 63) is dropped with the file.
+    fn keep_file(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        if !self.read_info(host)?.present {
+            return Ok(());
+        }
+        let found = match native_ini::read(host)? {
+            Content::Nothing => return Ok(()),
+            Content::TooLarge => {
+                native_model::best_effort(Self::notice(host, "wifi.file-too-large"));
+                return Ok(());
+            }
+            Content::Networks(found) => found,
+        };
+        let kept = self.read_kept(host)?;
+        for network in &found {
+            // A network without a password does not take the password kept.
+            if network.password.is_empty() && is_kept(&kept, &network.ssid) {
+                continue;
+            }
+            let Ok(remember) = Remember::new(&network.ssid, network.password.as_str()) else {
+                continue;
+            };
+            let saved = match self.secrets(host)? {
+                Some(secrets) => native_known::remember(secrets, host, &remember),
+                None => Err(Error::Unsupported),
+            };
+            match saved {
+                Ok(()) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::Unsupported) => {
+                    native_model::best_effort(Self::notice(host, "core.secrets-unsupported"));
+                    return Ok(());
+                }
+                Err(_) => return Ok(()),
+            }
+        }
+        native_ini::remove(host);
+        Ok(())
     }
 
     /// Does what the policy says to the radio.
@@ -862,6 +908,13 @@ impl NativeWifi {
         }
         native_model::best_effort(Self::tell(host, "wifi.forgotten", &ssid));
         self.reread(host)
+    }
+
+    /// A notice of one text.
+    fn notice(host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
 
     /// A notice with the network's `ssid`.

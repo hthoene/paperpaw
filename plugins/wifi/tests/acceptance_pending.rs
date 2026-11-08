@@ -40,13 +40,13 @@ const CASES: [Case; 6] = [
     // Networks and passwords kept and forgotten through `core.secrets`, and a
     // `wifi.ini` on the card read once at a start. What the plugin keeps and
     // asks for is `native_known`; the screens read the names kept (run in
-    // `tests/scripted_networks.rs`); keeping a password once the device is in
-    // the network and the `wifi.ini` wait for the radio's events and
-    // `core.files`.
+    // `tests/scripted_networks.rs`); the `wifi.ini` is read at a start and its
+    // networks kept (`native_ini`, compared with the old reading); keeping a
+    // password once the device is in the network is run with the radio's events.
     Case {
         name: "wifi-passwords",
         golden: None,
-        blocked_by: &["FS", "EVT-wifi-radio"],
+        blocked_by: &["EVT-wifi-radio"],
     },
     // The own network opened for the phone: its name and drawn password, the
     // token of its page, the join code (`native_own`), with the bytes from
@@ -94,7 +94,7 @@ fn wifi_phone() {
 }
 
 #[test]
-#[ignore = "BLOCKED FS/EVT-wifi-radio: no core.files for wifi.ini, no radio events to keep a password when the device is in the network"]
+#[ignore = "BLOCKED EVT-wifi-radio: no radio events to keep a password once the device is in the network"]
 fn wifi_passwords() {
     CASES[3].refuse().unwrap();
 }
