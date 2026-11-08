@@ -182,6 +182,13 @@ binary_search sort sort_by sort_by_key windows chunks join concat repeat replace
 to_lowercase to_uppercase is_char_boundary rfind find_char hash write write_str fmt
 """.split())
 
+# Methods of workspace crates that are not hashed, which shared bodies call
+# and the native facade also names: `format` is `paperpaw_i18n::I18n::format`
+# (and the facade's `Declarations::format`). As for a standard name, the call
+# is that method only where src/native/ alone defines the name; unlike a
+# standard name it is still followed where a hashed function has it.
+EXTERNAL = {"format"}
+
 
 def block_end(text, i):
     """The index after the block whose `{` is at `text[i]`: strings,
@@ -317,7 +324,8 @@ def reach(functions, file, body, generated=None, native_users=frozenset()):
             # named `len` is still refused. Only a standard name the native
             # facade alone defines (`retain`) is the standard method.
             if not defs and generated and callee in generated and not (
-                    callee in STANDARD and all(is_native(path) for path in generated[callee])):
+                    (callee in STANDARD or callee in EXTERNAL)
+                    and all(is_native(path) for path in generated[callee])):
                 files = ", ".join(str(path) for path in generated[callee])
                 sys.exit(f"{at}: shared body calls {callee}, defined only in "
                          f"generated or native source: {files}; its body cannot be skipped")
