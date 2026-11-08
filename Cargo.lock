@@ -2546,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.9"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
