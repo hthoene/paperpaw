@@ -294,6 +294,9 @@ fn the_form_is_read_as_the_old_screen_reads_it() {
         "other=&password=x",
         "t=abc&ssid=%E2%82%AC&password=%ZZ",
         "ssid=a%FFb&password=",
+        "ssid=Home&password=%FF",
+        "ssid=Home&password=%FE%FFab%C3",
+        "ssid=Home&password=%E2%82",
         "ssid=&password=x",
         "",
         "noequals&ssid=x",
@@ -376,4 +379,36 @@ fn a_refused_allocation_leaves_the_stage_where_it_was() {
         result.map(|_| ())
     });
     assert!(refused > 0);
+}
+
+#[test]
+fn a_password_that_is_no_utf8_is_read_like_the_old_screen_reads_it_and_refusals_are_swept() {
+    let form = "t=tok3n&ssid=Home&password=%FF%FEab%C3";
+    let (_, password) = chosen(form).unwrap().unwrap();
+    assert_eq!(password.as_str(), "\u{fffd}\u{fffd}ab\u{fffd}");
+    sweep(|| {
+        let (ssid, password) = chosen(form)?.ok_or(Error::NotFound)?;
+        assert_eq!(ssid, "Home");
+        assert_eq!(password.as_str(), "\u{fffd}\u{fffd}ab\u{fffd}");
+        let mut p = Phone::new(Some(OWN), "tok3n", false, 100)?;
+        p.request(300, 1, "POST", "/join", Some(form))?;
+        Ok(())
+    });
+}
+
+#[test]
+fn a_body_over_the_most_taken_counts_as_none() {
+    let status = |form: &str| {
+        let mut p = open();
+        match p.request(300, 1, "POST", "/join", Some(form)).unwrap()[1] {
+            Effect::Respond { status, .. } => status,
+            ref other => panic!("{other:?}"),
+        }
+    };
+    let head = "t=tok3n&ssid=Home&password=";
+    let exact = format!("{head}{}", "p".repeat(MAX_FORM - head.len()));
+    assert_eq!(exact.len(), MAX_FORM);
+    assert_eq!(status(&exact), 200);
+    let over = format!("{exact}p");
+    assert_eq!(status(&over), 403);
 }

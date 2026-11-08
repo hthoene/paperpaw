@@ -28,8 +28,27 @@ fn done(result: core::fmt::Result) -> Result<(), Error> {
     result.map_err(|_| Error::NoMemory)
 }
 
+/// `bytes` as text, a byte that is no UTF-8 replaced by U+FFFD (as
+/// `String::from_utf8_lossy` does), in a string made with fallible allocation
+/// and exactly the room it needs.
+fn lossy(bytes: &[u8]) -> Result<String, Error> {
+    let room = bytes.utf8_chunks().fold(0usize, |room, chunk| {
+        room + chunk.valid().len() + if chunk.invalid().is_empty() { 0 } else { 3 }
+    });
+    let mut out = String::new();
+    out.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        out.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            out.push('\u{fffd}');
+        }
+    }
+    Ok(out)
+}
+
 /// `value` of a form field's text: `+` is a space and `%XX` a byte (a byte
-/// sequence that is no UTF-8 is replaced).
+/// sequence that is no UTF-8 is replaced). The bytes decoded are wiped once
+/// the text is made: a field can be a password.
 fn decode(value: &str) -> Result<String, Error> {
     let bytes = value.as_bytes();
     let mut out = alloc::vec::Vec::new();
@@ -51,14 +70,9 @@ fn decode(value: &str) -> Result<String, Error> {
         out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
         i += 1;
     }
-    match String::from_utf8(out) {
-        Ok(text) => Ok(text),
-        Err(error) => {
-            // Rare: replace what is no UTF-8, in a copy made with room.
-            let lossy = String::from_utf8_lossy(error.as_bytes());
-            copy(&lossy)
-        }
-    }
+    let text = lossy(&out);
+    paperpaw_ui_kit::mem::wipe(&mut out);
+    text
 }
 
 /// Field `name` of a form sent, decoded.

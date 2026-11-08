@@ -26,7 +26,11 @@ host activates native plugins (then it goes together, no shim).
   form is compared with the old functions on the same text, and `tests/native_phone_parity.rs`
   compares every page byte for byte with what the interface-6 screen serves on the real kernel.
   Allocation is swept; a refused one leaves the stage as it was (the name is copied before the
-  password moves on). Not ported: the own network's password (`core.secrets` `random`, PR 367) and
+  password moves on). The form is at most 1,024 bytes (a longer body counts as none, as before).
+  **Gate for the screen (`NET-serve`):** the body of a request can hold the password, so the screen
+  wipes it (the body file or buffer, and the text read from it) once `Phone::request` returns; the
+  module wipes only what it copies.
+  Not ported: the own network's password (`core.secrets` `random`, PR 367) and
   the code to join it, which the native screen draws.
 - `declarations.rs`: the group (order 85, its page), the four settings, the three screens (single
   instance), the action and the status item that open the page, the icons, the `Wifi` needs of the

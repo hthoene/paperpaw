@@ -410,8 +410,9 @@ impl Phone {
         Ok(out)
     }
 
-    /// A request came for the page: `form` is its body, if it had one (at
-    /// most [`MAX_FORM`] bytes of it).
+    /// A request came for the page: `form` is its body, if it had one (one
+    /// over [`MAX_FORM`] bytes counts as none). The body can hold a password:
+    /// the caller wipes it once this returns.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
@@ -424,6 +425,9 @@ impl Phone {
         form: Option<&str>,
     ) -> Result<Vec<Effect>, Error> {
         let path = target.split_once('?').map_or(target, |(path, _)| path);
+        // A body over the most taken is none: the interface-6 screen read at most
+        // that much and took a form it could not read for none.
+        let form = form.filter(|form| form.len() <= MAX_FORM);
         let token = self.token.as_str();
         let (status, page, picked) = match (method, path) {
             // Only the page's own form: not one another page sent.
