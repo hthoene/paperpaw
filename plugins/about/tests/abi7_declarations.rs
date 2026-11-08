@@ -2,10 +2,9 @@
 //! image holds, and the host accepts them.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
-    declarations::{validate_batch, validate_record},
+    declarations::validate_batch,
     registrations::{Record, records_decode},
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -47,38 +46,37 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
-/// The host takes the screen; it checks the menu place and the icon and
-/// then refuses them until its menus take them (`screens-input.md` section
-/// 1), so `make` is refused as unsupported until then: the same state as
-/// Keys and Profiles, pending #944.
+/// The host admits every declaration the page makes: the screen, the action,
+/// the menu place, the icon (`screens-input.md` section 1) and the stage
+/// (`stages-services.md` section 1).
 #[test]
-fn the_host_admits_the_screen_and_the_action_and_refuses_the_menu_place_and_icon() {
+fn the_host_admits_every_declaration_of_the_page() {
     for batch in batches!(declarations::screens) {
         let records = records_decode(&batch).unwrap();
         validate_batch("about", &records).unwrap();
     }
-    let mut refused = 0;
+    let (mut actions, mut places, mut icons) = (0, 0, 0);
     for batch in batches!(declarations::navigation) {
         let records = records_decode(&batch).unwrap();
+        validate_batch("about", &records).unwrap();
         for record in records.iter() {
-            match validate_record("about", &record) {
-                Ok(()) => assert!(matches!(record, Record::ActionSpec(_)), "{record:?}"),
-                Err(status) => {
-                    assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
-                    assert!(matches!(record, Record::MenuEntry(_) | Record::IconSpec(_)));
-                    refused += 1;
-                }
+            match record {
+                Record::ActionSpec(_) => actions += 1,
+                Record::MenuEntry(_) => places += 1,
+                Record::IconSpec(_) => icons += 1,
+                other => panic!("an unexpected record: {other:?}"),
             }
         }
     }
-    assert_eq!(refused, 2, "the menu place and the icon");
-    // The stage spec is checked, then refused until the host's stages are
-    // wired, as the menu place is.
+    assert_eq!((actions, places, icons), (1, 1, 1));
+    let mut stages = 0;
     for batch in batches!(declarations::stages) {
         let records = records_decode(&batch).unwrap();
+        validate_batch("about", &records).unwrap();
         for record in records.iter() {
             assert!(matches!(record, Record::StageSpec(_)), "{record:?}");
-            assert_eq!(validate_record("about", &record), Err(ERR_UNSUPPORTED));
+            stages += 1;
         }
     }
+    assert_eq!(stages, 1);
 }

@@ -284,6 +284,7 @@ fn the_screens_actions_menu_entry_and_icons_are_as_interface_6_registered_them()
 /// Every record is well formed for the host; the ones it does not admit yet
 /// fail only with `ERR_UNSUPPORTED` (`native_host/declarations.rs`), and these
 /// are the only ones that do.
+/// The host admits every one of them now, so none waits.
 #[test]
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
@@ -310,8 +311,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     }
     // 4 groups, 42 settings, 1 extra, 2 actions, 1 entry, 2 icons, 4 screens.
     assert_eq!(count, 4 + 42 + 1 + 2 + 1 + 2 + 4);
-    // The menu entry and the icons, as for every plugin of this port.
-    assert_eq!(waiting, ["MenuEntry", "IconSpec", "IconSpec"]);
+    // The menu entry and the icons are admitted now.
+    assert!(waiting.is_empty(), "{waiting:?}");
 }
 
 #[test]

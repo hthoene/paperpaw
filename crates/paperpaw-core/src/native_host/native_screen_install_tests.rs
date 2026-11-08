@@ -18,6 +18,10 @@ std::thread_local! {
     /// Resource records the batch also declares (see `resources`).
     static RES: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
+    static MENUS: Cell<u8> = const { Cell::new(0) };
+    /// 1: also a stage and a subscription to another plugin's; 2: also a
+    /// subscription to its own stage.
+    static STAGES: Cell<u8> = const { Cell::new(0) };
     /// The callback registrations `make` submits: 1 an event; 2 the same event
     /// twice; 3 a draw of the screen's token; 4 a draw of a token nobody
     /// declared; 5 the same draw twice; 6 an event and a draw; 7 and 8 the same event or
@@ -36,6 +40,36 @@ struct ScreenState {
     table: PpPlugin,
     host: *const PpHost,
     context: *mut c_void,
+}
+
+/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2).
+fn stage_fixture() -> [wire::Record<'static>; 3] {
+    [
+        wire::Record::ScreenSpec(wire::ScreenSpec {
+            name: "screen",
+            title: "factory.title",
+            token: 91,
+            flags: FLAGS.with(Cell::get),
+        }),
+        wire::Record::StageSpec(wire::StageSpec {
+            name: "insert",
+            schema: 1,
+            flags: 0,
+            max_input: 16,
+            max_reply: 16,
+            max_records: 1,
+        }),
+        wire::Record::RegistrationStage(wire::RegistrationStage {
+            stage: if STAGES.with(Cell::get) == 2 {
+                "factory.insert"
+            } else {
+                "other.insert"
+            },
+            token: 91,
+            order: 0,
+            signature: 0,
+        }),
+    ]
 }
 
 /// The batch `screen_make` submits, by the mode: the screen alone, with the
@@ -187,11 +221,23 @@ unsafe extern "C" fn screen_make(
 ) -> i32 {
     TABLES.with(|tables| tables.borrow_mut().push(host.addr()));
     let mut bytes = [0; 1024];
-    let len = declaration_batch(&mut bytes);
+    let len = if STAGES.with(Cell::get) == 0 {
+        declaration_batch(&mut bytes)
+    } else {
+        wire::records_encode(&stage_fixture(), &mut bytes).unwrap()
+    };
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
         let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return status;
+        }
+    }
+    let menus = MENUS.with(Cell::get);
+    if menus != 0 {
+        // SAFETY: the same live host table and context as the submit above.
+        let status = unsafe { menu_records::submit(host, ctx, menus) };
         if status != OK {
             return status;
         }
@@ -1346,6 +1392,65 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
 mod resources;
 
 #[test]
+fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {
+    reset(NORMAL);
+    STAGES.with(|value| value.set(1));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    result.unwrap();
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let store = directory.store.borrow();
+    let stage = store
+        .stage("factory.insert")
+        .expect("the stage is declared");
+    assert_eq!(
+        (stage.max_input, stage.max_reply, stage.max_records),
+        (16, 16, 1)
+    );
+    // Its subscription to another plugin's stage is kept, and inert.
+    let kept = store.stage_subscribers("other.insert").unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        (kept[0].plugin, kept[0].token, kept[0].owner),
+        ("factory", 91, stage.owner)
+    );
+    drop(kept);
+    drop(store);
+    // The owner leaves: stage and subscription with it.
+    kernel.unload_plugin(&Id::new_static("factory"));
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let store = directory.store.borrow();
+    assert!(store.stage("factory.insert").is_none());
+    assert!(store.stage_subscribers("other.insert").unwrap().is_empty());
+}
+
+#[test]
+fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_nothing() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    STAGES.with(|value| value.set(2));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    let stage = kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .map(|directory| directory.store.borrow().stage("factory.insert"));
+    assert!(stage.flatten().is_none());
+}
+
+#[test]
 fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
     let mut kernel = kernel(0);
     let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
@@ -1363,10 +1468,15 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
     let each = (live() - before) / owners.len();
     std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
     // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
-    // riscv32 sizes. Bounded here so that growth shows in review.
-    assert!(each <= 2_048, "{each} B per owner");
+    // riscv32 sizes. Bounded here so that growth shows in review. The bound
+    // went from 2,048 to 2,560 B when the per-owner kind table grew from 13 to
+    // 28 kinds (menus and icons, REG declarations, stages); half that on the X4.
+    assert!(each <= 2_560, "{each} B per owner");
     // Every owner's `make` was handed the same static table, not a copy.
     let tables = TABLES.with(|tables| tables.borrow().clone());
     assert!(tables.len() > owners.len());
     assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
 }
+
+#[path = "native_menu_install_tests.rs"]
+mod menu_records;
