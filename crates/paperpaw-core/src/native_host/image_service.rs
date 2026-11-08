@@ -50,9 +50,10 @@ pub(crate) const DEVICE_IMAGES: usize = 64;
 /// Document image ids a plugin holds at once, and prepared ones.
 pub(crate) const DOC_IMAGES: usize = 8;
 pub(crate) const PREPARED_IMAGES: usize = 8;
-/// The longest side of a picture the host keeps (cache images are at most
-/// 1,600 pixels; the bound keeps the band drawer's rows small).
-pub(crate) const MAX_SIDE: u32 = 4096;
+/// The longest side of a picture the host keeps and decodes to: 1,600
+/// pixels on every device (`document.md` 5: `side` at most 1,600, larger is
+/// refused), which keeps the band drawer's rows small.
+pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).
 pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
@@ -611,13 +612,7 @@ impl ImageTable {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
-        let picture = paperpaw_sdk::ui::Picture {
-            path: &path,
-            kind,
-            width: w,
-            height: h,
-            scratch_max: self.scratch_max.get(),
-        };
+        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get());
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());

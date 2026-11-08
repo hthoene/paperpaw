@@ -220,7 +220,7 @@ impl<'a> CommandStage<'a> {
         let mut images = self.images;
         for command in batch.iter() {
             if let Some(admit) = images.as_mut()
-                && let Some(result) = admit.admit(&command)
+                && let Some(result) = admit.admit_counted(&command, &mut bytes, self.byte_limit)
             {
                 if let Err(error) = result {
                     return error;

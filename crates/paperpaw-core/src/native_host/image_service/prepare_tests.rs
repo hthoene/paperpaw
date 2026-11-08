@@ -609,6 +609,14 @@ impl Storage for Paged {
     }
     fn list_from(
         &self,
+        _: &str,
+        _: u64,
+        _: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        panic!("a sweep reads its folder with list_bounded");
+    }
+    fn list_bounded(
+        &self,
         dir: &str,
         from: u64,
         visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
@@ -680,4 +688,86 @@ fn a_sweep_call_reads_at_most_a_bounded_piece_from_the_start_a_place_or_a_stale_
         assert!(!card.exists(&std::format!("{DIR}/a{n}-1.img")), "a{n}");
     }
     assert!(calls > 8, "{calls}: more than one call was needed");
+}
+
+/// A PNG header only: signature, `IHDR` with the given size.
+fn png_header(width: u32, height: u32) -> std::vec::Vec<u8> {
+    let mut bytes = std::vec::Vec::from(*b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes.extend_from_slice(&[8, 0, 0, 0, 0]);
+    bytes
+}
+
+#[test]
+fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    // Headers only: a decoder that started would find damage, not size.
+    storage
+        .write("huge.png", &png_header(4_000, 2_001))
+        .unwrap();
+    t.prepare(A, "huge.png", 8, 1, false).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
+    // A GIF the same way.
+    let mut gif = std::vec::Vec::from(*b"GIF89a");
+    gif.extend_from_slice(&5_000_u16.to_le_bytes());
+    gif.extend_from_slice(&5_000_u16.to_le_bytes());
+    storage.write("huge.gif", &gif).unwrap();
+    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
+    // A JPEG whose frame header comes after a long application segment.
+    let mut jpeg = std::vec![0xff, 0xd8, 0xff, 0xe1, 0x10, 0x00];
+    jpeg.extend_from_slice(&[0; 0x0ffe]);
+    jpeg.extend_from_slice(&[0xff, 0xc0, 0, 17, 8]);
+    jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
+    jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
+    storage.write("huge.jpg", &jpeg).unwrap();
+    t.prepare(A, "huge.jpg", 8, 3, false).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
+    // Exactly 8 Mpx passes the check (the damaged body then fails the decode).
+    assert_eq!(source_pixels(&storage, "huge.jpg"), Ok(Some(9_000_000)));
+    storage
+        .write("edge.png", &png_header(4_000, 2_000))
+        .unwrap();
+    assert_eq!(
+        source_pixels(&storage, "edge.png"),
+        Ok(Some(SOURCE_PIXELS_MAX))
+    );
+    t.prepare(A, "edge.png", 8, 4, false).unwrap();
+    assert_ne!(step(&t, &storage).unwrap().status, TOO_LARGE);
+    // A header with no size, or a JPEG with no frame header, is damaged.
+    storage.write("zero.png", &png_header(0, 5)).unwrap();
+    assert_eq!(source_pixels(&storage, "zero.png"), Err(DAMAGED));
+    storage
+        .write("cut.jpg", &[0xff, 0xd8, 0xff, 0xda, 0, 2])
+        .unwrap();
+    assert_eq!(source_pixels(&storage, "cut.jpg"), Err(DAMAGED));
+    storage.write("short.png", &png_header(4, 4)[..20]).unwrap();
+    assert_eq!(source_pixels(&storage, "short.png"), Err(DAMAGED));
+    // A format this does not read is the decoder's to refuse.
+    storage.write("x.bin", b"plain text here").unwrap();
+    assert_eq!(source_pixels(&storage, "x.bin"), Ok(None));
+}
+
+#[test]
+fn the_longest_side_is_1600_everywhere() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "p.png", 40, 20);
+    // A device-wide env that would allow 4,096 still stops at the contract.
+    let roomy = Env {
+        max_side: 4096,
+        ..ENV
+    };
+    assert_eq!(crate::native_host::image_service::MAX_SIDE, 1_600);
+    t.prepare(A, "p.png", 4096, 1, false).unwrap();
+    t.prepare_step(&storage, roomy).unwrap();
+    assert_eq!(told(&t).unwrap().status, READY);
+    assert_eq!(
+        t.add_prepared(A, 9, 1_601, 4, false),
+        Err(ERR_INVALID),
+        "a prepared image over 1,600 is never kept"
+    );
 }

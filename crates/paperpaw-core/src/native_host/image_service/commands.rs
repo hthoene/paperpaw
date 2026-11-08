@@ -6,7 +6,7 @@ use super::{ImageTable, MAX_SIDE, prepare};
 use crate::native_host::commands::WireCommand;
 use alloc::string::String;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED,
 };
 
 /// `image_prepare.flags` bit 0: colour, where the screen has it.
@@ -56,6 +56,28 @@ impl ImageAdmit {
             WireCommand::ImageRelease { .. } => Some(Ok(())),
             _ => None,
         }
+    }
+
+    /// [`ImageAdmit::admit`], and the text the command stages (an image
+    /// command's path; a release stages none) counted into `bytes`, the
+    /// callback's command byte budget with its `limit` (`commands.md` 3):
+    /// `ERR_NO_SPACE` where it is over.
+    pub(crate) fn admit_counted(
+        &mut self,
+        command: &WireCommand<'_>,
+        bytes: &mut usize,
+        limit: usize,
+    ) -> Option<Result<(), i32>> {
+        let result = self.admit(command)?;
+        if result.is_ok()
+            && let WireCommand::ImagePrepare { path, .. } = command
+        {
+            *bytes = bytes.saturating_add(path.len());
+            if *bytes > limit {
+                return Some(Err(ERR_NO_SPACE));
+            }
+        }
+        Some(result)
     }
 
     fn prepare(&mut self, root: u32, path: &str, flags: u32) -> Result<(), i32> {
