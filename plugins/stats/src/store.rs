@@ -698,6 +698,7 @@ pub(crate) fn unstage_log(storage: &dyn Storage) {
 
 /// The second half of [`replace_log`]: swapped in at once, by a rename
 /// where the storage can.
+#[cfg(test)]
 pub(crate) fn commit_log(storage: &dyn Storage) -> Result<(), StorageError> {
     put_in_place(storage, PAGES_NEW, PAGES)
 }
