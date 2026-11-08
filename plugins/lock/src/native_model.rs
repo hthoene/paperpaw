@@ -57,7 +57,7 @@ fn hex_into<'a>(digest: &[u8; 20], out: &'a mut [u8; 40]) -> &'a str {
     core::str::from_utf8(out).unwrap_or_default()
 }
 
-/// The hash of `code` with `salt`: a salted SHA-1 taken [`ROUNDS`] times and
+/// The hash of `code` with `salt`: a salted SHA-1 taken `ROUNDS` times and
 /// the SHA-1 of the last digest in hex, as the codes kept so far are. The
 /// digests on the way are wiped.
 ///
