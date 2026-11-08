@@ -79,7 +79,12 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Days are UTC days until the system time zone comes with the snapshot (draft 25); interface 6 used
   the device's zone. The seconds read are unaffected; a stay near local midnight may fall on the
   neighbouring day until then.
-- `core.read-today` is a stage the asker pulls (above), not an event.
+- `core.read-today` is a stage the asker pulls (above), not an event. Its day is the **UTC day**
+  until draft 25 brings the system time zone, so near local midnight it can differ from the
+  user's calendar day by up to the zone's offset: the stage may answer yesterday's (or
+  tomorrow's) day for a few hours. **reading-goal must tolerate that mismatch**: it compares the
+  day in the reply with its own day and shows no figure (or zero) for a day that is not its today,
+  never a neighbouring day's seconds as today's.
 - `make` submits the icon and the stage; the host refuses them (`ERR_UNSUPPORTED`) until it admits
   them (`tests/declarations.rs` pins that these are the only declarations that wait). The stage is
   the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin

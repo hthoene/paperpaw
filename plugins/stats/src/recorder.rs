@@ -167,19 +167,28 @@ impl Recorder {
         Some(self.names.len() - 1)
     }
 
-    /// Forgets the names nothing waits for: all but the session's.
+    /// Forgets the names nothing waits for: all but the session's and those of
+    /// the stays still undated (at most [`UNDATED`], so at most one more
+    /// name), however many books are opened before the device knows the time.
+    /// Names move to the front in their order; the holders follow.
     fn prune(&mut self) {
-        if !self.undated.is_empty() {
-            return;
-        }
-        match self.session.as_mut() {
-            Some(session) if session.name < self.names.len() => {
-                self.names.swap(0, session.name);
-                self.names.truncate(1);
-                session.name = 0;
+        let mut kept = 0;
+        for old in 0..self.names.len() {
+            let used = self.session.as_ref().is_some_and(|s| s.name == old)
+                || self.undated.iter().any(|stay| stay.name == old);
+            if !used {
+                continue;
             }
-            _ => self.names.clear(),
+            self.names.swap(kept, old);
+            if let Some(session) = self.session.as_mut().filter(|s| s.name == old) {
+                session.name = kept;
+            }
+            for stay in self.undated.iter_mut().filter(|stay| stay.name == old) {
+                stay.name = kept;
+            }
+            kept += 1;
         }
+        self.names.truncate(kept);
     }
 
     fn path_title(&self, name: usize) -> (&str, &str) {

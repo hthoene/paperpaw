@@ -121,11 +121,17 @@ impl Plugin for NativeStats {
 }
 
 /// What the recorder has to say: the card could not be written to, once.
-/// (Today's reading is asked for through the stage, not sent.)
+/// (Today's reading is asked for through the stage, not sent.) The notice is
+/// best effort: a refusal to show it is not the event's error (the recording
+/// has been done, and the recorder does not say it twice).
 fn tell(host: &Host<'_>, told: Told) -> Result<(), Error> {
-    if !told.not_saved {
-        return Ok(());
+    if told.not_saved {
+        notice(host).ok();
     }
+    Ok(())
+}
+
+fn notice(host: &Host<'_>) -> Result<(), Error> {
     let mut text = [0u8; 128];
     let message = copy_message(host, "stats.not-saved", &mut text)?;
     let mut scratch = [0u8; 256];
