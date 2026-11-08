@@ -32,6 +32,14 @@ pub(crate) const PARAMS_MAX: usize = 32;
 pub(crate) const PARAM_BYTES_MAX: usize = 1_024;
 /// Longest key.
 const KEY_MAX: usize = 32;
+/// Whether the device id is one of the small-heap Xteink devices, the X4 and
+/// the X3 (the same 256 KiB RISC-V heap): the one place the X4 profile of
+/// `core.ui` is decided, for the store's limits (`HostWiring::ui`), for the
+/// admission rules (`Frame::ui_x4`) and for op 14 (`native_status`).
+pub(crate) fn is_x4(device_id: &str) -> bool {
+    matches!(device_id, "xteink-x4" | "xteink-x3")
+}
+
 /// Largest text of a hand-over or a request.
 pub(crate) const TEXT_MAX: usize = 24_576;
 /// Largest part one write brings.

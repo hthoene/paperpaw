@@ -3,36 +3,18 @@
 extern crate std;
 use super::{
     HostResources,
-    ui_guard::UiStackView,
-    ui_service::{UiHost, UiServices},
+    ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Id;
 
-struct Host;
-impl UiHost for Host {
-    fn callback_epoch(&self) -> u64 {
-        1
-    }
-    fn calling_instance(&self, _: u64) -> Option<u32> {
-        None
-    }
-    fn with_stack(&self, _: &mut dyn FnMut(&dyn UiStackView)) {}
-    fn x4(&self) -> bool {
-        false
-    }
-    fn close_dialog(&self, _: u32) {
-        unreachable!()
-    }
-}
 fn pool(store: &Rc<UiStore>) -> HostResources {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
         .wire_ui(UiServices {
             store: Rc::clone(store),
-            host: Rc::new(Host),
         })
         .unwrap();
     pool

@@ -6,7 +6,7 @@ use super::*;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
-use crate::native_host::ui_guard::Row;
+use crate::native_host::ui_guard::{Row, UiStackView};
 use crate::native_host::ui_store::Limits;
 use alloc::string::String;
 use core::cell::Cell;
@@ -22,24 +22,6 @@ struct Stack {
     x4: Cell<bool>,
     closed: core::cell::RefCell<Vec<u32>>,
 }
-impl UiHost for Stack {
-    fn callback_epoch(&self) -> u64 {
-        self.epoch.get()
-    }
-    fn calling_instance(&self, _: u64) -> Option<u32> {
-        self.instance.get()
-    }
-    fn with_stack(&self, f: &mut dyn FnMut(&dyn UiStackView)) {
-        f(&ui_guard::Rows(&self.rows.borrow()));
-    }
-    fn x4(&self) -> bool {
-        self.x4.get()
-    }
-    fn close_dialog(&self, instance: u32) {
-        self.closed.borrow_mut().push(instance);
-    }
-}
-
 struct View<'a> {
     env: &'a Env<'a>,
     hosts: crate::native_host::host_services::HostServices,
@@ -53,6 +35,29 @@ impl Frame for View<'_> {
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
+    }
+    // The stack's view, as Core's frame gives it from the stamped callback.
+    fn callback_epoch(&self) -> Result<u64, i32> {
+        Some(self.stack.epoch.get())
+            .filter(|epoch| *epoch != 0)
+            .ok_or(ERR_STATE)
+    }
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.callback_epoch()?;
+        self.stack.instance.get().ok_or(ERR_STATE)
+    }
+    fn with_stack(&self, visit: &mut dyn FnMut(&dyn UiStackView)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        visit(&ui_guard::Rows(&self.stack.rows.borrow()));
+        Ok(())
+    }
+    fn ui_x4(&self) -> Result<bool, i32> {
+        self.callback_epoch()?;
+        Ok(self.stack.x4.get())
+    }
+    fn close_dialog(&self, instance: u32) -> Result<(), i32> {
+        self.stack.closed.borrow_mut().push(instance);
+        Ok(())
     }
 }
 
@@ -170,7 +175,6 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         hosts
             .wire_ui(UiServices {
                 store: store.clone(),
-                host: stack.clone(),
             })
             .unwrap();
     }

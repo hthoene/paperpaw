@@ -7,10 +7,17 @@
 //! leaves nothing half wired.
 //!
 //! Which families a shell can name grows with the adapters: `text.hyphenate`
-//! (the card's tables) and `core.device` (a host that already is public)
-//! today; the other families' hosts are core's adapters over kernel objects
-//! and join as their adapters land, one method each.
-use super::{device_service::DeviceHost, hyphen_card::CardTables, resources::HostResources};
+//! (the card's tables), `core.device` (a host that already is public) and
+//! `core.ui` (the store; the stack's view comes from each call's frame) today;
+//! the other families' hosts are core's adapters over kernel objects and join
+//! as their adapters land, one method each.
+use super::{
+    device_service::DeviceHost,
+    hyphen_card::CardTables,
+    resources::HostResources,
+    ui_service::UiServices,
+    ui_store::{Limits, UiStore},
+};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::Storage;
@@ -22,6 +29,8 @@ use paperpaw_platform::Storage;
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
+    /// `core.ui`: `Some(x4)`.
+    ui: Option<bool>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -29,6 +38,7 @@ impl core::fmt::Debug for HostWiring {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
             .field("device", &self.device.is_some())
+            .field("ui", &self.ui.is_some())
             .finish()
     }
 }
@@ -53,6 +63,17 @@ impl HostWiring {
     #[must_use]
     pub fn device(mut self, host: Rc<dyn DeviceHost>) -> Self {
         self.device = Some(host);
+        self
+    }
+
+    /// `core.ui`: the screen-stack service (questions, hand-overs, texts). The
+    /// host makes its store, sized for the device named by `device_id` (the
+    /// X4 gets the small limits of its 256 KiB heap; the same test as the
+    /// admission rules use, so the two cannot disagree); nothing else is passed
+    /// in, and nothing is allocated until a plugin uses it.
+    #[must_use]
+    pub fn ui(mut self, device_id: &str) -> Self {
+        self.ui = Some(super::ui_store::is_x4(device_id));
         self
     }
 }
@@ -114,6 +135,7 @@ impl HostResources {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
+            || (wiring.ui.is_some() && hosts.ui().is_some())
         {
             return Err(ERR_STATE);
         }
@@ -125,6 +147,12 @@ impl HostResources {
         }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;
+        }
+        if let Some(x4) = wiring.ui {
+            let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
+            hosts.wire_ui(UiServices {
+                store: Rc::new(UiStore::new(limits)),
+            })?;
         }
         Ok(wired)
     }
