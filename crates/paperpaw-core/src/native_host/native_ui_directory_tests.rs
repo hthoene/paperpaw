@@ -38,6 +38,8 @@ fn pending(plugin: &'static str, owner: u64, generation: &Rc<Cell<u32>>) -> Pend
         owner,
         generation: Rc::clone(generation),
     };
+    // Read the identity through the trait so the field stays live on old compilers.
+    assert_eq!(ImageOwner::plugin_id(&source), plugin);
     let mut pending = PendingDeclarations::native(Id::new_static(plugin), source).unwrap();
     let records = [
         Record::WidgetSpec(WidgetSpec {

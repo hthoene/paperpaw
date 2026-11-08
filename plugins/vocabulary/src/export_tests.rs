@@ -4,11 +4,13 @@ use crate::sync::tests::{
     FOLDER, Wrapped, cards_of, deck_id, fronts, heap, learn, ledger_text, put, run,
 };
 use crate::sync::{self, FileReport, Mode};
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use paperpaw_sdk::MemoryStorage;
 
 /// A save run through, with the steps it took.
 fn save(storage: &dyn Storage, deck: u32) -> (Report, usize) {
-    let mut saver = Saver::new(FOLDER, deck);
+    let mut saver = Saver::new(FOLDER, deck).unwrap();
     for steps in 1..100_000 {
         if let Step::Done(report) = saver.step(storage) {
             return (report, steps);
@@ -20,11 +22,11 @@ fn save(storage: &dyn Storage, deck: u32) -> (Report, usize) {
 /// What the screen does: the file read first where it changed, then the save.
 fn save_as_the_screen(storage: &dyn Storage, deck: u32) -> (Vec<FileReport>, Option<Report>) {
     let mut reports = Vec::new();
-    if let Some(mut job) = update_first(storage, FOLDER, deck) {
+    if let Some(mut job) = update_first(storage, FOLDER, deck).unwrap() {
         loop {
             match job.step(storage) {
                 sync::Step::Done => break,
-                sync::Step::Ask(_) => job.answer(storage, true),
+                sync::Step::Ask => job.answer(storage, true),
                 sync::Step::Working => {}
             }
         }
@@ -80,7 +82,7 @@ fn a_deck_is_saved_with_its_marker_its_ids_and_quoted_where_needed() {
     assert_eq!(report.backup.as_deref(), Some("_Words.bak.tsv"));
     assert_eq!(read(&storage, "_Words.bak.tsv"), before);
     assert!(!storage.exists("Flashcards/Words.tsv.part"));
-    let (_, found) = sync::files(&storage, FOLDER);
+    let (_, found) = sync::files(&storage, FOLDER).unwrap();
     assert_eq!(found.len(), 1, "{found:?}");
 }
 
@@ -92,7 +94,7 @@ fn a_saved_file_is_found_unchanged_by_the_next_update() {
     let deck = deck_id(&storage, "W");
     save(&storage, deck);
     // Neither read again by an automatic update, nor different by hash.
-    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, sync::Outcome::Same, "{again:?}");
     assert_eq!(cards_of(&storage, deck).len(), 2);
@@ -222,11 +224,11 @@ fn a_save_that_is_stopped_leaves_no_part_behind() {
     put(&storage, "W.tsv", "gato\tcat\n");
     run(&storage, false, true);
     let deck = deck_id(&storage, "W");
-    let mut saver = Saver::new(FOLDER, deck);
+    let mut saver = Saver::new(FOLDER, deck).unwrap();
     assert_eq!(saver.step(&storage), Step::Working);
-    assert!(storage.exists(&saver.part()));
+    assert!(storage.exists(&saver.part));
     saver.cancel(&storage);
-    assert!(!storage.exists(&saver.part()));
+    assert!(!storage.exists(&saver.part));
     assert_eq!(read(&storage, "W.tsv"), "gato\tcat\n");
 }
 
@@ -334,7 +336,7 @@ fn a_field_with_a_line_break_a_quote_or_the_separator_is_in_quotes() {
         ("", '\t'),
     ] {
         out.clear();
-        field(&mut out, text, sep);
+        field(&mut out, text, sep).unwrap();
         let quoted = out.starts_with('"');
         assert_eq!(
             quoted,
@@ -343,7 +345,7 @@ fn a_field_with_a_line_break_a_quote_or_the_separator_is_in_quotes() {
         );
     }
     out.clear();
-    field(&mut out, "a\r\nb \"q\"", '\t');
+    field(&mut out, "a\r\nb \"q\"", '\t').unwrap();
     assert_eq!(out, "\"a\r\nb \"\"q\"\"\"");
 }
 
@@ -358,11 +360,14 @@ fn file_names_are_made_safe() {
         ("__", "Deck.tsv"),
         ("Gr\u{fc}\u{df}e", "Gr\u{fc}\u{df}e.tsv"),
     ] {
-        assert_eq!(file_name_of(deck), file, "{deck:?}");
+        assert_eq!(file_name_of(deck).unwrap(), file, "{deck:?}");
     }
-    assert_eq!(file_name_of(&"x".repeat(200)).len(), cards::MAX_NAME + 4);
-    assert_eq!(backup_name("W.tsv"), "_W.bak.tsv");
-    assert_eq!(backup_name("W"), "_W.bak");
+    assert_eq!(
+        file_name_of(&"x".repeat(200)).unwrap().len(),
+        cards::MAX_NAME + 4
+    );
+    assert_eq!(backup_name("W.tsv").unwrap(), "_W.bak.tsv");
+    assert_eq!(backup_name("W").unwrap(), "_W.bak");
 }
 
 #[test]
@@ -430,7 +435,7 @@ fn a_deck_too_big_for_a_file_is_not_saved() {
 fn a_deck_that_is_gone_is_told() {
     let storage = MemoryStorage::new();
     assert_eq!(save(&storage, 77).0.outcome, Outcome::NoDeck);
-    assert!(sync::files(&storage, FOLDER).1.is_empty());
+    assert!(sync::files(&storage, FOLDER).unwrap().1.is_empty());
 }
 
 #[test]
@@ -441,7 +446,7 @@ fn a_ledger_that_cannot_be_read_stops_a_save_and_is_not_written_over() {
     let deck = deck_id(&storage, "W");
     let newer = "paperpaw-sources 9\nW.tsv\t1\t4\t0\tff\t0\n";
     storage
-        .write(&sync::ledger_path(), newer.as_bytes())
+        .write(sync::ledger_path(), newer.as_bytes())
         .unwrap();
     assert_eq!(save(&storage, deck).0.outcome, Outcome::Unreadable);
     assert_eq!(ledger_text(&storage), newer.as_bytes());
@@ -482,7 +487,7 @@ fn a_big_deck_is_saved_in_steps_with_a_small_heap_and_read_back_the_same() {
         cards::MAX_CARDS
     );
     // The update of it: the same, and unread.
-    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, sync::Outcome::Same, "{again:?}");
     // Edited on the computer (every seventh back), it is read for real:
@@ -591,7 +596,7 @@ fn the_switch_is_for_a_linked_deck_only_and_old_ledger_lines_read_as_off() {
                 + "\n"
         })
         .collect();
-    storage.write(&sync::ledger_path(), old.as_bytes()).unwrap();
+    storage.write(sync::ledger_path(), old.as_bytes()).unwrap();
     assert!(!sync::link_of(&ledger(&storage), deck).unwrap().mirror);
     assert!(sync::set_mirror(&storage, deck, true));
     assert!(sync::link_of(&ledger(&storage), deck).unwrap().mirror);
@@ -636,11 +641,11 @@ fn an_update_of_an_ordinary_size_takes_a_small_heap() {
     put(&storage, "Ord.tsv", &text);
     let wrapped = Wrapped::new(&storage);
     let ((reports, _), biggest, peak) = heap::measure(|| {
-        let mut job = Job::new(&wrapped, FOLDER, Mode::Manual);
+        let mut job = Job::new(&wrapped, FOLDER, Mode::Manual).unwrap();
         loop {
             match job.step(&wrapped) {
                 sync::Step::Done => break (job.reports, 0),
-                sync::Step::Ask(_) => job.answer(&wrapped, true),
+                sync::Step::Ask => job.answer(&wrapped, true),
                 sync::Step::Working => {}
             }
         }
@@ -887,6 +892,6 @@ fn an_old_ledger_line_has_nothing_left_out() {
             }
         })
         .collect();
-    storage.write(&sync::ledger_path(), old.as_bytes()).unwrap();
+    storage.write(sync::ledger_path(), old.as_bytes()).unwrap();
     assert_eq!(sync::link_of(&ledger(&storage), deck).unwrap().left_out, 0);
 }

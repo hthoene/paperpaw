@@ -3,6 +3,7 @@
 //! Layout is prepared when the screen opens. Font leases, service records,
 //! settings text and the canvas remain confined to their callback.
 
+use crate::mem;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
@@ -18,6 +19,7 @@ use crate::log::Reading;
 mod content;
 mod header;
 mod history;
+pub use history::{HistorySummary, summary as history_summary};
 mod messages;
 mod rows;
 mod style;
@@ -65,7 +67,7 @@ impl NativeView {
         let style = Style::read(host, &display, &font)?;
         let mut messages = Messages::new(host)?;
         let (lines, footer) = content::lines(host, now, &mut messages)?;
-        let starts = paginate(&lines, &style, display.display_height());
+        let starts = paginate(&lines, &style, display.display_height())?;
         let title = messages.copy(host, "battery.title")?;
         let mut pages = Vec::new();
         pages
@@ -95,7 +97,7 @@ impl NativeView {
                 display.display_width(),
                 display.display_height(),
             )?;
-            pages.push(page);
+            mem::push(&mut pages, page)?;
         }
         font.release()?;
         Ok(Self { pages, page: 0 })
@@ -205,19 +207,20 @@ fn height(line: &Line, style: &Style) -> u16 {
     }
 }
 
-fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Vec<usize> {
+fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Result<Vec<usize>, Error> {
     let (top, bottom) = (
         u32::from(style.header),
         u32::from(screen_height.saturating_sub(style.row)),
     );
-    let mut pages = Vec::from([0]);
+    let mut pages = Vec::new();
+    mem::push(&mut pages, 0)?;
     let mut y = top;
     for (index, line) in lines.iter().enumerate() {
         let start = pages.last().copied().unwrap_or(0);
         if y + u32::from(height(line, style)) > bottom && index > start {
             let heading_last = index > start + 1 && matches!(lines[index - 1], Line::Heading(_));
             let first = if heading_last { index - 1 } else { index };
-            pages.push(first);
+            mem::push(&mut pages, first)?;
             y = top;
             if heading_last {
                 y += u32::from(height(&lines[first], style));
@@ -225,7 +228,7 @@ fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Vec<usize> {
         }
         y += u32::from(height(line, style));
     }
-    pages
+    Ok(pages)
 }
 
 #[allow(
