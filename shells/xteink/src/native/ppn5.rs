@@ -126,7 +126,7 @@ pub fn load(
 
 #[cfg(feature = "esp32c3")]
 pub(super) use x4::{StorageSource, entry_check_failed};
-#[cfg(feature = "static-native")]
+#[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use x4::register_linked_probe;
 
 /// The ESP32-C3's part: the image is placed in flash and its entry read.
