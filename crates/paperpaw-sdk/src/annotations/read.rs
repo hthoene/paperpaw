@@ -43,7 +43,8 @@ const MARK: &str = crate::data::MARK;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Head {
-    /// The file's version (1 where it has no mark; 0 for no file).
+    /// The file's version: 1 where it has no mark, and for no file at all (a
+    /// missing file reads as an empty one of version 1).
     pub version: u32,
     /// The committed changes of version 3 (`# generation`), 1 where it has
     /// none ([`generation_of`]).
@@ -135,19 +136,27 @@ impl Windows {
         self.end_xpointer = end;
         self
     }
-    /// The bytes of scratch they need.
-    pub fn scratch(&self) -> usize {
-        [
-            self.text,
-            self.note,
-            self.key,
-            self.start_xpointer,
-            self.end_xpointer,
-        ]
-        .iter()
-        .map(|w| w.cap as usize)
-        .sum()
+    /// The bytes of scratch they need; `None` where the caps do not add up
+    /// in a `usize` (32-bit targets), which no scratch can hold.
+    #[must_use]
+    pub fn scratch(&self) -> Option<usize> {
+        checked_sum(self.caps().into_iter().map(|cap| cap as usize))
     }
+
+    fn caps(&self) -> [u32; 5] {
+        [
+            self.text.cap,
+            self.note.cap,
+            self.key.cap,
+            self.start_xpointer.cap,
+            self.end_xpointer.cap,
+        ]
+    }
+}
+
+/// The sum of `sizes`, `None` on overflow.
+fn checked_sum(mut sizes: impl Iterator<Item = usize>) -> Option<usize> {
+    sizes.try_fold(0_usize, usize::checked_add)
 }
 
 /// A text read through a window: what was read (a character cut at its
@@ -433,7 +442,8 @@ pub fn try_rows(
     scratch: &mut [u8],
     visit: &mut dyn FnMut(u32, &Row<'_>) -> ControlFlow<()>,
 ) -> Result<u32, Error> {
-    if scratch.len() < windows.scratch() {
+    // Windows no scratch can hold are refused before anything is read.
+    if windows.scratch().is_none_or(|need| scratch.len() < need) {
         return Err(Error::Unreadable);
     }
     let file = file_of(book)?;
@@ -554,7 +564,9 @@ struct Fields {
 }
 
 impl Fields {
-    fn new(windows: &Windows) -> Self {
+    /// The fields of a line to be read through `windows`; `None` for caps that
+    /// do not add up in a `usize`.
+    fn new(windows: &Windows) -> Option<Self> {
         let order = [
             windows.text,
             windows.note,
@@ -563,7 +575,7 @@ impl Fields {
             windows.end_xpointer,
         ];
         let mut slots = [Slot::default(); 5];
-        let mut at = 0;
+        let mut at = 0_usize;
         for (slot, window) in slots.iter_mut().zip(order) {
             *slot = Slot {
                 window,
@@ -571,9 +583,9 @@ impl Fields {
                 filled: 0,
                 whole: 0,
             };
-            at += window.cap as usize;
+            at = at.checked_add(window.cap as usize)?;
         }
-        Self {
+        Some(Self {
             kind: 0,
             kind_len: 0,
             numbers: [Number::EMPTY; 5],
@@ -582,7 +594,7 @@ impl Fields {
             conversion: Number::EMPTY,
             id: Number::EMPTY,
             slots,
-        }
+        })
     }
 
     fn take(&mut self, role: Role, byte: u8, scratch: &mut [u8]) {
@@ -666,7 +678,7 @@ fn capture(
     windows: &Windows,
     scratch: &mut [u8],
 ) -> Result<Option<Captured>, Error> {
-    let mut line = Fields::new(windows);
+    let mut line = Fields::new(windows).ok_or(Error::Unreadable)?;
     let mut index = 0_usize;
     while let Some(byte) = next()? {
         if byte == b'\n' {

@@ -28,7 +28,7 @@ struct Got {
 }
 
 fn rows(storage: &MemoryStorage, windows: &Windows) -> Result<Vec<Got>, Error> {
-    let mut scratch = std::vec![0_u8; windows.scratch()];
+    let mut scratch = std::vec![0_u8; windows.scratch().unwrap()];
     let mut all = Vec::new();
     let seen = try_rows(storage, BOOK, windows, &mut scratch, &mut |index, row| {
         assert_eq!(index as usize, all.len());
@@ -204,7 +204,7 @@ fn reading_makes_no_allocation_but_the_file_name() {
     use crate::native::commands::menu_alloc_tests::refuse_nth;
     let storage = put("# format 3\n# generation 2\nb\t1\t0\t1\t0\t1\t0\t0\t\t\t\tt\tn\t1\tk\n");
     let windows = wide();
-    let mut scratch = std::vec![0_u8; windows.scratch()];
+    let mut scratch = std::vec![0_u8; windows.scratch().unwrap()];
     let mut read = || {
         try_rows(&storage, BOOK, &windows, &mut scratch, &mut |_, _| {
             ControlFlow::Continue(())
@@ -247,38 +247,71 @@ fn the_generation_is_never_0_or_1_after_a_change() {
 #[test]
 fn is_row_is_the_definition_try_rows_reads_by() {
     // The writer of version 3 calls `is_row`; it must agree with the reader
-    // on every line of a mixed file, in every version.
+    // on every single line of a mixed file, in every version. Each line
+    // carries its own number as the section it starts in, so the rows that
+    // came back say which lines they were.
     let lines = [
-        "b\t1\t0\t1\t0\t10\t100\t200\t00000000000000ff\t/a\t\tfirst\tnote\t7\tkey",
-        "b\t1\t0\t1\t0\t10\t100\t200\t00000000000000ff\t/a\t\tfirst\tnote",
-        "h\t2\t5\t2\t9\t20\t0\t0\t\t\t\tsecond\t",
-        "h\t2\t5\t2\t9\t20\t1\t2\ttext\tnote",
-        "h\t2\t5\t2\t9\t20\ttext\tnote",
-        "x\t3\t0\t3\t0\t30\t1\t2\t?\t/p\t/q\tfuture\tn",
-        "h\t4\tzz\t4\t0\t40\t0\t0\t\t\t\tbad number\t",
-        "# book 5 abc",
-        "garbage line",
+        "b\t@\t0\t1\t0\t10\t100\t200\t00000000000000ff\t/a\t\tL@\tnote\t7\tkey",
+        "b\t@\t0\t1\t0\t10\t100\t200\t00000000000000ff\t/a\t\tL@\tnote",
+        "h\t@\t5\t2\t9\t20\t0\t0\t\t\t\tL@\t",
+        "h\t@\t5\t2\t9\t20\t1\t2\tL@\tnote",
+        "h\t@\t5\t2\t9\t20\tL@\tnote",
+        "x\t@\t0\t3\t0\t30\t1\t2\t?\t/p\t/q\tL@\tn",
+        "h\t@\tzz\t4\t0\t40\t0\t0\t\t\t\tL@\t",
+        "# book 5 abc L@",
+        "garbage line L@",
         "",
-        "bb\t1\t0\t1\t0\t10\t0\t0\t\t\t\tt\tn",
+        "bb\t@\t0\t1\t0\t10\t0\t0\t\t\t\tL@\tn",
+        "b\t@\t0\t1\t0\t10\t1\t2\t\t\t\tL@\tn\t0\tkey",
+        "b\t@\t0\t1\t0\t10\t1\t2\t\t\t\tL@\tn\t8\t",
     ];
+    let marked = |n: usize, line: &str| line.replace('@', &n.to_string());
     for version in 1..=3_u32 {
         let mut file = format!("# format {version}\n");
-        let expected: Vec<bool> = lines
-            .iter()
-            .map(|l| is_row(l.as_bytes(), version))
-            .collect();
-        for line in lines {
-            file.push_str(line);
+        let mut expected = Vec::new();
+        for (n, line) in lines.iter().enumerate() {
+            let line = marked(n, line);
+            if is_row(line.as_bytes(), version) {
+                expected.push(n as u32);
+            }
+            file.push_str(&line);
             file.push('\n');
         }
         let storage = put(&file);
-        let counted = rows(&storage, &wide()).unwrap().len();
-        assert_eq!(
-            counted,
-            expected.iter().filter(|r| **r).count(),
-            "version {version}"
-        );
+        let got: Vec<u32> = rows(&storage, &wide())
+            .unwrap()
+            .into_iter()
+            .map(|row| row.start.0)
+            .collect();
+        assert_eq!(got, expected, "version {version}");
+        assert!(!got.is_empty(), "version {version} has rows");
     }
     assert!(!is_row(b"# b\t1", 3));
     assert!(!is_row(&[b'b'; LINE_MAX + 1], 3));
+}
+
+#[test]
+fn caps_that_do_not_fit_a_scratch_are_refused_not_wrapped() {
+    // The sum of caps is checked, never wrapped (32-bit targets add up to
+    // more than a `usize`).
+    assert_eq!(checked_sum([usize::MAX, 1].into_iter()), None);
+    assert_eq!(
+        checked_sum([usize::MAX / 2, usize::MAX / 2].into_iter()),
+        Some(usize::MAX - 1)
+    );
+    let huge = Window::new(0, u32::MAX);
+    let windows = Windows::new()
+        .text(huge)
+        .note(huge)
+        .key(huge)
+        .xpointers(huge, huge);
+    let storage = put("# format 3\n");
+    let mut scratch = [0_u8; 16];
+    let result = try_rows(&storage, BOOK, &windows, &mut scratch, &mut |_, _| {
+        ControlFlow::Break(())
+    });
+    assert_eq!(result, Err(Error::Unreadable));
+    // Where the sum fits a `usize` (64-bit), the same caps are only too big
+    // for the scratch lent; the line reader never indexes past it.
+    assert!(Fields::new(&windows).is_some() || usize::BITS < 64);
 }

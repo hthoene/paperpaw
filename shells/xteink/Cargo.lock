@@ -2269,7 +2269,6 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -2277,14 +2276,12 @@ dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
- "paperpaw-plugin-help",
  "paperpaw-plugin-home",
  "paperpaw-plugin-hyphenation",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-opds",
- "paperpaw-plugin-power",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
@@ -2417,13 +2414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-dictionary"
 version = "1.0.2"
 dependencies = [
@@ -2440,9 +2430,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2463,21 +2454,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-xtc"
-version = "1.0.1"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-help"
-version = "1.0.3"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2523,16 +2507,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-opds"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-power"
-version = "1.1.1"
-dependencies = [
- "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
