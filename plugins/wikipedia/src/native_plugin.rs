@@ -7,7 +7,7 @@
 //! without one (`PORTING-7.md`).
 use paperpaw_sdk::native::{Error, Host, Plugin, registrations};
 
-#[allow(
+#[expect(
     dead_code,
     reason = "the provider is in the image, submitted once the host admits lookup providers"
 )]

@@ -25,13 +25,23 @@ pub fn string_member(object: &str, key: &str) -> Result<Option<String>, Error> {
 /// # Errors
 /// `NoMemory` when the text cannot be kept.
 pub fn unquote(literal: &str) -> Result<Option<String>, Error> {
-    let mut out = String::new();
+    // Count first, so that one exact reservation holds the text: a doubling
+    // buffer would take twice the memory of a long summary.
+    let mut bytes = 0usize;
     let ok = decode(literal, &mut |c| {
-        out.try_reserve(c.len_utf8()).map_err(|_| Error::NoMemory)?;
+        bytes += c.len_utf8();
+        Ok(())
+    })?;
+    if !ok {
+        return Ok(None);
+    }
+    let mut out = String::new();
+    out.try_reserve_exact(bytes).map_err(|_| Error::NoMemory)?;
+    decode(literal, &mut |c| {
         out.push(c);
         Ok(())
     })?;
-    Ok(ok.then_some(out))
+    Ok(Some(out))
 }
 
 /// The JSON text of member `key` of `text`, as it is written; `None` where
@@ -252,6 +262,18 @@ mod tests {
         out
     }
 
+    /// A summary as the encyclopedia answers: nested namespace, titles and
+    /// thumbnail before the extract, escapes and non-ASCII in the text.
+    const WIKIPEDIA: &str = r#"{"type":"standard","title":"Ada Lovelace","displaytitle":"<span class=\"mw-page-title-main\">Ada Lovelace</span>","namespace":{"id":0,"text":""},"wikibase_item":"Q7259","titles":{"canonical":"Ada_Lovelace","normalized":"Ada Lovelace","display":"Ada Lovelace"},"pageid":1,"thumbnail":{"source":"https://upload.example/thumb/a.jpg","width":320,"height":400},"lang":"en","dir":"ltr","description":"English mathematician (1815\u20131852)","extract":"Augusta Ada King, Countess of Lovelace (n\u00e9e Byron) was an English mathematician.\nShe wrote \"Notes\" \ud83d\udcda.","extract_html":"<p>Augusta</p>"}"#;
+
+    #[test]
+    fn the_extract_follows_the_nested_members() {
+        let extract = string_member(WIKIPEDIA, "extract").unwrap().unwrap();
+        assert!(extract.starts_with("Augusta Ada King"));
+        assert!(extract.ends_with("Notes\" \u{1f4da}."));
+        assert_eq!(string_member(WIKIPEDIA, "text").unwrap(), None);
+    }
+
     #[test]
     fn unquote_is_the_interface_6_unquote() {
         for literal in literals() {
@@ -272,6 +294,7 @@ mod tests {
             r#"{"text":null}"#,
             r#"{"text":5}"#,
             r#"{"other":"x"}"#,
+            WIKIPEDIA,
             r#"{"te\u0078t":"escaped name"}"#,
             r#"{"tex":"short","texts":"long","text":"exact"}"#,
             r#"{"bad\uZZ":"x","text":"after a bad name"}"#,
