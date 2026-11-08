@@ -855,3 +855,58 @@ fn a_screen_and_a_power_command_travel_in_one_batch() {
     assert_eq!(batches[0][1], "PowerOff");
     assert_eq!(batches[1][1], "Sleep");
 }
+
+#[test]
+fn install_and_remove_commands_encode_with_their_flags() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender
+        .install_plugin(3, InstallRoot::Data, "staging/fonts-x", true, false)
+        .unwrap();
+    sender
+        .install_plugin(4, InstallRoot::Files, "a.ppn", false, true)
+        .unwrap();
+    sender.remove_plugin(5, "fonts-x").unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 3);
+    assert!(batches[0][0].contains("request: 3") && batches[0][0].contains("root: 0"));
+    assert!(batches[0][0].contains("flags: 1") && batches[0][0].contains("staging/fonts-x"));
+    assert!(batches[1][0].contains("root: 1") && batches[1][0].contains("flags: 2"));
+    assert!(batches[2][0].contains("request: 5") && batches[2][0].contains("fonts-x"));
+}
+
+#[test]
+fn install_and_remove_commands_refuse_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(
+        sender.install_plugin(0, InstallRoot::Data, "a", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_plugin(1, InstallRoot::Data, "", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(sender.remove_plugin(0, "a"), Err(Error::Invalid));
+    assert_eq!(sender.remove_plugin(1, ""), Err(Error::Invalid));
+    let long = "x".repeat(600);
+    assert!(
+        sender
+            .install_plugin(1, InstallRoot::Data, &long, false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(1, &long).is_err());
+    assert!(ctx.batches.borrow().is_empty());
+}

@@ -30,6 +30,25 @@ impl PowerAction {
     }
 }
 
+/// Where the plugin to install is, in the folder the host reads it from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InstallRoot {
+    /// This plugin's data folder (`core.net` `save_to` root 0 puts a download there).
+    Data,
+    /// The user's files on the card (needs `uses.storage`).
+    Files,
+}
+
+impl InstallRoot {
+    const fn wire(self) -> u32 {
+        match self {
+            Self::Data => 0,
+            Self::Files => 1,
+        }
+    }
+}
+
 impl CommandSender<'_, '_> {
     /// Turn the radio on (`uses.wifi`). Ignored where the device has none.
     ///
@@ -172,6 +191,56 @@ impl CommandSender<'_, '_> {
         self.submit(wire::Command::Wear {
             mode,
             flags: u32::from(automatic),
+        })
+    }
+
+    /// Ask the host to install the plugin downloaded into `path` of `root`
+    /// (`uses.install`, `docs/abi/device.md` 5.2): a `.ppn` file or a plugin
+    /// folder. The host copies it, checks it and **asks the user** before it
+    /// installs (decisions 132 and 134); a plugin never decides. `update`
+    /// replaces an installed plugin of the same id, `allow_older` also takes an
+    /// older version. `request` is the caller's own non-zero number: the end of
+    /// the request is `install_done` (kind 0) and `Device::install` its state.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, buffer limits or
+    /// the host's refusal (`Denied` without `uses.install`, `Full` when four
+    /// install, removal, firmware or check requests wait already).
+    pub fn install_plugin(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        update: bool,
+        allow_older: bool,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.submit(wire::Command::InstallPlugin {
+            request,
+            root: root.wire(),
+            path,
+            flags: u32::from(update) | (u32::from(allow_older) << 1),
+        })
+    }
+
+    /// Ask the host to remove the installed plugin `plugin` (`uses.install`,
+    /// `docs/abi/device.md` 5.2): the user is asked once, with the choice to
+    /// keep the plugin's data (decision 124). `request` is the caller's own
+    /// non-zero number: the end is `install_done` (kind 2).
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty id, buffer limits or
+    /// the host's refusal (`Denied` without `uses.install`).
+    pub fn remove_plugin(&mut self, request: u32, plugin: &str) -> Result<(), Error> {
+        if request == 0 || plugin.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.submit(wire::Command::RemovePlugin {
+            request,
+            plugin,
+            flags: 0,
         })
     }
 }
