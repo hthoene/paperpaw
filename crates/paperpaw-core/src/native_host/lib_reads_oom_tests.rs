@@ -40,11 +40,21 @@ fn sweep(read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>, card: &Card
 }
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one table of the sweeps of every read"
+)]
 fn every_allocation_of_a_catalog_read_refuses_cleanly() {
     reset(NORMAL);
     let card = card();
     let generation = card.generation();
     let a = u32::try_from(card.a).unwrap();
+    {
+        use paperpaw_sdk::document::Locator;
+        use paperpaw_sdk::positions::{self, Position};
+        let kept = Position::new(Locator::new(7, 1234), 41.5).xpointer(Some("/body/p[3]".into()));
+        positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
+    }
     let by_path = BookRef::Path("books/b.epub");
     let by_key = BookRef::Key { key: a, generation };
     let counts = [
@@ -113,6 +123,24 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
         ),
         sweep(
             |reads, seen| {
+                reads.position(by_key, &mut |record| {
+                    let Record::ServiceLibPosition(p) = record else {
+                        panic!()
+                    };
+                    *seen = Some([
+                        p.section.into(),
+                        p.offset.into(),
+                        p.progress_ppm.into(),
+                        p.xpointer.len() as u64,
+                        p.flags.into(),
+                        0,
+                    ]);
+                })
+            },
+            &card,
+        ),
+        sweep(
+            |reads, seen| {
                 reads.book_key(by_key, &mut |record| {
                     let Record::ServiceLibKey(k) = record else {
                         panic!()
@@ -152,6 +180,12 @@ fn peak(read: impl FnOnce(&CatalogReads), card: &Card) -> usize {
 fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
     reset(NORMAL);
     let card = card();
+    {
+        use paperpaw_sdk::document::Locator;
+        use paperpaw_sdk::positions::{self, Position};
+        let kept = Position::new(Locator::new(7, 1234), 41.5).xpointer(Some("/body/p[3]".into()));
+        positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
+    }
     let path = BookRef::Path("books/b.epub");
     let ask = wire::ServiceLibTextAt {
         kind: 0,
@@ -169,13 +203,20 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
             },
             &card,
         ),
+        peak(
+            |r| {
+                r.position(BookRef::Path("books/a.epub"), &mut |_| ())
+                    .unwrap()
+            },
+            &card,
+        ),
     ];
-    std::eprintln!("heap peaks (state, book, text, book_key): {peaks:?}");
+    std::eprintln!("heap peaks (state, book, text, book_key, position): {peaks:?}");
     // The book's buffers are 1,952 bytes, and the log of changes (12 bytes
     // a line, two lines here) is held while a line is read.
     assert!(peaks[1] <= 2_048, "{peaks:?}");
     assert!(
-        peaks[2] <= 1_152 && peaks[0] <= 256 && peaks[3] <= 256,
+        peaks[2] <= 1_152 && peaks[0] <= 256 && peaks[3] <= 256 && peaks[4] <= 512,
         "{peaks:?}"
     );
 }

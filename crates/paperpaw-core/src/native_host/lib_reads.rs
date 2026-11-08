@@ -1,5 +1,6 @@
 //! The reads of `core.library` over the catalog on the card: op 1 `state`, op
-//! 3 `book`, op 4 `text` and op 25 `book_key` (`docs/abi/library.md` 2.1, 6).
+//! 3 `book`, op 4 `text`, op 13 `position` and op 25 `book_key`
+//! (`docs/abi/library.md` 2.1, 2.2, 6).
 //!
 //! One implementation: `paperpaw_sdk::library`'s `try_` readers. This adapter
 //! only maps them to the wire records, so nothing is read twice and no
@@ -13,7 +14,9 @@
 //! Memory of one call, peak heap (measured by `lib_reads_oom_tests`, with the
 //! log of changes at two lines): `state` 57 bytes, `book` 2,005 (the six
 //! text buffers, 1,952; the flag `indexed` scans the details a line at a
-//! time and holds none of them), `text` 1,077, `book_key` 53. Every read
+//! time and holds none of them), `text` 1,077, `book_key` 53, `position` 114 with
+//! a 60-byte file (the file's text, 4 KiB at most, and its XPointer, 1 KiB at
+//! most). Every read
 //! holds the log of changes while it reads a line: 12 bytes a line, 3 KiB at
 //! the 256 lines after which the kernel folds it, 12 KiB at most. Stack: the
 //! partial MD5's 1 KiB sample for `book_key`, the SDK's catalog reads below
@@ -37,6 +40,7 @@ use paperpaw_sdk::digest::{fnv1a64, md5};
 use paperpaw_sdk::library::{self, catalog};
 
 mod book;
+mod position;
 
 const PPM: u32 = 1_000_000;
 
@@ -162,21 +166,38 @@ impl LibQuery for CatalogReads {
         book::text(self, book, at, visit)
     }
 
+    fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.with_path(book, |path| position::read(&*self.storage, path, visit))
+    }
+
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        let owned;
-        let path = match book {
+        self.with_path(book, |path| self.key_of(path, visit))
+    }
+}
+
+impl CatalogReads {
+    /// Calls `f` with the root-1 path of the book, which is in the catalog.
+    fn with_path<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        match book {
             BookRef::Path(path) => {
                 self.locate(book)?;
-                path
+                f(path)
             }
             BookRef::Key { .. } => {
                 let offset = self.locate(book)?;
-                owned = catalog::try_path_at(&*self.storage, offset)
+                let owned = catalog::try_path_at(&*self.storage, offset)
                     .map_err(fail)?
                     .ok_or(ERR_NOT_FOUND)?;
-                &owned
+                f(&owned)
             }
-        };
+        }
+    }
+
+    fn key_of(&self, path: &str, visit: One<'_>) -> Result<(), i32> {
         // The file may be gone from the card: then there is no key to give.
         let size = self.storage.size(path).map_err(storage_status)?;
         let mut key = [0_u8; library::KEY_LEN];

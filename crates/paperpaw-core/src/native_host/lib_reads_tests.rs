@@ -435,6 +435,9 @@ impl LibQuery for Host {
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.0.book_key(book, visit)
     }
+    fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.0.position(book, visit)
+    }
 }
 impl crate::native_host::lib_service::LibWrite for Host {}
 impl crate::native_host::lib_service::LibExcluded for Host {
@@ -463,4 +466,72 @@ fn stored_bytes_that_are_not_text_are_an_error_not_an_empty_answer() {
         (b.title.as_str(), b.bytes.0, b.flags & (1 << 5)),
         ("", 3, 1 << 5)
     );
+}
+
+fn position(reads: &CatalogReads, book: BookRef<'_>) -> Result<[u64; 7], i32> {
+    let mut got = None;
+    reads.position(book, &mut |record| {
+        let Record::ServiceLibPosition(p) = record else {
+            panic!("a position")
+        };
+        got = Some([
+            p.section.into(),
+            p.offset.into(),
+            p.progress_ppm.into(),
+            p.conversion,
+            p.updated,
+            p.xpointer.len() as u64,
+            p.flags.into(),
+        ]);
+    })?;
+    Ok(got.unwrap())
+}
+
+#[test]
+fn a_position_is_read_with_its_flags_or_is_not_found() {
+    use paperpaw_sdk::document::Locator;
+    use paperpaw_sdk::positions::{self, Position};
+    let card = card();
+    let reads = card.reads();
+    let a = BookRef::Path("books/a.epub");
+    assert_eq!(position(&reads, a), Err(ERR_NOT_FOUND));
+    let kept = Position::new(Locator::new(7, 1234), 41.5)
+        .conversion(255)
+        .xpointer(Some("/body/p[3]".to_string()))
+        .updated(1_760_000_000);
+    positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
+    assert_eq!(
+        position(&reads, a),
+        Ok([7, 1234, 415_000, 255, 1_760_000_000, 10, 0b11])
+    );
+    // By handle, and without conversion, XPointer or clock.
+    let by_key = BookRef::Key {
+        key: u32::try_from(card.a).unwrap(),
+        generation: card.generation(),
+    };
+    positions::save(
+        &*card.storage,
+        "books/a.epub",
+        &Position::new(Locator::new(0, 0), 100.0),
+    )
+    .unwrap();
+    assert_eq!(position(&reads, by_key), Ok([0, 0, 1_000_000, 0, 0, 0, 0]));
+    // A place of a book that is not in the catalog is not found.
+    positions::save(&*card.storage, "books/zz.epub", &kept).unwrap();
+    assert_eq!(
+        position(&reads, BookRef::Path("books/zz.epub")),
+        Err(ERR_NOT_FOUND)
+    );
+    // A file that is no position is an error of the card, not "none".
+    card.storage
+        .write(
+            &positions::file("books/a.epub"),
+            b"[position]\nsection = 1\n",
+        )
+        .unwrap();
+    assert_eq!(position(&reads, a), Err(ERR_IO));
+    // An XPointer the wire cannot carry is refused, never cut.
+    let long = Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(1025)));
+    positions::save(&*card.storage, "books/a.epub", &long).unwrap();
+    assert_eq!(position(&reads, a), Err(ERR_NO_SPACE));
 }
