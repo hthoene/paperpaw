@@ -538,15 +538,37 @@ fn zone_seconds(zone: &str) -> i64 {
     sign * ((number / 100) * 3600 + (number % 100) * 60)
 }
 
-/// Days from 1970-01-01 to the civil date (proleptic Gregorian), for years
-/// that fit (the Date header's are 1 to 9999).
+/// Days from 1970-01-01 to the civil date (proleptic Gregorian). The year is
+/// held to 1 to 9999 (what a Date header has), and the arithmetic saturates,
+/// so no input overflows into a panic.
 pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year };
+    let year = year.clamp(1, 9999);
+    let y = if month <= 2 {
+        year.saturating_sub(1)
+    } else {
+        year
+    };
     let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    let yoe = y.saturating_sub(era.saturating_mul(400));
+    let month_part = if month > 2 {
+        month.saturating_sub(3)
+    } else {
+        month.saturating_add(9)
+    };
+    let doy = month_part
+        .saturating_mul(153)
+        .saturating_add(2)
+        .saturating_div(5)
+        .saturating_add(day)
+        .saturating_sub(1);
+    let doe = yoe
+        .saturating_mul(365)
+        .saturating_add(yoe / 4)
+        .saturating_sub(yoe / 100)
+        .saturating_add(doy);
+    era.saturating_mul(146_097)
+        .saturating_add(doe)
+        .saturating_sub(719_468)
 }
 
 /// The civil date (year, month, day) of `days` since 1970-01-01; a day count

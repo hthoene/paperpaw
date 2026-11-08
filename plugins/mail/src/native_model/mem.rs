@@ -131,8 +131,13 @@ impl Secret {
     /// Appends `text`.
     ///
     /// # Errors
-    /// [`Error::NoMemory`].
+    /// [`Error::NoMemory`], also when it would not fit the capacity given to
+    /// [`Secret::with_capacity`]: a secret never grows, so no unwiped copy is
+    /// left behind.
     pub fn push_str(&mut self, text: &str) -> Result<(), Error> {
+        if !fits(self.0.len(), text.len(), self.0.capacity()) {
+            return Err(Error::NoMemory);
+        }
         push_str(&mut self.0, text)
     }
 
@@ -180,6 +185,9 @@ impl SecretBytes {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        if !fits(self.0.len(), bytes.len(), self.0.capacity()) {
+            return Err(Error::NoMemory);
+        }
         push_bytes(&mut self.0, bytes)
     }
 
@@ -188,8 +196,17 @@ impl SecretBytes {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn push_byte(&mut self, byte: u8) -> Result<(), Error> {
+        if !fits(self.0.len(), 1, self.0.capacity()) {
+            return Err(Error::NoMemory);
+        }
         push_byte(&mut self.0, byte)
     }
+}
+
+/// Whether `add` more bytes fit in a buffer of `capacity` holding `len`
+/// without it growing: a grown secret would leave its old copy unwiped.
+fn fits(len: usize, add: usize, capacity: usize) -> bool {
+    len.checked_add(add).is_some_and(|total| total <= capacity)
 }
 
 impl core::fmt::Debug for SecretBytes {

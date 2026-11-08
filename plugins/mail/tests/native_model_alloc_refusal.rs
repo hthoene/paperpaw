@@ -79,7 +79,7 @@ fn credentials_and_secrets_survive_refused_allocations() {
     swept("credentials", || {
         let creds = codec::plain_credentials("ada", "hunter2")?;
         assert_eq!(creds.as_slice(), b"\0ada\0hunter2");
-        let mut secret = mem::Secret::with_capacity(4)?;
+        let mut secret = mem::Secret::with_capacity(7)?;
         secret.push_str("hunter2")?;
         mem::wipe_text(secret.into_string());
         Ok(())

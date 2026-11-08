@@ -360,7 +360,10 @@ fn addresses_dates_and_subjects_are_the_same() {
         );
         let (y, m, d) = header::civil_from_days(days);
         assert_eq!(header::days_from_civil(y, m, d), days);
-        assert_eq!(new_header::days_from_civil(y, m, d), days);
+        // The native version holds the year to 1..=9999.
+        if (1..=9999).contains(&y) {
+            assert_eq!(new_header::days_from_civil(y, m, d), days);
+        }
     }
     for text in ["", "short", "caf\u{e9} caf\u{e9}", &"x".repeat(1000)] {
         for max in [0, 1, 2, 3, 4, 5, 100, 2000] {
@@ -436,6 +439,41 @@ fn a_secret_hides_in_debug_and_comes_out_as_asked() {
     let text = secret.into_string();
     assert_eq!(text, "hunter2");
     mem::wipe_text(text);
+}
+
+#[test]
+fn a_secret_never_grows_past_its_capacity() {
+    // A grown buffer would leave its old copy in memory, unwiped.
+    let mut secret = mem::Secret::with_capacity(4).unwrap();
+    secret.push_str("abcd").unwrap();
+    let before = secret.as_str().as_ptr();
+    assert!(secret.push_str("e").is_err());
+    assert_eq!(secret.as_str(), "abcd");
+    assert_eq!(secret.as_str().as_ptr(), before);
+    let mut bytes = mem::SecretBytes::with_capacity(2).unwrap();
+    bytes.push_bytes(b"a").unwrap();
+    bytes.push_byte(b'b').unwrap();
+    assert!(bytes.push_byte(b'c').is_err());
+    assert!(bytes.push_bytes(b"cd").is_err());
+    assert_eq!(bytes.as_slice(), b"ab");
+}
+
+#[test]
+fn days_from_civil_does_not_panic_on_any_year() {
+    for year in [i64::MIN, -1, 0, 10_000, i64::MAX / 2, i64::MAX] {
+        for (month, day) in [(0, 0), (1, 1), (2, i64::MAX), (13, i64::MIN), (12, 31)] {
+            let _ = new_header::days_from_civil(year, month, day);
+        }
+    }
+    // The year is held to 1..=9999.
+    assert_eq!(
+        new_header::days_from_civil(i64::MAX, 6, 1),
+        new_header::days_from_civil(9999, 6, 1)
+    );
+    assert_eq!(
+        new_header::days_from_civil(-5, 6, 1),
+        new_header::days_from_civil(1, 6, 1)
+    );
 }
 
 #[test]
