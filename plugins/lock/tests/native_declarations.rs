@@ -25,10 +25,12 @@ macro_rules! batches {
     }};
 }
 
+type Group = (&'static str, Vec<Vec<u8>>, &'static [&'static [u8]], usize);
+
 /// Each group of declarations: its name, what the builder makes, what the image
 /// holds and how many records each batch has (the settings: the group, three
 /// settings and the kind's editor).
-fn groups() -> [(&'static str, Vec<Vec<u8>>, &'static [&'static [u8]], usize); 4] {
+fn groups() -> [Group; 4] {
     [
         (
             "settings",
