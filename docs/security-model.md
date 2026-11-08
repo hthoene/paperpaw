@@ -23,8 +23,8 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   On the X4 (interface-7 plugins) they are sealed with AES-256-GCM under a
   per-device key kept in the chip's flash, never on the card: a card in
   another device opens none of them (the values count as absent and are
-  entered again). The key is the 4 KiB sector at `0xC000` (the last of the
-  `nvs` partition); **a full-image flash or an erase of the whole flash
+  entered again). The key is the 4 KiB sector at `0xC000` (the fourth of the
+  `nvs` partition, which begins at `0x9000`); **a full-image flash or an erase of the whole flash
   erases it**, and then the sealed values cannot be read any more. Flash
   the app partitions and the partition table without touching
   `[0xC000, 0xD000)` (`tools/flash-x4.py` does not). The web flasher keeps it too: a reinstall

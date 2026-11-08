@@ -2,7 +2,7 @@
 //! bytes kept in the flash's `nvs` partition, never on the card, so secrets
 //! sealed with it do not move with the card. One record at [`OFFSET`] into the
 //! partition (the web flasher's Wi-Fi record, [`crate::provision`], is in the
-//! first sector; this is the last):
+//! first sector; this is the fourth, `0xC000` with the partition at `0x9000`):
 //!
 //! ```text
 //! MAGIC (8) | key (32) | CRC-32 of the first 40 bytes, little endian (4)
@@ -26,7 +26,8 @@ pub const KEY: usize = 32;
 /// The record's length (a multiple of 4: the flash writes words).
 pub const LEN: usize = MAGIC.len() + KEY + 4;
 /// The sector the record is in, and its offset into the `nvs` partition (the
-/// partition has four sectors; the first is the Wi-Fi record's).
+/// partition has four sectors, five on the X4 Classic; the first is the Wi-Fi
+/// record's).
 pub const SECTOR: usize = 4096;
 /// Where in the `nvs` partition the record is.
 pub const OFFSET: u32 = 3 * SECTOR as u32;
