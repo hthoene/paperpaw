@@ -212,13 +212,22 @@ fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
         assert!(count < 1000);
     }
     assert!(count >= 9 && saw_image);
-    // The last block says so.
+    contents_links_cover_and_metadata(&mut p, &io, &old, &old_io);
+}
+
+/// Contents, links, the cover and the metadata against interface 6.
+fn contents_links_cover_and_metadata(
+    p: &mut MobiProvider,
+    io: &Roots,
+    old: &MobiDocument,
+    old_io: &MemoryStorage,
+) {
     // Contents and where they go.
-    let reply = run(&mut p, &io, &call(9, 1, |_| {})).unwrap();
+    let reply = run(p, io, &call(9, 1, |_| {})).unwrap();
     let r = rows(&reply);
-    assert_eq!(r.len() as u32, old.toc_len(&old_io) + 1);
+    assert_eq!(r.len() as u32, old.toc_len(old_io) + 1);
     for (index, row) in r.iter().take(r.len() - 1).enumerate() {
-        let entry = old.toc_entry(&old_io, index as u32).unwrap();
+        let entry = old.toc_entry(old_io, index as u32).unwrap();
         let stage::Record::FmtToc(t) = row else {
             panic!("toc row")
         };
@@ -231,16 +240,16 @@ fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
                 entry.at.offset
             )
         );
-        let reply = run(&mut p, &io, &call(10, 1, |c| c.index = index as u32)).unwrap();
+        let reply = run(p, io, &call(10, 1, |c| c.index = index as u32)).unwrap();
         assert!(matches!(rows(&reply)[0], stage::Record::FmtAt(a) if a.offset == entry.at.offset));
     }
     assert_eq!(
-        run(&mut p, &io, &call(10, 1, |c| c.index = 99)),
+        run(p, io, &call(10, 1, |c| c.index = 99)),
         Err(Error::NotFound)
     );
     // Links, and where they lead.
-    let wanted = old.links(&old_io, 0, 0, u32::MAX);
-    let reply = run(&mut p, &io, &call(14, 1, |c| c.index = u32::MAX)).unwrap();
+    let wanted = old.links(old_io, 0, 0, u32::MAX);
+    let reply = run(p, io, &call(14, 1, |c| c.index = u32::MAX)).unwrap();
     let r = rows(&reply);
     assert_eq!(r.len(), wanted.len() + 1);
     for (row, link) in r.iter().zip(&wanted) {
@@ -252,40 +261,40 @@ fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
             (link.start, link.end, 0, link.href.as_str())
         );
         let reply = run(
-            &mut p,
-            &io,
+            p,
+            io,
             &call(15, 1, |c| {
                 c.text = Box::leak(l.href.to_string().into_boxed_str())
             }),
         )
         .unwrap();
-        let place = old.link_target(&old_io, &link.href).unwrap();
+        let place = old.link_target(old_io, &link.href).unwrap();
         assert!(matches!(rows(&reply)[0], stage::Record::FmtAt(a) if a.offset == place.offset));
     }
     assert_eq!(
-        run(&mut p, &io, &call(15, 1, |c| c.text = "#99999999")),
+        run(p, io, &call(15, 1, |c| c.text = "#99999999")),
         Err(Error::NotFound)
     );
     // The cover is the second picture, at the cover's size.
-    let reply = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let reply = run(p, io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
     let stage::Record::FmtImage(cover) = rows(&reply)[0] else {
         panic!("cover")
     };
-    let old_cover = old.cover(&old_io).unwrap().unwrap();
+    let old_cover = old.cover(old_io).unwrap().unwrap();
     assert_eq!(
         (cover.index, cover.width, cover.height),
         (u32::MAX, old_cover.width, old_cover.height)
     );
     // The metadata.
-    let reply = run(&mut p, &io, &call(5, 1, |_| {})).unwrap();
+    let reply = run(p, io, &call(5, 1, |_| {})).unwrap();
     assert!(matches!(
         rows(&reply)[0],
         stage::Record::FmtMeta(m) if m.title == "A Test Book" && m.language == "en"
             && m.sections == 1 && m.authors == 2 && m.subjects == 1
     ));
     let reply = run(
-        &mut p,
-        &io,
+        p,
+        io,
         &call(6, 1, |c| {
             c.flags = 1;
             c.index = 1;
@@ -293,7 +302,7 @@ fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
     )
     .unwrap();
     assert!(matches!(rows(&reply)[0], stage::Record::FmtText(t) if t.text == "Bo Writer"));
-    let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
+    let reply = run(p, io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert!(matches!(r[0], stage::Record::FmtSection(s) if s.length == old.section_len(0)));
     assert!(matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 0));
