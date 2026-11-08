@@ -1,7 +1,8 @@
 //! Screen content owns its strings; borrowed service rows never escape callbacks.
 use super::{Line, history, messages::Messages, style};
-use crate::log::{Kind, Reading, Session};
-use alloc::{format, string::String, vec::Vec};
+use crate::log::{Kind, Reading, Session, Sessions};
+use crate::mem;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{Error, Host, formatting::Arg};
 mod usage;
 
@@ -13,7 +14,7 @@ pub(super) fn lines(
     let mut sessions = history::read(host)?;
     sessions.feed(Kind::Sample, now);
     let mut lines = Vec::new();
-    lines.push(Line::Heading(m.copy(host, "battery.now")?));
+    mem::push(&mut lines, Line::Heading(m.copy(host, "battery.now")?))?;
     if let Some(charge) = now.percent {
         let mut value = m.format(
             host,
@@ -24,78 +25,72 @@ pub(super) fn lines(
             }],
         )?;
         if let Some(mv) = now.millivolts {
-            value = format!("{value} · {}", m.volts(host, mv)?);
+            value = mem::format!("{value} · {}", m.volts(host, mv)?)?;
         }
-        lines.push(Line::Value(m.copy(host, "battery.charge")?, value));
-        lines.push(Line::Value(
-            m.copy(host, "battery.power")?,
-            m.copy(
-                host,
-                if now.charging {
-                    "battery.charging"
-                } else {
-                    "battery.on-battery"
-                },
-            )?,
-        ));
+        mem::push(
+            &mut lines,
+            Line::Value(m.copy(host, "battery.charge")?, value),
+        )?;
+        mem::push(
+            &mut lines,
+            Line::Value(
+                m.copy(host, "battery.power")?,
+                m.copy(
+                    host,
+                    if now.charging {
+                        "battery.charging"
+                    } else {
+                        "battery.on-battery"
+                    },
+                )?,
+            ),
+        )?;
     } else {
-        lines.push(Line::Message(m.copy(host, "battery.unknown")?));
+        mem::push(&mut lines, Line::Message(m.copy(host, "battery.unknown")?))?;
     }
     if let Some(current) = &sessions.current {
         current_lines(host, m, current, &mut lines)?;
     }
-    lines.push(Line::Heading(m.copy(host, "battery.so-far")?));
+    mem::push(&mut lines, Line::Heading(m.copy(host, "battery.so-far")?))?;
     let totals = sessions.totals();
     if let Some(rate) = totals.per_hour() {
-        lines.push(Line::Value(
-            m.copy(host, "battery.per-hour")?,
-            m.percent(host, rate)?,
-        ));
+        mem::push(
+            &mut lines,
+            Line::Value(m.copy(host, "battery.per-hour")?, m.percent(host, rate)?),
+        )?;
         if let Some(rate) = totals.per_100_pages() {
-            lines.push(Line::Value(
-                m.copy(host, "battery.per-100-pages")?,
-                m.percent(host, rate)?,
-            ));
+            mem::push(
+                &mut lines,
+                Line::Value(
+                    m.copy(host, "battery.per-100-pages")?,
+                    m.percent(host, rate)?,
+                ),
+            )?;
         }
         if let Some(hours) = now.percent.and_then(|p| totals.hours_left(p)) {
-            lines.push(Line::Value(
-                m.copy(host, "battery.left")?,
-                m.format(
-                    host,
-                    "battery.about-hours",
-                    &[Arg::Int {
-                        name: "h",
-                        value: (hours + 0.5) as i64,
-                    }],
-                )?,
-            ));
+            mem::push(
+                &mut lines,
+                Line::Value(
+                    m.copy(host, "battery.left")?,
+                    m.format(
+                        host,
+                        "battery.about-hours",
+                        &[Arg::Int {
+                            name: "h",
+                            value: (hours + 0.5) as i64,
+                        }],
+                    )?,
+                ),
+            )?;
         }
     } else {
-        lines.push(Line::Message(m.copy(host, "battery.too-little")?));
+        mem::push(
+            &mut lines,
+            Line::Message(m.copy(host, "battery.too-little")?),
+        )?;
     }
     usage::append(host, m, &mut lines)?;
-    let recent: Vec<_> = sessions.ended.iter().rev().filter(|s| s.counts()).collect();
-    if !recent.is_empty() {
-        lines.push(Line::Heading(m.copy(host, "battery.recent")?));
-        for session in recent {
-            let pages = m.format(
-                host,
-                "battery.pages-count",
-                &[Arg::Count(i64::from(session.pages()))],
-            )?;
-            lines.push(Line::Value(
-                format!("{} · {pages}", m.duration(host, session.millis())?),
-                m.format(
-                    host,
-                    "battery.used-percent",
-                    &[Arg::Int {
-                        name: "value",
-                        value: i64::from(session.used().unwrap_or(0)),
-                    }],
-                )?,
-            ));
-        }
-    }
+    recent_lines(host, m, &sessions, &mut lines)?;
     let footer = if style::boolean(host, "core.developer")? {
         m.format(
             host,
@@ -110,43 +105,88 @@ pub(super) fn lines(
     };
     Ok((lines, footer))
 }
+fn recent_lines(
+    host: &Host<'_>,
+    m: &mut Messages,
+    sessions: &Sessions,
+    lines: &mut Vec<Line>,
+) -> Result<(), Error> {
+    let recent = || sessions.ended.iter().rev().filter(|s| s.counts());
+    if recent().next().is_some() {
+        mem::push(lines, Line::Heading(m.copy(host, "battery.recent")?))?;
+        for session in recent() {
+            let pages = m.format(
+                host,
+                "battery.pages-count",
+                &[Arg::Count(i64::from(session.pages()))],
+            )?;
+            mem::push(
+                lines,
+                Line::Value(
+                    mem::format!("{} · {pages}", m.duration(host, session.millis())?)?,
+                    m.format(
+                        host,
+                        "battery.used-percent",
+                        &[Arg::Int {
+                            name: "value",
+                            value: i64::from(session.used().unwrap_or(0)),
+                        }],
+                    )?,
+                ),
+            )?;
+        }
+    }
+    Ok(())
+}
 fn current_lines(
     host: &Host<'_>,
     m: &mut Messages,
     current: &Session,
     lines: &mut Vec<Line>,
 ) -> Result<(), Error> {
-    lines.push(Line::Heading(m.copy(host, "battery.awake")?));
-    lines.push(Line::Value(
-        m.copy(host, "battery.awake-for")?,
-        m.duration(host, current.millis())?,
-    ));
+    mem::push(lines, Line::Heading(m.copy(host, "battery.awake")?))?;
+    mem::push(
+        lines,
+        Line::Value(
+            m.copy(host, "battery.awake-for")?,
+            m.duration(host, current.millis())?,
+        ),
+    )?;
     if let (Some(from), Some(to)) = (current.first.percent, current.last.percent) {
-        lines.push(Line::Value(
-            m.copy(host, "battery.from-to")?,
-            m.format(
-                host,
-                "battery.percent-from-to",
-                &[
-                    Arg::Int {
-                        name: "from",
-                        value: i64::from(from),
-                    },
-                    Arg::Int {
-                        name: "to",
-                        value: i64::from(to),
-                    },
-                ],
-            )?,
-        ));
+        mem::push(
+            lines,
+            Line::Value(
+                m.copy(host, "battery.from-to")?,
+                m.format(
+                    host,
+                    "battery.percent-from-to",
+                    &[
+                        Arg::Int {
+                            name: "from",
+                            value: i64::from(from),
+                        },
+                        Arg::Int {
+                            name: "to",
+                            value: i64::from(to),
+                        },
+                    ],
+                )?,
+            ),
+        )?;
     }
-    lines.push(Line::Value(
-        m.copy(host, "battery.pages")?,
-        m.integer(host, i64::from(current.pages()))?,
-    ));
-    lines.push(Line::Value(
-        m.copy(host, "battery.refreshes")?,
-        m.integer(host, i64::from(current.refreshes()))?,
-    ));
+    mem::push(
+        lines,
+        Line::Value(
+            m.copy(host, "battery.pages")?,
+            m.integer(host, i64::from(current.pages()))?,
+        ),
+    )?;
+    mem::push(
+        lines,
+        Line::Value(
+            m.copy(host, "battery.refreshes")?,
+            m.integer(host, i64::from(current.refreshes()))?,
+        ),
+    )?;
     Ok(())
 }

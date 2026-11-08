@@ -1281,6 +1281,7 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,

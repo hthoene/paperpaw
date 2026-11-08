@@ -14,8 +14,28 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
+#[cfg(test)]
+#[global_allocator]
+static COUNTING: model::testing::Counting = model::testing::Counting;
 
+mod browser;
+mod card;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
 mod folder;
+pub mod model;
+mod native_draw;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

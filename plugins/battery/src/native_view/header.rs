@@ -1,4 +1,5 @@
 use super::{Messages, Page, Paint, Style, text};
+use crate::mem;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Rect,
@@ -30,13 +31,16 @@ pub(super) fn prepare(
     } else {
         (s.paper, s.ink)
     };
-    page.paint.push(Paint::Fill(area, paper));
+    mem::push(&mut page.paint, Paint::Fill(area, paper))?;
     let lined = !s.dark && !s.plain && s.separators != "core.separators.none";
     if lined {
-        page.paint.push(Paint::Fill(
-            Rect::new(0, s.header.saturating_sub(s.line), width, s.line),
-            s.rule,
-        ));
+        mem::push(
+            &mut page.paint,
+            Paint::Fill(
+                Rect::new(0, s.header.saturating_sub(s.line), width, s.line),
+                s.rule,
+            ),
+        )?;
     }
     let band = Rect::new(
         0,
@@ -61,7 +65,7 @@ pub(super) fn prepare(
             i32::from(band.height) / 2,
             true,
             ink,
-        );
+        )?;
     }
     let right = pager(page, host, font, s, m, area, band, touch, index, count, ink)?;
     let room = f32::from(right.saturating_sub(left).saturating_sub(s.margin));
@@ -70,13 +74,16 @@ pub(super) fn prepare(
         size = (size - 0.25).max(s.small);
     }
     let title = text::fit(font, size, title, room + 1.0)?;
-    page.paint.push(Paint::Text {
-        text: title,
-        size,
-        origin: TextOrigin::new(f32::from(left), text::cap_baseline(font, size, band)?),
-        color: ink,
-        clip: Some(Rect::new(left, 0, right.saturating_sub(left), s.header)),
-    });
+    mem::push(
+        &mut page.paint,
+        Paint::Text {
+            text: title,
+            size,
+            origin: TextOrigin::new(f32::from(left), text::cap_baseline(font, size, band)?),
+            color: ink,
+            clip: Some(Rect::new(left, 0, right.saturating_sub(left), s.header)),
+        },
+    )?;
     Ok(())
 }
 #[allow(
@@ -136,16 +143,19 @@ fn pager(
         );
         let next = Rect::new(next_start, 0, width.saturating_sub(next_start), s.header);
         right = prev.x;
-        page.paint.push(Paint::Text {
-            text: label,
-            size: s.small,
-            origin: TextOrigin::new(
-                f32::from(label_rect.x),
-                text::cap_baseline(font, s.small, band)?,
-            ),
-            color: ink,
-            clip: Some(area),
-        });
+        mem::push(
+            &mut page.paint,
+            Paint::Text {
+                text: label,
+                size: s.small,
+                origin: TextOrigin::new(
+                    f32::from(label_rect.x),
+                    text::cap_baseline(font, s.small, band)?,
+                ),
+                color: ink,
+                clip: Some(area),
+            },
+        )?;
         if touch {
             page.pager = Some((prev, label_rect, next));
             arrow(
@@ -155,7 +165,7 @@ fn pager(
                 i32::from(band.height) / 2,
                 true,
                 if index == 0 { s.disabled } else { ink },
-            );
+            )?;
             arrow(
                 &mut page.paint,
                 s,
@@ -163,12 +173,19 @@ fn pager(
                 i32::from(band.height) / 2,
                 false,
                 if index + 1 == count { s.disabled } else { ink },
-            );
+            )?;
         }
     }
     Ok(right)
 }
-fn arrow(paint: &mut Vec<Paint>, s: &Style, x: i32, y: i32, left: bool, color: Color) {
+fn arrow(
+    paint: &mut Vec<Paint>,
+    s: &Style,
+    x: i32,
+    y: i32,
+    left: bool,
+    color: Color,
+) -> Result<(), Error> {
     let half = (s.title * 0.38) as i32;
     let width = half * 4 / 5;
     let thickness = (s.line * 3).max(3);
@@ -185,7 +202,8 @@ fn arrow(paint: &mut Vec<Paint>, s: &Style, x: i32, y: i32, left: bool, color: C
             tip - i32::from(thickness) + 1
         };
         if let (Ok(x), Ok(y)) = (u16::try_from(start), u16::try_from(y + dy)) {
-            paint.push(Paint::Fill(Rect::new(x, y, thickness, 1), color));
+            mem::push(paint, Paint::Fill(Rect::new(x, y, thickness, 1), color))?;
         }
     }
+    Ok(())
 }

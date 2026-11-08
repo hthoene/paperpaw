@@ -68,6 +68,12 @@ pub struct Style {
     pub note: Color,
     /// Height of a section heading line.
     pub heading: u16,
+    /// Cards, e.g. the frames of widgets.
+    pub card: Color,
+    /// Lesser text on a dark card.
+    pub on_dark_muted: Color,
+    /// Gray text is drawn black (setting `core.ui-contrast`).
+    pub strong: bool,
 }
 
 impl Style {
@@ -151,6 +157,9 @@ impl Style {
             heading: narrow(
                 (crate::geometry::line_height(font, small)? * 1.25) as u32 + u32::from(gap),
             ),
+            card: color("card", Color::gray(225)),
+            on_dark_muted: color("on-dark-muted", Color::gray(200)),
+            strong,
         })
     }
 }
@@ -178,11 +187,13 @@ fn parse_color(value: &str) -> Option<Color> {
         if hex.len() != 6 || !hex.is_ascii() {
             return None;
         }
-        Some(Color::rgb(
-            u8::from_str_radix(&hex[..2], 16).ok()?,
-            u8::from_str_radix(&hex[2..4], 16).ok()?,
-            u8::from_str_radix(&hex[4..], 16).ok()?,
-        ))
+        // `get`, not a slice: a str slice that fails links the panic that prints the
+        // character it fell inside (Debug and Unicode tables, 4 KB per plugin).
+        let byte = |from: usize, to: usize| {
+            hex.get(from..to)
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        };
+        Some(Color::rgb(byte(0, 2)?, byte(2, 4)?, byte(4, 6)?))
     } else if !value.is_empty()
         && value.len() <= 3
         && value.bytes().all(|byte| byte.is_ascii_digit())

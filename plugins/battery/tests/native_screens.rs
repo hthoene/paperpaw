@@ -210,7 +210,6 @@ fn env_only_dispatch_refuses_core_only_services() {
                 "[core]\nlanguage = {language}\n[battery]\nenabled = off\n"
             ))
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_battery::Battery)
             .plugin(Capture(run))
             .build()
             .unwrap();

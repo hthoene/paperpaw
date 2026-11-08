@@ -54,6 +54,30 @@ impl crate::Kernel {
     }
 }
 
+/// The most commands one callback may stage (the stage's `limit`): enough for a
+/// profile apply in one callback. Each is submitted in its
+/// own batch (the wire batch cap, `COMMAND_MAX_RECORDS`, is separate and
+/// unchanged); the staged commands live in a fallibly reserved heap `Vec`.
+/// A callback that returns an error drops the whole stage, so a profile apply
+/// stays atomic.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub(crate) const CALLBACK_COMMANDS: usize = 64;
+/// The most bytes of copied keys and text one callback may stage.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub(crate) const CALLBACK_COMMAND_BYTES: usize = 4096;
+
 /// Host staging for one callback: the submitting plugin's identity, the live
 /// settings registry used for validation, at most `limit` accepted commands,
 /// and at most `byte_limit` bytes of copied keys and text across them.
@@ -457,6 +481,10 @@ impl fmt::Debug for CommandScope {
         f.debug_struct("CommandScope").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "commands_limit_tests.rs"]
+mod limit_tests;
 
 #[cfg(test)]
 mod tests {

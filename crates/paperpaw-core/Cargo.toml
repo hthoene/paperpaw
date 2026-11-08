@@ -37,6 +37,7 @@ paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
+paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
 paperpaw-text.workspace = true

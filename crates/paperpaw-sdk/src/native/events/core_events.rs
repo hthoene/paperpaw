@@ -1,9 +1,14 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState, wire::Record,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
+    wire,
 };
 use crate::{
-    native::{declare::settings_value as settings, settings::SettingValue},
+    native::{
+        declare::settings_value as settings,
+        net::{HttpDone, HttpProgress},
+        settings::SettingValue,
+    },
     power::PowerLevel,
 };
 
@@ -32,46 +37,99 @@ macro_rules! book {
     }};
 }
 
-pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
-    Ok(match record {
-        Record::EventSettingChanged(r) => Event::SettingChanged {
-            now_ms: r.now_ms,
-            key: r.key,
-            old: old_value(r.old)?,
-        },
-        Record::EventBookOpened(r) => book!(r, Opened),
-        Record::EventBookClosed(r) => book!(r, Closed),
-        Record::EventBookFinished(r) => book!(r, Finished),
-        Record::EventBookMoved(r) => Event::BookMoved {
-            now_ms: r.now_ms,
-            from: r.from,
-            path: r.path,
-        },
-        Record::EventBookRemoved(r) => Event::BookRemoved {
-            now_ms: r.now_ms,
-            path: r.path,
-        },
-        Record::EventPluginsChanged(r) => Event::PluginsChanged { now_ms: r.now_ms },
-        Record::EventWifiChanged(r) => Event::WifiChanged {
-            now_ms: r.now_ms,
-            state: WifiLinkState::decode(r.state),
-        },
-        Record::EventPowerChanged(r) => Event::PowerChanged(PowerChange {
-            now_ms: r.now_ms,
-            level: match r.level {
-                1 => PowerLevel::Saving,
-                2 => PowerLevel::Offline,
-                _ => PowerLevel::Normal,
-            },
-            automatic: r.flags & 1 != 0,
-            stretch: r.stretch,
-            mode: r.mode,
-        }),
-        Record::EventStatusChanged(r) => Event::StatusChanged { now_ms: r.now_ms },
-        Record::EventChargeChanged(r) => Event::ChargeChanged {
-            now_ms: r.now_ms,
-            flags: ChargeFlags::from_bits(r.flags),
-        },
+pub(super) fn decode(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
+    Ok(match raw.tag() {
+        wire::EVENT_SETTING_CHANGED_TAG => {
+            let r: wire::EventSettingChanged<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::SettingChanged {
+                now_ms: r.now_ms,
+                key: r.key,
+                old: old_value(r.old)?,
+            }
+        }
+        wire::EVENT_BOOK_OPENED_TAG => {
+            let r: wire::EventBookOpened<'_> = raw.decode().map_err(Error::from_status)?;
+            book!(r, Opened)
+        }
+        wire::EVENT_BOOK_CLOSED_TAG => {
+            let r: wire::EventBookClosed<'_> = raw.decode().map_err(Error::from_status)?;
+            book!(r, Closed)
+        }
+        wire::EVENT_BOOK_FINISHED_TAG => {
+            let r: wire::EventBookFinished<'_> = raw.decode().map_err(Error::from_status)?;
+            book!(r, Finished)
+        }
+        wire::EVENT_BOOK_MOVED_TAG => {
+            let r: wire::EventBookMoved<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::BookMoved {
+                now_ms: r.now_ms,
+                from: r.from,
+                path: r.path,
+            }
+        }
+        wire::EVENT_BOOK_REMOVED_TAG => {
+            let r: wire::EventBookRemoved<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::BookRemoved {
+                now_ms: r.now_ms,
+                path: r.path,
+            }
+        }
+        wire::EVENT_PLUGINS_CHANGED_TAG => {
+            let r: wire::EventPluginsChanged = raw.decode().map_err(Error::from_status)?;
+            Event::PluginsChanged { now_ms: r.now_ms }
+        }
+        wire::EVENT_WIFI_CHANGED_TAG => {
+            let r: wire::EventWifiChanged = raw.decode().map_err(Error::from_status)?;
+            Event::WifiChanged {
+                now_ms: r.now_ms,
+                state: WifiLinkState::decode(r.state),
+            }
+        }
+        wire::EVENT_POWER_CHANGED_TAG => {
+            let r: wire::EventPowerChanged<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::PowerChanged(PowerChange {
+                now_ms: r.now_ms,
+                level: match r.level {
+                    1 => PowerLevel::Saving,
+                    2 => PowerLevel::Offline,
+                    _ => PowerLevel::Normal,
+                },
+                automatic: r.flags & 1 != 0,
+                stretch: r.stretch,
+                mode: r.mode,
+            })
+        }
+        wire::EVENT_STATUS_CHANGED_TAG => {
+            let r: wire::EventStatusChanged = raw.decode().map_err(Error::from_status)?;
+            Event::StatusChanged { now_ms: r.now_ms }
+        }
+        wire::EVENT_CHARGE_CHANGED_TAG => {
+            let r: wire::EventChargeChanged = raw.decode().map_err(Error::from_status)?;
+            Event::ChargeChanged {
+                now_ms: r.now_ms,
+                flags: ChargeFlags::from_bits(r.flags),
+            }
+        }
+        wire::EVENT_BLUETOOTH_TAG => {
+            let r: wire::EventBluetooth<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::Bluetooth(BluetoothChange {
+                now_ms: r.now_ms,
+                kind: r.kind,
+                device: r.device,
+                name: r.name,
+                device_kind: r.device_kind,
+                signal: r.signal,
+                reason: r.reason,
+            })
+        }
+        wire::EVENT_HTTP_DONE_TAG => {
+            let r: wire::EventHttpDone = raw.decode().map_err(Error::from_status)?;
+            Event::HttpDone(HttpDone::decode(r)?)
+        }
+        wire::EVENT_HTTP_PROGRESS_TAG => {
+            let r: wire::EventHttpProgress = raw.decode().map_err(Error::from_status)?;
+            Event::HttpProgress(HttpProgress::decode(r)?)
+        }
         _ => return Err(Error::Unsupported),
     })
 }

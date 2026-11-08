@@ -13,6 +13,12 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/codec.rs"]
+pub(crate) mod codec;
+
+#[path = "native_host/event_tags.rs"]
+pub(crate) mod event_tags;
+
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
@@ -63,12 +69,17 @@ pub(crate) mod ui_compose;
 )]
 pub(crate) mod ui_handles;
 
-#[path = "native_host/ui_guard.rs"]
+#[path = "native_host/stack_rows.rs"]
+pub(crate) mod stack_rows;
+
+pub(crate) use crate::abi7::context::ui_guard;
+
+#[path = "native_host/ui_compose_host.rs"]
 #[allow(
     dead_code,
-    reason = "consumers are the UIX stack applier and the core.ui ops"
+    reason = "Core's frame answers Frame::compose with it when the screen stack is wired"
 )]
-pub(crate) mod ui_guard;
+pub(crate) mod ui_compose_host;
 
 #[path = "native_host/ui_input.rs"]
 #[allow(
@@ -103,10 +114,19 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
+pub(crate) mod files_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod fmt_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_index;
+#[allow(
+    dead_code,
+    reason = "entered by the DOC adapter's format calls; read by the file service"
+)]
+pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 pub(crate) mod host_services;
@@ -161,6 +181,19 @@ mod declaration_index;
 
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
+
+#[path = "native_host/declarations_uix.rs"]
+mod declarations_uix;
+
+#[path = "native_host/declaration_reg_checks.rs"]
+mod declaration_reg_checks;
+
+#[path = "native_host/reg_catalog.rs"]
+#[allow(
+    dead_code,
+    reason = "REG callback attachment follows the catalog ownership implementation"
+)]
+pub(crate) mod reg_catalog;
 
 #[path = "native_host/raw_declarations.rs"]
 mod raw_declarations;
@@ -220,10 +253,23 @@ pub mod registrations;
 #[path = "native_host/retained.rs"]
 mod retained;
 
+#[path = "native_host/native_declarations.rs"]
 #[allow(
     dead_code,
-    reason = "native built-in registry adapter follows this screen router"
+    reason = "shared declaration producer is attached by the UI admission slice"
 )]
+pub(crate) mod native_declarations;
+
+#[path = "native_host/native_status.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame hook attachment follows the owner-directed status path"
+)]
+pub(crate) mod native_status;
+
+#[path = "native_host/native_ui_directory.rs"]
+mod native_ui_directory;
+
 #[path = "native_host/native_install.rs"]
 mod native_install;
 
@@ -285,8 +331,42 @@ use staged::Declarations;
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct FlatHost {
+    pub(crate) stack_rows: alloc::rc::Rc<stack_rows::StackRows>,
+    pub(crate) directory: Option<native_declarations::DirectoryWeak>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
+}
+
+impl FlatHost {
+    pub(crate) fn upgrade_directory(
+        &self,
+    ) -> Result<Option<native_declarations::DirectoryHandle>, i32> {
+        match &self.directory {
+            None => Ok(None),
+            Some(directory) => directory
+                .upgrade()
+                .map_err(|_| paperpaw_native::host_glue::ERR_STATE)?
+                .map(Some)
+                .ok_or(paperpaw_native::host_glue::ERR_STATE),
+        }
+    }
+    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
+        self.directory
+            .as_ref()
+            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
+            .transpose()
+    }
+}
+
+impl crate::Kernel {
+    pub(crate) fn flat_host(&self) -> FlatHost {
+        FlatHost {
+            meter: alloc::rc::Rc::clone(&self.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
+            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
+        }
+    }
 }
 
 /// Host admission or construction failure.
@@ -326,6 +406,10 @@ impl From<lifecycle::Error> for Error {
 pub struct DispatchDepth(calls::Depth);
 
 impl DispatchDepth {
+    pub(crate) fn current(&self) -> u8 {
+        self.0.current()
+    }
+
     /// Construct an idle budget. Owners must share this value during nesting.
     #[must_use]
     pub const fn new() -> Self {
@@ -541,6 +625,12 @@ pub struct Construction<'a, C, M, T> {
     submitted: bool,
 }
 
+type StoredConstruction<'a, C, M, T, R> = (
+    RegistrationBatch<'a, C, M, T>,
+    R,
+    raw_declarations::RawDeclarations,
+);
+
 impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Supply the module's immutable read-only image before make submits data.
     /// The borrow remains live through the committed registration batch.
@@ -645,21 +735,31 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         reason = "native built-in registry adapter follows this transaction"
     )]
     pub(crate) fn commit_native<R>(
-        mut self,
+        self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        drop(raw);
+        Ok((batch, staging))
+    }
+
+    /// Transfer original declaration batches to the shared store's producer.
+    /// No address from a runtime submission survives its construction call.
+    pub(crate) fn commit_native_stored<R>(
+        mut self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
         self.finish_declarations()?;
         let staging = map(&self.declaration_view())?;
-        // The mapper owns every value it keeps. Release construction copies
-        // and image indexes before activation instead of retaining both sets.
         self.declarations = Declarations::default();
-        self.raw = raw_declarations::RawDeclarations::default();
+        let raw = core::mem::take(&mut self.raw);
         let batch = self.publish(teardown).map_err(registrations::status)?;
-        Ok((batch, staging))
+        Ok((batch, staging, raw))
     }
 
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
@@ -1024,3 +1124,19 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+
+#[cfg(test)]
+#[path = "native_host/registry_page.rs"]
+mod registry_page;
+
+#[cfg(test)]
+#[path = "native_host/declaration_reg_index_tests.rs"]
+mod declaration_reg_index_tests;
+
+#[cfg(test)]
+#[path = "native_host/native_ui_cleanup_tests.rs"]
+mod native_ui_cleanup_tests;
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+#[path = "native_host/native_image_declarations_tests.rs"]
+mod native_image_declarations_tests;

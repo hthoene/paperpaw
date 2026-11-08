@@ -22,7 +22,7 @@ const DRAWER: &str = "home.drawer";
 /// direction and nothing else (the other texts are English).
 fn card(language: &str) -> Shared {
     Shared::memory(
-        &format!("[core]\nlanguage = {language}\n[help]\nshow = false\n"),
+        &format!("[core]\nlanguage = {language}\n"),
         &[
             (
                 "plugins/language-ar/plugin.ini",
