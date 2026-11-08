@@ -244,23 +244,16 @@ impl App {
     }
 }
 
-/// The first start: the setup guide, gone through with *Next* alone, then
-/// the home screen; a book chosen in the library with the buttons, read,
-/// and home again: the book is the one to continue, now and after a
-/// restart, and the guide does not come again.
+/// A book chosen in the library with the buttons, read, and home again: the
+/// book is the one to continue, now and after a restart. (The first-run
+/// guide before it is the native setup plugin's, which the app does not
+/// register until the host activates native plugins: the pending case
+/// `setup-first-start`, `plugins/setup/tests/acceptance_pending.rs`.)
 #[test]
-fn first_run_to_reading_and_home_keeps_the_book_opened() {
-    let card = Card::new(false);
+fn reading_and_home_keep_the_book_opened() {
+    let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
-    assert_eq!(app.screen(), "setup.guide");
-    for _ in 0..30 {
-        if app.screen() != "setup.guide" {
-            break;
-        }
-        app.run(actions::NEXT_PAGE);
-    }
-    assert_eq!(app.screen(), "home.dashboard", "past the guide's last page");
-    assert!(card.0.exists(SETUP_DONE), "the guide noted it was done");
+    assert_eq!(app.screen(), "home.dashboard");
     assert!(app.shows("Start reading"));
 
     // The library: the book chosen with the buttons.

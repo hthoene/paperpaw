@@ -3,7 +3,7 @@
 //! as the storage visits its entry.
 use super::{
     View, encode,
-    target::{self, CARD, Intent, Target},
+    target::{self, BOOK, CARD, Intent, Target},
 };
 use crate::native_host::{
     registrations::{self as wire, Record},
@@ -55,7 +55,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
     let end_room = wire::record_framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX))))
         .map_err(|_| ERR_INVALID)?;
     let room = out.len().checked_sub(end_room).ok_or(ERR_INVALID)?;
-    let hide_protected = target.root == CARD && target.is_root();
+    let hide_protected = target.is_card_top();
     let (mut used, mut rows, mut failure) = (0usize, 0usize, None);
     let listed = view
         .storage
@@ -105,7 +105,11 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
         Ok(Some(place)) if rows > 0 && place != 0 => Some(place),
         // No row fitted, or a place the reader cannot tell from the start.
         Ok(Some(_)) => return Err(ERR_IO),
-        Err(StorageError::NotFound) if target.is_root() && target.root != CARD => None,
+        Err(StorageError::NotFound)
+            if target.is_root() && target.root != CARD && target.root != BOOK =>
+        {
+            None
+        }
         Err(error) => return Err(list_error(view, &target, error)),
     };
     let closing = Record::ServiceEnd(end(if last.is_none() { END_LAST } else { 0 }, last));
@@ -198,8 +202,16 @@ pub(super) fn stat(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
 /// A root always exists; the card being away is `ERR_IO`. The data and install
 /// folders may not be made yet.
 pub(super) fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> {
-    if target.root == CARD {
+    if target.root == CARD || (target.root == BOOK && target.base().is_empty()) {
         return card_present(view.storage);
+    }
+    if target.root == BOOK {
+        // The book's folder is the user's: it is there or it is not.
+        return match kind(view.storage, target.base()).map_err(status)? {
+            Kind::Folder => Ok(()),
+            Kind::Missing => Err(ERR_NOT_FOUND),
+            _ => Err(ERR_INVALID),
+        };
     }
     match view.storage.list_from(target.base(), 0, &mut |_| false) {
         Ok(_) | Err(StorageError::NotFound | StorageError::InvalidPath) => {
@@ -215,6 +227,10 @@ pub(super) fn space(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resu
     let Record::ServiceFsPath(input) = record else {
         return Err(ERR_INVALID);
     };
+    // Root 3 is for `list` and `stat` only.
+    if input.root == BOOK {
+        return Err(ERR_UNSUPPORTED);
+    }
     let mut target = Target::EMPTY;
     target::resolve(view, &mut target, input.root, input.path, Intent::Read)?;
     if !input.path.is_empty() {

@@ -18,10 +18,20 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 mod add;
 mod bar;
 mod dashboard;
+pub mod native_picture;
 mod orient;
 mod pages;
 mod pick;

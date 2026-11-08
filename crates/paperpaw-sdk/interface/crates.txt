@@ -21,3 +21,4 @@ paperpaw-qr
 paperpaw-native
 paperpaw-lang
 paperpaw-table
+paperpaw-sort
