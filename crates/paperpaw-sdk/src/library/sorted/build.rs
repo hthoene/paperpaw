@@ -341,7 +341,7 @@ impl Build {
         if self.run.capacity() == 0 {
             self.run
                 .try_reserve_exact(self.run_len)
-                .map_err(|_| StorageError::TooLarge)?;
+                .map_err(|_| StorageError::OutOfMemory)?;
         }
         self.run.push(Rec {
             offset,
