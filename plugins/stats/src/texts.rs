@@ -230,5 +230,6 @@ fn date_with(words: &mut impl Words, day: u8, weekday: &str, month: &str) -> Res
 
 /// The first day of the month of `day`.
 pub(crate) fn month_start(day: i32) -> i32 {
-    day - i32::from(date_of(day).day) + 1
+    day.saturating_sub(i32::from(date_of(day).day))
+        .saturating_add(1)
 }

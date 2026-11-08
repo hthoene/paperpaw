@@ -9,6 +9,7 @@
 //! in a way that can panic.
 use alloc::string::String;
 use alloc::vec::Vec;
+use paperpaw_sdk::digest::hex;
 use paperpaw_sdk::native::{Error, INTERFACE, keys::MAX_REVOKED};
 use paperpaw_ui_kit::{
     mem::push,
@@ -410,24 +411,6 @@ pub fn list_url(
     ])
 }
 
-/// The bytes a hexadecimal text of exactly `2 * N` digits names; `None` for
-/// any other text. Nothing is allocated.
-#[must_use]
-pub fn hex_array<const N: usize>(text: &str) -> Option<[u8; N]> {
-    let bytes = text.as_bytes();
-    if bytes.len() != N * 2 {
-        return None;
-    }
-    let mut out = [0; N];
-    for (byte, pair) in out.iter_mut().zip(bytes.as_chunks::<2>().0) {
-        let [high, low] = *pair;
-        let high = char::from(high).to_digit(16)?;
-        let low = char::from(low).to_digit(16)?;
-        *byte = u8::try_from(high * 16 + low).ok()?;
-    }
-    Some(out)
-}
-
 /// Entries of a list of revocations looked at, most: a bound on the reading,
 /// apart from what is kept. Past it a list is not read further.
 pub const MAX_READ: usize = 4096;
@@ -492,8 +475,8 @@ impl Revocations {
         author_of: &dyn Fn(&str) -> Option<[u8; 32]>,
         stopped: &dyn Fn() -> Vec<String>,
     ) -> Result<(), Error> {
-        let key = hex_array::<32>(&self.key);
-        let signature = hex_array::<64>(&self.signature);
+        let key = hex::decode_array::<32>(&self.key);
+        let signature = hex::decode_array::<64>(&self.signature);
         let plugin = core::mem::take(&mut self.plugin);
         self.key.clear();
         self.signature.clear();

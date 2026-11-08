@@ -3,9 +3,10 @@
 
 use alloc::rc::Rc;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
-use paperpaw_text::{Font, PackSource};
+use paperpaw_text::{Font, FontError, PackSource};
 
 /// A pack on the storage, read where it is.
 pub(super) struct Stored {
@@ -29,23 +30,32 @@ impl PackSource for Stored {
     }
 }
 
-/// Reads a font file into memory.
-pub(super) fn read_font(storage: &dyn Storage, path: &str, weight: Option<f32>) -> Option<Font> {
-    let size = storage.size(path).ok()?;
+/// Reads a font file into memory: `Ok(None)` where it cannot be read or is
+/// no font, [`FontError::OutOfMemory`] where the heap has no room for it.
+pub(super) fn read_font(
+    storage: &dyn Storage,
+    path: &str,
+    weight: Option<f32>,
+) -> Result<Option<Font>, FontError> {
+    let Ok(size) = storage.size(path) else {
+        return Ok(None);
+    };
     if size > super::MAX_FONT_FILE {
-        return None;
+        return Ok(None);
     }
-    let mut data = alloc::vec![0u8; size as usize];
+    let mut data: Vec<u8> = Vec::new();
+    data.try_reserve_exact(size as usize)
+        .map_err(|_| FontError::OutOfMemory)?;
+    data.resize(size as usize, 0);
     let mut at = 0;
     while at < data.len() {
-        let n = storage.read_at(path, at as u64, &mut data[at..]).ok()?;
-        if n == 0 {
-            return None;
+        match storage.read_at(path, at as u64, &mut data[at..]) {
+            Ok(n) if n > 0 => at += n,
+            _ => return Ok(None),
         }
-        at += n;
     }
-    match weight {
+    Ok(match weight {
         Some(weight) => Font::from_data(data, &[("wght", weight)]).ok(),
         None => Font::from_data(data, &[]).ok(),
-    }
+    })
 }

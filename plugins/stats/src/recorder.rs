@@ -198,10 +198,6 @@ impl Recorder {
     }
 
     /// The id of the book being read, if it has one.
-    #[allow(
-        dead_code,
-        reason = "the overview opened on the book being read follows with the screens"
-    )]
     pub(crate) fn current_book(&self) -> Option<u16> {
         self.session.as_ref().and_then(|session| session.book)
     }
@@ -507,10 +503,6 @@ impl Recorder {
     }
 
     /// Records what the view is to include: the current page.
-    #[allow(
-        dead_code,
-        reason = "the action that opens the overview follows with the screens"
-    )]
     pub(crate) fn settle(&mut self, cx: &dyn Surroundings) {
         let reading = self.session.as_ref().is_some_and(|s| s.since.is_some());
         self.finish_page(cx);

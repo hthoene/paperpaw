@@ -15,6 +15,8 @@ std::thread_local! {
     /// Another drawable the batch declares: 1 a status item of token 93; 2 a
     /// status line of token 94; 3 a status item of the screen's token 91.
     static DRAWABLE: Cell<u8> = const { Cell::new(0) };
+    /// Resource records the batch also declares (see `resources`).
+    static RES: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     static MENUS: Cell<u8> = const { Cell::new(0) };
     /// 1: also a stage and a subscription to another plugin's; 2: also a
@@ -155,6 +157,7 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
         flags: 0,
     });
     match arms {
+        0 if RES.with(Cell::get) != 0 => resources::batch(RES.with(Cell::get), records[0], bytes),
         0 if DRAWABLE.with(Cell::get) != 0 => {
             let more = match DRAWABLE.with(Cell::get) {
                 1 => item(93),
@@ -356,6 +359,38 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
     }
     .unwrap()
 }
+/// Installs with the resource records of mode `res`, in the plugin's folder.
+fn install_resources(
+    kernel: &mut crate::Kernel,
+    res: u8,
+    folder: Option<&str>,
+) -> Result<(), Error> {
+    RES.with(|value| value.set(res));
+    let result = kernel.register_native_in(
+        host(0),
+        &FlatDepth::try_new().unwrap(),
+        folder,
+        |_, _, _| {},
+    );
+    RES.with(|value| value.set(0));
+    result
+}
+
+/// The same without the refresh of the font choices, which allocates as the
+/// kernel does at start-up: the allocation-failure sweeps stop at the end of
+/// the admission.
+fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
+    RES.with(|value| value.set(res));
+    let result = kernel.admit_native(
+        host(0),
+        &FlatDepth::try_new().unwrap(),
+        folder,
+        |_, _, _| {},
+    );
+    RES.with(|value| value.set(0));
+    result
+}
+
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
     kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
@@ -1352,6 +1387,9 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
         "the fault walk reached a fully admitted owner"
     );
 }
+
+#[path = "native_resources_tests.rs"]
+mod resources;
 
 #[test]
 fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {
