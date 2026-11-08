@@ -30,7 +30,7 @@
 //! the group's reply one of 3,840 bytes, both freed at the return (no large
 //! stack buffer); the cache is 16 values of at most 128 bytes, allocated as
 //! they come and dropped by `status_changed`; the handle tables are the
-//! `ui_handles` ones (832 bytes at most on the X4). A refused allocation is
+//! `ui_handles` ones (1,088 bytes at most on the X4). A refused allocation is
 //! `ERR_NO_MEMORY` with nothing handed out.
 use super::{
     registrations::{self as wire, Record},
@@ -181,11 +181,12 @@ impl WidgetState {
 impl UiServices {
     /// A screen instance closed: the widget instances it made go.
     pub(crate) fn screen_closed(&self, screen: u32) -> Result<usize, i32> {
-        self.widgets
+        Ok(self
+            .widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
-            .drop_screen(screen)
+            .drop_screen(screen))
     }
 
     /// The next drop `owner` has not heard of, as the `event.widget_dropped`
@@ -281,12 +282,10 @@ impl UiServices {
         Ok(())
     }
 
-    /// A plugin stopped: what it made or owns goes (widgets, status handles).
-    /// The owners of what it made are told; `ERR_NO_MEMORY` when the heap
-    /// could not list those drops (the rest went all the same).
+    /// A plugin stopped: what it made or owns goes (widgets, status handles);
+    /// the owners of what it made are told.
     pub(crate) fn plugin_stopped(&self, plugin: u64) -> Result<(), i32> {
-        let dropped = self
-            .widgets
+        self.widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
@@ -297,7 +296,7 @@ impl UiServices {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .clear();
-        dropped
+        Ok(())
     }
 }
 

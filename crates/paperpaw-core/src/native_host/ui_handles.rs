@@ -14,7 +14,8 @@
 //! Memory: each table is one allocation of its whole cap, made at its first
 //! insert and kept (no growth, no realloc, so no old-plus-new peak): widgets
 //! 32 B x 32 = 1,024 B (x 16 = 512 B on the X4), status handles 40 B x 16 =
-//! 640 B (x 8 = 320 B on the X4); on the X4 at most 832 B once both are used.
+//! 640 B (x 8 = 320 B on the X4), and the drops to tell 16 B x 32 = 512 B (x 16 =
+//! 256 B on the X4); on the X4 at most 1,088 B once all three are used.
 //!
 //! Plugins are named by their full-width host owner id (`u64`, the one
 //! `OwnerResources` id, never reused, no second namespace), so a made
@@ -129,8 +130,9 @@ pub(crate) struct Target {
 #[derive(Debug)]
 pub(crate) struct UiHandles {
     widgets: Vec<Widget>,
-    /// Drops the owners have not been told of yet: never lost, so a full
-    /// list refuses new instances (`ERR_FULL`) until Core delivers some.
+    /// Drops the owners have not been told of yet: never lost, so while live
+    /// instances and these fill the cap new instances are refused (`ERR_FULL`)
+    /// until Core delivers some.
     dropped: Vec<Dropped>,
     status: Vec<Status>,
     next_widget: u32,
@@ -168,12 +170,18 @@ impl UiHandles {
         if screen == 0 {
             return Err(ERR_INVALID);
         }
-        if self.widgets.len() >= self.widget_cap || self.dropped.len() >= self.widget_cap {
+        // Live instances and undelivered drops share the cap, so the drops
+        // always fit the one allocation below.
+        if self.widgets.len() + self.dropped.len() >= self.widget_cap {
             return Err(ERR_FULL);
         }
         let id = self.next_widget;
         let next = id.checked_add(1).ok_or(ERR_FULL)?;
         reserve(&mut self.widgets, self.widget_cap)?;
+        // Room for every notice there can be, taken once: the drop paths
+        // (op 5, a screen close, a stopped maker) never allocate, so a drop
+        // cannot fail for the heap and no notice is lost.
+        reserve(&mut self.dropped, self.widget_cap)?;
         self.widgets.push(Widget {
             id,
             screen,
@@ -184,6 +192,12 @@ impl UiHandles {
         });
         self.next_widget = next;
         Ok(id)
+    }
+
+    /// Notices that fit without allocating.
+    #[cfg(test)]
+    pub(crate) fn dropped_room(&self) -> usize {
+        self.dropped.capacity() - self.dropped.len()
     }
 
     fn widget(&self, id: u32) -> Option<&Widget> {
@@ -201,19 +215,16 @@ impl UiHandles {
         if self.widgets[at].maker != maker {
             return Err(ERR_DENIED);
         }
-        // The owner's notice first: a refusal leaves the instance as it was.
-        self.dropped.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Room for the notice was taken when the instance was made.
         let gone = self.widgets.swap_remove(at);
         self.dropped.push(gone.notice());
         Ok(())
     }
 
     /// The screen instance closed: its widgets go and their owners are to be
-    /// told ([`Self::next_dropped`]). `ERR_NO_MEMORY` leaves everything as it
-    /// was, for the sweep of closed screens to try again.
-    pub(crate) fn drop_screen(&mut self, screen: u32) -> Result<usize, i32> {
-        let count = self.widgets.iter().filter(|w| w.screen == screen).count();
-        self.dropped.try_reserve(count).map_err(|_| ERR_NO_MEMORY)?;
+    /// told ([`Self::next_dropped`]). Allocation-free (see [`Self::make_widget`]).
+    pub(crate) fn drop_screen(&mut self, screen: u32) -> usize {
+        let before = self.widgets.len();
         let dropped = &mut self.dropped;
         self.widgets.retain(|w| {
             let gone = w.screen == screen;
@@ -222,7 +233,7 @@ impl UiHandles {
             }
             !gone
         });
-        Ok(count)
+        before - self.widgets.len()
     }
 
     /// The first drop `owner` has not been told of, and leaves it listed
@@ -251,27 +262,20 @@ impl UiHandles {
 
     /// A plugin stopped: whatever it made or owns is gone, as are its status
     /// handles and what it was yet to be told. The owners of what it made are
-    /// to be told; if the heap cannot list those drops they are lost and the
-    /// status is `ERR_NO_MEMORY` (the rest is dropped all the same).
-    pub(crate) fn drop_plugin(&mut self, plugin: u64) -> Result<(), i32> {
+    /// to be told. Allocation-free (see [`Self::make_widget`]), so nothing is
+    /// lost to the heap.
+    pub(crate) fn drop_plugin(&mut self, plugin: u64) {
         self.dropped.retain(|d| d.owner != plugin);
-        let count = self
-            .widgets
-            .iter()
-            .filter(|w| w.maker == plugin && w.owner != plugin)
-            .count();
-        let room = self.dropped.try_reserve(count).map_err(|_| ERR_NO_MEMORY);
         let dropped = &mut self.dropped;
         self.widgets.retain(|w| {
             let gone = w.maker == plugin || w.owner == plugin;
-            if gone && room.is_ok() && w.owner != plugin {
+            if gone && w.owner != plugin {
                 dropped.push(w.notice());
             }
             !gone
         });
         self.status
             .retain(|s| s.caller != plugin && s.owner != plugin);
-        room
     }
 
     /// Ops 14 and 15: grants `caller` a handle for a drawn status item or line
