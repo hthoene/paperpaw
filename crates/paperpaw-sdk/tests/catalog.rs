@@ -801,3 +801,39 @@ fn a_walk_keeps_the_log_where_the_catalog_has_what_it_noted() {
     assert!(catalog::changes(&h.storage).is_empty());
     assert!(books(&h.storage).iter().any(|(p, _)| p == book));
 }
+
+/// How far a walk is: never back, below 1,000,000 until it is done, then
+/// 1,000,000, on a deep and a wide tree of folders.
+#[test]
+fn a_walks_progress_never_goes_back_and_ends_at_a_million() {
+    let deep = (0..12).fold(String::from("books"), |path, n| format!("{path}/d{n}"));
+    let mut trees = Vec::new();
+    let mut storage = MemoryStorage::new();
+    let mut path = String::from("books");
+    for n in 0..12 {
+        path = format!("{path}/d{n}");
+        storage = storage.with(&format!("{path}/b.txt"), "a book");
+    }
+    assert!(path == deep);
+    trees.push(storage);
+    let mut storage = MemoryStorage::new();
+    for n in 0..40 {
+        storage = storage.with(&format!("books/w{n:02}/b.txt"), "a book");
+        storage = storage.with(&format!("books/w{n:02}/x/c.txt"), "a book");
+    }
+    trees.push(storage);
+    for storage in trees {
+        let h = harness(storage);
+        let env = h.env();
+        let mut walk = Walk::start(&env, Vec::new()).unwrap();
+        assert_eq!(walk.progress_ppm(), 0);
+        let mut said = Vec::new();
+        while !walk.step(&env).unwrap() {
+            said.push(walk.progress_ppm());
+        }
+        assert!(said.windows(2).all(|w| w[0] <= w[1]), "went back: {said:?}");
+        assert!(said.iter().all(|ppm| *ppm < 1_000_000));
+        assert!(said.iter().any(|ppm| *ppm > 0 && *ppm < 1_000_000));
+        assert_eq!(walk.progress_ppm(), 1_000_000);
+    }
+}
