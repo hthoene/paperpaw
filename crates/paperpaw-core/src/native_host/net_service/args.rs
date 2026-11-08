@@ -130,12 +130,12 @@ fn check_head(head: &wire::ServiceNetRequest<'_>) -> Result<(), i32> {
 }
 
 /// A `net_file` path: the storage grammar, and for a saved file not a
-/// `.part` name (the host's own temporary, in any case).
+/// staged name (`.pp-staged`, the host's own temporary, in any case).
 fn path_ok(path: &str, save: bool) -> Result<(), i32> {
     if !paperpaw_platform::storage::is_valid_path(path) {
         return Err(ERR_INVALID);
     }
-    if save && path.len() >= 5 && path.as_bytes()[path.len() - 5..].eq_ignore_ascii_case(b".part") {
+    if save && crate::native_host::staged_name::is_staged(path) {
         return Err(ERR_INVALID);
     }
     Ok(())

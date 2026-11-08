@@ -40,7 +40,7 @@ struct Fake {
     reads: RefCell<Vec<(u32, u32)>>,
     closes: RefCell<Vec<u32>>,
     demand: RefCell<Vec<bool>>,
-    /// The card: finished files and `.part` files by (root, path).
+    /// The card: finished files and staged files by (root, path).
     files: RefCell<BTreeMap<(u32, String), Vec<u8>>>,
     parts: RefCell<BTreeMap<(u32, String), Vec<u8>>>,
     claims: RefCell<Vec<(u64, u32, String)>>,
