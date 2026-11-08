@@ -482,6 +482,8 @@ impl PendingDeclarations {
                 // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
             ];
             if self
                 .owned_counts

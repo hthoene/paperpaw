@@ -28,6 +28,36 @@ struct ScreenState {
     context: *mut c_void,
 }
 
+/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2).
+fn stage_fixture() -> [wire::Record<'static>; 3] {
+    [
+        wire::Record::ScreenSpec(wire::ScreenSpec {
+            name: "screen",
+            title: "factory.title",
+            token: 91,
+            flags: FLAGS.with(Cell::get),
+        }),
+        wire::Record::StageSpec(wire::StageSpec {
+            name: "insert",
+            schema: 1,
+            flags: 0,
+            max_input: 16,
+            max_reply: 16,
+            max_records: 1,
+        }),
+        wire::Record::RegistrationStage(wire::RegistrationStage {
+            stage: if STAGES.with(Cell::get) == 2 {
+                "factory.insert"
+            } else {
+                "other.insert"
+            },
+            token: 91,
+            order: 0,
+            signature: 0,
+        }),
+    ]
+}
+
 unsafe extern "C" fn screen_make(
     host: *const PpHost,
     ctx: *mut c_void,
@@ -64,36 +94,10 @@ unsafe extern "C" fn screen_make(
         }),
     ];
     let count = if UNSUPPORTED.with(Cell::get) { 3 } else { 1 };
-    let stages = [
-        wire::Record::ScreenSpec(wire::ScreenSpec {
-            name: "screen",
-            title: "factory.title",
-            token: 91,
-            flags: FLAGS.with(Cell::get),
-        }),
-        wire::Record::StageSpec(wire::StageSpec {
-            name: "insert",
-            schema: 1,
-            flags: 0,
-            max_input: 16,
-            max_reply: 16,
-            max_records: 1,
-        }),
-        wire::Record::RegistrationStage(wire::RegistrationStage {
-            stage: if STAGES.with(Cell::get) == 2 {
-                "factory.insert"
-            } else {
-                "other.insert"
-            },
-            token: 91,
-            order: 0,
-            signature: 0,
-        }),
-    ];
     let len = if STAGES.with(Cell::get) == 0 {
         wire::records_encode(&records[..count], &mut bytes)
     } else {
-        wire::records_encode(&stages, &mut bytes)
+        wire::records_encode(&stage_fixture(), &mut bytes)
     }
     .unwrap();
     // SAFETY: the linked factory receives a live host table and context, and
