@@ -58,6 +58,19 @@ fn world(
     let log = Log::default();
     let kept = Rc::new(RefCell::new(key.map(str::to_string)));
     let typed = Rc::new(RefCell::new(String::new()));
+    ui_service(host, selected, &log, &typed);
+    secrets_service(host, unsupported, &log, &kept);
+    net_service(host, &log);
+    World {
+        log,
+        key: kept,
+        typed,
+    }
+}
+
+/// The `core.ui` service: the hand-over's text, the question for the key and
+/// the text typed.
+fn ui_service(host: &ScriptedHost, selected: &'static str, log: &Log, typed: &Rc<RefCell<String>>) {
     let (l, t) = (log.clone(), typed.clone());
     host.service("core.ui", 1, 0, move |op, input| {
         let batch = records_decode(input).map_err(|_| -1)?;
@@ -89,6 +102,15 @@ fn world(
             _ => Err(-1),
         }
     });
+}
+
+/// The `core.secrets` service: one key; `unsupported` refuses keeping it.
+fn secrets_service(
+    host: &ScriptedHost,
+    unsupported: bool,
+    log: &Log,
+    kept: &Rc<RefCell<Option<String>>>,
+) {
     let (l, k) = (log.clone(), kept.clone());
     host.service("core.secrets", 1, 0, move |op, input| {
         let batch = records_decode(input).map_err(|_| -1)?;
@@ -113,6 +135,10 @@ fn world(
             _ => Err(-1),
         }
     });
+}
+
+/// The `core.net` service: every request ends with `status` 200.
+fn net_service(host: &ScriptedHost, log: &Log) {
     let (l, next) = (log.clone(), RefCell::new(0_u32));
     host.service("core.net", 1, 0, move |op, input| {
         let batch = records_decode(input).map_err(|_| -1)?;
@@ -159,11 +185,6 @@ fn world(
             _ => Err(-1),
         }
     });
-    World {
-        log,
-        key: kept,
-        typed,
-    }
 }
 
 fn event(host: &paperpaw_scripted_host::Plugin<'_>, token: u32, record: Record<'_>) -> Callback {
