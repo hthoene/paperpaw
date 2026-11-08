@@ -335,6 +335,7 @@ pub mod events;
 pub mod files;
 pub mod fonts;
 pub mod formatting;
+pub mod i18n;
 pub mod keys;
 pub mod library;
 pub mod lookup;
