@@ -121,6 +121,13 @@ event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
 event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
 });
+
+event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
+    Event::LookupReady {
+        now_ms: r.now_ms,
+        provider: r.provider,
+    }
+});
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);

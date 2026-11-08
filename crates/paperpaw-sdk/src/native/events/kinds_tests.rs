@@ -176,6 +176,10 @@ fn fixtures() -> Vec<Vec<u8>> {
                 total: 10,
                 flags: 0,
             }),
+            Record::EventLookupReady(EventLookupReady {
+                now_ms: 42,
+                provider: "wikipedia.lookup",
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",

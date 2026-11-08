@@ -62,6 +62,9 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
+    /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
+    /// for the host to remember an ask that comes back `pending`.
+    LookupReady,
 }
 
 impl EventKind {
@@ -95,6 +98,7 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
         }
     }
 }

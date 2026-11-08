@@ -513,3 +513,34 @@ fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
     assert_eq!(plugin, id);
     assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
 }
+
+#[test]
+fn lookup_ready_names_the_provider_that_kept_its_answer() {
+    let mut bytes = [0; 128];
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup",
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(
+        Event::decode(&bytes[..n]),
+        Ok(Event::LookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup"
+        })
+    );
+    // A provider name of the contract's full 64 bytes decodes whole.
+    let mut long = bytes;
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: &"p".repeat(64),
+        })],
+        &mut long,
+    )
+    .unwrap();
+    assert!(Event::decode(&long[..n]).is_ok());
+}
