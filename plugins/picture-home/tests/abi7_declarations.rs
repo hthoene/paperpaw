@@ -291,10 +291,7 @@ fn pages_and_grid_match(found: &[Found]) {
     );
     assert_eq!(by("picture-home.dots").4, "Bool Bool(true) Basic");
     assert_eq!(by("picture-home.pencil").4, "Bool Bool(true) Basic");
-    assert_eq!(
-        by("picture-home.focus-at-once").4,
-        "Bool Bool(false) Basic"
-    );
+    assert_eq!(by("picture-home.focus-at-once").4, "Bool Bool(false) Basic");
     assert_eq!(
         by("picture-home.bar.left-items").4,
         "List Text(\"core.status.clock\") Basic"
