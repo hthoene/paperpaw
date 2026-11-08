@@ -452,13 +452,22 @@ fn limits_per_plugin_and_per_device_and_the_pool_hold() {
 }
 
 #[test]
-fn a_server_name_without_tls_is_ignored_not_refused() {
+fn a_server_name_without_tls_is_refused() {
     let f = Fake::x4();
     let c = wire::ServiceSockConnect {
         server_name: "other.example.org",
         ..head(1)
     };
-    assert!(connect_with(&f, OWNER, c).is_ok());
+    assert_eq!(connect_with(&f, OWNER, c), Err(ERR_INVALID));
+    assert_eq!(f.used(), 0);
+    assert!(f.connects.borrow().is_empty());
+    // With `tls` it is the name to check (TLS itself is a later slice).
+    let c = wire::ServiceSockConnect {
+        flags: 1,
+        server_name: "other.example.org",
+        ..head(1)
+    };
+    assert_eq!(connect_with(&f, OWNER, c), Err(ERR_UNSUPPORTED));
 }
 
 #[test]
