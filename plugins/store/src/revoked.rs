@@ -105,5 +105,5 @@ impl Revocations {
 }
 
 fn bytes<const N: usize>(hex: &str) -> Option<[u8; N]> {
-    paperpaw_sdk::digest::hex::decode(hex)?.try_into().ok()
+    paperpaw_sdk::digest::hex::decode_array(hex)
 }

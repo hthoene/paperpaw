@@ -155,7 +155,7 @@ pub(super) fn finished_in<'b>(
         .filter(|b| b.finished <= 0 && b.last_open > 0 && !b.path.is_empty())
         .filter(|b| year_of(b.last_open) == year)
         .collect();
-    undated.sort_by_key(|b| core::cmp::Reverse(b.last_open));
+    paperpaw_sdk::sort::sort_by_key(&mut undated, |b| core::cmp::Reverse(b.last_open));
     for book in undated.into_iter().take(LIBRARY_LOOKUPS) {
         if read_to_end(book) {
             found(book, book.last_open);

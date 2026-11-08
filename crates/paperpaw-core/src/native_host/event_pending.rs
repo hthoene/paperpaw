@@ -1,6 +1,7 @@
 //! Bounded per-instance EVT state. This owns no registry, dispatcher or plugin.
 //! Core detaches one Ready item before entering foreign code or draining again.
 use super::{registrations as wire, shared::Shared};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
@@ -12,13 +13,7 @@ const BITS: u8 = 6;
 const REREAD: u8 = 5;
 const ORDER: usize = EDGES + BITS as usize;
 
-/// Supplied by the same host predicate that authorizes the settings-read slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Visibility {
-    Hidden,
-    Redacted,
-    Readable,
-}
+pub(crate) use crate::abi7::settings_visibility::Visibility;
 
 /// One shared byte budget, independent of runtime ownership and retained leases.
 pub(crate) struct EventBudget(Shared<Cell<usize>>);
@@ -99,7 +94,7 @@ impl Ready {
                 key: "",
                 old: &[],
             },
-            Self::Edge(edge) => match wire::records_decode_single(&edge.bytes)? {
+            Self::Edge(edge) => match codec::decode_single(&edge.bytes)? {
                 wire::Record::EventSettingChanged(event) => event,
                 _ => return Err(ERR_INVALID),
             },
@@ -154,7 +149,7 @@ impl Pending {
         }
         let record =
             wire::Record::EventSettingChanged(wire::EventSettingChanged { now_ms, key, old });
-        let length = 1 + wire::record_framed_len(&record)?;
+        let length = 1 + codec::framed_len(&record)?;
         if self.budget.edges.get() == EDGES
             || length > PLUGIN_BYTES - self.budget.bytes.get()
             || length > DEVICE_BYTES - self.budget.device.get()
@@ -164,7 +159,7 @@ impl Pending {
         let mut bytes = Vec::new();
         bytes.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
         bytes.resize(length, 0);
-        wire::records_encode(&[record], &mut bytes)?;
+        codec::encode_batch(&[record], &mut bytes)?;
         self.edges.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         let budget = self.budget.try_clone().ok_or(ERR_NO_MEMORY)?;
         let id = BITS + self.edges.len() as u8;

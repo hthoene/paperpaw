@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-power"
 description = "PaperPaw power: chooses the power mode, by hand or by the battery (ADR 0025)"
-version = "1.1.1"
+version = "1.1.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,15 +10,20 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
+paperpaw-sdk.workspace = true
+
+[build-dependencies]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-plugin-lock.workspace = true
-paperpaw-plugin-sleep.workspace = true
+paperpaw-native.workspace = true
+paperpaw-i18n.workspace = true
 
 [lints]
 workspace = true

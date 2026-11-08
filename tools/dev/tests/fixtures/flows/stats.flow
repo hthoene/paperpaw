@@ -1,0 +1,17 @@
+# The statistics page from the tools, by touch, on the Boox.
+profiles: boox-go-7
+
+expect screen home.dashboard
+# A tap in the middle opens the menu.
+tap:632:840
+expect screen menu.list
+tap-on:Tools
+expect text "Reading statistics"
+tap-on:Reading statistics
+expect screen stats.overview
+expect text "Today"
+expect no text "Tools"
+expect picture stats
+back
+expect screen home.dashboard
+expect no warnings

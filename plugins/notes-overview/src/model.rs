@@ -23,6 +23,13 @@ pub const FOLDER: &str = "Exports";
 pub const NAME: &str = "My Clippings.txt";
 /// Books listed at most (the rest are not shown, but are exported).
 pub const MOST_BOOKS: usize = 200;
+/// A listed title is cut to this many bytes, at a character's end (the
+/// library's own list rows are cut at the same length).
+pub const TITLE_MAX: usize = 128;
+/// The longest path of a book that is listed: the library names a book by a
+/// path of at most this many bytes (`BookRef::path`), so a longer one could
+/// not be opened from the list anyway.
+pub const PATH_MAX: usize = 512;
 /// Written out when the text held is this long, so a book with many notes
 /// does not fill the memory.
 pub const FLUSH: usize = 6 * 1024;
@@ -149,7 +156,10 @@ impl Listing {
     }
 
     /// Adds a book with `highlights` and `bookmarks`; a book without notes is
-    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`].
+    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`]. The
+    /// title is cut to [`TITLE_MAX`] bytes; a book with a path over
+    /// [`PATH_MAX`] is left out. The most the list holds is therefore 200
+    /// books of 128 + 512 bytes of text.
     ///
     /// # Errors
     /// [`Error::NoMemory`]; the list is unchanged then.
@@ -167,9 +177,16 @@ impl Listing {
             self.more = true;
             return Ok(());
         }
+        if path.len() > PATH_MAX {
+            return Ok(());
+        }
+        let mut end = title.len().min(TITLE_MAX);
+        while !title.is_char_boundary(end) {
+            end -= 1;
+        }
         let book = Counted {
             path: copy(path)?,
-            title: copy(title)?,
+            title: copy(&title[..end])?,
             highlights,
             bookmarks,
         };
@@ -181,7 +198,7 @@ impl Listing {
     /// Puts the books in order: by title without regard to case, equal titles
     /// by path.
     pub fn sort(&mut self) {
-        self.books.sort_unstable_by(|a, b| {
+        paperpaw_sdk::sort::sort_by(&mut self.books, |a, b| {
             cmp_lowercase(&a.title, &b.title).then_with(|| a.path.cmp(&b.path))
         });
     }
@@ -231,6 +248,36 @@ pub fn count_parts(book: &Counted) -> [Option<(&'static str, u16)>; 2] {
 
 /// Between the highlight and the bookmark count.
 pub const COUNT_SEPARATOR: &str = " · ";
+
+/// The second line of a note's row: what it is (its own note, else the kind's
+/// name) and how far into the book it lies: `Note text · 42 %`.
+///
+/// # Errors
+/// The sink's refusal.
+pub fn put_detail(out: &mut dyn Sink, what: &str, percent: u8) -> Result<(), Error> {
+    out.put(what)?;
+    out.put(COUNT_SEPARATOR)?;
+    let mut digits = [0u8; 3];
+    let mut at = digits.len();
+    let mut rest = percent;
+    loop {
+        at -= 1;
+        if let Some(slot) = digits.get_mut(at) {
+            *slot = b'0' + rest % 10;
+        }
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.put(
+        digits
+            .get(at..)
+            .and_then(|d| core::str::from_utf8(d).ok())
+            .unwrap_or("0"),
+    )?;
+    out.put(" %")
+}
 
 /// Where the export goes: `Exports` beside the library folder `library`.
 ///

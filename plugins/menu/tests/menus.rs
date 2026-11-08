@@ -653,7 +653,7 @@ fn the_reader_menu_bar_runs_from_the_right_in_a_right_to_left_language() {
 /// the direction and nothing else (the other texts are English).
 fn reading_in(language: &str) -> App {
     let storage = Shared::memory(
-        &format!("[core]\nlanguage = {language}\n[help]\nshow = false\n"),
+        &format!("[core]\nlanguage = {language}\n"),
         &[
             (
                 BOOK,
