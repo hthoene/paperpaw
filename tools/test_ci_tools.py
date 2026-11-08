@@ -32,6 +32,8 @@ class Espflash(unittest.TestCase):
         self.fetch = self.patches.enter_context(mock.patch.object(espflash, "fetch"))
         self.matches = self.patches.enter_context(mock.patch.object(espflash, "matches", return_value=True))
         self.sleep = self.patches.enter_context(mock.patch.object(espflash.time, "sleep"))
+        self.build = self.patches.enter_context(mock.patch.object(
+            espflash, "build_from_crates", side_effect=ValueError("cargo install failed")))
         self.patches.enter_context(mock.patch.dict(espflash.os.environ))
         espflash.os.environ.pop("ESPFLASH_ARCHIVE_DIR", None)
         self.archive({"espflash": b"verified executable"})
@@ -111,18 +113,44 @@ class Espflash(unittest.TestCase):
 
     def test_it_gives_up_after_the_attempts_and_says_so(self):
         self.fetch.side_effect = self.gateway_timeout()
-        with self.assertRaisesRegex(ValueError, "504.*after 6 attempts"):
+        with self.assertRaisesRegex(ValueError, "504.*after 6 attempts.*fallback failed too"):
             espflash.install("4.6.0", self.destination)
         self.assertEqual(self.fetch.call_count, espflash.ATTEMPTS)
+        self.build.assert_called_once()
         self.assertEqual(self.sleep.call_count, espflash.ATTEMPTS - 1)
         self.matches.assert_not_called()
 
-    def test_a_missing_release_is_not_tried_again(self):
+    def test_a_missing_release_is_not_tried_again_but_built_from_crates_io(self):
         self.fetch.side_effect = self.gateway_timeout(404)
-        with self.assertRaises(espflash.urllib.error.HTTPError):
-            espflash.install("4.6.0", self.destination)
+        self.build.side_effect = None
+        self.build.return_value = self.destination / "espflash"
+        self.assertEqual(espflash.install("4.6.0", self.destination), self.destination / "espflash")
         self.fetch.assert_called_once()
         self.sleep.assert_not_called()
+
+    def test_when_the_release_is_down_espflash_is_built_from_crates_io(self):
+        self.fetch.side_effect = self.gateway_timeout()
+        self.build.side_effect = None
+        self.build.return_value = self.destination / "espflash"
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(self.destination.parent / "cache")
+        self.assertEqual(espflash.install("4.6.0", self.destination), self.destination / "espflash")
+        self.assertEqual(self.fetch.call_count, espflash.ATTEMPTS)
+        self.build.assert_called_once_with("4.6.0", self.destination, str(self.destination.parent / "cache"))
+
+    def test_a_wrong_archive_never_falls_back_to_a_build(self):
+        self.fetch.return_value += b"changed"
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            espflash.install("4.6.0", self.destination)
+        self.build.assert_not_called()
+
+    def test_a_build_kept_by_an_earlier_run_needs_neither_download_nor_build(self):
+        cache = self.destination.parent / "cache"
+        cache.mkdir()
+        (cache / "espflash-cargo-4.6.0").write_bytes(b"built earlier")
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
+        self.assertEqual((espflash.install("4.6.0", self.destination)).read_bytes(), b"built earlier")
+        self.fetch.assert_not_called()
+        self.build.assert_not_called()
 
     def test_a_connection_that_breaks_is_tried_again(self):
         good = self.fetch.return_value

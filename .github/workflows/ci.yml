@@ -154,9 +154,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' }}
-      - uses: taiki-e/install-action@v2
+      # Each tool from the cache, else the release, else crates.io.
+      - uses: ./.github/actions/cargo-tool
         with:
-          tool: cargo-semver-checks@0.51.0,cargo-public-api@0.52.0
+          tool: cargo-semver-checks
+          version: 0.51.0
+      - uses: ./.github/actions/cargo-tool
+        with:
+          tool: cargo-public-api
+          version: 0.52.0
       - name: No change that breaks plugins unless the version says so
         # Against each crate's last release on crates.io; a crate joins
         # once it has one.
@@ -695,11 +701,13 @@ jobs:
       # which that container cannot install, and its image build pipes an
       # unchecked `curl | tar` (a broken download failed this job). The
       # install action checks the release archive against its published
-      # checksum and downloads again on failure. The version is the one the
-      # container had.
-      - uses: taiki-e/install-action@v2
+      # checksum; if GitHub's release downloads are down, cargo-deny is built
+      # from crates.io instead (the cargo-tool action, which also caches
+      # it). The version is the one the container had.
+      - uses: ./.github/actions/cargo-tool
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny
+          version: 0.20.2
       - name: The workspace's dependencies
         run: cargo deny --log-level warn --manifest-path Cargo.toml --all-features check
       - name: The X4 firmware's dependencies too
