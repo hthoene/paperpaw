@@ -8,10 +8,7 @@ use crate::native_host::lib_service::{
     write::LibWrite,
 };
 use alloc::{boxed::Box, string::String};
-use core::{
-    cell::{Cell, RefCell},
-    ops::ControlFlow,
-};
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
@@ -67,6 +64,9 @@ fn page_ask(cursor: u32, generation: u32) -> Record<'static> {
         cursor,
         annotation_generation: generation,
     })
+}
+fn field_page_ask(cursor: u32, generation: u32) -> Record<'static> {
+    Record::ServiceLibFieldPage(wire::ServiceLibFieldPage { cursor, generation })
 }
 fn host(fake: &Rc<Fake>) -> Rc<dyn LibHost> {
     fake.clone()
@@ -437,7 +437,7 @@ fn book_ops_take_a_ref_first_and_exactly_their_records() {
     let fake = Fake::new();
     fake.say(&[book_record("books/a.epub", 4)]);
     let plain = |op| call_raw(&host(&fake), op, &loose(&[]));
-    for op in [3, 6, 13, 22, 25] {
+    for op in [3, 6, 13, 25] {
         assert_eq!(plain(op), Err(ERR_INVALID), "no record at all, op {op}");
         let extra = loose(&[book_ref(), page_ask(0, 0)]);
         assert_eq!(call_raw(&host(&fake), op, &extra), Err(ERR_INVALID), "{op}");
@@ -451,6 +451,7 @@ fn book_ops_take_a_ref_first_and_exactly_their_records() {
         (7, cover_ask(0)),
         (15, page_ask(0, 0)),
         (16, page_ask(0, 0)),
+        (22, field_page_ask(0, 0)),
     ] {
         let call = |records: &[Record<'_>]| call_raw(&host(&fake), op, &loose(records));
         assert_eq!(
@@ -483,7 +484,8 @@ fn the_hosts_refusals_pass_through() {
         assert_eq!(ask(&fake, 13, &[book_ref()]), Err(error));
         assert_eq!(ask(&fake, 15, &[book_ref(), page_ask(0, 0)]), Err(error));
         assert_eq!(ask(&fake, 16, &[book_ref(), page_ask(0, 0)]), Err(error));
-        assert_eq!(ask(&fake, 22, &[book_ref()]), Err(error));
+        let fields = [book_ref(), field_page_ask(0, 0)];
+        assert_eq!(ask(&fake, 22, &fields), Err(error));
         assert_eq!(ask(&fake, 25, &[book_ref()]), Err(error));
     }
 }
@@ -854,23 +856,78 @@ fn anchor_rows_are_checked() {
 // Op 22.
 
 #[test]
-fn fields_come_whole_in_one_reply() {
+fn fields_page_under_the_books_field_generation() {
     let fake = Fake::new();
-    *fake.rows.borrow_mut() = (0..3).map(|n| field_row(n, 1024)).collect();
-    let reply = ask(&fake, 22, &[book_ref()]).unwrap();
-    let end = end_of(&reply);
-    assert_eq!((rows_in(&reply), end.total, end.flags), (3, 3, 1));
-    assert_eq!(rows_in(&ask(&fake, 22, &[key_ref(1, 1)]).unwrap()), 3);
-    // 32 small fields are the most; 33 do not fit one reply.
-    *fake.rows.borrow_mut() = (0..32).map(|n| field_row(n, 1)).collect();
-    assert_eq!(rows_in(&ask(&fake, 22, &[book_ref()]).unwrap()), 32);
-    *fake.rows.borrow_mut() = (0..33).map(|n| field_row(n, 1)).collect();
-    assert_eq!(ask(&fake, 22, &[book_ref()]), Err(ERR_NO_SPACE));
-    // Rows past the 4,096 bytes are refused, never cut.
-    *fake.rows.borrow_mut() = (0..5).map(|n| field_row(n, 1024)).collect();
-    assert_eq!(ask(&fake, 22, &[book_ref()]), Err(ERR_NO_SPACE));
+    fake.generation.set(7);
+    *fake.rows.borrow_mut() = (0..10).map(|n| field_row(n, 1024)).collect();
+    let (pages, ids) = walk_with(&fake, 22, |cursor, generation| {
+        std::vec![book_ref(), field_page_ask(cursor, generation)]
+    });
+    assert_eq!(pages, [3, 3, 3, 1], "three whole rows at their caps a page");
+    assert_eq!(ids, (0..10).collect::<Vec<_>>());
+    let page =
+        |cursor, generation| ask(&fake, 22, &[book_ref(), field_page_ask(cursor, generation)]);
+    assert_eq!(page(3, 0), Err(ERR_STATE), "a bare cursor");
+    assert_eq!(page(3, 6), Err(ERR_STATE), "not the host's generation");
+    assert!(page(3, 7).is_ok());
+    fake.lax.set(true);
+    assert_eq!(page(0, 6), Err(ERR_STATE), "the service compares too");
+    assert!(
+        fake.log
+            .borrow()
+            .iter()
+            .any(|line| line == "fields Path(\"books/a.epub\") 3 7")
+    );
+    // By key, and the same pages.
+    let by_key = ask(&fake, 22, &[key_ref(1, 1), field_page_ask(0, 0)]).unwrap();
+    assert_eq!(rows_in(&by_key), 3);
+}
+
+#[test]
+fn a_field_page_holds_as_many_whole_rows_as_fit() {
+    let fake = Fake::new();
+    // 32 small fields are the most a page names; the rest is the next page.
+    *fake.rows.borrow_mut() = (0..40).map(|n| field_row(n, 1)).collect();
+    let first = ask(&fake, 22, &[book_ref(), field_page_ask(0, 0)]).unwrap();
+    let end = end_of(&first);
+    assert_eq!(
+        (rows_in(&first), end.total, end.next, end.flags),
+        (32, 40, 32, 0)
+    );
+    let rest = ask(&fake, 22, &[book_ref(), field_page_ask(32, end.generation)]).unwrap();
+    let end = end_of(&rest);
+    assert_eq!((rows_in(&rest), end.next, end.flags & 1), (8, 40, 1));
+    // No field: one empty last page. A cursor past the end: the same.
     *fake.rows.borrow_mut() = Vec::new();
-    assert_eq!(rows_in(&ask(&fake, 22, &[book_ref()]).unwrap()), 0);
+    let none = ask(&fake, 22, &[book_ref(), field_page_ask(0, 0)]).unwrap();
+    assert_eq!((rows_in(&none), end_of(&none).flags & 1), (0, 1));
+    *fake.rows.borrow_mut() = (0..3).map(|n| field_row(n, 1)).collect();
+    let past = ask(&fake, 22, &[book_ref(), field_page_ask(9, 5)]).unwrap();
+    assert_eq!((rows_in(&past), end_of(&past).flags & 1), (0, 1));
+}
+
+#[test]
+fn the_hosts_field_position_is_checked() {
+    let fake = Fake::new();
+    *fake.rows.borrow_mut() = (0..5).map(|n| field_row(n, 1024)).collect();
+    let page = || ask(&fake, 22, &[book_ref(), field_page_ask(0, 0)]);
+    fake.generation.set(0);
+    assert_eq!(page(), Err(ERR_INVALID), "a generation is never 0");
+    fake.generation.set(5);
+    fake.next.set(Some(9));
+    assert_eq!(page(), Err(ERR_INVALID), "next is not cursor + rows");
+    fake.next.set(None);
+    assert!(page().is_ok());
+    fake.stubborn.set(true);
+    assert_eq!(page(), Err(ERR_INVALID), "a host that ignores Break");
+    fake.stubborn.set(false);
+    // A scratch that holds the `end` but no row: a refusal, not a loop.
+    let bytes = input(22, &[book_ref(), field_page_ask(0, 0)]).unwrap();
+    let mut out = std::vec![0; 40];
+    let result = with(host(&fake), |frame| {
+        frame.run(schema_op(22), &bytes, &mut out)
+    });
+    assert_eq!(result, Err(ERR_NO_SPACE));
 }
 
 #[test]
@@ -887,7 +944,7 @@ fn field_rows_are_checked() {
                 })])
             })
             .collect();
-        ask(&fake, 22, &[book_ref()])
+        ask(&fake, 22, &[book_ref(), field_page_ask(0, 0)])
     };
     assert!(say(&["stats.rating", "files.loan"]).is_ok());
     assert_eq!(say(&["rating"]), Err(ERR_INVALID), "not <plugin>.<name>");
@@ -895,7 +952,10 @@ fn field_rows_are_checked() {
     assert_eq!(say(&["stats."]), Err(ERR_INVALID));
     assert_eq!(say(&["stats.rating", "stats.rating"]), Err(ERR_INVALID));
     *fake.rows.borrow_mut() = std::vec![entry_row(1)];
-    assert_eq!(ask(&fake, 22, &[book_ref()]), Err(ERR_INVALID));
+    assert_eq!(
+        ask(&fake, 22, &[book_ref(), field_page_ask(0, 0)]),
+        Err(ERR_INVALID)
+    );
 }
 
 // The fake host and the records it answers with.
@@ -1069,17 +1129,15 @@ impl LibQuery for Fake {
         self.note(std::format!("anchors {book:?} {cursor} {generation}"));
         self.page(cursor, generation, visit)
     }
-    fn fields(&self, book: BookRef<'_>, visit: Rows<'_>) -> Result<(), i32> {
-        self.note(std::format!("fields {book:?}"));
-        if let Some(error) = self.fails.get() {
-            return Err(error);
-        }
-        for row in self.rows.borrow().iter() {
-            if visit(wire::record_decode_one(row).unwrap()) == ControlFlow::Break(()) {
-                break;
-            }
-        }
-        Ok(())
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.note(std::format!("fields {book:?} {cursor} {generation}"));
+        self.page(cursor, generation, visit)
     }
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.note(std::format!("key {book:?}"));
@@ -1124,7 +1182,9 @@ fn ids_in(reply: &[u8]) -> Vec<u32> {
             Record::ServiceLibAnnotation(row) => ids.push(row.id),
             Record::ServiceLibAnchor(row) => ids.push(row.id),
             Record::ServiceLibFacet(row) => ids.push(row.first),
-            Record::ServiceLibField(_) => ids.push(0),
+            Record::ServiceLibField(row) => {
+                ids.push(row.id.trim_start_matches("plug.f").parse().unwrap_or(0));
+            }
             Record::ServiceEnd(_) => {}
             other => panic!("{other:?}"),
         }

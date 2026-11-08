@@ -148,29 +148,3 @@ pub(super) fn list(
         cursor: None,
     })
 }
-
-/// A whole list in one reply (op 22 has no cursor): every row or
-/// `ERR_NO_SPACE`, never a part. `end` says last page, `total` the rows.
-pub(super) fn whole(
-    out: &mut [u8],
-    rows_cap: usize,
-    kind: Row,
-    ask: impl FnOnce(&mut dyn FnMut(Record<'_>) -> ControlFlow<()>) -> Result<(), i32>,
-) -> Result<usize, i32> {
-    let mut sink = Sink::new(out, rows_cap, kind)?;
-    ask(&mut |record| sink.offer(&record))?;
-    if let Some(error) = sink.failure {
-        return Err(error);
-    }
-    if sink.stopped {
-        return Err(ERR_NO_SPACE);
-    }
-    let total = u32::try_from(sink.rows).map_err(|_| ERR_INVALID)?;
-    sink.finish(wire::ServiceEnd {
-        flags: 1,
-        total,
-        generation: 0,
-        next: total,
-        cursor: None,
-    })
-}

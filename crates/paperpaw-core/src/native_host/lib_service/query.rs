@@ -105,9 +105,17 @@ pub(crate) trait LibQuery {
     ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    /// Op 22: every `lib_field` of the book, all plugins'. One reply holds
-    /// them all; the service refuses (`ERR_NO_SPACE`) a list that does not fit.
-    fn fields(&self, _book: BookRef<'_>, _visit: Rows<'_>) -> Result<(), i32> {
+    /// Op 22: `lib_field` rows of the book, all plugins', ordered by owning
+    /// plugin id then field name. `cursor` counts fields; `generation` is the
+    /// book's field generation (every `set_field` and every move of its data
+    /// advances it), never 0 in the answer.
+    fn fields(
+        &self,
+        _book: BookRef<'_>,
+        _cursor: u32,
+        _generation: u32,
+        _visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
     /// Op 25: one `lib_key` (the book key and the fingerprint).
@@ -142,12 +150,13 @@ pub(super) fn run(
     match op.id {
         op::STATE => state(host, input, out),
         op::QUERY | op::FACETS => catalog(host, op.id, rows, input, out),
-        op::BOOK | op::NEXT_IN_SERIES | op::POSITION | op::FIELDS | op::BOOK_KEY => {
-            book_alone(host, op.id, rows, input, out)
+        op::BOOK | op::NEXT_IN_SERIES | op::POSITION | op::BOOK_KEY => {
+            book_alone(host, op.id, input, out)
         }
         op::TEXT => text(host, input, out),
         op::COVER => cover(host, who, input, out),
         op::ANNOTATIONS | op::ANCHORS => annotated(host, op.id, rows, input, out),
+        op::FIELDS => fields(host, rows, input, out),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -230,11 +239,10 @@ fn catalog(
     }
 }
 
-/// Ops 3, 6, 13, 22, 25: `lib_ref` alone.
+/// Ops 3, 6, 13, 25: `lib_ref` alone.
 fn book_alone(
     host: &dyn super::LibHost,
     id: u32,
-    rows: usize,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
@@ -268,9 +276,6 @@ fn book_alone(
                 _ => Err(ERR_INVALID),
             },
         ),
-        op::FIELDS => page::whole(out, rows, check::Row::Field, |visit| {
-            host.fields(book, visit)
-        }),
         _ => page::one(
             out,
             |visit| host.book_key(book, visit),
@@ -348,4 +353,25 @@ fn annotated(
             host.anchors(book, ask.cursor, ask.annotation_generation, visit)
         })
     }
+}
+
+/// Op 22: `lib_ref`, `lib_field_page`; the field generation pages as the
+/// annotation generation does (`ERR_STATE` for a stale one).
+fn fields(
+    host: &dyn super::LibHost,
+    rows: usize,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let (book, Some(Record::ServiceLibFieldPage(ask))) = named(host, input, 1)? else {
+        return Err(ERR_INVALID);
+    };
+    page_state(ask.cursor, ask.generation)?;
+    let request = page::Request {
+        cursor: ask.cursor,
+        generation: ask.generation,
+    };
+    page::list(out, rows, check::Row::Field, request, |visit| {
+        host.fields(book, ask.cursor, ask.generation, visit)
+    })
 }
