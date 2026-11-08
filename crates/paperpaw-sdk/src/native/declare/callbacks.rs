@@ -68,8 +68,6 @@ pub enum EventKind {
     /// Something happened to a broadcast of this plugin. Needed before the
     /// first `broadcast`.
     Broadcast,
-    /// A question this plugin asked was answered or cancelled.
-    Answered,
 }
 
 impl EventKind {
@@ -105,7 +103,6 @@ impl EventKind {
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
-            Self::Answered => records_wire::EVENT_ANSWERED_TAG,
         }
     }
 }
