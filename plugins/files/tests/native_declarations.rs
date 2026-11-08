@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::{Record, records_decode},
+    registrations::records_decode,
 };
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
