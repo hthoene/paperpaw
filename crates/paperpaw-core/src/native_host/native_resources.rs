@@ -11,7 +11,7 @@ use super::{
     registrations as wire,
 };
 use alloc::{borrow::Cow, string::String, vec::Vec};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{FontFace, Id, Priority, RegisterError};
 
 /// Style bit 0 of a font face: bold. Bit 1: italic.
@@ -29,6 +29,7 @@ pub(super) enum Resource {
 pub(super) struct Face {
     id: Id,
     path: String,
+    /// Empty: outside any family (bound to a role, never offered for text).
     family: String,
     bold: bool,
     italic: bool,
@@ -71,11 +72,6 @@ pub(super) fn map(owner: &str, record: wire::Record<'_>) -> Result<Option<Resour
 }
 
 fn face_of(owner: &str, face: &wire::ResourceFontFace<'_>) -> Result<Face, i32> {
-    // An empty family means the family of the file: its header is read when
-    // the font is loaded, which the registry does not do for a face yet.
-    if face.family.is_empty() {
-        return Err(ERR_UNSUPPORTED);
-    }
     let bold = face.style & BOLD != 0;
     let role = if face.role.is_empty() {
         None
@@ -86,7 +82,11 @@ fn face_of(owner: &str, face: &wire::ResourceFontFace<'_>) -> Result<Face, i32> 
     Ok(Face {
         id: qualified(owner, face.name, &mut checked_id)?,
         path: copy(face.path)?,
-        family: copy(face.family)?,
+        family: if face.family.is_empty() {
+            String::new()
+        } else {
+            copy(face.family)?
+        },
         bold,
         italic: face.style & ITALIC != 0,
         role,
@@ -134,6 +134,7 @@ impl Resources {
                 self.faces.push(FontFace::new(
                     face.id,
                     joined(folder, &face.path)?,
+                    // An empty family costs no allocation.
                     Cow::Owned(face.family),
                     face.bold,
                     face.italic,
@@ -245,7 +246,16 @@ impl crate::Kernel {
                 );
                 continue;
             }
-            self.shared.fonts.add_face(face)?;
+            if face.family.is_empty() {
+                self.shared.fonts.add_unfamilied_face(
+                    face.id,
+                    face.path,
+                    face.bold,
+                    face.italic,
+                )?;
+            } else {
+                self.shared.fonts.add_face(face)?;
+            }
         }
         for (role, font, priority) in resources.roles {
             self.shared.fonts.propose(role, font, priority);

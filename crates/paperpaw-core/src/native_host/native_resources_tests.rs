@@ -83,17 +83,27 @@ fn files_without_a_folder_refuse_the_whole_plugin() {
 }
 
 #[test]
-fn a_face_with_no_family_and_a_language_twice_are_refused_whole() {
-    for (res, status) in [(2, host_glue::ERR_UNSUPPORTED), (3, host_glue::ERR_INVALID)] {
-        let mut kernel = fresh();
-        let result = install_resources(&mut kernel, res, FOLDER);
-        assert!(
-            matches!(result, Err(Error::Status(code)) if code == status),
-            "mode {res}: {result:?}"
-        );
-        nothing_published(&kernel);
-        assert_eq!(DESTROYED.with(Cell::get), 1, "mode {res}");
-    }
+fn a_face_with_no_family_is_published_outside_any_family() {
+    let mut kernel = fresh();
+    install_resources(&mut kernel, 2, FOLDER).unwrap();
+    let shared = &kernel.shared;
+    assert!(shared.fonts.contains("factory.serif"));
+    assert!(!shared.fonts.families().contains(&""));
+    assert!(shared.fonts.families().is_empty());
+    assert!(kernel.unload_plugin(&Id::new_static("factory")));
+    nothing_published(&kernel);
+}
+
+#[test]
+fn a_language_twice_refuses_the_whole_plugin() {
+    let mut kernel = fresh();
+    let result = install_resources(&mut kernel, 3, FOLDER);
+    assert!(
+        matches!(result, Err(Error::Status(host_glue::ERR_INVALID))),
+        "{result:?}"
+    );
+    nothing_published(&kernel);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
 }
 
 #[test]

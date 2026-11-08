@@ -349,6 +349,33 @@ impl Fonts {
         self.candidates.try_reserve(roles)
     }
 
+    /// Adds a face in a file on the storage that belongs to no family: it
+    /// can be bound to a role (an icon font), and is never offered for text.
+    /// Like [`Fonts::add_face`], it is loaded only while a role needs it.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn add_unfamilied_face(
+        &mut self,
+        id: Id,
+        path: String,
+        bold: bool,
+        italic: bool,
+    ) -> Result<(), RegisterError> {
+        self.check_new(&id)?;
+        self.entries.push(Entry {
+            id,
+            font: None,
+            family: None,
+            weight: if bold { 700 } else { 400 },
+            bold,
+            italic,
+            file: Some(path),
+            extends: None,
+            face: true,
+        });
+        Ok(())
+    }
+
     /// Forgets every font of plugin `plugin` (ids `<plugin>.…`), e.g. of a
     /// data plugin removed while running; returns how many. Glyphs drawn
     /// so far are forgotten too.
