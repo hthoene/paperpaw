@@ -23,6 +23,10 @@
 //!   [`ScriptedHost::set_env`] script `settings.read` and `env.snapshot`.
 //!   Questions are answered by sending the plugin its `Answered` event
 //!   ([`event_batch`]).
+//! - **Texts**: [`ScriptedHost::add_catalog`], [`ScriptedHost::add_catalogs_in`]
+//!   (a plugin's `i18n` folder) and [`ScriptedHost::set_language`] feed
+//!   `i18n.copy`, `i18n.format` and `i18n.digits`, answered by the shell's own
+//!   code, so keys, plurals, fallbacks and placeholders give its results.
 //! - **Refuse**: [`ScriptedHost::refuse_nth`] makes the n-th call of a slot
 //!   fail with a status (`ERR_FULL`, `ERR_BUSY`, `ERR_NO_MEMORY` ...);
 //!   [`sweep`] runs a scenario once clean and once per call, each with that
@@ -46,6 +50,7 @@ use paperpaw_core::native_host::commands::{
     CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandScope, CommandStage,
 };
 use paperpaw_core::native_host::environment::{SettingValueRef, settings_encode};
+use paperpaw_i18n::{Catalog, CatalogError, Translator};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin,
 };
@@ -102,6 +107,8 @@ pub(crate) struct State {
     pub(crate) live: Cell<usize>,
     pub(crate) clock: Cell<u64>,
     pub(crate) scope: CommandScope,
+    /// The plugin's catalogs and the language (`i18n.*`).
+    pub(crate) translator: RefCell<Translator>,
     /// Hooks run when a callback returns, with its status (the dialogs').
     pub(crate) ended: RefCell<Vec<EndedHook>>,
     table: PpHost,
@@ -158,6 +165,7 @@ impl ScriptedHost {
             live: Cell::new(0),
             clock: Cell::new(0),
             scope: CommandScope::new(),
+            translator: RefCell::new(Translator::new()),
             ended: RefCell::new(Vec::new()),
             table: slots::table(),
         });
@@ -168,6 +176,47 @@ impl ScriptedHost {
     /// commands; define them before loading.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.state.settings
+    }
+
+    /// Adds the catalog `source` (the text of an `i18n/<language>.ini`): the
+    /// plugin's texts for `i18n.copy`, `i18n.format` and plurals. Catalogs
+    /// added later take precedence for the same language.
+    ///
+    /// # Errors
+    /// The catalog does not parse.
+    pub fn add_catalog(&self, source: &str) -> Result<(), CatalogError> {
+        let catalog = Catalog::parse(source.to_owned())?;
+        self.state.translator.borrow_mut().add(catalog);
+        Ok(())
+    }
+
+    /// Adds every `*.ini` of `folder` (a plugin's `i18n` folder, by file name
+    /// order), as the kernel reads a plugin's catalogs.
+    ///
+    /// # Errors
+    /// The folder or a file cannot be read, or a catalog does not parse (the
+    /// text names the file).
+    pub fn add_catalogs_in(&self, folder: impl AsRef<std::path::Path>) -> Result<usize, String> {
+        let mut files: Vec<_> = std::fs::read_dir(folder.as_ref())
+            .map_err(|error| format!("{}: {error}", folder.as_ref().display()))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "ini"))
+            .collect();
+        files.sort();
+        for path in &files {
+            let source = std::fs::read_to_string(path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            self.add_catalog(&source)
+                .map_err(|error| format!("{}: {error:?}", path.display()))?;
+        }
+        Ok(files.len())
+    }
+
+    /// The UI language the catalogs answer in (`en` by default; a key the
+    /// language lacks falls back as the kernel's does, ending in English).
+    pub fn set_language(&self, language: &str) {
+        self.state.translator.borrow_mut().set_language(language);
     }
 
     /// The most commands and bytes one callback may stage (the kernel's

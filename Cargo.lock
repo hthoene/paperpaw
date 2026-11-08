@@ -2769,6 +2769,7 @@ name = "paperpaw-scripted-host"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
 ]

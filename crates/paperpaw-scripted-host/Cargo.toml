@@ -12,6 +12,7 @@ publish = false
 
 [dependencies]
 paperpaw-core.workspace = true
+paperpaw-i18n.workspace = true
 paperpaw-native.workspace = true
 paperpaw-sdk.workspace = true
 

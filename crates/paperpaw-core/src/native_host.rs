@@ -124,8 +124,9 @@ pub(crate) mod format_index;
     reason = "entered by the DOC adapter's format calls; read by the file service"
 )]
 pub(crate) mod format_scope;
+/// Catalog copy and formatting for slots 6 and 27, from a translator.
 #[path = "native_host/formatting.rs"]
-mod formatting;
+pub mod formatting;
 pub(crate) mod host_services;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
