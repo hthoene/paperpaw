@@ -17,6 +17,7 @@ use paperpaw_sdk::document::{
     Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator, PageProgression,
     VerticalAlign, is_external,
 };
+use paperpaw_sdk::lang::{Direction, WritingMode};
 use paperpaw_sdk::native::{
     Error,
     stage_schemas::core_format_v1::{self as stage, Record},
@@ -632,9 +633,7 @@ fn records<'a>(
             + block.annotations.len(),
     )
     .map_err(|_| Error::NoMemory)?;
-    // GAP: `dir` and `writing_mode` (encodings ruled in draft 29: dir 0/1/2,
-    // writing_mode 0..4) and the inline languages wait for the SDK to
-    // re-export `Direction`/`WritingMode` with draft 29; `lang` is sent.
+    // `dir` and `writing_mode` use the draft-29 numbers.
     list.push(Record::FmtBlock(stage::FmtBlock::new(
         kind,
         level,
@@ -652,8 +651,18 @@ fn records<'a>(
         u32::from(block.margins.0),
         u32::from(block.margins.1),
         block.line_height.map_or(u32::MAX, u32::from),
-        0,
-        0,
+        match block.dir {
+            Direction::Ltr => 1,
+            Direction::Rtl => 2,
+            _ => 0,
+        },
+        match block.writing_mode {
+            WritingMode::VerticalRl => 1,
+            WritingMode::VerticalLr => 2,
+            WritingMode::SidewaysRl => 3,
+            WritingMode::SidewaysLr => 4,
+            _ => 0,
+        },
         lang_tag(block.lang, tag),
         u32::from(block.drop_cap),
         u32::try_from(block.text.len()).map_err(|_| Error::Invalid)?,
