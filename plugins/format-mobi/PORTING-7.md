@@ -60,6 +60,9 @@ the plugin is not blocked on #385.
   op 3), not whole pages) and the
   `NATIVE_ENTRY`/`.ppn` are not written here (Plugin Engineer's declarations PR);
   no `.ppn` size is measurable yet.
+- The host's `fmt.call` adapter and the activation of format providers (#417, #944)
+  are not wired: until they are, nothing calls this provider and the
+  `provider_pending` cases stay ignored.
 - Direction, writing mode and language per block (draft 29 `dir`, `writing_mode`,
   `lang`): Mobipocket has none; the records carry 0 and "". Embedded fonts: none.
 - Title fallback: root 3 has no file name, so a book with no title has none (the
