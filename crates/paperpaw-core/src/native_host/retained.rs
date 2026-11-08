@@ -41,6 +41,27 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         ))
     }
 
+    pub(crate) fn make_native_stored<R>(
+        host: shell::Hosted<S, M>,
+        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(Self, R, super::raw_declarations::RawDeclarations), shell::Error> {
+        let transaction = host.begin()?;
+        let (batch, staging, raw) = host
+            .make_registered(transaction)?
+            .commit_native_stored(map)?;
+        // SAFETY: this holder retains the pinned owner and releases its batch
+        // before the owner, as in make_native.
+        let batch = unsafe { batch.into_retained() };
+        Ok((
+            Self {
+                batch: Some(batch),
+                host: ManuallyDrop::new(host),
+            },
+            staging,
+            raw,
+        ))
+    }
+
     pub(crate) fn batch(&self) -> Result<&shell::Batch<'_, S, M, Registration>, Error> {
         self.batch.as_ref().ok_or(Error::State)
     }

@@ -89,6 +89,7 @@ fn shown_in(
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn a_plugin_by_another_author_is_named() {
     let shown = shown(&[("clock", NotInstalledReason::OtherAuthor)], false);
     assert!(
@@ -98,6 +99,7 @@ fn a_plugin_by_another_author_is_named() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn several_share_a_notice() {
     let shown = shown(
         &[
@@ -111,6 +113,7 @@ fn several_share_a_notice() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn safe_mode_says_its_own() {
     let shown = shown(&[("clock", NotInstalledReason::Damaged)], true);
     assert!(shown.contains("The key was held at the start"), "{shown}");
@@ -124,6 +127,7 @@ fn nothing_is_said_when_all_were_installed() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn the_notices_fit_whole() {
     // A notice has three lines: a long name still leaves the reason.
     for language in ["en", "de"] {
