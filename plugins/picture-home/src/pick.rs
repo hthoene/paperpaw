@@ -40,7 +40,7 @@ pub(crate) fn pictures_in(storage: &dyn paperpaw_sdk::Storage, folder: &str) -> 
             found.push(entry.name.to_string());
         }
     });
-    found.sort_unstable_by_key(|n| n.to_lowercase());
+    paperpaw_sdk::sort::sort_by_key(&mut found, |n| n.to_lowercase());
     found
 }
 

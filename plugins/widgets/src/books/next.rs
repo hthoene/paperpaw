@@ -147,7 +147,7 @@ fn by_chance(env: &Env<'_>, day: i64) -> Option<String> {
             .iter()
             .map(|p| path_hash(p))
             .collect();
-        hashes.sort_unstable();
+        paperpaw_sdk::sort::sort(&mut hashes);
         hashes
     };
     let mut kept = Vec::new();

@@ -507,8 +507,9 @@ pub(crate) fn read_webdav(storage: &dyn Storage, path: &str, base: &str) -> Feed
     }
     feed.memory = short;
     feed.title = own.rsplit('/').next().unwrap_or("").to_string();
-    feed.entries
-        .sort_by_cached_key(|e| (e.feed.is_none(), e.title.to_lowercase()));
+    paperpaw_sdk::sort::sort_by_cached_key(&mut feed.entries, |e| {
+        (e.feed.is_none(), e.title.to_lowercase())
+    });
     feed
 }
 
