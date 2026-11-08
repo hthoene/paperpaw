@@ -24,9 +24,12 @@ mod native_day;
 mod native_defs;
 mod native_draw;
 mod native_entry;
+mod native_greeting;
 mod native_moon;
+mod native_note;
 /// The interface-7 plugin.
 pub mod native_plugin;
+mod native_quote;
 mod native_tiles;
 mod native_word_clock;
 mod native_world;

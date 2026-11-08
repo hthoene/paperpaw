@@ -3,7 +3,7 @@
 use super::fail;
 use crate::native_host::lib_service::One;
 use crate::native_host::registrations::{self as wire, Record};
-use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::positions;
 
@@ -21,14 +21,14 @@ pub(super) fn read(storage: &dyn Storage, path: &str, visit: One<'_>) -> Result<
     let position = positions::try_load(storage, path)
         .map_err(fail)?
         .ok_or(ERR_NOT_FOUND)?;
-    // A place with an empty XPointer has none; one that does not fit is not
-    // cut.
-    let xpointer = position.xpointer.as_deref().filter(|x| !x.is_empty());
-    let xpointer = match xpointer {
-        Some(x) if x.len() > XPOINTER => return Err(ERR_NO_SPACE),
-        Some(x) => x,
-        None => "",
-    };
+    // A place with an empty XPointer has none; one that does not fit (the
+    // SDK already leaves out one over 1,024 bytes as written) is as if it had
+    // none, never cut: the rest of the place still answers.
+    let xpointer = position
+        .xpointer
+        .as_deref()
+        .filter(|x| !x.is_empty() && x.len() <= XPOINTER)
+        .unwrap_or("");
     let mut flags = 0;
     if !xpointer.is_empty() {
         flags |= HAS_XPOINTER;

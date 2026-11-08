@@ -296,6 +296,19 @@ impl Storage for Metered {
         self.inner.list_from(dir, from, visit)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.inner.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.inner.remove_listed(dir, place)
+    }
+
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.inner.remove(path)
     }
@@ -310,6 +323,15 @@ impl Storage for Metered {
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.inner.create_dir(path)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.inner.remove_tree_step(root, keep_root, place)
     }
 
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {

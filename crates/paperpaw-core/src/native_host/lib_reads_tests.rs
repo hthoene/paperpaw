@@ -811,10 +811,16 @@ fn a_position_is_read_with_its_flags_or_is_not_found() {
         )
         .unwrap();
     assert_eq!(position(&reads, a), Err(ERR_IO));
-    // An XPointer the wire cannot carry is refused, never cut.
-    let long = Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(1025)));
+    // An XPointer the wire cannot carry is treated as absent, never cut: the
+    // rest of the place answers, without `has_xpointer`.
+    let long = Position::new(Locator::new(1, 2), 1.0)
+        .conversion(255)
+        .xpointer(Some("x".repeat(1025)));
     positions::save(&*card.storage, "books/a.epub", &long).unwrap();
-    assert_eq!(position(&reads, a), Err(ERR_NO_SPACE));
+    assert_eq!(position(&reads, a), Ok([1, 2, 10_000, 255, 0, 0, 0b10]));
+    let longest = Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(1024)));
+    positions::save(&*card.storage, "books/a.epub", &longest).unwrap();
+    assert_eq!(position(&reads, a), Ok([1, 2, 10_000, 0, 0, 1024, 0b01]));
 }
 
 /// An annotation file of version 2: four annotations and a line that is none.
@@ -945,13 +951,47 @@ fn anchors_are_the_annotations_that_have_a_conversion_or_xpointers() {
     assert_eq!(rows, [[1, 0b11, 255, 2, 0], [3, 0b10, 0, 2, 2]]);
     let (rows, end) = listing(&reads, true, 1, 1, 10).unwrap();
     assert_eq!((rows.len(), rows[0][0], end.next), (1, 3, 2));
-    // An XPointer of 1,025 bytes cannot be carried and is not cut.
+}
+
+#[test]
+fn an_oversized_xpointer_spares_the_rest_of_its_page() {
+    let card = card();
+    let reads = card.reads();
+    // An XPointer of 1,025 bytes (a file edited by hand: our writers refuse
+    // it) cannot be carried and is never cut. Rows: good, oversized with a
+    // conversion, oversized without, good again.
     let long = "p".repeat(1025);
+    let exact = "q".repeat(1024);
     put_annotations(
         &card,
-        &format!("# format 2\nh\t1\t0\t1\t4\t10\t0\t0\t\t{long}\t\tt\t\n"),
+        &format!(
+            "# format 2\n\
+             h\t1\t0\t1\t4\t10\t0\t0\t00000000000000ff\t/a\t/b\tgood\t\n\
+             h\t2\t0\t1\t4\t10\t0\t0\t00000000000000aa\t{long}\t/b\ttoo big\t\n\
+             h\t3\t0\t1\t4\t10\t0\t0\t\t/a\t{long}\tno conversion\t\n\
+             h\t4\t0\t1\t4\t10\t0\t0\t\t{exact}\t/b\tcap\t\n"
+        ),
     );
-    assert_eq!(listing(&reads, true, 0, 0, 10).unwrap_err(), ERR_NO_SPACE);
+    // [id, flags, conversion, start len, end len]: the second keeps only its
+    // conversion, the third is no anchor, the fourth (1,024 bytes) is whole.
+    let (rows, end) = listing(&reads, true, 0, 0, 10).unwrap();
+    assert_eq!(
+        rows,
+        [
+            [1, 0b11, 255, 2, 2],
+            [2, 0b01, 170, 0, 0],
+            [4, 0b10, 0, 1024, 2]
+        ]
+    );
+    assert_eq!((end.total, end.next), (3, 3));
+    // The same page, a row at a time.
+    let (rows, end) = listing(&reads, true, 1, 1, 1).unwrap();
+    assert_eq!((rows[0][0], end.next, end.total), (2, 2, 3));
+    // Annotations say the same: has XPointers for the first and the last.
+    let (rows, end) = listing(&reads, false, 0, 0, 10).unwrap();
+    assert_eq!(end.total, 4);
+    let has = |r: &[u64; 5]| r[2] >> 4 & 1;
+    assert_eq!(rows.iter().map(has).collect::<Vec<_>>(), [1, 0, 0, 1]);
 }
 
 #[test]

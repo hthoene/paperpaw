@@ -11,7 +11,7 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{MemoryClass, digest::sha1::Sha1, files::is_plain_name, json, native::Error};
 use paperpaw_ui_kit::{
-    mem::push,
+    mem::{push, wipe},
     text::{concat, copy, decimal},
 };
 
@@ -281,7 +281,6 @@ pub fn json_string(text: &str) -> Result<String, Error> {
 
 /// What the device says of itself when Calibre asks
 /// (`GET_INITIALIZATION_INFO`).
-#[derive(Debug)]
 pub struct Device<'a> {
     pub name: &'a str,
     /// The file extensions PaperPaw reads.
@@ -292,33 +291,82 @@ pub struct Device<'a> {
     pub version: &'a str,
 }
 
+/// The password is never shown: `Debug` writes `<set>` or `<none>`.
+impl core::fmt::Debug for Device<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Device")
+            .field("name", &self.name)
+            .field("extensions", &self.extensions)
+            .field("challenge", &self.challenge)
+            .field(
+                "password",
+                &if self.password.is_some() {
+                    "<set>"
+                } else {
+                    "<none>"
+                },
+            )
+            .field("version", &self.version)
+            .finish()
+    }
+}
+
 /// The answer to `GET_INITIALIZATION_INFO`.
 ///
 /// # Errors
 /// `NoMemory` when the answer cannot be kept.
 pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
+    let mut digits = [0; 40];
+    let mut quoted = String::new();
+    initialization_with(device, &mut digits, &mut quoted)
+}
+
+/// [`initialization`] with the hex digits of the password hash kept in
+/// `digits` and its quoted copy in `quoted`, both zeroed before it returns
+/// (`quoted` keeps its length, all zero bytes); only the answer keeps the
+/// hash.
+///
+/// The SHA-1 state (it holds the password's last block) wipes itself when
+/// the digest is dropped (`paperpaw_digest`'s `Drop`, #451).
+fn initialization_with(
+    device: &Device<'_>,
+    digits: &mut [u8; 40],
+    quoted: &mut String,
+) -> Result<String, Error> {
+    let answer = initialization_inner(device, digits, quoted);
+    wipe(digits);
+    wipe_string(quoted);
+    answer
+}
+
+/// Zeroes `text` in place: it keeps its length, all zero bytes (valid text).
+fn wipe_string(text: &mut String) {
+    let mut bytes = core::mem::take(text).into_bytes();
+    wipe(&mut bytes);
+    *text = String::from_utf8(bytes).unwrap_or_default();
+}
+
+fn initialization_inner(
+    device: &Device<'_>,
+    digits: &mut [u8; 40],
+    quoted: &mut String,
+) -> Result<String, Error> {
     let mut extensions = String::new();
     for (at, extension) in device.extensions.iter().enumerate() {
         let literal = json_string(extension)?;
         extensions = concat(&[&extensions, if at == 0 { "" } else { ", " }, &literal])?;
     }
-    // TODO(#421): wipe the SHA-1 state, the hex array and the hash with
-    // `mem::wipe` once it lands; the password is secret.
-    let mut digits = [0; 40];
     let hash = match device.password {
         Some(password) if !device.challenge.is_empty() => {
             let mut sha = Sha1::new();
             sha.update(password.as_bytes());
             sha.update(device.challenge.as_bytes());
-            sha_hex(sha, &mut digits)
+            sha_hex(sha, digits)
         }
         _ => "",
     };
-    let (name, version, hash) = (
-        json_string(device.name)?,
-        json_string(device.version)?,
-        json_string(hash)?,
-    );
+    let (name, version) = (json_string(device.name)?, json_string(device.version)?);
+    *quoted = json_string(hash)?;
     concat(&[
         "{\"versionOK\": true, \"maxBookContentPacketLen\": 65536, \"acceptedExtensions\": [",
         &extensions,
@@ -333,7 +381,7 @@ pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
         ", \"appName\": \"PaperPaw\", \"ccVersionNumber\": ",
         &version,
         ", \"passwordHash\": ",
-        &hash,
+        quoted,
         "}",
     ])
 }
@@ -341,10 +389,12 @@ pub fn initialization(device: &Device<'_>) -> Result<String, Error> {
 /// The 40 lower-case hex digits of a SHA-1, written into `out`.
 fn sha_hex(sha: Sha1, out: &mut [u8; 40]) -> &str {
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for (pair, byte) in out.as_chunks_mut::<2>().0.iter_mut().zip(sha.finish()) {
+    let mut raw = sha.finish();
+    for (pair, byte) in out.as_chunks_mut::<2>().0.iter_mut().zip(raw.iter()) {
         pair[0] = HEX[usize::from(byte >> 4)];
         pair[1] = HEX[usize::from(byte & 15)];
     }
+    wipe(&mut raw);
     core::str::from_utf8(out).unwrap_or_default()
 }
 
@@ -665,6 +715,50 @@ mod tests {
                 version: "v"
             })
         );
+    }
+
+    #[test]
+    fn the_password_is_never_in_the_debug_text() {
+        let device = Device {
+            name: "n",
+            extensions: &[],
+            challenge: "abc",
+            password: Some("hunter2-secret"),
+            version: "v",
+        };
+        let shown = alloc::format!("{device:?}");
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(shown.contains("<set>"));
+    }
+
+    #[test]
+    fn the_hash_digits_are_zeroed_once_the_answer_is_made() {
+        let device = Device {
+            name: "n",
+            extensions: &["epub"],
+            challenge: "abc",
+            password: Some("pw"),
+            version: "v",
+        };
+        let mut digits = [0xAA; 40];
+        let mut quoted = String::new();
+        let answer = initialization_with(&device, &mut digits, &mut quoted).unwrap();
+        assert_eq!(digits, [0; 40]);
+        // The quoted hash copy (`"` + 40 digits + `"`) is zeroed, not freed.
+        assert_eq!(quoted.len(), 42);
+        assert!(quoted.bytes().all(|b| b == 0), "{quoted:?}");
+        assert_eq!(answer, initialization(&device).unwrap());
+        assert!(answer.contains("\"passwordHash\": \""));
+        // Also with no extension in the answer.
+        let mut digits = [0xAA; 40];
+        let none = Device {
+            extensions: &[],
+            ..device
+        };
+        let mut quoted = String::new();
+        initialization_with(&none, &mut digits, &mut quoted).unwrap();
+        assert_eq!(digits, [0; 40]);
+        assert!(quoted.bytes().all(|b| b == 0));
     }
 
     #[test]
