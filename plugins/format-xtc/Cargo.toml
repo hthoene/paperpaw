@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-format-xtc"
 description = "PaperPaw XTC and XTCH: the Xteink readers' pre-rendered page format"
-version = "1.0.1"
+version = "1.0.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
