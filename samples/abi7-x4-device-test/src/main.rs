@@ -3,7 +3,8 @@
 #![no_std]
 #![no_main]
 
-use core::alloc::{GlobalAlloc, Layout};
+use paperpaw_sdk::native::events::Incoming;
+use paperpaw_sdk::native::reply::Reply;
 use paperpaw_sdk::native::{Error, Host, Plugin, registrations};
 
 /// One registration batch: `event.started`, token 1, exactly as the host's
@@ -33,7 +34,13 @@ impl Plugin for DeviceTest {
         Ok(Self { events: 0 })
     }
 
-    fn event(&mut self, _host: &Host<'_>, token: u32, _input: &[u8]) -> Result<(), Error> {
+    fn event(
+        &mut self,
+        _host: &Host<'_>,
+        token: u32,
+        _input: Incoming<'_>,
+        _reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
         if token != TOKEN {
             return Err(Error::Unsupported);
         }
@@ -44,20 +51,3 @@ impl Plugin for DeviceTest {
     }
 }
 paperpaw_sdk::native_plugin!(DeviceTest, metadata = include_bytes!("../metadata.bin"));
-
-// The plugin allocates no data of its own: its state lives in the host's heap
-// (the macro); a null allocator catches accidental use of a plugin-owned heap.
-struct NoHeap;
-// SAFETY: allocations always fail; no non-null allocation can be deallocated.
-unsafe impl GlobalAlloc for NoHeap {
-    unsafe fn alloc(&self, _: Layout) -> *mut u8 {
-        core::ptr::null_mut()
-    }
-    unsafe fn dealloc(&self, _: *mut u8, _: Layout) {}
-}
-#[global_allocator]
-static HEAP: NoHeap = NoHeap;
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
-    loop {}
-}
