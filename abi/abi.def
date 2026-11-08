@@ -14732,6 +14732,15 @@
         "entry_layout": 1,
         "entry_bytes": 20,
         "entry_align": 4
+      },
+      {
+        "name": "esp32s3-xtensa-lx7-ilp32-windowed-le",
+        "pointer_bits": 32,
+        "byte_order": "little",
+        "calling_convention": "xtensa-windowed-call8",
+        "entry_layout": 1,
+        "entry_bytes": 20,
+        "entry_align": 4
       }
     ],
     "prefix": [

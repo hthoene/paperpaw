@@ -18,7 +18,7 @@ as an argument of `make`, with no global slot and no writable static. Interface-
 |---|---|---|
 | 0..4 | magic `PPNP` | else not a plugin |
 | 4..6 | `format` = 5 | below: older PaperPaw's file; above: newer |
-| 6..8 | `target` | chip id as today (5: ESP32-C3, the X4); 9 (X4 Pro) stays refused until an Xtensa profile exists in `abi/entry.md` |
+| 6..8 | `target` | chip id as today: 5 ESP32-C3 (the X4, X3), 9 ESP32-S3 (the X4 Pro, X4 Classic; profile `esp32s3-xtensa-lx7-ilp32-windowed-le` in `abi/entry.md`, draft 29, decision 142) |
 | 8..10 | `abi_major` = 7 | |
 | 10..12 | `needs_minor` | from the generated metadata; above the host's: needs a newer PaperPaw |
 | 12..16 | `flags` | bit 0 `HEAP_WORD` (the plugin has `PAPERPAW_HEAP`, `abi/heap-word.md`); any other bit is refused as a newer format |
@@ -180,7 +180,8 @@ written anew.
 1. No `draft` field and no format 6 at the freeze: see "Identity".
 2. **Hot code and patches stay** (the X4's RISC-V speed); the patch *record* changed, see 4.
 3. **X4 Pro (ESP32-S3):** target 9 stays refused until an Xtensa profile exists in `abi/entry.md`;
-   nothing else is specified for it here.
+   nothing else is specified for it here. *Superseded by decision 142 (2026-11-08, draft 29): see
+   "Target 9" below.*
 4. **Patch records are self-contained and sorted by site** (Manager, 2026-11-06, on Senior's #806 and the
    Manager's requirement that the signature decide every byte that is written). Changed from format 4: two
    words become three (`kind | site`, `from`, `to`), and the order is by site, not by kind and site. Why: a
@@ -264,3 +265,26 @@ one hot function called from cold code). Its linked ELF and the file the packer 
 function pointer to hot code in its read-only data (the format-4 packer refuses that too), and the
 Xtensa profile.
 
+## Target 9: the X4 Pro and X4 Classic (draft 29, owner decision 142)
+
+The same format 5, header, digests, signature and loader order; what differs for target 9:
+
+- **Profile:** the metadata record's target is `esp32s3-xtensa-lx7-ilp32-windowed-le` (`abi/entry.md`,
+  "The Xtensa profile"); a target-9 header with another metadata target is refused at step 9.
+- **No hot code, no patches:** `hot_at`, `hot_len` and `patches` are 0. The loader refuses any other value as
+  `Damaged` before it reads the image; the packer never writes them.
+- **Relocations:** `relocs` lists the 32-bit words that hold a plugin address (`R_XTENSA_32`), increasing,
+  each 4-aligned and inside the image, as format 4 did for the X4 Pro. The loader adds the distance moved to
+  each and writes nothing else; the second (write) pass compares the header and relocation digests as for
+  target 5 (decision 5), with an empty patch digest.
+- **Placement:** the image is read into PSRAM, mapped for execution through `CODE_OFFSET`, and never written to
+  flash (the X4's write-once plugin flash and its index are the X4's). `align` as for target 5.
+- **Caps:** `image_len` at most format 4's `MAX_IMAGE_LEN`; the S3's PSRAM budget for all plugins is the
+  shell's (Firmware), refused with "no room" before any byte is read, never by cutting.
+- **Packer:** `tools/sign` pack5 accepts `EM_XTENSA` with the format-4 relocation table
+  (`relocation.rs`, `Chip::Esp32S3`), refuses a call0 object (`.xtensa.info` `ABI=1` where present), and writes target 9.
+- **Builds:** the release and store workflows build every code plugin for `x4-pro` (target 9; `x4-classic`
+  takes the same file, as `store-plugin.yml` already maps it) with the esp toolchain, alongside `x4`.
+- **Tests:** the loader's refusal sweep repeats for target 9 (nonzero hot or patch fields, a word outside the
+  image, unsorted relocs, wrong metadata target, a target-5 file on the S3 and a target-9 file on the C3);
+  `samples/abi7-x4-min` builds for both targets in CI. Device runs on an X4 Pro wait for the owner.
