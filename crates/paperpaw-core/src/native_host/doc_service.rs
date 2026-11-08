@@ -551,7 +551,7 @@ enum Ask<'a> {
     Xpointer(wire::ServiceDocXpointer<'a>),
     Span(wire::ServiceDocSpan),
     Href(wire::ServiceDocHref<'a>),
-    ImageAsk(wire::ServiceDocImageAsk),
+    Question(wire::ServiceDocImageAsk),
 }
 
 impl<'a> Ask<'a> {
@@ -566,7 +566,7 @@ impl<'a> Ask<'a> {
             wire::SERVICE_DOC_XPOINTER_TAG => Self::Xpointer(raw.decode()?),
             wire::SERVICE_DOC_SPAN_TAG => Self::Span(raw.decode()?),
             wire::SERVICE_DOC_HREF_TAG => Self::Href(raw.decode()?),
-            wire::SERVICE_DOC_IMAGE_ASK_TAG => Self::ImageAsk(raw.decode()?),
+            wire::SERVICE_DOC_IMAGE_ASK_TAG => Self::Question(raw.decode()?),
             _ => return Err(ERR_INVALID),
         })
     }
@@ -581,7 +581,7 @@ impl<'a> Ask<'a> {
             Self::Xpointer(r) => r.document,
             Self::Span(r) => r.document,
             Self::Href(r) => r.document,
-            Self::ImageAsk(r) => r.document,
+            Self::Question(r) => r.document,
         }
     }
 }
@@ -711,7 +711,7 @@ fn prepare<'a>(
             call.text = r.href;
             Check::At
         }
-        (op::IMAGE, Ask::ImageAsk(r)) => {
+        (op::IMAGE, Ask::Question(r)) => {
             if r.index == u32::MAX {
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.

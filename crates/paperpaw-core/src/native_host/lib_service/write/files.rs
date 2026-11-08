@@ -1,6 +1,9 @@
 //! Delete, move and import (`library.md` 2.3).
 use super::{
-    super::{Caller, args, wire::{self, Record}},
+    super::{
+        Caller, args,
+        wire::{self, Record},
+    },
     need_storage, require, result_row,
 };
 use paperpaw_native::host_glue::{

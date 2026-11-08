@@ -163,7 +163,7 @@ pub(crate) struct Fragment {
 #[derive(Clone, Copy)]
 pub(super) enum Part<'a> {
     Block(wire::ServiceDocBlock<'a>),
-    TextPart(wire::ServiceDocTextPart<'a>),
+    Text(wire::ServiceDocTextPart<'a>),
     Run(wire::ServiceDocRun),
     Map(wire::ServiceDocMap),
     Image(wire::ServiceDocImage),
@@ -177,7 +177,7 @@ impl<'a> Row<'a> for Part<'a> {
     fn from_raw(raw: RawRecord<'a>) -> Result<Self, i32> {
         Ok(match raw.tag() {
             wire::SERVICE_DOC_BLOCK_TAG => Self::Block(raw.decode()?),
-            wire::SERVICE_DOC_TEXT_PART_TAG => Self::TextPart(raw.decode()?),
+            wire::SERVICE_DOC_TEXT_PART_TAG => Self::Text(raw.decode()?),
             wire::SERVICE_DOC_RUN_TAG => Self::Run(raw.decode()?),
             wire::SERVICE_DOC_MAP_TAG => Self::Map(raw.decode()?),
             wire::SERVICE_DOC_IMAGE_TAG => Self::Image(raw.decode()?),
@@ -195,7 +195,7 @@ impl<'a> Row<'a> for Part<'a> {
 fn block_rank(part: &Part<'_>) -> u8 {
     match part {
         Part::Block(_) => 0,
-        Part::TextPart(_) => 1,
+        Part::Text(_) => 1,
         Part::Run(_) => 2,
         Part::Map(_) => 3,
         Part::Image(_) => 4,
@@ -223,7 +223,7 @@ impl Fragment {
                 self.kind = Some(block.kind);
                 self.text_bytes = block.text_bytes;
             }
-            Part::TextPart(part) => {
+            Part::Text(part) => {
                 self.parts += part.text.len() as u64;
                 // Never past the header's whole length, across fragments.
                 require(self.parts <= u64::from(self.text_bytes))?;

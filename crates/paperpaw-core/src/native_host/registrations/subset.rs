@@ -41,6 +41,10 @@ pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
 
 /// Every record of the subset, for tests that read any reply.
 #[cfg(test)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per record of the subset: a flat table, not logic"
+)]
 pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
     Ok(match raw.tag() {
         wire::DRAW_FRAME_TAG => Record::DrawFrame(raw.decode()?),
@@ -276,6 +280,10 @@ pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
 }
 
 /// The typed encoder of `record`, if it is one of the subset.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per record of the subset: a flat table, not logic"
+)]
 pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, i32> {
     Ok(match record {
         Record::DrawFrame(r) => r,

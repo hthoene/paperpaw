@@ -16,9 +16,9 @@ mod subset;
     reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
-pub(super) use subset::{as_wire, decode_record};
 #[cfg(test)]
 pub(super) use subset::decode_any;
+pub(super) use subset::{as_wire, decode_record};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
