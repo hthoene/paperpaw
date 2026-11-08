@@ -95,7 +95,8 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                 let kind = match row.kind() {
                     RegistrySettingKind::Bool => Kind::Bool,
                     RegistrySettingKind::Int => Kind::Int { min: i64::MIN, max: i64::MAX },
-                    RegistrySettingKind::Choice | RegistrySettingKind::List => Kind::Choice,
+                    RegistrySettingKind::Choice => Kind::Choice,
+                    RegistrySettingKind::List => Kind::List,
                     // Folders and languages belong to the device, not to a way of reading.
                     _ => return Ok(()),
                 };
@@ -313,6 +314,29 @@ mod tests {
         let keys: Vec<&str> = changes.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, ["a.contrast", "a.size", "a.bold"]);
         assert_eq!(changes[0].1, Value::Text("strong".into()));
+    }
+
+    #[test]
+    fn a_changed_list_is_applied_without_a_lookup() {
+        // The status-line items are a list: no choices to check, any text.
+        let current = [now("a.items", Kind::List, Value::Text("clock".into()))];
+        let mut limits = Fake {
+            choices: Vec::new(),
+            asked: Vec::new(),
+        };
+        let items = profile(&[("a.items", "clock,battery"), ("a.other", "x")]);
+        let changes = differences(&mut limits, &items, &current).unwrap();
+        assert_eq!(
+            changes,
+            [("a.items".to_string(), Value::Text("clock,battery".into()))]
+        );
+        assert!(limits.asked.is_empty());
+        let blank = profile(&[("a.items", "")]);
+        let changes = differences(&mut limits, &blank, &current).unwrap();
+        assert_eq!(
+            changes,
+            [("a.items".to_string(), Value::Text(String::new()))]
+        );
     }
 
     #[test]

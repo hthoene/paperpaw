@@ -226,8 +226,6 @@ impl NativeProfiles {
         let mut commands = CommandSender::new(host, &mut scratch);
         // A refusal is returned from the callback: nothing is applied.
         native_data::commit(&mut commands, &changes, |commands| {
-            // A failure to note the profile loses only "next" going round.
-            let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
             let text = Messages::new()?.format(
                 host,
                 "profiles.applied",
@@ -236,7 +234,12 @@ impl NativeProfiles {
                     value: &profile.name,
                 }],
             )?;
-            commands.notify(Notify::new(&text)?)
+            // The note first: a refused note leaves `last.txt` as it was, never
+            // naming a profile that was not applied.
+            commands.notify(Notify::new(&text)?)?;
+            // A failure to note the profile loses only "next" going round.
+            let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
+            Ok(())
         })
     }
 

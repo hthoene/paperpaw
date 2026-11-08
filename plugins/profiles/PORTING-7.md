@@ -39,14 +39,16 @@ save new (H1, H2, H4), apply (H1, H4), hold options (H1, H2, H4), next (H1).
 
 - A value a setting no longer accepts is skipped, as in interface 6, and the rest of
   the profile still applies: an integer out of its bounds, a word that is no boolean,
-  a choice that is no longer one of the setting's choices (a removed font). Choices
+  a choice that is no longer one of the setting's choices (a removed font). A list
+  (the status-line items) has no choices: any text goes, as before. Choices
   are read from the registry (`choices`, op 3) only for a value that differs from the
   current one. Tests: `native_data` (fake limits).
 - Changes are staged one command each. A refusal (`NoSpace` over the stage's byte
   budget, or its command count: 8 per callback today, 64 with draft 27 / Core #484)
   stops the apply and the callback returns the error, so the host drops everything
   staged in it (`commands.md`: submit 1): nothing is applied, `last.txt` is not written
-  and no "applied" note is shown. Test: `native_data::commit` returns `NoSpace`
+  and no "applied" note is shown. The note is staged before `last.txt` is written, so
+  a refused note never leaves `last.txt` naming a profile that was not applied. Test: `native_data::commit` returns `NoSpace`
   and runs no note (stage with a byte budget); the
   host side is part of the pending acceptance (H1).
 
