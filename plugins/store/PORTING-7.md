@@ -22,7 +22,7 @@ finishes the port; until then nothing is dropped.
   they could hold (of a plugin here, naming its author's key, not stopped yet),
   with a bound on the entries read (4,096) and on those kept (256).
   `tests/native_alloc_refusal.rs` refuses each allocation of these. A library is
-  untrusted (community plugins too): every text is cut at a limit named in the
+  untrusted (community plugins too): every text is cut or refused at a limit (a line, name or summary past its cap is not read; runs and sections stop growing) named in the
   file, and nothing indexes text or bytes in a way that can panic.
 - Declarations the host refuses for now are left out of the batch (none here).
 
@@ -41,10 +41,15 @@ finishes the port; until then nothing is dropped.
   icon, the queue and the notices, "how it works": H1/H3/H4.
 - Requests from other plugins (`Command::request_plugins`) and the first-run offer
   (`core.registry` op 22, Host todo 99).
+- **No downgrade**: the install must refuse a version older than the installed
+  one (the interface-6 rule); it belongs with the install, so it comes with Kernel
+  todo 145's design.
 - The reading of the library's JSON into `Entry` values with the fallible reader
   (`paperpaw_sdk::json::stream::try_feed`, #414) is not in this slice: it goes with
   the fetch, on top of the rules here. Its bound is the largest file taken
-  (`MAX_LIST_FILE`, 4 MiB; a plugin's page 512 KiB; a picture 2 MiB).
+  (the list 4 MiB, a plugin's page 512 KiB, a picture 2 MiB: the interface-6
+  `MAX_LIST_FILE`, `MAX_PAGE_FILE`, `MAX_SHOT_FILE`; enforced by the fetch, which
+  reads the files).
 
 Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 (`tests/*.rs`) stay as the references.

@@ -17,15 +17,12 @@ use paperpaw_ui_kit::{
 
 /// The format of the list and of a plugin's page this plugin reads.
 pub const FORMAT: u32 = 2;
-/// The largest files the store takes from the library: the list of plugins,
-/// a plugin's page, a picture of it.
-pub const MAX_LIST_FILE: u64 = 4 * 1024 * 1024;
-pub const MAX_PAGE_FILE: u64 = 512 * 1024;
-pub const MAX_SHOT_FILE: u64 = 2 * 1024 * 1024;
-/// The longest summary kept, in bytes, and the longest name.
+/// The longest summary an index line may hold, in bytes, and the longest name
+/// (and id, author, licence, version, SDK): the store writes lines within them,
+/// so a longer one is not the store's and is not read.
 pub const MAX_SUMMARY: usize = 300;
 pub const MAX_NAME: usize = 80;
-/// The longest line of the index read.
+/// The longest line of the index read; a longer one is not a line.
 pub const MAX_LINE: usize = 1024;
 /// Runs of plugins of one group at most.
 pub const MAX_RUNS: usize = 32;
@@ -190,6 +187,9 @@ impl Entry {
     /// # Errors
     /// `NoMemory` when the entry cannot be kept.
     pub fn parse(line: &str) -> Result<Option<Self>, Error> {
+        if line.len() > MAX_LINE {
+            return Ok(None);
+        }
         let mut f = line.splitn(12, '\t');
         let (Some(group), Some(size), Some(flags)) = (f.next(), f.next(), f.next()) else {
             return Ok(None);
@@ -227,6 +227,13 @@ impl Entry {
         else {
             return Ok(None);
         };
+        if [id, version, sdk, author, licence, name]
+            .iter()
+            .any(|t| t.len() > MAX_NAME)
+            || summary.len() > MAX_SUMMARY
+        {
+            return Ok(None);
+        }
         Ok(Some(Self {
             group,
             size,
@@ -246,6 +253,37 @@ impl Entry {
             summary: copy(summary)?,
         }))
     }
+}
+
+/// Counts one more plugin of `group` in `runs` (a run is plugins of one group
+/// in a row, with its count). Past [`MAX_RUNS`] runs the last one grows
+/// instead, so the list is bounded however it is ordered.
+///
+/// # Errors
+/// `NoMemory` when the run cannot be kept.
+pub fn add_to_run(runs: &mut Vec<(usize, u32)>, group: usize) -> Result<(), Error> {
+    let full = runs.len() >= MAX_RUNS;
+    match runs.last_mut() {
+        Some((last, count)) if *last == group || full => {
+            *count = count.saturating_add(1);
+            Ok(())
+        }
+        _ => push(runs, (group, 1)),
+    }
+}
+
+/// Keeps `id` among the plugins of a section if it is a plugin's name and the
+/// section holds fewer than [`MAX_SECTION`]; says whether it was kept.
+///
+/// # Errors
+/// `NoMemory` when the id cannot be kept.
+pub fn keep_in_section(ids: &mut Vec<String>, id: &str) -> Result<bool, Error> {
+    if ids.len() >= MAX_SECTION || !paperpaw_sdk::install::is_plugin_name(id) {
+        return Ok(false);
+    }
+    let id = copy(id)?;
+    push(ids, id)?;
+    Ok(true)
 }
 
 /// The families of shared functions a build or a firmware has.

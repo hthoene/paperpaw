@@ -65,3 +65,18 @@ fn revocations_survive_refused_allocations() {
         Ok(())
     });
 }
+
+#[test]
+fn runs_and_sections_survive_refused_allocations() {
+    fail_alloc::sweep(|| {
+        let mut runs = Vec::new();
+        for group in [1, 1, 2, 3] {
+            model::add_to_run(&mut runs, group)?;
+        }
+        assert_eq!(runs.len(), 3);
+        let mut ids = Vec::new();
+        assert!(model::keep_in_section(&mut ids, "airy-theme")?);
+        assert!(!model::keep_in_section(&mut ids, "Not A Name")?);
+        Ok(())
+    });
+}
