@@ -44,6 +44,8 @@ const STATE_MORE: u32 = 1;
 const STATE_FAILED: u32 = 2;
 /// The format's id, as `crate::FORMAT` spells it.
 const FORMAT_ID: &str = "format-txt.txt";
+/// The code a refused allocation travels as through `StorageError`.
+const NO_MEMORY: u16 = 0x6e6d;
 const CACHE_MADE: u32 = 1 << 6;
 
 /// The book and the cache as one storage, plus the one conversion step.
@@ -88,6 +90,8 @@ fn storage_error(error: Error) -> StorageError {
         Error::Full | Error::NoSpace => StorageError::Full,
         Error::Unsupported => StorageError::Unsupported,
         Error::Invalid => StorageError::InvalidPath,
+        // A refused allocation is not a damaged book: it keeps its name.
+        Error::NoMemory => StorageError::Other(NO_MEMORY),
         _ => StorageError::Io,
     }
 }
@@ -175,7 +179,9 @@ fn document_error(error: &DocumentError) -> Error {
         DocumentError::Storage(StorageError::Unsupported) | DocumentError::UnsupportedFormat => {
             Error::Unsupported
         }
-        DocumentError::OutOfMemory => Error::NoMemory,
+        DocumentError::OutOfMemory | DocumentError::Storage(StorageError::Other(NO_MEMORY)) => {
+            Error::NoMemory
+        }
         DocumentError::Malformed(_) => Error::Invalid,
         DocumentError::NotReady => Error::Busy,
         _ => Error::Io,
@@ -199,13 +205,7 @@ fn state_record(
     flags: u32,
 ) -> Record<'static> {
     Record::FmtState(stage::FmtState::new(
-        id,
-        state,
-        ppm,
-        status,
-        flags,
-        conversion,
-        FORMAT_ID,
+        id, state, ppm, status, flags, conversion, FORMAT_ID,
     ))
 }
 
@@ -271,6 +271,17 @@ impl TxtProvider {
                     out,
                 )
             }
+            1 => stage::reply_encode(&[], out).map_err(|_| Error::NoSpace),
+            // A text has no contents, links or fonts (an empty list) and no
+            // labels, XPointers, cover or pictures (`ERR_NOT_FOUND`).
+            9 | 14 | 16 => {
+                self.ready(call.document)?;
+                one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out)
+            }
+            10..=13 | 15 | 17 | 18 => {
+                self.ready(call.document)?;
+                Err(Error::NotFound)
+            }
             _ => Err(Error::Unsupported),
         }
     }
@@ -305,6 +316,8 @@ impl TxtProvider {
         self.slots.try_reserve(1).map_err(|_| Error::NoMemory)?;
         let (body, made) = match start(io) {
             Ok(started) => started,
+            // Short memory is for the host to try again, not a failed book.
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(error) => (Body::Failed(i32::from(error)), false),
         };
         let record = match &body {
@@ -361,6 +374,10 @@ impl TxtProvider {
                     Ok(document) => {
                         slot.body = Body::Ready(document);
                         state_record(id, conversion, STATE_READY, 0, 0, CACHE_MADE)
+                    }
+                    Err(error) if document_error(&error) == Error::NoMemory => {
+                        // The copy is whole: the next call opens it again.
+                        return Err(Error::NoMemory);
                     }
                     Err(error) => {
                         let status = i32::from(document_error(&error));

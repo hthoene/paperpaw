@@ -9,7 +9,7 @@ with the generated `core_format_v1` codecs (no hand-encoded records): op 2 open,
 (UTF-16 book to the UTF-8 copy `text.utf8` in root 6, `Preparation`), 4 close, 5 meta,
 6 meta_text, 7 sections, 8 block (header, text parts, runs, `OffsetMap` checkpoints; cut into
 fragments between records with `more`/`next`/generation), 19 progress. Ops 1 and 9-18 answer
-`Unsupported` (a text has no sniffing, table of contents, links, fonts or pictures). The book
+answer as `document.md` says a format with none does: op 1 no rows (not a sniffer), ops 9, 14 and 16 an empty list (`fmt.end`, total 0), ops 10-13, 15, 17 and 18 `NotFound`; anything else `Unsupported`. The book
 is root 3 (path `""`), the copy root 6; `HostIo` maps both. The parser (`TxtDocument`) is the
 interface-6 one, shared, so the blocks are the same; `tests/provider.rs` compares the two on the
 same files (UTF-8, Windows-1252, UTF-16 both orders, Gutenberg header), fragments, refusals and
@@ -26,6 +26,15 @@ random bytes.
   from the plugin (interface 6 used the file name). The library (LIB) names an untitled book by
   its file; Host/LIB to confirm.
 - `doc_meta` flag bit 1 (series) is left 0, as in Services' #341 facade.
+
+## Refusals
+
+A refused allocation is `NoMemory` end to end: `HostIo` carries it through `StorageError::Other`, an open that hits it leaves no document (the host tries again), and a finished UTF-16 conversion is opened again by the next prepare call.
+`tests/provider_allocation.rs` refuses every allocation of open, meta, sections and block in turn.
+
+## Open gates
+
+- X4: a UTF-16 conversion takes 1 KiB per `prepare` call (about 50 ms budget per call is not measured); stack and time on the device are not measured. Gate stays open until the device test (owner OK).
 
 ## Left in place (intermediate)
 

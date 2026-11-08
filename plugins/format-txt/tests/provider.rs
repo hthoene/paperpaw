@@ -429,7 +429,7 @@ fn bad_calls_get_their_refusals() {
         run(&mut p, &io, &call(2, 1, |_| {})),
         Err(Error::Invalid)
     ));
-    for op in [1, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99] {
+    for op in [20, 99] {
         assert!(
             matches!(
                 run(&mut p, &io, &call(op, 1, |_| {})),
@@ -438,6 +438,27 @@ fn bad_calls_get_their_refusals() {
             "op {op}"
         );
     }
+    // Nothing a text has: no labels, XPointers, links to follow, cover or pictures.
+    for op in [10, 11, 12, 13, 15, 17, 18] {
+        assert!(
+            matches!(run(&mut p, &io, &call(op, 1, |_| {})), Err(Error::NotFound)),
+            "op {op}"
+        );
+    }
+    // Nothing to list: contents, links, fonts; and not a sniffer.
+    for op in [9, 14, 16] {
+        let reply = run(&mut p, &io, &call(op, 1, |_| {})).unwrap();
+        let rows: Vec<_> = stage::reply_decode(&reply)
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            matches!(rows[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 0),
+            "op {op}"
+        );
+    }
+    let none = run(&mut p, &io, &call(1, 0, |_| {})).unwrap();
+    assert_eq!(stage::reply_decode(&none).unwrap().len(), 0);
     let mut small = [0u8; 8];
     assert!(matches!(
         p.call(&io, &call(5, 1, |_| {}), &mut small),
