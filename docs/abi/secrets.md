@@ -138,13 +138,14 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 ## 3. Saving and the card
 
 - [D] Secrets live in one host file, `.paperpaw/secrets.txt` (interface 6's format: one line per
-  secret, owner and name, label, flags, veiled value). **The host never holds the file whole**
-  (interface 6 loaded it and doubled it while writing, up to 2 x 64 KiB on the X4): `get` and
-  `list` read it line by line through one 4 KiB buffer; `keep` and `remove` stream the old lines
-  through to a new file with the one change and then **replace the old file by rename**, so a
-  power cut leaves the old file or the new one, never half of either. Memory per call: the 4 KiB
-  buffer and one line (at most about 2.5 KiB: the names, the label and a 1,024-byte value veiled
-  as hex, or sealed with its 59 more characters, section 3.1), no allocation per secret.
+  secret, owner and name, label, flags, value: sealed on the X4, section 3.1; veiled on the desktop
+  emulator). **The host never holds the file whole** (interface 6 loaded it and doubled it while
+  writing, up to 2 x 64 KiB on the X4): `get` and `list` read it line by line through one 4 KiB
+  buffer; `keep` and `remove` stream the old lines through to a new file with the one change and
+  then **replace the old file by rename**, so a power cut leaves the old file or the new one, never
+  half of either. Memory per call: the 4 KiB buffer and one line (at most about 2.5 KiB: the names,
+  the label and a 1,024-byte value veiled as hex, or sealed with its 59 more characters, section
+  3.1), no allocation per secret.
 - [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
   error; lines the host does not understand are kept as they are and do not count), `keep` and
   `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
