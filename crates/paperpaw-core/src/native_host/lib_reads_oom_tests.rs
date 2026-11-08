@@ -253,6 +253,9 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
         positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
         put_annotations(&card, &annotation_file("a note"));
     }
+    // The book's file is there: a gone one is looked for by the storage,
+    // whose own allocations are not the host's (and not what is measured).
+    card.storage.write("books/b.epub", &[7_u8; 10]).unwrap();
     let path = BookRef::Path("books/b.epub");
     let ask = wire::ServiceLibTextAt {
         kind: 0,

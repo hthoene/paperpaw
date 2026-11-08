@@ -3,7 +3,7 @@ use super::{CatalogReads, fail, valid_prefix, zeroed};
 use crate::native_host::lib_service::{BookRef, One};
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::StorageError;
 use paperpaw_sdk::library::{self, catalog};
@@ -174,37 +174,55 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
 
 /// Whether the book's file is gone from the card (`lib_book.flags` bit 8).
 ///
-/// One `size` lookup of the path; where that finds nothing (or the path is
-/// one the storage cannot name) a folder book is looked for as a directory
-/// with a `list_from` that stops at the first entry (a whole `list` of a
-/// folder of thousands of pictures would read them all; the FAT storage
-/// stops there too; `exists` is `size().is_ok()` by default and cannot see a
-/// directory on FAT or the desktop's folders). Gone only when both say so; an
-/// invalid path is a book that is not there. A storage that cannot be read
-/// (the card not mounted, a failing card) is that storage's error, never
-/// "gone": the answer is `ERR_IO`, so a catalog on another storage does not
-/// make a book of an unmounted card look removed.
+/// In turn, stopping at the first that finds it:
+/// 1. `size` of the path (a file);
+/// 2. `modified` of the path, which the FAT storage answers for a directory
+///    too, by looking up its entry and without walking the folder (a folder
+///    book of thousands of pictures costs one lookup); `exists` is
+///    `size().is_ok()` by default and cannot see a directory;
+/// 3. only where a storage does not tell (`None`), a `list_from` that stops
+///    at the first entry. FAT reads a folder whole in `list_from` (only the
+///    visitor stops), so this is the fallback, not the check.
+///
+/// A path the storage cannot name (`InvalidPath`) is a book that is not
+/// there. A storage that fails (a card not mounted, a failing card) is
+/// `ERR_IO`, never "gone". Before a book is called gone the storage must
+/// show a root (`list_from("")`): where it does not (the books' storage is
+/// `NoStorage`, the catalog being on another storage that still answers) the
+/// answer is `ERR_IO`, or every book would read as removed. Limit: a router
+/// that shows a live root over an empty mount cannot be told from a deleted
+/// top folder through `Storage`.
 ///
 /// Allocation: the host's own is none. A FAT storage's directory walk (the
 /// `size` lookup's included) allocates inside rust-fatfs, which the host
-/// cannot refuse; the probe adds one directory open, only where `size` found
-/// nothing.
+/// cannot refuse.
 ///
-/// Cost: one lookup per `book` call, two for a book that is gone or a
-/// folder; unmeasured on the X4. A list page does not call this per row (it
-/// has `lib_entry` rows; op 3 is for the one book the plugin shows).
+/// Cost: one lookup per `book` call (two for a folder), three or four for a
+/// book that is gone; unmeasured on the X4. A list page does not call this
+/// per row (it has `lib_entry` rows; op 3 is for the one book the plugin
+/// shows).
 fn file_is_gone(reads: &CatalogReads, path: &str) -> Result<bool, i32> {
     let nothing =
         |error: StorageError| matches!(error, StorageError::NotFound | StorageError::InvalidPath);
     match reads.storage.size(path) {
-        Ok(_) => Ok(false),
-        Err(error) if nothing(error) => match reads.storage.list_from(path, 0, &mut |_| false) {
-            Ok(_) => Ok(false),
-            Err(error) if nothing(error) => Ok(true),
-            Err(error) => Err(fail(error.into())),
-        },
-        Err(error) => Err(fail(error.into())),
+        Ok(_) => return Ok(false),
+        Err(error) if nothing(error) => {}
+        Err(error) => return Err(fail(error.into())),
     }
+    if reads.storage.modified(path).is_some() {
+        return Ok(false);
+    }
+    match reads.storage.list_from(path, 0, &mut |_| false) {
+        Ok(_) => return Ok(false),
+        Err(error) if nothing(error) => {}
+        Err(error) => return Err(fail(error.into())),
+    }
+    // Not found by any: gone, but only on a storage that is there at all.
+    reads
+        .storage
+        .list_from("", 0, &mut |_| false)
+        .map(|_| true)
+        .map_err(|_| ERR_IO)
 }
 
 /// Whether the library read title, author and cover from the book (its
