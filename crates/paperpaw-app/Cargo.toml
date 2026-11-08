@@ -142,7 +142,6 @@ paperpaw-plugin-help.workspace = true
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }
-paperpaw-plugin-plugin-manager.workspace = true
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 

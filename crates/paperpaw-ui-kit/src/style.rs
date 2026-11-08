@@ -68,6 +68,12 @@ pub struct Style {
     pub note: Color,
     /// Height of a section heading line.
     pub heading: u16,
+    /// Cards, e.g. the frames of widgets.
+    pub card: Color,
+    /// Lesser text on a dark card.
+    pub on_dark_muted: Color,
+    /// Gray text is drawn black (setting `core.ui-contrast`).
+    pub strong: bool,
 }
 
 impl Style {
@@ -151,6 +157,9 @@ impl Style {
             heading: narrow(
                 (crate::geometry::line_height(font, small)? * 1.25) as u32 + u32::from(gap),
             ),
+            card: color("card", Color::gray(225)),
+            on_dark_muted: color("on-dark-muted", Color::gray(200)),
+            strong,
         })
     }
 }
