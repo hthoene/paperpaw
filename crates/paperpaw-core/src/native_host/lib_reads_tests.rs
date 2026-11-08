@@ -586,6 +586,15 @@ fn a_book_whose_file_is_gone_says_missing() {
         );
         assert!(book(&reads, BookRef::Path("books/b.epub")).is_ok());
     }
+    // A root probe refused memory is a memory error, not a storage one.
+    let short = Failing(card.storage.clone(), "", StorageError::OutOfMemory);
+    let reads = CatalogReads::new(Rc::new(short), card.env.clone());
+    card.storage.remove("books/b.epub").unwrap();
+    assert_eq!(
+        book(&reads, BookRef::Path("books/b.epub")).unwrap_err(),
+        ERR_NO_MEMORY
+    );
+    card.storage.write("books/b.epub", &[7_u8; 10]).unwrap();
     // A path the storage cannot name is a book that is not there, not a
     // failure of the whole call.
     let odd = Failing(

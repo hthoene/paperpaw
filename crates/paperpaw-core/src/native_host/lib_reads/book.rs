@@ -189,7 +189,8 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
 /// `ERR_IO`, never "gone". Before a book is called gone the storage must
 /// show a root (`list_from("")`): where it does not (the books' storage is
 /// `NoStorage`, the catalog being on another storage that still answers) the
-/// answer is `ERR_IO`, or every book would read as removed. Limit: a router
+/// answer is `ERR_IO` (`ERR_NO_MEMORY` if the probe itself is refused
+/// memory), or every book would read as removed. Limit: a router
 /// that shows a live root over an empty mount cannot be told from a deleted
 /// top folder through `Storage`.
 ///
@@ -218,11 +219,12 @@ fn file_is_gone(reads: &CatalogReads, path: &str) -> Result<bool, i32> {
         Err(error) => return Err(fail(error.into())),
     }
     // Not found by any: gone, but only on a storage that is there at all.
-    reads
-        .storage
-        .list_from("", 0, &mut |_| false)
-        .map(|_| true)
-        .map_err(|_| ERR_IO)
+    // No root is `ERR_IO`; a probe that ran out of memory is not that.
+    match reads.storage.list_from("", 0, &mut |_| false) {
+        Ok(_) => Ok(true),
+        Err(StorageError::OutOfMemory) => Err(ERR_NO_MEMORY),
+        Err(_) => Err(ERR_IO),
+    }
 }
 
 /// Whether the library read title, author and cover from the book (its
