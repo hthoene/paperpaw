@@ -34,10 +34,6 @@ use paperpaw_ui_kit::{
     read_event, uitext,
 };
 
-#[expect(
-    dead_code,
-    reason = "the language setting is in the image, submitted once a choice may have 33 values (draft 29)"
-)]
 mod image {
     include!(concat!(env!("OUT_DIR"), "/translate_declarations.rs"));
 }
