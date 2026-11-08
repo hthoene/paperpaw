@@ -49,9 +49,24 @@ impl DirStorage {
         self
     }
 
+    /// Whether the root folder is still there. A volume taken away (an SD
+    /// card pulled, a share revoked) leaves its mount point gone: every
+    /// operation then says [`StorageError::CARD_GONE`], not "not found",
+    /// so that a book on it is never taken for deleted, and a write never
+    /// makes the mount point again on the wrong disk.
+    fn live(&self) -> Result<(), StorageError> {
+        match fs::metadata(&self.root) {
+            Ok(metadata) if metadata.is_dir() => Ok(()),
+            Ok(_) => Err(StorageError::CARD_GONE),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Err(StorageError::CARD_GONE),
+            Err(e) => Err(error(e)),
+        }
+    }
+
     /// The folder `dir`, the root itself for `""` (to list or make it).
     fn resolve_dir(&self, dir: &str) -> Result<PathBuf, StorageError> {
         if dir.is_empty() {
+            self.live()?;
             return Ok(self.root.clone());
         }
         self.resolve(dir)
@@ -63,6 +78,7 @@ impl DirStorage {
         if !is_valid_path(path) {
             return Err(StorageError::InvalidPath);
         }
+        self.live()?;
         let mut full = self.root.clone();
         for part in path.split('/') {
             if !is_own_name(&full, part) {

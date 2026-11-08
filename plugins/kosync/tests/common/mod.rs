@@ -23,6 +23,57 @@ use paperpaw_sdk::{
     Version,
 };
 
+/// Stands in for the power plugin, whose interface-6 form is gone (it is a
+/// native plugin now, #228): the setting `power.mode` set by hand wears the
+/// mode it names, as the kernel did through Power. Goes with Kosync's own port.
+#[derive(Debug)]
+struct PowerByHand;
+
+impl Plugin for PowerByHand {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("power"), "Power", Version::new(0, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        static MODES: [&str; 4] = [
+            "power.mode.auto",
+            "power.mode.normal",
+            "power.mode.saving",
+            "power.mode.offline",
+        ];
+        static SETTINGS: [paperpaw_sdk::SettingSpec; 1] = [paperpaw_sdk::SettingSpec::choice(
+            "power.mode",
+            "power.setting.mode",
+            &MODES,
+            "power.mode.auto",
+            paperpaw_sdk::builtin::groups::DEVELOPER,
+        )];
+        r.add_settings(&SETTINGS)?;
+        r.on(
+            paperpaw_sdk::builtin::events::SETTING_CHANGED,
+            |env, changed, out| {
+                if changed.id.as_str() != "power.mode" {
+                    return;
+                }
+                let mode = match env.settings().get("power.mode") {
+                    Some(paperpaw_sdk::SettingValue::Text(text)) => text.as_ref(),
+                    _ => "",
+                };
+                let mode = match mode {
+                    "power.mode.saving" => paperpaw_sdk::power::SAVING,
+                    "power.mode.offline" => paperpaw_sdk::power::OFFLINE,
+                    _ => paperpaw_sdk::power::NORMAL,
+                };
+                out.push(paperpaw_sdk::Command::Wear(paperpaw_sdk::power::Wear::new(
+                    mode,
+                )));
+            },
+        )?;
+        Ok(())
+    }
+}
+
 pub const fn device(touch: bool) -> DeviceInfo {
     DeviceInfo::new(
         "test",
@@ -162,7 +213,7 @@ impl Sync {
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             .plugin(TxtFormat)
             .plugin(Kosync)
-            .plugin(paperpaw_plugin_power::Power)
+            .plugin(PowerByHand)
             .plugin(Listener(Rc::clone(&gone)))
             .build()
             .unwrap();
