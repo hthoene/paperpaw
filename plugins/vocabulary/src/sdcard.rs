@@ -31,7 +31,9 @@ const MOST_ROWS: usize = 40;
 
 /// The folder the setting names.
 pub(crate) fn folder(env: &Env<'_>) -> String {
+    // Interface 6, ported with the shell: where the heap refuses, the default.
     sync::folder_of(env.settings().read(&SD_FOLDER))
+        .unwrap_or_else(|_| String::from(sync::DEFAULT_FOLDER))
 }
 
 #[derive(Debug)]
@@ -126,20 +128,25 @@ impl SdScreen {
             }
             return;
         }
-        let seen = sync::pending(storage, &self.folder);
+        let seen = sync::pending(storage, &self.folder).unwrap_or_default();
         if !seen.folder {
             sync::make_folder(
                 storage,
                 &self.folder,
                 &env.i18n().format("vocabulary.sd.readme", &[]),
-            );
+            )
+            .ok();
             let note = env
                 .i18n()
                 .format("vocabulary.sd.made", &[("folder", Arg::Str(&self.folder))]);
             self.finish(env, alloc::vec![(String::new(), note)]);
             return;
         }
-        let job = Job::new(storage, &self.folder, self.mode);
+        let Ok(job) = Job::new(storage, &self.folder, self.mode) else {
+            let note = env.i18n().tr("vocabulary.sd.nomemory").to_string();
+            self.finish(env, alloc::vec![(String::new(), note)]);
+            return;
+        };
         if job.is_empty() {
             let key = if seen.files == 0 {
                 "vocabulary.sd.row.empty"
@@ -326,7 +333,10 @@ impl SdScreen {
                     let (permille, file) = job.progress();
                     show = worth_drawing(&mut self.shown, permille, file);
                 }
-                Step::Ask(question) => {
+                Step::Ask => {
+                    let Some(question) = job.question().cloned() else {
+                        return;
+                    };
                     let area = self.content(&env);
                     let top = self.question_height(&env, &question) + 2 * self.style.gap();
                     let lower =
@@ -561,7 +571,7 @@ impl SdScreen {
 
 /// Whether anything of the folder is to be done, for the list of decks.
 pub(crate) fn pending(env: &Env<'_>) -> sync::Pending {
-    sync::pending(env.storage(), &folder(env))
+    sync::pending(env.storage(), &folder(env)).unwrap_or_default()
 }
 
 #[cfg(test)]

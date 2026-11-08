@@ -1,5 +1,6 @@
 //! The stock UI's Battery geometry, read without an Env or UI adapter.
 
+use crate::mem;
 use alloc::string::String;
 use paperpaw_sdk::{
     Color,
@@ -40,7 +41,7 @@ fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
 pub(super) fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut bytes = [0; 512];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
-        SettingValue::Text(value) => String::from(value),
+        SettingValue::Text(value) => mem::string(value)?,
         _ => String::new(),
     })
 }

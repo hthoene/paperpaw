@@ -65,7 +65,7 @@ impl SdMenu {
     fn load(&mut self, env: &Env<'_>) {
         let storage = env.storage();
         self.folder = sdcard::folder(env);
-        self.files = sync::pending(storage, &self.folder);
+        self.files = sync::pending(storage, &self.folder).unwrap_or_default();
         self.decks = cards::decks(storage).unwrap_or_default();
         self.ledger = sync::sources(storage).unwrap_or_default();
         self.items.clear();
