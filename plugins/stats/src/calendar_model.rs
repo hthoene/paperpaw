@@ -17,6 +17,15 @@ use crate::totals;
 /// Most books listed for a day.
 pub(crate) const DAY_BOOKS: usize = 3;
 
+/// The last day the calendar shows: 9999-12-31. A day beyond (or before the
+/// Unix epoch) comes from a hostile or broken cache and is not a day read.
+pub(crate) const MAX_DAY: i32 = 2_932_896;
+
+/// `day` held to the days the calendar shows (1970-01-01 to 9999-12-31).
+pub(crate) fn clamp_day(day: i32) -> i32 {
+    day.clamp(0, MAX_DAY)
+}
+
 /// Year and month of a day.
 pub(crate) fn month_of(day: i32) -> (i32, u8) {
     let d = texts::date_of(day);
@@ -26,12 +35,12 @@ pub(crate) fn month_of(day: i32) -> (i32, u8) {
 /// The first day of the month after the one of `day`.
 pub(crate) fn next_month(day: i32) -> i32 {
     // At most 31 days on, then back to that month's start.
-    month_start(month_start(day) + 31)
+    month_start(clamp_day(month_start(clamp_day(day)).saturating_add(31)))
 }
 
 /// The first day of the month before the one of `day`.
 pub(crate) fn previous_month(day: i32) -> i32 {
-    month_start(month_start(day) - 1)
+    month_start(clamp_day(month_start(clamp_day(day)).saturating_sub(1)))
 }
 
 /// How the chosen day moves.
@@ -48,10 +57,10 @@ pub(crate) enum Step {
 /// The day `step` leads to from `day`.
 pub(crate) fn step(day: i32, step: Step) -> i32 {
     match step {
-        Step::DayBack => day - 1,
-        Step::DayForward => day + 1,
-        Step::WeekBack => day - 7,
-        Step::WeekForward => day + 7,
+        Step::DayBack => clamp_day(day.saturating_sub(1)),
+        Step::DayForward => clamp_day(day.saturating_add(1)),
+        Step::WeekBack => clamp_day(day.saturating_sub(7)),
+        Step::WeekForward => clamp_day(day.saturating_add(7)),
         Step::MonthBack => previous_month(day),
         Step::MonthForward => next_month(day),
     }
@@ -108,9 +117,9 @@ pub(crate) fn tap_day(chosen: i32, tapped: i32) -> Option<i32> {
 /// The first day shown: the start of the week the month of `day` begins in;
 /// `week_start` is the first day of the week, 0 being Sunday.
 pub(crate) fn first_shown(day: i32, week_start: u8) -> i32 {
-    let start = month_start(day);
+    let start = month_start(clamp_day(day));
     let weekday = i32::from(texts::date_of(start).weekday);
-    start - (weekday - i32::from(week_start)).rem_euclid(7)
+    start.saturating_sub((weekday - i32::from(week_start)).rem_euclid(7))
 }
 
 /// The gray a day with `minutes` of reading is shaded in: darker the longer;
@@ -248,7 +257,7 @@ pub(crate) fn detail(
     // The local day, whatever the time zone.
     let unix = |day: i32| (i64::from(day) * 86_400).clamp(0, i64::from(u32::MAX)) as u32;
     let from = unix(day).saturating_sub(14 * 3600);
-    let to = unix(day + 1).saturating_add(14 * 3600);
+    let to = unix(day.saturating_add(1)).saturating_add(14 * 3600);
     // (book, seconds, first seen at)
     let mut per_book: Vec<(u16, u32, usize)> = Vec::new();
     let mut pages: Vec<(u16, u32)> = Vec::new();

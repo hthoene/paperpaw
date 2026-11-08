@@ -100,7 +100,7 @@ impl CalendarView {
     ) -> Result<Self, Error> {
         let days = store::days(data, utc_day).map_err(failed)?;
         let books = store::load_books(data).map_err(failed)?;
-        let day = today.or(days.last().map(|d| d.day)).unwrap_or(0);
+        let day = model::clamp_day(today.or(days.last().map(|d| d.day)).unwrap_or(0));
         let (said, title) = contents(words, data, &books, &days, day)?;
         let mut names = Vec::new();
         names.try_reserve_exact(7).map_err(|_| Error::NoMemory)?;
@@ -323,7 +323,7 @@ impl CalendarView {
         let first = self.first_shown();
         let month = model::month_of(self.day);
         for index in 0..42u16 {
-            let day = first + i32::from(index);
+            let day = first.saturating_add(i32::from(index));
             if model::month_of(day) != month {
                 continue;
             }
@@ -514,7 +514,10 @@ impl CalendarView {
             return Ok(Handled::No);
         };
         // A day of the weeks around the month (another month) does nothing.
-        if let Some(day) = model::tap_day(self.day, self.first_shown() + i32::from(index)) {
+        if let Some(day) = model::tap_day(
+            self.day,
+            self.first_shown().saturating_add(i32::from(index)),
+        ) {
             self.choose(host, day)?;
         }
         Ok(Handled::Yes)
@@ -525,12 +528,15 @@ impl CalendarView {
         if day == self.day {
             return Ok(());
         }
+        // The redraw is asked for first: a refusal leaves the chosen day as
+        // it was, and a failure to read the day's contents only redraws the
+        // screen as it was.
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         let storage = DataStorage::new(host);
         let data = DataFolder(&storage);
         let mut words = HostWords::new(host)?;
-        self.show(&mut words, &data, day)?;
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+        self.show(&mut words, &data, day)
     }
 
     /// Makes `day` the chosen one; nothing changes where this fails.
