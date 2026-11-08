@@ -30,3 +30,9 @@ host activates native plugins (then it goes together, no shim).
   family; the policy takes the clock as an argument.
 - The phone setup serves a page on port 80 of the device's own network (`core.net` `serve`).
 - Passwords and the `wifi.ini` on the card need `core.secrets` (PR 367) and `core.files`.
+
+## Review fixes
+
+- Passwords are wiped by `paperpaw_ui_kit::mem::wipe_text`, the helper the keyboard uses too (one
+  volatile wipe, not a copy per plugin). `Step::Join` carries the password in a `Password`, so the
+  buffer is wiped when the shell has built the `wifi_join` command from it and drops the step.
