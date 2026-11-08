@@ -4,7 +4,7 @@
 use paperpaw_plugin_lock::native_flow::{
     Context, Effect, Effects, Flow, Lockstate, Message, PATTERN_OK, Step,
 };
-use paperpaw_plugin_lock::native_model as model;
+use paperpaw_plugin_lock::native_model::{self as model, Code};
 use paperpaw_sdk::Point;
 
 const SALT: &str = "v2.abcdefghijklmnop";
@@ -135,7 +135,13 @@ fn a_code_kept_with_an_old_salt_is_kept_anew_when_it_opens_the_lock() {
     };
     let mut flow = Flow::new(true, ctx.active, false);
     let fx = type_pin(&mut flow, &mut lock, &ctx, "1234");
-    assert_eq!(fx, [Effect::Renew("pin", "1234".into()), Effect::Unlocked]);
+    assert_eq!(
+        fx,
+        [
+            Effect::Renew("pin", Code::new("1234".into())),
+            Effect::Unlocked
+        ]
+    );
 }
 
 #[test]
@@ -184,7 +190,7 @@ fn a_new_pin_is_asked_twice_and_kept_when_equal() {
     assert_eq!(
         done,
         [
-            Effect::Keep("pin", "1234".into()),
+            Effect::Keep("pin", Code::new("1234".into())),
             Effect::SetKind("lock.kind.pin"),
             Effect::Notify("lock.done"),
             Effect::Back
@@ -200,15 +206,15 @@ fn a_password_is_asked_for_on_the_keyboard_and_typed_twice() {
     let mut fx = Effects::default();
     flow.choose_kind("password", &mut fx);
     assert_eq!(effects(&mut fx), [Effect::AskPassword, Effect::Redraw]);
-    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx)
+    flow.typed(Code::new("secret1".into()), &mut lock, &ctx, &mut fx)
         .unwrap();
     assert_eq!(effects(&mut fx), [Effect::AskPassword, Effect::Redraw]);
     assert_eq!(flow.step(), Step::Confirm);
-    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx)
+    flow.typed(Code::new("secret1".into()), &mut lock, &ctx, &mut fx)
         .unwrap();
     assert_eq!(
         effects(&mut fx).first(),
-        Some(&Effect::Keep("password", "secret1".into()))
+        Some(&Effect::Keep("password", Code::new("secret1".into())))
     );
 }
 
@@ -283,4 +289,43 @@ fn back_closes_the_setup_and_takes_a_digit_away_while_unlocking() {
     flow.back(&mut fx);
     assert_eq!(effects(&mut fx), [Effect::Redraw]);
     assert_eq!(flow.pin_len(), 0);
+}
+
+#[test]
+fn effects_not_taken_stay_for_the_next_take() {
+    let mut flow = Flow::new(false, None, false);
+    let mut fx = Effects::default();
+    flow.choose_kind("off", &mut fx);
+    // Taking one and dropping the iterator loses nothing.
+    assert_eq!(fx.take().next(), Some(Effect::Forget));
+    assert_eq!(
+        effects(&mut fx),
+        [
+            Effect::SetKind("lock.kind.off"),
+            Effect::Notify("lock.removed"),
+            Effect::Back
+        ]
+    );
+    assert!(fx.is_empty());
+}
+
+#[test]
+fn nothing_prints_a_code() {
+    let mut pin = model::Pin::default();
+    pin.press(0).unwrap();
+    pin.press(1).unwrap();
+    let flow = Flow::new(true, Some("pin"), false);
+    let code = Code::new("12345678".into());
+    let keep = Effect::Keep("password", Code::new("hunter22".into()));
+    for text in [
+        format!("{pin:?}"),
+        format!("{flow:?}"),
+        format!("{code:?}"),
+        format!("{keep:?}"),
+        format!("{:?}", model::Pressed::Submit(Code::new("4711".into()))),
+    ] {
+        for secret in ["12345678", "hunter22", "4711", "\"12\""] {
+            assert!(!text.contains(secret), "{text}");
+        }
+    }
 }

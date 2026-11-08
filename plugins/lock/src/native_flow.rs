@@ -9,7 +9,7 @@ use alloc::string::String;
 use paperpaw_sdk::Point;
 use paperpaw_sdk::native::Error;
 
-use crate::native_model::{self as model, Attempts, Pin, Pressed, TRIES};
+use crate::native_model::{self as model, Attempts, Code, Pin, Pressed, TRIES};
 
 /// The most effects one input has.
 const EFFECTS_MAX: usize = 8;
@@ -60,45 +60,73 @@ pub enum Effect {
     /// Set the kind setting to this value (`lock.kind.pin`).
     SetKind(&'static str),
     /// Keep this code for this kind, with a salt of its own.
-    Keep(&'static str, String),
+    Keep(&'static str, Code),
     /// The code opened the lock but was kept with a salt made from it: keep it
     /// anew, at random.
-    Renew(&'static str, String),
+    Renew(&'static str, Code),
     /// Wake the screen at this time (the monotonic clock) to end a wait.
     WakeAt(u64),
     /// Keep this many wrong tries on the card (0: none).
     KeepTries(u8),
 }
 
-/// The effects of one input.
+/// The effects of one input. They are taken in order; those not taken stay for
+/// the next [`Effects::take`], so none is lost.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Effects {
     list: [Option<Effect>; EFFECTS_MAX],
+    head: usize,
     len: usize,
 }
 
 impl Effects {
     fn push(&mut self, effect: Effect) {
+        debug_assert!(self.len < EFFECTS_MAX, "an input has at most eight effects");
         if let Some(slot) = self.list.get_mut(self.len) {
             *slot = Some(effect);
             self.len += 1;
         }
     }
 
-    /// The effects, in order.
+    /// The effects not taken yet, in order.
     pub fn iter(&self) -> impl Iterator<Item = &Effect> {
         self.list.iter().flatten()
     }
 
-    /// Takes the effects out, in order.
-    pub fn take(&mut self) -> impl Iterator<Item = Effect> + '_ {
-        self.len = 0;
-        self.list.iter_mut().filter_map(Option::take)
+    /// Takes the next effect.
+    pub fn next_effect(&mut self) -> Option<Effect> {
+        let effect = self.list.get_mut(self.head)?.take();
+        if effect.is_some() {
+            self.head += 1;
+        }
+        if self.head >= self.len {
+            self.head = 0;
+            self.len = 0;
+        }
+        effect
+    }
+
+    /// Takes the effects, in order, as the iterator is advanced; the ones it
+    /// is not advanced to stay.
+    pub fn take(&mut self) -> Take<'_> {
+        Take(self)
     }
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+}
+
+/// [`Effects::take`].
+#[derive(Debug)]
+pub struct Take<'a>(&'a mut Effects);
+
+impl Iterator for Take<'_> {
+    type Item = Effect;
+
+    fn next(&mut self) -> Option<Effect> {
+        self.0.next_effect()
     }
 }
 
@@ -126,7 +154,6 @@ pub struct Context<'a> {
 }
 
 /// The screen's state.
-#[derive(Debug)]
 pub struct Flow {
     step: Step,
     /// What is entered: `pin`, `pattern` or `password`.
@@ -135,7 +162,7 @@ pub struct Flow {
     /// The dots of a pattern (`0` to `8`).
     dots: String,
     /// The first of two new codes, while the same is asked again.
-    first: Option<String>,
+    first: Option<Code>,
     message: Message,
     /// The key or dot chosen with the buttons (the pattern's *OK* is 9).
     pub focus: usize,
@@ -147,12 +174,22 @@ pub struct Flow {
     asked: bool,
 }
 
+/// Shows where the screen is, never what is entered.
+impl core::fmt::Debug for Flow {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Flow")
+            .field("step", &self.step)
+            .field("kind", &self.kind)
+            .field("pin", &self.pin)
+            .field("dots", &self.dots.len())
+            .field("message", &self.message)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for Flow {
     fn drop(&mut self) {
         model::wipe_string(&mut self.dots);
-        if let Some(first) = &mut self.first {
-            model::wipe_string(first);
-        }
     }
 }
 
@@ -342,27 +379,26 @@ impl Flow {
     /// `NoMemory` as for [`Flow::submit`].
     pub fn typed(
         &mut self,
-        password: String,
+        password: Code,
         lock: &mut Lockstate,
         room: &Context<'_>,
         fx: &mut Effects,
     ) -> Result<(), Error> {
         if matches!(self.step, Step::Choose) || self.kind != "password" {
-            let mut password = password;
-            model::wipe_string(&mut password);
             return Ok(());
         }
         self.submit(password, lock, room, fx)
     }
 
-    /// A code was entered: the digits, the dots or the password.
+    /// A code was entered: the digits, the dots or the password. It is wiped
+    /// when this is done with it, unless an effect keeps it.
     ///
     /// # Errors
     /// `NoMemory` when the code cannot be checked; the screen is as before the
     /// code was entered, which is gone.
     pub fn submit(
         &mut self,
-        mut entered: String,
+        entered: Code,
         lock: &mut Lockstate,
         room: &Context<'_>,
         fx: &mut Effects,
@@ -371,35 +407,18 @@ impl Flow {
         match self.step {
             Step::Unlock | Step::Verify => {
                 if self.released(lock, room, fx) {
-                    model::wipe_string(&mut entered);
                     return Ok(());
                 }
-                let right = match model::check(room.stored, &entered) {
-                    Ok(right) => right,
-                    Err(error) => {
-                        model::wipe_string(&mut entered);
-                        return Err(error);
-                    }
-                };
-                if !right {
+                if !model::check(room.stored, &entered)? {
                     self.failed(lock, room, fx);
                 } else {
                     // Kept with a salt made from it: kept anew, at random.
-                    let renewal = model::renewal(room.stored, &entered);
-                    match renewal {
-                        Ok(Some(kind)) => {
-                            if let Some(kind) = model::KINDS.iter().find(|k| **k == kind) {
-                                fx.push(Effect::Renew(kind, core::mem::take(&mut entered)));
-                            }
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            model::wipe_string(&mut entered);
-                            return Err(error);
-                        }
+                    let renewal = model::renewal(room.stored, &entered)?;
+                    if let Some(kind) = renewal.and_then(|k| model::KINDS.iter().find(|n| **n == k))
+                    {
+                        fx.push(Effect::Renew(kind, entered));
                     }
                     if self.step == Step::Unlock {
-                        model::wipe_string(&mut entered);
                         self.unlock(lock, fx);
                         return Ok(());
                     }
@@ -410,12 +429,10 @@ impl Flow {
                     self.focus = 0;
                     self.message = Message::None;
                 }
-                model::wipe_string(&mut entered);
             }
             Step::New => {
                 if model::too_short(&entered) {
                     self.message = Message::TooShort;
-                    model::wipe_string(&mut entered);
                 } else {
                     self.first = Some(entered);
                     self.step = Step::Confirm;
@@ -425,23 +442,18 @@ impl Flow {
             }
             Step::Confirm => {
                 let first = self.first.take().unwrap_or_default();
-                let equal = first == entered;
-                let mut first = first;
-                if equal {
-                    model::wipe_string(&mut first);
+                if first == entered {
                     fx.push(Effect::Keep(self.kind, entered));
                     fx.push(Effect::SetKind(kind_value(self.kind)));
                     fx.push(Effect::Notify("lock.done"));
                     fx.push(Effect::Back);
                     return Ok(());
                 }
-                model::wipe_string(&mut first);
-                model::wipe_string(&mut entered);
                 self.step = Step::New;
                 self.asked = false;
                 self.message = Message::Mismatch;
             }
-            Step::Choose => model::wipe_string(&mut entered),
+            Step::Choose => {}
         }
         if self.kind == "password" && !self.asked && self.step != Step::Choose {
             self.asked = true;
@@ -492,7 +504,7 @@ impl Flow {
     ) -> Result<(), Error> {
         match self.kind {
             "pattern" if self.focus == PATTERN_OK => {
-                let entered = core::mem::take(&mut self.dots);
+                let entered = Code::new(core::mem::take(&mut self.dots));
                 self.submit(entered, lock, room, fx)
             }
             "pattern" => {
@@ -611,7 +623,7 @@ impl Flow {
         room: &Context<'_>,
         fx: &mut Effects,
     ) -> Result<(), Error> {
-        let entered = core::mem::take(&mut self.dots);
+        let entered = Code::new(core::mem::take(&mut self.dots));
         self.submit(entered, lock, room, fx)
     }
 

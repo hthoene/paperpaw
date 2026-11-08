@@ -58,16 +58,23 @@ fn the_steps_of_the_screen_survive_refused_allocations() {
         let mut flow = Flow::new(true, Some("pin"), false);
         for key in [0, 1, 2, 3, 11] {
             flow.press(key, &mut lock, &room, &mut fx)?;
+            fx.take().for_each(drop);
         }
         let mut setup = Flow::new(false, None, false);
         setup.choose_kind("pattern", &mut fx);
+        fx.take().for_each(drop);
+        fx.take().for_each(drop);
         for dot in [4, 0, 8] {
             setup.finger_moved(1, paperpaw_sdk::Point::new(0, 0), Some(dot), &mut fx)?;
         }
         setup.finger_up(&mut lock, &room, &mut fx)?;
-        setup.submit(copy("12")?, &mut lock, &room, &mut fx)?;
-        setup.submit(copy("1234")?, &mut lock, &room, &mut fx)?;
-        setup.submit(copy("1234")?, &mut lock, &room, &mut fx)?;
+        fx.take().for_each(drop);
+        setup.submit(model::Code::new(copy("12")?), &mut lock, &room, &mut fx)?;
+        fx.take().for_each(drop);
+        setup.submit(model::Code::new(copy("1234")?), &mut lock, &room, &mut fx)?;
+        fx.take().for_each(drop);
+        setup.submit(model::Code::new(copy("1234")?), &mut lock, &room, &mut fx)?;
+        fx.take().for_each(drop);
         fx.take().for_each(drop);
         Ok(())
     });
