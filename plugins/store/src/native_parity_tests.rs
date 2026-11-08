@@ -8,7 +8,7 @@ use crate::native_model as native;
 use alloc::{string::String, vec::Vec};
 use proptest::prelude::*;
 
-fn old_entry(n: &native::Entry) -> Old {
+pub(crate) fn old_entry(n: &native::Entry) -> Old {
     Old {
         id: n.id.clone(),
         name: n.name.clone(),

@@ -1454,6 +1454,8 @@ pub(crate) fn plugin(
 }
 
 #[cfg(test)]
+mod native_list_parity;
+#[cfg(test)]
 mod native_parity;
 #[cfg(test)]
 mod tests;
