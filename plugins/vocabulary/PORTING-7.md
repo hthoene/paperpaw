@@ -43,7 +43,7 @@ the port.
 - Lines are read by `lines::each_line_limited` (the 8 KiB limit of the cards is a parameter);
   `put_in_place`/`part_of` in `files.rs` replace the SDK's interface-6 `files` helpers (rename
   only: no copy-and-delete fallback; root 0 and the card both rename).
-- `clean_or_empty` and `path` stay only for `sync`, `export`, `phone`, `apkg` until they are ported.
+- `clean_or_empty` stays only for `phone` until it is ported; `cards::path` is for the tests.
 - `alloc_refusal_tests.rs` sweeps decks, sizes, due, due_count, card_at, visit_page, next_due,
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
@@ -68,9 +68,7 @@ the port.
   and UTF-8 fields are decoded into reserved strings, and slicing of read chunks is `get(..n)`.
 - `plain` (HTML to text) is one pass with one reservation (the text is never longer than the
   HTML): tags out, the six character references turned, white space collapsed. `plain_or_empty`
-  stays for `apkg` (interface 6) until it is ported: where the heap refuses, the text of that
-  Anki note field becomes empty (a note whose front is then empty is skipped as a card without
-  a front), not an abort and not half a text.
+  is gone: `apkg` uses `plain`.
 - `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
   `plain`.
 
@@ -103,19 +101,45 @@ native screens replace these callers.
 - Changes of behaviour: a ledger file that begins with a blank line is unreadable as before; a
   byte order mark before the header is now accepted; the sort of the files is by folded name
   then name (the old stable sort over `to_lowercase` had no tie-break).
-- `apkg::tidy` names its two files by constants and allocates nothing (the rest of `apkg` is
-  next).
+- `apkg`: the plugin's own part allocates fallibly: both files are constants, a note's
+  fields are one reservation each (`note_text`: sounds and `data:` addresses cut out, then
+  `plain`), the collected text is reserved once (3 KiB) and grows fallibly, `quote` reserves
+  its worst case. A refused allocation is `Fault::Memory` (the notes written so far stay
+  until the next job tidies them), never a note with a missing field. The zip and sqlite
+  readers are fallible now (`paperpaw-zip` #394, `paperpaw-sqlite` #383) and the whole-read
+  sweep (`reading_an_anki_deck_refuses_cleanly`) runs with every allocation refused. It found
+  that a refusal while reading the table's columns was told as `NoNotes` ("not an Anki deck,
+  not tried again"); it is `Fault::Memory` now. A `Fault::Memory` is a storage failure of the
+  step (the deck is tried again), never `DeckTooLarge` (the deck's own fault, not tried again);
+  `Crowded` is set only by the limits on cards, not by a refusal.
 - Sweeps (`alloc_refusal_tests::folder`): listing, pending, folder, names, `sources`,
   `write_sources` and a whole job (a changed file and a new one) with each allocation refused.
 - The card folder is still the platform `Storage`'s (`list`, `exists`, `modified`,
   `create_dir`): the native adapter over `core.files` (SDK `native::files`, PR #384) is the
   shell's, and an ignored case names it.
 
+## Ported (the native shell, first part): `src/native_plugin.rs`, `declarations.rs`
+
+- `NativeVocabulary` (`native_plugin!`, features `linked` and `native-entry`, metadata in `native/`
+  — regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+  --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`;
+  `tools/tests/test_abi_plugin_metadata.py` fails on a stale one). Declares `uses.storage`.
+- The eight settings (`declarations::settings`, pinned in `testdata/declarations.bin.v1`, compared
+  field by field with what interface 6 registered in `tests/settings_parity.rs`): `collect`, `mark`,
+  `new-per-day`, `retention`, `cards-from-lookups`, `review-on-wake`, `sd-auto`, `sd-folder`, all in
+  `core.group.reading`. The seven settings of the role of the marked words (`vocabulary.learning.*`)
+  come with the marks.
+- The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
+  `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
+- Not declared yet: `uses.network` (the phone page), the menu entries, actions, screens, the sleep
+  choice, the help hints, the widget and the events for the words looked up and the wake (the
+  native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `export`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
+- `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
+- The rest of the native shell: the actions, menu entries, icons, screens, events and help.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.

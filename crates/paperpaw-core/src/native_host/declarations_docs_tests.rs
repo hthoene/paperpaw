@@ -197,3 +197,89 @@ fn they_are_checked_and_then_refused_until_the_host_admits_them() {
         Err(ERR_INVALID)
     );
 }
+
+/// The SDK's `Declarations::format` refuses exactly what the host's
+/// `format_check` refuses, for names, titles and extensions alike.
+#[test]
+fn the_sdk_builder_and_the_host_check_agree_on_formats() {
+    use paperpaw_sdk::native::declare::{Declarations, FormatDecl};
+    let long = "x".repeat(32);
+    let many = (0..17)
+        .map(|i| format!("e{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let fits = (0..16)
+        .map(|i| format!("e{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let long_name = "a".repeat(96);
+    let extensions = [
+        "epub",
+        "fb2.zip",
+        "fb2\nfb2.zip",
+        "a1",
+        &fits,
+        &"x".repeat(31),
+        "",
+        "EPUB",
+        ".epub",
+        "epub.",
+        "a..b",
+        "ep ub",
+        "é",
+        "a/b",
+        "a-b",
+        "a_b",
+        "epub\n",
+        "\nepub",
+        "epub\nepub",
+        "ep\tub",
+        &long,
+        &many,
+    ];
+    // A 97-byte name never reaches the host check: the codec caps it at 96.
+    let names = [
+        "epub", "a.b", &long_name, "", "Epub", "a b", ".a", "a..b", "a.",
+    ];
+    let titles = ["format.epub", "", "t"];
+    let mut cases = Vec::new();
+    for ext in extensions {
+        cases.push(("epub", "format.epub", ext));
+    }
+    for name in names {
+        cases.push((name, "format.epub", "epub"));
+    }
+    for title in titles {
+        cases.push(("epub", title, "epub"));
+    }
+    for (name, title, extensions) in cases {
+        let mut batches: Vec<Vec<u8>> = Vec::new();
+        let mut declarations = Declarations::new(|batch: &[u8]| {
+            batches.push(batch.to_vec());
+            Ok(())
+        });
+        let sdk_result = declarations
+            .format(FormatDecl::new(name, title, extensions, 1))
+            .map(|_| ());
+        let sdk_ok = sdk_result.is_ok();
+        if sdk_ok {
+            declarations.submit().unwrap();
+        }
+        drop(declarations);
+        assert_eq!(batches.len(), usize::from(sdk_ok));
+        let spec = FormatSpec {
+            name,
+            title,
+            extensions,
+            flags: 0,
+            priority: 0,
+            token: 1,
+        };
+        // A plugin id that keeps the joined id within 128 bytes for every case.
+        let host_ok = format_check("p", &spec).is_ok();
+        assert_eq!(
+            sdk_ok, host_ok,
+            "{name:?} {title:?} {extensions:?}: {sdk_result:?}"
+        );
+    }
+}

@@ -252,6 +252,100 @@ pub trait Storage {
     ) -> Result<Option<u64>, StorageError> {
         list_counted(self, dir, from, visit)
     }
+
+    /// [`Storage::list_from`] that reads **no entry past the one `visit`
+    /// refuses**, also from place 0 (which `list_from` may read the folder
+    /// whole from, to note it for later lookups), and that starts at the
+    /// folder's start when the place no longer holds, instead of counting
+    /// entries to find it. For the bounded removal of a tree
+    /// ([`crate::tree::remove_tree_step`]), whose reads are counted against a
+    /// cap. The default is `list_from`.
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.list_from(dir, from, visit)
+    }
+
+    /// Removes the one entry [`Storage::list_bounded`] shows first from place
+    /// `place` of folder `dir`: a file, or a folder that is empty. For the
+    /// bounded removal of a tree by [`crate::tree::remove_tree_step`], which
+    /// has to take away entries it cannot name by a path (a name made by a
+    /// computer that this storage's paths refuse) without collecting names.
+    /// `NotFound` where nothing is at the place; `InvalidPath` for a folder
+    /// that is not empty (the walk goes into those itself).
+    ///
+    /// The default goes by path, which is all a storage can do whose names
+    /// are all valid paths; others override it.
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        remove_listed_by_path(self, dir, place)
+    }
+
+    /// One bounded piece of removing the tree at `root` (the file service's
+    /// `remove_tree`, `docs/abi/files.md` 2.5): see
+    /// [`crate::tree::remove_tree_step`], which is the default, for storages
+    /// whose names are all paths. A storage that can walk a tree by position
+    /// (the memory card's) overrides it, so that names no path holds and
+    /// folders of any depth are no obstacle; it fails a folder nested deeper
+    /// than it goes with [`StorageError::InvalidData`].
+    ///
+    /// # Errors
+    /// The storage's own.
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<crate::tree::TreeStep, StorageError> {
+        crate::tree::remove_tree_step(self, root, keep_root, place)
+    }
+}
+
+/// [`Storage::remove_listed`] by the entry's path, where the name is a valid
+/// segment that fits (else `Unsupported`).
+pub fn remove_listed_by_path<S: Storage + ?Sized>(
+    storage: &S,
+    dir: &str,
+    place: u64,
+) -> Result<(), StorageError> {
+    const NAME: usize = 255;
+    const PATH: usize = 640;
+    let mut path = [0u8; PATH];
+    let mut found = None;
+    storage.list_bounded(dir, place, &mut |entry| {
+        let start = if dir.is_empty() { 0 } else { dir.len() + 1 };
+        let end = start + entry.name.len();
+        if entry.name.len() <= NAME
+            && end <= PATH
+            && is_valid_path(entry.name)
+            && !entry.name.contains('/')
+        {
+            path[..dir.len()].copy_from_slice(dir.as_bytes());
+            if start > 0 {
+                path[dir.len()] = b'/';
+            }
+            path[start..end].copy_from_slice(entry.name.as_bytes());
+            found = Some((end, entry.is_dir));
+        } else {
+            found = Some((0, entry.is_dir));
+        }
+        false
+    })?;
+    let (end, is_dir) = found.ok_or(StorageError::NotFound)?;
+    if end == 0 {
+        return Err(StorageError::Unsupported);
+    }
+    let path = core::str::from_utf8(&path[..end]).map_err(|_| StorageError::InvalidPath)?;
+    if !is_dir {
+        return storage.remove(path);
+    }
+    // Only a folder with nothing in it.
+    match storage.list_bounded(path, 0, &mut |_| false)? {
+        Some(_) => Err(StorageError::InvalidPath),
+        None => storage.remove_dir_all(path),
+    }
 }
 
 /// [`Storage::list_from`] for a storage that lists a directory whole
@@ -387,6 +481,49 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         }
         let (storage, dir) = self.route(dir);
         storage.list_from(dir, from, visit)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<crate::tree::TreeStep, StorageError> {
+        // The root is the base's own tree, by the base's own walk: the mount
+        // point and what is mounted at it are another storage's and stay (as
+        // with `remove_dir_all("")`), never walked into by the generic walk.
+        if root.is_empty() {
+            return self.base.remove_tree_step(root, keep_root, place);
+        }
+        if root == self.at && !keep_root {
+            // Never the mount point itself.
+            return Err(StorageError::Unsupported);
+        }
+        let (storage, root) = self.route(root);
+        storage.remove_tree_step(root, keep_root, place)
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        // The root's places count the mount point too.
+        if dir.is_empty() {
+            return list_counted(self, dir, from, visit);
+        }
+        let (storage, dir) = self.route(dir);
+        storage.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // The root's places count the mount point too.
+        if dir.is_empty() {
+            return remove_listed_by_path(self, dir, place);
+        }
+        let (storage, dir) = self.route(dir);
+        storage.remove_listed(dir, place)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {

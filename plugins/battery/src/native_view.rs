@@ -92,7 +92,7 @@ impl NativeView {
                 &mut page.paint,
                 &font,
                 &style,
-                &lines[first..last],
+                page_lines(&lines, first, last)?,
                 &footer,
                 display.display_width(),
                 display.display_height(),
@@ -189,6 +189,12 @@ impl NativeView {
             None
         }
     }
+}
+
+/// The lines of the page from `first` to `last`; a range the lines do not
+/// hold is a state error, never a panic.
+fn page_lines(lines: &[Line], first: usize, last: usize) -> Result<&[Line], Error> {
+    lines.get(first..last).ok_or(Error::State)
 }
 
 fn frame_rect(rect: Rect) -> FrameRect {
@@ -296,4 +302,27 @@ fn prepare_body(
         style.note,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn a_bad_page_range_is_a_state_error_not_a_panic() {
+        let lines = [
+            Line::Heading("a".to_string()),
+            Line::Message("b".to_string()),
+        ];
+        assert_eq!(page_lines(&lines, 0, 2).map(<[Line]>::len), Ok(2));
+        assert_eq!(page_lines(&lines, 1, 1).map(<[Line]>::len), Ok(0));
+        for (first, last) in [(0, 3), (2, 1), (3, 3), (usize::MAX, 0), (0, usize::MAX)] {
+            assert_eq!(
+                page_lines(&lines, first, last).map(<[Line]>::len),
+                Err(Error::State),
+                "{first}..{last}"
+            );
+        }
+    }
 }

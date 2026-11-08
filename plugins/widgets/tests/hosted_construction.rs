@@ -21,7 +21,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_widgets::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "widgets",
-        &["core.registry"],
+        &["core.registry", "core.ui"],
     )
 }
 
@@ -31,11 +31,16 @@ fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
 }
 
+/// Without an image (`(null, 0)`, as here) the host stages the declarations
+/// as owned copies: 128 settings and 32 KiB per plugin, and the time family
+/// declares 131. Production loads pass the image (the flash mapping on the
+/// X4, `.rodata` on the desktop), which has room for 512 entries; the full
+/// pack constructing from an image range is #944.
 #[test]
-fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
+fn without_an_image_make_is_refused_for_the_owned_copy_limit() {
     let refused = construct().unwrap_err();
     assert_eq!(
-        refused, "Factory(-1)",
-        "not a service-state refusal from make"
+        refused, "Factory(-3)",
+        "owned-copy limit without an image: SPECS_MAX 128 / 32 KiB; production loads pass the image (#944)"
     );
 }
