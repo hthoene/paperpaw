@@ -137,6 +137,10 @@ impl<'a> WorkSpec<'a> {
     /// (`now_ms` of events; a time in the past is due at once). It excludes
     /// every other timing and `optional`.
     ///
+    /// `at_ms` 0 means "no exact time" on the wire, so `at(.., 0)` is a work
+    /// with nothing set: it is due at once, like [`WorkSpec::new`]. Use a
+    /// real `now_ms` (or any non-zero time in the past) for "due now".
+    ///
     /// # Errors
     /// [`Error::Invalid`] for a bad key.
     pub fn at(key: &'a str, token: u32, at_ms: u64) -> Result<Self, Error> {
@@ -452,6 +456,12 @@ impl Work {
     ///
     /// `input` holds the encoded record (256 bytes are enough); the reply is
     /// empty, so `out` may be empty.
+    ///
+    /// Declared while work is delivered (in a `work_due` callback or any other
+    /// callback of that pass), the work is due at the next pass at the
+    /// earliest, never in the same one. Any work declared from a run's
+    /// callbacks (its own key or another) is due no sooner than 1 s after the
+    /// declaration, whatever its times say.
     ///
     /// # Errors
     /// [`Error::Invalid`] for what [`WorkSpec::check`] refuses (nothing is
