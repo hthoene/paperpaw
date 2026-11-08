@@ -240,6 +240,10 @@ fn fixtures() -> Vec<Vec<u8>> {
                 key: "mail.sync",
             }),
             Record::EventWorkAllowed(EventWorkAllowed { now_ms: 42 }),
+            Record::EventLookupReady(EventLookupReady {
+                now_ms: 42,
+                provider: "wikipedia.lookup",
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",

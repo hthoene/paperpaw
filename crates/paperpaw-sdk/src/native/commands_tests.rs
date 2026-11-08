@@ -855,3 +855,51 @@ fn a_screen_and_a_power_command_travel_in_one_batch() {
     assert_eq!(batches[0][1], "PowerOff");
     assert_eq!(batches[1][1], "Sleep");
 }
+
+#[test]
+fn lookup_ready_names_the_text_and_language_of_the_ask() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.lookup_ready("serendipity", "en").unwrap();
+    // A language may be empty; the limits are the contract's 1,024 and 35.
+    sender.lookup_ready("x".repeat(1024), "").unwrap();
+    sender.lookup_ready("a", "l".repeat(35)).unwrap();
+    assert_eq!(
+        sender.lookup_ready("word", "l".repeat(36)),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.lookup_ready("x".repeat(1025), "en"),
+        Err(Error::Invalid)
+    );
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 3, "refused asks stage nothing");
+    let first = wire::commands_decode(&batches[0]).unwrap();
+    assert_eq!(
+        first.iter().next(),
+        Some(wire::Command::LookupReady {
+            text: "serendipity",
+            language: "en"
+        })
+    );
+}
+
+#[test]
+fn a_host_refusal_of_lookup_ready_comes_back() {
+    let table = table();
+    let mut ctx = Context::default();
+    ctx.result.set(abi::ERR_STATE);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 128];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(sender.lookup_ready("word", "en"), Err(Error::State));
+}

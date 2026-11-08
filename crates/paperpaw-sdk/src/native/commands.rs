@@ -10,6 +10,7 @@ use paperpaw_native::host_glue::PpBytes;
 
 mod bluetooth;
 mod device;
+mod lookup;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]
 pub(crate) mod menu_alloc_tests;

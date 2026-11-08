@@ -88,6 +88,9 @@ pub enum EventKind {
     WorkRefused,
     /// What held work back no longer does (a hint, coalesced).
     WorkAllowed,
+    /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
+    /// for the host to remember an ask that comes back `pending`.
+    LookupReady,
 }
 
 impl EventKind {
@@ -133,6 +136,7 @@ impl EventKind {
             Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
             Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
             Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
+            Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
         }
     }
 }

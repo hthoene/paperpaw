@@ -430,6 +430,10 @@ pub enum Event<'a> {
     WorkRefused(super::work::WorkRefused<'a>),
     /// What held work back no longer does: try again what was held.
     WorkAllowed { now_ms: u64 },
+    /// A provider kept the answer it had marked `pending`: ask again with the
+    /// same text and language (`event.lookup_ready`). Only an asker subscribed to
+    /// it is told.
+    LookupReady { now_ms: u64, provider: &'a str },
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
