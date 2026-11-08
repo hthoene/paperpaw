@@ -358,11 +358,7 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
-    #[cfg_attr(
-        not(all(feature = "static-native", feature = "esp32c3")),
-        allow(unused_mut, reason = "only the measuring build registers")
-    )]
-    let mut firmware = Firmware {
+    let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
         ota: ready.ota,
@@ -385,14 +381,6 @@ fn start() -> Firmware {
             ready.staged,
         ),
     };
-    // Never taken: the build carries the host code that hosts a linked plugin,
-    // so the measure includes it, but nothing is registered while the stack
-    // gate holds (`abi/heap-word.md` section 6). Not flashable. Done here, on
-    // the kernel already in its place: a local in `kernel()` would copy it.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-    if core::hint::black_box(false) {
-        native::register_linked_probe(&mut firmware.kernel);
-    }
     // Its plugins installed: the web flasher's bundle goes (see
     // `native::bundle`).
     if let Some(at) = bundle {
