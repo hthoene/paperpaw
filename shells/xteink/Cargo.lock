@@ -2269,6 +2269,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-plugin-about",
+ "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -2287,6 +2288,7 @@ dependencies = [
  "paperpaw-plugin-power",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
+ "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
@@ -2413,6 +2415,14 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-about"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-bluetooth"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
@@ -2556,6 +2566,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-settings"
 version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-setup"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

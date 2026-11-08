@@ -1536,6 +1536,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-dictionary",
@@ -1583,6 +1584,7 @@ dependencies = [
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
+ "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
@@ -2691,6 +2693,7 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "proptest",
 ]
 
 [[package]]

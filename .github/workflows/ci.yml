@@ -24,11 +24,13 @@ on:
       - "AGENTS.md"
       - ".claude/**"
 
-# A newer push to the same branch or PR cancels the run before it; main keeps
-# a full result for every commit.
+# A newer push to the same pull request cancels the run before it. Push
+# runs (main, integration, abi7/integration) each get their own group, keyed
+# by commit, so none is cancelled or replaced while queued and every merge
+# keeps a full result.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
