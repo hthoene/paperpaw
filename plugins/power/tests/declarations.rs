@@ -124,6 +124,7 @@ fn the_events_are_the_ones_the_mode_follows() {
 /// admitted now)
 /// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
 /// fail only that way, and these are the only ones that do.
+/// The host admits every one of them now, so none waits.
 #[test]
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
@@ -157,14 +158,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(
-        waiting,
-        [
-            "ui: MenuEntry",
-            "ui: IconSpec",
-            "ui: IconSpec",
-            "ui: KeyBind",
-            "events: RegistrationStage"
-        ]
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
     );
 }

@@ -1,5 +1,4 @@
 use alloc::borrow::Cow;
-use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -7,9 +6,9 @@ use core::fmt;
 use core::ops::Range;
 
 use paperpaw_graphics::Canvas;
-use paperpaw_platform::{Color, Storage};
+use paperpaw_platform::Color;
 use paperpaw_text::sfnt::FontInfo;
-use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits, StoredPack};
+use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 
 use storage::{Stored, read_font};
 
@@ -351,6 +350,60 @@ impl Fonts {
         Ok(())
     }
 
+    /// Makes room for `entries` more fonts, faces and extensions and `roles`
+    /// more bindings, so that adding them cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room (some may be kept).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        entries: usize,
+        roles: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.entries.try_reserve_exact(entries)?;
+        self.candidates.try_reserve_exact(roles)
+    }
+
+    /// The fonts proposed for `role` with their priorities, in the order
+    /// they were proposed.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn proposals<'a>(&'a self, role: &'a str) -> impl Iterator<Item = (&'a Id, Priority)> {
+        self.candidates
+            .iter()
+            .filter(move |(r, ..)| r.as_str() == role)
+            .map(|(_, font, priority)| (font, *priority))
+    }
+
+    /// Adds a face in a file on the storage that belongs to no family: it
+    /// can be bound to a role (an icon font), and is never offered for text.
+    /// Like [`Fonts::add_face`], it is loaded only while a role needs it.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn add_unfamilied_face(
+        &mut self,
+        id: Id,
+        path: String,
+        bold: bool,
+        italic: bool,
+    ) -> Result<(), RegisterError> {
+        self.check_new(&id)?;
+        self.entries.push(Entry {
+            id,
+            font: None,
+            family: None,
+            weight: if bold { 700 } else { 400 },
+            bold,
+            italic,
+            file: Some(path),
+            extends: None,
+            face: true,
+        });
+        Ok(())
+    }
+
     /// Forgets every font of plugin `plugin` (ids `<plugin>.…`), e.g. of a
     /// data plugin removed while running; returns how many. Glyphs drawn
     /// so far are forgotten too.
@@ -484,76 +537,6 @@ impl Fonts {
             })
             .min_by_key(|(_, e)| (i32::from(e.weight) - target).abs())
             .map(|(index, _)| index)
-    }
-
-    /// Loads the files of the chosen family's faces (one per style) and
-    /// frees all others; returns the files that could not be loaded.
-    /// Packs that extend fonts are opened too (they stay where they are).
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn load(&mut self, storage: &Rc<dyn Storage>) -> Vec<String> {
-        let mut failed = Vec::new();
-        let chosen = self.family.clone();
-        let mut wanted: Vec<usize> = chosen
-            .as_deref()
-            .map(|family| {
-                [(false, false), (true, false), (false, true), (true, true)]
-                    .iter()
-                    .filter_map(|&(b, i)| self.best_face(family, b, i, false))
-                    .collect()
-            })
-            .unwrap_or_default();
-        // The status lines' family of their own: its regular face.
-        if let Some(index) = self
-            .status_family()
-            .and_then(|family| self.best_face(family, false, false, false))
-        {
-            wanted.push(index);
-        }
-        wanted.extend(self.role_faces());
-        for (index, entry) in self.entries.iter_mut().enumerate() {
-            let Some(path) = &entry.file else {
-                continue;
-            };
-            if entry.extends.is_some() {
-                if entry.font.is_none() {
-                    let source = Rc::new(Stored {
-                        storage: storage.clone(),
-                        path: path.clone(),
-                    });
-                    match StoredPack::open_within(source, self.pack_limits) {
-                        Ok(pack) => entry.font = Some(Font::Stored(pack)),
-                        Err(_) => failed.push(path.clone()),
-                    }
-                }
-                continue;
-            }
-            if !wanted.contains(&index) {
-                entry.font = None;
-                continue;
-            }
-            if entry.font.is_some() {
-                continue;
-            }
-            let font = if entry.face && is_pack(path) {
-                let source = Rc::new(Stored {
-                    storage: storage.clone(),
-                    path: path.clone(),
-                });
-                StoredPack::open_within(source, self.pack_limits)
-                    .ok()
-                    .map(Font::Stored)
-            } else {
-                // A variable font at its style's weight.
-                let weight = entry.face.then(|| f32::from(entry.weight));
-                read_font(storage.as_ref(), path, weight)
-            };
-            match font {
-                Some(font) => entry.font = Some(font),
-                None => failed.push(path.clone()),
-            }
-        }
-        failed
     }
 
     /// A font by id, if loaded.
@@ -1446,6 +1429,8 @@ impl<'a> FontHandle<'a> {
 }
 
 mod ink;
+#[cfg(any(test, feature = "kernel"))]
+mod loading;
 mod missing;
 use missing::Drawing;
 mod runs;
