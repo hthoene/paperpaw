@@ -174,10 +174,11 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   one and saved back as garbage. Owner, name, label and flags stay readable, as the settings editor
   lists them anyway; only values are secret.
 - [D] **Which devices seal:** the X4 only (decision 138). Android keeps secrets in the app's private
-  folder; the desktop emulator veils them as interface 6 does. The X4 Pro and X4 Classic are not
-  covered by decision 138: until the owner decides, they veil as interface 6 and their help says so
-  (no sealed line is written there; a sealed line from an X4 card is absent there, as on another
-  X4).
+  folder; the desktop emulator veils them as interface 6 does. The X3 (the X4's chip, its own
+  experimental build) does not seal: decision 138 names the X4 only, so it veils as interface 6. The
+  X4 Pro and X4 Classic veil as interface 6 too until the owner decides (decision 140). Where a
+  device veils, its help says so; it writes no sealed line, and a sealed line from an X4 card is
+  absent there, as on another X4.
 - [D] **A value that does not open** (another device's card, a lost key, a damaged line) counts as
   **absent**: `get` answers `ERR_NOT_FOUND`, `list` leaves it out, never a crash or a log of the
   bytes. Its line is written back unchanged by every `keep` and `remove` (never dropped), so the

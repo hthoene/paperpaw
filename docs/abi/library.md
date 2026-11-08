@@ -220,9 +220,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
 - [D] **Checkpoints are a cache, never needed.** To spare the skip, the host may keep checkpoints in
   **one fixed device-wide table: 16 entries on the X4, 64 elsewhere**, allocated once and fallibly
-  at the first paged call (without it, every page walks from the start). An entry is 96 bytes: the
-  asking plugin (`u64` owner), a 32-bit FNV-1a hash of the query's fields but `cursor` and
-  `generation` (each text field preceded by its length as `u16` little-endian), the catalog
+  at the first paged call (without it, every page walks from the start). An entry is 96 bytes (93
+  used): the asking plugin (`u64` owner), a 64-bit FNV-1a hash of the query's fields but `cursor`
+  and `generation` (each text field preceded by its length as `u16` little-endian), the catalog
   generation, the result index the entry resumes at, the walk position there and the last row's sort
   key cut to **at most 64 bytes** (a longer key makes no checkpoint: that page's successor walks
   from the start). A plugin holds at most 4 entries on the X4 (8 elsewhere). A new entry replaces,
