@@ -276,8 +276,7 @@ pub fn install_with(
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
     #[cfg(feature = "diagnostics")]
     let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
-    builder
-        .plugin(paperpaw_plugin_update::Update)
+    builder.plugin(paperpaw_plugin_update::Update)
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are
