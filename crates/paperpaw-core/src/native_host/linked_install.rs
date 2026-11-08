@@ -16,7 +16,7 @@ impl crate::Kernel {
     /// `host` is the shell's card-plugin host, the very `metadata::Host` it
     /// admits loaded native plugins with, so a linked built-in gets the same
     /// checks (profile, services, features). The entry is checked first
-    /// ([`linked_entry::check`]: its metadata view, target profile, versions
+    /// (`linked_entry::check`: its metadata view, target profile, versions
     /// and requirements against `host`), then the plugin is hosted and registered exactly as
     /// [`register_native`](Self::register_native) does; `make` runs only in
     /// that registration, and not at all when the entry, the metadata or the
