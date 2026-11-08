@@ -991,7 +991,7 @@ impl Job {
         // Notes left out as too long count as lines left out: the cards
         // they may have made are not removed for lacking.
         work.report.skipped += notes.skipped;
-        work.path = apkg::text_path();
+        work.path = copy(apkg::text_path())?;
         work.text_size = storage.size(&work.path)?;
         work.stage = Stage::Hash;
         Ok(())
