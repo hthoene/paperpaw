@@ -5,6 +5,7 @@ use super::{
     native_screen::Dispatch,
     registrations::{self as wire, Record},
 };
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
@@ -173,12 +174,12 @@ impl<'a> Run<'a> {
             payload: input,
         });
         // A one-record batch has a one-byte count followed by its framed record.
-        let capacity = wire::record_framed_len(&record)?
+        let capacity = codec::framed_len(&record)?
             .checked_add(1)
             .filter(|length| *length <= CALL_BYTES)
             .ok_or(ERR_NO_SPACE)?;
         let mut call = scratch(capacity)?;
-        if wire::records_encode(&[record], &mut call)? != capacity {
+        if codec::encode_batch(&[record], &mut call)? != capacity {
             return Err(ERR_INVALID);
         }
         let reply = scratch(schema.max_reply)?;

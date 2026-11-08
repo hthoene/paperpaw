@@ -1,6 +1,7 @@
 //! Input rules shared by the ops of `core.library` (`library.md` 2): a book
 //! is named by `lib_ref` as the first record, then the op's own records.
 use super::super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
 /// A book as the caller named it: by root-1 path, or by catalog handle with the
@@ -89,6 +90,6 @@ pub(super) fn with_ref<const N: usize>(input: &[u8]) -> Result<Parsed<'_, N>, i3
 }
 
 /// An input of exactly one record (ops that take no `lib_ref`).
-pub(super) fn single(input: &[u8]) -> Result<Record<'_>, i32> {
-    wire::records_decode_single(input)
+pub(super) fn single<'a, R: wire::WireRecord<'a>>(input: &'a [u8]) -> Result<R, i32> {
+    codec::single(input)
 }

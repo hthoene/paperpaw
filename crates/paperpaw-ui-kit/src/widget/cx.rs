@@ -222,3 +222,17 @@ pub fn local_time_in(host: &Host<'_>, snapshot: &Snapshot) -> Result<Option<Loca
 pub fn local_time_now(host: &Host<'_>) -> Result<Option<LocalTime>, Error> {
     local_time_in(host, &snapshot::capture_snapshot(host)?)
 }
+
+/// The font of `face` (one of [`super::options::FACES`]): the menus' font, or
+/// the reader's text font for the book's two (the native fonts have no italic
+/// of their own, so the book's italic is the book's font).
+///
+/// # Errors
+/// The host's refusal.
+pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> {
+    let role = match face {
+        "widgets.face.book" | "widgets.face.italic" => FontRole::Reading,
+        _ => FontRole::Ui,
+    };
+    Font::acquire_role(host, role)
+}
