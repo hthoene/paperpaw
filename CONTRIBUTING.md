@@ -285,8 +285,9 @@ where the specifications come from and mark values you could not verify.
   version as a comment (`uses: owner/action@<40 hex digits> # v1.2.3`), never
   by a tag or branch, which can move. `dtolnay/rust-toolchain` also gets
   its `toolchain:` input, which its ref used to say. Dependabot updates the
-  SHA and the comment together; a test in `tools/test_ci_tools.py` fails on
-  an unpinned action.
+  SHA and the comment together, except for `dtolnay/rust-toolchain`, which it
+  ignores: bump those pins by hand. A test in `tools/test_ci_tools.py` fails
+  on an unpinned action.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.
