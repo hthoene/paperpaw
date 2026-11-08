@@ -2,7 +2,7 @@
 //! do nothing, so that a hand resting on the screen turns no page; the buttons
 //! go on working. The way out needs no menu and is not made by a resting
 //! hand: one finger taps, then comes down again at the same spot and stays
-//! there for [`HOLD_MS`] (tap twice and hold the second tap); after two taps
+//! there for `HOLD_MS` (tap twice and hold the second tap); after two taps
 //! the third touch held counts too. A touch that is no step of the way out
 //! says how to unlock now and then.
 use alloc::vec::Vec;

@@ -297,10 +297,10 @@ fn pattern(
     style: &Style,
     layout: &Layout,
     flow: &Flow,
-    shown: bool,
     touch: bool,
     ok: &str,
 ) -> Result<(), Error> {
+    let shown = flow.shown;
     let width = u32::try_from((layout.radius / 2).max(2)).unwrap_or(2);
     let mut chosen = [false; DOTS];
     let mut last: Option<usize> = None;
@@ -477,7 +477,6 @@ pub fn prepare(
                 style,
                 &layout,
                 flow,
-                shown,
                 display.has_touch(),
                 &ok,
             )?;

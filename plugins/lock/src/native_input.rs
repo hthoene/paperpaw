@@ -155,9 +155,7 @@ impl Flow {
     /// As [`Flow::submit`].
     pub fn pointer(
         &mut self,
-        phase: PointerPhase,
-        id: u32,
-        at: Point,
+        (phase, id, at): (PointerPhase, u32, Point),
         layout: &Layout,
         lock: &mut Lockstate,
         ctx: &Context<'_>,

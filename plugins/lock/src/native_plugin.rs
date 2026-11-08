@@ -244,9 +244,9 @@ fn route(
             let Some(drawn) = view.drawn.as_ref() else {
                 return Ok(Handled::No);
             };
-            let took = view
-                .flow
-                .pointer(phase, contact, position, &drawn.layout, lock, ctx, fx)?;
+            let took =
+                view.flow
+                    .pointer((phase, contact, position), &drawn.layout, lock, ctx, fx)?;
             return Ok(if took { Handled::Yes } else { Handled::No });
         }
         _ => return Ok(Handled::No),

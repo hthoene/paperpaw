@@ -148,7 +148,7 @@ fn while_the_next_try_waits_nothing_is_taken_but_back() {
     assert_eq!(flow.pin_len(), 0, "no digit entered during the wait");
     assert!(
         !flow
-            .pointer(PointerPhase::Down, 1, key, &l, &mut lock, &c, &mut fx)
+            .pointer((PointerPhase::Down, 1, key), &l, &mut lock, &c, &mut fx)
             .unwrap()
     );
     // *Back* works (it takes nothing away here: there is nothing entered).
@@ -217,9 +217,7 @@ fn a_finger_draws_the_pattern_and_the_lift_checks_it() {
     assert!(
         !flow
             .pointer(
-                PointerPhase::Down,
-                1,
-                Point::new(1, 1),
+                (PointerPhase::Down, 1, Point::new(1, 1)),
                 &l,
                 &mut lock,
                 &c,
@@ -234,14 +232,20 @@ fn a_finger_draws_the_pattern_and_the_lift_checks_it() {
             PointerPhase::Move
         };
         assert!(
-            flow.pointer(phase, 1, l.points[dot], &l, &mut lock, &c, &mut fx)
+            flow.pointer((phase, 1, l.points[dot]), &l, &mut lock, &c, &mut fx)
                 .unwrap()
         );
     }
     drain(&mut fx);
     assert!(
-        flow.pointer(PointerPhase::Up, 1, l.points[4], &l, &mut lock, &c, &mut fx)
-            .unwrap()
+        flow.pointer(
+            (PointerPhase::Up, 1, l.points[4]),
+            &l,
+            &mut lock,
+            &c,
+            &mut fx
+        )
+        .unwrap()
     );
     assert_eq!(drain(&mut fx), [Effect::Unlocked]);
     assert!(!lock.locked);
