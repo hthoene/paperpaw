@@ -11,3 +11,5 @@
   59,584 → 55,600. A malformed body of a kind a plugin does not read is no longer an
   error of that callback. `tools/plugin-symbols.sh --events` proves which decoders a
   plugin links, fails on a stripped file, and `tools/flash-gate.sh --plugin-elf` runs it.
+  The `core.files` client of the SDK reads and writes its rows through the typed
+  codec as the other facades do (no change for plugins; the codec gate holds).

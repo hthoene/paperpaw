@@ -6,6 +6,7 @@ use core::{
     ffi::c_void,
 };
 use paperpaw_native::host_glue::{self as abi, PpBuffer, PpBytes, PpHost};
+use wire::Record;
 
 #[derive(Default)]
 struct State {
