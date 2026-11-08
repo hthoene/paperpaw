@@ -1,8 +1,0 @@
-{
-  "replaces_sha256": "d7862e8f07c2f64a73732a4bd9d2cfe3e85b470966cfce55c4a9f0331b49aacb",
-  "reason": "interface 7 is unreleased (draft 24): the generated records codec gains record_tag_known (a sorted table of the declared record tags, two bytes each), so the host's typed decoding (todo 129) keeps the enum path's statuses without linking any decoder: an unknown tag stays ERR_UNSUPPORTED and a known tag an operation does not expect stays ERR_INVALID; the wire format, tags and every record are unchanged, only the emitted Rust text gains the table and one function",
-  "ticket": "#228",
-  "waives": [
-    "emitted_records"
-  ]
-}
