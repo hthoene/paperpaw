@@ -111,17 +111,13 @@ fn the_host_admits_the_screen() {
     }
 }
 
-/// The offer is declared but not submitted: the host checks a slot offer and
-/// refuses it until it admits registry declarations. When this fails because
-/// the host admits it, submit `image::OFFER` in `make`.
+/// The offer is declared but not submitted: the host admits a slot offer
+/// now, so `make` can submit `image::OFFER` (a port todo).
 #[test]
-fn the_host_does_not_admit_a_slot_offer_yet() {
+fn the_host_admits_a_slot_offer() {
     for batch in image::OFFER {
         let records = records_decode(batch).unwrap();
         assert_eq!(records.iter().count(), 1);
-        assert_eq!(
-            validate_batch("translate", &records),
-            Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-        );
+        assert_eq!(validate_batch("translate", &records), Ok(()));
     }
 }

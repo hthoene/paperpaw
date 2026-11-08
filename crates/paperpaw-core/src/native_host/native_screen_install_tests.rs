@@ -1430,8 +1430,10 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
     let each = (live() - before) / owners.len();
     std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
     // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
-    // riscv32 sizes. Bounded here so that growth shows in review.
-    assert!(each <= 2_048, "{each} B per owner");
+    // riscv32 sizes. Bounded here so that growth shows in review. The bound
+    // went from 2,048 to 2,560 B when the per-owner kind table grew from 13 to
+    // 28 kinds (menus and icons, REG declarations, stages); half that on the X4.
+    assert!(each <= 2_560, "{each} B per owner");
     // Every owner's `make` was handed the same static table, not a copy.
     let tables = TABLES.with(|tables| tables.borrow().clone());
     assert!(tables.len() > owners.len());

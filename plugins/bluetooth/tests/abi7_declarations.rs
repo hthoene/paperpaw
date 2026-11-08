@@ -52,11 +52,8 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
-/// The host takes the settings, the screens, the action, the icons and the events; it
-/// checks the menu needs and the slot offer and then refuses what
-/// its menus and slots do not take yet (`screens-input.md` section 1, #944):
-/// `make` is refused as unsupported until then, the same state as Keys,
-/// Profiles, About and the plugin manager.
+/// The host takes the settings, the screens, the action, the icons, the menu
+/// needs, the slot offer and the events (`screens-input.md` section 1).
 #[test]
 fn the_host_admits_what_it_can_and_names_what_it_refuses() {
     for batch in batches!(declarations::settings)
@@ -72,10 +69,7 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
         let records = records_decode(&batch).unwrap();
         for record in records.iter() {
             match validate_record("bluetooth", &record) {
-                Ok(()) => assert!(
-                    matches!(record, Record::ActionSpec(_) | Record::IconSpec(_)),
-                    "{record:?}"
-                ),
+                Ok(()) => {}
                 Err(status) => {
                     assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
                     refused.push(format!("{record:?}"));
@@ -83,9 +77,8 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
             }
         }
     }
-    assert_eq!(
-        refused.len(),
-        3,
-        "the two menu needs and the slot offer: {refused:?}"
+    assert!(
+        refused.is_empty(),
+        "the host admits every record now: {refused:?}"
     );
 }
