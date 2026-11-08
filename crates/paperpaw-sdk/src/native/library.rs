@@ -6,6 +6,8 @@ use super::{
     services::Service,
 };
 
+mod facets;
+pub use facets::{Facet, FacetPage, FacetRow};
 mod annotations;
 pub use annotations::{
     Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,

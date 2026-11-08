@@ -89,8 +89,15 @@ kinds! {
     BookFinished => EVENT_BOOK_FINISHED_TAG, core_events::book_finished, Book;
     BookMoved => EVENT_BOOK_MOVED_TAG, core_events::book_moved, BookMoved;
     BookRemoved => EVENT_BOOK_REMOVED_TAG, core_events::book_removed, BookRemoved;
+    LibraryChanged => EVENT_LIBRARY_CHANGED_TAG, core_events::library_changed, LibraryChanged;
     PluginsChanged => EVENT_PLUGINS_CHANGED_TAG, core_events::plugins_changed, PluginsChanged;
     WifiChanged => EVENT_WIFI_CHANGED_TAG, core_events::wifi_changed, WifiChanged;
+    WifiScanned => EVENT_WIFI_SCANNED_TAG, core_events::wifi_scanned, WifiScanned;
+    WifiDone => EVENT_WIFI_DONE_TAG, core_events::wifi_done, WifiDone;
+    NetworkWanted => EVENT_NETWORK_WANTED_TAG, core_events::network_wanted, NetworkWanted;
+    NetworkIdle => EVENT_NETWORK_IDLE_TAG, core_events::network_idle, NetworkIdle;
+    FirmwareChanged => EVENT_FIRMWARE_CHANGED_TAG, core_events::firmware_changed, FirmwareChanged;
+    InstallDone => EVENT_INSTALL_DONE_TAG, core_events::install_done, InstallDone;
     PowerChanged => EVENT_POWER_CHANGED_TAG, core_events::power_changed, PowerChanged;
     StatusChanged => EVENT_STATUS_CHANGED_TAG, core_events::status_changed, StatusChanged;
     ChargeChanged => EVENT_CHARGE_CHANGED_TAG, core_events::charge_changed, ChargeChanged;
