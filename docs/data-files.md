@@ -106,8 +106,8 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/widgets/seen.bits`, `newest.txt` | widgets | the books *Next up* saw, by the hashes of their paths, as a set of bits; the books that came since, a few | |
 | `.paperpaw/plugins/widgets/reading.ini` | widgets | ini: the book read last, its page and pages, the seconds read and the pages turned for the speed; `chapter` and `chapter-left` (the pages left in it) added later | version 1 |
 | `.paperpaw/plugins/koreader/<hash>.txt` | koreader | what both sides had at the last exchange of annotations, a line each: `b` or `h`, start and end as section and offset, and a hash of the note, separated by spaces | |
-| `.paperpaw/device-check.txt` | diagnostics | the device check's report in English, a line per step (`<step>: <outcome>`); also where an unfinished check goes on from | |
-| `.paperpaw/device-check-light.txt` | diagnostics | the reader's own front light while the check tries other levels; set again from there, then removed | |
+| `.paperpaw/plugins/diagnostics/device-check.txt` | diagnostics | the device check's report in English, a line per step (`<step>: <outcome>`); also where an unfinished check goes on from | |
+| `.paperpaw/plugins/diagnostics/device-check-light.txt` | diagnostics | the reader's own front light while the check tries other levels; set again from there, then removed | |
 
 ## Caches
 
@@ -141,7 +141,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/about/licences.md`, `about/plugins.md`, `about/logo.png`, `plugin-manager/how.txt`, `store/how.txt` | about, plugin-manager, store | written when they are opened to read |
 | `.paperpaw/tmp/request-<n>` | kernel | the body of a request to a page a plugin serves, until the plugin has it; those left from before go with the next request |
 | `.paperpaw/code-room.txt` | SDK `native` | the room code plugins have, as the shell found it at this start |
-| `.paperpaw/device-check.bin` | diagnostics | 128 KiB the check writes and reads back, removed after |
+| `.paperpaw/plugins/diagnostics/device-check.bin` | diagnostics | 128 KiB the check writes and reads back, removed after |
 | `.paperpaw/plugins/browser/pages/<hash>.html` | browser | a page shown, by the hash of its address, its address as `<base href>` on its first line |
 | `.paperpaw/plugins/fonts-browser/samples/` | fonts-browser | samples of the fonts offered; those no longer offered are removed |
 | `.paperpaw/plugins/files/index.bin` | files | the library's index while a book covers its view, read back when the view shows again |

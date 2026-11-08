@@ -123,17 +123,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
 ]
 
 [[package]]
@@ -143,7 +136,6 @@ dependencies = [
  "paperpaw-plugin-aids",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",
@@ -208,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-images"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -341,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -426,6 +418,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -437,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
