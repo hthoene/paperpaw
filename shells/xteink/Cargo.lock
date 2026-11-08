@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
