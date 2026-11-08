@@ -261,7 +261,7 @@ impl Dashboard {
                 if let Some(widget) = widget {
                     drop_widget(host, ui, widget);
                 }
-                return Err(error.into());
+                return Err(error);
             }
         };
         Ok(Some(Cell {
