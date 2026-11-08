@@ -200,6 +200,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 | 1551 | `command.show_hints` | (none) |
 | 1552 | `command.raise_input` | `input: str 64` |
 | 1563 | `command.screen_policy` | `instance: u32`, `flags: u32` |
+| 1594 | `command.set_hint` | `action: str 128`, `kind: u32`, `label: str 64` |
 
 - [D] `open.mode`: 0 `screen` (open screen `target` on top), 1 `slot` (show the screen bound to slot
   `target`; if that slot is open already, close the screens above it and pass it the new hand-over),
@@ -225,6 +226,17 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   instance. Outside its own top screen `ERR_STATE`.
 - [D] `show_hints`: shows the row of button hints for a few seconds on a device with a hint row
   (`menu.need` 5); elsewhere `OK` and nothing.
+- [D] `set_hint` (draft 29, interface 6 `Screen::hint`): how the row of button hints labels the
+  button bound to `action` (a full action id, as key maps name it: `core.back`, the plugin's own)
+  while the submitter's own top instance shows. `kind` 0 the action's usual name (removes an
+  earlier `set_hint` for it), 1 the words in `label` (the plugin's own text, already translated;
+  empty `ERR_INVALID`), 2 the icon named by `label` (an `icon.spec` name or a host icon; unknown
+  `ERR_NOT_FOUND`), 3 hidden (the button does nothing here); other kinds `ERR_INVALID`, and
+  `label` is empty for kinds 0 and 3. The labels go with the instance and end when it closes; a
+  second `set_hint` for one action replaces the first; at most 8 actions per instance (a ninth
+  `ERR_NO_SPACE`). Outside its own top screen `ERR_STATE`. On a device without a hint row `OK` and
+  nothing, as `show_hints`. The host draws the words with its own rules (smaller, two lines, then
+  shortened); a label never moves or adds a button.
 - [D] `raise_input`: raises an input as written in key maps (`button.menu`, `double-tap.center`,
   or the submitter's own `input.<plugin>.<name>` / `gesture.<plugin>.<name>`): it runs what the
   layers shown bind it to, as if it came from the device. Another plugin's input or gesture, the
@@ -580,7 +592,12 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   widget kinds or a catalog key of the plugin's own, `previews` the settings group it previews
   (empty for none), `cells` columns in bits 0-7 and rows in bits 8-15 (0: the grid's width and the
   rows it needs), `token` its callback state; `flags` bit 0 `live` (read each minute; without it
-  only after events). REG op 19 lists them.
+  only after events), bit 2 `square` (as wide as high; interface 6 `SizeHint::square`). **Size
+  hint (draft 29, interface 6 `SizeHint`):** `cells` bits 16-23 the least columns and bits 24-31
+  the least rows (0: one); a declared column or row count under its least, or a square widget
+  that declares two different sides, is `ERR_INVALID` at admission. The host and a home screen
+  never lay a widget out below its least, and keep a square one square. REG op 19 lists them,
+  with `cells` and `square` (`reg_widget`).
 - [D] `widget.place` declares where widgets show (interface 6 `WidgetPlace`): `list_keys` the
   settings that list them (full ids, one per line, at most 8: a grid's pages each one), `layout`
   0 grid, 1 stack; `shown_if_key` and `shown_if_value`: the place shows only while that setting

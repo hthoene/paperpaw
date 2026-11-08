@@ -5710,6 +5710,15 @@
           "ordinal": null,
           "since": 1,
           "type": "str"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "cells",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 1040,
@@ -15276,6 +15285,40 @@
       ],
       "id": 1593,
       "name": "command.lookup_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "action",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1594,
+      "name": "command.set_hint",
       "since": 1
     }
   ],

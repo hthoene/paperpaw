@@ -11,7 +11,20 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 const PRIVATE: u32 = 1 << 1;
 const LIVE: u32 = 1;
-const CELL_MASK: u32 = 0xffff;
+/// `widget.spec.flags` bit 2: the widget stays as wide as it is high.
+const SQUARE: u32 = 1 << 2;
+
+/// Whether a widget's size hint is consistent (`ui.md` section 5): a
+/// declared size (`cells` bits 0-15, 0 for "the place decides") is no less
+/// than its least (bits 16-31, 0 for one cell), and a square widget
+/// declares no two different sides.
+fn cells_consistent(cells: u32, flags: u32) -> bool {
+    let [columns, rows, min_columns, min_rows] = cells.to_le_bytes();
+    let fits = |size: u8, least: u8| size == 0 || size >= least.max(1);
+    fits(columns, min_columns)
+        && fits(rows, min_rows)
+        && (flags & SQUARE == 0 || columns == 0 || rows == 0 || columns == rows)
+}
 
 /// Checks only local syntax. Tokens are opaque, including zero; admission
 /// checks their callback registrations and references against the retained owner.
@@ -48,8 +61,8 @@ fn widget(plugin: &str, spec: &WidgetSpec<'_>) -> Result<(), i32> {
     named(plugin, spec.name, spec.title)?;
     // Categories may be catalog keys, so their text is not an identifier.
     if spec.category.is_empty()
-        || spec.cells & !CELL_MASK != 0
-        || spec.flags & !(LIVE | PRIVATE) != 0
+        || spec.flags & !(LIVE | PRIVATE | SQUARE) != 0
+        || !cells_consistent(spec.cells, spec.flags)
     {
         return Err(ERR_INVALID);
     }
@@ -174,9 +187,21 @@ mod tests {
             WidgetSpec {
                 category: "My own category",
                 previews: "other.preview-group",
-                cells: CELL_MASK,
+                cells: 0xffff_ffff,
                 token: u32::MAX,
                 flags: LIVE | PRIVATE,
+                ..widget()
+            },
+            // Two by two at least, square, the place deciding the size.
+            WidgetSpec {
+                cells: 0x0202_0000,
+                flags: SQUARE,
+                ..widget()
+            },
+            // Three wide, at least two: square with only one side declared.
+            WidgetSpec {
+                cells: 0x0002_0003,
+                flags: SQUARE,
                 ..widget()
             },
         ] {
@@ -211,12 +236,24 @@ mod tests {
                 previews: "other..group",
                 ..widget()
             },
+            // Two wide but at least three.
             WidgetSpec {
-                cells: 1 << 16,
+                cells: 0x0003_0002,
+                ..widget()
+            },
+            // One high but at least two.
+            WidgetSpec {
+                cells: 0x0200_0101,
+                ..widget()
+            },
+            // Square with two different sides.
+            WidgetSpec {
+                cells: 0x0000_0302,
+                flags: SQUARE,
                 ..widget()
             },
             WidgetSpec {
-                flags: 1 << 2,
+                flags: 1 << 3,
                 ..widget()
             },
         ] {
