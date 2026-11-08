@@ -197,6 +197,63 @@ pub struct Props {
     pub deleted: bool,
     /// Encrypted (Joplin's end-to-end encryption).
     pub encrypted: bool,
+    /// Where its text (title and body) ends in its file: at the blank line
+    /// before the properties ([`item_props`] only).
+    pub text_end: u64,
+}
+
+/// How much of the end of an item's file is read for its properties, as in
+/// interface 6: only the end, however long the body. Properties further from
+/// the end are not seen.
+pub const TAIL: usize = 2048;
+/// How much of the start of a notes file is read for its title and author, as
+/// in interface 6.
+pub const HEAD: usize = 1024;
+
+/// `bytes` as text, an invalid sequence replaced by U+FFFD as
+/// `String::from_utf8_lossy` does, in memory that may be refused.
+fn lossy(bytes: &[u8]) -> Result<String, Error> {
+    let size = bytes
+        .utf8_chunks()
+        .map(|c| c.valid().len() + 3 * usize::from(!c.invalid().is_empty()))
+        .sum();
+    let mut out = String::new();
+    out.try_reserve_exact(size).map_err(|_| Error::NoMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        out.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            out.push('\u{fffd}');
+        }
+    }
+    Ok(out)
+}
+
+/// The properties of the item whose file is `size` bytes long and ends in
+/// `tail`, and where its text ends. Only the last [`TAIL`] bytes count: a
+/// longer `tail` is cut from the front, so the caller may give what it read
+/// of the end, but need not read more.
+///
+/// # Errors
+/// `NoMemory` when the values cannot be kept.
+pub fn item_props(size: u64, tail: &[u8]) -> Result<Props, Error> {
+    let from = size.saturating_sub(TAIL as u64);
+    // What the file has of its end, and no more than it has.
+    let have = usize::try_from(size - from).unwrap_or(TAIL).min(tail.len());
+    let tail = tail[tail.len() - have..].trim_ascii_end();
+    let blank = tail.windows(2).rposition(|w| w == b"\n\n").unwrap_or(0);
+    Ok(Props {
+        text_end: from + blank as u64,
+        ..parse_props(&lossy(tail)?)?
+    })
+}
+
+/// The title and author at the start of a notes file whose first bytes are
+/// `start`. Only the first [`HEAD`] bytes count.
+///
+/// # Errors
+/// `NoMemory` when the texts cannot be kept.
+pub fn head_of(start: &[u8]) -> Result<Head, Error> {
+    parse_head(&lossy(&start[..start.len().min(HEAD)])?)
 }
 
 fn copy(text: &str) -> Result<String, Error> {
