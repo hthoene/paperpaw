@@ -3,16 +3,12 @@
 //! read from the answer. Each part is the interface-6 code made fallible,
 //! with a test that both give the same answers.
 //!
-//! The answer's JSON is read with `paperpaw_sdk::json::stream`, which
-//! reports refused memory instead of aborting. It cuts a text at
-//! [`paperpaw_sdk::json::stream::MAX_STRING`] (4,096 bytes), more than the
-//! 2,048 bytes an entry of the lookup holds.
+//! The answer is read like interface 6 reads it (the members `title` and
+//! `extract` of its object), the texts unescaped into a fallible buffer and
+//! kept whole, as long as the answer's body (`MAX_BODY`).
 use alloc::string::String;
-use paperpaw_sdk::{
-    json::stream::{Event, Parser},
-    native::Error,
-};
-use paperpaw_ui_kit::text::concat;
+use paperpaw_sdk::native::Error;
+use paperpaw_ui_kit::{json::string_member, text::concat};
 
 /// The most bytes of an answer that are read: the request's `max_body`
 /// (a summary is a paragraph or two). A longer text is refused with `NoSpace`.
@@ -130,46 +126,10 @@ pub fn outcome(status: u16, body: &str) -> Result<Outcome, Error> {
     }
 }
 
-/// The `title` and the `extract` of the answer's top-level object.
+/// The `title` and the `extract` of the answer's object.
 fn members(body: &str) -> Result<(Option<String>, Option<String>), Error> {
-    let (mut title, mut extract) = (None, None);
-    let mut failed = false;
-    let mut keep = |event: Event<'_>| {
-        let Event::Value(path, text) = event else {
-            return;
-        };
-        let slot = match path {
-            [key] if key.as_str() == "title" => &mut title,
-            [key] if key.as_str() == "extract" => &mut extract,
-            _ => return,
-        };
-        // The reader reports a literal (`null`) as text too: no summary.
-        if matches!(text, "null" | "true" | "false") {
-            return;
-        }
-        // The first of a repeated key, as the interface-6 reader.
-        if slot.is_none() {
-            match kept(text) {
-                Some(copy) => *slot = Some(copy),
-                None => failed = true,
-            }
-        }
-    };
-    let mut parser = Parser::default();
-    parser
-        .try_feed(body.as_bytes(), &mut keep)
-        .and_then(|()| parser.try_finish(&mut keep))
-        .map_err(|_| Error::NoMemory)?;
-    if failed {
-        return Err(Error::NoMemory);
-    }
-    Ok((title, extract))
-}
-
-/// A copy of `text`, `None` when memory is refused.
-fn kept(text: &str) -> Option<String> {
-    let mut out = String::new();
-    out.try_reserve_exact(text.len()).ok()?;
-    out.push_str(text);
-    Some(out)
+    Ok((
+        string_member(body, "title")?,
+        string_member(body, "extract")?,
+    ))
 }

@@ -24,11 +24,11 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   other bytes percent-encoded), and the summary read from an answer: a status of 200 to 299 with a
   non-blank `extract` is a summary (with the article's `title` when there is one), 404 or no
   extract is "not found", status 0 "unreachable", any other status "failed".
-- The answer is read with `paperpaw_sdk::json::stream` (refused memory is `NoMemory`, not an
-  abort). A body over `MAX_BODY` (16 KiB, the request's `max_body`) is refused with `NoSpace`.
-  The reader cuts a text at 4,096 bytes, which is more than the 2,048 bytes of a lookup entry.
-  It reports a literal (`null`, `true`, `false`) as text, so those three words are not taken for
-  a summary or a title (interface 6 ignored them as non-strings).
+- The answer is read like interface 6 reads it (the members `title` and `extract` of its object),
+  the texts unescaped into a fallible buffer (`paperpaw_ui_kit::json`): kept whole, refused memory
+  is `NoMemory`, not an abort. A body over `MAX_BODY` (16 KiB, the request's `max_body`) is refused
+  with `NoSpace`. A member that is not a string (`null`, a number) is no summary or title, as in
+  interface 6.
 - Tests: parity with interface 6 (ids and titles of the screen and the provider, addresses for
   eight languages and seven words, the summary for nine bodies, the statuses), the declarations
   against the host's validation, the texts in both languages, the linked entry, and a refusal
