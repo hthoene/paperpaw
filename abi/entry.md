@@ -90,7 +90,14 @@ keep installing card and store plugins in 1.0.
   windowed ABI spills register windows into the callers' frames (the 16-byte
   base save area below each stack pointer), so the frame gate counts them;
   its byte limit for the S3 is the shell's (`abi/heap-word.md` §6), measured
-  as on the X4.
+  as on the X4. The packer keeps the 2,048-byte frame gate (`FRAME_LIMIT`)
+  for Xtensa too, reading each function's frame from its `entry` operand and
+  counting the 16-byte base save area.
+- **Build:** the S3 plugin build sets `-Z crate-attr=feature(asm_experimental_arch)`
+  (the esp compiler is a nightly), so the SDK's heap word stays `global_asm!`
+  (a plain static could be folded to its zero or land in writable data), and the
+  SDK's heap `trap()` is the Xtensa `ill` instruction, which always raises an
+  exception (a `break` needs a debugger).
 - **Placement:** the loader reads the image into PSRAM and runs it there
   through the instruction-bus mapping (`CODE_OFFSET`), as interface 6 did on
   the X4 Pro. Code reaches its data, its literals and itself by PC-relative
