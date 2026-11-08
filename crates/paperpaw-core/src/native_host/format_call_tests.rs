@@ -27,6 +27,8 @@ pub(crate) enum Behavior {
     Truncated,
     /// More than 64 records.
     TooMany,
+    /// Exactly these bytes as the reply.
+    Raw(&'static [u8]),
 }
 
 pub(crate) struct Fake {
@@ -80,6 +82,13 @@ impl Dispatch for Fake {
             Behavior::TooMany => {
                 out[0] = 65;
                 Ok(1)
+            }
+            Behavior::Raw(bytes) if out.len() < bytes.len() => {
+                Ok(i32::try_from(bytes.len()).unwrap())
+            }
+            Behavior::Raw(bytes) => {
+                out[..bytes.len()].copy_from_slice(bytes);
+                Ok(i32::try_from(bytes.len()).unwrap())
             }
         }
     }

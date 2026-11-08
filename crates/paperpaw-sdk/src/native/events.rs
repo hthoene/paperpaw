@@ -8,7 +8,10 @@ use super::{
 
 mod core_events;
 mod states;
-pub use states::{BookKind, ChargeFlags, PowerChange, WifiLinkState};
+pub use states::{
+    BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
+    PowerChange, WifiLinkState,
+};
 
 /// A host-issued plugin installation request, obtained from a decoded event.
 ///
@@ -303,6 +306,10 @@ pub enum Event<'a> {
     PluginsChanged { now_ms: u64 },
     /// The radio connection state changed.
     WifiChanged { now_ms: u64, state: WifiLinkState },
+    /// A Bluetooth device or scan changed; sent to the plugin bound to
+    /// `core.bluetooth` only, so it is declared as a slot offer, not as a
+    /// subscription.
+    Bluetooth(BluetoothChange<'a>),
     /// The interface-6 power mode or level changed.
     PowerChanged(PowerChange<'a>),
     /// Status items changed; read them through the owning stage.
@@ -348,6 +355,10 @@ pub enum Event<'a> {
     },
     /// Read the current stack through core.ui.
     StackChanged { now_ms: u64 },
+    /// A request of this plugin ended (`core.net`); read the answer in this callback.
+    HttpDone(super::net::HttpDone),
+    /// Bytes of a request's body came.
+    HttpProgress(super::net::HttpProgress),
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.

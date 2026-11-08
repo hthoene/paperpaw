@@ -20,6 +20,9 @@ pub(crate) struct Faulty {
     rename_drops_target: Cell<bool>,
     /// Reads return at most this many bytes.
     short_reads: Cell<Option<usize>>,
+    /// Renames that still succeed; `None`: all of them. The next fails, as a
+    /// power cut between two renames would end the run.
+    renames: Cell<Option<u32>>,
 }
 
 impl Faulty {
@@ -43,6 +46,17 @@ impl Faulty {
     /// Renames from now on remove the file they replace, then fail.
     pub(crate) fn drop_target_on_rename(&self) {
         self.rename_drops_target.set(true);
+    }
+
+    /// Takes `renames` more renames, then every rename fails.
+    pub(crate) fn cut_after_renames(&self, renames: u32) {
+        self.renames.set(Some(renames));
+    }
+
+    /// Renames work again, as after a restart.
+    pub(crate) fn heal_renames(&self) {
+        self.renames.set(None);
+        self.rename_drops_target.set(false);
     }
 
     /// Reads from now on return at most `bytes` bytes.
@@ -97,6 +111,21 @@ impl Storage for Faulty {
         self.inner.exists(path)
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        match self.renames.get() {
+            Some(0) => {
+                // The failing rename may have taken the file it replaces away.
+                if self.rename_drops_target.get() {
+                    self.inner.remove(to).ok();
+                }
+                return Err(StorageError::Io);
+            }
+            Some(n) => {
+                // Within the budget a rename works.
+                self.renames.set(Some(n - 1));
+                return self.inner.rename(from, to);
+            }
+            None => {}
+        }
         if self.rename_drops_target.get() {
             match self.inner.remove(to) {
                 Ok(()) | Err(StorageError::NotFound) => {}
@@ -110,3 +139,77 @@ impl Storage for Faulty {
         self.inner.create_dir(path)
     }
 }
+
+/// Refuses the allocation a test arms, for the tests of a heap that says no.
+/// Only one thread's allocations are counted and refused; all others pass.
+pub(crate) mod heap {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    pub(crate) struct Refusing;
+
+    std::thread_local! {
+        /// The allocation to refuse, counted from 1; 0 turns refusing off.
+        static REFUSE_AT: Cell<usize> = const { Cell::new(0) };
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Whether this allocation is the one to refuse (and counts it).
+    fn refuse() -> bool {
+        let at = REFUSE_AT.try_with(Cell::get).unwrap_or(0);
+        if at == 0 {
+            return false;
+        }
+        COUNT
+            .try_with(|count| {
+                count.set(count.get() + 1);
+                count.get() == at
+            })
+            .unwrap_or(false)
+    }
+
+    /// Runs `run` with the `at`-th allocation refused (`usize::MAX`: none
+    /// refused, only counted); its result, and how many allocations it made
+    /// on this thread.
+    pub(crate) fn armed<T>(at: usize, run: impl FnOnce() -> T) -> (T, usize) {
+        COUNT.with(|count| count.set(0));
+        REFUSE_AT.with(|refuse| refuse.set(at));
+        let result = run();
+        REFUSE_AT.with(|refuse| refuse.set(0));
+        (result, COUNT.with(Cell::get))
+    }
+
+    /// Builds test input while nothing is refused or counted.
+    pub(crate) fn fixture<T>(build: impl FnOnce() -> T) -> T {
+        let at = REFUSE_AT.with(|refuse| refuse.replace(0));
+        let value = build();
+        REFUSE_AT.with(|refuse| refuse.set(at));
+        value
+    }
+
+    // SAFETY: refuses the allocation a test arms, and passes every other call
+    // to the system allocator.
+    unsafe impl GlobalAlloc for Refusing {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if refuse() {
+                return core::ptr::null_mut();
+            }
+            // SAFETY: the caller's layout, passed on.
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+            // SAFETY: the pointer and layout of an allocation made above.
+            unsafe { System.dealloc(p, layout) }
+        }
+        unsafe fn realloc(&self, p: *mut u8, layout: Layout, new: usize) -> *mut u8 {
+            if refuse() {
+                return core::ptr::null_mut();
+            }
+            // SAFETY: the pointer and layout of an allocation made above.
+            unsafe { System.realloc(p, layout, new) }
+        }
+    }
+}
+
+#[global_allocator]
+static REFUSING: heap::Refusing = heap::Refusing;
