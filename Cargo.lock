@@ -2027,7 +2027,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-i18n",

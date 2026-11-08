@@ -1,4 +1,6 @@
-# Interface-7 port (plan, not started in code)
+# Interface-7 port (slices 1–2 done: shared provider, Markdown, HTML)
+
+Done: `provider.rs`, `markdown_provider()`, `html_provider()`, parity tests `tests/provider_markdown.rs`, `tests/provider_html.rs` (block by block against the interface-6 reader). Block `lang` (BCP 47), `dir` and `writing_mode` are sent with the draft-29 numbers. Gaps until draft 29 lands in the SDK: ruby kind (`AnnotationKind`, all sent as 0), inline languages, embedded fonts (root-6 `fonts/<i>`). Not measured: X4 size and heap. Remaining slices: fb2, cbz, epub.
 
 Assignment #1638 (#228). Branch based on #385 (draft 28, `5067fc377`); move to integration once #385 merges.
 
