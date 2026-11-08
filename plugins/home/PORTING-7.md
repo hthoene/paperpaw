@@ -158,8 +158,9 @@ without the host): the kinds (the widgets' registry kind, the tools last) with h
 *Add a page* (under 8 pages), *Remove this page* (more than one), *Reset landscape layout* (where
 one is kept); a kind lists its things (the widgets, the tools not on the page). A widget goes into
 the first free cells as a placement of its own (`id@n`: no page of either layout holds it and the
-registry has no values for it), as wide as the page and as high as measured (one row until measuring
-is ported); a tool one cell; it is added to the other layout too. Only the pages whose text changes are written. All of a choice's writes (the
+registry has no values for it), as wide as the page and as high as it measures at the grid's width
+(`ui.widget_measure` on a widget made for it, `native_measure.rs`, the interface-6 arithmetic; one
+row where the host cannot measure it); a tool one cell; it is added to the other layout too. Only the pages whose text changes are written. All of a choice's writes (the
 settings, the placements a removed page's widgets set reset with `reset_setting`, the message) are
 staged in one callback, and an error return drops them all (`screens-input.md` 2.1), so a choice is
 all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say so ("This change is too big to save at once."), stage nothing and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
@@ -173,11 +174,17 @@ interface 6) move it a cell or make it a cell wider/narrower or taller/lower; wh
 the way the core's message says so; *Select* or *Back* sets it down and writes the page
 (`native_pages::store`, for a screen on its side the whole derived layout, as *Add* does).
 *Remove* takes it off the page and resets what its placement (`id@n`) set. A widget is kept at
-least as high as it measured at the grid's width (one while measuring is not ported) and one cell
-wide; its own size hint (`CellSpan::keep`) is not read. A change too big for one callback says so
+least as high as `widget_measure` gives as its least height at the grid's width (measured when the
+page is laid out), and one cell wide. Where the host refuses to place a moved widget again, the page
+is laid out anew from the settings. A change too big for one callback says so
 and leaves the old layout (see *Add*). The page is laid out anew from the settings after a write.
 
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
+
+- **Named blocker `KERNEL-cell-hints` (draft 29):** a widget's least *width* and its square hint
+  (`CellSpan::min_w`, `square`; interface 6 `CellSpan::keep`) have no field in `widget_measure`'s
+  reply, so a widget may be made narrower than it wants or any shape when it is sized (or, when
+  added, gets the grid's width): `home-edit-arrange`, `home-add`. The TODO is in `native_measure.rs`.
 
 - Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4); the options' *Settings* entry (the widget's settings, with a placement of its own) is not ported: `home-edit-arrange`.
 - *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made

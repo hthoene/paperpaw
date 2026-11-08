@@ -209,8 +209,25 @@ impl Dashboard {
     }
 
     /// One step of the item being moved or sized: where it goes, the widget
-    /// placed again; where another item is in the way, said.
+    /// placed again; where another item is in the way, said. Where the host
+    /// refuses to place the widget again the page is laid out anew from the
+    /// settings, so that what is in memory and what shows agree.
     fn step(&mut self, host: &Host<'_>, ui: &Ui, moving: Moving, dir: Dir) -> Result<(), Error> {
+        let stepped = self.step_cells(host, ui, moving, dir);
+        if stepped.is_err() {
+            self.moving = None;
+            self.stale = true;
+        }
+        stepped
+    }
+
+    fn step_cells(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        moving: Moving,
+        dir: Dir,
+    ) -> Result<(), Error> {
         let Some(laid) = self.laid.as_mut() else {
             return Ok(());
         };

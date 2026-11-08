@@ -28,6 +28,7 @@ use paperpaw_ui_kit::{
 
 use crate::native_add::{self as add, Entry, Layout, Plan, Row};
 use crate::native_grid::What;
+use crate::native_measure as measure;
 use crate::native_pages::{self, Write};
 use crate::native_shown::Shown;
 
@@ -213,7 +214,25 @@ impl AddScreen {
         if let Row::Kind(kind, _) = row {
             return self.open_kind(host, ui, kind);
         }
-        let shown = Shown::current(host)?;
+        let mut shown = Shown::current(host)?;
+        // What is added is measured at the grid's width, so it gets the rows it
+        // needs.
+        let added = match row {
+            Row::Add(entry) => match self.entries.get(*entry) {
+                Some(entry) => Some(Self::placed(host, &shown.src, entry)?),
+                None => None,
+            },
+            _ => None,
+        };
+        if let Some(What::Widget(id)) = &added {
+            match measure::measure_widget(host, ui, id, measure::PLACE, &shown.frame.geometry) {
+                Ok(Some((rows, least))) => shown.src.measured(id, rows, least)?,
+                // Not measured (gone, refused): the grid's default of one row.
+                Ok(None) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
         let wide_grid = shown.wide_grid();
         let layout = Layout {
             wide: shown.wide,
@@ -224,10 +243,8 @@ impl AddScreen {
         let src = &shown.src;
         let mut resets = Vec::new();
         let plan = match row {
-            Row::Add(entry) => match self.entries.get(*entry) {
-                Some(entry) => {
-                    add::add_item(src, &layout, self.page, Self::placed(host, src, entry)?)?
-                }
+            Row::Add(_) => match added {
+                Some(what) => add::add_item(src, &layout, self.page, what)?,
                 None => Plan::Nothing,
             },
             Row::AddPage => add::add_page(src, &layout)?,

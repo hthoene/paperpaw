@@ -90,15 +90,17 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
+        blocked_by: &["HOME-add-gallery", "517", "H1", "H4", "KERNEL-cell-hints"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
     // the item, by its corner), and the options' *Settings* entry. Moving,
-    // sizing and removing with the buttons are done (unit-tested).
+    // sizing and removing with the buttons are done (unit-tested). A widget's
+    // least width and square hint (`KERNEL-cell-hints`, draft 29) have no ABI
+    // field yet, so sizing may make a widget narrower than it wants.
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["H4", "HOME-item-settings"],
+        blocked_by: &["H4", "HOME-item-settings", "KERNEL-cell-hints"],
     },
 ];
 
@@ -179,7 +181,7 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported"]
+#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported; KERNEL-cell-hints (draft 29): a widget\'s least width and square hint have no ABI field"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }

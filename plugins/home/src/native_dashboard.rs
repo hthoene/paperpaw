@@ -31,13 +31,12 @@ use paperpaw_ui_kit::{
 use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
-use crate::native_grid::{self as grid, Sizes, What};
+use crate::native_grid::{self as grid, What};
+use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 
-/// Where the widgets are made (the place the plugin declares).
-const PLACE: &str = "home.pages";
 /// Lines a tool's name takes at most.
 const NAME_LINES: usize = 3;
 
@@ -210,7 +209,7 @@ impl Dashboard {
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
         let Shown {
-            src,
+            mut src,
             metrics,
             frame,
             pages,
@@ -225,6 +224,7 @@ impl Dashboard {
             Some(page) => native_pages::expand(&src, &page.items)?,
             None => Vec::new(),
         };
+        Self::measure_unplaced(host, ui, &mut src, &frame.geometry, &items)?;
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
         let editing = self.editing;
         let pencil_on = editing || src.pencil;
@@ -285,6 +285,30 @@ impl Dashboard {
             slot,
             wide,
         })
+    }
+
+    /// The widgets with no place yet are measured at the grid's width (made,
+    /// asked and let go), so the grid gives each the rows it needs. A widget the
+    /// host cannot measure keeps the default of one row.
+    fn measure_unplaced(
+        host: &Host<'_>,
+        ui: &Ui,
+        src: &mut HostSource,
+        geometry: &Geometry,
+        items: &[grid::Item],
+    ) -> Result<(), Error> {
+        for item in items {
+            let (None, What::Widget(id)) = (item.at, &item.what) else {
+                continue;
+            };
+            match measure::measure_widget(host, ui, id, PLACE, geometry) {
+                Ok(Some((rows, least))) => src.measured(id, rows, least)?,
+                Ok(None) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
+        Ok(())
     }
 
     /// The cells of the items shown, what the buttons reach and the footer's
@@ -357,9 +381,17 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let least = match &item.what {
-            What::Widget(id) => src.widget(geometry, id).2,
-            What::Tool(_) => 1,
+        let least = match widget {
+            Some(handle) => match measure::measure_handle(host, ui, handle, geometry) {
+                Ok((_, least)) => least,
+                Err(Error::NoMemory) => {
+                    drop_widget(host, ui, handle);
+                    return Err(Error::NoMemory);
+                }
+                // A widget the host cannot measure may not be made lower than one.
+                Err(_) => 1,
+            },
+            None => 1,
         };
         Ok(Some(Cell {
             what,
