@@ -87,6 +87,29 @@ class CheckLocal(unittest.TestCase):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertRegex(run.stdout, r"test\s+FAILED")
 
+    def test_a_workspace_whose_metadata_is_far_beyond_one_argument_still_detects_packages(self):
+        members = ['"crates/good"', '"crates/bad"']
+        for number in range(400):
+            crate = self.repo / "crates" / f"many{number}"
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                f'[package]\nname = "many{number}"\nversion = "0.1.0"\nedition = "2021"\n'
+                f'description = "{"long description " * 20}"\n')
+            (crate / "src/lib.rs").write_text("")
+            members.append(f'"crates/many{number}"')
+        (self.repo / "Cargo.toml").write_text(f'[workspace]\nmembers = [{", ".join(members)}]\nresolver = "2"\n')
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "many")
+        self.git("branch", "-f", "base")
+        env = dict(os.environ)
+        metadata = subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1"], cwd=self.repo,
+                                  env=env, capture_output=True, text=True, check=True).stdout
+        self.assertGreater(len(metadata), 200 * 1024)
+        (self.repo / "crates/many7/src/lib.rs").write_text("pub fn changed() {}\n")
+        run = self.run_script("--only", "fmt")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("packages: many7", run.stdout)
+
     def test_a_missing_base_is_an_error_not_an_empty_package_set(self):
         run = self.run_script("--base", "origin/nowhere", "--only", "test")
         self.assertEqual(run.returncode, 2, run.stdout + run.stderr)

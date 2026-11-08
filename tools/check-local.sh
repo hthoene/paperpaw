@@ -73,6 +73,7 @@ if [[ -z "${RUSTC_WRAPPER:-}" && -x tools/sccache-wrap.sh ]] && command -v sccac
     export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
 fi
 
+logs="$(mktemp -d "${TMPDIR:-/tmp}/check-local.XXXXXX")" || exit 2
 not_checked=()
 warnings=()
 detected=()
@@ -94,44 +95,52 @@ fi
 # of their own among them. A file belongs to the nearest Cargo.toml above it;
 # the manifests of `cargo metadata --no-deps` are the root workspace's members.
 if [[ -n "$merge_base" ]]; then
-    changed_files="$({ git diff --name-only "$merge_base"; git ls-files --others --exclude-standard; } | sort -u)"
-    metadata="$(cargo metadata --no-deps --format-version 1 2> /dev/null)" \
-        || { echo "check-local: cargo metadata failed in $root" >&2; exit 2; }
-    classified="$(printf '%s\n' "$changed_files" | python3 -I -c '
+    # Through files, not arguments: the metadata of this repository is far
+    # beyond the 128 KiB a single argument may have. Any failure here is exit 2:
+    # an unknown package set is not an empty one.
+    { git diff --name-only "$merge_base"; git ls-files --others --exclude-standard; } | sort -u > "$logs/changed.txt" \
+        || { echo "check-local: git could not list the changed files" >&2; exit 2; }
+    cargo metadata --no-deps --format-version 1 > "$logs/metadata.json" 2> "$logs/metadata.err" \
+        || { echo "check-local: cargo metadata failed (see $logs/metadata.err)" >&2; exit 2; }
+    python3 -I - "$logs/metadata.json" "$logs/changed.txt" > "$logs/classified.txt" 2> "$logs/classified.err" <<'PY' \
+        || { echo "check-local: could not classify the changed files (see $logs/classified.err)" >&2; exit 2; }
 import json, sys
 from pathlib import Path
+with open(sys.argv[1], encoding="utf-8") as stream:
+    metadata = json.load(stream)
 members = {}
-for package in json.loads(sys.argv[1])["packages"]:
+for package in metadata["packages"]:
     members[str(Path(package["manifest_path"]).parent)] = package["name"]
 root = Path.cwd()
 packages, separate = [], []
-for line in sys.stdin:
-    if not line.strip():
-        continue
-    path = (root / line.strip())
-    for parent in path.parents:
-        if parent == root.parent:
-            break
-        if (parent / "Cargo.toml").is_file():
-            if str(parent) in members:
-                if members[str(parent)] not in packages:
-                    packages.append(members[str(parent)])
-            elif parent != root:
-                where = str(parent.relative_to(root))
-                if where not in separate:
-                    separate.append(where)
-            break
+with open(sys.argv[2], encoding="utf-8") as stream:
+    for line in stream:
+        if not line.strip():
+            continue
+        path = root / line.strip()
+        for parent in path.parents:
+            if parent == root.parent:
+                break
+            if (parent / "Cargo.toml").is_file():
+                if str(parent) in members:
+                    if members[str(parent)] not in packages:
+                        packages.append(members[str(parent)])
+                elif parent != root:
+                    where = str(parent.relative_to(root))
+                    if where not in separate:
+                        separate.append(where)
+                break
 for name in packages:
     print("PKG", name)
 for where in separate:
     print("SEPARATE", where)
-' "$metadata")"
+PY
     while read -r kind value; do
         case "$kind" in
             PKG) detected+=("$value") ;;
             SEPARATE) not_checked+=("NOT CHECKED: $value/ (separate workspace; build it there)") ;;
         esac
-    done <<< "$classified"
+    done < "$logs/classified.txt"
 fi
 if ((explicit == 0)) && ((${#detected[@]} > 0)); then
     crates=("${detected[@]}")
@@ -147,7 +156,6 @@ if [[ -n "$merge_base" ]] && ((${#crates[@]} > 0)); then
     [[ -n "$fragments" ]] || warnings+=("crates changed but no new changelog.d fragment (add one, or a No-changelog: <reason> trailer on the head commit)")
 fi
 
-logs="$(mktemp -d "${TMPDIR:-/tmp}/check-local.XXXXXX")"
 echo "check-local: logs in $logs"
 
 names=()
