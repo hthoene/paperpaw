@@ -46,6 +46,12 @@ before 1.0.
    (`tools/sccache-wrap.sh`, `CI_LOCAL_SCCACHE=0` turns it off); for your own
    `cargo` runs, `export RUSTC_WRAPPER=$PWD/tools/sccache-wrap.sh` does the same,
    so that crates.io dependencies are compiled once for every build folder.
+   For a change to a few crates, `tools/check-local.sh [crate ...]` is the
+   quick local part (fmt, clippy `-D warnings`, tests, rustdoc `-D warnings`,
+   changelog, lockfiles, licences, `paperpaw-checks`; `--features` adds a
+   feature set). It runs every step, prints a summary and exits non-zero if
+   any step failed: do not pipe it through `grep`, and read the exit code or
+   the summary, not a marker line.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
@@ -288,6 +294,13 @@ where the specifications come from and mark values you could not verify.
   never edits `CHANGELOG.md`: that shared list made parallel PRs conflict.
   Only release preparation collects entries, as
   [RELEASING.md](RELEASING.md) describes.
+- A GitHub action in `.github/` is named by its full commit SHA with the
+  version as a comment (`uses: owner/action@<40 hex digits> # v1.2.3`), never
+  by a tag or branch, which can move. `dtolnay/rust-toolchain` also gets
+  its `toolchain:` input, which its ref used to say. Dependabot updates the
+  SHA and the comment together, except for `dtolnay/rust-toolchain`, which it
+  ignores: bump those pins by hand. A test in `tools/test_ci_tools.py` fails
+  on an unpinned action.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.

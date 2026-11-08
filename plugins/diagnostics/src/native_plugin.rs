@@ -136,6 +136,8 @@ impl Plugin for NativeDiagnostics {
 
 impl NativeDiagnostics {
     /// A screen shows: its view is made the first time, resized after.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     fn shown(
         &mut self,
         host: &Host<'_>,

@@ -9,6 +9,21 @@
   plugin stops. TLS, reads to a file and UDP broadcast answer
   `ERR_UNSUPPORTED` until their slices land; a shell still has to wire the
   transport.
+
+- **Reads to a file** (`read` mode 1): the bytes go to the staged file of the
+  target and are renamed over it only when all `len` bytes arrived; then the
+  plugin is told `saved`. The target and its staged file are in use meanwhile,
+  the card rules and the free-space reserve apply, and anything that ends the
+  socket first (the peer, a full card, the idle time, `close`, the screen, the
+  run, the plugin stopping) removes the staged file and leaves the old file.
   An `exact` read is all or nothing: the peer closing early ends the socket
   with `closed_early`. Core now combines the network demand of `core.net` and
   the sockets, so the shell hears one edge per change.
+
+- **Broadcast** (`broadcast`, `event.broadcast`): one datagram to the
+  network's broadcast address on up to eight ports, the answers for `wait_ms`,
+  then `done` (the eighth answer ends it early). It counts as one of the
+  plugin's sockets, charges eight answers' room to the network pool, and ends
+  with the screen, the run, the network and the plugin. An answer over 1,024
+  bytes, or from an address over 64 bytes or not UTF-8, is dropped whole and
+  does not count.
