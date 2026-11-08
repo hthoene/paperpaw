@@ -3,9 +3,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::{Record, records_decode},
+    registrations::records_decode,
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -68,6 +67,6 @@ fn the_host_admits_the_screens_the_actions_the_events_the_menu_places_and_the_ic
             }
         }
     }
-    // The action, the two menu places and the two icons.
-    assert_eq!(admitted, 5);
+    // The actions, the two menu places and the two icons.
+    assert_eq!(admitted, 6);
 }

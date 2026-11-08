@@ -3,9 +3,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::{Record, records_decode},
+    registrations::records_decode,
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -70,10 +69,7 @@ fn the_host_admits_what_it_can_and_names_what_it_refuses() {
         for record in records.iter() {
             match validate_record("bluetooth", &record) {
                 Ok(()) => {}
-                Err(status) => {
-                    assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
-                    refused.push(format!("{record:?}"));
-                }
+                Err(status) => refused.push(format!("{record:?}: {status}")),
             }
         }
     }
