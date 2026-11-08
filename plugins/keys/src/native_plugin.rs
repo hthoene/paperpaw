@@ -10,13 +10,14 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, KeyBinding, RedrawMode},
-        events::{AnswerOutcome, Event, Incoming},
+        events::{AnswerOutcome, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
         ui::{Instance, Notify, Open, Param, Question, QuestionKind, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Item, ItemList, ItemStep, Messages, Screens,
     items::RowItem,
@@ -147,8 +148,11 @@ impl Plugin for NativeKeys {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::RegistryChanged, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun {
                 action: "keys.open",

@@ -14,7 +14,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PluginEnabled},
         device::{Device, DeviceCursor, NativeSafeMode, NotInstalledReason},
-        events::{AnswerOutcome, Event, Incoming},
+        events::{AnswerOutcome, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         registry::{MenuQuery, PageCursor, Registry},
@@ -23,6 +23,7 @@ use paperpaw_sdk::{
         ui::{HandoverId, Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, files,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -118,7 +119,10 @@ impl Plugin for NativePluginManager {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::PluginsChanged, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun { action, .. } if token == OPEN_TOKEN && action.ends_with(".open") => {
                 let mut scratch = [0; 128];

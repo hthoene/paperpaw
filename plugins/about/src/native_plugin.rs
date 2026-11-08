@@ -13,7 +13,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         device::{Device, DeviceCursor},
-        events::{Event, Incoming},
+        events::{Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -21,6 +21,7 @@ use paperpaw_sdk::{
         ui::{Instance, Open},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -68,7 +69,10 @@ impl Plugin for NativeAbout {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun {
                 action: "about.open",

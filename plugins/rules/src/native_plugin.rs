@@ -17,7 +17,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        events::{AnswerOutcome, Answered, BookKind, Event, Incoming},
+        events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -28,6 +28,7 @@ use paperpaw_sdk::{
     },
     time::{TIME_ZONES, TimeZone},
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, files,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -176,7 +177,10 @@ impl Plugin for NativeRules {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Tick, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::StatusChanged, kinds::SettingChanged, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun { .. } if token == OPEN => {
                 let mut scratch = [0; 128];

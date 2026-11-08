@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::{Event, Incoming},
+        events::{Event, Incoming, kinds},
         formatting::Arg,
         library::{BookRef, CatalogCursor, CatalogPhase, Library},
         registrations,
@@ -25,6 +25,7 @@ use paperpaw_sdk::{
         ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -161,7 +162,10 @@ impl Plugin for NativeFiles {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun { .. } if token == SHELVES_OPEN_TOKEN => {
                 let mut scratch = [0; 128];

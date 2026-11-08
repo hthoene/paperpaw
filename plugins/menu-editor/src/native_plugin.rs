@@ -11,7 +11,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, RedrawMode},
-        events::{Event, Incoming},
+        events::{Event, Incoming, kinds},
         fonts::{Font, FontRole},
         registrations,
         registry::Registry,
@@ -20,6 +20,7 @@ use paperpaw_sdk::{
         ui::{Instance, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     ListFocus, ListInput, Messages, Style, focus,
     list::row as prepare_row,
@@ -159,8 +160,11 @@ impl Plugin for NativeMenuEditor {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::RegistryChanged)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ActionRun {
                 action: "menu-editor.open",

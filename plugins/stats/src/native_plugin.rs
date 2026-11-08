@@ -3,7 +3,7 @@
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
-    events::{Event, Incoming, ReadingView},
+    events::{Event, Incoming, ReadingView, kinds},
     formatting::copy_message,
     registrations,
     reply::Reply,
@@ -16,6 +16,20 @@ use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
 use crate::files::DataFolder;
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+
+/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
+macro_rules! read_event {
+    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
+        let incoming = &$incoming;
+        let mut found = ::core::option::Option::None;
+        $(
+            if found.is_none() {
+                found = incoming.decode_as::<$kind>()?;
+            }
+        )+
+        found
+    }};
+}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -55,7 +69,10 @@ impl Plugin for NativeStats {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        else {
+            return Ok(());
+        };
         if let Event::StageCall {
             stage: READ_TODAY, ..
         } = event

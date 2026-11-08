@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
-        events::{Event, Incoming},
+        events::{Event, Incoming, kinds},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -19,6 +19,7 @@ use paperpaw_sdk::{
         ui::{HintInput, Instance, Open, Param, Ui, UiCursor},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Dialog, Messages, Paint, Screens, Style,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -109,8 +110,11 @@ impl Plugin for NativeHelp {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenReady, kinds::ScreenClosed)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,

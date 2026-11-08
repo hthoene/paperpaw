@@ -12,7 +12,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PreviewSetting, RedrawMode, ResetTarget},
-        events::{AnswerOutcome, Answered, Event, Incoming},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -20,6 +20,7 @@ use paperpaw_sdk::{
         ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -292,8 +293,11 @@ impl Plugin for NativeSettings {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::PluginsChanged, kinds::RegistryChanged, kinds::PreviewChanged, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,
