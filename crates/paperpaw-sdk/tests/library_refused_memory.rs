@@ -294,3 +294,103 @@ fn the_plain_book_never_answers_none_for_a_memory_shortage() {
     assert_ne!(status.code(), Some(3));
     assert_ne!(status.code(), Some(4));
 }
+
+/// A catalog with a book that has everything: a long title, tags, fields.
+fn rich() -> (Files, u64, u64) {
+    let long = "é".repeat(300); // 600 bytes, cut at 512
+    let first = "books/a.epub\tAda\tTitle A\t\t\t\t40\tf\t20000\t\t5\n";
+    let second =
+        format!("books/d.epub\tDee\t{long}\tSeries\t3\tx\u{1f}y\u{1f}z\t\t\t\tk=v\u{1f}m=n\t9\n");
+    let log = format!(
+        "{:016x}\t100\tfo\n",
+        paperpaw_digest::fnv1a64("books/a.epub")
+    );
+    let files = Files(vec![
+        (
+            ".paperpaw/library/catalog.txt".to_owned(),
+            format!("{HEADER}{first}{second}").into_bytes(),
+        ),
+        (".paperpaw/library/status.log".to_owned(), log.into_bytes()),
+    ]);
+    (
+        files,
+        HEADER.len() as u64,
+        (HEADER.len() + first.len()) as u64,
+    )
+}
+
+#[test]
+fn a_catalog_line_is_seen_cut_and_counted_without_holding_it() {
+    let (storage, first, second) = rich();
+    let view = |offset| {
+        let mut seen = None;
+        let found = catalog::try_view_at(&storage, offset, &mut |view| {
+            seen = Some((
+                view.path.to_owned(),
+                view.title.len(),
+                view.title_bytes,
+                view.series.to_owned(),
+                (view.tags, view.fields),
+                (
+                    view.status.progress,
+                    view.status.favourite,
+                    view.status.opened,
+                ),
+                (view.added, view.size),
+            ));
+        })?;
+        Ok::<_, Error>((found, seen))
+    };
+    // The log's note wins over the catalog's columns.
+    let (found, seen) = view(first).unwrap();
+    assert!(found);
+    let seen = seen.unwrap();
+    assert_eq!(seen.0, "books/a.epub");
+    assert_eq!(
+        (seen.5, seen.6),
+        ((Some(100), true, true), (Some(20000), Some(5)))
+    );
+    // The long title: 512 bytes kept (a whole number of é), 600 whole.
+    let (_, seen) = view(second).unwrap();
+    let seen = seen.unwrap();
+    assert_eq!((seen.1, seen.2, seen.3.as_str()), (512, 600, "Series"));
+    assert_eq!((seen.4, seen.6), ((3, 2), (None, Some(9))));
+    // No line, a header and a line from nowhere are not books.
+    assert_eq!(view(0).unwrap().0, false);
+    assert_eq!(view(1_000_000).unwrap().0, false);
+    // Where lines start, by path.
+    assert_eq!(
+        catalog::try_offset_of(&storage, "books/d.epub"),
+        Ok(Some(second))
+    );
+    assert_eq!(
+        catalog::try_offset_of(&storage, "books/none.epub"),
+        Ok(None)
+    );
+    // Every allocation refused: the memory error, nothing half seen.
+    let sites = sweep(&second, || {
+        catalog::try_offset_of(&storage, "books/d.epub").map(|o| o.unwrap())
+    });
+    assert!(sites >= 2);
+    let sites = sweep(&true, || catalog::try_view_at(&storage, first, &mut |_| {}));
+    assert!(sites >= 2);
+}
+
+#[test]
+fn state_and_generation_are_the_plain_ones() {
+    let (storage, ..) = rich();
+    assert_eq!(
+        catalog::try_state(&storage).unwrap(),
+        catalog::state(&storage)
+    );
+    assert_eq!(
+        catalog::try_generation(&storage).unwrap(),
+        catalog::generation(&storage)
+    );
+    assert_eq!(catalog::try_generation(&storage), Ok(Some(7)));
+    let none = Files(vec![]);
+    assert_eq!(catalog::try_state(&none).unwrap(), catalog::state(&none));
+    assert_eq!(catalog::try_generation(&none), Ok(None));
+    assert!(sweep(&Some(7), || catalog::try_generation(&storage)) >= 1);
+    assert!(sweep(&catalog::state(&storage), || catalog::try_state(&storage)) >= 2);
+}

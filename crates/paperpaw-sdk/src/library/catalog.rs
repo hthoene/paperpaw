@@ -966,6 +966,11 @@ pub fn write(storage: &dyn Storage, records: &[Record]) -> Result<(), crate::dat
 mod fallible;
 pub(crate) use fallible::each_head;
 pub use fallible::{try_changes, try_count, try_path_at};
+mod view;
+pub use view::{
+    VIEW_NUMBER, VIEW_PATH, VIEW_SERIES, VIEW_TEXT, View, try_generation, try_offset_of, try_state,
+    try_view_at,
+};
 
 #[cfg(any(test, feature = "kernel"))]
 mod making;

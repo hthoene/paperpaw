@@ -59,7 +59,7 @@ pub(crate) fn each_head(
 
 /// The path column of a catalog line head: none for the header, a line
 /// that is not text, or a path that is cut (longer than a path may be).
-fn path_of(head: &[u8]) -> Option<&str> {
+pub(super) fn path_of(head: &[u8]) -> Option<&str> {
     let end = head.iter().position(|&b| b == b'\t').unwrap_or(head.len());
     let path = core::str::from_utf8(head.get(..end)?).ok()?;
     (!path.is_empty() && end < HEAD).then_some(path)
@@ -97,7 +97,7 @@ pub fn try_changes(storage: &dyn Storage) -> Result<Changes, Error> {
 
 /// `<DIR>/<name>`, reserved fallibly (`log_path`, `catalog_path` allocate
 /// without a way to say no).
-fn in_library(name: &str) -> Result<String, Error> {
+pub(super) fn in_library(name: &str) -> Result<String, Error> {
     let mut out = String::new();
     out.try_reserve_exact(DIR.len() + 1 + name.len())
         .map_err(|_| Error::OutOfMemory)?;
