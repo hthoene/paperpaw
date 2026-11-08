@@ -35,3 +35,11 @@ fn reading_goal_is_told_todays_seconds() {
 fn webdav_sync_merges_and_uploads_with_an_etag() {
     unreachable!("download, merge_as, conditional upload, working-file sweep");
 }
+
+#[test]
+#[ignore = "needs a way for a plugin to set another plugin's default (interface 6: set_setting_default); stats declares 20 minutes itself"]
+fn a_goal_is_none_until_reading_goal_is_installed() {
+    unreachable!(
+        "stats.goal defaults to none alone and to 20 minutes where reading-goal is installed"
+    );
+}

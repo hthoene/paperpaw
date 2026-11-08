@@ -108,6 +108,11 @@ events) is still in place. It is removed in the PR that finishes the port.
 - The setting `stats.goal` (choice: none, 10 to 300 minutes; default 20 minutes, as interface 6 had it
   where Reading goal was installed; alone it was *none*) is declared with the other settings; the
   widgets and Reading goal read it.
+- **Gap:** interface 6 had Reading goal change the default of `stats.goal` to 20 minutes only where it
+  is installed (`set_setting_default` on another plugin's setting); the declarations have no such
+  override, so stats declares 20 minutes itself and the goal is 20 minutes also without Reading goal
+  (interface 6: none). A later host that lets a plugin set another's default would restore it
+  (ignored case `a_goal_is_none_until_reading_goal_is_installed` in `tests/acceptance_pending.rs`).
 - Everything the recorder takes is fallible: names of the books are noted once in a vector
   (`Rc<str>` cannot be made fallibly; the sweep found it), the book added to `books.ini` is made
   with `room::string`, a refusal leaves the book out (no half book, no stay twice).

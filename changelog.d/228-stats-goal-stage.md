@@ -1,1 +1,3 @@
-- Stats: the daily goal setting is declared on interface 7 (20 minutes at first), and today's reading is answered to Reading goal through the stage `reading-goal.read-today` from memory (#228)
+### Added
+
+- **Daily goal and Reading goal on interface 7** (#228). The statistics declare the daily goal setting (20 minutes at first) and answer Reading goal's question about today's reading from memory.
