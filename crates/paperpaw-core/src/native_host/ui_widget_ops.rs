@@ -30,12 +30,12 @@
 //! the group's reply one of 3,840 bytes, both freed at the return (no large
 //! stack buffer); the cache is 16 values of at most 128 bytes, allocated as
 //! they come and dropped by `status_changed`; the handle tables are the
-//! `ui_handles` ones (832 bytes at most on the X4). A refused allocation is
+//! `ui_handles` ones (1,088 bytes at most on the X4). A refused allocation is
 //! `ERR_NO_MEMORY` with nothing handed out.
 use super::{
     registrations::{self as wire, Record},
     ui_guard,
-    ui_handles::UiHandles,
+    ui_handles::{Dropped, UiHandles},
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
@@ -189,6 +189,50 @@ impl UiServices {
             .drop_screen(screen))
     }
 
+    /// The next drop `owner` has not heard of, as the `event.widget_dropped`
+    /// record for its token (ui.md section 5.2), in `out`; the length, with
+    /// the notice to give back to [`Self::widget_dropped_delivered`]. `None`
+    /// when there is none. Core's dispatcher calls these two: the notice
+    /// stays listed until the first delivery attempt is over, whatever its
+    /// outcome (`ui.md` 8.2); then it gives it back, even when the callback
+    /// failed or trapped. An owner that stops, is unloaded, switched off or in
+    /// safe mode loses its notices without a delivery (`plugin_stopped`).
+    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
+    pub(crate) fn next_widget_dropped(
+        &self,
+        owner: u64,
+        now_ms: u64,
+        out: &mut [u8],
+    ) -> Result<Option<(Dropped, usize)>, i32> {
+        let Some(notice) = self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_dropped(owner)
+        else {
+            return Ok(None);
+        };
+        let record = Record::EventWidgetDropped(wire::EventWidgetDropped {
+            now_ms,
+            instance: notice.instance,
+        });
+        let len = wire::records_encode(&[record], out)?;
+        Ok(Some((notice, len)))
+    }
+
+    /// The first delivery attempt of the notice is over, whatever its
+    /// outcome: it is not listed any more.
+    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
+    pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
+        self.widgets
+            .handles
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .dropped_delivered(notice);
+        Ok(())
+    }
+
     /// The lowest screen above `after` that still has widget instances.
     pub(crate) fn next_widget_screen(&self, after: u32) -> Result<Option<u32>, i32> {
         Ok(self
@@ -242,7 +286,8 @@ impl UiServices {
         Ok(())
     }
 
-    /// A plugin stopped: what it made or owns goes (widgets, status handles).
+    /// A plugin stopped: what it made or owns goes (widgets, status handles);
+    /// the owners of what it made are told.
     pub(crate) fn plugin_stopped(&self, plugin: u64) -> Result<(), i32> {
         self.widgets
             .handles

@@ -220,3 +220,48 @@ fn without_core_ui_every_hook_is_a_no_op() {
     kernel.tick(paperpaw_platform::Instant(60_000));
     kernel.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
 }
+
+#[test]
+fn a_closed_screens_widgets_are_told_to_their_owner_as_event_85_until_delivered() {
+    use super::registrations::{self as wire, Record};
+    let w = world();
+    w.widget(5);
+    w.widget(5);
+    w.widget(6);
+    w.ui().screen_closed(5).unwrap();
+    let mut bytes = [0; 64];
+    let mut told = alloc::vec::Vec::new();
+    // A listed drop stays until it is given back, then the next comes.
+    while let Some((notice, len)) = w.ui().next_widget_dropped(OWNER, 777, &mut bytes).unwrap() {
+        let again = w.ui().next_widget_dropped(OWNER, 777, &mut bytes).unwrap();
+        assert_eq!(again.map(|(n, _)| n), Some(notice));
+        let Record::EventWidgetDropped(event) = wire::records_decode_single(&bytes[..len]).unwrap()
+        else {
+            panic!("not event 85")
+        };
+        assert_eq!(event.now_ms, 777);
+        assert_eq!(event.instance, notice.instance);
+        assert_eq!(notice.token, 1);
+        told.push(event.instance);
+        w.ui().widget_dropped_delivered(&notice).unwrap();
+    }
+    assert_eq!(told.len(), 2);
+    assert_ne!(told[0], told[1]);
+    // The maker's other screen is still open; nobody else is told anything.
+    assert_eq!(w.widgets(), 1);
+    assert!(
+        w.ui()
+            .next_widget_dropped(MAKER, 0, &mut bytes)
+            .unwrap()
+            .is_none()
+    );
+    // A buffer too small for the record is a status (nothing was attempted), and the drop stays listed.
+    w.ui().screen_closed(6).unwrap();
+    assert!(w.ui().next_widget_dropped(OWNER, 0, &mut [0; 2]).is_err());
+    assert!(
+        w.ui()
+            .next_widget_dropped(OWNER, 0, &mut bytes)
+            .unwrap()
+            .is_some()
+    );
+}

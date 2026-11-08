@@ -75,7 +75,7 @@ pub(crate) fn topmost_guard(view: &dyn UiStackView) -> Option<usize> {
 /// The topmost guarding instance, if any.
 #[allow(
     dead_code,
-    reason = "the kernel's stack sync; header-only test builds lack it"
+    reason = "the kernel's stack sync uses it; test crates that include this file by path do not"
 )]
 pub(crate) fn guard_instance(view: &dyn UiStackView) -> Option<u32> {
     topmost_guard(view)
