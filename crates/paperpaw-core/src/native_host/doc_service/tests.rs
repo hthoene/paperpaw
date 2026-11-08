@@ -30,6 +30,8 @@ mod blocks;
 mod lists;
 #[path = "tests/reads.rs"]
 mod reads;
+#[path = "tests/sides.rs"]
+mod sides;
 
 pub(crate) const OWNER: u64 = 7;
 pub(crate) const FORMAT: FormatRef = FormatRef(3);
@@ -70,6 +72,10 @@ pub(crate) struct Fake {
     pub(crate) image: Cell<Option<Option<u32>>>,
     pub(crate) rows: RefCell<Vec<Vec<u8>>>,
     pub(crate) generation: Cell<u32>,
+    /// The screen's long side (800 by default).
+    pub(crate) long_side: Cell<u32>,
+    /// The picture sides the conversion key was asked for.
+    pub(crate) keyed: RefCell<Vec<(u32, u32)>>,
     pub(crate) owner: Cell<u64>,
     /// The owner of the fake format plugin.
     pub(crate) format_owner: Cell<u64>,
@@ -91,6 +97,8 @@ impl Fake {
             image: Cell::new(Some(Some(41))),
             rows: RefCell::new(Vec::new()),
             generation: Cell::new(5),
+            long_side: Cell::new(800),
+            keyed: RefCell::new(Vec::new()),
             owner: Cell::new(OWNER),
             format_owner: Cell::new(FORMAT_OWNER),
         })
@@ -104,7 +112,7 @@ impl DocHost for Fake {
         &self.table
     }
     fn screen_long_side(&self) -> u32 {
-        800
+        self.long_side.get()
     }
     fn root_access(&self, root: u32) -> Result<(), i32> {
         if self.roots.get() & (1 << root) == 0 {
@@ -124,7 +132,10 @@ impl DocHost for Fake {
         visit("fmt.epub");
         Ok(())
     }
-    fn conversion_key(&self, _: &Open<'_>, _: FormatRef, _: Options<'_>) -> Result<u64, i32> {
+    fn conversion_key(&self, open: &Open<'_>, _: FormatRef, _: Options<'_>) -> Result<u64, i32> {
+        self.keyed
+            .borrow_mut()
+            .push((open.image_side, open.cover_side));
         Ok(0xc0de)
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
