@@ -17,6 +17,8 @@ extern crate std;
 
 mod books;
 mod native_analogue;
+mod native_battery;
+mod native_battery_shapes;
 mod native_calendar;
 mod native_countdown;
 mod native_dates;

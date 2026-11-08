@@ -23,6 +23,14 @@ pub const FOLDER: &str = "Exports";
 pub const NAME: &str = "My Clippings.txt";
 /// Books listed at most (the rest are not shown, but are exported).
 pub const MOST_BOOKS: usize = 200;
+/// A listed title is cut to this many bytes, at a character's end (the
+/// library's own list rows are cut at the same length).
+pub const TITLE_MAX: usize = 128;
+/// The text of a note shown in its row is cut to this many bytes (the row
+/// has two lines; the library's preview is up to 512).
+pub const TEXT_MAX: usize = 160;
+/// The reader's own note on a highlight is cut to this many bytes in a row.
+pub const NOTE_MAX: usize = 64;
 /// Written out when the text held is this long, so a book with many notes
 /// does not fill the memory.
 pub const FLUSH: usize = 6 * 1024;
@@ -108,10 +116,30 @@ pub struct Note<'a> {
     pub note: &'a str,
 }
 
+/// `text` cut to at most `max` bytes, at a character's end.
+#[must_use]
+pub fn cut(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// How the library names a book of its catalog: the catalog handle
+/// (`lib_entry.key`) and the generation of the catalog it came from. The list
+/// keeps this, not the book's path (up to 512 bytes), and the path is only
+/// ever fetched when the book is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Handle {
+    pub key: u32,
+    pub generation: u32,
+}
+
 /// A book with notes, and how many.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Counted {
-    pub path: String,
+    pub handle: Handle,
     pub title: String,
     pub highlights: u16,
     pub bookmarks: u16,
@@ -149,13 +177,15 @@ impl Listing {
     }
 
     /// Adds a book with `highlights` and `bookmarks`; a book without notes is
-    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`].
+    /// skipped, and books past [`MOST_BOOKS`] only set [`Listing::more`]. The
+    /// title is cut to [`TITLE_MAX`] bytes. The most the list holds is
+    /// therefore 200 books of 128 bytes of text and a handle: about 30 KiB.
     ///
     /// # Errors
     /// [`Error::NoMemory`]; the list is unchanged then.
     pub fn add(
         &mut self,
-        path: &str,
+        handle: Handle,
         title: &str,
         highlights: u16,
         bookmarks: u16,
@@ -168,8 +198,8 @@ impl Listing {
             return Ok(());
         }
         let book = Counted {
-            path: copy(path)?,
-            title: copy(title)?,
+            handle,
+            title: copy(cut(title, TITLE_MAX))?,
             highlights,
             bookmarks,
         };
@@ -179,10 +209,10 @@ impl Listing {
     }
 
     /// Puts the books in order: by title without regard to case, equal titles
-    /// by path.
+    /// by handle.
     pub fn sort(&mut self) {
         paperpaw_sdk::sort::sort_by(&mut self.books, |a, b| {
-            cmp_lowercase(&a.title, &b.title).then_with(|| a.path.cmp(&b.path))
+            cmp_lowercase(&a.title, &b.title).then_with(|| a.handle.cmp(&b.handle))
         });
     }
 

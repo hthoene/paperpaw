@@ -5,6 +5,7 @@ import hashlib
 import io
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -143,13 +144,23 @@ class Espflash(unittest.TestCase):
             espflash.install("4.6.0", self.destination)
         self.build.assert_not_called()
 
-    def test_a_build_kept_by_an_earlier_run_needs_neither_download_nor_build(self):
+    def kept_build(self):
         cache = self.destination.parent / "cache"
         cache.mkdir()
         (cache / "espflash-cargo-4.6.0").write_bytes(b"built earlier")
         espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
-        self.assertEqual((espflash.install("4.6.0", self.destination)).read_bytes(), b"built earlier")
-        self.fetch.assert_not_called()
+
+    def test_the_verified_release_comes_before_a_build_kept_from_crates_io(self):
+        self.kept_build()
+        self.assertEqual(espflash.install("4.6.0", self.destination).read_bytes(), b"verified executable")
+        self.fetch.assert_called_once()
+        self.build.assert_not_called()
+
+    def test_a_build_kept_by_an_earlier_run_is_used_when_the_release_is_down(self):
+        self.kept_build()
+        self.fetch.side_effect = self.gateway_timeout()
+        self.assertEqual(espflash.install("4.6.0", self.destination).read_bytes(), b"built earlier")
+        self.assertEqual(self.fetch.call_count, espflash.ATTEMPTS)
         self.build.assert_not_called()
 
     def test_a_connection_that_breaks_is_tried_again(self):
@@ -188,6 +199,24 @@ class Espflash(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no reviewed"):
             espflash.install("4.7.0", self.destination)
         self.fetch.assert_not_called()
+
+
+class ActionsArePinned(unittest.TestCase):
+    """Every third-party action is named by a full commit SHA, with the version as a comment."""
+
+    USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<action>[^\s#]+)(?P<comment>\s*#.*)?$")
+
+    def test_no_action_is_named_by_a_tag_or_branch(self):
+        problems = []
+        for path in sorted((HERE.parent / ".github").rglob("*.yml")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                found = self.USES.match(line)
+                if not found or found["action"].startswith("./"):
+                    continue
+                name, _, ref = found["action"].partition("@")
+                if not re.fullmatch(r"[0-9a-f]{40}", ref) or not found["comment"]:
+                    problems.append(f"{path.relative_to(HERE.parent)}:{number}: {found['action']}")
+        self.assertEqual(problems, [], "pin third-party actions by full SHA with a '# vX.Y.Z' comment")
 
 
 class BuildPrerequisites(unittest.TestCase):

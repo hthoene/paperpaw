@@ -172,9 +172,13 @@ pub enum Mark {
 const ASLEEP: &str = "asleep";
 
 /// The marks of all steps.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// The marks are on the heap, in one block made once: the check is built on
+/// a stack that cannot hold them (a mark is a note's text and an outcome, a
+/// step each).
+#[derive(Debug, PartialEq, Eq)]
 pub struct Results {
-    marks: [Option<Mark>; Step::ALL.len()],
+    marks: Vec<Option<Mark>>,
 }
 
 /// What the report says about the device, above the steps.
@@ -194,12 +198,27 @@ pub struct About<'a> {
 }
 
 impl Results {
+    /// No step marked.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the block cannot be made.
+    pub fn new() -> Result<Self, Error> {
+        let mut marks = Vec::new();
+        marks
+            .try_reserve_exact(Step::ALL.len())
+            .map_err(|_| Error::NoMemory)?;
+        marks.resize_with(Step::ALL.len(), || None);
+        Ok(Self { marks })
+    }
+
     pub fn get(&self, step: Step) -> Option<&Mark> {
-        self.marks[step.index()].as_ref()
+        self.marks.get(step.index())?.as_ref()
     }
 
     pub fn set(&mut self, step: Step, mark: Mark) {
-        self.marks[step.index()] = Some(mark);
+        if let Some(slot) = self.marks.get_mut(step.index()) {
+            *slot = Some(mark);
+        }
     }
 
     /// The outcome of a step answered.
@@ -288,7 +307,7 @@ impl Results {
     /// # Errors
     /// [`Error::NoMemory`] when a note cannot be copied.
     pub fn parse(report: &str) -> Result<Results, Error> {
-        let mut results = Results::default();
+        let mut results = Results::new()?;
         for line in report.lines() {
             let Some((key, rest)) = line.split_once(": ") else {
                 continue;
@@ -514,7 +533,7 @@ mod tests {
 
     #[test]
     fn a_report_reads_back_as_written() {
-        let mut results = Results::default();
+        let mut results = Results::new().unwrap();
         results.set(
             Step::Screen,
             Mark::Done(Outcome::Pass, String::from("2 gray levels")),
@@ -545,7 +564,7 @@ mod tests {
 
     #[test]
     fn the_check_goes_on_at_the_first_step_not_answered() {
-        let mut results = Results::default();
+        let mut results = Results::new().unwrap();
         assert_eq!(results.next_open(), Some(Step::Screen));
         results.set(Step::Screen, Mark::Done(Outcome::Pass, String::new()));
         results.set(Step::Touch, Mark::Done(Outcome::Skip, String::new()));
