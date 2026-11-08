@@ -13,7 +13,7 @@ use core::{
     ops::ControlFlow,
 };
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use wire::{
     ServiceLibCover as Cover, ServiceLibEntry as Entry, ServiceLibPage as PageAsk,
@@ -390,8 +390,15 @@ fn a_book_is_named_by_path_or_by_handle_and_nothing_else() {
     fake.say(&[book_record("books/a.epub", 4)]);
     assert!(ask(&fake, 3, &[book_ref()]).is_ok());
     assert!(ask(&fake, 3, &[key_ref(4, 5)]).is_ok());
+    let asked: Vec<String> = fake
+        .log
+        .borrow()
+        .iter()
+        .filter(|line| line.starts_with("book "))
+        .cloned()
+        .collect();
     assert_eq!(
-        fake.log.borrow().as_slice(),
+        asked,
         [
             "book Path(\"books/a.epub\")",
             "book Key { key: 4, generation: 5 }"
@@ -409,6 +416,42 @@ fn a_book_is_named_by_path_or_by_handle_and_nothing_else() {
     for bad in ["../a.epub", "a\nb.epub", "/a.epub", "a/", "a:b"] {
         assert_eq!(ask(&fake, 3, &[path_ref(bad)]), Err(ERR_INVALID), "{bad}");
     }
+}
+
+#[test]
+fn lib_book_flag_missing_is_the_hosts_lookup_not_the_catalogs() {
+    let fake = Fake::new();
+    let flags = |fake: &Rc<Fake>| match only(&ask(fake, 3, &[book_ref()]).unwrap()) {
+        Record::ServiceLibBook(row) => row.flags,
+        _ => panic!(),
+    };
+    // On the card: bit 8 clear, and the lookup got the book's own path.
+    fake.say(&[book_record("books/a.epub", 4)]);
+    assert_eq!(flags(&fake), 0);
+    assert!(fake.log.borrow().contains(&"present books/a.epub".into()));
+    // Gone: bit 8 set, the catalog's other bits kept.
+    fake.present.set(Ok(false));
+    let mut row = book_fields("books/a.epub", 4);
+    row.flags = 0b1001;
+    fake.say(&[Record::ServiceLibBook(row)]);
+    assert_eq!(flags(&fake), 0b1_0000_1001);
+    // The catalog cannot claim it either way: the lookup decides.
+    fake.present.set(Ok(true));
+    let mut row = book_fields("books/a.epub", 4);
+    row.flags = 1 << 8;
+    fake.say(&[Record::ServiceLibBook(row)]);
+    assert_eq!(flags(&fake), 0);
+    // A card failure is the reply; nothing is made up.
+    fake.present.set(Err(ERR_IO));
+    assert_eq!(ask(&fake, 3, &[book_ref()]), Err(ERR_IO));
+    // A host without the lookup refuses the op rather than guess.
+    fake.present.set(Err(ERR_UNSUPPORTED));
+    assert_eq!(ask(&fake, 3, &[book_ref()]), Err(ERR_UNSUPPORTED));
+    // The entry rows keep their eight bits: bit 8 there is invalid.
+    let mut row = entry(4);
+    row.flags = 1 << 8;
+    fake.say(&[Record::ServiceLibEntry(row)]);
+    assert!(ask(&fake, 6, &[book_ref()]).is_err());
 }
 
 #[test]
@@ -506,7 +549,7 @@ fn book_answers_are_checked() {
     assert_eq!(book(|b| b.generation = 0), Err(ERR_INVALID));
     assert_eq!(book(|b| b.path = "../x"), Err(ERR_INVALID));
     assert_eq!(book(|b| b.progress = 150), Err(ERR_INVALID));
-    assert_eq!(book(|b| b.flags = 0x1ff), Err(ERR_INVALID));
+    assert_eq!(book(|b| b.flags = 0x200), Err(ERR_INVALID));
     // The whole length is never shorter than the text, and says when it is cut.
     assert_eq!(book(|b| b.title_bytes = 1), Err(ERR_INVALID));
     assert_eq!(book(|b| b.author_bytes = 900), Err(ERR_INVALID));
@@ -921,6 +964,8 @@ struct Fake {
     stubborn: Cell<bool>,
     next: Cell<Option<u32>>,
     long_side: Cell<Result<u32, i32>>,
+    /// What the host's lookup of a book's file answers.
+    present: Cell<Result<bool, i32>>,
 }
 impl Fake {
     fn new() -> Rc<Self> {
@@ -934,6 +979,7 @@ impl Fake {
             stubborn: Cell::new(false),
             next: Cell::new(None),
             long_side: Cell::new(Ok(800)),
+            present: Cell::new(Ok(true)),
         })
     }
     fn say(&self, records: &[Record<'_>]) {
@@ -1013,6 +1059,10 @@ impl LibQuery for Fake {
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.note(std::format!("book {book:?}"));
         self.deal(visit)
+    }
+    fn book_file_present(&self, path: &str) -> Result<bool, i32> {
+        self.note(std::format!("present {path}"));
+        self.present.get()
     }
     fn text(&self, book: BookRef<'_>, at: &TextAt, visit: One<'_>) -> Result<(), i32> {
         self.note(std::format!(
