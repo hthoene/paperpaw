@@ -35,7 +35,12 @@ fn interface6() -> Vec<Row> {
         let Contribution::FixedSettings(list) = c else {
             continue;
         };
-        for spec in list.iter().filter(|s| s.id.as_str().starts_with("stats.")) {
+        // The four of this port; the sync settings are the sync port's.
+        for spec in list.iter().filter(|s| {
+            ["goal", "enabled", "min-seconds", "max-seconds"]
+                .map(|n| format!("stats.{n}"))
+                .contains(&s.id.as_str().to_string())
+        }) {
             let extra = spec.extra();
             rows.push(Row {
                 name: spec.id.as_str().strip_prefix("stats.").unwrap().to_string(),
@@ -44,12 +49,7 @@ fn interface6() -> Vec<Row> {
                     .description
                     .as_ref()
                     .map_or(String::new(), ToString::to_string),
-                group: spec
-                    .group
-                    .as_str()
-                    .strip_prefix("stats.")
-                    .unwrap_or(spec.group.as_str())
-                    .to_string(),
+                group: spec.group.as_str().to_string(),
                 advanced: matches!(spec.level, Level::Advanced),
                 kind: match &spec.kind {
                     SettingKind::Bool => "bool".to_string(),
@@ -121,6 +121,10 @@ fn declared() -> Vec<Row> {
         Ok(())
     })
     .unwrap();
+    // A step left out is 1.
+    for row in &mut rows {
+        row.step = row.step.max(1);
+    }
     rows
 }
 

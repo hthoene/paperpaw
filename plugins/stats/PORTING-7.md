@@ -123,7 +123,13 @@ events) is still in place. It is removed in the PR that finishes the port.
   sent when the figure changed (the asker pulls; stats does not push on page turns).
 - The setting `stats.goal` (choice: none, 10 to 300 minutes; default 20 minutes, as interface 6 had it
   where Reading goal was installed; alone it was *none*) is declared with the other settings; the
-  widgets and Reading goal read it.
+  widgets and Reading goal read it. It is declared first in the group, as the widgets registered it
+  before the other settings (`tests/settings_parity.rs`, field by field and in order; only the default
+  differs).
+- The ring widget's offer to put *Read today* on the home screen at the first goal change (interface 6
+  `widget::offer_widget`, kept once in `goal-widget-offered`) belongs to the widgets port, not to this
+  setting: nothing here reacts to a change of the goal.
+- The stage answers only schema 1; another schema is `ERR_UNSUPPORTED` (`answer_stage`).
 - **Gap:** interface 6 had Reading goal change the default of `stats.goal` to 20 minutes only where it
   is installed (`set_setting_default` on another plugin's setting); the declarations have no such
   override, so stats declares 20 minutes itself and the goal is 20 minutes also without Reading goal

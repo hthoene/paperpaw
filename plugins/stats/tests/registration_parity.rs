@@ -40,13 +40,17 @@ fn interface6() -> Parts {
                 }
             }
             Contribution::Action(a) if a.id.as_str() == "stats.open" => {
-                parts.actions.push((bare(a.id.as_str()), a.title.to_string()));
+                parts
+                    .actions
+                    .push((bare(a.id.as_str()), a.title.to_string()));
             }
             Contribution::FixedMenuEntries(list) => {
                 for e in list.iter().filter(|e| e.item.as_str() == "stats.open") {
-                    parts
-                        .menus
-                        .push((e.menu.as_str().to_string(), bare(e.item.as_str()), e.order.into()));
+                    parts.menus.push((
+                        e.menu.as_str().to_string(),
+                        bare(e.item.as_str()),
+                        e.order.into(),
+                    ));
                 }
             }
             Contribution::FixedIcons(list) => {
@@ -67,9 +71,11 @@ fn declared() -> Parts {
             match record {
                 Record::ScreenSpec(s) => parts.screens.push((bare(s.name), s.title.to_string())),
                 Record::ActionSpec(a) => parts.actions.push((bare(a.name), a.title.to_string())),
-                Record::MenuEntry(e) => parts
-                    .menus
-                    .push((e.menu.to_string(), bare(e.item), e.order)),
+                Record::MenuEntry(e) => {
+                    parts
+                        .menus
+                        .push((e.menu.to_string(), bare(e.item), e.order))
+                }
                 Record::IconSpec(i) => parts.icons.push((bare(i.item), i.icon.to_string())),
                 other => panic!("{other:?}"),
             }
