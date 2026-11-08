@@ -129,7 +129,6 @@ paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }
 paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
-paperpaw-plugin-bluetooth.workspace = true
 paperpaw-plugin-file-manager.workspace = true
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
@@ -150,7 +149,6 @@ paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-koreader = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
-paperpaw-plugin-setup.workspace = true
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }

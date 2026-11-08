@@ -87,7 +87,8 @@ impl<'a> Value<'a> {
                     let rest = chars.as_str();
                     if let Some((c, len)) = parse_unicode_escape(rest) {
                         out.push(c);
-                        chars = rest[len..].chars();
+                        debug_assert!(rest.is_char_boundary(len));
+                        chars = rest.get(len..).unwrap_or_default().chars();
                     }
                 }
                 Some(other) => out.push(other),
@@ -281,18 +282,22 @@ fn parse_value(text: &str) -> Result<Value<'_>, ErrorKind> {
     while let Some((index, c)) = chars.next() {
         match c {
             '"' => {
-                if !inner[index + 1..].trim().is_empty() {
+                // `index` is where the one-byte quote is: both cuts are on boundaries.
+                debug_assert!(inner.is_char_boundary(index) && inner.is_char_boundary(index + 1));
+                if !inner.get(index + 1..).unwrap_or_default().trim().is_empty() {
                     return Err(ErrorKind::InvalidLine);
                 }
                 return Ok(Value {
-                    raw: &inner[..index],
+                    raw: inner.get(..index).unwrap_or_default(),
                     quoted: true,
                 });
             }
             '\\' => match chars.next() {
                 Some((_, '\\' | '"' | 'n' | 't')) => {}
                 Some((u_index, 'u')) => {
-                    let len = parse_unicode_escape(&inner[u_index + 1..])
+                    let len = inner
+                        .get(u_index + 1..)
+                        .and_then(parse_unicode_escape)
                         .ok_or(ErrorKind::InvalidEscape)?
                         .1;
                     for _ in 0..len {
@@ -338,7 +343,7 @@ fn unescape_into(raw: &str, out: &mut String) {
 fn parse_unicode_escape(s: &str) -> Option<(char, usize)> {
     let body = s.strip_prefix('{')?;
     let end = body.find('}')?;
-    let hex = &body[..end];
+    let hex = body.get(..end)?;
     if hex.is_empty() || hex.len() > 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }

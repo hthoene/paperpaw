@@ -19,13 +19,26 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 mod data;
 mod draw;
 mod forecast;
+pub mod native_weather;
 mod now;
 mod place;
 mod symbol;
+
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+#[cfg(test)]
+mod native_parity_tests;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

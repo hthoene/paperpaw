@@ -495,7 +495,7 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 25u16
+const paperpaw_sdk::native::DRAFT: u16 = 26u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 10_767_245_838_627_109_407u64
@@ -1478,6 +1478,43 @@ const paperpaw_sdk::native::declare::settings_value::SETTINGS_HEADER_BYTES: usiz
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_LAYOUT: u32 = 1u32
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
+const paperpaw_sdk::native::events::kinds::ActionRun::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_ACTION_RUN_TAG
+const paperpaw_sdk::native::events::kinds::Answered::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_ANSWERED_TAG
+const paperpaw_sdk::native::events::kinds::BatteryMeasured::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BATTERY_MEASURED_TAG
+const paperpaw_sdk::native::events::kinds::Bluetooth::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BLUETOOTH_TAG
+const paperpaw_sdk::native::events::kinds::BookClosed::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BOOK_CLOSED_TAG
+const paperpaw_sdk::native::events::kinds::BookFinished::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BOOK_FINISHED_TAG
+const paperpaw_sdk::native::events::kinds::BookMoved::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BOOK_MOVED_TAG
+const paperpaw_sdk::native::events::kinds::BookOpened::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BOOK_OPENED_TAG
+const paperpaw_sdk::native::events::kinds::BookRemoved::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_BOOK_REMOVED_TAG
+const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_CHARGE_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::HttpDone::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_HTTP_DONE_TAG
+const paperpaw_sdk::native::events::kinds::HttpProgress::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_HTTP_PROGRESS_TAG
+const paperpaw_sdk::native::events::kinds::PageTurned::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_PAGE_TURNED_TAG
+const paperpaw_sdk::native::events::kinds::PluginAnswered::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_PLUGIN_ANSWERED_TAG
+const paperpaw_sdk::native::events::kinds::PluginsChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_PLUGINS_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::PluginsRequested::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_PLUGINS_REQUESTED_TAG
+const paperpaw_sdk::native::events::kinds::PowerChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_POWER_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::PreviewChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_PREVIEW_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::RegistryChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_REGISTRY_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::Resume::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_RESUME_TAG
+const paperpaw_sdk::native::events::kinds::ScreenClosed::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SCREEN_CLOSED_TAG
+const paperpaw_sdk::native::events::kinds::ScreenOpened::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SCREEN_OPENED_TAG
+const paperpaw_sdk::native::events::kinds::ScreenReady::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SCREEN_READY_TAG
+const paperpaw_sdk::native::events::kinds::ScreenShown::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SCREEN_SHOWN_TAG
+const paperpaw_sdk::native::events::kinds::SettingChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SETTING_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::Spoken::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SPOKEN_TAG
+const paperpaw_sdk::native::events::kinds::StackChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_STACK_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::StageCall::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::STAGE_CALL_TAG
+const paperpaw_sdk::native::events::kinds::Started::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_STARTED_TAG
+const paperpaw_sdk::native::events::kinds::StatusChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_STATUS_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::Stopping::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_STOPPING_TAG
+const paperpaw_sdk::native::events::kinds::Suspend::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_SUSPEND_TAG
+const paperpaw_sdk::native::events::kinds::Tick::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_TICK_TAG
+const paperpaw_sdk::native::events::kinds::WidgetChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_WIDGET_CHANGED_TAG
+const paperpaw_sdk::native::events::kinds::WidgetDropped::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_WIDGET_DROPPED_TAG
+const paperpaw_sdk::native::events::kinds::WidgetMade::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_WIDGET_MADE_TAG
+const paperpaw_sdk::native::events::kinds::WifiChanged::TAG (paperpaw_sdk::native::events::kinds::Kind): u32 = wire::EVENT_WIFI_CHANGED_TAG
 const paperpaw_sdk::native::files::INPUT_BYTES: usize = 1_536usize
 const paperpaw_sdk::native::files::MAX_NAME: usize = 765usize
 const paperpaw_sdk::native::files::MAX_PATH: usize = 512usize
@@ -2896,10 +2933,10 @@ struct paperpaw_sdk::native::declare::uix::WidgetDecl<'a>(0: paperpaw_sdk::nativ
 struct paperpaw_sdk::native::declare::uix::WidgetPlaceDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::WidgetPlace<'a>)
 struct paperpaw_sdk::native::device::Device { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::device::DeviceCursor { offset: u32, generation: u32 }
-struct paperpaw_sdk::native::device::DevicePage<'a, T> { bytes: &'a [u8], len: usize, end: paperpaw_sdk::native::device::DevicePageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::device::DevicePage<'a, T> { bytes: &'a [u8], len: usize, end: paperpaw_sdk::native::device::DevicePageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
 struct paperpaw_sdk::native::device::DevicePageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::device::DeviceCursor> }
 struct paperpaw_sdk::native::device::DeviceRequest(0: core::num::nonzero::NonZeroU32)
-struct paperpaw_sdk::native::device::DeviceRows<'a, T> { bytes: &'a [u8], remaining: usize, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error>, _row: core::marker::PhantomData<T> }
+struct paperpaw_sdk::native::device::DeviceRows<'a, T> { bytes: &'a [u8], remaining: usize, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error>, _row: core::marker::PhantomData<T> }
 struct paperpaw_sdk::native::device::rows::BluetoothInfo { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBluetooth }
 struct paperpaw_sdk::native::device::rows::BondedDevice<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBonded<'a> }
 struct paperpaw_sdk::native::device::rows::BuiltinPlugin<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBuiltin<'a> }
@@ -2915,10 +2952,48 @@ struct paperpaw_sdk::native::device::rows::PhysicalKey<'a> { row: paperpaw_sdk::
 struct paperpaw_sdk::native::device::rows::PowerInfo<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevPower<'a> }
 struct paperpaw_sdk::native::device::rows::WifiInfo<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevWifi<'a> }
 struct paperpaw_sdk::native::device::rows::WifiNetwork<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevNetwork<'a> }
+struct paperpaw_sdk::native::events::Incoming<'a> { raw: paperpaw_sdk::native::declare::records_wire::RawRecord<'a>, bytes: &'a [u8] }
 struct paperpaw_sdk::native::events::PluginRequestId(0: u32)
 struct paperpaw_sdk::native::events::ReadingView<'a> { now_ms: u64, section: u32, offset: u32, insert: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32> }
 struct paperpaw_sdk::native::events::RegistryChanges(0: u32)
 struct paperpaw_sdk::native::events::RequestedPlugins<'a>(0: &'a str)
+struct paperpaw_sdk::native::events::kinds::ActionRun
+struct paperpaw_sdk::native::events::kinds::Answered
+struct paperpaw_sdk::native::events::kinds::BatteryMeasured
+struct paperpaw_sdk::native::events::kinds::Bluetooth
+struct paperpaw_sdk::native::events::kinds::BookClosed
+struct paperpaw_sdk::native::events::kinds::BookFinished
+struct paperpaw_sdk::native::events::kinds::BookMoved
+struct paperpaw_sdk::native::events::kinds::BookOpened
+struct paperpaw_sdk::native::events::kinds::BookRemoved
+struct paperpaw_sdk::native::events::kinds::ChargeChanged
+struct paperpaw_sdk::native::events::kinds::HttpDone
+struct paperpaw_sdk::native::events::kinds::HttpProgress
+struct paperpaw_sdk::native::events::kinds::PageTurned
+struct paperpaw_sdk::native::events::kinds::PluginAnswered
+struct paperpaw_sdk::native::events::kinds::PluginsChanged
+struct paperpaw_sdk::native::events::kinds::PluginsRequested
+struct paperpaw_sdk::native::events::kinds::PowerChanged
+struct paperpaw_sdk::native::events::kinds::PreviewChanged
+struct paperpaw_sdk::native::events::kinds::RegistryChanged
+struct paperpaw_sdk::native::events::kinds::Resume
+struct paperpaw_sdk::native::events::kinds::ScreenClosed
+struct paperpaw_sdk::native::events::kinds::ScreenOpened
+struct paperpaw_sdk::native::events::kinds::ScreenReady
+struct paperpaw_sdk::native::events::kinds::ScreenShown
+struct paperpaw_sdk::native::events::kinds::SettingChanged
+struct paperpaw_sdk::native::events::kinds::Spoken
+struct paperpaw_sdk::native::events::kinds::StackChanged
+struct paperpaw_sdk::native::events::kinds::StageCall
+struct paperpaw_sdk::native::events::kinds::Started
+struct paperpaw_sdk::native::events::kinds::StatusChanged
+struct paperpaw_sdk::native::events::kinds::Stopping
+struct paperpaw_sdk::native::events::kinds::Suspend
+struct paperpaw_sdk::native::events::kinds::Tick
+struct paperpaw_sdk::native::events::kinds::WidgetChanged
+struct paperpaw_sdk::native::events::kinds::WidgetDropped
+struct paperpaw_sdk::native::events::kinds::WidgetMade
+struct paperpaw_sdk::native::events::kinds::WifiChanged
 struct paperpaw_sdk::native::events::states::BluetoothChange<'a> { now_ms: u64, kind: u32, device: u32, name: &'a str, device_kind: u32, signal: i32, reason: u32 }
 struct paperpaw_sdk::native::events::states::ChargeFlags(0: u32)
 struct paperpaw_sdk::native::events::states::PowerChange<'a> { now_ms: u64, level: paperpaw_sdk::power::PowerLevel, automatic: bool, stretch: u32, mode: &'a str }
@@ -2944,7 +3019,7 @@ struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::nati
 struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)
 struct paperpaw_sdk::native::library::rows::CatalogState(0: paperpaw_sdk::native::declare::records_wire::ServiceLibState)
 struct paperpaw_sdk::native::library::rows::Entry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibEntry<'a>)
-struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
 struct paperpaw_sdk::native::library::rows::LibraryPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::query::CatalogCursor> }
 struct paperpaw_sdk::native::lookup::Ask<'a>(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>)
 struct paperpaw_sdk::native::lookup::Entry<'a> { title: &'a str, text: &'a str, flags: u32 }
@@ -3274,9 +3349,11 @@ trait paperpaw_sdk::hyphenation::card::Reader { function hyphenate(&mut Self, us
 trait paperpaw_sdk::keys::GestureRecognizer { function pointer(&mut Self, &paperpaw_platform::input::PointerEvent, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::PointerVerdict, function tick(&mut Self, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::Recognition, function next_tick(&Self) -> core::option::Option<paperpaw_platform::input::Instant>, function extended(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> paperpaw_sdk::screen::Handled }
 trait paperpaw_sdk::keys::KeyBindings { function bound(&Self, &[&str], &str) -> core::option::Option<paperpaw_sdk::id::Id>, function bindings(&Self, &str) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<paperpaw_sdk::id::Id>, paperpaw_sdk::keys::BindingOrigin)>, function extended(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
 trait paperpaw_sdk::library::service::Library { function book(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> core::option::Option<paperpaw_sdk::library::Book>, function catalog_state(&Self, &paperpaw_sdk::env::Env<'_>) -> paperpaw_sdk::library::catalog::State, function each(&Self, &paperpaw_sdk::env::Env<'_>, &mut dyn core::ops::function::FnMut(u64, paperpaw_sdk::library::catalog::Record)), function records(&Self, &paperpaw_sdk::env::Env<'_>, &[u64]) -> alloc::vec::Vec<core::option::Option<paperpaw_sdk::library::catalog::Record>>, function version(&Self, &paperpaw_sdk::env::Env<'_>) -> core::option::Option<u64>, function query(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query, core::option::Option<&paperpaw_sdk::library::catalog::Record>, usize) -> alloc::vec::Vec<paperpaw_sdk::library::catalog::Record>, function found(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query) -> usize, function index(&Self, &paperpaw_sdk::env::Env<'_>, usize, &str) -> paperpaw_sdk::library::index::Index, function is_current(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index) -> bool, function refresh(&Self, &paperpaw_sdk::env::Env<'_>, &mut paperpaw_sdk::library::index::Index), function keep_index(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, &str, &str) -> bool, function kept_index(&Self, &paperpaw_sdk::env::Env<'_>, &str, &str) -> core::option::Option<paperpaw_sdk::library::index::Index>, function record(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, usize) -> core::option::Option<paperpaw_sdk::library::catalog::Record>, function set_finished(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function set_favourite(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function can_delete(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> bool, function delete(&Self, &paperpaw_sdk::env::Env<'_>, &[&str]) -> paperpaw_sdk::library::service::Deleted, function extended(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
-trait paperpaw_sdk::native::binding::Plugin { function make(&paperpaw_sdk::native::binding::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::binding::Error>, function event(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::events::Event<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function draw(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function input(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::Input<'_>) -> core::result::Result<paperpaw_sdk::screen::Handled, paperpaw_sdk::native::binding::Error> }
+trait paperpaw_sdk::native::binding::Plugin { function make(&paperpaw_sdk::native::binding::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::binding::Error>, function event(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::events::Incoming<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function draw(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function input(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::Input<'_>) -> core::result::Result<paperpaw_sdk::screen::Handled, paperpaw_sdk::native::binding::Error> }
 trait paperpaw_sdk::native::declare::records_wire::WireEncode { function wire_tag(&Self) -> u32, function wire_body_len(&Self) -> core::result::Result<usize, i32>, function wire_write(&Self, &mut [u8], &mut usize, paperpaw_sdk::native::declare::records_wire::seal::Seal) }
 trait paperpaw_sdk::native::declare::records_wire::WireRecord<'a> { assoc_const TAG, function decode_body(&'a [u8]) -> core::result::Result<Self, i32> }
+trait paperpaw_sdk::native::events::kinds::Kind { assoc_const TAG }
+trait paperpaw_sdk::native::events::kinds::sealed::Sealed { function decode_event<'a>(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>, &'a [u8]) -> core::result::Result<paperpaw_sdk::native::events::Event<'a>, paperpaw_sdk::native::binding::Error> }
 trait paperpaw_sdk::plugin::Plugin { function manifest(&Self) -> paperpaw_sdk::plugin::Manifest, function register(&Self, &mut paperpaw_sdk::contribution::Registrar) -> core::result::Result<(), paperpaw_sdk::plugin::RegisterError> }
 trait paperpaw_sdk::screen::Screen { function revision(&Self) -> u16, function draw(&mut Self, &mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::env::Env<'_>), function region(&Self, &paperpaw_sdk::env::Env<'_>) -> core::option::Option<paperpaw_platform::geometry::Rect>, function grays(&Self) -> bool, function pictures_in_grays(&Self) -> bool, function dims_below(&Self) -> bool, function shows_through(&Self) -> paperpaw_sdk::screen::ShowsThrough, function on_action(&mut Self, &paperpaw_sdk::id::Id, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function on_gesture(&mut Self, paperpaw_sdk::gesture::Gesture, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function holds_edges(&Self) -> bool, function takes_double_taps(&Self) -> bool, function guards(&Self) -> bool, function secret(&Self) -> bool, function outside(&Self) -> paperpaw_sdk::screen::Outside, function passes_through(&Self) -> bool, function direction(&Self) -> paperpaw_lang::Direction, function hints(&Self) -> core::option::Option<paperpaw_sdk::screen::HintVisibility>, function on_close_request(&mut Self, paperpaw_sdk::screen::CloseCause, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function on_pointer(&mut Self, &paperpaw_platform::input::PointerEvent, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function takes_buttons(&Self) -> bool, function on_button(&mut Self, &str, bool, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function mode(&Self) -> paperpaw_sdk::realtime::ScreenMode, function on_key(&mut Self, &paperpaw_sdk::realtime::KeyEvent, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function on_extended(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function hint(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::env::Env<'_>) -> paperpaw_sdk::screen::Hint, function on_show(&mut Self, &mut paperpaw_sdk::screen::Cx<'_, '_>), function on_reopen(&mut Self, &paperpaw_sdk::params::Params, &mut paperpaw_sdk::screen::Cx<'_, '_>), function on_squeeze(&mut Self, &paperpaw_sdk::realtime::Squeeze, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function on_event(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params, &mut paperpaw_sdk::screen::Cx<'_, '_>), function on_hide(&mut Self), function on_close(&mut Self, &mut paperpaw_sdk::screen::Cx<'_, '_>), function on_timer(&mut Self, &mut paperpaw_sdk::screen::Cx<'_, '_>), function on_resize(&mut Self, &mut paperpaw_sdk::screen::Cx<'_, '_>) -> paperpaw_sdk::screen::Handled, function pane(&Self) -> paperpaw_sdk::screen::Pane, function times_under_overlays(&Self) -> bool }
 trait paperpaw_sdk::screen::ScreenMaker { function make(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::params::Params) -> core::option::Option<alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>>, function slot_screen(&Self, &str) -> core::option::Option<&paperpaw_sdk::id::Id>, function slot_screens(&Self, &str) -> alloc::vec::Vec<&paperpaw_sdk::id::Id>, function slot_choice(&Self, &str) -> core::option::Option<&paperpaw_sdk::id::Id>, function slot_title(&Self, &str) -> core::option::Option<&str>, function screen_title(&Self, &paperpaw_sdk::id::Id) -> core::option::Option<&str>, function extended(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }

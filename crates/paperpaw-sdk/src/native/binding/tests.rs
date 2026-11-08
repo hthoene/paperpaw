@@ -84,11 +84,14 @@ impl Plugin for TestPlugin {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: super::super::events::Event<'_>,
+        event: super::super::events::Incoming<'_>,
         reply: &mut super::super::reply::Reply<'_>,
     ) -> Result<(), Error> {
         assert_eq!(token, 42);
-        assert_eq!(event, super::super::events::Event::Started { now_ms: 7 });
+        assert_eq!(
+            event.decode(),
+            Ok(super::super::events::Event::Started { now_ms: 7 })
+        );
         if reply.remaining() > 0 {
             reply.write(b"reply")?;
         }
@@ -558,10 +561,13 @@ crate::native_plugin!(TestPlugin, metadata = MINOR, linked = LINKED_MINOR);
 fn linked_metadata_may_be_any_caller_constant() {
     for linked in [&LINKED_METADATA, &LINKED_MINOR] {
         let entry = linked.entry();
-        // SAFETY: the entry's metadata view is a static of exactly that length.
-        let metadata =
-            unsafe { core::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
+        let metadata = linked.metadata();
         assert_eq!(metadata, TEST_METADATA);
+        // The host's admission compares exactly this pointer and length.
+        assert_eq!(
+            (metadata.as_ptr(), metadata.len()),
+            (entry.metadata.ptr, entry.metadata.len)
+        );
     }
 }
 

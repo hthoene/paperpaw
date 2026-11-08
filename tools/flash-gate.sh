@@ -8,6 +8,7 @@
 #   tools/flash-gate.sh [--head REV] [--base TAG] [--base-features LIST]
 #                       [--head-features LIST] [--label TEXT] [--limit BYTES]
 #                       [--jobs N] [--work DIR] [--keep] [--image-only]
+#                       [--plugin-elf FILE]...
 #
 # Like for like (Manager ruling on decision 136): the gate counts the image
 # AND the plugin files (`tools/plugin-files/build.sh x4`, the `.ppn` the store
@@ -18,6 +19,10 @@
 # plugin built into the image is listed too, but its bytes stay in the image
 # delta (they cannot be separated from it). `--image-only`
 # measures the image alone, as before.
+#
+# `--plugin-elf FILE` (any number; the ELF a `.ppn` is packed from) also runs
+# `tools/plugin-symbols.sh` on it: a plugin that links the whole records codec or
+# the text-escaping tables fails the gate (exit 1) whatever the delta.
 #
 # Both builds remap the work directory, the cargo home
 # (`--remap-path-prefix`, through `--config`, which adds to the flags of
@@ -41,7 +46,7 @@ trap 'exit 2' ERR
 die() { echo "flash-gate: $*" >&2; exit 2; }
 
 head=HEAD base=v0.6.0-beta.3 base_features=x4 head_features=x4,ppn5
-label="" limit=60000 jobs=4 keep=0 image_only=0
+label="" limit=60000 jobs=4 keep=0 image_only=0 plugin_elfs=()
 work="${TMPDIR:-/tmp}"
 target=riscv32imc-unknown-none-elf
 
@@ -56,6 +61,7 @@ while [ $# -gt 0 ]; do
         --jobs) jobs=$2; shift 2 ;;
         --work) work=$2; shift 2 ;;
         --keep) keep=1; shift ;;
+        --plugin-elf) plugin_elfs+=("$2"); shift 2 ;;
         --image-only) image_only=1; shift ;;
         -h|--help) sed -n 2,40p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument: $1" ;;
@@ -196,6 +202,14 @@ if [ "$image_only" = 0 ]; then
 fi
 echo "delta $delta B against the gate of $limit B (image: .text, .rodata, .data load, .rwtext, .trap$( [ "$image_only" = 0 ] && echo '; plus the plugin files' ))"
 [ -n "$label" ] && echo "RESULT (${label}): $delta B"
+if [ ${#plugin_elfs[@]} -gt 0 ]; then
+    # Exit 2 (no symbols, no nm) ends the gate through the ERR trap; 1 is a finding.
+    if "$root/tools/plugin-symbols.sh" "${plugin_elfs[@]}"; then :; else
+        [ $? -eq 1 ] || exit 2
+        echo "GATE: PLUGIN CODEC (see above)"
+        exit 1
+    fi
+fi
 if [ "$delta" -le "$limit" ]; then
     echo "GATE: within ($((limit - delta)) B to spare)"
 else
