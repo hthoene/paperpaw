@@ -354,6 +354,7 @@ pub mod stages;
 pub mod storage;
 pub mod ui;
 mod wire;
+pub mod work;
 
 #[cfg(test)]
 #[path = "native/slot_limits_tests.rs"]
