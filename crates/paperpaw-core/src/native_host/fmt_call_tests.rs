@@ -393,6 +393,24 @@ fn open_forwards_up_to_twelve_options_whole_and_in_order_after_the_call() {
 }
 
 #[test]
+fn only_open_carries_options() {
+    let meta = reply(&[L::FmtMeta(local::FmtMeta::new(
+        "t", "en", "", "", 0, 0, 1, 0, 0, 0, 0,
+    ))]);
+    let pairs: Vec<(std::string::String, std::string::String)> = (0..13)
+        .map(|n| (std::format!("k{n}"), std::format!("v{n}")))
+        .collect();
+    let borrowed: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (&**k, &**v)).collect();
+    let mut other = call(fmt::META);
+    other.options = Options::from_batch(options(&borrowed));
+    let (r, _, h) = go(Behavior::Raw(meta), &images(Ok(None)), "", &other);
+    // Not even the thirteenth is looked at: the call has no option rows.
+    assert!(r.is_ok(), "{r:?}");
+    let (payload, _) = sent(&h);
+    assert_eq!(rows(&payload).len(), 1);
+}
+
+#[test]
 fn sniff_says_yes_or_not_mine_and_close_never_fails() {
     let yes = reply(&[L::FmtYes(local::FmtYes::new(0))]);
     let none = reply(&[]);

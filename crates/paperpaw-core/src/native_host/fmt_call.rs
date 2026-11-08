@@ -166,7 +166,13 @@ impl<'a> Stage<'a> {
             text,
             &[],
         );
-        let length = self.run(target, &record, &call.options, out)?;
+        // Options ride with op 2 `open` only (document.md section 3).
+        let options = if call.op == fmt::OPEN {
+            &call.options
+        } else {
+            &super::doc_service::Options::NONE
+        };
+        let length = self.run(target, &record, options, out)?;
         self.translate(who, call, out, length)
     }
 
@@ -392,9 +398,9 @@ impl<'a> Reader<'a> {
     }
 
     /// A varint of at most 5 bytes. Lenient on purpose: a non-minimal
-    /// encoding is accepted, as the generated decoder accepts it, since this
-    /// only walks frames `local::reply_decode` has already checked whole; a
-    /// value over `u32` or a sixth byte is `ERR_INVALID`.
+    /// encoding is accepted and bits above `u32` in the fifth byte are
+    /// dropped, as this only walks frames `local::reply_decode` has already
+    /// checked whole; a sixth byte or a cut varint is `ERR_INVALID`.
     fn varint(&mut self) -> Result<u32, i32> {
         let mut value = 0_u32;
         for shift in (0..35).step_by(7) {
