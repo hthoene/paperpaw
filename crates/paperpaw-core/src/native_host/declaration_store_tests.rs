@@ -1292,7 +1292,7 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
             reached_success = true;
             assert_eq!(pending.slots.len(), 6);
         } else {
-            assert!(results.iter().any(|r| *r == Err(ERR_NO_MEMORY)));
+            assert!(results.contains(&Err(ERR_NO_MEMORY)));
             // A failed owner stays failed: nothing publishes it.
             let mut store = DeclarationStore::default();
             assert!(store.prepare(pending, &mut Allocations::default()).is_err());
