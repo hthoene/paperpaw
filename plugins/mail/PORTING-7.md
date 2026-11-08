@@ -75,9 +75,9 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   index, counts, folders and letters (compared byte for byte); `tests/native_model_alloc_refusal.rs`
   refuses each allocation of rendering and of the store in turn on a card double that never allocates;
   hostile bytes are rendered without a panic.
-- Differences from interface 6, on purpose, each tested: the paths are relative to the plugin's data
+- Differences from interface 6, on purpose, each tested: `read_index` returns at most 50 rows and `read_folders` at most 64 (what a write keeps; interface 6 read every line of a file under its size cap); the paths are relative to the plugin's data
   folder (`a1/f<name>-<hash>/index.txt`, not `.paperpaw/plugins/mail/…` on the card; what an
-  interface-6 Mail kept there is a cache and is not read); no `.part` file of Mail's own (the data
+  interface-6 Mail kept there is not read, see "The interface-6 files on the card" below); no `.part` file of Mail's own (the data
   folder's `write` makes the parent folders and is the old file or the new one whole); the scratch
   file of a letter is `m<uid>.txt.tmp`; the HTML reader of a part is made with
   `HtmlText::with_limit` for the room the text has left, as slice 2 asked; folders are sorted by
@@ -99,6 +99,18 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
 - Build the final `LOGIN` line (the tag, the user and the password quoted by `quoted_secret`) in a
   buffer that wipes itself (`Secret`), send it from there, and wipe it; the same for `AUTH PLAIN`
   (`smtp::auth_plain` already makes it so). No `format!` with the password.
+
+## The interface-6 files on the card
+
+Interface-6 Mail keeps its files on the card under `.paperpaw/plugins/mail/` (`aN/…`). The folders, lists,
+counts and messages in them are a cache that comes again from the server, but **the drafts
+(`aN/draft.txt`) and the outbox (`aN/outbox.eml`) are the user's own writing**, so cleaning the folder
+at the first native start would lose mail not yet sent. Neither a migration nor a clean-up fits this
+slice: it has no start code, and reading the card's files needs `uses.storage` (root 1) in the
+metadata, which only the slice that makes the first start can justify. It is a gap, with an ignored
+case (`the_interface_6_cache_and_drafts_are_migrated_or_cleaned_once` in `tests/acceptance_pending.rs`):
+the slice with the first start must copy the drafts and outboxes into the data folder, then remove the
+old folder (cache and all), once, and say so here. Until then the old files stay on the card.
 
 ## Still interface 6
 

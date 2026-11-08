@@ -546,3 +546,38 @@ fn a_card_that_says_no_is_told_apart_from_no_memory() {
     let error = new_store::make_letter(&storage, "missing.eml", "m.txt").unwrap_err();
     assert_eq!(error, Fail::Storage(StorageError::NotFound));
 }
+
+#[test]
+fn a_damaged_index_or_folder_list_makes_a_bounded_list() {
+    // 3,000 short lines fit the 64 KiB read; only the first 50 are rows.
+    let mut index = String::from("#serial 1\n");
+    for uid in 0..3_000 {
+        index.push_str(&format!("{uid}\tS\t1\t2\tA\ta@x\ts\t<m>\n"));
+    }
+    assert!(index.len() < 64 * 1024);
+    let storage = MemoryStorage::new().with("i.txt", index);
+    let rows = new_store::read_index(&storage, "i.txt").unwrap();
+    assert_eq!(rows.len(), new_store::MAX_MESSAGES as usize);
+    assert_eq!(rows.first().map(|r| r.uid), Some(0));
+    // Damaged lines among them are left out and do not count.
+    let mut mixed = String::new();
+    for n in 0..200 {
+        mixed.push_str("not a row\n");
+        mixed.push_str(&format!("{n}\tS\t1\t2\tA\ta@x\ts\n"));
+    }
+    let storage = MemoryStorage::new().with("i.txt", mixed);
+    assert_eq!(
+        new_store::read_index(&storage, "i.txt").unwrap().len(),
+        new_store::MAX_MESSAGES as usize
+    );
+    let mut folders = String::new();
+    for n in 0..2_000 {
+        folders.push_str(&format!("Folder{n}\t\n"));
+    }
+    assert!(folders.len() < 32 * 1024);
+    let storage = MemoryStorage::new().with("f.txt", folders);
+    assert_eq!(
+        new_store::read_folders(&storage, "f.txt").unwrap().len(),
+        new_store::MAX_FOLDERS
+    );
+}

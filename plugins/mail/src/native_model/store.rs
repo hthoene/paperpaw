@@ -383,6 +383,11 @@ pub fn read_index(storage: &dyn Storage, file: &str) -> Result<Vec<Row>, Fail> {
     };
     let mut rows = Vec::new();
     for line in text.lines() {
+        // A list is at most what a write keeps: a damaged file of many
+        // short lines must not make many rows.
+        if rows.len() >= MAX_MESSAGES as usize {
+            break;
+        }
         if let Some(row) = Row::parse(line)? {
             push(&mut rows, row)?;
         }
@@ -521,6 +526,9 @@ pub fn read_folders(storage: &dyn Storage, file: &str) -> Result<Vec<Folder>, Fa
     };
     let mut folders = Vec::new();
     for line in text.lines() {
+        if folders.len() >= MAX_FOLDERS {
+            break;
+        }
         let mut f = line.split('\t');
         let raw = f.next().unwrap_or("");
         if raw.is_empty() {
