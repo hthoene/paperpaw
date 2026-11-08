@@ -327,20 +327,30 @@ fn publishers_at_once_with_no_hard_links_leave_the_first_key_whole() {
     for mode in 0..2 {
         let dir = Dir::new(&format!("nolinks-race{mode}"));
         let path = dir.key_file();
-        std::thread::scope(|scope| {
-            for n in 0..8u8 {
-                let path = path.clone();
-                scope.spawn(move || {
-                    let [a, b] = no_link_sealers(&path);
-                    let s = if mode == 0 { a } else { b };
-                    s.write(&[n + 1; KEY], false).unwrap();
-                });
-            }
+        // What each thread read from the file right after its own `write`: a
+        // key replaced later would show as a thread that saw another one.
+        let seen: Vec<Vec<u8>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..8u8)
+                .map(|n| {
+                    let path = path.clone();
+                    scope.spawn(move || {
+                        let [a, b] = no_link_sealers(&path);
+                        let s = if mode == 0 { a } else { b };
+                        s.write(&[n + 1; KEY], false).unwrap();
+                        fs::read(&path).unwrap()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
         let found = fs::read(&path).unwrap();
         assert!(
             (1..=8u8).any(|n| found == record(&[n; KEY])),
             "one whole record, mode {mode}"
+        );
+        assert!(
+            seen.iter().all(|one| *one == found),
+            "every publisher saw the same key (none was replaced), mode {mode}"
         );
         let names: Vec<_> = fs::read_dir(&dir.0)
             .unwrap()
