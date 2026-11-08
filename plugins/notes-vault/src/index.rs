@@ -385,7 +385,7 @@ pub(crate) fn tag_counts(storage: &dyn Storage) -> (Vec<(String, u32)>, bool) {
     if result.is_err() {
         counts.clear();
     }
-    counts.sort_by_cached_key(|(t, _)| t.to_lowercase());
+    paperpaw_sdk::sort::sort_by_cached_key(&mut counts, |(t, _)| t.to_lowercase());
     (counts, left_out)
 }
 

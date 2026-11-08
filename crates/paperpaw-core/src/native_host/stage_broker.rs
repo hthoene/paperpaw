@@ -28,6 +28,35 @@ pub(crate) struct Schema {
     pub(crate) reply: fn(&[u8]) -> Result<(), i32>,
 }
 
+impl Schema {
+    /// The schema of a plugin-defined stage: the host sees only the framing of
+    /// its input and reply (up to 64 records each way, within the byte bounds),
+    /// never the payload, which belongs to the stage's own schema.
+    #[allow(
+        dead_code,
+        reason = "plugin-defined stages join the broker when the production stage path is wired"
+    )]
+    pub(crate) fn plugin_defined(
+        key: &'static str,
+        major: u32,
+        max_subscribers: usize,
+        max_input: usize,
+        max_reply: usize,
+        reply_rows: u32,
+    ) -> Self {
+        Self {
+            key,
+            major,
+            max_subscribers,
+            max_input,
+            max_reply,
+            reply_rows,
+            input: super::stage_wire::validate_plugin_input,
+            reply: |_| Ok(()),
+        }
+    }
+}
+
 /// One committed registration, with identity resolved through NativeInstances.
 #[derive(Clone, Copy)]
 pub(crate) struct Subscription<'a> {

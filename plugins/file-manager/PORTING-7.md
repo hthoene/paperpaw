@@ -114,10 +114,12 @@ still not an error (the storage's rule).
   keyboard and confirmation replies (`Question::choice`/`Ui::ask`), the registration (action,
   Tools menu entry order 45, icon `folder`, the `file-manager.hidden` setting) as in
   `plugins/power/PORTING-7.md`.
-- Follow-up of this slice: the allocation sweep at card/browser level (every allocation of a
-  card call refused in turn; the model's sweep is done) and a nested-call test of
-  `HostCard::buffers` (a host is needed). A host out-of-memory is told to the caller as
-  `NoMemory` (`with_card`), though `StorageError` has no word for it.
+- Out of memory: a host out-of-memory in a card call (`card::Watch` notes it) reaches the
+  reader as "not enough memory" (`Browser::lacked_memory`), though `StorageError` has no word
+  for it. Sweeps (every allocation refused in turn, files intact) run at model, card and
+  browser level over the memory storage and the fake card. Not covered: the allocations of
+  `HostCard::open` and the `core.ui` glue (they need a host); `take_buffers` (a nested call is
+  `Busy`) is tested on its own.
 - The reading-app bookkeeping (`library::books_in`, `formats().supports_file`, own data
   folders): `core.library` (op 15 / Services) and `core.format`.
 - Reading `size` for the row text (`ops::shown_size`, from the SDK) and the page-turn

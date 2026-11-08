@@ -55,12 +55,31 @@ impl DirStorage {
     /// operation then says [`StorageError::CARD_GONE`], not "not found",
     /// so that a book on it is never taken for deleted, and a write never
     /// makes the mount point again on the wrong disk.
+    ///
+    /// - A root that is missing, or is not a folder, is gone.
+    /// - A root the system refuses to look at (`PermissionDenied`: an
+    ///   access revoked, as a shared storage can be) is as unusable as a
+    ///   missing one, and is gone too: the library then reports a read
+    ///   error (`ERR_IO`), not an unsupported call.
+    /// - Any other failure of the look is [`StorageError::Io`].
+    ///
+    /// The root is made once, by [`DirStorage::new`]. One deleted while the
+    /// app runs is not made again until the storage is made again (the next
+    /// start); a volume that comes back by itself (a card put in again)
+    /// works again as soon as its folder is there.
     fn live(&self) -> Result<(), StorageError> {
         match fs::metadata(&self.root) {
             Ok(metadata) if metadata.is_dir() => Ok(()),
             Ok(_) => Err(StorageError::CARD_GONE),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Err(StorageError::CARD_GONE),
-            Err(e) => Err(error(e)),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                Err(StorageError::CARD_GONE)
+            }
+            Err(_) => Err(StorageError::Io),
         }
     }
 
@@ -336,6 +355,12 @@ fn same_entry(a: &Path, b: &Path) -> bool {
 impl Storage for DirStorage {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         let mut open = self.open.borrow_mut();
+        // Also for the file read last, kept open: a volume pulled since says
+        // so, it is not read from a handle that may still answer.
+        if let Err(gone) = self.live() {
+            *open = None;
+            return Err(gone);
+        }
         if open.as_ref().is_none_or(|(p, _)| p != path) {
             let file = File::open(self.resolve(path)?).map_err(error)?;
             *open = Some((path.to_string(), file));
@@ -458,7 +483,7 @@ impl Storage for DirStorage {
             };
             entries.push((name, metadata.is_dir(), size, seconds(&metadata)));
         }
-        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        paperpaw_sort::sort_by(&mut entries, |a, b| a.0.cmp(&b.0));
         for (name, is_dir, size, modified) in &entries {
             visit(DirEntry::new(name, *is_dir, *size).with_modified(*modified));
         }

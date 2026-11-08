@@ -235,9 +235,9 @@ impl Device {
         let row = self.scalar(
             host,
             schema::OP_CHECK,
-            &[Record::ServiceDevRequest(wire::ServiceDevRequest {
+            &[&wire::ServiceDevRequest {
                 request: request.get(),
-            })],
+            }],
             input,
             out,
             FileCheck::decode,
@@ -259,9 +259,9 @@ impl Device {
         let row = self.scalar(
             host,
             schema::OP_INSTALL,
-            &[Record::ServiceDevRequest(wire::ServiceDevRequest {
+            &[&wire::ServiceDevRequest {
                 request: request.get(),
-            })],
+            }],
             input,
             out,
             InstallProgress::decode,
@@ -285,9 +285,7 @@ impl Device {
         self.scalar(
             host,
             schema::OP_POWER,
-            &[Record::ServiceDevInterval(wire::ServiceDevInterval {
-                base_ms,
-            })],
+            &[&wire::ServiceDevInterval { base_ms }],
             input,
             out,
             PowerInfo::decode,

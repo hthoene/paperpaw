@@ -1036,7 +1036,7 @@ impl Book {
                 .filter(|(_, m)| m.taps)
                 .map(|(i, m)| (m.start, Target::Mark(i))),
         );
-        order.sort_by_cached_key(|(at, _)| *at);
+        paperpaw_sdk::sort::sort_by_cached_key(&mut order, |(at, _)| *at);
         let mut targets: Vec<Target> = order.into_iter().map(|(_, target)| target).collect();
         // Then the items layers drew, and the rooms of those that hear
         // taps.
@@ -1290,7 +1290,7 @@ fn chapter_by_starts(
     let mut starts: Vec<Locator> = (0..entries)
         .filter_map(|i| document.toc_target(storage, i))
         .collect();
-    starts.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut starts);
     starts.dedup();
     if on {
         // On: the first chapter that begins on a later page.

@@ -52,7 +52,7 @@ pub fn file_name(id: &str) -> String {
 
 /// A property's value on one line, escaped as Joplin escapes it: a line
 /// break as `\n`, a `\n` written out as `\\n` (the same for `\r`).
-fn escape(value: &str) -> String {
+pub(crate) fn escape(value: &str) -> String {
     value
         .replace("\\n", "\\\\n")
         .replace("\\r", "\\\\r")
@@ -61,7 +61,7 @@ fn escape(value: &str) -> String {
 }
 
 /// A title on one line, with no blank around it.
-fn one_line(title: &str) -> String {
+pub(crate) fn one_line(title: &str) -> String {
     title
         .split_whitespace()
         .collect::<alloc::vec::Vec<_>>()
@@ -180,7 +180,7 @@ pub struct Note<'a> {
 }
 
 impl Note<'_> {
-    fn props(&self) -> String {
+    pub(crate) fn props(&self) -> String {
         let (created, user_created, updated) = (self.created, self.user_created, self.updated);
         format!(
             "id: {}\nparent_id: {}\ncreated_time: {created}\nupdated_time: {updated}\n\

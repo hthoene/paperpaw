@@ -95,7 +95,8 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                 let kind = match row.kind() {
                     RegistrySettingKind::Bool => Kind::Bool,
                     RegistrySettingKind::Int => Kind::Int { min: i64::MIN, max: i64::MAX },
-                    RegistrySettingKind::Choice | RegistrySettingKind::List => Kind::Choice,
+                    RegistrySettingKind::Choice => Kind::Choice,
+                    RegistrySettingKind::List => Kind::List,
                     // Folders and languages belong to the device, not to a way of reading.
                     _ => return Ok(()),
                 };
@@ -125,6 +126,16 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         Ok((i64::from(extra.min()), i64::from(extra.max())))
     }
 
+    /// Whether `value` is one of the choices of setting `key`.
+    fn accepts(&mut self, key: &str, value: &str) -> Result<bool, Error> {
+        let mut found = false;
+        rows!(cursor => self.registry.choices(self.host, key, cursor, &mut self.input, &mut self.output), |choice| {
+            found |= choice.value() == value;
+            Ok(())
+        })?;
+        Ok(found)
+    }
+
     /// What applying `profile` would change: only settings that differ, and
     /// only values their settings accept.
     pub fn differences(
@@ -132,40 +143,284 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         profile: &Profile,
         current: &[Current],
     ) -> Result<Vec<(String, Value)>, Error> {
-        let mut changes = Vec::new();
-        for (key, text) in &profile.values {
-            let Some(now) = current.iter().find(|c| c.key == *key) else {
-                continue;
-            };
-            let mut kind = now.kind;
-            // Bounds only where the value differs: most do not.
-            if matches!(kind, Kind::Int { .. }) && !now.value.text_is(text) {
-                let (min, max) = self.bounds(key)?;
-                kind = Kind::Int { min, max };
-            }
-            let Some(value) = Value::parse(kind, text)? else {
-                continue;
-            };
-            if value != now.value {
-                changes.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                changes.push((copy(key)?, value));
-            }
-        }
-        Ok(changes)
+        differences(self, profile, current)
     }
 }
 
-/// Stages the setting changes.
-pub fn apply(
-    commands: &mut CommandSender<'_, '_>,
+/// What a profile's values are checked against: the bounds of an integer
+/// setting and the choices of a choice setting.
+pub trait Limits {
+    /// The bounds of an integer setting.
+    fn bounds(&mut self, key: &str) -> Result<(i64, i64), Error>;
+    /// Whether `value` is one of the choices of the setting `key`.
+    fn accepts(&mut self, key: &str, value: &str) -> Result<bool, Error>;
+}
+
+impl Limits for Reader<'_, '_> {
+    fn bounds(&mut self, key: &str) -> Result<(i64, i64), Error> {
+        Reader::bounds(self, key)
+    }
+    fn accepts(&mut self, key: &str, value: &str) -> Result<bool, Error> {
+        Reader::accepts(self, key, value)
+    }
+}
+
+/// What applying `profile` would change: only settings that differ and only
+/// values their settings accept. A stale value (a choice that was removed, an
+/// integer out of bounds, a word that is no boolean) is skipped, as in
+/// interface 6, and the rest of the profile still applies.
+pub fn differences(
+    limits: &mut impl Limits,
+    profile: &Profile,
+    current: &[Current],
+) -> Result<Vec<(String, Value)>, Error> {
+    let mut changes = Vec::new();
+    for (key, text) in &profile.values {
+        let Some(now) = current.iter().find(|c| c.key == *key) else {
+            continue;
+        };
+        let differs = !now.value.text_is(text);
+        let mut kind = now.kind;
+        // Limits only where the value differs: most do not.
+        if differs && matches!(kind, Kind::Int { .. }) {
+            let (min, max) = limits.bounds(key)?;
+            kind = Kind::Int { min, max };
+        }
+        let Some(value) = Value::parse(kind, text)? else {
+            continue;
+        };
+        if differs && matches!(kind, Kind::Choice) && !limits.accepts(key, text)? {
+            continue;
+        }
+        if value != now.value {
+            changes.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            changes.push((copy(key)?, value));
+        }
+    }
+    Ok(changes)
+}
+
+/// Where setting changes are staged.
+pub trait Stage {
+    /// Stages one change.
+    fn set(&mut self, key: &str, value: SettingValue<'_>) -> Result<(), Error>;
+}
+
+impl Stage for CommandSender<'_, '_> {
+    fn set(&mut self, key: &str, value: SettingValue<'_>) -> Result<(), Error> {
+        self.set_setting(key, value)
+    }
+}
+
+/// Stages the setting changes, then runs `after` (the notes that it was done).
+/// The first change the stage refuses (`NoSpace` over its command or byte
+/// budget) is *returned*, and `after` does not run: the callback returns that
+/// error, so the host drops everything staged in it and a profile is applied
+/// whole or not at all.
+pub fn commit<S: Stage>(
+    stage: &mut S,
     changes: &[(String, Value)],
+    after: impl FnOnce(&mut S) -> Result<(), Error>,
 ) -> Result<(), Error> {
+    apply(stage, changes)?;
+    after(stage)
+}
+
+/// Stages the setting changes, stopping at the first the stage refuses.
+fn apply(stage: &mut impl Stage, changes: &[(String, Value)]) -> Result<(), Error> {
     for (key, value) in changes {
         match value {
-            Value::Bool(v) => commands.set_setting(key, SettingValue::Bool(*v))?,
-            Value::Int(v) => commands.set_setting(key, SettingValue::Int(*v))?,
-            Value::Text(v) => commands.set_setting(key, SettingValue::Text(v))?,
+            Value::Bool(v) => stage.set(key, SettingValue::Bool(*v))?,
+            Value::Int(v) => stage.set(key, SettingValue::Int(*v))?,
+            Value::Text(v) => stage.set(key, SettingValue::Text(v))?,
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    /// A setting the profile may carry and what it accepts.
+    struct Fake {
+        choices: Vec<(&'static str, Vec<&'static str>)>,
+        asked: Vec<String>,
+    }
+
+    impl Limits for Fake {
+        fn bounds(&mut self, _key: &str) -> Result<(i64, i64), Error> {
+            Ok((6, 40))
+        }
+        fn accepts(&mut self, key: &str, value: &str) -> Result<bool, Error> {
+            self.asked.push(key.to_string());
+            Ok(self
+                .choices
+                .iter()
+                .any(|(k, values)| *k == key && values.contains(&value)))
+        }
+    }
+
+    fn now(key: &str, kind: Kind, value: Value) -> Current {
+        Current {
+            key: key.to_string(),
+            kind,
+            value,
+        }
+    }
+
+    fn profile(values: &[(&str, &str)]) -> Profile {
+        Profile {
+            name: "Night".to_string(),
+            values: values
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_stale_choice_is_skipped_and_the_rest_of_the_profile_applies() {
+        let current = [
+            now("a.font", Kind::Choice, Value::Text("sans".into())),
+            now("a.contrast", Kind::Choice, Value::Text("normal".into())),
+            now(
+                "a.size",
+                Kind::Int {
+                    min: i64::MIN,
+                    max: i64::MAX,
+                },
+                Value::Int(12),
+            ),
+            now("a.bold", Kind::Bool, Value::Bool(false)),
+        ];
+        let mut limits = Fake {
+            choices: vec![
+                ("a.font", vec!["sans", "serif"]),
+                ("a.contrast", vec!["normal", "strong"]),
+            ],
+            asked: Vec::new(),
+        };
+        // "removed-font" is no choice any more; the others are fine.
+        let kept = profile(&[
+            ("a.font", "removed-font"),
+            ("a.contrast", "strong"),
+            ("a.size", "18"),
+            ("a.bold", "on"),
+        ]);
+        let changes = differences(&mut limits, &kept, &current).unwrap();
+        let keys: Vec<&str> = changes.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["a.contrast", "a.size", "a.bold"]);
+        assert_eq!(changes[0].1, Value::Text("strong".into()));
+    }
+
+    #[test]
+    fn a_changed_list_is_applied_without_a_lookup() {
+        // The status-line items are a list: no choices to check, any text.
+        let current = [now("a.items", Kind::List, Value::Text("clock".into()))];
+        let mut limits = Fake {
+            choices: Vec::new(),
+            asked: Vec::new(),
+        };
+        let items = profile(&[("a.items", "clock,battery"), ("a.other", "x")]);
+        let changes = differences(&mut limits, &items, &current).unwrap();
+        assert_eq!(
+            changes,
+            [("a.items".to_string(), Value::Text("clock,battery".into()))]
+        );
+        assert!(limits.asked.is_empty());
+        let blank = profile(&[("a.items", "")]);
+        let changes = differences(&mut limits, &blank, &current).unwrap();
+        assert_eq!(
+            changes,
+            [("a.items".to_string(), Value::Text(String::new()))]
+        );
+    }
+
+    #[test]
+    fn a_choice_that_did_not_change_is_not_looked_up() {
+        let current = [now("a.font", Kind::Choice, Value::Text("gone".into()))];
+        let mut limits = Fake {
+            choices: Vec::new(),
+            asked: Vec::new(),
+        };
+        let same = profile(&[("a.font", "gone")]);
+        assert!(
+            differences(&mut limits, &same, &current)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(limits.asked.is_empty());
+    }
+
+    #[test]
+    fn an_empty_choice_is_skipped_without_a_lookup() {
+        let current = [now("a.font", Kind::Choice, Value::Text("sans".into()))];
+        let mut limits = Fake {
+            choices: vec![("a.font", vec!["sans"])],
+            asked: Vec::new(),
+        };
+        let blank = profile(&[("a.font", "")]);
+        assert!(
+            differences(&mut limits, &blank, &current)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(limits.asked.is_empty());
+    }
+
+    /// A stage with a byte budget like the host's: keys and text count.
+    struct Budget {
+        left: usize,
+        staged: Vec<String>,
+    }
+
+    impl Stage for Budget {
+        fn set(&mut self, key: &str, value: SettingValue<'_>) -> Result<(), Error> {
+            let cost = key.len()
+                + match value {
+                    SettingValue::Text(v) => v.len(),
+                    _ => 0,
+                };
+            self.left = self.left.checked_sub(cost).ok_or(Error::NoSpace)?;
+            self.staged.push(key.to_string());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_profile_over_the_byte_budget_returns_no_space_and_notes_nothing() {
+        let changes = [
+            ("a.one".to_string(), Value::Bool(true)),
+            ("a.two".to_string(), Value::Text("x".repeat(60))),
+            ("a.three".to_string(), Value::Int(7)),
+        ];
+        let mut stage = Budget {
+            left: 40,
+            staged: Vec::new(),
+        };
+        let mut noted = false;
+        let result = commit(&mut stage, &changes, |_| {
+            noted = true;
+            Ok(())
+        });
+        // The callback's result is the error, so the host drops "a.one"
+        // too (commands.md: submit 1); the note is not made.
+        assert_eq!(result, Err(Error::NoSpace));
+        assert!(!noted);
+        assert_eq!(stage.staged, ["a.one"]);
+        let mut roomy = Budget {
+            left: 1000,
+            staged: Vec::new(),
+        };
+        let result = commit(&mut roomy, &changes, |_| {
+            noted = true;
+            Ok(())
+        });
+        assert_eq!(result, Ok(()));
+        assert!(noted);
+        assert_eq!(roomy.staged, ["a.one", "a.two", "a.three"]);
+    }
 }

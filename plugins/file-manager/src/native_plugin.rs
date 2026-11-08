@@ -8,7 +8,7 @@ use alloc::string::String;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input, InputGestureKind};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
-use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event};
+use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming};
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::settings::{self, SettingValue};
 use paperpaw_sdk::native::ui::{Open, Question, RequestId, TextWrite, Ui};
@@ -19,7 +19,7 @@ use paperpaw_ui_kit::text::{concat, copy};
 use paperpaw_ui_kit::{Messages, Screens, uitext};
 
 use crate::browser::{Browser, Button, is_own_data};
-use crate::card::with_card;
+use crate::card::{with_card, with_card_noted};
 use crate::native_draw::{self, Hits};
 
 mod image {
@@ -89,9 +89,10 @@ impl Plugin for NativeFileManager {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ActionRun {
@@ -195,7 +196,11 @@ impl NativeFileManager {
         let Some(view) = self.screens.top(BROWSER) else {
             return Ok(None);
         };
-        let done = with_card(host, |card| Ok(work(&mut view.browser, card)))?;
+        let (done, ran_out) = with_card_noted(host, |card| Ok(work(&mut view.browser, card)))?;
+        if ran_out {
+            // The browser kept it as a storage error ("that did not work").
+            view.browser.lacked_memory();
+        }
         redraw(host)?;
         Ok(Some(done))
     }
