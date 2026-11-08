@@ -54,8 +54,9 @@ struct Read {
 impl Read {
     fn new(host: &Host<'_>) -> Result<Self, Error> {
         let stored = store::stored(host)?;
-        let kind = store::kind_setting(host)?;
-        let active = model::active_kind(&kind, stored.as_deref());
+        // The code kept decides, not the kind setting: that can be set to
+        // `off` while the code stays (`gate::active`).
+        let active = gate::active(stored.as_deref());
         let touch = snapshot::capture_snapshot(host)?.has_touch();
         Ok(Self {
             stored,
@@ -171,11 +172,25 @@ impl Plugin for NativeLock {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // Locked, an input that fails is taken all the same: nothing gets past
+        // the lock because a read or an allocation was refused.
+        match self.take(host, token, &input) {
+            Err(_) if self.lock.locked => Ok(Handled::Yes),
+            Ok(Handled::No) if self.lock.locked && self.screens.top_instance(token).is_none() => {
+                Ok(Handled::Yes)
+            }
+            other => other,
+        }
+    }
+}
+
+impl NativeLock {
+    fn take(&mut self, host: &Host<'_>, token: u32, input: &Input<'_>) -> Result<Handled, Error> {
         let Some(instance) = self.screens.top_instance(token) else {
             return Ok(Handled::No);
         };
         let read = Read::new(host)?;
-        let ctx = read.context(now_of(&input));
+        let ctx = read.context(now_of(input));
         let mut fx = Effects::default();
         let handled = {
             let Some(view) = self.screens.get(instance) else {
@@ -183,7 +198,7 @@ impl Plugin for NativeLock {
             };
             // A wait that is over: the tries are forgotten before anything.
             view.flow.wait_over(&mut self.lock, &ctx, &mut fx);
-            route(host, view, &mut self.lock, &ctx, &mut fx, &input)?
+            route(host, view, &mut self.lock, &ctx, &mut fx, input)?
         };
         self.carry_out(host, instance, &mut fx)?;
         Ok(handled)
@@ -335,9 +350,10 @@ impl Device for HostDevice<'_, '_> {
             CommandSender::new(host, &mut scratch)
                 .open(Open::screen("lock.screen")?.handover(handover))
         })();
-        let released = ui.release(host);
-        opened?;
-        released
+        // Releasing the handle is of no matter once the screen is staged, and an
+        // error returned now would drop the staged opening.
+        let _ = ui.release(host);
+        opened
     }
 }
 
@@ -411,7 +427,8 @@ impl NativeLock {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        let unlock = Self::unlocks(host, handover)?;
+        // A handover that cannot be read on a locked device is for unlocking.
+        let unlock = Self::unlocks(host, handover).unwrap_or(self.lock.locked);
         let read = Read::new(host)?;
         let flow = Flow::new(unlock, read.active, !read.touch);
         self.screens.open(instance, View::new(flow))?;
@@ -455,14 +472,11 @@ impl NativeLock {
 
     /// Something closed the lock screen while locked: it opens again.
     fn closed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
-        let reopen = self
-            .screens
-            .get(instance)
-            .is_some_and(|view| view.flow.step() == Step::Unlock)
-            && self.lock.locked;
         self.screens.close(instance);
         self.door.opening = false;
-        if reopen {
+        // Whatever closed, a locked device with no unlock screen gets one (also
+        // where the closed screen never got its view).
+        if self.lock.locked {
             // Refused, the device stays locked and the next occasion (waking,
             // *Lock now*) opens it again.
             self.sync_door();

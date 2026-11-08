@@ -3,6 +3,13 @@
 //! at those times (putting the kind back, the tries kept on the card) is done
 //! best effort after it and its refusal is reported once the device is locked.
 //!
+//! An error returned from a callback drops every command it staged
+//! (`screens-input.md` 2.1), the staged opening of the lock screen with them:
+//! so once the opening is staged the callback returns `Ok`, and what failed
+//! after it is dropped (the kind is put back at the next start or wake, the
+//! tries are read again then). Only a callback that staged no opening reports
+//! a refusal.
+//!
 //! The decision is made on the code kept alone: a code kept whole locks the
 //! device whatever the kind setting says (the kind is put back with the code,
 //! but a command takes effect after the callback, so this callback cannot
@@ -12,6 +19,14 @@ use paperpaw_sdk::native::Error;
 
 use crate::native_flow::Lockstate;
 use crate::native_model::{self as model, Code};
+
+/// The kind of the lock in use: the kind of the code kept, never the kind
+/// setting (a reset or a plain list of choices sets that to `off` while the
+/// code stays, and a lock that a setting can switch off is none).
+#[must_use]
+pub fn active(stored: Option<&str>) -> Option<&'static str> {
+    model::kept_kind(stored)
+}
 
 /// What the gate asks of the device.
 pub trait Device {
@@ -109,23 +124,46 @@ pub fn started(
     // Nothing asked for before this is still asked for.
     door.opening = false;
     let stored = device.stored();
-    let locked = match &stored {
-        Ok(stored) => lock_kept(
-            device,
-            lock,
-            door,
-            model::kept_kind(stored.as_deref()).is_some(),
-        ),
-        Err(error) => Err(*error),
-    };
-    let repaired = match &stored {
-        Ok(stored) => device.repair_kind(stored.as_deref()),
-        Err(error) => Err(*error),
-    };
+    let (asked, locked) = locked(device, lock, door, &stored, true);
+    let repaired = repair(device, &stored);
     let tries = device
         .tries()
         .map(|tries| lock.attempts.restore(tries, now_ms));
-    locked.and(repaired).and(tries)
+    settle(asked, locked.and(repaired).and(tries))
+}
+
+/// The lock part of a callback: whether the screen was asked for, and what
+/// failed.
+fn locked(
+    device: &impl Device,
+    lock: &mut Lockstate,
+    door: &mut Door,
+    stored: &Result<Option<Code>, Error>,
+    wanted: bool,
+) -> (bool, Result<(), Error>) {
+    match stored {
+        Ok(stored) if wanted => {
+            match lock_kept(device, lock, door, active(stored.as_deref()).is_some()) {
+                Ok(asked) => (asked, Ok(())),
+                Err(error) => (false, Err(error)),
+            }
+        }
+        Ok(_) => (false, Ok(())),
+        Err(error) => (false, Err(*error)),
+    }
+}
+
+fn repair(device: &impl Device, stored: &Result<Option<Code>, Error>) -> Result<(), Error> {
+    match stored {
+        Ok(stored) => device.repair_kind(stored.as_deref()),
+        Err(error) => Err(*error),
+    }
+}
+
+/// What the callback returns: where the screen was asked for, `Ok` (an error
+/// would drop the staged command), else the first refusal.
+fn settle(asked: bool, rest: Result<(), Error>) -> Result<(), Error> {
+    if asked { Ok(()) } else { rest }
 }
 
 /// The device woke up: it locks if waking up asks for it (and where that
@@ -140,19 +178,7 @@ pub fn woke(device: &impl Device, lock: &mut Lockstate, door: &mut Door) -> Resu
         Ok(wake) => (wake, Ok(())),
         Err(error) => (true, Err(error)),
     };
-    let locked = match &stored {
-        Ok(stored) if wake => lock_kept(
-            device,
-            lock,
-            door,
-            model::kept_kind(stored.as_deref()).is_some(),
-        ),
-        Ok(_) => Ok(()),
-        Err(error) => Err(*error),
-    };
-    let repaired = match &stored {
-        Ok(stored) => device.repair_kind(stored.as_deref()),
-        Err(error) => Err(*error),
-    };
-    locked.and(read).and(repaired)
+    let (asked, locked) = locked(device, lock, door, &stored, wake);
+    let repaired = repair(device, &stored);
+    settle(asked, locked.and(read).and(repaired))
 }
