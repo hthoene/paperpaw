@@ -1,4 +1,4 @@
-# Plugin store on interface 7 (slices 1 and 2, partly ported)
+# Plugin store on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the library's list and plugin
 pages, the index kept on the card, the downloads, the install with its checks
@@ -41,11 +41,66 @@ finishes the port; until then nothing is dropped.
   (`Entry::parse`: a line over 1,024 bytes, a name over 80 or a summary over 300 is
   not the store's line). The fetch must keep this split: JSON values are cut when
   read, and the lines written from them are then always within the caps.
-- Not in this slice (the fetch, with `core.net` and the files facade): what lies
-  below `builds`, `files`, `rotations` and `screenshots`, the plugin's page
-  (`more`), the fit of a plugin to this device (`Item::fits`: it needs the build
-  chosen for the device and `may_install` over the installed plugins), and the
-  streaming of the JSON itself with `paperpaw_sdk::json::stream::try_feed`.
+
+## Ported in slice 3 (`src/native_item.rs`, `src/native_list.rs`, host-free)
+
+- The rest of the plugin reading, in `Item`: the files of a plugin's page
+  (`File`, `Digest`: SHA-256 wins over SHA-1, lower case), the build for this
+  device and PaperPaw (`build_done`: device, fingerprint, firmware fit with
+  `Needs`/`Provides`, families, `image_len`), the author's keys and the key
+  rotations (`rotation_done`, at most 8 steps), the screenshots (`shot_done`: png
+  or jpeg only, at most 4, none past 2,560 px), the plugin page's extras (`More`)
+  and the fit of a plugin to this device (`Item::fits`, with what the device has
+  as `Have`: a built-in or a plugin of the other kind is not replaced) and
+  `finish`/`finish_parts` (the code's size counted in, PaperPaw's own mark only for
+  its first-party key; the code file is moved out, not copied).
+- The streaming reading with the fallible parser (`Parser::try_feed`, #414):
+  `ListReader` (list: plugins, sections, revoked keys) and `PageReader` (a plugin's
+  page), fed pieces of any size, memory refused is `NoMemory`. Tested to give what
+  interface 6 gives for any list and page a library could send, in any piece size
+  (`src/catalog/native_list_parity.rs`, `native_parity.rs`), with a refusal sweep
+  (`tests/native_alloc_refusal.rs`; it found a copy of the code file, now a move)
+  and hostile input (`tests/native_list.rs`).
+- Caps in code: texts cut at 80 bytes (the summary 300, the description 4,000,
+  an address 200, a picture's address 300); 64 files (one more kept, so that it
+  shows), 8 rotation steps, 4 screenshots, 20 plugins a section, 8 + 1 families,
+  4,096 revocation entries read, 256 kept. Values over 4,096 bytes are cut by the
+  parser. Cut values stay (see slice 2).
+- **The other keys interface 6 also reads**, each cut as it did: `author_key` and
+  `recovery_key` (80 bytes), `latest.heap` (a number above 0), `latest.verified`,
+  `latest.source.url` and `source` (`https://` only, 200 bytes; the version's
+  source goes before the home), `repository` (`https://`, 200), `author_since`
+  (date), `description` (4,000), `author_plugins` (number) and `rotations.*`
+  (`to` 80, `signature` 160).
+- Format-5 builds (#188, Kernel todo 169): a build's `abi` is either the
+  format-4 fingerprint (16 hex digits) or `7.<needs_minor>` (`Abi::parse`:
+  decimal, no sign, no leading zeros, 16 bits each, nothing else). The order is
+  target (`device`) → major (below 7: built for an older PaperPaw and not offered;
+  above: needs a newer one) → `needs_minor` at most the host's minor (else a newer
+  PaperPaw); no draft check. **Pending Kernel draft 29:** `Native::minor` is not in
+  the SDK yet, so `Provides::minor` is `None` and the minor is not checked; switch
+  `Provides::of` to the field when it lands.
+- **A difference from the old reading, on purpose:** `Entry::parse` refuses a
+  line whose id, version, SDK, author, licence or name is over 80 bytes, or whose
+  summary is over 300 (and a line over 1,024); the interface-6 `Entry::parse`
+  took them. The caps are the old code's own `cut`s (`MAX_NAME`, `MAX_SUMMARY`,
+  made when the library is read), so every line the store has ever written is
+  within them: a **Beta 3 index holds no such name**, and a hand-made or damaged
+  line is skipped (the index is a cache, rebuilt from the library). The parity
+  tests (`native_parity_tests.rs`) keep the generator wide and assert "old takes
+  it, native refuses" for it.
+
+## Not yet (the install and the fetch)
+
+- Whether a page's files make a package the install accepts (safe paths, each once,
+  a `plugin.ini`, valid digests, at most 64) and that a code plugin names its
+  author's key: the install's (**Kernel todo 145**).
+- The addresses of files and pictures relative to the page's: the fetch joins them
+  (`paperpaw_sdk::web::join_url` allocates without a refusal path; a fallible
+  form is needed on the host side).
+- Where the bytes come from: `core.net` and the files facade (#384); the author
+  file and the stopped keys behind `Hooks`; the hand-over of the revocations to
+  the kernel.
 
 ## Pending host (come back before activation, keeping parity)
 
@@ -65,12 +120,8 @@ finishes the port; until then nothing is dropped.
 - **No downgrade**: the install must refuse a version older than the installed
   one (the interface-6 rule); it belongs with the install, so it comes with Kernel
   todo 145's design.
-- The reading of the library's JSON into `Entry` values with the fallible reader
-  (`paperpaw_sdk::json::stream::try_feed`, #414) is not in this slice: it goes with
-  the fetch, on top of the rules here. Its bound is the largest file taken
-  (the list 4 MiB, a plugin's page 512 KiB, a picture 2 MiB: the interface-6
-  `MAX_LIST_FILE`, `MAX_PAGE_FILE`, `MAX_SHOT_FILE`; enforced by the fetch, which
-  reads the files).
+- The bytes of the library's JSON: the fetch (`core.net`, files facade) feeds
+  `ListReader` and `PageReader`; the index writing and sorting on the card.
 
 Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 (`tests/*.rs`) stay as the references.
