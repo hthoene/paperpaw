@@ -503,3 +503,175 @@ fn an_offer_needs_a_declared_screen_of_its_own_plugin() {
         Ok(())
     );
 }
+
+/// The plugin's whole declaration set as the construction sees it: one wire
+/// batch each, in one image or as owned copies, then its duplicate check.
+fn duplicates(batches: &[&[Record<'_>]], owned: bool) -> Result<(), i32> {
+    let wires: Vec<Vec<u8>> = batches.iter().map(|batch| encoded(batch)).collect();
+    let image: Vec<u8> = wires.concat();
+    let image = (!owned).then_some(image.as_slice());
+    let mut raw = crate::native_host::raw_declarations::RawDeclarations::default();
+    let mut at = 0;
+    for wire in &wires {
+        let from = image.map_or(&wire[..], |image| &image[at..at + wire.len()]);
+        at += wire.len();
+        let pending = raw
+            .prepare(image, Some(from), &records_decode(from).unwrap())
+            .unwrap();
+        raw.commit(pending);
+    }
+    raw.sort_index();
+    raw.check_duplicates(image)
+}
+
+/// Each kind with one record that differs from it in one key field at a time.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one record per key field that may differ, as a table"
+)]
+fn near_duplicates() -> Vec<(Record<'static>, Record<'static>)> {
+    let [slot, offer, bind, default, choice, preset, value] = rows();
+    let (
+        Record::SlotOffer(o),
+        Record::KeyBind(b),
+        Record::SettingChoice(c),
+        Record::PresetValue(v),
+    ) = (offer, bind, choice, value)
+    else {
+        panic!("fixture rows");
+    };
+    let (Record::SlotSpec(sl), Record::SettingDefault(d), Record::PresetSpec(p)) =
+        (slot, default, preset)
+    else {
+        panic!("fixture rows");
+    };
+    vec![
+        (
+            slot,
+            Record::SlotSpec(SlotSpec {
+                name: "slot2",
+                ..sl
+            }),
+        ),
+        (
+            offer,
+            Record::SlotOffer(SlotOffer {
+                screen: "fixture.two",
+                ..o
+            }),
+        ),
+        (
+            offer,
+            Record::SlotOffer(SlotOffer {
+                slot: "core.home",
+                ..o
+            }),
+        ),
+        (
+            bind,
+            Record::KeyBind(KeyBind {
+                input: "core.prev",
+                ..b
+            }),
+        ),
+        (
+            bind,
+            Record::KeyBind(KeyBind {
+                layer: "core.library",
+                ..b
+            }),
+        ),
+        (
+            bind,
+            Record::KeyBind(KeyBind {
+                when_key: "fixture.mode2",
+                ..b
+            }),
+        ),
+        (
+            bind,
+            Record::KeyBind(KeyBind {
+                when_value: "two",
+                ..b
+            }),
+        ),
+        (
+            default,
+            Record::SettingDefault(SettingDefault {
+                key: "other.setting2",
+                ..d
+            }),
+        ),
+        (
+            choice,
+            Record::SettingChoice(SettingChoice { value: "two", ..c }),
+        ),
+        (
+            choice,
+            Record::SettingChoice(SettingChoice {
+                key: "other.setting2",
+                ..c
+            }),
+        ),
+        (
+            preset,
+            Record::PresetSpec(PresetSpec {
+                name: "preset2",
+                ..p
+            }),
+        ),
+        (
+            value,
+            Record::PresetValue(PresetValue {
+                key: "other.setting2",
+                ..v
+            }),
+        ),
+        (
+            value,
+            Record::PresetValue(PresetValue {
+                preset: "fixture.preset2",
+                ..v
+            }),
+        ),
+    ]
+}
+
+#[test]
+fn a_repeated_key_refuses_the_whole_declaration_set_on_both_paths() {
+    for owned in [false, true] {
+        for row in rows() {
+            // Repeated in one batch, in a later batch, and with others between.
+            assert_eq!(duplicates(&[&[row, row]], owned), Err(ERR_INVALID));
+            assert_eq!(duplicates(&[&[row], &[row]], owned), Err(ERR_INVALID));
+            assert_eq!(
+                duplicates(&[&[row], &[rows()[0]], &[row]], owned),
+                Err(ERR_INVALID),
+                "{row:?}"
+            );
+            // One of each on its own is fine.
+            assert_eq!(duplicates(&[&[row]], owned), Ok(()), "{row:?}");
+        }
+        assert_eq!(duplicates(&[&rows()[..4], &rows()[4..]], owned), Ok(()));
+    }
+}
+
+#[test]
+fn a_record_that_differs_in_one_key_field_is_no_duplicate() {
+    for owned in [false, true] {
+        for (base, near) in near_duplicates() {
+            assert_eq!(duplicates(&[&[base, near]], owned), Ok(()), "{near:?}");
+            assert_eq!(duplicates(&[&[base], &[near]], owned), Ok(()), "{near:?}");
+            // And both stay readable by their own full key.
+            let source = source(&[base, near]);
+            let mut store = DeclarationStore::default();
+            install(&mut store, "fixture", &source, owned).unwrap();
+            let mut allocations = Allocations::default();
+            let all = store.all_keys(&mut allocations).unwrap();
+            assert_eq!(all.len(), 2);
+            for key in all {
+                assert!(store.with_record(key, &mut |_| {}), "{near:?}");
+            }
+        }
+    }
+}
