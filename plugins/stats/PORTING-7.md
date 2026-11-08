@@ -19,9 +19,8 @@ events) is still in place. It is removed in the PR that finishes the port.
   row of one id (also with empty sections between) still merge as in interface 6; a
   section of an id read before that is ignored, so the first book of an id is the book
   (interface 6 kept it too, by sorting stably and dropping later copies).
-- Still infallible: `Value::as_str()` of `paperpaw-config` allocates for a quoted value with
-  escapes. Its `quoted` flag is private, so it cannot be redone here cheaply; it wants a
-  fallible variant in `paperpaw-config` (Kernel).
+- `Value::try_as_str()` (`paperpaw-config`) reads the values of `books.ini`: a quoted value with
+  escapes that cannot be allocated is `TooLarge`, not an abort.
 - Callers that read today's seconds (`read_today`) do not cache a failed read as 0.
 
 ## Ported: `extsort`, `merge`, `koreader` (fallible allocation)
@@ -38,11 +37,28 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Allocation-refusal sweeps (`merge/alloc_tests.rs`, a refusing global allocator in
   `testing.rs`): `extsort::sort` (two merge passes), `each`, `Records`, a merge of this
   device alone, `merge_books` and `take_names`.
-- **Still infallible** (a refusal aborts; swept around, not through): what `paperpaw-sqlite`
-  allocates while it reads or writes a database (`Value::Text`, `encode_record`,
-  `SchemaEntry`, `Database::table` column names; the rows are small and short-lived), and
-  `Md5::hex` (32 bytes) for a book without a usable MD5. Both need fallible variants in
-  their crates (Kernel).
+- `paperpaw-sqlite` and `Md5` are fallible now (todo 104, #383): `koreader::write` takes every
+  text, record and schema entry with `room::string` / `try_encode_record` (a refusal is
+  noted and the call that took the rows says `Error::OutOfMemory`), and `Key::of` and
+  `register_book` use `hex_into` / `partial_into` on the stack. Sweeps cover writing the other
+  app's database and a merge with its file (`merge/alloc_tests.rs`).
+- A merge writes the new log and the new `books.ini` beside the old ones first (`stage_log`,
+  `stage_books`) and then puts both in place with `commit_pair`: a marker file
+  (`merge.commit`) says that both are whole, then the two renames follow, the books first. A cut
+  between them leaves the marker and the log beside its place, and the next start (`recover`, and
+  `update_books`) finishes the rename; a cut before the marker leaves the old pair and the
+  staged files go as unfinished. A refusal or a full card while writing leaves the pair as it
+  was (the sweep found a refusal in `save_books` after the log was replaced; the cut test
+  `a_cut_between_the_renames_...` found that recovery took the staged books for unfinished).
+- A rename that *fails* (FAT removes the old file first, then fails) is treated like a cut: where
+  the old file is gone, or the log fails after the books, nothing staged is deleted and the
+  marker stays; the next start finishes both (`a_failed_rename_that_took_the_old_file_...`).
+  Where the first rename fails with the old books still there, the old pair stays and the staged
+  files go. While a pair cannot be finished (`finish_commit` fails again) `recover` leaves all
+  files alone and `update_books` fails (`Io`) rather than change the books over it; stays
+  recorded meanwhile go to the old log, which the roll-forward replaces (a narrow window that
+  only a failing card opens). Where the card cannot rename at all the books are written in place
+  as before.
 
 ## Ported: the native shell and the recording (slice 1)
 

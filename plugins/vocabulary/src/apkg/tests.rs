@@ -50,12 +50,12 @@ fn database(notes: &[String]) -> Vec<u8> {
 }
 
 /// The fields of a note as Anki joins them.
-fn note(fields: &[&str]) -> String {
+pub(crate) fn note(fields: &[&str]) -> String {
     fields.join("\x1f")
 }
 
 /// An export of Anki with `notes`, its database in `name`.
-fn deck_with(name: &str, notes: &[String]) -> Vec<u8> {
+pub(crate) fn deck_with(name: &str, notes: &[String]) -> Vec<u8> {
     ZipBuilder::new()
         .deflated(name, database(notes))
         .stored("media", b"{}".to_vec())
@@ -95,14 +95,14 @@ fn a_deck_is_written_as_plain_text_with_its_first_three_fields() {
         }
     );
     assert_eq!(
-        read(&storage, &text_path()),
+        read(&storage, text_path()),
         "#separator:tab\n\
          haus\tthe house big&old\tDas Haus.\n\
          tab here\t\"say \"\"hi\"\"\"\t\n\
          gato\tcat\t\n"
     );
     // The database is only there while it is read.
-    assert!(!storage.exists(&database_path()));
+    assert!(!storage.exists(DATABASE));
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn a_deck_on_the_card_makes_a_deck_like_a_text_file_and_is_not_read_again() {
     assert_eq!(fronts(&cards), ["casa", "gato"]);
     assert_eq!(cards[1].example, "El gato duerme.");
     // The scratch files are gone, and the deck is not read again.
-    assert!(!storage.exists(&text_path()) && !storage.exists(&database_path()));
+    assert!(!storage.exists(text_path()) && !storage.exists(DATABASE));
     assert!(run(&storage, false, true).is_empty());
     // The same deck with another note: that one is added, what is there stays.
     let more = [
@@ -332,7 +332,7 @@ fn a_note_over_the_cap_is_left_out_before_anything_of_it_is_copied() {
         }
     );
     assert_eq!(
-        read(&storage, &text_path()),
+        read(&storage, text_path()),
         "#separator:tab\none\tfirst\t\ntwo\tsee here\t\nthree\tlast\t\n"
     );
     // The job counts the note left out, and says so, as it does lines.
@@ -347,17 +347,17 @@ fn a_note_over_the_cap_is_left_out_before_anything_of_it_is_copied() {
 #[test]
 fn fields_are_cut_and_open_tags_and_data_addresses_cost_no_more() {
     let long = "é".repeat(5000);
-    let text = note_text(&long);
+    let text = note_text(&long).unwrap();
     assert!(text.len() <= table::MAX_FIELD && text.chars().all(|c| c == 'é'));
     // A tag that never closes, then more.
-    assert_eq!(note_text("a <b never closed and more"), "a");
+    assert_eq!(note_text("a <b never closed and more").unwrap(), "a");
     // A data address goes, whatever it is in; the word `data:` alone does not.
-    assert_eq!(note_text("x data:image/png;base64,AAAA y"), "x y");
+    assert_eq!(note_text("x data:image/png;base64,AAAA y").unwrap(), "x y");
     assert_eq!(
-        note_text("metadata: and data: here"),
+        note_text("metadata: and data: here").unwrap(),
         "metadata: and data: here"
     );
-    assert_eq!(note_text("[sound:a.mp3]word[sound:b"), "word");
+    assert_eq!(note_text("[sound:a.mp3]word[sound:b").unwrap(), "word");
     // Any cut falls on a character.
     for most in 0..8 {
         assert!("aé€😀".is_char_boundary(cut("aé€😀", most).len()));
@@ -412,17 +412,17 @@ fn a_database_over_the_cap_is_told_before_it_is_inflated() {
         convert(&storage, &alloc::format!("{FOLDER}/Large.apkg")),
         Err(Fault::TooLarge)
     );
-    assert!(!storage.exists(&database_path()) && !storage.exists(&text_path()));
+    assert!(!storage.exists(DATABASE) && !storage.exists(text_path()));
 }
 
 #[test]
 fn what_a_deck_left_behind_is_removed_when_a_job_starts() {
     let storage = MemoryStorage::new();
     // The power went while a deck was being read.
-    storage.write(&database_path(), b"half a database").unwrap();
-    storage.write(&text_path(), b"half a text").unwrap();
+    storage.write(DATABASE, b"half a database").unwrap();
+    storage.write(text_path(), b"half a text").unwrap();
     let _ = sync::Job::new(&storage, FOLDER, sync::Mode::Auto).unwrap();
-    assert!(!storage.exists(&database_path()) && !storage.exists(&text_path()));
+    assert!(!storage.exists(DATABASE) && !storage.exists(text_path()));
 }
 
 #[test]
@@ -462,7 +462,7 @@ fn notes_of(storage: &MemoryStorage) -> Result<Notes, Fault> {
 }
 
 fn fronts_of_text(storage: &MemoryStorage) -> Vec<String> {
-    read(storage, &text_path())
+    read(storage, text_path())
         .lines()
         .skip(1)
         .map(|l| l.split('\t').next().unwrap_or("").to_string())
