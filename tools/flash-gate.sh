@@ -19,7 +19,11 @@
 #
 # Both builds remap the work directory, the cargo home
 # (`--remap-path-prefix`, through `--config`, which adds to the flags of
-# `.cargo/config.toml`), so that the path of --work no longer changes sizes.
+# `.cargo/config.toml`), so that the strings of the paths are the same. That is
+# not enough for equal sizes: the compiler's crate hashes (and so the layout)
+# still depend on the path. The same --work gives the same result to within
+# about 10 bytes (measured twice, #4382); another --work, even with the same
+# remaps, moved the total by up to 12 KB. Compare only runs with the same --work.
 #
 # Defaults: head HEAD with features `x4,ppn5` (as the finished firmware
 # ships); base `v0.6.0-beta.3` with `x4`. Each tree builds with its own
