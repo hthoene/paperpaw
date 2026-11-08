@@ -280,8 +280,7 @@ pub fn install_with(
     let builder = b
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin)
-        .plugin(paperpaw_plugin_plugin_manager::PluginManager);
+        .plugin(paperpaw_plugin_settings::SettingsPlugin);
     builder
         .plugin(paperpaw_plugin_update::Update)
         .plugin(paperpaw_plugin_about::About)

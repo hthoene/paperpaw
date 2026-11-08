@@ -4,8 +4,52 @@
 //! here stands in for a service.
 use paperpaw_core::native_host::{HostResources, shell};
 use paperpaw_native::host_glue::Services;
-use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
+use paperpaw_native::metadata::{self, Feature, Host as AdmissionHost, Profile, Service};
 use std::alloc::Layout;
+
+/// The consent features the host offers; a plugin's metadata may require any.
+const FEATURES: &[Feature<'static>] = &[
+    Feature {
+        key: "uses.registry",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.library",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.network",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.wifi",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.power",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.install",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.firmware",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.bluetooth",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.storage",
+        revision: 1,
+    },
+    Feature {
+        key: "uses.secrets",
+        revision: 1,
+    },
+];
 
 struct Heap;
 impl Services for Heap {
@@ -61,7 +105,7 @@ pub fn try_construct(
             entry_bytes: 32,
         },
         services: &services,
-        features: &[],
+        features: FEATURES,
     };
     let checked = metadata::check(metadata_bytes, &host).expect("metadata admitted");
     let declared = shell::DeclaredServices::try_from_iter(checked.services()).unwrap();
