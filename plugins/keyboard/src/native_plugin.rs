@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceCapability},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         formatting::Arg,
         registrations,
@@ -28,9 +28,10 @@ use paperpaw_sdk::{
         },
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, Style, geometry,
-    mem::{SERVICE_BUFFER, buffer, push},
+    mem::{SERVICE_BUFFER, buffer, push, wipe_text},
     paint,
     style::setting_text,
     text::copy,
@@ -83,21 +84,9 @@ impl Dialog {
     fn wipe(&mut self) {
         let text = core::mem::take(&mut self.board.text);
         if self.board.asked.secret {
-            let mut bytes = text.into_bytes();
-            wipe_bytes(&mut bytes);
+            wipe_text(text);
         }
     }
-}
-
-/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead
-/// store before the memory is freed.
-fn wipe_bytes(bytes: &mut [u8]) {
-    for byte in bytes.iter_mut() {
-        // SAFETY: each byte is live and exclusively borrowed; the volatile
-        // store keeps the wipe when the allocation is freed right after.
-        unsafe { core::ptr::write_volatile(byte, 0) };
-    }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Choosing the layouts.
@@ -146,10 +135,14 @@ impl Plugin for NativeKeyboard {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,

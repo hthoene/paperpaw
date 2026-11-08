@@ -27,6 +27,7 @@ dependencies = [
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -63,6 +64,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -135,12 +137,17 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
+ "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
  "paperpaw-zip",
 ]
+
+[[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-table"
@@ -153,6 +160,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 

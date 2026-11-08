@@ -1,5 +1,7 @@
 //! Query-only UI rows, and callback-scoped clipboard text.
-use super::{Error, Host, Instance, TextPart, TextWrite, Ui, UiCursor, UiPage, schema, wire};
+use super::{
+    Error, Host, Instance, TextPart, TextWrite, Ui, UiCursor, UiPage, expect, schema, wire,
+};
 
 /// One visible screen instance, ordered from the stack's top down.
 #[derive(Clone, Copy, Debug)]
@@ -56,10 +58,8 @@ impl<'a> UiScreen<'a> {
     pub const fn is_secret(self) -> bool {
         self.flags & 16 != 0
     }
-    fn decode(record: wire::Record<'a>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiScreen(row) = record else {
-            return Err(Error::State);
-        };
+    fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceUiScreen<'_> = expect(record)?;
         Ok(Self {
             screen: row.screen,
             instance: Instance::new(row.instance).ok_or(Error::Invalid)?,
@@ -111,10 +111,8 @@ impl<'a> UiHint<'a> {
     pub const fn owner(self) -> &'a str {
         self.owner
     }
-    fn decode(record: wire::Record<'a>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiHint(row) = record else {
-            return Err(Error::State);
-        };
+    fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceUiHint<'_> = expect(record)?;
         if row.x.checked_add(row.width).is_none_or(|end| end > 1000)
             || row.y.checked_add(row.height).is_none_or(|end| end > 1000)
         {
@@ -235,17 +233,17 @@ impl Ui {
         cursor: UiCursor,
         input: &mut [u8],
         out: &'a mut [u8],
-        decode: fn(wire::Record<'a>) -> Result<T, Error>,
+        decode: fn(wire::RawRecord<'a>) -> Result<T, Error>,
     ) -> Result<UiPage<'a, T>, Error> {
         let count = self.call(
             host,
             op,
-            &[wire::Record::ServiceRegQuery(wire::ServiceRegQuery {
+            &[&wire::ServiceRegQuery {
                 scope,
                 cursor: cursor.offset,
                 generation: cursor.generation,
                 flags: 0,
-            })],
+            }],
             input,
             out,
         )?;

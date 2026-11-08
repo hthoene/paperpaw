@@ -25,6 +25,8 @@ mod hot;
 pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
+#[cfg(all(feature = "static-native", feature = "esp32c3"))]
+pub(crate) use ppn5::register_linked_probe;
 #[cfg(feature = "esp32s3")]
 mod psram;
 
@@ -214,6 +216,12 @@ pub fn attribute(pc: u32, found: &mut dyn FnMut(&str, u32)) {
 pub type Place = psram::Psram;
 #[cfg(feature = "esp32c3")]
 pub type Place = flash::Flash;
+
+/// A format-5 plugin's image as the place put it.
+#[cfg(all(feature = "ppn5", feature = "esp32s3"))]
+pub type Placed5 = psram::Placed5;
+#[cfg(all(feature = "ppn5", feature = "esp32c3"))]
+pub type Placed5 = flash::Placed5;
 
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {

@@ -108,7 +108,8 @@
     }
   ],
   "services": [
-    "core.registry"
+    "core.registry",
+    "core.ui"
   ],
   "features": []
 }

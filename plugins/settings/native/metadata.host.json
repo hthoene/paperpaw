@@ -137,11 +137,16 @@
   ],
   "services": [
     "core.registry",
+    "core.secrets",
     "core.ui"
   ],
   "features": [
     {
       "key": "uses.power",
+      "required": false
+    },
+    {
+      "key": "uses.secrets",
       "required": false
     }
   ]

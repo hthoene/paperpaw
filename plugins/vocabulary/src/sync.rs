@@ -186,7 +186,7 @@ pub(crate) fn files(
     if refused {
         return Err(StorageError::TooLarge);
     }
-    found.sort_unstable_by(|a, b| {
+    paperpaw_sdk::sort::sort_by(&mut found, |a, b| {
         lines::folded(&a.name)
             .cmp(lines::folded(&b.name))
             .then_with(|| a.name.cmp(&b.name))
@@ -991,7 +991,7 @@ impl Job {
         // Notes left out as too long count as lines left out: the cards
         // they may have made are not removed for lacking.
         work.report.skipped += notes.skipped;
-        work.path = apkg::text_path();
+        work.path = copy(apkg::text_path())?;
         work.text_size = storage.size(&work.path)?;
         work.stage = Stage::Hash;
         Ok(())

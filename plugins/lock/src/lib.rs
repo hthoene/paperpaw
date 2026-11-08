@@ -29,8 +29,29 @@
 extern crate alloc;
 
 mod code;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
+mod native_entry;
+#[doc(hidden)]
+pub mod native_flow;
+#[doc(hidden)]
+pub mod native_model;
+#[doc(hidden)]
+pub mod native_pad;
+/// The interface-7 screen lock (slice 1; see `PORTING-7.md`).
+pub mod native_plugin;
 mod screen;
 pub mod touch;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
+#[cfg(test)]
+mod native_parity_tests;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

@@ -32,6 +32,18 @@ pub struct StageSchema {
 /// Every host-defined stage schema, sorted by key and major.
 pub static STAGES: &[StageSchema] = &[
     StageSchema {
+        key: core_book_badge_v1::KEY,
+        major: core_book_badge_v1::MAJOR,
+        revision: core_book_badge_v1::REVISION,
+        test_only: core_book_badge_v1::TEST_ONLY,
+        max_subscribers: core_book_badge_v1::MAX_SUBSCRIBERS,
+        max_input: core_book_badge_v1::MAX_INPUT,
+        max_reply: core_book_badge_v1::MAX_REPLY,
+        reply_rows: core_book_badge_v1::REPLY_ROWS,
+        input_tags: core_book_badge_v1::INPUT_TAGS,
+        reply_tags: core_book_badge_v1::REPLY_TAGS,
+    },
+    StageSchema {
         key: core_format_v1::KEY,
         major: core_format_v1::MAJOR,
         revision: core_format_v1::REVISION,
@@ -92,6 +104,490 @@ pub static STAGES: &[StageSchema] = &[
         reply_tags: core_widget_v1::REPLY_TAGS,
     },
 ];
+
+/// Local records of `core.book-badge` major 1.
+pub mod core_book_badge_v1 {
+    /// Schema key.
+    pub const KEY: &str = "core.book-badge";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 32;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 3840;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 3840;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 16;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[2];
+    struct Reader<'a> {
+        remaining: &'a [u8],
+    }
+
+    impl<'a> Reader<'a> {
+        fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+            if len > self.remaining.len() {
+                return Err(-2);
+            }
+            let (value, rest) = self.remaining.split_at(len);
+            self.remaining = rest;
+            Ok(value)
+        }
+
+        fn varint(&mut self) -> Result<u32, i32> {
+            let mut value = 0_u32;
+            for index in 0..5 {
+                let byte = self.take(1)?[0];
+                if index == 4 && byte > 0x0f {
+                    return Err(-2);
+                }
+                value |= u32::from(byte & 0x7f) << (index * 7);
+                if byte & 0x80 == 0 {
+                    if index > 0 && byte == 0 {
+                        return Err(-2);
+                    }
+                    return Ok(value);
+                }
+            }
+            Err(-2)
+        }
+
+        fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+            let mut value = [0; N];
+            value.copy_from_slice(self.take(N)?);
+            Ok(value)
+        }
+
+        fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+            let tag = self.varint()?;
+            let len = self.varint()? as usize;
+            let body = Reader {
+                remaining: self.take(len)?,
+            };
+            Ok((tag, body))
+        }
+
+        fn bitmap(&mut self) -> Result<(), i32> {
+            let len = self.varint()? as usize;
+            // Unknown optional bits and fields are skipped using the record length.
+            self.take(len)?;
+            Ok(())
+        }
+
+        fn finish(self) -> Result<(), i32> {
+            if self.remaining.is_empty() {
+                Ok(())
+            } else {
+                Err(-2)
+            }
+        }
+    }
+
+    fn varint_len(mut value: u32) -> usize {
+        let mut len = 1;
+        while value >= 0x80 {
+            len += 1;
+            value >>= 7;
+        }
+        len
+    }
+
+    fn record_len(tag: u32, fields: u32) -> usize {
+        let body_len = fields + 1; // The initial bitmap is empty.
+        varint_len(tag) + varint_len(body_len) + body_len as usize
+    }
+
+    fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+            *offset += 1;
+            if value == 0 {
+                return;
+            }
+        }
+    }
+
+    fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+        *offset += bytes.len();
+    }
+
+    fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+        write_varint(tag, out, offset);
+        write_varint(fields + 1, out, offset);
+        write_varint(0, out, offset);
+    }
+
+    /// Wire tag of the `badge.ask` record.
+    pub const BADGE_ASK_TAG: u32 = 1;
+    /// Maximum bytes of `badge.ask.badge`.
+    pub const BADGE_ASK_BADGE_MAX_BYTES: usize = 96;
+    /// Maximum bytes of `badge.ask.keys`.
+    pub const BADGE_ASK_KEYS_MAX_BYTES: usize = 271;
+    /// Separator of the list in `badge.ask.keys`.
+    pub const BADGE_ASK_KEYS_SEPARATOR: char = '\n';
+    /// Most items in `badge.ask.keys`.
+    pub const BADGE_ASK_KEYS_MAX_ITEMS: usize = 16;
+    /// Longest item of `badge.ask.keys` in bytes.
+    pub const BADGE_ASK_KEYS_ITEM_MAX_BYTES: usize = 16;
+
+    /// The `badge.ask` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct BadgeAsk<'a> {
+        /// UTF-8 text of at most 96 bytes.
+        pub badge: &'a str,
+        /// UTF-8 text of at most 271 bytes.
+        pub keys: &'a str,
+    }
+
+    impl<'a> BadgeAsk<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::BadgeAsk(Self {
+                badge: body.string(BADGE_ASK_BADGE_MAX_BYTES)?,
+                keys: body.string(BADGE_ASK_KEYS_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.badge.len(), BADGE_ASK_BADGE_MAX_BYTES)?;
+            len += blob_len(self.keys.len(), BADGE_ASK_KEYS_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.badge.as_bytes(), out, offset);
+            write_blob(self.keys.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> BadgeAsk<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(badge: &'a str, keys: &'a str) -> Self {
+            Self { badge, keys }
+        }
+    }
+    /// Wire tag of the `badge.value` record.
+    pub const BADGE_VALUE_TAG: u32 = 2;
+    /// Maximum bytes of `badge.value.key`.
+    pub const BADGE_VALUE_KEY_MAX_BYTES: usize = 16;
+    /// Maximum bytes of `badge.value.text`.
+    pub const BADGE_VALUE_TEXT_MAX_BYTES: usize = 16;
+    /// Maximum bytes of `badge.value.icon`.
+    pub const BADGE_VALUE_ICON_MAX_BYTES: usize = 64;
+
+    /// The `badge.value` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct BadgeValue<'a> {
+        /// UTF-8 text of at most 16 bytes.
+        pub key: &'a str,
+        /// UTF-8 text of at most 16 bytes.
+        pub text: &'a str,
+        /// UTF-8 text of at most 64 bytes.
+        pub icon: &'a str,
+    }
+
+    impl<'a> BadgeValue<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::BadgeValue(Self {
+                key: body.string(BADGE_VALUE_KEY_MAX_BYTES)?,
+                text: body.string(BADGE_VALUE_TEXT_MAX_BYTES)?,
+                icon: body.string(BADGE_VALUE_ICON_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.key.len(), BADGE_VALUE_KEY_MAX_BYTES)?;
+            len += blob_len(self.text.len(), BADGE_VALUE_TEXT_MAX_BYTES)?;
+            len += blob_len(self.icon.len(), BADGE_VALUE_ICON_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.key.as_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+            write_blob(self.icon.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> BadgeValue<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(key: &'a str, text: &'a str, icon: &'a str) -> Self {
+            Self { key, text, icon }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `badge.ask` record.
+        BadgeAsk(BadgeAsk<'a>),
+        /// A `badge.value` record.
+        BadgeValue(BadgeValue<'a>),
+    }
+    impl<'a> Reader<'a> {
+        fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+            let len = self.varint()? as usize;
+            if len > cap {
+                return Err(-2);
+            }
+            self.take(len)
+        }
+        fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+            core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+        }
+    }
+    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+        if len > cap {
+            return Err(-2);
+        }
+        Ok(varint_len(len as u32) + len)
+    }
+    fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        write_varint(bytes.len() as u32, out, offset);
+        write_bytes(bytes, out, offset);
+    }
+    fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+        let mut count = 0;
+        for item in value.split(separator) {
+            count += 1;
+            if item.is_empty() || item.len() > item_max || count > max_items {
+                return false;
+            }
+        }
+        true
+    }
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            match self {
+                Record::BadgeAsk(_) => BADGE_ASK_TAG,
+                Record::BadgeValue(_) => BADGE_VALUE_TAG,
+            }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            match self {
+                Record::BadgeAsk(r) => r.body_len(),
+                Record::BadgeValue(r) => r.body_len(),
+            }
+        }
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            match self {
+                Record::BadgeAsk(r) => r.write(out, offset),
+                Record::BadgeValue(r) => r.write(out, offset),
+            }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                Record::BadgeAsk(r) => {
+                    if !valid_list(r.keys, '\n', 16, 16) {
+                        return Err(-2);
+                    }
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let record = match tag {
+            BADGE_ASK_TAG => BadgeAsk::decode_body(body)?,
+            BADGE_VALUE_TAG => BadgeValue::decode_body(body)?,
+            _ => return Err(-2),
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    impl<'a> BadgeAsk<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = BADGE_ASK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::BadgeAsk(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::BadgeAsk(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> BadgeValue<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = BADGE_VALUE_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::BadgeValue(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::BadgeValue(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
 
 /// Local records of `core.format` major 1.
 pub mod core_format_v1 {

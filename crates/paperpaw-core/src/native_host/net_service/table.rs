@@ -1,13 +1,14 @@
 //! The request table of `core.net`: ids, tokens, the queue, the pool, the
 //! held answers and the routing of events 99 and 100.
 use super::super::host_services::Caller;
-use super::super::net_pool::NetPool;
+use super::super::net_pool::{DEMAND_NET, NetPool};
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
     args, gate, reason, serving,
     wire::{self, Record},
 };
+use crate::native_host::codec;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{RefCell, RefMut};
 use paperpaw_native::host_glue::{
@@ -225,7 +226,10 @@ impl Inner {
         let active = self.reqs.iter().any(Self::live) || self.serving.any();
         if active != self.demand {
             self.demand = active;
-            host.network_demand(active);
+            // The shell hears the OR of NET and SOCK, once per change.
+            if let Some(wanted) = host.table().pool().demand(DEMAND_NET, active) {
+                host.network_demand(wanted);
+            }
         }
     }
 
@@ -819,7 +823,7 @@ fn encode_done(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, i32>
         flags: done.flags,
         body_len: done.body.len() as u32,
     });
-    let used = wire::record_encode_one(&record, out)?;
+    let used = codec::encode_one(&record, out)?;
     r.state = State::Held;
     Ok(used)
 }
@@ -836,7 +840,7 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
         total: p.total,
         flags: p.flags,
     });
-    let used = wire::record_encode_one(&record, out)?;
+    let used = codec::encode_one(&record, out)?;
     r.pending = None;
     Ok(used)
 }

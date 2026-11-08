@@ -87,8 +87,9 @@ const ANSWERS: &str = ".paperpaw/plugins/vocabulary/cards/answers.txt";
 const LOOKUPS: &str = ".paperpaw/plugins/vocabulary/cards/looked-up.txt";
 const ADDING: &str = ".paperpaw/plugins/vocabulary/cards/adding.txt";
 
-/// The file `name` of the cards' folder. For the modules of the plugin
-/// not ported yet; the ported ones use the constants and [`deck_path`].
+/// The file `name` of the cards' folder, for the tests; the plugin uses the
+/// constants and [`deck_path`].
+#[cfg(test)]
 pub(crate) fn path(name: &str) -> String {
     alloc::format!("{DIR}/{name}")
 }
@@ -125,10 +126,22 @@ fn recover_whole(storage: &dyn Storage, file: &str, part: &str) {
     if !storage.exists(part) {
         return;
     }
-    if storage.exists(file) {
-        let _ = storage.remove(part);
-    } else {
-        let _ = storage.rename(part, file);
+    put_right(storage, file, part);
+}
+
+/// The unfinished `part` goes where `file` is gone (not found), and goes
+/// where `file` is whole. Where the file cannot be told (a read error
+/// that may pass) the part is kept: it never replaces a deck that is
+/// there.
+fn put_right(storage: &dyn Storage, file: &str, part: &str) {
+    match storage.size(file) {
+        Err(StorageError::NotFound) => {
+            let _ = storage.rename(part, file);
+        }
+        Ok(_) => {
+            let _ = storage.remove(part);
+        }
+        Err(_) => {}
     }
 }
 
@@ -1029,11 +1042,7 @@ pub(crate) fn recover(storage: &dyn Storage) {
         if !storage.exists(&temporary) {
             continue;
         }
-        if storage.exists(&file) {
-            let _ = storage.remove(&temporary);
-        } else {
-            let _ = storage.rename(&temporary, &file);
-        }
+        put_right(storage, &file, &temporary);
     }
     // Cards added while the power went: counted into the index anew.
     let mut which = [0u8; 32];

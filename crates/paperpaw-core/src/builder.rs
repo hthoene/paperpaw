@@ -616,6 +616,7 @@ impl BuilderParts {
                 translator,
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
@@ -952,171 +953,25 @@ impl Kernel {
     /// a plugin speaks.
     pub(crate) fn offer_choices(&mut self) {
         self.add_plugin_choices();
-        let mut presets: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(keymap_presets::STANDARD_NAME)];
-        presets.extend(
-            self.keys
-                .presets
-                .iter()
-                .map(|(id, _)| Cow::Owned(id.as_str().to_string())),
+        let presets = crate::font_refresh::choice_list(
+            &[keymap_presets::STANDARD_NAME],
+            self.keys.presets.iter().map(|(id, _)| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::KEYMAP_PRESET.as_str(), presets);
-        let mut families: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::DEFAULT_FONT)];
-        families.extend(
-            self.shared
-                .fonts
-                .families()
-                .into_iter()
-                .map(|f| Cow::Owned(f.to_string())),
+        self.offer_list(core_settings::KEYMAP_PRESET.as_str(), presets);
+        self.offer_font_choices();
+        let frames = crate::font_refresh::choice_list(
+            &[core_settings::PAGE_FRAME_SINGLE],
+            self.shared.page_layers.frames().map(|id| id.as_str()),
         );
-        let mut status: Vec<Cow<'static, str>> = alloc::vec![
-            Cow::Borrowed(core_settings::STATUS_FONT_UI),
-            Cow::Borrowed(core_settings::STATUS_FONT_BOOK),
-        ];
-        status.extend(families.iter().skip(1).cloned());
-        self.shared
-            .settings
-            .set_choices(core_settings::READING_FONT.as_str(), families);
-        self.shared
-            .settings
-            .set_choices(core_settings::STATUS_FONT.as_str(), status);
-        let mut frames: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::PAGE_FRAME_SINGLE)];
-        frames.extend(
-            self.shared
-                .page_layers
-                .frames()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
+        self.offer_list(core_settings::PAGE_FRAME.as_str(), frames);
+        let voices = crate::font_refresh::choice_list(
+            &[core_settings::VOICE_SYSTEM],
+            self.shared.voices.ids().map(|id| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::PAGE_FRAME.as_str(), frames);
-        let mut voices: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::VOICE_SYSTEM)];
-        voices.extend(
-            self.shared
-                .voices
-                .ids()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
-        );
-        self.shared
-            .settings
-            .set_choices(core_settings::VOICE.as_str(), voices);
+        self.offer_list(core_settings::VOICE.as_str(), voices);
         self.offer_reading_apps();
         self.shared.caps.speech = self.io.speech.system || !self.shared.voices.is_empty();
         self.shared.menus.set_capabilities(self.shared.caps);
-    }
-
-    /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
-    pub(crate) fn add_plugin_choices(&mut self) {
-        for (plugin, id, value) in mem::take(&mut self.plugin_choices) {
-            let refused = match self.shared.settings.spec(id.as_str()) {
-                None => Some("no such setting"),
-                Some(spec) if spec.guarded => Some("it keeps the device safe"),
-                Some(spec) => match &spec.kind {
-                    paperpaw_sdk::SettingKind::Choice(choices) if choices.contains(&value) => {
-                        Some("it has that choice already")
-                    }
-                    paperpaw_sdk::SettingKind::Choice(_)
-                        if Id::parse(&value).is_ok_and(|v| v.namespace() == plugin.as_str()) =>
-                    {
-                        None
-                    }
-                    paperpaw_sdk::SettingKind::Choice(_) => {
-                        Some("the value is not in the plugin's namespace")
-                    }
-                    _ => Some("it is no choice"),
-                },
-            };
-            if let Some(why) = refused {
-                self.warn(
-                    WarningSource::Plugin(plugin),
-                    None,
-                    format!("choice `{value}` for `{id}`: {why}; not added"),
-                );
-                continue;
-            }
-            let Some(paperpaw_sdk::SettingKind::Choice(choices)) =
-                self.shared.settings.spec(id.as_str()).map(|s| &s.kind)
-            else {
-                continue;
-            };
-            let mut values: Vec<Cow<'static, str>> =
-                choices.iter().map(|v| Cow::Owned(v.to_string())).collect();
-            values.push(value);
-            self.shared.settings.set_choices(id.as_str(), values);
-        }
-    }
-
-    /// The reading apps to choose: the default one, and one for each
-    /// format (a setting each, in the reading settings' part for them),
-    /// each offering the readers that read its books. Where only one
-    /// does, there is nothing to choose and the setting is not listed.
-    fn offer_reading_apps(&mut self) {
-        let readers: Vec<Cow<'static, str>> = self
-            .shared
-            .readers
-            .iter()
-            .map(|r| Cow::Owned(r.id.as_str().to_string()))
-            .collect();
-        let mut all = alloc::vec![Cow::Borrowed(core_settings::READING_APP_DEFAULT)];
-        if readers.len() > 1 {
-            all.extend(readers);
-        }
-        self.shared
-            .settings
-            .set_choices(core_settings::READING_APP.as_str(), all);
-        let formats: Vec<(Id, Cow<'static, str>)> = self
-            .shared
-            .formats
-            .iter()
-            .map(|f| (f.id.clone(), f.title.clone()))
-            .collect();
-        for (format, title) in formats {
-            let mut choices = alloc::vec![Cow::Borrowed(core_settings::READING_APP_DEFAULT)];
-            let reading: Vec<Cow<'static, str>> = self
-                .shared
-                .readers
-                .reading(Some(&format))
-                .map(|r| Cow::Owned(r.id.as_str().to_string()))
-                .collect();
-            let several = reading.len() > 1;
-            if several {
-                choices.extend(reading);
-            }
-            let id = paperpaw_sdk::readers::format_setting(&format);
-            if self.shared.settings.spec(&id).is_some() {
-                self.shared.settings.set_choices(&id, choices);
-                continue;
-            }
-            // Nothing to choose where one reader reads it: no setting
-            // (memory on small devices), until another comes.
-            if !several {
-                continue;
-            }
-            let Ok(setting) = Id::parse(&id) else {
-                continue;
-            };
-            /// The reading apps' part, keeping apps not installed now.
-            static READING_APPS: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-                .section("core.section.reading-apps")
-                .keeps_unknown();
-            let mut spec = paperpaw_sdk::SettingSpec::new(
-                setting,
-                "",
-                paperpaw_sdk::SettingKind::Choice(choices.into()),
-                paperpaw_sdk::SettingValue::Text(Cow::Borrowed(core_settings::READING_APP_DEFAULT)),
-                paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
-            )
-            .description("core.setting.reading-app.format.help")
-            .with_extra(&READING_APPS);
-            spec.title = paperpaw_sdk::Str::new(title);
-            let _ = self.shared.settings.define(spec);
-        }
     }
 
     /// The device's defaults, then the plugins' (e.g. themes), which win:

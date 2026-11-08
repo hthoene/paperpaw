@@ -190,7 +190,7 @@ fn books(env: &Env<'_>, all: bool) -> Vec<String> {
             hashes.push(hash);
         }
     });
-    hashes.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut hashes);
     each_book(env, &mut |record| {
         if books.len() < MAX_BOOKS
             && hashes.binary_search(&path_hash(&record.path)).is_ok()
