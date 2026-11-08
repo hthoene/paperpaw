@@ -118,44 +118,42 @@ impl Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_by(&mut self, id: &str, text: &str, by: Id) -> Result<(), SettingError> {
         let was = self.specs.get(id).map(|spec| spec.default.clone());
-        // Room for the layer first: a refusal changes nothing.
-        let foreign = self
-            .specs
-            .get(id)
-            .is_some_and(|spec| spec.id.namespace() != by.as_str());
+        let spec = self.specs.get(id).ok_or(SettingError::Unknown)?;
+        let value = spec.parse(text).ok_or(SettingError::InvalidValue)?;
+        let foreign = spec.id.namespace() != by.as_str();
+        // All room first, so that a refusal changes nothing. Exactly what is
+        // needed: a plain reserve would take four places on the X4.
+        let mut first = None;
         if foreign {
-            let layers = self.defaults_by.get_mut(id).map(|set| &mut set.layers);
-            // The same plugin again takes its own layer's place: no room.
-            if let Some(layers) = layers
-                && !layers.iter().any(|layer| layer.by == by)
-            {
-                // Exactly one: a plain reserve would take four on the X4.
-                layers
+            match self.defaults_by.get_mut(id) {
+                // The same plugin again takes its own layer's place.
+                Some(set) if set.layers.iter().any(|layer| layer.by == by) => {}
+                Some(set) => set
+                    .layers
                     .try_reserve_exact(1)
-                    .map_err(|_| SettingError::Full)?;
+                    .map_err(|_| SettingError::Full)?,
+                None => {
+                    self.defaults_by
+                        .try_reserve_exact(1)
+                        .map_err(|_| SettingError::Full)?;
+                    let mut layers = alloc::vec::Vec::new();
+                    layers
+                        .try_reserve_exact(1)
+                        .map_err(|_| SettingError::Full)?;
+                    first = Some(layers);
+                }
             }
         }
-        let value = self
-            .specs
-            .get(id)
-            .and_then(|spec| spec.parse(text))
-            .ok_or(SettingError::InvalidValue)?;
         self.set_default_from_text(id, text)?;
         let setting = self.specs.get_mut(id)?.id.clone();
-        if setting.namespace() == by.as_str() {
+        if !foreign {
             // A plugin's own settings: their own default, nothing to tell.
             self.defaults_by.remove(&setting);
         } else if let Some(set) = self.defaults_by.get_mut(&setting) {
             // The same plugin again: its layer moves to the top.
             set.layers.retain(|layer| layer.by != by);
             set.layers.push(Layer { by, value });
-        } else if let Some(was) = was {
-            let mut layers = alloc::vec::Vec::new();
-            if layers.try_reserve_exact(1).is_err() {
-                // Put the default back: nothing changed.
-                self.specs.get_mut(id)?.default = was;
-                return Err(SettingError::Full);
-            }
+        } else if let (Some(was), Some(mut layers)) = (was, first) {
             layers.push(Layer { by, value });
             self.defaults_by.insert(setting, DefaultBy { was, layers });
         }
