@@ -754,6 +754,16 @@ impl core::ops::Deref for SettingGroup {
     }
 }
 
+impl SettingGroup {
+    /// A group made at run time, from a spec the caller boxed (and so could
+    /// allocate fallibly).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn from_boxed(group: Box<SettingGroupSpec>) -> Self {
+        Self(GroupAt::Owned(group))
+    }
+}
+
 impl From<&'static SettingGroupSpec> for SettingGroup {
     fn from(group: &'static SettingGroupSpec) -> Self {
         Self(GroupAt::Fixed(group))
@@ -843,7 +853,15 @@ pub struct Settings {
     presets: crate::presets::Presets,
     /// The plugins whose defaults are in force, by setting (see
     /// [`Settings::default_from`]).
-    defaults_by: VecMap<Id, Id>,
+    defaults_by: VecMap<Id, DefaultBy>,
+}
+
+/// A default one plugin set on another's setting, with the default it
+/// replaced, which comes back when that plugin goes.
+#[derive(Debug)]
+struct DefaultBy {
+    by: Id,
+    was: SettingValue,
 }
 
 impl Settings {
@@ -1038,16 +1056,51 @@ impl Settings {
         }
     }
 
+    /// Makes room for `specs` more settings and `groups` more groups, so that
+    /// defining them cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room (some may be kept).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        specs: usize,
+        groups: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(specs)?;
+        self.groups.try_reserve(groups)
+    }
+
     /// Forgets the settings and groups of `plugin` (ids `<plugin>.…`) and the
     /// defaults it set, e.g. when a plugin unloads. The values the reader
     /// chose stay in their store, for the plugin's next load.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn remove_plugin(&mut self, plugin: &str) {
+        // The defaults the plugin set on the settings of others go back to
+        // what they were (those of its own settings go with them).
+        for (setting, set) in self.defaults_by.iter() {
+            if set.by.namespace() == plugin
+                && setting.namespace() != plugin
+                && let Ok(spec) = self.specs.get_mut(setting.as_str())
+                && spec.kind.accepts(&set.was)
+            {
+                spec.default = set.was.clone();
+            }
+        }
         self.specs.remove_plugin(plugin);
         self.groups.retain(|group| group.id.namespace() != plugin);
         self.defaults_by
-            .retain(|setting, owner| setting.namespace() != plugin && owner.namespace() != plugin);
+            .retain(|setting, set| setting.namespace() != plugin && set.by.namespace() != plugin);
+    }
+
+    /// Whether `specs` more settings still find a place (a made setting
+    /// takes one; so does a fixed one changed after it was set up).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn has_room_for(&self, specs: usize) -> bool {
+        self.specs.has_room_for(specs)
     }
 
     /// Registers a setting. Its default must be valid.
@@ -1266,7 +1319,7 @@ impl Settings {
     /// the default is the setting's own or the device's. The default only:
     /// the reader's own value may be set over it ([`Settings::is_set`]).
     pub fn default_from(&self, id: &str) -> Option<&Id> {
-        self.defaults_by.get(id)
+        self.defaults_by.get(id).map(|set| &set.by)
     }
 
     paperpaw_table::shared! {

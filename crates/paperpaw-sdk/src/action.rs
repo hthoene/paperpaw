@@ -442,6 +442,20 @@ impl Actions {
         }
     }
 
+    /// Makes room for `additional` more actions, so that inserting them
+    /// cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room; nothing changed.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(additional)
+    }
+
     /// Removes every action of `plugin` (those whose id it is the namespace
     /// of) and the handlers it put in place of others'.
     #[cfg(any(test, feature = "kernel"))]
@@ -584,5 +598,24 @@ impl Actions {
         self.specs.shrink_to_fit();
         self.fixed.shrink_to_fit();
         self.overrides.shrink_to_fit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plugins_actions_go_with_it_and_room_can_be_made_first() {
+        let mut actions = Actions::new();
+        actions.try_reserve(3).unwrap();
+        for id in ["gone.one", "keep.one", "gone.two"] {
+            actions.insert(ActionSpec::new(Id::new_static(id), id));
+        }
+        actions.remove_plugin("gone");
+        assert!(actions.contains("keep.one"));
+        assert!(!actions.contains("gone.one"));
+        assert!(!actions.contains("gone.two"));
+        assert_eq!(actions.iter().count(), 1);
     }
 }
