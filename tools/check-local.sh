@@ -29,14 +29,22 @@
 #   --base REV        base for finding the changed packages
 #   --jobs N          cargo -j (default 4)
 #
-# Run it from inside the worktree to check (a copy of the script elsewhere
-# works too), with CARGO_TARGET_DIR of that worktree.
+# Run the tools/check-local.sh of the worktree to check, from inside it, with
+# CARGO_TARGET_DIR of that worktree. A copy elsewhere is refused (exit 2).
 set -uo pipefail
 
-# The worktree it is run in (so a copy of this file anywhere works), else the
-# one it lives in.
+# Only the script of the tree it checks counts: a copy elsewhere (or an empty
+# one) can be stale or "pass" without checking anything. Exit 2 if this file is
+# not tools/check-local.sh of the worktree it is run in.
 root="$(git rev-parse --show-toplevel 2> /dev/null)" \
-    || root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    || { echo "check-local: not inside a git worktree" >&2; exit 2; }
+root="$(cd "$root" && pwd -P)" || exit 2
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+if [[ "$self" != "$root/tools/check-local.sh" ]]; then
+    echo "check-local: this is '$self', not tools/check-local.sh of the worktree '$root'." >&2
+    echo "check-local: merge origin/abi7/integration and run the in-tree script; delete copies." >&2
+    exit 2
+fi
 cd "$root" || exit 2
 
 features=""
