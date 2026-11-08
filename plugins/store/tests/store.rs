@@ -21,6 +21,23 @@ use paperpaw_sdk::{Id, Instant, Params, Storage, Version};
 
 const PAGE: &str = "https://paperpaw.org/api/v1/plugins/airy.json?device=x4&lang=en";
 
+/// The plugin manager's English words, as the interface-6 plugin carried them.
+struct ManagerWords;
+impl paperpaw_sdk::Plugin for ManagerWords {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::new_static("plugin-manager"),
+            "Plugin manager",
+            paperpaw_sdk::package_version!(),
+        )
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_translations(std::borrow::Cow::Borrowed(include_str!(
+            "../../plugin-manager/i18n/en.ini"
+        )))
+    }
+}
+
 fn manifest(version: &str) -> String {
     format!(
         "[plugin]\nid = airy\nname = Airy\ndescription = Roomy.\nversion = {version}\nformats = 1\n"
@@ -574,8 +591,9 @@ fn discovering_after_a_failed_start(installed: bool) -> Kernel {
         .network(true)
         .catalog_device("x4")
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        // Its words say why the plugin did not start.
-        .plugin(paperpaw_plugin_plugin_manager::PluginManager)
+        // The plugin manager's words say why the plugin did not start: the
+        // interface-7 plugin has no interface-6 form to register.
+        .plugin(ManagerWords)
         .plugin(Store)
         .code_plugins(native, Box::new(common::NoCode))
         .build()

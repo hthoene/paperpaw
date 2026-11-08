@@ -332,6 +332,8 @@ impl Subscriptions {
 /// which live in their own stores.
 #[derive(Debug, Default)]
 pub(crate) struct Registry {
+    pub(crate) native_declarations:
+        Option<crate::native_host::native_declarations::DirectoryHandle>,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     /// When screens show the row of hints, where they said.

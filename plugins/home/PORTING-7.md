@@ -1,7 +1,7 @@
-# Interface-7 port (slice 1: the pages' model)
+# Interface-7 port (slices 1 and 2: the pages' model and the declarations)
 
-Version 1.0.5. Partial: the host-free model of the home screen's pages. No native screen, no
-declarations, no `NATIVE_ENTRY` yet; the interface-6 `Home` and everything of it stays until the
+Version 1.0.6. Partial: the host-free model of the home screen's pages and its declarations. No
+native screen and no `NATIVE_ENTRY` yet; the interface-6 `Home` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
 
 ## Ported
@@ -50,3 +50,18 @@ in the trait: they have no way to report a host refusal. The shell must not hide
 answering a default (a made-up column count, "no such widget"): that would reflow or drop a page's
 widgets on a mere refusal and write that back. A failed read must end the whole operation (read the
 values fallibly first, then call the model), so that nothing is stored.
+
+## Slice 2: declarations
+
+`declarations.rs` (not yet built into an image: no `NATIVE_ENTRY`, no `build.rs`): the group
+(*Home screen*, order 220), the 16 page settings (advanced, edited on the dashboard), the grid
+(`columns` 2-6, `rows` 0-12), the switches (tool labels, focus at once, status bar, footer pencil
+and dots), the footer items, the three screens, the offer of `core.home`, the actions and their
+icons and menu places, the swipe up that shows every tool, the pages as a place of widgets, the
+`NoTouch` need of *focus at once* and the subscription to setting changes (grid reflow).
+`tests/abi7_declarations.rs` compares each with the interface-6 registration.
+
+Not yet (ignored cases in `tests/acceptance_pending.rs`): the dashboard and editing (H1, H2, H4),
+the five built-in widgets with their settings and groups (`blocks.rs`), the help hints, and the
+footer items' editor: the host's status items screen cannot be named as the editor of a plugin's
+setting (`ExtraDecl` takes a screen of the plugin or a slot).
