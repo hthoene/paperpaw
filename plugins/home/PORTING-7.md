@@ -56,12 +56,18 @@ values fallibly first, then call the model), so that nothing is stored.
 `declarations.rs` (not yet built into an image: no `NATIVE_ENTRY`, no `build.rs`): the group
 (*Home screen*, order 220), the 16 page settings (advanced, edited on the dashboard), the grid
 (`columns` 2-6, `rows` 0-12), the switches (tool labels, focus at once, status bar, footer pencil
-and dots), the footer items, the three screens, the offer of `core.home`, the actions and their
+and dots), the footer items, the four screens (the fourth is the footer items' editor), the offer of `core.home`, the actions and their
 icons and menu places, the swipe up that shows every tool, the pages as a place of widgets, the
 `NoTouch` need of *focus at once* and the subscription to setting changes (grid reflow).
 `tests/abi7_declarations.rs` compares each with the interface-6 registration.
 
 Not yet (ignored cases in `tests/acceptance_pending.rs`): the dashboard and editing (H1, H2, H4),
-the five built-in widgets with their settings and groups (`blocks.rs`), the help hints, and the
-footer items' editor: the host's status items screen cannot be named as the editor of a plugin's
-setting (`ExtraDecl` takes a screen of the plugin or a slot).
+the five built-in widgets with their settings and groups (`blocks.rs`) and the help hints.
+
+The footer items' editor is the screen `status-items` of home's own (Kernel's ruling, todo 121):
+`footer.items` names it with `EditorDecl::Screen("status-items")` and the settings editor opens it
+with the setting's id. It is built on `paperpaw_ui_kit::status_items` (the model, and the view
+with its texts), so the same screen serves picture-home and the reader. What is declared is
+compared with the interface-6 registration (only the editor's name differs). Its callbacks wait for
+the native entry (ignored case `home-footer-items-editor`, H1/H4); the finger's drag of a grip is
+a hold and a tap in the kit (ignored case `home-footer-items-editor-grip-drag`, `KIT-grip-drag`).
