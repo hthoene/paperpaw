@@ -15,6 +15,7 @@ fn row<'a, R: WireRecord<'a>>(raw: &RawRecord<'a>) -> Result<(), i32> {
     clippy::too_many_lines,
     reason = "one arm per reply tag of the generated op tables: a flat table"
 )]
+#[cfg(any(test, debug_assertions))]
 pub(super) fn check(raw: &RawRecord<'_>) -> Result<(), i32> {
     match raw.tag() {
         wire::SERVICE_END_TAG => row::<wire::ServiceEnd>(raw),
@@ -114,6 +115,17 @@ pub(super) fn check(raw: &RawRecord<'_>) -> Result<(), i32> {
         // generated op tables, through the same validator.
         wire::SERVICE_USAGE_TAG => row::<wire::ServiceUsage>(raw),
         wire::SERVICE_PLUGIN_USAGE_TAG => row::<wire::ServicePluginUsage<'_>>(raw),
+        _ => Err(ERR_INVALID),
+    }
+}
+
+/// The rows of `core.lookup`, whose provider is a plugin: its entry row and
+/// the end row, each by its type. Any other tag is `ERR_INVALID`.
+#[cfg(not(any(test, debug_assertions)))]
+pub(super) fn check_lookup(raw: &RawRecord<'_>) -> Result<(), i32> {
+    match raw.tag() {
+        wire::SERVICE_LOOKUP_ENTRY_TAG => row::<wire::ServiceLookupEntry<'_>>(raw),
+        wire::SERVICE_END_TAG => row::<wire::ServiceEnd>(raw),
         _ => Err(ERR_INVALID),
     }
 }

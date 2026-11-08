@@ -131,8 +131,64 @@ fn validate_batch(bytes: &[u8], expected: &[u32], max_records: usize) -> Result<
     })
 }
 
-/// Shared by dispatch and backend conformance tests; replies are bare streams.
+/// How much of each reply row a reply check reads (todo 129).
+///
+/// A reply is built by a host backend with the generated encoders, so reading
+/// every row by its record type is a self-check. It costs about 16 KB of
+/// decoders in the X4 image, so a release build does it only where the rows
+/// come from a plugin:
+/// - **debug and test builds**: every row is decoded by its type (`All`);
+/// - **release, `core.lookup`**: the provider's rows are a plugin's (`Lookup`):
+///   the entry and end rows are decoded by their types;
+/// - **release, every other service**: the framing of every row and the typed
+///   end row (`Framing`). A row's body is its backend's own encoding, and the
+///   asker decodes every row fallibly.
+#[derive(Clone, Copy)]
+enum Rows {
+    #[cfg(any(test, debug_assertions))]
+    All,
+    #[cfg(not(any(test, debug_assertions)))]
+    Lookup,
+    #[cfg(not(any(test, debug_assertions)))]
+    Framing,
+}
+
+impl Rows {
+    /// The check a reply of `service` gets in this build.
+    fn of(service: &str) -> Self {
+        #[cfg(any(test, debug_assertions))]
+        {
+            let _ = service;
+            Self::All
+        }
+        #[cfg(not(any(test, debug_assertions)))]
+        if service == crate::abi7::services_wire::core_lookup_v1::KEY {
+            Self::Lookup
+        } else {
+            Self::Framing
+        }
+    }
+
+    /// The row's body, read by its type as far as this check goes.
+    fn row(self, raw: &registrations::RawRecord<'_>) -> Result<(), i32> {
+        match self {
+            #[cfg(any(test, debug_assertions))]
+            Self::All => rows::check(raw),
+            #[cfg(not(any(test, debug_assertions)))]
+            Self::Lookup => rows::check_lookup(raw),
+            #[cfg(not(any(test, debug_assertions)))]
+            Self::Framing => Ok(()),
+        }
+    }
+}
+
+/// Shared by backend conformance tests: every row read by its type.
+#[cfg(test)]
 pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
+    validate_reply_with(bytes, op, Rows::All)
+}
+
+fn validate_reply_with(bytes: &[u8], op: &ServiceOp, check: Rows) -> Result<(), i32> {
     if bytes.len() > op.max_reply {
         return Err(ERR_INVALID);
     }
@@ -148,10 +204,9 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             .iter()
             .position(|expected| *expected == tag)
             .ok_or(ERR_INVALID)?;
-        // Every row is read by its own record type (and dropped): a bad body is
-        // `ERR_INVALID` whatever the row.
+        // A bad row body is `ERR_INVALID` as far as `check` reads it.
         let raw = registrations::RawRecord::one(framed).map_err(|_| ERR_INVALID)?;
-        rows::check(&raw)?;
+        check.row(&raw)?;
         if op.reply_rows == 0 {
             if tag == registrations::SERVICE_END_TAG || index < next_tag {
                 return Err(ERR_INVALID);
@@ -239,7 +294,7 @@ pub(super) unsafe fn call(
             let caller = owner.caller(plugin, key.features);
             let length = running.run(frame, &caller, op, input, scratch.0)?;
             let reply = scratch.0.get(..length).ok_or(ERR_INVALID)?;
-            validate_reply(reply, op)?;
+            validate_reply_with(reply, op, Rows::of(key.schema.key))?;
             // SAFETY: output has the declared capacity; no output was written on
             // any earlier failure, including a service's own failure.
             let output = unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) }?;
