@@ -600,3 +600,22 @@ impl Actions {
         self.overrides.shrink_to_fit();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_plugins_actions_go_with_it_and_room_can_be_made_first() {
+        let mut actions = Actions::new();
+        actions.try_reserve(3).unwrap();
+        for id in ["gone.one", "keep.one", "gone.two"] {
+            actions.insert(ActionSpec::new(Id::new_static(id), id));
+        }
+        actions.remove_plugin("gone");
+        assert!(actions.contains("keep.one"));
+        assert!(!actions.contains("gone.one"));
+        assert!(!actions.contains("gone.two"));
+        assert_eq!(actions.iter().count(), 1);
+    }
+}
