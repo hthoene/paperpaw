@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.8"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2446,6 +2446,7 @@ dependencies = [
  "paperpaw-plugin-notes-vault",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
