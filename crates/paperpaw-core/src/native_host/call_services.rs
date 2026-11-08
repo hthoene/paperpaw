@@ -252,6 +252,7 @@ pub(super) unsafe fn call(
     result.unwrap_or_else(|error| error)
 }
 
+#[path = "call_services/rows.rs"]
 mod rows;
 
 #[cfg(test)]

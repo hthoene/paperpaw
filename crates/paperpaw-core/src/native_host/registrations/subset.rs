@@ -8,7 +8,18 @@
 //! The list is the `Record` variants the host names outside tests: services,
 //! events, stages, input, frames and format arguments.
 use super::wire::{self, RawRecord, Record, WireEncode};
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
+
+/// The status for a record whose tag the op does not expect: a tag the codec
+/// does not know at all is `ERR_UNSUPPORTED`; a known tag the op does not take
+/// is `ERR_INVALID` (as it was when the op decoded the whole `Record` enum).
+pub(crate) fn unexpected(tag: u32) -> i32 {
+    if wire::record_tag_known(tag) {
+        ERR_INVALID
+    } else {
+        ERR_UNSUPPORTED
+    }
+}
 
 /// `raw` as the record its tag names, for the few records the host still reads
 /// through the `Record` enum: the kernel's own events, the router's input, the
@@ -35,7 +46,7 @@ pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::SERVICE_LIB_FACET_TAG => Record::ServiceLibFacet(raw.decode()?),
         wire::SERVICE_LIB_FIELD_TAG => Record::ServiceLibField(raw.decode()?),
         wire::SERVICE_LOOKUP_ENTRY_TAG => Record::ServiceLookupEntry(raw.decode()?),
-        _ => return Err(ERR_UNSUPPORTED),
+        tag => return Err(unexpected(tag)),
     })
 }
 
@@ -275,7 +286,7 @@ pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::STAGE_CALL_TAG => Record::StageCall(raw.decode()?),
         wire::STAGE_REPLY_TAG => Record::StageReply(raw.decode()?),
         wire::STAGE_SPEC_TAG => Record::StageSpec(raw.decode()?),
-        _ => return Err(ERR_UNSUPPORTED),
+        tag => return Err(unexpected(tag)),
     })
 }
 

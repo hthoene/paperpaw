@@ -11,6 +11,7 @@
 //! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG,
     EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
     EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
     EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
@@ -175,6 +176,18 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
     encode(&Record::EventPageTurned(record), out)
 }
 
+/// The tags `decode` reads.
+const EVENT_TAGS: [u32; 8] = [
+    EVENT_STARTED_TAG,
+    EVENT_RESUME_TAG,
+    EVENT_SUSPEND_TAG,
+    EVENT_STOPPING_TAG,
+    EVENT_BATTERY_MEASURED_TAG,
+    EVENT_SCREEN_SHOWN_TAG,
+    EVENT_ACTION_RUN_TAG,
+    EVENT_PAGE_TURNED_TAG,
+];
+
 /// Decode bytes that hold exactly one event record (tags 32-39).
 ///
 /// # Errors
@@ -183,6 +196,12 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
 /// turn that [`encode_page_turned`] refuses; `ERR_UNSUPPORTED` when that record
 /// is not an event.
 pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    // Only the events are read; a record of any other tag, known or not, is
+    // `ERR_UNSUPPORTED` before its body is looked at.
+    let raw = super::registrations::RawRecord::single(bytes)?;
+    if !EVENT_TAGS.contains(&raw.tag()) {
+        return Err(ERR_UNSUPPORTED);
+    }
     let record = super::codec::decode_single(bytes)?;
     match record {
         Record::EventStarted(_)

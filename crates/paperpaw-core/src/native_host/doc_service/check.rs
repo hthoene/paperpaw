@@ -185,7 +185,7 @@ impl<'a> Row<'a> for Part<'a> {
             wire::SERVICE_DOC_CELL_TAG => Self::Cell(raw.decode()?),
             wire::SERVICE_DOC_RUBY_TAG => Self::Ruby(raw.decode()?),
             wire::SERVICE_DOC_INLINE_LANG_TAG => Self::InlineLang(raw.decode()?),
-            _ => return Err(ERR_UNSUPPORTED),
+            _ => return Err(wire::unexpected(raw.tag())),
         })
     }
 }

@@ -6,15 +6,17 @@
 //! the framing's, a record of another tag than expected is `ERR_INVALID`.
 use super::registrations::{
     RawRecord, Record, WireEncode, WireRecord, as_wire, decode_record, record_encode_of,
-    record_framed_len_of, records_encode_of,
+    record_framed_len_of, records_encode_of, unexpected,
 };
-use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_native::host_glue::ERR_NO_SPACE;
 
-/// `raw` as the record type `R`. A tag the op does not expect is
-/// `ERR_UNSUPPORTED`, as an unknown tag is; `ERR_INVALID` is for an expected
-/// tag with a bad body.
+/// `raw` as the record type `R`. A tag the codec does not know is
+/// `ERR_UNSUPPORTED`; a known tag the op does not expect, and an expected tag
+/// with a bad body, are `ERR_INVALID` ([`unexpected`]).
 pub(crate) fn decode<'a, R: WireRecord<'a>>(raw: RawRecord<'a>) -> Result<R, i32> {
+    if raw.tag() != R::TAG {
+        return Err(unexpected(raw.tag()));
+    }
     raw.decode()
 }
 

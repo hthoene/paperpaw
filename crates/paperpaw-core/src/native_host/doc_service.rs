@@ -540,7 +540,7 @@ enum Check {
     Progress,
 }
 
-/// The request record of ops 3-17; another tag is `ERR_UNSUPPORTED`.
+/// The request record of ops 3-17; another tag is `ERR_INVALID`.
 #[derive(Clone, Copy)]
 enum Ask<'a> {
     Ref(wire::ServiceDocRef),
@@ -567,7 +567,7 @@ impl<'a> Ask<'a> {
             wire::SERVICE_DOC_SPAN_TAG => Self::Span(raw.decode()?),
             wire::SERVICE_DOC_HREF_TAG => Self::Href(raw.decode()?),
             wire::SERVICE_DOC_IMAGE_ASK_TAG => Self::Question(raw.decode()?),
-            _ => return Err(ERR_UNSUPPORTED),
+            _ => return Err(wire::unexpected(raw.tag())),
         })
     }
 

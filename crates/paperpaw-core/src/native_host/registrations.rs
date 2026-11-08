@@ -18,7 +18,7 @@ mod subset;
 mod wire;
 #[cfg(test)]
 pub(super) use subset::decode_any;
-pub(super) use subset::{as_wire, decode_record};
+pub(super) use subset::{as_wire, decode_record, unexpected};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
