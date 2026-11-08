@@ -607,6 +607,8 @@ const paperpaw_sdk::native::declare::records_wire::EVENT_STARTED_TAG: u32 = 32u3
 const paperpaw_sdk::native::declare::records_wire::EVENT_STATUS_CHANGED_TAG: u32 = 73u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_STOPPING_TAG: u32 = 35u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_SUSPEND_TAG: u32 = 34u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_TEXT_TYPED_TAG: u32 = 109u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES: usize = 1_024usize
 const paperpaw_sdk::native::declare::records_wire::EVENT_TICK_TAG: u32 = 3u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_WIDGET_CHANGED_TAG: u32 = 86u32
 const paperpaw_sdk::native::declare::records_wire::EVENT_WIDGET_DROPPED_TAG: u32 = 85u32
@@ -2778,6 +2780,7 @@ struct paperpaw_sdk::native::declare::records_wire::EventStarted { now_ms: u64 }
 struct paperpaw_sdk::native::declare::records_wire::EventStatusChanged { now_ms: u64 }
 struct paperpaw_sdk::native::declare::records_wire::EventStopping { now_ms: u64 }
 struct paperpaw_sdk::native::declare::records_wire::EventSuspend { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventTextTyped<'a> { now_ms: u64, text: &'a str, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventWidgetChanged { now_ms: u64, instance: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventWidgetDropped { now_ms: u64, instance: u32 }
 struct paperpaw_sdk::native::declare::records_wire::EventWidgetMade<'a> { now_ms: u64, widget: &'a str, instance: u32, place: &'a str }

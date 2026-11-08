@@ -834,8 +834,7 @@ impl Kernel {
         self.escape(now);
         self.count_awake();
         if let Some(ui) = self.shared.native_instances.ui_services() {
-            // A refusal leaves the cached values to the next change or tick.
-            ui.minute_tick(now.millis()).ok();
+            ui.minute_tick(now.millis()).ok(); // a refusal waits for the next tick
         }
         if self.sleep_due().is_some_and(|at| at <= now) {
             // Busy: reading aloud, downloading, serving, the library being
