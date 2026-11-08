@@ -50,12 +50,15 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::pin::Pin;
 
+/// A scripted service's backend: `(op, input)` to the reply bytes or a status.
+pub(crate) type Handler = Box<dyn FnMut(u32, &[u8]) -> Result<Vec<u8>, i32>>;
+
 /// One scripted `core.*` service: `handler(op, input)` is its backend.
 pub(crate) struct ScriptedService {
     pub(crate) key: String,
     pub(crate) major: u16,
     pub(crate) revision: u16,
-    pub(crate) handler: Box<dyn FnMut(u32, &[u8]) -> Result<Vec<u8>, i32>>,
+    pub(crate) handler: Handler,
 }
 
 /// What the slots share: boxed, so its address is the `ctx` the plugin keeps.
@@ -69,6 +72,7 @@ pub(crate) struct State {
     pub(crate) open: RefCell<Vec<u32>>,
     pub(crate) refusals: Refusals,
     pub(crate) registrations: RefCell<Vec<Vec<u8>>>,
+    pub(crate) batches: RefCell<Vec<Vec<u8>>>,
     pub(crate) live: Cell<usize>,
     pub(crate) clock: Cell<u64>,
     pub(crate) scope: CommandScope,
@@ -107,6 +111,10 @@ impl ScriptedHost {
     /// # Panics
     /// `id` is not a valid plugin id.
     #[must_use]
+    #[allow(
+        clippy::expect_used,
+        reason = "test support: a bad id is a mistake in the test, reported at once"
+    )]
     pub fn for_plugin(id: &str) -> Self {
         let state = Box::new(State {
             settings: Settings::new(),
@@ -118,6 +126,7 @@ impl ScriptedHost {
             open: RefCell::new(Vec::new()),
             refusals: Refusals::default(),
             registrations: RefCell::new(Vec::new()),
+            batches: RefCell::new(Vec::new()),
             live: Cell::new(0),
             clock: Cell::new(0),
             scope: CommandScope::new(),
@@ -236,7 +245,9 @@ impl ScriptedHost {
     pub fn load(&self, entry: &PpEntry) -> Result<Plugin<'_>, i32> {
         let make = entry.make.ok_or(ERR_UNSUPPORTED)?;
         let mut plugin: *const PpPlugin = core::ptr::null();
-        let ctx = core::ptr::from_ref::<State>(&self.state).cast_mut().cast::<c_void>();
+        let ctx = core::ptr::from_ref::<State>(&self.state)
+            .cast_mut()
+            .cast::<c_void>();
         // SAFETY: the table and the boxed state outlive the plugin (`Plugin`
         // borrows this host); the factory writes `plugin` or returns a status.
         let status = unsafe { make(&raw const self.state.table, ctx, &raw mut plugin) };
@@ -260,6 +271,9 @@ pub struct Callback {
     pub out: Vec<u8>,
     /// The commands it staged, in order; empty after a negative status.
     pub commands: Vec<Command>,
+    /// The command batches it submitted, byte for byte, accepted or not (for
+    /// exact-wire assertions; a refused-by-the-host call is not here).
+    pub batches: Vec<Vec<u8>>,
     /// How many commands it had staged when it returned a negative status:
     /// the whole stage is dropped, so a half-applied step is never seen.
     pub dropped: usize,
@@ -300,13 +314,18 @@ impl Plugin<'_> {
         // SAFETY: the table `make` returned stays valid until the plugin drops.
         let table = unsafe { &*self.plugin };
         let input = PpBytes {
-            ptr: if input.is_empty() { core::ptr::null() } else { input.as_ptr() },
+            ptr: if input.is_empty() {
+                core::ptr::null()
+            } else {
+                input.as_ptr()
+            },
             len: input.len(),
         };
         let mut out = vec![0_u8; out_cap];
         let (limit, byte_limit) = state.limits.get();
+        state.batches.borrow_mut().clear();
         let mut stage = CommandStage::new(&state.owner, &state.settings, None, limit, byte_limit);
-        let call = || -> Result<i32, i32> {
+        let mut call = || -> Result<i32, i32> {
             // SAFETY: plugin state and callbacks are the factory's; the input
             // and the buffer live for the call.
             Ok(unsafe {
@@ -315,7 +334,10 @@ impl Plugin<'_> {
                         table.state,
                         token,
                         input,
-                        PpBuffer { ptr: out.as_mut_ptr(), cap: out_cap },
+                        PpBuffer {
+                            ptr: out.as_mut_ptr(),
+                            cap: out_cap,
+                        },
                     ),
                     Kind::Input => (table.input.ok_or(ERR_UNSUPPORTED)?)(table.state, token, input),
                     Kind::Draw => (table.draw.ok_or(ERR_UNSUPPORTED)?)(table.state, token, input),
@@ -337,8 +359,19 @@ impl Plugin<'_> {
             commands.clear();
         }
         let written = usize::try_from(status).unwrap_or(0).min(out_cap);
-        out.truncate(if matches!(kind, Kind::Event) { written } else { 0 });
-        Ok(Callback { status, out, commands, dropped })
+        out.truncate(if matches!(kind, Kind::Event) {
+            written
+        } else {
+            0
+        });
+        let batches = state.batches.take();
+        Ok(Callback {
+            status,
+            out,
+            commands,
+            batches,
+            dropped,
+        })
     }
 }
 

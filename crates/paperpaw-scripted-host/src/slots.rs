@@ -164,6 +164,9 @@ unsafe extern "C" fn commands_submit(ctx: *mut c_void, batch: PpBytes) -> i32 {
     if let Some(status) = state.refusals.call(Slot::Commands) {
         return status;
     }
+    if let Some(batch) = bytes(batch) {
+        state.batches.borrow_mut().push(batch.to_vec());
+    }
     // SAFETY: the stage scope is pinned inside the boxed state; the slot
     // contract supplies readable input for this call. Outside a callback (or
     // in a draw) no stage is lent and the scope answers `ERR_STATE`.
