@@ -191,7 +191,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 )?;
             }
             let (need, capability) = step.need.map(need_bits).transpose()?.unwrap_or((0, 0));
-            Ok(wire::Record::SetupStep(wire::SetupStep {
+            Ok(wire::SetupStep {
                 name: step.name,
                 title: step.title,
                 help: step.help,
@@ -203,7 +203,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 need,
                 capability,
                 flags: u32::from(step.applies) | (u32::from(step.need.is_some()) << 1),
-            }))
+            })
         })();
         self.accept_record(record)
     }
@@ -216,10 +216,10 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         let record = (|| {
             menu_identifier(slot.name, wire::SLOT_SPEC_NAME_MAX_BYTES, "slot name")?;
             filled(slot.title, "slot title")?;
-            Ok(wire::Record::SlotSpec(wire::SlotSpec {
+            Ok(wire::SlotSpec {
                 name: slot.name,
                 title: slot.title,
-            }))
+            })
         })();
         self.accept_record(record)
     }
@@ -236,11 +236,11 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 wire::SLOT_OFFER_SCREEN_MAX_BYTES,
                 "offered screen",
             )?;
-            Ok(wire::Record::SlotOffer(wire::SlotOffer {
+            Ok(wire::SlotOffer {
                 slot: offer.slot,
                 screen: offer.screen,
                 priority: offer.priority,
-            }))
+            })
         })();
         self.accept_record(record)
     }
@@ -277,13 +277,13 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                     "binding condition",
                 )?;
             }
-            Ok(wire::Record::KeyBind(wire::KeyBind {
+            Ok(wire::KeyBind {
                 layer: binding.layer,
                 input: binding.input,
                 action: binding.action,
                 when_key: binding.when_key,
                 when_value: binding.when_value,
-            }))
+            })
         })();
         self.accept_record(record)
     }
@@ -317,11 +317,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             menu_full_id(key, wire::SETTING_CHOICE_KEY_MAX_BYTES, "foreign setting")?;
             filled(value, "choice value")?;
             filled(title, "choice title")?;
-            Ok(wire::Record::SettingChoice(wire::SettingChoice {
-                key,
-                value,
-                title,
-            }))
+            Ok(wire::SettingChoice { key, value, title })
         })();
         self.accept_record(record)
     }
@@ -335,12 +331,12 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             menu_identifier(preset.name, wire::PRESET_SPEC_NAME_MAX_BYTES, "preset name")?;
             menu_full_id(preset.kind, wire::PRESET_SPEC_KIND_MAX_BYTES, "preset kind")?;
             filled(preset.title, "preset title")?;
-            Ok(wire::Record::PresetSpec(wire::PresetSpec {
+            Ok(wire::PresetSpec {
                 name: preset.name,
                 kind: preset.kind,
                 title: preset.title,
                 help: preset.help,
-            }))
+            })
         })();
         self.accept_record(record)
     }
@@ -356,12 +352,12 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         self.accept_record(record)
     }
 
-    pub(super) fn accept_record(
+    pub(super) fn accept_record<R: wire::WireEncode>(
         &mut self,
-        record: Result<wire::Record<'_>, DeclareError>,
+        record: Result<R, DeclareError>,
     ) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        if let Err(error) = record.and_then(|record| self.push(Item::Registry(record))) {
+        if let Err(error) = record.and_then(|record| self.push(Item::Registry(&record))) {
             if self.failed.is_none() {
                 self.failed = Some(Latched::Refused(error));
             }
@@ -375,19 +371,16 @@ fn default_record<'a>(
     key: &'a str,
     value: SettingValue<'_>,
     bytes: &'a mut [MaybeUninit<u8>],
-) -> Result<wire::Record<'a>, DeclareError> {
+) -> Result<wire::SettingDefault<'a>, DeclareError> {
     menu_full_id(key, wire::SETTING_DEFAULT_KEY_MAX_BYTES, "foreign setting")?;
     let value = encode_value(value, bytes)?;
-    Ok(wire::Record::SettingDefault(wire::SettingDefault {
-        key,
-        value,
-    }))
+    Ok(wire::SettingDefault { key, value })
 }
 
 fn preset_record<'a>(
     value: PresetValueDecl<'a>,
     bytes: &'a mut [MaybeUninit<u8>],
-) -> Result<wire::Record<'a>, DeclareError> {
+) -> Result<wire::PresetValue<'a>, DeclareError> {
     menu_full_id(value.preset, wire::PRESET_VALUE_PRESET_MAX_BYTES, "preset")?;
     menu_full_id(
         value.key,
@@ -400,12 +393,12 @@ fn preset_record<'a>(
     } else {
         encode_value(value.value, bytes)?
     };
-    Ok(wire::Record::PresetValue(wire::PresetValue {
+    Ok(wire::PresetValue {
         preset: value.preset,
         key: value.key,
         value: encoded,
         flags: u32::from(reset),
-    }))
+    })
 }
 
 fn encode_value<'a>(
