@@ -227,7 +227,7 @@ pub fn bookmarks(storage: &dyn Storage, language: &str) -> Result<Option<Vec<Ent
 ///
 /// # Errors
 /// [`StoreError::NoMemory`]; a refusal to write the list is
-/// [`StoreError::Storage`] (the history in memory is then not returned).
+/// [`StoreError::Storage`] (no page file is removed then).
 pub fn remember(storage: &dyn Storage, entry: Entry) -> Result<Option<Vec<Entry>>, StoreError> {
     let mut history = match load(storage, HISTORY_FILE) {
         Ok(history) => history.unwrap_or_default(),
@@ -237,9 +237,12 @@ pub fn remember(storage: &dyn Storage, entry: Entry) -> Result<Option<Vec<Entry>
     history.retain(|e| e.url != entry.url);
     history.try_reserve(1).map_err(|_| Error::NoMemory)?;
     history.insert(0, entry);
-    for old in history.drain(HISTORY.min(history.len())..) {
+    let kept = HISTORY.min(history.len());
+    // The list first: a cut in between leaves pages without a line (found
+    // and dropped as stale files), never lines without their pages.
+    save(storage, HISTORY_FILE, &history[..kept])?;
+    for old in history.drain(kept..) {
         let _ = storage.remove(&page_path(&old.url)?);
     }
-    save(storage, HISTORY_FILE, &history)?;
     Ok(Some(history))
 }

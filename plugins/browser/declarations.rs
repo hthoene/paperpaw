@@ -5,7 +5,8 @@
 //! the native entry (`PORTING-7.md`). Compared with the interface-6
 //! registration by `tests/abi7_declarations.rs`.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, MenuEntryDecl, ScreenDecl, SlotOfferDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, Instances, MenuEntryDecl, ScreenDecl,
+    SlotOfferDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -17,7 +18,7 @@ pub const LOADED: u32 = 2;
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("screen", "browser.title", SCREEN))?;
+    d.screen(ScreenDecl::new("screen", "browser.title", SCREEN).instances(Instances::PerParams))?;
     d.submit()?;
     Ok(())
 }

@@ -8,6 +8,7 @@
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
+use paperpaw_core::native_host::registrations::{Record, records_decode};
 use paperpaw_plugin_browser::Browser;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
@@ -61,6 +62,21 @@ fn the_decoded_batches_say_what_the_registration_says() {
         })
         .collect();
     assert_eq!(native.screens, screens);
+    // The decoded flags: one instance per parameters (0), stated, not defaulted.
+    let flags: Vec<u32> = all()
+        .iter()
+        .flat_map(|batch| {
+            let records = records_decode(batch).unwrap();
+            records
+                .iter()
+                .filter_map(|r| match r {
+                    Record::ScreenSpec(s) => Some(s.flags),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(flags, [0]);
     assert_eq!(native.screens, ["screen|browser.title"]);
     assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots, ["core.browser|browser.screen|0"]);

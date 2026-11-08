@@ -584,3 +584,29 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     });
     sweep(|| Entry::new("é", "https://a.org/").map(|e| e.title.len()));
 }
+
+/// The list is written before the dropped pages' files go: a refused write
+/// leaves every file where it was.
+#[test]
+fn the_history_is_saved_before_old_pages_are_removed() {
+    let mut history = String::new();
+    for n in 0..HISTORY {
+        history.push_str(&format!("T\tu{n}\n"));
+    }
+    let slots = Slots::new(4, history.len() + 8);
+    slots.put(HISTORY_FILE, history.as_bytes());
+    let oldest = native::page_path(&format!("u{}", HISTORY - 1)).unwrap();
+    slots.put(&oldest, b"page");
+    // The new line does not fit the room the file has: the write is refused.
+    let result = native::remember(
+        &slots,
+        entry("A longer title", "https://new.example.org/path"),
+    );
+    assert_eq!(result, Err(StoreError::Storage(StorageError::Full)));
+    assert!(slots.has(&oldest));
+    assert!(slots.starts(HISTORY_FILE, b"T\tu0\n"));
+    // Where it fits, the oldest page goes.
+    let result = native::remember(&slots, entry("", "u")).unwrap().unwrap();
+    assert_eq!(result.len(), HISTORY);
+    assert!(!slots.has(&oldest));
+}
