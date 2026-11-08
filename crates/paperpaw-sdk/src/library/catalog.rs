@@ -575,7 +575,8 @@ fn first_path() -> String {
 /// Whether the catalog's books are those found so far: a walk that began
 /// without one is under way, or one that goes on from it. A walk over a
 /// whole catalog (each start) is not.
-pub(crate) fn is_growing(storage: &dyn Storage) -> bool {
+#[must_use]
+pub fn is_growing(storage: &dyn Storage) -> bool {
     storage.exists(&building_path()) && storage.exists(&first_path())
 }
 

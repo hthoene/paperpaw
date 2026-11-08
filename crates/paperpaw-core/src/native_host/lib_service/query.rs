@@ -108,7 +108,9 @@ pub(crate) trait LibQuery {
     /// Op 22: `lib_field` rows of the book, all plugins', ordered by owning
     /// plugin id then field name. `cursor` counts fields; `generation` is the
     /// book's field generation (every `set_field` and every move of its data
-    /// advances it), never 0 in the answer.
+    /// advances it), never 0 in the answer. The host keeps the same order on
+    /// every page of one generation: the service checks a page's rows, not
+    /// the order across pages.
     fn fields(
         &self,
         _book: BookRef<'_>,

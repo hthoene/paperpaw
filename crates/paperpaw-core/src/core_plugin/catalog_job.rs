@@ -49,6 +49,16 @@ impl CatalogJob {
         }
     }
 
+    /// How far a walk is, in parts per million ([`library::catalog::Walk::progress_ppm`]),
+    /// `None` for any other job.
+    pub(super) fn progress_ppm(&self) -> Option<u32> {
+        match self {
+            CatalogJob::Walk(walk) => Some(walk.progress_ppm()),
+            CatalogJob::Shown(walk, _) => Some(walk.progress_ppm()),
+            _ => None,
+        }
+    }
+
     /// A walk (set aside or not).
     pub(super) fn is_walk(&self) -> bool {
         matches!(self, CatalogJob::Walk(_) | CatalogJob::Shown(..))
@@ -78,6 +88,30 @@ impl CatalogJob {
             CatalogJob::Sort(sort) | CatalogJob::Shown(_, Some(sort)) => sort.pause(storage),
             CatalogJob::Shown(_, None) => {}
         }
+    }
+}
+
+impl super::Catalog {
+    /// What `core.library` op 1 says of the catalog being made: `Some(parts
+    /// per million)` while a first walk is under way (the catalog is made
+    /// where there was none and its books are those found so far), `None`
+    /// otherwise (a walk over a whole catalog, catching up and sorting are
+    /// state 2). The share is rough: a library's size is known only at the
+    /// end, so the view leads with the books so far and this is only a bar.
+    /// A first walk cut short that no job has taken up again yet says 0.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the production catalog environment of the library host reads it (todo 109)"
+        )
+    )]
+    pub(super) fn walking(&self, storage: &dyn paperpaw_sdk::Storage) -> Option<u32> {
+        if !library::catalog::is_growing(storage) {
+            return None;
+        }
+        let job = self.job.borrow();
+        Some(job.as_ref().and_then(CatalogJob::progress_ppm).unwrap_or(0))
     }
 }
 
@@ -189,4 +223,51 @@ pub(super) fn register_sorted(
             catalog.declare(true, out);
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core_plugin::Catalog;
+    use alloc::boxed::Box;
+    use paperpaw_sdk::MemoryStorage;
+
+    /// The notes a first walk leaves on the card while it is under way.
+    fn growing() -> MemoryStorage {
+        MemoryStorage::new()
+            .with(".paperpaw/library/catalog.tmp", b"".to_vec())
+            .with(".paperpaw/library/walk.first", b"".to_vec())
+    }
+
+    #[test]
+    fn only_a_walk_has_a_progress() {
+        let walk = library::catalog::Walk::default();
+        assert_eq!(CatalogJob::Walk(walk).progress_ppm(), Some(0));
+        let shown = CatalogJob::Shown(Box::default(), None);
+        assert_eq!(shown.progress_ppm(), Some(0));
+        assert_eq!(
+            CatalogJob::Split(library::split::Split::new()).progress_ppm(),
+            None
+        );
+    }
+
+    #[test]
+    fn walking_is_a_first_walk_and_only_that() {
+        let catalog = Catalog::default();
+        // No walk on the card: state 2 or 0, never 1.
+        assert_eq!(catalog.walking(&MemoryStorage::new()), None);
+        // A walk over a whole catalog (a catalog being made, no first-walk
+        // note) is state 2.
+        let over = MemoryStorage::new().with(".paperpaw/library/catalog.tmp", b"".to_vec());
+        *catalog.job.borrow_mut() = Some(CatalogJob::Walk(library::catalog::Walk::default()));
+        assert_eq!(catalog.walking(&over), None);
+        // A first walk: the job's progress.
+        assert_eq!(catalog.walking(&growing()), Some(0));
+        // A first walk cut short, no job yet: 0, not "ready".
+        *catalog.job.borrow_mut() = None;
+        assert_eq!(catalog.walking(&growing()), Some(0));
+        // Another job under way does not change what the card says.
+        *catalog.job.borrow_mut() = Some(CatalogJob::Split(library::split::Split::new()));
+        assert_eq!(catalog.walking(&growing()), Some(0));
+    }
 }
