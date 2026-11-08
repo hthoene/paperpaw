@@ -339,7 +339,7 @@ const CASES: &[Case] = &[
         book: None,
         // Developer options on: their group of settings.
         sets: &["settings.advanced=true", "core.developer=true"],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,swipe:600:1400:600:700,wait:300,tap-on:Developer,wait:300",
+        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,tap-on:Developer,wait:300",
         colour: 0,
         fixtures: false,
     },

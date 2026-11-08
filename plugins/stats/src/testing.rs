@@ -211,5 +211,36 @@ pub(crate) mod heap {
     }
 }
 
+use self::heap::fixture;
+
+/// A storage whose own allocations are not the plugin's: nothing is refused
+/// or counted while it works.
+#[derive(Default)]
+pub(crate) struct Quiet(pub MemoryStorage);
+
+impl Storage for Quiet {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        fixture(|| self.0.read_at(path, offset, buf))
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        fixture(|| self.0.size(path))
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        fixture(|| self.0.write(path, data))
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        fixture(|| self.0.append(path, data))
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        fixture(|| self.0.list(dir, visit))
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        fixture(|| self.0.remove(path))
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        fixture(|| self.0.rename(from, to))
+    }
+}
+
 #[global_allocator]
 static REFUSING: heap::Refusing = heap::Refusing;
