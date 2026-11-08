@@ -58,15 +58,22 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::StatusPlace(_) => Ok(None),
         // A slot the plugin names stays in the declaration store (its title is
         // read from there); an offer also goes to the registry the kernel
-        // opens slots by (`Registry::resolve_slot`), checked above to name a
-        // screen of the plugin.
+        // opens slots by (`Registry::resolve_slot`). `Staging::native_offer`
+        // refuses an offer of a screen that is not the plugin's own. The
+        // contract gives the priority no range (an i32), the kernel's is an
+        // i16: one outside it counts as the nearest end, so an offer that
+        // declared fine never fails the install.
         Record::SlotSpec(_) => Ok(None),
         Record::SlotOffer(offer) => Ok(Some(Owned::SlotOffer {
             slot: native_values::checked_id(offer.slot)?,
             screen: native_values::checked_id(offer.screen)?,
-            priority: paperpaw_sdk::Priority(
-                i16::try_from(offer.priority).map_err(|_| ERR_INVALID)?,
-            ),
+            priority: paperpaw_sdk::Priority(i16::try_from(offer.priority).unwrap_or(
+                if offer.priority < 0 {
+                    i16::MIN
+                } else {
+                    i16::MAX
+                },
+            )),
         })),
         // Menus and icons stay in the declaration store (charged there, removed
         // with their owner); `native_menus` reads them.
@@ -221,9 +228,13 @@ impl crate::Kernel {
     fn refresh_slots(&mut self) {
         match self.shared.registry.try_bound_slots() {
             Some(slots) => self.shared.slots = slots,
-            None => self.try_warn_runtime(&[
-                "not enough memory to update the slots plugins offer screens for; the list stays as it was",
-            ]),
+            None => {
+                // The list known stays, less the slots whose last offer went.
+                self.shared.registry.retain_bound(&mut self.shared.slots);
+                self.try_warn_runtime(&[
+                    "not enough memory to update the slots plugins offer screens for; the list stays as it was",
+                ]);
+            }
         }
     }
 
