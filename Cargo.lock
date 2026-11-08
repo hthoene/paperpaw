@@ -2359,10 +2359,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-notes-vault"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-default",
@@ -2370,6 +2371,7 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-plugin-reader",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
