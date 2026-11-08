@@ -34,9 +34,22 @@ fn with_device<T>(
     host: &Host<'_>,
     f: impl FnOnce(&Device, &mut [u8; 64], &mut [u8; 1024]) -> Result<T, Error>,
 ) -> Result<T, Error> {
+    // The buffers are on the heap, not in this frame: the device reads would
+    // otherwise cost the X4's stack more than a kilobyte each.
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(64 + 1024)
+        .map_err(|_| Error::NoMemory)?;
+    buffer.resize(64 + 1024, 0);
+    let (input, out) = buffer.split_at_mut(64);
+    let (Ok(input), Ok(out)) = (
+        <&mut [u8; 64]>::try_from(input),
+        <&mut [u8; 1024]>::try_from(out),
+    ) else {
+        return Err(Error::State);
+    };
     let device = Device::open(host)?;
-    let (mut input, mut out) = ([0; 64], [0; 1024]);
-    let result = f(&device, &mut input, &mut out);
+    let result = f(&device, input, out);
     let released = device.release(host);
     let value = result?;
     released?;
@@ -59,6 +72,7 @@ fn format_name(snapshot: &Snapshot) -> &'static str {
 ///
 /// # Errors
 /// The host's refusals and allocation failures.
+#[inline(never)]
 pub fn machine(host: &Host<'_>) -> Result<Machine, Error> {
     let snapshot = capture_snapshot(host)?;
     with_device(host, |device, input, out| {
@@ -72,8 +86,7 @@ pub fn machine(host: &Host<'_>) -> Result<Machine, Error> {
             sleep: identity.supports(DeviceCapability::Sleep),
         };
         let mut keys = Vec::new();
-        let mut out = [0; 1024];
-        let page = device.keys(host, input, &mut out)?;
+        let page = device.keys(host, input, out)?;
         for key in page.rows() {
             push(&mut keys, copy(key.name())?)?;
         }
