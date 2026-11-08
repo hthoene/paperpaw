@@ -69,9 +69,7 @@ fn shown_in(
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE)
         .storage(storage)
-        .user_config(format!(
-            "[help]\nshow = false\n[core]\nlanguage = {language}\n"
-        ))
+        .user_config(format!("[core]\nlanguage = {language}\n"))
         .code_plugins(native, Box::new(NoCode));
     let builder = match safe_mode {
         Some(safe_mode) => builder.safe_mode(safe_mode),
