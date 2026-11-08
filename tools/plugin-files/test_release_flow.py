@@ -29,7 +29,7 @@ KEY = bytes(range(32))
 
 
 def signed(fingerprint, chip, body=b""):
-    header = b"PPNP" + bytes(4) + struct.pack("<Q", fingerprint)
+    header = b"PPNP" + struct.pack("<HH", 4, chip) + struct.pack("<Q", fingerprint)
     header += bytes(80 - len(header))
     trailer = b"PPNS" + bytes(8) + KEY
     return header + body + trailer + bytes(catalogue.SIGNATURE_LEN - len(trailer))

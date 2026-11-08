@@ -391,6 +391,22 @@ jobs:
           tools/plugin-files/sign.sh "$out" target/release/paperpaw-sign --key "$RUNNER_TEMP/ci.key"
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # Interface 7 (decision 142): every first-party plugin with a native
+      # entry builds and links for the ESP32-S3 (espup's compiler, the
+      # release's core libraries). Packing waits for the target-9 profile of
+      # abi/ppn5.md; until then this is the build, not the file. The X4 Classic
+      # runs the X4 Pro's code, so one device builds it.
+      - name: The interface-7 plugins build for the S3
+        if: matrix.device == 'x4-pro'
+        run: |
+          # Exit 4 is "pending": the S3's generated ABI metadata does not exist
+          # yet. Shown as a notice, never as a pass; every other failure fails.
+          rc=0
+          tools/plugin-files7/build.sh x4-pro "$RUNNER_TEMP/plugins7-s3" || rc=$?
+          if [[ $rc = 4 ]]; then
+            echo "::notice title=S3 interface-7 plugins::NOT BUILT: the target-9 metadata profile is not there yet (decision 142)"
+          fi
+          [[ $rc = 0 || $rc = 4 ]]
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
