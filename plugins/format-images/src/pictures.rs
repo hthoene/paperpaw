@@ -6,9 +6,7 @@ use alloc::string::String;
 
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{DocumentError, ImageRef};
-use paperpaw_sdk::image::{
-    ColorWriter, Fit, Format, GrayWriter, ImageError, ImageFile, Source, decode,
-};
+use paperpaw_sdk::image::{ColorWriter, Fit, Format, GrayWriter, ImageError, Source, decode};
 
 use crate::MAX_FILE;
 
@@ -117,19 +115,45 @@ impl Source for Whole<'_> {
     }
 }
 
-/// The picture `base` as decoded, if it is.
+/// The picture `base` as decoded, if it is: the header the writers made
+/// (`PPGI` gray or `PPCI` colour, width and height), and the file of exactly
+/// the size it names. Read here rather than by `ImageFile::open`, which makes
+/// its path strings without a way to refuse (a failure of memory is the
+/// caller's, and is tried again).
 pub(crate) fn open(
     storage: &dyn Storage,
     base: &str,
     color: bool,
 ) -> Result<Option<ImageRef>, DocumentError> {
-    Ok(ImageFile::open(storage, &file(base, color)?)
-        .filter(|image| image.width > 0 && image.height > 0)
-        .map(|image| ImageRef {
-            path: image.path,
-            width: image.width,
-            height: image.height,
-        }))
+    let path = file(base, color)?;
+    let mut header = [0u8; 12];
+    match storage.read_at(&path, 0, &mut header) {
+        Ok(12) => {}
+        Ok(_) | Err(paperpaw_sdk::StorageError::NotFound) => return Ok(None),
+        Err(error) => return Err(DocumentError::Storage(error)),
+    }
+    let (magic, bytes): (&[u8; 4], u64) = if color { (b"PPCI", 3) } else { (b"PPGI", 1) };
+    let field = |at: usize| {
+        u32::from_le_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]])
+    };
+    let (width, height) = (field(4), field(8));
+    if &header[..4] != magic || width == 0 || height == 0 {
+        return Ok(None);
+    }
+    let expected = (u64::from(width) * u64::from(height))
+        .checked_mul(bytes)
+        .and_then(|n| n.checked_add(12));
+    match (storage.size(&path), expected) {
+        (Ok(size), Some(expected)) if size == expected => Ok(Some(ImageRef {
+            path,
+            width,
+            height,
+        })),
+        (Err(error), _) if error != paperpaw_sdk::StorageError::NotFound => {
+            Err(DocumentError::Storage(error))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// The picture in the file `source` (of `size` bytes) as shown on its page:

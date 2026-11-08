@@ -2041,7 +2041,9 @@ dependencies = [
 name = "paperpaw-plugin-format-images"
 version = "1.0.4"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
