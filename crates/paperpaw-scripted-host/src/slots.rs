@@ -3,11 +3,15 @@
 //! otherwise does what the real shell does (statuses and lengths included).
 use crate::{Slot, State};
 use core::ffi::c_void;
+use paperpaw_core::native_host::environment::{SettingValueRef, settings_encode};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK,
-    PpBuffer, PpBytes, PpHost, host_table,
+    ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    OK, PpBuffer, PpBytes, PpHost, host_table,
 };
 use std::alloc::Layout;
+
+/// Bytes of a setting record's header (layout, kind, payload length).
+const SETTINGS_HEADER_BYTES: usize = 12;
 
 /// The state behind `ctx`, or `None` for a null context.
 fn state<'a>(ctx: *mut c_void) -> Option<&'a State> {
@@ -151,10 +155,21 @@ unsafe extern "C" fn settings_read(ctx: *mut c_void, key: PpBytes, out: PpBuffer
     let Some(key) = bytes(key).and_then(|key| core::str::from_utf8(key).ok()) else {
         return ERR_INVALID;
     };
+    // A setting with no value is the encoded `Absent` record, never an error:
+    // the plugin tells "absent" from "false", "0" and "" by the record's kind.
     match state.values.borrow().get(key) {
         Some(value) => copy_prefix(value, out),
-        None => ERR_NOT_FOUND,
+        None => copy_prefix(&absent_record(), out),
     }
+}
+
+/// The wire record of a setting with no value (what the shell answers).
+fn absent_record() -> [u8; SETTINGS_HEADER_BYTES] {
+    let mut record = [core::mem::MaybeUninit::<u8>::uninit(); SETTINGS_HEADER_BYTES];
+    // An empty `Absent` record always fits its own header.
+    let _ = settings_encode(SettingValueRef::Absent, &mut record);
+    // SAFETY: `settings_encode` initialized the whole header it returned.
+    record.map(|byte| unsafe { byte.assume_init() })
 }
 
 unsafe extern "C" fn commands_submit(ctx: *mut c_void, batch: PpBytes) -> i32 {
@@ -204,14 +219,19 @@ unsafe extern "C" fn service_open(
         return ERR_INVALID;
     };
     let services = state.services.borrow();
+    // A key the host does not have is `ERR_NOT_FOUND`; a version it lacks is
+    // `ERR_UNSUPPORTED`; a plugin holds one handle per key (`ERR_FULL`).
     let Some(index) = services.iter().position(|service| service.key == key) else {
-        return ERR_UNSUPPORTED;
+        return ERR_NOT_FOUND;
     };
     let service = &services[index];
     if service.major != major || minor > service.revision {
         return ERR_UNSUPPORTED;
     }
     let handle = u32::try_from(index + 1).unwrap_or(u32::MAX);
+    if state.open.borrow().contains(&handle) {
+        return ERR_FULL;
+    }
     state.open.borrow_mut().push(handle);
     // SAFETY: `out` is the plugin's writable scalar.
     unsafe { *out = handle };
@@ -244,14 +264,21 @@ unsafe extern "C" fn service_call(
     else {
         return ERR_STATE;
     };
+    // The shell checks the caller's buffer against the op's reply bound
+    // before the service runs: too small is `ERR_NO_SPACE`, nothing is run
+    // and nothing is written.
+    let bound = service.bound(op);
+    if out.cap < bound {
+        return ERR_NO_SPACE;
+    }
     let reply = match (service.handler)(op, input) {
         Ok(reply) => reply,
         Err(status) => return status,
     };
-    // A reply that does not fit the caller's buffer is `ERR_NO_SPACE` and
-    // writes nothing (the shell checks the op's reply bound before it calls).
-    if reply.len() > out.cap {
-        return ERR_NO_SPACE;
+    // A reply longer than the bound it was checked against is the service's
+    // fault, not the caller's.
+    if reply.len() > bound {
+        return ERR_INVALID;
     }
     copy_prefix(&reply, out)
 }

@@ -41,6 +41,7 @@ use core::ffi::c_void;
 use paperpaw_core::native_host::commands::{
     CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandScope, CommandStage,
 };
+use paperpaw_core::native_host::environment::{SettingValueRef, settings_encode};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin,
 };
@@ -59,7 +60,25 @@ pub(crate) struct ScriptedService {
     pub(crate) major: u16,
     pub(crate) revision: u16,
     pub(crate) handler: Handler,
+    /// The reply bound of ops without their own (see [`DEFAULT_REPLY_BOUND`]).
+    pub(crate) bound: usize,
+    pub(crate) op_bounds: Vec<(u32, usize)>,
 }
+
+impl ScriptedService {
+    /// The reply bound of `op`: the caller's `out` must hold this many bytes.
+    pub(crate) fn bound(&self, op: u32) -> usize {
+        self.op_bounds
+            .iter()
+            .find(|(id, _)| *id == op)
+            .map_or(self.bound, |(_, bound)| *bound)
+    }
+}
+
+/// The reply bound of a scripted op unless [`ScriptedHost::reply_bound`] sets
+/// it: the generated schemas bound most replies by 4,096 bytes, and the shell
+/// refuses a smaller `out` before the service runs.
+pub const DEFAULT_REPLY_BOUND: usize = 4096;
 
 /// What the slots share: boxed, so its address is the `ctx` the plugin keeps.
 pub(crate) struct State {
@@ -152,12 +171,33 @@ impl ScriptedHost {
         *self.state.env.borrow_mut() = snapshot.to_vec();
     }
 
-    /// The bytes `settings.read` answers for `key` (changeable between calls).
+    /// The bytes `settings.read` answers for `key` (changeable between calls);
+    /// a key never set answers the encoded `Absent` record.
     pub fn set_value(&self, key: &str, value: &[u8]) {
         self.state
             .values
             .borrow_mut()
             .insert(key.to_owned(), value.to_vec());
+    }
+
+    /// As [`set_value`](Self::set_value), with the value encoded as the shell
+    /// answers it. A key never set reads as the encoded `Absent` record.
+    ///
+    /// # Panics
+    /// `value` is text over the interface's limit.
+    #[allow(
+        clippy::expect_used,
+        reason = "test support: an oversized value is a mistake in the test"
+    )]
+    pub fn set_setting(&self, key: &str, value: SettingValueRef<'_>) {
+        let mut record = [core::mem::MaybeUninit::<u8>::uninit(); 4096];
+        let len = settings_encode(value, &mut record).expect("a setting value within the limit");
+        // SAFETY: `settings_encode` initialized the first `len` bytes.
+        let bytes: Vec<u8> = record[..len.min(4096)]
+            .iter()
+            .map(|byte| unsafe { byte.assume_init() })
+            .collect();
+        self.set_value(key, &bytes);
     }
 
     /// The microseconds `clock.micros` answers.
@@ -179,7 +219,26 @@ impl ScriptedHost {
             major,
             revision,
             handler: Box::new(handler),
+            bound: DEFAULT_REPLY_BOUND,
+            op_bounds: Vec::new(),
         });
+    }
+
+    /// The reply bound of `op` of the service `key`: the plugin's `out` for a
+    /// call must hold this many bytes (else `ERR_NO_SPACE`, and the handler
+    /// is not run), and a longer reply is `ERR_INVALID`. Without it the bound
+    /// is [`DEFAULT_REPLY_BOUND`]; set it as the op's schema does.
+    pub fn reply_bound(&self, key: &str, op: u32, bytes: usize) {
+        if let Some(service) = self
+            .state
+            .services
+            .borrow_mut()
+            .iter_mut()
+            .find(|service| service.key == key)
+        {
+            service.op_bounds.retain(|(id, _)| *id != op);
+            service.op_bounds.push((op, bytes));
+        }
     }
 
     /// The `nth` call (from 1) of `slot` answers `status` and does nothing
@@ -267,8 +326,6 @@ impl ScriptedHost {
 pub struct Callback {
     /// The callback's status.
     pub status: i32,
-    /// The bytes it wrote to its reply buffer (events only).
-    pub out: Vec<u8>,
     /// The commands it staged, in order; empty after a negative status.
     pub commands: Vec<Command>,
     /// The command batches it submitted, byte for byte, accepted or not (for
@@ -294,22 +351,26 @@ enum Kind {
 }
 
 impl Plugin<'_> {
-    /// `dispatch_event(token, batch)` with a reply buffer of `out_cap` bytes.
-    pub fn event(&self, token: u32, batch: &[u8], out_cap: usize) -> Result<Callback, i32> {
-        self.run(Kind::Event, token, batch, out_cap)
+    /// `dispatch_event(token, batch)`. An event has no reply buffer (its
+    /// capacity is 0, as in the shell) and returns a status only: a positive
+    /// result is a plugin fault and is reported as `ERR_INVALID`.
+    pub fn event(&self, token: u32, batch: &[u8]) -> Result<Callback, i32> {
+        self.run(Kind::Event, token, batch)
     }
 
-    /// `input(token, batch)`.
+    /// `input(token, batch)`. The status is 0 (not taken), 1 (taken) or an
+    /// error; anything above 1 is a plugin fault and is `ERR_INVALID`, as in
+    /// the shell.
     pub fn input(&self, token: u32, batch: &[u8]) -> Result<Callback, i32> {
-        self.run(Kind::Input, token, batch, 0)
+        self.run(Kind::Input, token, batch)
     }
 
     /// `draw(token, frame)`; no stage is lent.
     pub fn draw(&self, token: u32, frame: &[u8]) -> Result<Callback, i32> {
-        self.run(Kind::Draw, token, frame, 0)
+        self.run(Kind::Draw, token, frame)
     }
 
-    fn run(&self, kind: Kind, token: u32, input: &[u8], out_cap: usize) -> Result<Callback, i32> {
+    fn run(&self, kind: Kind, token: u32, input: &[u8]) -> Result<Callback, i32> {
         let state = &*self.host.state;
         // SAFETY: the table `make` returned stays valid until the plugin drops.
         let table = unsafe { &*self.plugin };
@@ -321,11 +382,10 @@ impl Plugin<'_> {
             },
             len: input.len(),
         };
-        let mut out = vec![0_u8; out_cap];
         let (limit, byte_limit) = state.limits.get();
         state.batches.borrow_mut().clear();
         let mut stage = CommandStage::new(&state.owner, &state.settings, None, limit, byte_limit);
-        let mut call = || -> Result<i32, i32> {
+        let call = || -> Result<i32, i32> {
             // SAFETY: plugin state and callbacks are the factory's; the input
             // and the buffer live for the call.
             Ok(unsafe {
@@ -334,9 +394,10 @@ impl Plugin<'_> {
                         table.state,
                         token,
                         input,
+                        // No reply buffer: a dangling pointer with capacity 0.
                         PpBuffer {
-                            ptr: out.as_mut_ptr(),
-                            cap: out_cap,
+                            ptr: core::ptr::NonNull::dangling().as_ptr(),
+                            cap: 0,
                         },
                     ),
                     Kind::Input => (table.input.ok_or(ERR_UNSUPPORTED)?)(table.state, token, input),
@@ -352,22 +413,20 @@ impl Plugin<'_> {
                 scope.scope(&mut stage, call).map_err(|_| ERR_INVALID)??
             }
         };
+        let status = match kind {
+            Kind::Event if status > 0 => ERR_INVALID,
+            Kind::Input if status > 1 => ERR_INVALID,
+            _ => status,
+        };
         let mut commands = stage.into_commands();
         let mut dropped = 0;
         if status < 0 {
             dropped = commands.len();
             commands.clear();
         }
-        let written = usize::try_from(status).unwrap_or(0).min(out_cap);
-        out.truncate(if matches!(kind, Kind::Event) {
-            written
-        } else {
-            0
-        });
         let batches = state.batches.take();
         Ok(Callback {
             status,
-            out,
             commands,
             batches,
             dropped,

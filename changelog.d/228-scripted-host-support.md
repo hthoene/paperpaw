@@ -9,3 +9,9 @@
   (`ERR_FULL`, `ERR_BUSY`, `ERR_NO_MEMORY` ...) at the n-th call of a slot with
   a sweep over every call. `CALLBACK_COMMANDS` and `CALLBACK_COMMAND_BYTES`
   are public so tests can name the stage's limits.
+  Statuses follow the shell: input above 1 and event results above 0 are
+  `ERR_INVALID`, events get no reply buffer, an unset setting reads as the
+  encoded `Absent` record, `service.open` of an unknown key is
+  `ERR_NOT_FOUND` (one handle per key, else `ERR_FULL`) and `service.call`
+  checks the caller's buffer against the op's reply bound before the
+  service runs.
