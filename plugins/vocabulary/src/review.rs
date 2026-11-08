@@ -72,7 +72,9 @@ impl ReviewScreen {
         let per_day = env.settings().read(&NEW_PER_DAY).clamp(0, 1000) as u32;
         crate::take_lookups(env);
         let new = cards::new_left(env.storage(), day, per_day);
-        let mut queue: VecDeque<Due> = cards::due(env.storage(), day.end, new, MOST, deck).into();
+        let mut queue: VecDeque<Due> = cards::due(env.storage(), day.end, new, MOST, deck)
+            .unwrap_or_default()
+            .into();
         // The card shown asleep first, if it is among them.
         let first = params.get(FIRST).and_then(|f| {
             let (deck, id) = f.split_once(' ')?;

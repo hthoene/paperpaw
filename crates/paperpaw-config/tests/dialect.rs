@@ -399,6 +399,7 @@ proptest! {
     fn any_text_parses_without_panicking(source in "\\PC{0,200}|[\\[\\]=\"\\\\u{}#; \\na-z0-9\\r\\t]{0,200}") {
         for entry in parse(&source).flatten() {
             let _ = entry.value.as_str();
+            prop_assert_eq!(entry.value.try_as_str().ok(), Some(entry.value.as_str()));
             let _ = entry.value.as_bool();
             let _ = entry.value.as_i64();
         }
@@ -442,5 +443,7 @@ proptest! {
         prop_assert_eq!(parsed.len(), 1);
         let entry = parsed[0].unwrap();
         prop_assert_eq!(entry.value.as_str(), value.as_str());
+        let tried = entry.value.try_as_str();
+        prop_assert_eq!(tried.as_deref().ok(), Some(value.as_str()));
     }
 }

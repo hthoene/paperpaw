@@ -64,21 +64,21 @@ impl UiPageEnd {
 pub struct UiPage<'a, T> {
     bytes: &'a [u8],
     end: UiPageEnd,
-    decode: fn(wire::Record<'a>) -> Result<T, Error>,
+    decode: fn(wire::RawRecord<'a>) -> Result<T, Error>,
 }
 impl<'a, T> UiPage<'a, T> {
     pub(super) fn checked(
         bytes: &'a [u8],
         cursor: UiCursor,
         op: &ServiceOp,
-        decode: fn(wire::Record<'a>) -> Result<T, Error>,
+        decode: fn(wire::RawRecord<'a>) -> Result<T, Error>,
     ) -> Result<Self, Error> {
         Self::check(bytes, Some(cursor), op, decode)
     }
     pub(super) fn terminal(
         bytes: &'a [u8],
         op: &ServiceOp,
-        decode: fn(wire::Record<'a>) -> Result<T, Error>,
+        decode: fn(wire::RawRecord<'a>) -> Result<T, Error>,
     ) -> Result<Self, Error> {
         Self::check(bytes, None, op, decode)
     }
@@ -86,14 +86,15 @@ impl<'a, T> UiPage<'a, T> {
         bytes: &'a [u8],
         cursor: Option<UiCursor>,
         op: &ServiceOp,
-        decode: fn(wire::Record<'a>) -> Result<T, Error>,
+        decode: fn(wire::RawRecord<'a>) -> Result<T, Error>,
     ) -> Result<Self, Error> {
         let mut rest = bytes;
         let mut rows = 0u32;
         loop {
-            let (record, length) = wire::record_decode_prefix(rest).map_err(Error::from_status)?;
+            let (record, length) = wire::RawRecord::prefix(rest).map_err(Error::from_status)?;
             rest = rest.get(length..).ok_or(Error::Invalid)?;
-            if let wire::Record::ServiceEnd(end) = record {
+            if record.tag() == wire::SERVICE_END_TAG {
+                let end: wire::ServiceEnd = record.decode().map_err(Error::from_status)?;
                 if !rest.is_empty() {
                     return Err(Error::Invalid);
                 }
@@ -149,8 +150,8 @@ impl<'a, T> Iterator for UiPage<'a, T> {
         if self.bytes.is_empty() {
             return None;
         }
-        match wire::record_decode_prefix(self.bytes) {
-            Ok((wire::Record::ServiceEnd(_), _)) => {
+        match wire::RawRecord::prefix(self.bytes) {
+            Ok((end, _)) if end.tag() == wire::SERVICE_END_TAG => {
                 self.bytes = &[];
                 None
             }

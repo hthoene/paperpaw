@@ -92,6 +92,11 @@ jobs:
           if [[ "$DRY_RUN" == true ]]; then
             echo "::notice::DRY RUN of $RELEASE_TAG: no tag, no release, no upload"
           fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Release notes were collected before tagging
+        run: python3 tools/changelog.py check --release
 
   android:
     name: Android app

@@ -237,8 +237,16 @@ fn a_deck_that_cannot_be_read_tells_why_and_is_not_tried_again() {
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].outcome, Outcome::NoNotes);
     // The opening of the flash cards does not try it again; asking does.
-    assert!(sync::Job::new(&storage, FOLDER, sync::Mode::Auto).is_empty());
-    assert!(!sync::Job::new(&storage, FOLDER, sync::Mode::Manual).is_empty());
+    assert!(
+        sync::Job::new(&storage, FOLDER, sync::Mode::Auto)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !sync::Job::new(&storage, FOLDER, sync::Mode::Manual)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -249,13 +257,13 @@ fn a_job_steps_through_an_anki_deck() {
         "A.apkg",
         &deck_with("collection.anki21", &[note(&["a", "b"])]),
     );
-    let mut job = sync::Job::new(&storage, FOLDER, sync::Mode::Manual);
+    let mut job = sync::Job::new(&storage, FOLDER, sync::Mode::Manual).unwrap();
     let mut steps = 0;
     loop {
         steps += 1;
         match job.step(&storage) {
             Step::Done => break,
-            Step::Ask(_) => job.answer(&storage, true),
+            Step::Ask => job.answer(&storage, true),
             Step::Working => {}
         }
         assert!(steps < 100);
@@ -265,7 +273,7 @@ fn a_job_steps_through_an_anki_deck() {
 
 #[test]
 fn deck_names_and_the_listing_know_apkg() {
-    assert_eq!(sync::deck_name("Spanish.APKG"), "Spanish");
+    assert_eq!(sync::deck_name("Spanish.APKG").unwrap(), "Spanish");
     assert!(is_apkg("x.apkg") && is_apkg("X.ApKg") && !is_apkg("apkg") && !is_apkg("x.txt"));
     assert!(!is_apkg("é.apk"));
 }
@@ -413,7 +421,7 @@ fn what_a_deck_left_behind_is_removed_when_a_job_starts() {
     // The power went while a deck was being read.
     storage.write(&database_path(), b"half a database").unwrap();
     storage.write(&text_path(), b"half a text").unwrap();
-    let _ = sync::Job::new(&storage, FOLDER, sync::Mode::Auto);
+    let _ = sync::Job::new(&storage, FOLDER, sync::Mode::Auto).unwrap();
     assert!(!storage.exists(&database_path()) && !storage.exists(&text_path()));
 }
 

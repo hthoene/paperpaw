@@ -24,7 +24,7 @@ fn save_as_the_screen(storage: &dyn Storage, deck: u32) -> (Vec<FileReport>, Opt
         loop {
             match job.step(storage) {
                 sync::Step::Done => break,
-                sync::Step::Ask(_) => job.answer(storage, true),
+                sync::Step::Ask => job.answer(storage, true),
                 sync::Step::Working => {}
             }
         }
@@ -80,7 +80,7 @@ fn a_deck_is_saved_with_its_marker_its_ids_and_quoted_where_needed() {
     assert_eq!(report.backup.as_deref(), Some("_Words.bak.tsv"));
     assert_eq!(read(&storage, "_Words.bak.tsv"), before);
     assert!(!storage.exists("Flashcards/Words.tsv.part"));
-    let (_, found) = sync::files(&storage, FOLDER);
+    let (_, found) = sync::files(&storage, FOLDER).unwrap();
     assert_eq!(found.len(), 1, "{found:?}");
 }
 
@@ -92,7 +92,7 @@ fn a_saved_file_is_found_unchanged_by_the_next_update() {
     let deck = deck_id(&storage, "W");
     save(&storage, deck);
     // Neither read again by an automatic update, nor different by hash.
-    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, sync::Outcome::Same, "{again:?}");
     assert_eq!(cards_of(&storage, deck).len(), 2);
@@ -430,7 +430,7 @@ fn a_deck_too_big_for_a_file_is_not_saved() {
 fn a_deck_that_is_gone_is_told() {
     let storage = MemoryStorage::new();
     assert_eq!(save(&storage, 77).0.outcome, Outcome::NoDeck);
-    assert!(sync::files(&storage, FOLDER).1.is_empty());
+    assert!(sync::files(&storage, FOLDER).unwrap().1.is_empty());
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn a_ledger_that_cannot_be_read_stops_a_save_and_is_not_written_over() {
     let deck = deck_id(&storage, "W");
     let newer = "paperpaw-sources 9\nW.tsv\t1\t4\t0\tff\t0\n";
     storage
-        .write(&sync::ledger_path(), newer.as_bytes())
+        .write(sync::ledger_path(), newer.as_bytes())
         .unwrap();
     assert_eq!(save(&storage, deck).0.outcome, Outcome::Unreadable);
     assert_eq!(ledger_text(&storage), newer.as_bytes());
@@ -482,7 +482,7 @@ fn a_big_deck_is_saved_in_steps_with_a_small_heap_and_read_back_the_same() {
         cards::MAX_CARDS
     );
     // The update of it: the same, and unread.
-    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, sync::Outcome::Same, "{again:?}");
     // Edited on the computer (every seventh back), it is read for real:
@@ -591,7 +591,7 @@ fn the_switch_is_for_a_linked_deck_only_and_old_ledger_lines_read_as_off() {
                 + "\n"
         })
         .collect();
-    storage.write(&sync::ledger_path(), old.as_bytes()).unwrap();
+    storage.write(sync::ledger_path(), old.as_bytes()).unwrap();
     assert!(!sync::link_of(&ledger(&storage), deck).unwrap().mirror);
     assert!(sync::set_mirror(&storage, deck, true));
     assert!(sync::link_of(&ledger(&storage), deck).unwrap().mirror);
@@ -636,11 +636,11 @@ fn an_update_of_an_ordinary_size_takes_a_small_heap() {
     put(&storage, "Ord.tsv", &text);
     let wrapped = Wrapped::new(&storage);
     let ((reports, _), biggest, peak) = heap::measure(|| {
-        let mut job = Job::new(&wrapped, FOLDER, Mode::Manual);
+        let mut job = Job::new(&wrapped, FOLDER, Mode::Manual).unwrap();
         loop {
             match job.step(&wrapped) {
                 sync::Step::Done => break (job.reports, 0),
-                sync::Step::Ask(_) => job.answer(&wrapped, true),
+                sync::Step::Ask => job.answer(&wrapped, true),
                 sync::Step::Working => {}
             }
         }
@@ -887,6 +887,6 @@ fn an_old_ledger_line_has_nothing_left_out() {
             }
         })
         .collect();
-    storage.write(&sync::ledger_path(), old.as_bytes()).unwrap();
+    storage.write(sync::ledger_path(), old.as_bytes()).unwrap();
     assert_eq!(sync::link_of(&ledger(&storage), deck).unwrap().left_out, 0);
 }

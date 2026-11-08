@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use wire::{
     EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
 };
