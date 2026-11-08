@@ -33,9 +33,13 @@
     reason = "test support: statuses are the interface's, named at the types"
 )]
 mod refusal;
+mod registry;
 mod slots;
+mod ui;
 
 pub use refusal::Slot;
+pub use registry::{PAGE_ROWS, Registry, row};
+pub use ui::{Answer, Dialogs, Question};
 
 use core::ffi::c_void;
 use paperpaw_core::native_host::commands::{
@@ -53,6 +57,9 @@ use std::pin::Pin;
 
 /// A scripted service's backend: `(op, input)` to the reply bytes or a status.
 pub(crate) type Handler = Box<dyn FnMut(u32, &[u8]) -> Result<Vec<u8>, i32>>;
+
+/// A hook run when a callback returns, with its status.
+pub(crate) type EndedHook = Box<dyn Fn(i32)>;
 
 /// One scripted `core.*` service: `handler(op, input)` is its backend.
 pub(crate) struct ScriptedService {
@@ -95,6 +102,8 @@ pub(crate) struct State {
     pub(crate) live: Cell<usize>,
     pub(crate) clock: Cell<u64>,
     pub(crate) scope: CommandScope,
+    /// Hooks run when a callback returns, with its status (the dialogs').
+    pub(crate) ended: RefCell<Vec<EndedHook>>,
     table: PpHost,
 }
 
@@ -149,6 +158,7 @@ impl ScriptedHost {
             live: Cell::new(0),
             clock: Cell::new(0),
             scope: CommandScope::new(),
+            ended: RefCell::new(Vec::new()),
             table: slots::table(),
         });
         Self { state }
@@ -222,6 +232,39 @@ impl ScriptedHost {
             bound: DEFAULT_REPLY_BOUND,
             op_bounds: Vec::new(),
         });
+    }
+
+    /// Adds `core.ui` for questions (ops 8, 9 and 10) and returns the handle
+    /// that shows what was asked and answers it.
+    pub fn dialogs(&self) -> Dialogs {
+        let dialogs = Dialogs::new();
+        let backend = dialogs.clone();
+        let ended = dialogs.clone();
+        self.state
+            .ended
+            .borrow_mut()
+            .push(Box::new(move |status| ended.callback_ended(status)));
+        self.service("core.ui", 1, u16::MAX, move |op, input| {
+            backend.call(op, input)
+        });
+        // The schema's reply bounds: `ask` and `text_read` 4,096 bytes,
+        // `text_write` 64 (the default 4,096 covers the first two).
+        self.reply_bound("core.ui", 9, 64);
+        dialogs
+    }
+
+    /// Adds `core.registry` and returns the handle that scripts its rows,
+    /// pages and generation.
+    pub fn registry(&self) -> Registry {
+        let registry = Registry::new();
+        let backend = registry.clone();
+        self.service(
+            "core.registry",
+            registry::MAJOR,
+            u16::MAX,
+            move |op, input| backend.call(op, input),
+        );
+        registry
     }
 
     /// The reply bound of `op` of the service `key`: the plugin's `out` for a
@@ -350,6 +393,19 @@ enum Kind {
     Draw,
 }
 
+impl Callback {
+    /// Whether any batch the callback submitted holds `needle` (for example a
+    /// secret that must never be in a command).
+    #[must_use]
+    pub fn batches_contain(&self, needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && self
+                .batches
+                .iter()
+                .any(|batch| batch.windows(needle.len()).any(|window| window == needle))
+    }
+}
+
 impl Plugin<'_> {
     /// `dispatch_event(token, batch)`. An event has no reply buffer (its
     /// capacity is 0, as in the shell) and returns a status only: a positive
@@ -418,6 +474,9 @@ impl Plugin<'_> {
             Kind::Input if status > 1 => ERR_INVALID,
             _ => status,
         };
+        for hook in state.ended.borrow().iter() {
+            hook(status);
+        }
         let mut commands = stage.into_commands();
         let mut dropped = 0;
         if status < 0 {
@@ -485,4 +544,39 @@ pub fn sweep<R>(
         results.push((Some(nth), scenario(&mut host, Some(nth))));
     }
     results
+}
+
+/// As [`sweep`], and after every run (the scenario has dropped its plugin)
+/// the host must hold no heap block and no service handle: a path that
+/// leaves one fails the test, naming the refused call.
+///
+/// # Panics
+/// A run left a block or a handle held.
+pub fn sweep_released<R>(
+    slot: Slot,
+    status: i32,
+    mut scenario: impl FnMut(&mut ScriptedHost, Option<usize>) -> R,
+) -> Vec<(Option<usize>, R)> {
+    let mut results = Vec::new();
+    let mut clean = ScriptedHost::new();
+    let first = scenario(&mut clean, None);
+    assert_released(&clean, None);
+    let calls = clean.calls(slot);
+    results.push((None, first));
+    for nth in 1..=calls {
+        let mut host = ScriptedHost::new();
+        host.refuse_nth(slot, nth, status);
+        let result = scenario(&mut host, Some(nth));
+        assert_released(&host, Some(nth));
+        results.push((Some(nth), result));
+    }
+    results
+}
+
+fn assert_released(host: &ScriptedHost, refused: Option<usize>) {
+    assert_eq!(
+        (host.live_allocations(), host.open_handles()),
+        (0, 0),
+        "after the run with call {refused:?} refused: heap blocks and service handles still held"
+    );
 }
