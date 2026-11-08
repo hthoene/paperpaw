@@ -152,6 +152,33 @@ pub(crate) mod heap {
         /// The allocation to refuse, counted from 1; 0 turns refusing off.
         static REFUSE_AT: Cell<usize> = const { Cell::new(0) };
         static COUNT: Cell<usize> = const { Cell::new(0) };
+        /// Whether the live bytes are followed, and the most they were.
+        static METER: Cell<bool> = const { Cell::new(false) };
+        static LIVE: Cell<isize> = const { Cell::new(0) };
+        static PEAK: Cell<isize> = const { Cell::new(0) };
+    }
+
+    /// Follows the live bytes: `grew` bytes more (or less) of this thread.
+    fn track(grew: isize) {
+        if METER.try_with(Cell::get).unwrap_or(false) {
+            LIVE.try_with(|live| {
+                live.set(live.get() + grew);
+                PEAK.try_with(|peak| peak.set(peak.get().max(live.get())))
+                    .ok();
+            })
+            .ok();
+        }
+    }
+
+    /// Runs `run` and tells the most bytes it held at one time beyond what
+    /// was there when it began (its transient peak).
+    pub(crate) fn peak<T>(run: impl FnOnce() -> T) -> (T, usize) {
+        LIVE.with(|live| live.set(0));
+        PEAK.with(|peak| peak.set(0));
+        METER.with(|meter| meter.set(true));
+        let result = run();
+        METER.with(|meter| meter.set(false));
+        (result, usize::try_from(PEAK.with(Cell::get)).unwrap_or(0))
     }
 
     /// Whether this allocation is the one to refuse (and counts it).
@@ -194,10 +221,12 @@ pub(crate) mod heap {
             if refuse() {
                 return core::ptr::null_mut();
             }
+            track(layout.size() as isize);
             // SAFETY: the caller's layout, passed on.
             unsafe { System.alloc(layout) }
         }
         unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+            track(-(layout.size() as isize));
             // SAFETY: the pointer and layout of an allocation made above.
             unsafe { System.dealloc(p, layout) }
         }
@@ -205,6 +234,7 @@ pub(crate) mod heap {
             if refuse() {
                 return core::ptr::null_mut();
             }
+            track(new as isize - layout.size() as isize);
             // SAFETY: the pointer and layout of an allocation made above.
             unsafe { System.realloc(p, layout, new) }
         }
