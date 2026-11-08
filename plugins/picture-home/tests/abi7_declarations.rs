@@ -7,7 +7,8 @@
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
 mod declarations;
-use paperpaw_core::native_host::registrations::{Record, records_decode};
+#[path = "../../test-support/declared.rs"]
+mod declared;
 use paperpaw_plugin_picture_home::PictureHome;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, MenuNeed, Plugin, Registrar};
@@ -126,46 +127,6 @@ fn the_group_and_the_settings_match() {
         declarations::DEFAULTS[0],
         "home.clock, home.continue, home.recent"
     );
-    native_batch_matches(&found);
-}
-
-/// The native batch, decoded, names the same settings in the same order:
-/// name, group, title, help, kind, the advanced flag, the number range and
-/// the choices.
-fn native_batch_matches(found: &[Found]) {
-    let batches = batches(|d| declarations::settings(d).unwrap());
-    let mut specs = Vec::new();
-    for batch in &batches {
-        let records = records_decode(batch).unwrap();
-        for record in records.iter() {
-            if let Record::SettingSpec(spec) = record {
-                specs.push(format!(
-                    "picture-home.{} {} {} {} kind={} advanced={} {}..{} {:?}",
-                    spec.name,
-                    spec.group,
-                    spec.title,
-                    spec.help,
-                    spec.kind,
-                    spec.flags & (1 << 4) != 0,
-                    spec.min,
-                    spec.max,
-                    spec.choices
-                ));
-            }
-        }
-    }
-    assert_eq!(specs.len(), found.len());
-    for (spec, f) in specs.iter().zip(found) {
-        let head = format!("{} {} {} {}", f.0, f.3, f.1, f.2.as_deref().unwrap());
-        assert!(spec.starts_with(&head), "{spec} vs {head}");
-        assert_eq!(spec.contains("advanced=true"), f.4.ends_with("Advanced"));
-        // The range of a number and the number of choices.
-        if let Some(range) = f.4.strip_prefix("Int { min: ") {
-            let (min, rest) = range.split_once(", max: ").unwrap();
-            let max = rest.split_once(' ').unwrap().0;
-            assert!(spec.contains(&format!(" {min}..{max} ")), "{spec}");
-        }
-    }
 }
 
 type Found = (
@@ -407,4 +368,52 @@ fn screens_offer_places_and_need_match() {
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
+}
+
+/// What the batches say, decoded and checked by the host's rules, is what the
+/// interface-6 registration says: every field of the group, the 28 settings,
+/// their extras (editors, the condition of the bar's alignment) and the
+/// screens; the rest is checked and refused as unsupported until the host
+/// takes it.
+#[test]
+fn the_decoded_batches_say_what_the_registration_says() {
+    let mut all = Vec::new();
+    for batch in [
+        batches(|d| declarations::settings(d).unwrap()),
+        batches(|d| declarations::screens(d).unwrap()),
+        batches(|d| declarations::navigation(d).unwrap()),
+    ] {
+        all.extend(batch);
+    }
+    let native = declared::native("picture-home", &all);
+    let old = declared::legacy("picture-home", "picture-home.group", legacy());
+    assert_eq!(native.groups, old.groups);
+    assert_eq!(native.specs.len(), 28);
+    assert_eq!(native.specs, old.specs);
+    // The bar's items have no editor yet: the interface-6 picker is the
+    // host's screen; Kernel's ruling (todo 121) gives them one of the
+    // plugin's own, built on the kit's `status_items`.
+    let (items, others): (Vec<_>, Vec<_>) = old
+        .extras
+        .iter()
+        .cloned()
+        .partition(|e| e.contains("-items|"));
+    assert_eq!(items.len(), 3, "{items:?}");
+    assert!(items.iter().all(|e| e.contains("|1:core.status-items|")));
+    assert_eq!(native.extras, others);
+    assert_eq!(native.screens, old.screens);
+    // The offer, the widget place, the bar's status place, the icon and the need.
+    for kind in [
+        "SlotOffer",
+        "WidgetPlace",
+        "StatusPlace",
+        "IconSpec",
+        "MenuNeed",
+    ] {
+        assert!(
+            native.others.iter().any(|k| k == kind),
+            "{kind} in {:?}",
+            native.others
+        );
+    }
 }
