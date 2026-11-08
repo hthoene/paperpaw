@@ -32,6 +32,8 @@ pub struct Md5 {
     length: u64,
 }
 
+crate::wipe::wiped_on_drop!(Md5, 4);
+
 impl Default for Md5 {
     fn default() -> Self {
         Self::new()
@@ -179,6 +181,19 @@ fn partial_md5(storage: &dyn Storage, path: &str) -> Option<Md5> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `Drop` runs leaves no trace of what was hashed.
+    #[test]
+    fn the_state_is_wiped() {
+        let mut digest = Md5::new();
+        digest
+            .update(b"a password, and more than a block of it to fill the state: ................");
+        assert!(digest.length != 0 && digest.state.iter().any(|w| *w != 0));
+        digest.wipe();
+        assert!(digest.state.iter().all(|w| *w == 0));
+        assert!(digest.block.iter().all(|b| *b == 0));
+        assert_eq!((digest.used, digest.length), (0, 0));
+    }
     use alloc::vec::Vec;
     use paperpaw_platform::{DirEntry, StorageError};
 
