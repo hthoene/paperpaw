@@ -121,3 +121,43 @@ fn the_length_of_an_instruction_is_in_its_first_byte() {
         assert_eq!(length(b0), expect, "{b0:#x}");
     }
 }
+
+/// The scan over the code LLVM wrote for the S3: every `.text.*` section of
+/// the objects (compiled with the `esp` toolchain, one function per section)
+/// in the folder `PAPERPAW_XTENSA_CORPUS`. Run by hand:
+/// `PAPERPAW_XTENSA_CORPUS=<folder of .o files> cargo test -p paperpaw-sign
+/// -- --ignored corpus`. Compiler output has `entry` as its only change of
+/// `sp`, so any other finding is a form the scan mislabels or misreads.
+#[test]
+#[ignore = "needs the objects of PAPERPAW_XTENSA_CORPUS"]
+fn corpus_of_compiler_output_has_no_finding_but_frames() {
+    let folder = std::env::var("PAPERPAW_XTENSA_CORPUS").expect("PAPERPAW_XTENSA_CORPUS");
+    let (mut functions, mut bad) = (0usize, Vec::new());
+    for entry in std::fs::read_dir(folder).expect("folder") {
+        let path = entry.expect("entry").path();
+        if path.extension().is_none_or(|e| e != "o") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).expect("object");
+        let elf = Elf::parse(&bytes).expect("an ELF object");
+        for section in elf.sections.iter().filter(|s| s.name.starts_with(".text.")) {
+            let code = elf.data(section).expect("section data");
+            functions += 1;
+            match find(code) {
+                None | Some(Finding::Frame { .. }) => {}
+                Some(other) => bad.push(format!("{} {}: {other:?}", path.display(), section.name)),
+            }
+        }
+    }
+    assert!(
+        functions > 100,
+        "only {functions} sections: is the corpus there?"
+    );
+    assert!(
+        bad.is_empty(),
+        "{} of {functions}: {:#?}",
+        bad.len(),
+        &bad[..bad.len().min(10)]
+    );
+    eprintln!("corpus: {functions} sections scanned, no finding");
+}

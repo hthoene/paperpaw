@@ -32,7 +32,7 @@
 //!
 //! This is a scan of code LLVM wrote, not a disassembler: it classifies the
 //! forms that can name `a1` as a destination and lets every other 24-bit
-//! instruction through. A form it mislabels is caught by the corpus test
+//! instruction through. A form it mislabels is caught by the corpus test (run by hand)
 //! (`tools/sign/src/frames_xtensa/tests.rs`).
 
 use crate::elf::{Elf, Section, Symbol};
