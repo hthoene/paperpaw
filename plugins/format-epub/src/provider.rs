@@ -1,7 +1,7 @@
 //! The interface-7 `core.format` provider for the crate's formats
 //! (`docs/abi/document.md` section 3): one `fmt.call` in, the op's records
 //! out, over any parser that is a [`Document`]. A format is an [`Opener`]: how
-//! to open its book from the storage of a callback ([`NativeIo`]).
+//! to open its book from the storage of a callback ([`NativeIo`](crate::NativeIo)).
 //!
 //! Gaps until Kernel's draft 29 (marked `GAP`): block `dir`, `writing_mode`
 //! and `lang` and the inline languages are not sent (0 / empty); embedded
@@ -295,6 +295,67 @@ impl FormatProvider {
         Ok(written)
     }
 
+    /// A page of the section list.
+    fn sections(
+        document: &dyn Document,
+        call: &stage::FmtCall<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, Error> {
+        let total = usize::try_from(document.sections()).map_err(|_| Error::Invalid)?;
+        let from = min(
+            usize::try_from(call.cursor).map_err(|_| Error::Invalid)?,
+            total,
+        );
+        let mut rows: Vec<Record<'_>> = Vec::new();
+        rows.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
+        for index in from..min(total, from + ROWS - 1) {
+            let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
+            let whole = u32::from(document.whole_pages());
+            rows.push(Record::FmtSection(stage::FmtSection::new(
+                index,
+                document.section_len(index),
+                whole,
+            )));
+        }
+        page(&rows, from, total, out)
+    }
+
+    /// A page of the contents.
+    fn toc(
+        document: &dyn Document,
+        io: &dyn Storage,
+        call: &stage::FmtCall<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, Error> {
+        let total = usize::try_from(document.toc_len(io)).map_err(|_| Error::Invalid)?;
+        let from = min(
+            usize::try_from(call.cursor).map_err(|_| Error::Invalid)?,
+            total,
+        );
+        let mut entries = Vec::new();
+        entries.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
+        for index in from..min(total, from + ROWS - 1) {
+            let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
+            // A title that cannot be read fails the call: a gap would shift the list.
+            let entry = document.toc_entry(io, index).ok_or(Error::Io)?;
+            entries.push((index, entry));
+        }
+        let mut rows: Vec<Record<'_>> = Vec::new();
+        rows.try_reserve(entries.len())
+            .map_err(|_| Error::NoMemory)?;
+        for (index, entry) in &entries {
+            rows.push(Record::FmtToc(stage::FmtToc::new(
+                *index,
+                u32::from(entry.level),
+                entry.at.section,
+                entry.at.offset,
+                0,
+                prefix(&entry.title, 512),
+            )));
+        }
+        page(&rows, from, total, out)
+    }
+
     fn ask(
         document: &dyn Document,
         cache: &str,
@@ -306,55 +367,9 @@ impl FormatProvider {
         match call.op {
             op::META => Self::meta(document, out),
             op::META_TEXT => Self::meta_text(document, call, out),
-            op::SECTIONS => {
-                let total = usize::try_from(document.sections()).map_err(|_| Error::Invalid)?;
-                let from = min(
-                    usize::try_from(call.cursor).map_err(|_| Error::Invalid)?,
-                    total,
-                );
-                let mut rows: Vec<Record<'_>> = Vec::new();
-                rows.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
-                for index in from..min(total, from + ROWS - 1) {
-                    let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
-                    let whole = u32::from(document.whole_pages());
-                    rows.push(Record::FmtSection(stage::FmtSection::new(
-                        index,
-                        document.section_len(index),
-                        whole,
-                    )));
-                }
-                page(&rows, from, total, out)
-            }
+            op::SECTIONS => Self::sections(document, call, out),
             op::BLOCK => Self::block(document, cache, io, call, out),
-            op::TOC => {
-                let total = usize::try_from(document.toc_len(io)).map_err(|_| Error::Invalid)?;
-                let from = min(
-                    usize::try_from(call.cursor).map_err(|_| Error::Invalid)?,
-                    total,
-                );
-                let mut entries = Vec::new();
-                entries.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
-                for index in from..min(total, from + ROWS - 1) {
-                    let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
-                    // A title that cannot be read fails the call: a gap would shift the list.
-                    let entry = document.toc_entry(io, index).ok_or(Error::Io)?;
-                    entries.push((index, entry));
-                }
-                let mut rows: Vec<Record<'_>> = Vec::new();
-                rows.try_reserve(entries.len())
-                    .map_err(|_| Error::NoMemory)?;
-                for (index, entry) in &entries {
-                    rows.push(Record::FmtToc(stage::FmtToc::new(
-                        *index,
-                        u32::from(entry.level),
-                        entry.at.section,
-                        entry.at.offset,
-                        0,
-                        prefix(&entry.title, 512),
-                    )));
-                }
-                page(&rows, from, total, out)
-            }
+            op::TOC => Self::toc(document, io, call, out),
             op::TOC_TARGET => {
                 let to = document.toc_target(io, call.index).ok_or(Error::NotFound)?;
                 one(at_record(call.document, to), out)
@@ -699,23 +714,7 @@ fn records<'a>(
             0,
         )));
     }
-    if let Some(table) = &block.table {
-        list.push(Record::FmtColumns(stage::FmtColumns::new(weights)));
-        for (cell, width) in table.cells.iter().zip(table.weights()) {
-            list.push(Record::FmtCell(stage::FmtCell::new(
-                cell.end,
-                u32::from(cell.span),
-                u32::from(cell.rows),
-                u32::from(cell.align.bits()),
-                match cell.vertical {
-                    VerticalAlign::Middle => 1,
-                    VerticalAlign::Bottom => 2,
-                    _ => 0,
-                },
-                width,
-            )));
-        }
-    }
+    table_records(block, weights, list);
     for note in &block.annotations {
         // GAP: `AnnotationKind` is not re-exported by `paperpaw_sdk::document`,
         // so every note is sent as ruby (0). No parser of this crate sets
@@ -802,4 +801,25 @@ fn lang_tag(lang: paperpaw_sdk::Lang, buf: &mut [u8; 16]) -> &str {
     buf.get(..len)
         .and_then(|b| core::str::from_utf8(b).ok())
         .unwrap_or_default()
+}
+
+/// The columns and cells of a table row.
+fn table_records<'a>(block: &Block, weights: &'a [u8], list: &mut Vec<Record<'a>>) {
+    if let Some(table) = &block.table {
+        list.push(Record::FmtColumns(stage::FmtColumns::new(weights)));
+        for (cell, width) in table.cells.iter().zip(table.weights()) {
+            list.push(Record::FmtCell(stage::FmtCell::new(
+                cell.end,
+                u32::from(cell.span),
+                u32::from(cell.rows),
+                u32::from(cell.align.bits()),
+                match cell.vertical {
+                    VerticalAlign::Middle => 1,
+                    VerticalAlign::Bottom => 2,
+                    _ => 0,
+                },
+                width,
+            )));
+        }
+    }
 }
