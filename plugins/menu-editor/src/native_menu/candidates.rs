@@ -212,8 +212,9 @@ mod tests {
 
     #[test]
     fn a_refused_allocation_is_reported_and_recovers() {
+        let mut found = [candidate("early.b")];
         crate::fail_alloc::sweep(|| {
-            let mut found = [candidate("early.b")];
+            found[0].hidden_by = None;
             mark_hidden(&mut found, "early.b", "hider")?;
             name_hider(&mut found, "hider", "Hider")?;
             Ok(found[0].hidden_by().map(str::len))
