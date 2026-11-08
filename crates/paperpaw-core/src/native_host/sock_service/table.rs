@@ -1,7 +1,7 @@
 //! The socket table of `core.sockets`: ids, owners, the pool charge, the send
 //! queue, one read at a time, the idle time and the routing of the event 106.
 use super::super::host_services::Caller;
-use super::super::net_pool::NetPool;
+use super::super::net_pool::{DEMAND_SOCK, NetPool};
 use super::super::net_service::gate;
 use super::{
     Connect, IDLE_DEFAULT_MS, IDLE_MAX_MS, NO_NETWORK_MS, PIECE, PLUGIN_ENTRIES, PLUGIN_SOCKETS,
@@ -201,7 +201,10 @@ impl Inner {
         let active = self.socks.iter().any(Sock::live);
         if active != self.demand {
             self.demand = active;
-            host.network_demand(active);
+            // The shell hears the OR of NET and SOCK, once per change.
+            if let Some(wanted) = host.table().pool.demand(DEMAND_SOCK, active) {
+                host.network_demand(wanted);
+            }
         }
     }
 
@@ -353,6 +356,12 @@ impl Inner {
     /// (a partial exact read) or an empty read, then the socket closes.
     fn settle_eof(&mut self, host: &dyn SockHost, index: usize) {
         let s = &self.socks[index];
+        if s.eof && s.state == State::Open && s.want.is_some_and(|w| w.exact) {
+            // An exact read the peer cut short is all or nothing: the socket
+            // ends, the partial bytes are freed, no `received` is told.
+            self.end(host, index, kind::FAILED, reason::CLOSED_EARLY, true);
+            return;
+        }
         if !s.eof || s.want.is_none() || s.received.is_some() || s.held || s.state != State::Open {
             return;
         }

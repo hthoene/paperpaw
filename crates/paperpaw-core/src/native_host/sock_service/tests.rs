@@ -617,16 +617,31 @@ fn the_peer_closing_gives_an_empty_read_and_then_a_close() {
     assert_eq!(next(&f, OWNER), None);
     read_bytes(&f, OWNER, id, 10, false).unwrap();
     assert_eq!(drain(&f, OWNER).len(), 2);
-    // A partial exact read hands over what came, then the empty one.
+    // An exact read is all or nothing: the peer closing before `max` bytes
+    // ends the socket `failed` `closed_early`, with no `received` and the
+    // partial bytes freed.
     let id = open(&f, OWNER, 6);
     read_bytes(&f, OWNER, id, 10, true).unwrap();
-    received(&f, id, b"abc").unwrap();
+    received(&f, id, b"abcd").unwrap();
     peer_closed(&f, id).unwrap();
-    assert_eq!(next(&f, OWNER), Some(Ev::new(id, 6, kind::RECEIVED, 0, 3)));
-    assert_eq!(data_of(&f, OWNER, id, 0).unwrap(), b"abc");
-    event_delivered(&f, OWNER).unwrap();
+    assert_eq!(
+        drain(&f, OWNER),
+        std::vec![Ev::new(id, 6, kind::FAILED, reason::CLOSED_EARLY, 0)]
+    );
+    assert_eq!(f.used(), 0);
+    // A plain read keeps the empty read as the peer's close.
+    let id = open(&f, OWNER, 7);
     read_bytes(&f, OWNER, id, 10, false).unwrap();
+    peer_closed(&f, id).unwrap();
     assert_eq!(drain(&f, OWNER).len(), 2);
+    // Closed while no read was asked: an exact read ends at once.
+    let id = open(&f, OWNER, 8);
+    peer_closed(&f, id).unwrap();
+    read_bytes(&f, OWNER, id, 10, true).unwrap();
+    assert_eq!(
+        drain(&f, OWNER),
+        std::vec![Ev::new(id, 8, kind::FAILED, reason::CLOSED_EARLY, 0)]
+    );
     assert_eq!(f.used(), 0);
 }
 
@@ -899,6 +914,31 @@ fn events_come_in_the_order_they_happened_across_sockets() {
         next(&f, OWNER).is_some(),
         "a refused write consumed nothing"
     );
+}
+
+#[test]
+fn the_shell_hears_the_demand_of_net_and_sockets_combined() {
+    use crate::native_host::net_pool::DEMAND_NET;
+    let pool = Rc::new(NetPool::new(49_152));
+    let f = Fake::with_pool(SockProfile::X4, pool.clone());
+    // NET is busy first: the socket adds no edge, and its end none either.
+    assert_eq!(pool.demand(DEMAND_NET, true), Some(true));
+    let id = open(&f, OWNER, 1);
+    assert!(f.demand.borrow().is_empty());
+    close(&f, OWNER, id).unwrap();
+    drain(&f, OWNER);
+    assert!(f.demand.borrow().is_empty());
+    // A live socket outlasts NET going idle.
+    let id = open(&f, OWNER, 2);
+    assert_eq!(pool.demand(DEMAND_NET, false), None, "NET idle: no edge");
+    close(&f, OWNER, id).unwrap();
+    assert_eq!(&*f.demand.borrow(), &[false], "both idle: exactly one");
+    drain(&f, OWNER);
+    // Alone it is one edge each way.
+    f.demand.borrow_mut().clear();
+    let id = open(&f, OWNER, 3);
+    close(&f, OWNER, id).unwrap();
+    assert_eq!(&*f.demand.borrow(), &[true, false]);
 }
 
 // ---- memory ----

@@ -22,7 +22,15 @@ use core::cell::Cell;
 pub(crate) struct NetPool {
     capacity: u32,
     used: Cell<u32>,
+    /// One bit per service that wants the network ([`DEMAND_NET`],
+    /// [`DEMAND_SOCK`]).
+    wanted: Cell<u8>,
 }
+
+/// `core.net` wants the network (a request or a server is live).
+pub(crate) const DEMAND_NET: u8 = 1;
+/// `core.sockets` wants the network (a socket is live).
+pub(crate) const DEMAND_SOCK: u8 = 2;
 
 impl NetPool {
     /// A pool of `capacity` bytes (0: the device has none).
@@ -30,7 +38,18 @@ impl NetPool {
         Self {
             capacity,
             used: Cell::new(0),
+            wanted: Cell::new(0),
         }
+    }
+
+    /// The service `bit` wants (or no longer wants) the network. `Some(now)`
+    /// when the OR of all services changed, which is the only time the shell
+    /// is told: `core.net` going idle while a socket is live is no edge.
+    pub(crate) fn demand(&self, bit: u8, wanted: bool) -> Option<bool> {
+        let before = self.wanted.get();
+        let after = if wanted { before | bit } else { before & !bit };
+        self.wanted.set(after);
+        ((before != 0) != (after != 0)).then_some(after != 0)
     }
 
     /// The pool's size; 0 for a device without one.
@@ -80,7 +99,7 @@ impl NetPool {
 
 #[cfg(test)]
 mod tests {
-    use super::NetPool;
+    use super::{DEMAND_NET, DEMAND_SOCK, NetPool};
 
     #[test]
     fn reservations_are_bounded_and_released_exactly() {
@@ -105,6 +124,24 @@ mod tests {
         assert!(pool.fits(2_000, 1_000));
         assert!(pool.fits(2_000, 5_000), "more given back than held");
         assert!(!pool.fits(u32::MAX, 9_000));
+    }
+
+    #[test]
+    fn the_shell_hears_the_or_of_the_services_only_when_it_changes() {
+        // Also on a device without a pool: the demand is not a byte count.
+        for capacity in [0, 49_152] {
+            let pool = NetPool::new(capacity);
+            assert_eq!(pool.demand(DEMAND_NET, true), Some(true));
+            assert_eq!(pool.demand(DEMAND_SOCK, true), None, "already wanted");
+            assert_eq!(pool.demand(DEMAND_NET, false), None, "a socket is live");
+            assert_eq!(
+                pool.demand(DEMAND_SOCK, false),
+                Some(false),
+                "both idle: once"
+            );
+            assert_eq!(pool.demand(DEMAND_SOCK, false), None);
+            assert_eq!(pool.demand(DEMAND_SOCK, true), Some(true));
+        }
     }
 
     #[test]

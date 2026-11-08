@@ -9,3 +9,6 @@
   plugin stops. TLS, reads to a file and UDP broadcast answer
   `ERR_UNSUPPORTED` until their slices land; a shell still has to wire the
   transport.
+  An `exact` read is all or nothing: the peer closing early ends the socket
+  with `closed_early`. Core now combines the network demand of `core.net` and
+  the sockets, so the shell hears one edge per change.

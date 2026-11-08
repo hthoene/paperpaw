@@ -71,6 +71,7 @@ pub(crate) mod reason {
     pub(crate) const SAVING: u32 = 12;
     pub(crate) const NETWORK_OFF: u32 = 13;
     pub(crate) const LOST: u32 = 22;
+    pub(crate) const CLOSED_EARLY: u32 = 25;
     pub(crate) const SCREEN_CLOSED: u32 = 26;
     pub(crate) const WORK_ENDED: u32 = 27;
     pub(crate) const NO_MEMORY: u32 = 28;
@@ -167,8 +168,9 @@ pub(crate) trait SockHost {
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd>;
     /// Whether a network is up.
     fn network_up(&self) -> bool;
-    /// `true`: ask the network manager for a network; `false`: the last
-    /// socket ended. The device combines this with `core.net`'s demand.
+    /// `true`: ask the network manager for a network; `false`: no request,
+    /// server or socket is left. Core combines `core.net`'s and the sockets'
+    /// demand (`NetPool::demand`): this is called only when the OR changes.
     fn network_demand(&self, wanted: bool);
     /// The work run the current callback of the plugin belongs to.
     fn current_run(&self, owner: u64) -> Option<u64>;
