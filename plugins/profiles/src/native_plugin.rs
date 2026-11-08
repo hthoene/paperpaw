@@ -224,18 +224,20 @@ impl NativeProfiles {
         let changes = reader.finish(changes)?;
         let mut scratch = buffer(2048)?;
         let mut commands = CommandSender::new(host, &mut scratch);
-        native_data::apply(&mut commands, &changes)?;
-        // A failure to note the profile loses only "next" going round.
-        let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
-        let text = Messages::new()?.format(
-            host,
-            "profiles.applied",
-            &[Arg::Text {
-                name: "name",
-                value: &profile.name,
-            }],
-        )?;
-        commands.notify(Notify::new(&text)?)
+        // A refusal is returned from the callback: nothing is applied.
+        native_data::commit(&mut commands, &changes, |commands| {
+            // A failure to note the profile loses only "next" going round.
+            let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
+            let text = Messages::new()?.format(
+                host,
+                "profiles.applied",
+                &[Arg::Text {
+                    name: "name",
+                    value: &profile.name,
+                }],
+            )?;
+            commands.notify(Notify::new(&text)?)
+        })
     }
 
     /// The profile after the one applied last.

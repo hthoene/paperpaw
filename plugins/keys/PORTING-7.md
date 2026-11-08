@@ -18,7 +18,9 @@ into the image by `build.rs`, metadata in `native/` (regenerate with
 - Bindings and inputs from the registry, changes with `bind_key`; the host decides
   what a binding is. *Reset* asks first (host question with the original labels) and
   takes back every user binding. Buttons-only devices refuse a change that leaves no
-  button to choose, go back or move (message `keys.needed.*`), as before.
+  button to choose, go back or move (message `keys.needed.*`), as before. A refused
+  binding only notifies: the picker stays open on the same input (no `back`), nothing
+  is bound.
 - en/de texts unchanged.
 
 ## Tests
@@ -33,6 +35,14 @@ registration (`tests/abi7_declarations.rs`), linked entry.
 There is no desktop golden for this plugin. The native cases in
 `tests/acceptance_pending.rs` are refusals (never pass): rebind applies (H1, H2,
 H3, H4), buttons-only refusal (H1, H3, H4), reset all (H1, H2, H4).
+
+## Goldens to re-bless at activation
+
+While the native plugins are not registered in the app, the settings list has no
+*Buttons and gestures* row. `crates/paperpaw-app/tests/snapshots/settings.txt` and the
+desktop golden `boox-settings.png` were changed for that (a capability-loss
+placeholder, todo 97). When the host activates native plugins they must be restored
+(the row comes back with `keys.open`) and compared against Beta 3.
 
 ## Not ported yet (explicit)
 
