@@ -3,7 +3,7 @@
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
-    events::{Event, ReadingView},
+    events::{Event, Incoming, ReadingView},
     formatting::copy_message,
     registrations,
     reply::Reply,
@@ -52,9 +52,10 @@ impl Plugin for NativeStats {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         if let Event::StageCall {
             stage: READ_TODAY, ..
         } = event

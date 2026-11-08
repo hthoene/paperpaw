@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::Event,
+        events::{Event, Incoming},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -151,9 +151,10 @@ impl Plugin for NativeWidgets {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::WidgetMade {
                 widget, instance, ..

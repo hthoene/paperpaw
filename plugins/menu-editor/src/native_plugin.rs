@@ -11,7 +11,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, RedrawMode},
-        events::Event,
+        events::{Event, Incoming},
         fonts::{Font, FontRole},
         registrations,
         registry::Registry,
@@ -156,9 +156,10 @@ impl Plugin for NativeMenuEditor {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ActionRun {

@@ -12,7 +12,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PreviewSetting, RedrawMode, ResetTarget},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -289,9 +289,10 @@ impl Plugin for NativeSettings {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ScreenOpened {

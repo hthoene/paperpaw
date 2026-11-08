@@ -13,7 +13,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         device::{Device, DeviceCursor},
-        events::Event,
+        events::{Event, Incoming},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -65,9 +65,10 @@ impl Plugin for NativeAbout {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::ActionRun {
                 action: "about.open",

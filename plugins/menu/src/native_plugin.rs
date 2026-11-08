@@ -14,7 +14,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
-        events::Event,
+        events::{Event, Incoming},
         registrations,
         reply::Reply,
         settings::SettingValue,
@@ -90,9 +90,10 @@ impl Plugin for NativeMenu {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ScreenOpened {

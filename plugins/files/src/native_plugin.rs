@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::Event,
+        events::{Event, Incoming},
         formatting::Arg,
         library::{BookRef, CatalogCursor, CatalogPhase, Library},
         registrations,
@@ -158,9 +158,10 @@ impl Plugin for NativeFiles {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::ActionRun { .. } if token == SHELVES_OPEN_TOKEN => {
                 let mut scratch = [0; 128];

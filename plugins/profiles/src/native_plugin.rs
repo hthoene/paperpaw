@@ -9,7 +9,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        events::{AnswerOutcome, Event},
+        events::{AnswerOutcome, Event, Incoming},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -97,9 +97,10 @@ impl Plugin for NativeProfiles {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ActionRun {

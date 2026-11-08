@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceCapability},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming},
         fonts::{Font, FontRole},
         formatting::Arg,
         registrations,
@@ -134,9 +134,10 @@ impl Plugin for NativeKeyboard {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ScreenOpened {

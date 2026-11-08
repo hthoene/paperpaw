@@ -204,7 +204,7 @@ unsafe extern "C" fn event<T: Plugin>(
 type EventCall<'a> = dyn FnMut(
         &Host<'_>,
         u32,
-        super::super::events::Event<'_>,
+        super::super::events::Incoming<'_>,
         &mut super::super::reply::Reply<'_>,
     ) -> Result<(), Error>
     + 'a;
@@ -236,7 +236,7 @@ unsafe fn event_core(
         Ok(out) => out,
         Err(e) => return e,
     };
-    let event = match super::super::events::Event::decode(input) {
+    let event = match super::super::events::Incoming::new(input) {
         Ok(event) => event,
         Err(e) => return e.status(),
     };

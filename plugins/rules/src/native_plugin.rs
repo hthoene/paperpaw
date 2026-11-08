@@ -17,7 +17,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        events::{AnswerOutcome, Answered, BookKind, Event},
+        events::{AnswerOutcome, Answered, BookKind, Event, Incoming},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -173,9 +173,10 @@ impl Plugin for NativeRules {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::ActionRun { .. } if token == OPEN => {
                 let mut scratch = [0; 128];

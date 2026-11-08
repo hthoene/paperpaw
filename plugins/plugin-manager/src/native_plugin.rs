@@ -14,7 +14,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PluginEnabled},
         device::{Device, DeviceCursor, NativeSafeMode, NotInstalledReason},
-        events::{AnswerOutcome, Event},
+        events::{AnswerOutcome, Event, Incoming},
         formatting::Arg,
         registrations,
         registry::{MenuQuery, PageCursor, Registry},
@@ -115,9 +115,10 @@ impl Plugin for NativePluginManager {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::ActionRun { action, .. } if token == OPEN_TOKEN && action.ends_with(".open") => {
                 let mut scratch = [0; 128];

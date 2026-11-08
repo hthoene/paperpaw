@@ -6,7 +6,7 @@
 //! tick. See `PORTING-7.md`.
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
-    events::{BookKind, Event},
+    events::{BookKind, Event, Incoming},
     registrations,
     reply::Reply,
     stages::Stage,
@@ -53,9 +53,10 @@ impl Plugin for NativeReadingGoal {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         let Some(edge) = edge(token, &event) else {
             return Ok(());
         };
