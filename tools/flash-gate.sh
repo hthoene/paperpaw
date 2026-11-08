@@ -17,7 +17,7 @@
 # not exist in Beta 3 is listed (NEW) and left out of the gate. `--image-only`
 # measures the image alone, as before.
 #
-# Both builds remap the work directory, the cargo home and the Rust sources
+# Both builds remap the work directory, the cargo home
 # (`--remap-path-prefix`, through `--config`, which adds to the flags of
 # `.cargo/config.toml`), so that the path of --work no longer changes sizes.
 #
