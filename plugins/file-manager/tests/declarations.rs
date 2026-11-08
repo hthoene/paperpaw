@@ -38,6 +38,7 @@ fn the_settings_are_the_golden() {
 /// Every record is well formed for the host; the ones it does not admit yet
 /// fail only with `ERR_UNSUPPORTED` (`native_host/declarations.rs`), and these
 /// are the only ones that do.
+/// The host admits every one of them now, so none waits.
 #[test]
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
@@ -62,5 +63,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
         }
     }
     // The menu entry and the icon, as for every plugin of this port.
-    assert_eq!(waiting, ["ui: MenuEntry", "ui: IconSpec"]);
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
+    );
 }

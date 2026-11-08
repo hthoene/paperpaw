@@ -150,6 +150,22 @@ impl ItemList {
         self.focus = self.nearest(self.focus);
     }
 
+    /// Zeroes the text of every item and empties the list: for a list that
+    /// showed a secret (a password drawn for the user to read) and is closed.
+    pub fn wipe(&mut self) {
+        for item in core::mem::take(&mut self.items) {
+            match item {
+                Item::Heading(title) => crate::mem::wipe_text(title),
+                Item::Row(row) => {
+                    crate::mem::wipe_text(row.title);
+                    crate::mem::wipe_text(row.value);
+                    crate::mem::wipe_text(row.note);
+                }
+            }
+        }
+        self.focus = 0;
+    }
+
     /// The items.
     #[must_use]
     pub fn items(&self) -> &[Item] {
@@ -762,6 +778,15 @@ mod tests {
 
     fn action(action: &str) -> Input<'_> {
         Input::Action { now_ms: 0, action }
+    }
+
+    #[test]
+    fn a_wiped_list_is_empty_and_its_focus_is_back_at_the_start() {
+        let mut list = ItemList::new(items("hrrr"));
+        list.set_focus(3);
+        list.wipe();
+        assert!(list.items().is_empty());
+        assert_eq!(list.focus(), 0);
     }
 
     #[test]

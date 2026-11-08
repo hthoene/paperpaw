@@ -6,6 +6,8 @@ use paperpaw_sdk::{Command, Handled, Id, Params};
 std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
+    /// The host table each `make` was handed, in order.
+    static TABLES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     /// 1: the batch also declares a group, a setting, its extra and an action;
     /// 2: and a secret setting the host does not map (the batch is refused).
@@ -13,6 +15,8 @@ std::thread_local! {
     /// Another drawable the batch declares: 1 a status item of token 93; 2 a
     /// status line of token 94; 3 a status item of the screen's token 91.
     static DRAWABLE: Cell<u8> = const { Cell::new(0) };
+    /// Resource records the batch also declares (see `resources`).
+    static RES: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     static MENUS: Cell<u8> = const { Cell::new(0) };
     /// 1: also a stage and a subscription to another plugin's; 2: also a
@@ -185,6 +189,7 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
         flags: 0,
     });
     match arms {
+        0 if RES.with(Cell::get) != 0 => resources::batch(RES.with(Cell::get), records[0], bytes),
         0 if DRAWABLE.with(Cell::get) != 0 => {
             let more = match DRAWABLE.with(Cell::get) {
                 1 => item(93),
@@ -246,6 +251,7 @@ unsafe extern "C" fn screen_make(
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
 ) -> i32 {
+    TABLES.with(|tables| tables.borrow_mut().push(host.addr()));
     let mut bytes = [0; 1024];
     let len = if STAGES.with(Cell::get) == 0 {
         declaration_batch(&mut bytes)
@@ -385,6 +391,38 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
     }
     .unwrap()
 }
+/// Installs with the resource records of mode `res`, in the plugin's folder.
+fn install_resources(
+    kernel: &mut crate::Kernel,
+    res: u8,
+    folder: Option<&str>,
+) -> Result<(), Error> {
+    RES.with(|value| value.set(res));
+    let result = kernel.register_native_in(
+        host(0),
+        &FlatDepth::try_new().unwrap(),
+        folder,
+        |_, _, _| {},
+    );
+    RES.with(|value| value.set(0));
+    result
+}
+
+/// The same without the refresh of the font choices, which allocates as the
+/// kernel does at start-up: the allocation-failure sweeps stop at the end of
+/// the admission.
+fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
+    RES.with(|value| value.set(res));
+    let result = kernel.admit_native(
+        host(0),
+        &FlatDepth::try_new().unwrap(),
+        folder,
+        |_, _, _| {},
+    );
+    RES.with(|value| value.set(0));
+    result
+}
+
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
     kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
@@ -1382,6 +1420,9 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
     );
 }
 
+#[path = "native_resources_tests.rs"]
+mod resources;
+
 #[test]
 fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {
     reset(NORMAL);
@@ -1439,6 +1480,34 @@ fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_not
         .as_ref()
         .map(|directory| directory.store.borrow().stage("factory.insert"));
     assert!(stage.flatten().is_none());
+}
+
+#[test]
+fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
+    let mut kernel = kernel(0);
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
+    for owner in owners {
+        kernel
+            .register_native(
+                host_named(owner, 0),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _| {},
+            )
+            .unwrap();
+    }
+    let each = (live() - before) / owners.len();
+    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
+    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
+    // riscv32 sizes. Bounded here so that growth shows in review. The bound
+    // went from 2,048 to 2,560 B when the per-owner kind table grew from 13 to
+    // 28 kinds (menus and icons, REG declarations, stages); half that on the X4.
+    assert!(each <= 2_560, "{each} B per owner");
+    // Every owner's `make` was handed the same static table, not a copy.
+    let tables = TABLES.with(|tables| tables.borrow().clone());
+    assert!(tables.len() > owners.len());
+    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
 }
 
 #[path = "native_menu_install_tests.rs"]
