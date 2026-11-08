@@ -32,14 +32,16 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
 - `src/native_model/html.rs` (`tests/native_html.rs`): the HTML-to-text reader made fallible and
   bounded. Same text as interface 6 on fixed mails, 4,000 random mails of tags, entities and
   comments, and the same mail cut into pieces anywhere; the intended differences, each tested:
-  the text is cut at `MAX_TEXT` (128 KiB; `HtmlText::with_limit` for another, `is_cut` tells);
+  the text is cut at `MAX_TEXT` (24 KiB, as interface 6's `store::MAX_TEXT`; `HtmlText::with_limit` for another, `is_cut` tells);
   a non-ASCII character inside `<style>` or `<script>` is no panic (interface 6 cut its watch for
   the end tag in the middle of a character); a comment longer than 1,024 bytes ends at its `-->`
   (interface 6 never found the end and dropped the rest of the mail). The entity name and the
   watch for the end tag are fixed arrays, the tag keeps its room from one tag to the next, and the
   tag name is compared without a copy. `tests/native_model_alloc_refusal.rs` refuses each
   allocation of whole and piecewise reading.
-- `render` still uses the interface-6 `html` until it is ported with the store.
+- `render` still uses the interface-6 `html` until it is ported with the store. In slice 3 it must
+  make the reader with `HtmlText::with_limit` (the room the store has left) and flush the text in
+  chunks as it comes, never building a String of the whole mail.
 
 ## Slice 3 (still interface 6)
 

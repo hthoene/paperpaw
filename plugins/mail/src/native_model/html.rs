@@ -18,8 +18,10 @@
 use super::mem::{Error, push_char, push_str};
 use alloc::string::String;
 
-/// How much text a mail makes at most (bytes); the rest is dropped.
-pub const MAX_TEXT: usize = 128 * 1024;
+/// How much text a mail makes at most (bytes); the rest is dropped. It is
+/// what interface 6 keeps of a mail (`store::MAX_TEXT`), with the 256 KiB
+/// heap in mind.
+pub const MAX_TEXT: usize = 24 * 1024;
 
 /// The longest tag kept (bytes); what follows is dropped from the tag.
 const TAG: usize = 1024;
