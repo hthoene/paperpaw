@@ -14,6 +14,7 @@
 use std::process::ExitCode;
 
 mod asset;
+mod chain_xtensa;
 mod elf;
 mod firmware;
 mod framelist;
@@ -165,6 +166,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
         ["frames", elf, rest @ ..] => frames_command(elf, rest),
+        ["frames-s3", elf, "--budget", budget] => chain_xtensa::run(elf, budget),
         ["pack", elf, out] => plugin::pack(elf, out, None),
         ["pack", elf, out, "--key", key] => plugin::pack(elf, out, Some(key)),
         ["catalog", source, out] => catalog(source, out),
