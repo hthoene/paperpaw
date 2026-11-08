@@ -24,6 +24,18 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
+
 mod book;
 #[cfg_attr(
     not(test),
@@ -49,6 +61,7 @@ mod merge;
 mod overview;
 #[allow(dead_code, reason = "the native screens use it, in the next slice")]
 mod overview_rows;
+mod recorder;
 mod room;
 mod store;
 mod sync;

@@ -96,14 +96,57 @@ events) is still in place. It is removed in the PR that finishes the port.
   is still infallible (`vec!`) and `of_book` takes a closure for local days; the shell needs
   `seconds_per_book` fallible.
 
+## Ported: the native shell and the recording (slice 1)
+
+- `src/native_plugin.rs` (`NativeStats`), built-in descriptor `NATIVE_ENTRY` (feature `linked`),
+  declarations in `declarations.rs` built into the image by `build.rs`, metadata in `native/`
+  (regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+  native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
+  likewise `metadata.host.*`). Declares `uses.storage` (the books are root 1, read only, for
+  KOReader's fingerprint).
+- Settings: group `stats.group` (order 25), `enabled`, `min-seconds` (1-60, default 5) and
+  `max-seconds` (30-600, step 10, default 120), the last two advanced, unit `stats.unit.seconds`,
+  keys, titles and help as in interface 6 (`testdata/declarations.bin.v1`); chart icon on the group.
+- `src/recorder.rs` is the recording of interface 6 over the events (book opened/closed/
+  finished/moved, page turned, suspend/stopping/resume/started, status changed for the clock):
+  host-free, over `Surroundings` (data folder, user files, monotonic clock, wall clock, day,
+  limits). Stays are timed on the event time and dated from a snapshot (`unix_at`); read before the
+  device knows the time they wait (128 at most) and are recorded when `StatusChanged` says it does.
+  A write that fails is told once (`stats.not-saved` as an announced notice).
+- The stage `stats.read-today` (schema 1, reply: day `i32` and seconds `u32`, little-endian, none
+  where the date is unknown) is declared for reading-goal; it replaces the event
+  `core.read-today` that interface 6 sent when the figure changed (the asker pulls).
+- Everything the recorder takes is fallible: names of the books are noted once in a vector
+  (`Rc<str>` cannot be made fallibly; the sweep found it), the book added to `books.ini` is made
+  with `room::string`, a refusal leaves the book out (no half book, no stay twice).
+  `recorder/alloc_tests.rs` refuses each allocation of a session of two books with the clock known
+  from the start and learned in the middle.
+
+### Differences from interface 6 (on purpose)
+
+- A book is added with the title the reader shows (the event has no authors and language, and
+  the document service is not in the SDK yet): authors and language are *N/A* as for a book KOReader
+  knows no file of; a book without a title is named by its file. Books KOReader already knows
+  keep their names (`merge` takes names from the other side).
+- Days are UTC days until the system time zone comes with the snapshot (draft 25); interface 6 used
+  the device's zone. The seconds read are unaffected; a stay near local midnight may fall on the
+  neighbouring day until then.
+- `core.read-today` is a stage the asker pulls (above), not an event. Its day is the **UTC day**
+  until draft 25 brings the system time zone, so near local midnight it can differ from the
+  user's calendar day by up to the zone's offset: the stage may answer yesterday's (or
+  tomorrow's) day for a few hours. **reading-goal must tolerate that mismatch**: it compares the
+  day in the reply with its own day and shows no figure (or zero) for a day that is not its today,
+  never a neighbouring day's seconds as today's.
+- `make` submits the icon and the stage; the host refuses them (`ERR_UNSUPPORTED`) until it admits
+  them (`tests/declarations.rs` pins that these are the only declarations that wait). The stage is
+  the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin
+  of this port until the host admits icons.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
 - Screens (overview, calendar, books, book) on `core.ui`.
 - Widgets (today, week, ring, streak, calendar, year) and the status item (`left.rs`) on the
   widget and status stages (host call, Core todo 76).
-- Events: page turned, book opened/closed/finished/moved, started/resume/suspend/stopping,
-  and emitting `stats.read-today` as a stage for reading-goal.
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
