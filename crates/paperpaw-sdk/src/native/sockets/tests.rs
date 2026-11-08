@@ -325,30 +325,16 @@ fn a_file_read_names_root_path_and_length() {
     with_host(|host, state| {
         let sockets = Sockets::open(host).unwrap();
         let (mut input, mut out) = ([0; IN], [0; SMALL_REPLY]);
+        let book = FileRead::new(Root::Files, "books/a.epub", 300_000).unwrap();
         sockets
-            .read_file(
-                host,
-                id(3),
-                Root::Files,
-                "books/a.epub",
-                300_000,
-                &mut input,
-                &mut out,
-            )
+            .read_file(host, id(3), &book, &mut input, &mut out)
             .unwrap();
         assert!(matches!(rows(state, 0)[0], Record::ServiceSockRead(r)
             if (r.socket, r.mode, r.flags, r.max, r.len, r.root, r.path)
                 == (3, 1, 0, 0, 300_000, 1, "books/a.epub")));
+        let most = FileRead::new(Root::Data, "m", MAX_FILE_LEN).unwrap();
         sockets
-            .read_file(
-                host,
-                id(3),
-                Root::Data,
-                "m",
-                MAX_FILE_LEN,
-                &mut input,
-                &mut out,
-            )
+            .read_file(host, id(3), &most, &mut input, &mut out)
             .unwrap();
         assert!(matches!(rows(state, 1)[0], Record::ServiceSockRead(r) if r.root == 0));
         let long = "p".repeat(MAX_PATH + 1);
@@ -358,10 +344,7 @@ fn a_file_read_names_root_path_and_length() {
             ("", 1, Error::Invalid),
             (long.as_str(), 1, Error::NoSpace),
         ] {
-            assert_eq!(
-                sockets.read_file(host, id(3), Root::Data, path, len, &mut input, &mut out),
-                Err(error)
-            );
+            assert_eq!(FileRead::new(Root::Data, path, len).map(|_| ()), Err(error));
         }
         assert_eq!(state.count(), 2);
     });

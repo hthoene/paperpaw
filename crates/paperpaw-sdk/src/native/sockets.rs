@@ -404,6 +404,32 @@ impl Root {
     }
 }
 
+/// A file read: the next `len` bytes of a socket written to `path` under
+/// `root` (as `<path>.part`, renamed when whole).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileRead<'a> {
+    root: Root,
+    path: &'a str,
+    len: u64,
+}
+
+impl<'a> FileRead<'a> {
+    /// A file read of `len` bytes (1 to [`MAX_FILE_LEN`]) to `path`.
+    ///
+    /// # Errors
+    /// `Invalid` for `len` 0 or over [`MAX_FILE_LEN`] or an empty path,
+    /// `NoSpace` for a path over [`MAX_PATH`] bytes.
+    pub fn new(root: Root, path: &'a str, len: u64) -> Result<Self, Error> {
+        if len == 0 || len > MAX_FILE_LEN || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        if path.len() > MAX_PATH {
+            return Err(Error::NoSpace);
+        }
+        Ok(Self { root, path, len })
+    }
+}
+
 /// A UDP broadcast to send: a payload to the network's broadcast address on
 /// each port, and the answers collected for a time.
 #[derive(Clone, Copy)]
@@ -962,41 +988,31 @@ impl Sockets {
         self.call_empty(host, schema::OP_READ, core::iter::once(row), input, out)
     }
 
-    /// Asks the host to write the next `len` bytes to `path` (as
-    /// `<path>.part`, renamed when whole): a `Saved` event when it is in
-    /// place, a `Failed` one (and the old file kept) when not. No byte of it
-    /// is held in memory.
+    /// Asks the host to write the next bytes of the socket to a file (see
+    /// [`FileRead`]): a `Saved` event when it is in place, a `Failed` one (and
+    /// the old file kept) when not. No byte of it is held in memory.
     ///
     /// # Errors
-    /// `Invalid` for `len` 0 or over [`MAX_FILE_LEN`] or an empty path,
-    /// `NoSpace` for a path over [`MAX_PATH`] bytes; `Denied` for a root or path
-    /// the plugin may not write; `Busy` for a read under way or a target
-    /// in use; `Full` for a length above the free space; `State` while the
-    /// socket connects; `NotFound` for another plugin's or an ended socket.
+    /// `Denied` for a root or path the plugin may not write; `Busy` for a read
+    /// under way or a target in use; `Full` for a length above the free space;
+    /// `State` while the socket connects; `NotFound` for another plugin's or an
+    /// ended socket.
     pub fn read_file(
         &self,
         host: &Host<'_>,
         id: SocketId,
-        root: Root,
-        path: &str,
-        len: u64,
+        file: &FileRead<'_>,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        if len == 0 || len > MAX_FILE_LEN || path.is_empty() {
-            return Err(Error::Invalid);
-        }
-        if path.len() > MAX_PATH {
-            return Err(Error::NoSpace);
-        }
         let row = Row::Read(wire::ServiceSockRead {
             socket: id.0,
             mode: 1,
             flags: 0,
             max: 0,
-            len,
-            root: root.wire(),
-            path,
+            len: file.len,
+            root: file.root.wire(),
+            path: file.path,
         });
         self.call_empty(host, schema::OP_READ, core::iter::once(row), input, out)
     }
