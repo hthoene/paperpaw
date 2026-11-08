@@ -57,10 +57,15 @@ fn stamp() -> Stamp {
 /// staged; the status of the submit.
 fn submit(kernel: &mut crate::Kernel, store: &UiStore, commands: &[WireCommand<'_>]) -> i32 {
     let owner = Id::new_static("factory");
+    // The callback of the screen on top.
+    let caller = kernel
+        .stack
+        .last()
+        .map(|active| paperpaw_sdk::ScreenKey::new(active.serial));
     let (status, staged, redraw, opens) = {
         let env = kernel.shared.env(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
-            .with_ui(&env, None, 0, 8)
+            .with_ui(&env, caller, 0, 8)
             .with_handovers(store, stamp());
         let scope = core::pin::pin!(CommandScope::new());
         let mut bytes = [0; 512];
@@ -226,20 +231,27 @@ fn the_other_modes_apply_and_an_open_that_does_not_apply_frees_its_claim() {
             .iter()
             .any(|s| s.slot.as_ref().is_some_and(|s| s.as_str() == "core.lookup"))
     );
-    // Mode 2 replaces the submitter's own top instance.
-    let before = kernel.stack.len();
+    // Mode 2 replaces the submitter's own top instance, without showing the
+    // one below in between.
+    let (before, old_top) = (kernel.stack.len(), kernel.stack.last().unwrap().serial);
     let replaced = made(&store, &[("page", "3")], b"");
-    let status = submit(
-        &mut kernel,
-        &store,
-        &[open("factory.screen", 2, "", replaced)],
+    assert_eq!(
+        submit(
+            &mut kernel,
+            &store,
+            &[open("factory.screen", 2, "", replaced)]
+        ),
+        0
     );
-    assert!(status == 0 || status == ERR_STATE, "{status}");
-    assert!(kernel.stack.len() <= before + 1);
-    // Whatever applied, nothing stays claimed: every hand-over is owned by a
-    // screen still open or freed.
-    let open_screens = kernel.stack.len();
-    assert!(store.len() <= open_screens);
+    assert_eq!(kernel.stack.len(), before);
+    let top = kernel.stack.last().unwrap().serial;
+    assert_ne!(top, old_top);
+    assert_eq!(
+        OPENED.with(|opened| opened.borrow().last().copied()),
+        Some((top, replaced, 1, 0))
+    );
+    // Every hand-over is owned by a screen still open, none stays claimed.
+    assert_eq!(store.len(), kernel.stack.len());
 }
 
 #[test]
