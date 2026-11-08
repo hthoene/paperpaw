@@ -33,6 +33,7 @@ pub mod mem;
 pub mod messages;
 pub mod paint;
 pub mod screens;
+pub mod status_items;
 pub mod style;
 pub mod text;
 pub mod uitext;
