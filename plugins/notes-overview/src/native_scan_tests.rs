@@ -2,7 +2,7 @@
 //! books are listed and counted, at any size of the pages, with stale pages,
 //! with replies that do not add up, and with memory refused.
 use crate::fail_alloc::sweep;
-use crate::model::{Kind, MOST_BOOKS};
+use crate::model::{Kind, MOST_BOOKS, PATH_MAX, TITLE_MAX};
 use crate::native_scan::{Page, RESTARTS, Source, scan};
 use alloc::format;
 use alloc::string::String;
@@ -30,6 +30,7 @@ struct Fake {
     /// A last page that names a next one with no rows.
     endless: bool,
     note_calls: usize,
+    book_calls: usize,
 }
 
 impl Fake {
@@ -43,6 +44,7 @@ impl Fake {
             lie_total: None,
             endless: false,
             note_calls: 0,
+            book_calls: 0,
         }
     }
 }
@@ -66,6 +68,7 @@ impl Source for Fake {
         cursor: usize,
         each: &mut dyn FnMut(usize) -> Result<(), Error>,
     ) -> Result<Page<usize>, Error> {
+        self.book_calls += 1;
         if self.stale_books > 0 {
             self.stale_books -= 1;
             return Err(Error::State);
@@ -257,4 +260,71 @@ fn refused_allocations_end_in_no_memory() {
         let listing = scan(&mut fake)?;
         Ok(listing.books().len())
     });
+}
+
+#[test]
+fn the_walk_ends_at_the_first_book_past_the_list() {
+    let many: Vec<Book> = (0..1000)
+        .map(|n| book(&format!("b{n:04}"), &[Highlight]))
+        .collect();
+    let mut fake = Fake::new(many);
+    fake.book_page = 40;
+    let (books, more) = summary(&mut fake).unwrap();
+    assert!(more);
+    // The first 200 in the catalog's title order, and no page after the one
+    // that held the 201st (`201 / 40` rounded up).
+    assert_eq!(books.len(), MOST_BOOKS);
+    assert_eq!(books[0].0, "Books/b0000.epub");
+    assert_eq!(books[MOST_BOOKS - 1].0, "Books/b0199.epub");
+    assert_eq!(fake.book_calls, 6);
+    assert_eq!(fake.note_calls, MOST_BOOKS + 1);
+}
+
+#[test]
+fn a_title_is_cut_and_a_path_that_cannot_be_opened_is_left_out() {
+    // Letters of two bytes: a careless cut falls inside one.
+    let long = "\u{e4}".repeat(500);
+    let mut books = vec![book(&long, &[Highlight]), book("Fine", &[Highlight])];
+    books[0].path = "Books/long.epub".into();
+    books.push(Book {
+        path: format!("Books/{}.epub", "x".repeat(PATH_MAX)),
+        title: "Deep".into(),
+        notes: vec![Highlight],
+        gone: false,
+    });
+    let listing = scan(&mut Fake::new(books)).unwrap();
+    assert_eq!(listing.books().len(), 2);
+    for book in listing.books() {
+        assert!(book.title.len() <= TITLE_MAX);
+        assert!(book.path.len() <= PATH_MAX);
+    }
+    let cut = &listing.books()[1].title;
+    assert_eq!(cut.len(), TITLE_MAX);
+    assert!(cut.chars().all(|c| c == '\u{e4}'));
+    // The most the list holds: 200 books of the longest title and path.
+    assert_eq!(MOST_BOOKS * (TITLE_MAX + PATH_MAX), 128_000);
+}
+
+#[test]
+fn counts_that_fill_a_u16_do_not_overflow_when_the_list_is_full() {
+    // A full list is looked at only until the first note; one page of
+    // 65,536 notes holds the most a count can take.
+    let mut books: Vec<Book> = (0..MOST_BOOKS)
+        .map(|n| book(&format!("b{n:04}"), &[Highlight]))
+        .collect();
+    let mut notes = vec![Highlight; usize::from(u16::MAX)];
+    notes.push(Bookmark);
+    books.push(book("zzz", &notes));
+    let mut fake = Fake::new(books);
+    fake.note_page = 70_000;
+    let (listed, more) = summary(&mut fake).unwrap();
+    assert!(more);
+    assert_eq!(listed.len(), MOST_BOOKS);
+    // And listed, the counts saturate.
+    let mut books = vec![book("a", &notes)];
+    books.push(book("b", &notes));
+    let mut fake = Fake::new(books);
+    fake.note_page = 70_000;
+    let (listed, _) = summary(&mut fake).unwrap();
+    assert_eq!((listed[0].1, listed[0].2), (u16::MAX, 1));
 }

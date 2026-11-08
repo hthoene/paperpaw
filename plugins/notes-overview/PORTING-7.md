@@ -42,6 +42,17 @@ services it needs are not there. It is removed in the PR that finishes the port.
   its first highlight or bookmark and only sets `more`, so a library of thousands costs host calls,
   not memory. The interface-6 scan listed the folder of notes files first; there is no such folder
   on interface 7.
+- Memory of the list, worst case: a listed title is cut to `TITLE_MAX` = 128 bytes (at a
+  character's end), and a book with a path over `PATH_MAX` = 512 bytes (the most the library names
+  a book by; `BookRef::path` refuses longer ones) is left out, since it could not be opened from
+  the list. So 200 books hold at most 200 x (128 + 512) = 128,000 bytes of text, plus 200 x 56
+  bytes of headers (about 139 KiB; a library of ordinary paths and titles needs about 30 KiB).
+  Interface 6 cut neither.
+- The walk ends at the first book past the 200 (it only sets `more`), without walking the rest of
+  the catalog. So the books listed are the first 200 with notes **in the catalog's title order**;
+  interface 6 took the first 200 in the order of its walk of the library and then sorted them
+  (deliberate; accepted in review). The list is sorted again by title without regard to case, ties
+  by path, as before.
 - The scan is written over a `Source` trait; `native_library::HostSource` fills it in from the SDK's
   `Library` (`query`, `annotations`, `book`; key and catalog generation make a `BookRef`). Tested
   over a scripted library (`src/native_scan_tests.rs`): order and counts, any page size, a full list,
