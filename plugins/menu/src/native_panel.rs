@@ -25,6 +25,15 @@ pub const SHARE_BOTTOM: u32 = 80;
 /// room is left to tap to close it.
 pub const SHARE_TOP: u32 = 95;
 
+/// Most rows of a menu the panel reads: each costs a part and, for a setting,
+/// a registry call per read. The rest are left out.
+pub const MAX_ROWS: usize = 64;
+
+/// `rows` cut to [`MAX_ROWS`].
+pub fn cap_rows(rows: &mut Vec<Row>) {
+    rows.truncate(MAX_ROWS);
+}
+
 /// The width of a text in the panel's small font.
 pub trait Measure {
     /// Pixels `text` needs on one line.

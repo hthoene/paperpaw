@@ -76,7 +76,7 @@ has no bullet for "this setting is scoped to the book" (the registry gives none)
 redraw is the whole sheet, not the two rows (partial redraws of an area wait for the area command);
 a number's `−` and `+` stand at the ends of the row, not by the value; the held tap and the touch
 pointer (slider drags) are not handled (H4); a font that cannot measure a text counts it as no
-width. Memory: one `Part` per row (row, setting facts, up to 4 values and labels), the layout of
+width. The panel reads at most 64 rows of a menu (`MAX_ROWS`; interface 6 had no cap). The help hint says only "tap to switch" until the held tap works (H4). Scripted-host cases for what a control stages wait for H1. Memory: one `Part` per row (row, setting facts, up to 4 values and labels), the layout of
 its controls, the paint list of one page, a registry reader (512 + 4,096 B) while reading; the
 X4 peak is not measured.
 

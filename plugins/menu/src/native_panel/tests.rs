@@ -420,3 +420,19 @@ fn controls_have_pages_rows_and_hits() {
     assert_ne!(layout.hit(1, inside).map(|(i, _)| i), Some(1));
     assert_eq!(layout.hit(0, paperpaw_sdk::Point::new(5, 0)), None);
 }
+
+#[test]
+fn a_long_menu_is_cut_to_the_cap() {
+    let mut rows: Vec<Row> = (0..MAX_ROWS + 6)
+        .map(|i| row(&alloc::format!("a.{i}"), Kind::Action, "Run"))
+        .collect();
+    cap_rows(&mut rows);
+    assert_eq!(rows.len(), MAX_ROWS);
+    assert_eq!(
+        rows[MAX_ROWS - 1].item,
+        alloc::format!("a.{}", MAX_ROWS - 1)
+    );
+    let mut few = vec![row("a.one", Kind::Action, "Run")];
+    cap_rows(&mut few);
+    assert_eq!(few.len(), 1);
+}

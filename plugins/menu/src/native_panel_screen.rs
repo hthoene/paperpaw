@@ -120,7 +120,8 @@ impl PanelView {
     }
 
     fn parts_from(&self, host: &Host<'_>, reader: &mut Reader<'_, '_>) -> Result<Vec<Part>, Error> {
-        let rows = reader.menu(&self.menu)?;
+        let mut rows = reader.menu(&self.menu)?;
+        panel::cap_rows(&mut rows);
         let mut messages = Messages::new()?;
         let mut parts: Vec<Part> = Vec::new();
         parts
