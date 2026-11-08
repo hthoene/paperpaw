@@ -124,6 +124,10 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   PaperPaw's table, and repeating does not help. Neither is `ERR_NOT_FOUND`, which only means that a
   value is absent. The start-up re-save of Beta 3's veiled values (3.1) skips quietly on
   `ERR_UNSUPPORTED`: one note in the log, no error on each start; the values stay veiled.
+  **Owner decision 141:** an X4 Classic on CrossPoint's partition table keeps no new saved
+  passwords: every save answers `ERR_UNSUPPORTED` and the screens show one hint (reinstall once with
+  the web flasher, which gives the Classic PaperPaw's table). Values already saved there (veiled, from
+  Beta 3 or earlier) stay readable; nothing is lost, nothing is written.
 
 ### 2.4 `remove`
 

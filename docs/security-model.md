@@ -47,7 +47,7 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   written (it says which panel the device has), so its key is not a page of it. A
   partition table that has a partition over the Classic's sector (CrossPoint's
   `coredump` at `0xFF0000`) makes the firmware seal nothing there: a save is
-  refused with `ERR_UNSUPPORTED`, which the screens can tell from a missing value. **A full-image flash or an erase of the whole flash erases the key**, and
+  refused with `ERR_UNSUPPORTED`, which the screens can tell from a missing value. (Owner decision 141: no saved passwords there, with a hint to reinstall once with the web flasher; values already saved stay readable.) **A full-image flash or an erase of the whole flash erases the key**, and
   then the sealed values cannot be read any more. Flash the app partitions and the
   partition table without touching the sector (`tools/flash-x4.py` does not). The
   web flasher keeps it too: a reinstall skips the device's range, so saved
