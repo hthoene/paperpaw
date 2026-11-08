@@ -75,7 +75,7 @@ class CheckLocal(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("packages: good", run.stdout)
 
-    def test_a_copy_outside_the_repository_checks_the_worktree_it_is_run_in(self):
+    def test_a_copy_outside_the_worktree_is_refused(self):
         copy = Path(tempfile.mkdtemp()) / "check-local.sh"
         shutil.copy(self.repo / "tools/check-local.sh", copy)
         self.addCleanup(shutil.rmtree, copy.parent, True)
@@ -84,8 +84,27 @@ class CheckLocal(unittest.TestCase):
             ["bash", str(copy), "--base", "base", "--only", "test", "bad"],
             cwd=self.repo, env=env, capture_output=True, text=True,
         )
-        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
-        self.assertRegex(run.stdout, r"test\s+FAILED")
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("not tools/check-local.sh of the worktree", run.stderr)
+        self.assertNotIn("== test", run.stdout)
+
+    def test_the_script_of_another_worktree_is_refused(self):
+        other = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, other, True)
+        (other / "tools").mkdir()
+        shutil.copy(self.repo / "tools/check-local.sh", other / "tools/check-local.sh")
+        run = subprocess.run(
+            ["bash", str(other / "tools/check-local.sh"), "--only", "test", "good"],
+            cwd=self.repo, capture_output=True, text=True,
+        )
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+
+    def test_outside_a_git_worktree_it_is_refused(self):
+        run = subprocess.run(
+            ["bash", str(self.repo / "tools/check-local.sh"), "--only", "test", "good"],
+            cwd=tempfile.gettempdir(), capture_output=True, text=True,
+        )
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
 
     def test_a_workspace_whose_metadata_is_far_beyond_one_argument_still_detects_packages(self):
         members = ['"crates/good"', '"crates/bad"']
@@ -129,6 +148,43 @@ class CheckLocal(unittest.TestCase):
         summary = run.stdout.split("check-local summary:")[1]
         self.assertIn("NOT CHECKED: shells/x/ (separate workspace", summary)
 
+    def test_a_badly_formatted_firmware_file_fails_fmt_shells(self):
+        shell = self.repo / "shells/xteink/src"
+        shell.mkdir(parents=True)
+        (shell / "main.rs").write_text("fn main() {}\n")
+        (self.repo / "shells/xteink/Cargo.toml").write_text(
+            '[package]\nname = "xteink"\nversion = "0.1.0"\nedition = "2024"\n[workspace]\n')
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "shell")
+        self.git("branch", "-f", "base")
+        (shell / "main.rs").write_text("fn   main( ) {  }\n")
+        run = self.run_script("--only", "fmt-shells")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-shells\s+FAILED")
+        (shell / "main.rs").write_text("fn main() {}\n\nfn more() {}\n")
+        run = self.run_script("--only", "fmt-shells")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-shells\s+ok")
+
+    def test_a_badly_formatted_fuzz_file_fails_fmt_fuzz(self):
+        fuzz = self.repo / "fuzz/fuzz_targets"
+        fuzz.mkdir(parents=True)
+        (fuzz / "t.rs").write_text("fn t() {}\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fuzz")
+        self.git("branch", "-f", "base")
+        (fuzz / "t.rs").write_text("fn   t( ) {  }\n")
+        run = self.run_script("--only", "fmt-fuzz")
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertRegex(run.stdout, r"fmt-fuzz\s+FAILED")
+
+    def test_unchanged_shells_and_fuzz_are_listed_as_skipped(self):
+        (self.repo / "crates/good/src/lib.rs").write_text("#[test]\nfn it_works() {}\n")
+        run = self.run_script("--only", "fmt")
+        summary = run.stdout.split("check-local summary:")[1]
+        self.assertIn("SKIPPED: fmt-shells (no changed .rs file", summary)
+        self.assertIn("SKIPPED: fmt-fuzz (no changed .rs file", summary)
+
     def test_skipped_steps_are_named_in_the_summary(self):
         run = self.run_script("--only", "test", "good")
         summary = run.stdout.split("check-local summary:")[1]
@@ -157,6 +213,14 @@ class CheckLocal(unittest.TestCase):
     def test_nothing_selected_is_no_pass(self):
         run = self.run_script("--only", "test")
         self.assertEqual(run.returncode, 2)  # no package changed: test is skipped
+
+    def test_help_works_from_a_subdirectory(self):
+        # The script changes to the worktree root before it reads options, so
+        # --help must not re-open a relative $0.
+        run = subprocess.run(["bash", "../tools/check-local.sh", "--help"],
+                             cwd=self.repo / "crates", capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("tools/check-local.sh [options]", run.stdout)
 
     def test_unknown_option_is_refused(self):
         self.assertEqual(self.run_script("--frobnicate").returncode, 2)

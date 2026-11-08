@@ -5,7 +5,7 @@ use alloc::{string::String, vec::Vec};
 use core::cmp::Reverse;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::events::{BluetoothDeviceKind, BluetoothReason};
-use paperpaw_ui_kit::mem::{push, stable_sort_by};
+use paperpaw_ui_kit::mem::push;
 
 use crate::declarations::{BY_HAND, REMOTES_CHOICES, WHILE_AWAKE, WHILE_READING};
 
@@ -349,10 +349,13 @@ impl Search {
         // Room first: a refused allocation keeps the entry that was there.
         self.found.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.found.retain(|known| known.id != device.id);
-        push(&mut self.found, device)?;
-        stable_sort_by(&mut self.found, |a, b| {
-            Reverse(a.signal.unwrap_or(i32::MIN)).cmp(&Reverse(b.signal.unwrap_or(i32::MIN)))
-        });
+        // The list is in order already: the device goes after those as strong
+        // (a stable sort would put it there), with the room made above.
+        let strength = |found: &Found| Reverse(found.signal.unwrap_or(i32::MIN));
+        let place = self
+            .found
+            .partition_point(|known| strength(known) <= strength(&device));
+        self.found.insert(place, device);
         Ok(())
     }
 

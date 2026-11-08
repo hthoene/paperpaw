@@ -485,6 +485,20 @@ fn walks() -> Vec<(String, Vec<Step>)> {
                 Run(Id::new_static("reader.next-chapter")),
             ],
         ),
+        // Without patterns a book is counted in one step: the count ends
+        // before the first draw, and the status line asks the finished index.
+        (
+            "the next chapter, its page in the status line, without hyphenation",
+            vec![
+                Set("core.hyphenate", "off"),
+                Set(
+                    "reader.status.bottom-left",
+                    "reader.status.chapter-page, reader.status.chapter-left",
+                ),
+                reader(),
+                Run(Id::new_static("reader.next-chapter")),
+            ],
+        ),
     ];
     // The widgets of each kind as the home screen offers them, each drawn
     // as it would show, page by page.

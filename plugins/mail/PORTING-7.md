@@ -1,4 +1,4 @@
-# Mail on interface 7 (slices 1 and 2, partly ported)
+# Mail on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
 store and the widgets) is still in place beside the native one. It is removed in the PR that
@@ -43,10 +43,44 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   make the reader with `HtmlText::with_limit` (the room the store has left) and flush the text in
   chunks as it comes, never building a String of the whole mail.
 
-## Slice 3 (still interface 6)
+## Ported in slice 3
 
-- `imap` (the response parser) and `smtp` (the reply parser) and the connection code that uses
-  them need the sockets host (SOCK), which is not there yet; then `render` and `store`.
+- `src/native_model/imap.rs` and `smtp.rs` (`tests/native_imap_smtp.rs`): the IMAP response reader
+  (line buffer, tokens, responses, FETCH helpers, quoting, Modified UTF-7 names, flag letters) and
+  the SMTP reply parser, extensions, commands and DATA, fallible. Same answers as interface 6 on
+  fixed lines, 6,000 random IMAP lines, random reply sequences and the buffer cut anywhere (compared
+  by `Debug` text). `tests/native_model_alloc_refusal.rs` refuses each allocation in turn.
+- Differences from interface 6, on purpose, each tested: a line is at most 8 KiB (`response` and
+  `tokens` refuse a longer one, `LineBuffer::line` drops it) and the buffer holds at most 16 KiB
+  (the session takes what it has between two pushes; it grows by exactly what is pushed, so a
+  push that enlarges it holds the old and the new block at once, 32 KiB at the most); a line makes
+  at most 256 tokens (a line of single-letter atoms would make some 4,100, about 200 KiB) and a
+  CAPABILITY line, a response code's arguments and a list of flags at most 64 words: past a bound
+  the answer is `Fault::TooLong`, never a larger allocation; a FETCH line is read from its own bytes
+  (interface 6 lost the items of a line ending in white space or holding bytes that are no UTF-8);
+  `smtp::auth_plain` and `imap::quoted_secret` make the lines that carry the password in a buffer that
+  wipes itself and shows nothing in `Debug`; the types that grow are `#[non_exhaustive]` and do not
+  derive `Clone` (it allocates without asking).
+- The SMTP reply bounds are as they were (line 1,000 bytes, reply 4,096, 64 lines). `smtp::data` leaves
+  the bound of the message to the caller, who holds it whole.
+
+## What the session slice must do with these (slice 4)
+
+- Cap the `{n}` literals it accepts (a body part is read in chunks into the card, never whole; an
+  `n` over the cap ends the fetch of that message), since `Token::Literal(n)` is only a number here.
+- Close the connection on `Fault::TooLong` (a server whose line or response is past the bounds is
+  not speaking IMAP) and on a refused allocation after telling the user; never go on with a line
+  half read.
+- Build the final `LOGIN` line (the tag, the user and the password quoted by `quoted_secret`) in a
+  buffer that wipes itself (`Secret`), send it from there, and wipe it; the same for `AUTH PLAIN`
+  (`smtp::auth_plain` already makes it so). No `format!` with the password.
+
+## Still interface 6
+
+- `session.rs`, `driver.rs`, `job.rs` (the connection and the commands, on the sockets host and facade
+  of `docs/abi/sockets.md`), `render.rs` and `store.rs` (with the card through `core.files`; `render` must
+  make the HTML reader with `HtmlText::with_limit` and flush in chunks, see slice 2), then the screens.
+  They are the next slices; the pieces above are what they will call.
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 

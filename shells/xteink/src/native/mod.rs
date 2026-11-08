@@ -217,6 +217,12 @@ pub type Place = psram::Psram;
 #[cfg(feature = "esp32c3")]
 pub type Place = flash::Flash;
 
+/// A format-5 plugin's image as the place put it.
+#[cfg(all(feature = "ppn5", feature = "esp32s3"))]
+pub type Placed5 = psram::Placed5;
+#[cfg(all(feature = "ppn5", feature = "esp32c3"))]
+pub type Placed5 = flash::Placed5;
+
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,

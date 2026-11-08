@@ -11,12 +11,18 @@
 //! a result equals that of the standard library's `sort`, `sort_by` and
 //! `sort_by_key` (and, for a total order, that of the unstable sorts).
 //!
-//! **How.** The positions `0..n` (as `u32`) are sorted by the items they
+//! **How.** Up to 2,048 items, the positions `0..n` (as `u32`) are sorted by the items they
 //! stand for (ties by position, which makes the order stable), with one
 //! compiled `sort_unstable_by`, and the items are then moved into place by
 //! the cycles of that permutation: `4 * n` bytes, and about 1.0 to 1.6 times
 //! the time of the standard library's sort on lists of 2,000 to 10,000
 //! entries (the comparison is one indirect call).
+//!
+//! **Long lists.** From `POSITIONS_MAX` (2,048) items on, the sort goes
+//! straight to the in-place path: a list of 10,000 would hold 40 KB for the
+//! positions (120 KB with `u64` keys cached), too much of the X4's heap at
+//! its peak, for a sort that is about 2.5 to 3 times slower in place.
+//! (Measured on x86: 10,000 entries 0.9 ms through positions, 2.8 ms in place.)
 //!
 //! **Short lists.** Up to 12 items (`BLOCK`) are insertion-sorted in place,
 //! with no allocation.
@@ -95,12 +101,14 @@ pub fn sort_by_key<T, K: Ord>(items: &mut [T], mut key: impl FnMut(&T) -> K) {
 }
 
 /// Sorts `items` by `key`, stably, calling `key` once per item (like
-/// `slice::sort_by_cached_key`). Up to 12 items, or without room for the
-/// keys, it calls `key` for every comparison instead and allocates nothing.
+/// `slice::sort_by_cached_key`). Up to 12 items, from `POSITIONS_MAX` on, or
+/// without room for the keys, it calls `key` for every comparison instead and
+/// allocates nothing.
 pub fn sort_by_cached_key<T, K: Ord>(items: &mut [T], mut key: impl FnMut(&T) -> K) {
     let len = items.len();
-    if len <= BLOCK {
-        // Too few for the keys to be worth a block of memory.
+    if len <= BLOCK || len > POSITIONS_MAX {
+        // Too few for the keys to be worth a block of memory, or too many to
+        // hold them (and the positions) at once.
         return sort_by_key(items, key);
     }
     let mut keys = Vec::new();
@@ -146,12 +154,16 @@ fn by_positions(len: usize, ops: &mut dyn Ops) -> bool {
 /// Items per insertion-sorted block.
 const BLOCK: usize = 12;
 
+/// The longest list sorted through positions: its `4 * n` bytes (8 KiB) are
+/// the most the sorts ask for. A longer one is sorted in place.
+const POSITIONS_MAX: usize = 2_048;
+
 /// The one sort: through positions, or in place without memory.
 fn stable(len: usize, ops: &mut dyn Ops) {
     if len <= BLOCK {
         // Menus, settings and most lists: in place, no allocation at all.
         insertion(ops, 0, len);
-    } else if !by_positions(len, ops) {
+    } else if len > POSITIONS_MAX || !by_positions(len, ops) {
         in_place(len, ops);
     }
 }

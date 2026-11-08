@@ -203,7 +203,7 @@ fn sections_and_descriptions_name_the_plugins_own() {
 }
 
 #[test]
-fn well_formed_records_are_refused_until_the_host_takes_them() {
+fn well_formed_records_are_admitted() {
     let records = [
         Record::MenuEntry(entry("core.tools", "battery.open", 37, 0, "")),
         Record::IconSpec(IconSpec {
@@ -230,10 +230,10 @@ fn well_formed_records_are_refused_until_the_host_takes_them() {
     let len = records_encode(&records, &mut out).unwrap();
     let batch = records_decode(&out[..len]).unwrap();
     for record in batch.iter() {
-        assert_eq!(validate_record(PLUGIN, &record), Err(ERR_UNSUPPORTED));
+        assert_eq!(validate_record(PLUGIN, &record), Ok(()));
     }
-    assert_eq!(validate_batch(PLUGIN, &batch), Err(ERR_UNSUPPORTED));
-    // A malformed one says why: invalid comes before unsupported.
+    assert_eq!(validate_batch(PLUGIN, &batch), Ok(()));
+    // A malformed one is refused as invalid.
     let bad = Record::MenuEntry(entry("core.tools", "", 37, 0, ""));
     assert_eq!(validate_record(PLUGIN, &bad), Err(ERR_INVALID));
 }

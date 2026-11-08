@@ -44,6 +44,7 @@ pub mod host_slot;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
+pub use ui_service::check_ask;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -258,11 +259,18 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_menus.rs"]
+#[allow(
+    dead_code,
+    reason = "core.registry op 11 (Core) reads the declared menus through it"
+)]
+pub(crate) mod native_menus;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+mod native_resources;
 
 #[path = "native_host/native_action.rs"]
 pub(crate) mod native_action;
