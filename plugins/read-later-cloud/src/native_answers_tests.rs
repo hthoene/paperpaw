@@ -3,7 +3,7 @@
 //! refusing instead of aborting when memory runs short; and the caps and the
 //! spent copier of `native_read_later`.
 use crate::fail_alloc::sweep;
-use crate::native_answers::{Answer, Asked, Listed};
+use crate::native_answers::{Answer, Asked, FIELD_CAP, Listed};
 use crate::native_read_later::{self as native, ARTICLES_CAP, FINISHED_CAP, MAX_ANSWER, MAX_LIST};
 use crate::{MAX_ARTICLE_ANSWER, MAX_LIST as OLD_LIST, answers, data};
 use alloc::format;
@@ -229,4 +229,34 @@ fn refused_allocations_end_in_no_memory() {
         r#"{"results":[{"id":"a1","location":"archive","author":"Jo Ä","html_content":"x"}]}"#;
     sweep(|| Asked::read("a1", one.as_bytes()).map(|a| a.is_some()));
     sweep(|| native::articles("a\tx\n").map(|l| l.len()));
+}
+
+#[test]
+fn titles_locations_and_authors_are_cut_when_kept() {
+    // Multi-byte letters: a careless cut falls inside one.
+    let long = "\u{e4}".repeat(2000);
+    let titles: Vec<(String, String)> = (0..20).map(|i| (format!("a{i}"), long.clone())).collect();
+    let items: Vec<(&str, &str)> = titles.iter().map(|(a, b)| (&a[..], &b[..])).collect();
+    let listed = Listed::read(30, list(&items).as_bytes()).unwrap().unwrap();
+    assert_eq!(listed.len(), 20);
+    for entry in &listed {
+        assert!(!entry.title.is_empty());
+        assert!(entry.title.len() <= FIELD_CAP);
+        assert!(entry.title.chars().all(|c| c == '\u{e4}'));
+    }
+    assert!(listed.iter().map(|e| e.title.len()).sum::<usize>() <= 20 * FIELD_CAP);
+    let body = format!(r#"{{"results":[{{"id":"a1","location":"{long}","author":"{long}"}}]}}"#);
+    let Some(Answer::Known { location, author }) = Asked::read("a1", body.as_bytes()).unwrap()
+    else {
+        panic!("a known article");
+    };
+    assert!(location.len() <= FIELD_CAP && !location.is_empty());
+    assert!(author.len() <= FIELD_CAP && !author.is_empty());
+    // Short values are untouched, and a refusal ends the reading.
+    let short = Listed::read(30, list(&[("a1", "Short title")]).as_bytes())
+        .unwrap()
+        .unwrap();
+    assert_eq!(short[0].title, "Short title");
+    let body = list(&items);
+    sweep(|| Listed::read(30, body.as_bytes()).map(|l| l.map(|l| l.len())));
 }

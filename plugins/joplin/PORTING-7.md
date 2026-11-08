@@ -15,7 +15,8 @@ host activates native plugins (then it goes together, no shim).
   code (`escape`, `one_line` and `Note::props` became `pub(crate)` for it, nothing else changed).
 - Reads of files (slice 2), with the caps of interface 6 enforced in code: `item_props(size, tail)` reads
   an item's properties and where its text ends from the end of its file, **at most `TAIL` = 2,048
-  bytes** (a longer `tail` is cut from the front; properties further up are not seen), and
+  bytes** (a longer `tail` is cut from the front; properties further up are not seen; a shorter one
+  is the file's end as far as it goes, and `text_end` counts from `size` less its length), and
   `head_of(start)` reads a notes file's title and author from **at most `HEAD` = 1,024 bytes** of its
   start. Both decode invalid UTF-8 as `String::from_utf8_lossy` does, in fallible memory.
   `Props::text_end` is new (as `read_props`'s). `src/native_read_tests.rs` compares them with

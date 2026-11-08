@@ -32,6 +32,9 @@ until the host activates native plugins (then it goes together, no shim).
   article's text at most `MAX_ANSWER` (4 MiB): `fits(size, cap)` is the check on the file's size
   before it is read (interface 6 took no answer over it: `max_file`), and `Listed`, `Asked` and
   `Copier` refuse with `NoSpace` the bytes fed over their cap.
+- A title, a location and an author are cut to `FIELD_CAP` (256 bytes, at a character's end) when
+  kept: a new cap (interface 6 kept them up to the parser's 4 KiB; 20 hostile titles were 82 KiB).
+  Tested with multi-byte letters; the item stays.
 - The copier after an error: `Copier::feed` stops inside the piece when memory is refused (or the
   answer is over `MAX_ANSWER`), so its state is no longer the text's: it is spent, every later
   `feed` returns the same error, and **the fetch for that article must end** (the book is not

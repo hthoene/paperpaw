@@ -110,3 +110,24 @@ fn refused_allocations_end_in_no_memory() {
     sweep(|| native::item_props(file.len() as u64, file.as_bytes()).map(|p| p.parent.len()));
     sweep(|| native::head_of(b"# A \xff Book\nJane Author\n").map(|h| h.title.len()));
 }
+
+#[test]
+fn the_end_of_an_item_counts_from_where_the_tail_really_starts() {
+    // A big file of which the caller read less than the 2,048 bytes that
+    // count: the text still ends at the same place in the file.
+    let file = format!("{}\n\nBody text\n\n{PROPS}", "y".repeat(5000));
+    let storage = MemoryStorage::new().with("i.md", file.as_str());
+    let old = item::read_props(&storage, "i.md").unwrap();
+    for have in [PROPS.len() + 20, 700, 1500, native::TAIL, 3000, file.len()] {
+        let tail = &file.as_bytes()[file.len() - have..];
+        let new = native::item_props(file.len() as u64, tail).unwrap();
+        assert!(same_props(&old, &new), "{have}");
+    }
+    // A file shorter than its tail: counted from its start.
+    let small = format!("T\n\n{PROPS}");
+    let new = native::item_props(small.len() as u64, small.as_bytes()).unwrap();
+    assert_eq!(new.text_end, 1);
+    // A tail longer than the file says is cut to what the file has.
+    let new = native::item_props(small.len() as u64, format!("zzzz{small}").as_bytes()).unwrap();
+    assert_eq!(new.text_end, 1);
+}

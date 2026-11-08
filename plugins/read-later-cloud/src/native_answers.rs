@@ -82,11 +82,26 @@ impl<S: Sink> Feed<S> {
     }
 }
 
+/// The most bytes kept of a title, a location or an author (a new cap, at a
+/// character's end: interface 6 kept them whole up to the parser's 4 KiB,
+/// which 20 hostile titles would make 82 KiB).
+pub const FIELD_CAP: usize = 256;
+
 /// An article of the list: its id and title.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     pub id: String,
     pub title: String,
+}
+
+/// `text` cut to at most [`FIELD_CAP`] bytes, at a character's end, kept
+/// fallibly.
+fn copy_cut(text: &str) -> Result<String, Error> {
+    let mut end = text.len().min(FIELD_CAP);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    copy(&text[..end])
 }
 
 fn copy(text: &str) -> Result<String, Error> {
@@ -134,7 +149,7 @@ impl ListedSink {
                 if let Some(last) = self.items.last_mut() {
                     match path[2].as_str() {
                         "id" => last.id = copy(value)?,
-                        "title" => last.title = copy(value)?,
+                        "title" => last.title = copy_cut(value)?,
                         _ => {}
                     }
                 }
@@ -238,8 +253,8 @@ impl AskedSink<'_> {
             {
                 match path[2].as_str() {
                     "id" => self.same = value == self.id,
-                    "location" => self.location = copy(value)?,
-                    "author" => self.author = copy(value)?,
+                    "location" => self.location = copy_cut(value)?,
+                    "author" => self.author = copy_cut(value)?,
                     _ => {}
                 }
             }

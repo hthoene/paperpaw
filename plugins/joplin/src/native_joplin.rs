@@ -231,14 +231,19 @@ fn lossy(bytes: &[u8]) -> Result<String, Error> {
 /// The properties of the item whose file is `size` bytes long and ends in
 /// `tail`, and where its text ends. Only the last [`TAIL`] bytes count: a
 /// longer `tail` is cut from the front, so the caller may give what it read
-/// of the end, but need not read more.
+/// of the end, but need not read more. A shorter `tail` is taken as the end
+/// of the file as far as it goes: the text ends counted from where it
+/// really starts, `size` less its length.
 ///
 /// # Errors
 /// `NoMemory` when the values cannot be kept.
 pub fn item_props(size: u64, tail: &[u8]) -> Result<Props, Error> {
-    let from = size.saturating_sub(TAIL as u64);
-    // What the file has of its end, and no more than it has.
-    let have = usize::try_from(size - from).unwrap_or(TAIL).min(tail.len());
+    // What the file has of its end, and no more than it has or than it counts.
+    let have = usize::try_from(size)
+        .unwrap_or(TAIL)
+        .min(TAIL)
+        .min(tail.len());
+    let from = size - have as u64;
     let tail = tail[tail.len() - have..].trim_ascii_end();
     let blank = tail.windows(2).rposition(|w| w == b"\n\n").unwrap_or(0);
     Ok(Props {
