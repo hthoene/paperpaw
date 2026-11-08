@@ -470,3 +470,78 @@ fn a_long_text_or_a_list_item_is_read_from_a_byte_on_without_holding_the_line() 
     });
     assert!(sites >= 2);
 }
+
+fn titled(path: &str, title: &str, author: &str) -> catalog::Record {
+    let mut record = catalog::Record::default();
+    record.path = path.into();
+    record.title = title.into();
+    record.author = author.into();
+    record
+}
+
+fn shelf() -> Vec<catalog::Record> {
+    vec![
+        titled("b/c.epub", "Charlie", "Zed"),
+        titled("b/a.epub", "alpha", "Yan"),
+        titled("b/d.epub", "Delta", "Xi"),
+        titled("b/b.epub", "Bravo", "Yan"),
+    ]
+}
+
+#[test]
+fn a_query_page_is_what_the_plain_query_finds() {
+    let records = shelf();
+    let books = |f: &mut dyn FnMut(u64, catalog::Record)| {
+        for (at, record) in records.iter().enumerate() {
+            f(at as u64, record.clone());
+        }
+    };
+    for sort in [
+        catalog::Sort::Title,
+        catalog::Sort::Author,
+        catalog::Sort::Added,
+    ] {
+        let query = catalog::Query::new().sort(sort);
+        let mut after = None;
+        loop {
+            let plain = catalog::query_in(&mut |f| books(f), &query, after.as_ref(), 2);
+            let tried = catalog::try_query_in(&mut |f| books(f), &query, after.as_ref(), 2);
+            assert_eq!(tried.unwrap(), plain, "{sort:?}");
+            let Some(last) = plain.last().cloned() else {
+                break;
+            };
+            after = Some(last);
+        }
+    }
+    let words = catalog::Query::new().words("yan");
+    assert_eq!(
+        catalog::try_query_in(&mut |f| books(f), &words, None, 10)
+            .unwrap()
+            .len(),
+        2
+    );
+    // No place at all for a page of none.
+    assert!(
+        catalog::try_query_in(&mut |f| books(f), &words, None, 0)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_query_page_that_cannot_be_reserved_is_out_of_memory_not_an_abort() {
+    let none = |_: &mut dyn FnMut(u64, catalog::Record)| {};
+    let query = catalog::Query::new();
+    // The page is the first allocation: refused, it is the memory error.
+    let (result, refused) = with_refusal(1, || {
+        catalog::try_query_in(&mut |f| none(f), &query, None, 10)
+    });
+    assert!(refused);
+    assert_eq!(result, Err(Error::OutOfMemory));
+    // An empty answer needs nothing more.
+    let (result, refused) = with_refusal(2, || {
+        catalog::try_query_in(&mut |f| none(f), &query, None, 10)
+    });
+    assert!(!refused);
+    assert_eq!(result, Ok(Vec::new()));
+}

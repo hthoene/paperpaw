@@ -966,7 +966,7 @@ pub fn write(storage: &dyn Storage, records: &[Record]) -> Result<(), crate::dat
 
 mod fallible;
 pub(crate) use fallible::each_head;
-pub use fallible::{try_changes, try_count, try_path_at};
+pub use fallible::{try_changes, try_count, try_path_at, try_query, try_query_in};
 mod view;
 pub use view::{
     LINE_MAX, Text, TextColumn, VIEW_NUMBER, VIEW_PATH, View, try_generation, try_offset_of,
