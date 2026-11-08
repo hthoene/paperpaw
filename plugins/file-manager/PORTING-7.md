@@ -19,7 +19,8 @@ helpers it uses are then dead.
   action `open`, the Tools menu entry (order 45) and the `folder` icon. The menu entry and the
   icon wait for the host's admission like every plugin of this port (`tests/declarations.rs`).
 - `src/card.rs`: the card as `Storage` over `core.files` (folders a page at a time, information,
-  `make_dir`, `remove_tree`, `move_entry` with replace) and the card root of the storage calls
+  `make_dir`, `remove_tree`, `move_entry` never with replace: a taken name, file or folder, is refused
+  and both stay; `exists` is false only on "not found", a read error counts as taken) and the card root of the storage calls
   (reads and appends in pieces of 4 KiB). The host calls are behind a trait so that the
   translation (pages put together, errors told as storage errors, a move that makes the folder it
   goes into, a folder that has no size) is tested without a host. A whole write of more than one
@@ -113,9 +114,10 @@ still not an error (the storage's rule).
   keyboard and confirmation replies (`Question::choice`/`Ui::ask`), the registration (action,
   Tools menu entry order 45, icon `folder`, the `file-manager.hidden` setting) as in
   `plugins/power/PORTING-7.md`.
-- The `core.files` adapter over `Storage` for the card (root 1, `uses.storage`): copy has no
-  host op (`files.md`: the plugin copies with `read_at` and `append`), `move_entry` replaces
-  a file; the model's `rename` call needs rename to replace and to work across folders.
+- Follow-up of this slice: the allocation sweep at card/browser level (every allocation of a
+  card call refused in turn; the model's sweep is done) and a nested-call test of
+  `HostCard::buffers` (a host is needed). A host out-of-memory is told to the caller as
+  `NoMemory` (`with_card`), though `StorageError` has no word for it.
 - The reading-app bookkeeping (`library::books_in`, `formats().supports_file`, own data
   folders): `core.library` (op 15 / Services) and `core.format`.
 - Reading `size` for the row text (`ops::shown_size`, from the SDK) and the page-turn

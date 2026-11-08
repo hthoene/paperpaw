@@ -21,6 +21,10 @@ pub(crate) struct Fake {
     /// Calls of `list`, to see the pages.
     pages: Cell<usize>,
     case: bool,
+    /// What `stat` says instead of the truth, for a read error.
+    stat_fails: Cell<Option<Error>>,
+    /// Calls of `append` still taken; the next one fails.
+    appends_left: Cell<Option<usize>>,
 }
 
 impl Fake {
@@ -80,6 +84,9 @@ impl Card for Fake {
     }
 
     fn stat(&self, path: &str) -> Result<Meta, Error> {
+        if let Some(error) = self.stat_fails.get() {
+            return Err(error);
+        }
         self.nodes
             .borrow()
             .get(path)
@@ -106,6 +113,12 @@ impl Card for Fake {
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
+        if let Some(left) = self.appends_left.get() {
+            if left == 0 {
+                return Err(Error::Io);
+            }
+            self.appends_left.set(Some(left - 1));
+        }
         let mut nodes = self.nodes.borrow_mut();
         let node = nodes.entry(path.to_string()).or_insert(Some(Vec::new()));
         node.as_mut().ok_or(Error::Invalid)?.extend_from_slice(data);
@@ -262,13 +275,55 @@ fn a_move_makes_the_folder_it_goes_into() {
 }
 
 #[test]
-fn a_move_replaces_a_file_but_never_a_folder() {
+fn a_move_replaces_nothing_neither_a_file_nor_a_folder() {
     let card = CardStorage(Fake::with(&[("a", "new"), ("b", "old")], &["f"]));
-    card.rename("a", "b").unwrap();
-    assert_eq!(card.size("b"), Ok(3));
+    assert_eq!(card.rename("a", "b"), Err(StorageError::Io));
+    assert_eq!(card.size("a"), Ok(3), "the file stays");
+    let mut back = [0u8; 3];
+    card.read_at("b", 0, &mut back).unwrap();
+    assert_eq!(&back, b"old", "the other is as it was");
     let card = CardStorage(Fake::with(&[("a", "1")], &["f"]));
     assert_eq!(card.rename("a", "f"), Err(StorageError::InvalidPath));
     assert_eq!(card.size("a"), Ok(1), "the file stays");
+    // Also where the folder above has to be made first.
+    let card = CardStorage(Fake::with(&[("a", "1"), ("d/a", "2")], &["d"]));
+    assert_eq!(card.rename("a", "d/a"), Err(StorageError::Io));
+    assert_eq!(card.size("d/a"), Ok(1), "the file there stays");
+}
+
+#[test]
+fn a_card_that_cannot_say_has_the_file() {
+    let fake = Fake::with(&[("a", "1")], &["d"]);
+    let card = CardStorage(fake);
+    assert!(card.exists("a") && !card.exists("missing") && !card.exists("d"));
+    // A read error is not "not there": nothing is made over a name then.
+    card.0.stat_fails.set(Some(Error::Io));
+    assert!(card.exists("missing"), "an error is not a free name");
+    assert!(card.exists("a"));
+    card.0.stat_fails.set(Some(Error::NotFound));
+    assert!(!card.exists("a"), "only not found says free");
+    // The model picks a name the card could not vouch for never.
+    card.0.stat_fails.set(Some(Error::Io));
+    let free = crate::model::path::free_path(&card, "", "new.txt");
+    assert!(free.as_ref().is_ok_and(|p| p != "new.txt"), "{free:?}");
+}
+
+#[test]
+fn a_copy_that_fails_halfway_leaves_the_target_free_and_the_source_whole() {
+    let big = "x".repeat(20_000);
+    for left in 0..5 {
+        let card = CardStorage(Fake::with(&[("a.bin", &big)], &[]));
+        card.0.appends_left.set(Some(left));
+        let result = crate::model::ops::copy(&card, "a.bin", "b.bin");
+        assert!(result.is_err(), "append {left} fails");
+        card.0.appends_left.set(None);
+        assert!(!card.exists("b.bin"), "no half copy under its name");
+        assert!(!card.exists("b.bin.part"), "no part left");
+        assert_eq!(card.size("a.bin"), Ok(20_000), "the source is whole");
+    }
+    let card = CardStorage(Fake::with(&[("a.bin", &big)], &[]));
+    crate::model::ops::copy(&card, "a.bin", "b.bin").unwrap();
+    assert_eq!(card.size("b.bin"), Ok(20_000));
 }
 
 #[test]

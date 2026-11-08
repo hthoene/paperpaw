@@ -8,7 +8,7 @@
 //! implementation over the SDK.
 
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell, RefMut};
 
 use paperpaw_sdk::native::files::{self, Files};
 use paperpaw_sdk::native::storage::{self, MAX_DATA, Root};
@@ -55,6 +55,7 @@ pub(crate) fn storage_error(error: Error) -> StorageError {
         Error::NoSpace => StorageError::TooLarge,
         Error::Unsupported | Error::Denied => StorageError::Unsupported,
         Error::Invalid | Error::Utf8 => StorageError::InvalidPath,
+        // Not the card's fault, and not a missing card either.
         _ => StorageError::Io,
     }
 }
@@ -155,16 +156,28 @@ impl<C: Card> Storage for CardStorage<C> {
         meta.modified.and_then(|t| i64::try_from(t).ok())
     }
 
-    /// Replaces a file there; a folder is never replaced. The folder `to` goes
-    /// into is made where it is not there.
+    /// Only "not found" says a name is free: a card that cannot say (a read
+    /// error) counts as having the file, so that nothing is made over it. A
+    /// folder is no file.
+    fn exists(&self, path: &str) -> bool {
+        match self.0.stat(path) {
+            Ok(meta) => !meta.is_dir,
+            Err(Error::NotFound) => false,
+            Err(_) => true,
+        }
+    }
+
+    /// Moves without replacing anything: where `to` is there, whatever it is,
+    /// the host refuses and both stay as they are. The folder `to` goes into
+    /// is made where it is not there.
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        match self.0.move_entry(from, to, true) {
+        match self.0.move_entry(from, to, false) {
             Err(Error::NotFound) if self.0.stat(from).is_ok() => {
                 // The source is there: the folder above `to` is not.
                 if let Some((parent, _)) = to.rsplit_once('/') {
                     self.0.make_dir(parent).map_err(storage_error)?;
                 }
-                self.0.move_entry(from, to, true).map_err(storage_error)
+                self.0.move_entry(from, to, false).map_err(storage_error)
             }
             result => result.map_err(storage_error),
         }
@@ -198,6 +211,9 @@ pub(crate) struct HostCard<'h, 'cb> {
     input: RefCell<Vec<u8>>,
     output: RefCell<Vec<u8>>,
     ignores_case: bool,
+    /// The host ran out of memory in a call: [`Storage`] has no word for it
+    /// (it says [`StorageError::Io`]), so it is kept for [`with_card`].
+    out_of_memory: Cell<bool>,
 }
 
 impl<'h, 'cb> HostCard<'h, 'cb> {
@@ -232,12 +248,31 @@ impl<'h, 'cb> HostCard<'h, 'cb> {
                 input: RefCell::new(input),
                 output: RefCell::new(output),
                 ignores_case,
+                out_of_memory: Cell::new(false),
             }),
             Err(error) => {
                 files.release(host).ok();
                 Err(error)
             }
         }
+    }
+
+    /// Both buffers; [`Error::Busy`] where a call is already using them (a
+    /// nested call must not panic).
+    #[allow(clippy::type_complexity, reason = "two guards")]
+    fn buffers(&self) -> Result<(RefMut<'_, Vec<u8>>, RefMut<'_, Vec<u8>>), Error> {
+        match (self.input.try_borrow_mut(), self.output.try_borrow_mut()) {
+            (Ok(input), Ok(output)) => Ok((input, output)),
+            _ => Err(Error::Busy),
+        }
+    }
+
+    /// `result`, with the host's lack of memory noted.
+    fn noted<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        if matches!(result, Err(Error::NoMemory)) {
+            self.out_of_memory.set(true);
+        }
+        result
     }
 
     /// Gives the service back.
@@ -260,6 +295,11 @@ pub(crate) fn with_card<T>(
 ) -> Result<T, Error> {
     let card = CardStorage(HostCard::open(host)?);
     let done = work(&card);
+    // A storage error cannot tell "no memory"; the host's call did.
+    let done = match done {
+        Err(Error::Io) if card.0.out_of_memory.get() => Err(Error::NoMemory),
+        other => other,
+    };
     let closed = card.0.close();
     let value = done?;
     closed?;
@@ -268,10 +308,15 @@ pub(crate) fn with_card<T>(
 
 impl Card for HostCard<'_, '_> {
     fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
-        let (mut input, mut output) = (self.input.borrow_mut(), self.output.borrow_mut());
-        let listing =
-            self.files
-                .list(self.host, Root::Files, dir, cursor, &mut input, &mut output)?;
+        let (mut input, mut output) = self.buffers()?;
+        let listing = self.noted(self.files.list(
+            self.host,
+            Root::Files,
+            dir,
+            cursor,
+            &mut input,
+            &mut output,
+        ))?;
         for entry in listing.entries() {
             // A name the host cannot address again is not shown.
             if entry.unaddressable() {
@@ -288,10 +333,12 @@ impl Card for HostCard<'_, '_> {
     }
 
     fn stat(&self, path: &str) -> Result<Meta, Error> {
-        let (mut input, mut output) = (self.input.borrow_mut(), self.output.borrow_mut());
-        let entry = self
-            .files
-            .stat(self.host, Root::Files, path, &mut input, &mut output)?;
+        let (mut input, mut output) = self.buffers()?;
+        let entry =
+            self.noted(
+                self.files
+                    .stat(self.host, Root::Files, path, &mut input, &mut output),
+            )?;
         Ok(Meta {
             is_dir: entry.is_folder(),
             size: entry.size(),
@@ -300,37 +347,41 @@ impl Card for HostCard<'_, '_> {
     }
 
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.host, Root::Files, path, offset, buf)
+        self.noted(storage::read_at(self.host, Root::Files, path, offset, buf))
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.host, Root::Files, path, data)
+        self.noted(storage::write(self.host, Root::Files, path, data))
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.host, Root::Files, path, data)
+        self.noted(storage::append(self.host, Root::Files, path, data))
     }
 
     fn remove(&self, path: &str) -> Result<(), Error> {
-        storage::remove(self.host, Root::Files, path)
+        self.noted(storage::remove(self.host, Root::Files, path))
     }
 
     fn make_dir(&self, path: &str) -> Result<(), Error> {
-        let (mut input, mut output) = (self.input.borrow_mut(), self.output.borrow_mut());
-        self.files
-            .make_dir(self.host, Root::Files, path, &mut input, &mut output)
+        let (mut input, mut output) = self.buffers()?;
+        self.noted(
+            self.files
+                .make_dir(self.host, Root::Files, path, &mut input, &mut output),
+        )
     }
 
     fn remove_tree(&self, path: &str) -> Result<(), Error> {
-        let (mut input, mut output) = (self.input.borrow_mut(), self.output.borrow_mut());
-        self.files
-            .remove_tree(self.host, Root::Files, path, &mut input, &mut output)
-            .map(|_| ())
+        let (mut input, mut output) = self.buffers()?;
+        self.noted(
+            self.files
+                .remove_tree(self.host, Root::Files, path, &mut input, &mut output),
+        )
+        .map(|_| ())
     }
 
     fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error> {
-        let (mut input, mut output) = (self.input.borrow_mut(), self.output.borrow_mut());
-        self.files.move_entry(
+        let (mut input, mut output) = self.buffers()?;
+        self.noted(self.files.move_entry(
             self.host,
             Root::Files,
             from,
@@ -339,11 +390,11 @@ impl Card for HostCard<'_, '_> {
             replace,
             &mut input,
             &mut output,
-        )
+        ))
     }
 
     fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.host)
+        self.noted(storage::sync(self.host))
     }
 
     fn ignores_case(&self) -> bool {
