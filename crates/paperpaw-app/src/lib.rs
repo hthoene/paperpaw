@@ -285,7 +285,6 @@ pub fn install_with(
     let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
     builder
         .plugin(paperpaw_plugin_update::Update)
-        .plugin(paperpaw_plugin_about::About)
         .plugin(paperpaw_plugin_setup::Setup)
         .plugin(paperpaw_plugin_help::Help)
 }

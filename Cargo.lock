@@ -1534,7 +1534,6 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-platform",
- "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
@@ -1841,14 +1840,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
- "miniz_oxide 0.9.1",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
