@@ -14,6 +14,7 @@
 //! answer is written into it, checked there and, for pictures, rewritten in
 //! place. No call keeps anything. The peak of the DOC host side beyond the
 //! scratch is the table: 80 bytes.
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -417,17 +418,13 @@ fn state_reply(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Resul
 }
 
 fn state(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceDocRef = codec::single(input)?;
     let document = host.table().lease(host.owner(), reference.document)?;
     state_reply(host, &document, out)
 }
 
 fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
-    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceDocRef = codec::single(input)?;
     let document = host.table().close(host.owner(), reference.document)?;
     end(host, &document);
     Ok(0)
@@ -992,9 +989,7 @@ fn list(
 }
 
 fn paged(input: &[u8], scope_allowed: bool) -> Result<wire::ServiceDocPage<'_>, i32> {
-    let Record::ServiceDocPage(page) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let page: wire::ServiceDocPage<'_> = codec::single(input)?;
     // No document here, and `scope` is op 21's format filter alone.
     require(page.document == 0 && (scope_allowed || page.scope.is_empty()))?;
     args::page_state(page.cursor, page.generation)?;
@@ -1017,9 +1012,7 @@ fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Res
 }
 
 fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDocPath(path) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let path: wire::ServiceDocPath<'_> = codec::single(input)?;
     // Bit 0: sniff when no extension matches.
     require(path.root <= 1 && path.flags & !1 == 0 && args::path_valid(path.path))?;
     host.root_access(path.root)?;

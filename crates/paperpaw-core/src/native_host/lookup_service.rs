@@ -12,6 +12,7 @@
 //!
 //! Memory: nothing is kept; the call runs in the dispatcher's 4,096-byte
 //! scratch (a `lookup_entry` is at most 2,384 bytes).
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -52,9 +53,7 @@ pub(crate) fn backend(
     if op.id != 1 {
         return Err(ERR_UNSUPPORTED);
     }
-    let Record::ServiceLookupAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceLookupAsk<'_> = codec::single(input)?;
     // The text is what is looked up; the language is a BCP 47 tag or empty.
     if ask.text.is_empty() || !language_ok(ask.language) {
         return Err(ERR_INVALID);

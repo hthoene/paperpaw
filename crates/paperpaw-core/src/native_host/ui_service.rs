@@ -8,6 +8,7 @@
 //! `ERR_UNSUPPORTED`; the X4 profile wires nothing yet. Texts and params may be
 //! secret: they are never in a `Debug` or a log, and the buffers that held a
 //! text are wiped.
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -97,9 +98,7 @@ fn stamp(ui: &UiServices, who: &Caller<'_>) -> Result<Stamp, i32> {
 /// Op 8: records a question for the caller and returns its request id; the
 /// dialog opens after the caller's callback returns.
 fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
     let stamp = stamp(ui, who)?;
     let remote = match ask.slot {
         "" => false,
@@ -162,9 +161,7 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
 
 /// Op 2: the question, for the request's dialog instance only.
 fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiRequest(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiRequest = codec::single(input)?;
     let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     ui.store.question(dialog, ask.request, |shown| {
         let record = Record::ServiceUiQuestion(wire::ServiceUiQuestion {
@@ -181,9 +178,7 @@ fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
 
 /// Op 11: the dialog's answer.
 fn answer(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiAnswer(answer) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let answer: wire::ServiceUiAnswer = codec::single(input)?;
     let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     ui.store
         .answer(dialog, answer.request, answer.outcome, answer.choice)
@@ -217,9 +212,7 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
 
 /// Op 17: the params of the calling instance's hand-over, then `end`.
 fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiHandle(handle) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let handle: wire::ServiceUiHandle = codec::single(input)?;
     let instance = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     let info = ui.store.info(instance).ok_or(ERR_STATE)?;
     if info.handover != handle.handle {
@@ -241,9 +234,7 @@ fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Re
 
 /// Op 9: a part of a hand-over's text, by its maker in the callback that made it.
 fn text_write(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiText(part) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let part: wire::ServiceUiText<'_> = codec::single(input)?;
     if part.flags & !LAST != 0 || part.data.len() > PART_MAX {
         return Err(ERR_INVALID);
     }
@@ -271,9 +262,7 @@ fn text_read(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiTextAt(at) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let at: wire::ServiceUiTextAt = codec::single(input)?;
     let instance = ui.host.calling_instance(who.owner);
     let offset = usize::try_from(at.offset).map_err(|_| ERR_INVALID)?;
     let mut part = Vec::new();

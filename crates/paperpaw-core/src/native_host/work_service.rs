@@ -10,6 +10,7 @@
 //! instance did not ask) and the user's network setting for the plugin
 //! (`ERR_DENIED`). Memory: the call itself keeps nothing; `state` is one
 //! reply of at most 4,096 bytes written into the dispatcher's scratch.
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -39,9 +40,7 @@ pub(crate) fn backend(
     let work = who.hosts.work().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
         1 => {
-            let Record::ServiceWorkSpec(spec) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let spec: wire::ServiceWorkSpec<'_> = codec::single(input)?;
             let spec = Spec {
                 token: spec.token,
                 needs: spec.needs,
@@ -64,9 +63,7 @@ pub(crate) fn backend(
             Ok(0)
         }
         2 => {
-            let Record::ServiceWorkKey(key) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let key: wire::ServiceWorkKey<'_> = codec::single(input)?;
             work.sched.cancel(who.owner, key.key)?;
             Ok(0)
         }

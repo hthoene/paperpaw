@@ -23,6 +23,7 @@
 //! sorting or holding the file: an interface-6 file keeps its order, `keep`
 //! appends a new secret and a changed one keeps its line. The `list` cursor is
 //! a row number among the rows the caller may see.
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -205,9 +206,7 @@ fn get(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceSecName(name) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let name: wire::ServiceSecName<'_> = codec::single(input)?;
     // Values never leave their owner, also not for the settings editor, and
     // `plugin` must be "" (secrets.md 2.1): an explicit id, also the caller's
     // own, is `ERR_DENIED`.
@@ -260,9 +259,7 @@ fn list(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceSecList(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecList = codec::single(input)?;
     if ask.flags & !ALL != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -348,9 +345,7 @@ fn list(
 }
 
 fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceSecKeep(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecKeep<'_> = codec::single(input)?;
     if ask.flags & !CHANGEABLE != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -394,9 +389,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
 }
 
 fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceSecName(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecName<'_> = codec::single(input)?;
     check_name(ask.name)?;
     let (owner, _) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
@@ -413,9 +406,7 @@ fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(
 }
 
 fn random(secrets: &SecretsServices, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceSecRandom(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecRandom = codec::single(input)?;
     let len = usize::try_from(ask.len).map_err(|_| ERR_INVALID)?;
     if len == 0 || len > RANDOM_MAX {
         return Err(ERR_INVALID);

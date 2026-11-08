@@ -29,6 +29,7 @@
 //! answers and the buffers are in the pool; the transport's connections and
 //! the TLS session (about 40 KiB, one fixed block) are outside it. Every
 //! allocation is fallible.
+use crate::native_host::codec;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -264,33 +265,23 @@ pub(crate) fn backend(
             )
         }
         op::CANCEL => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             table::cancel(host, who.owner, t.token).map(|()| 0)
         }
         op::ANSWER => {
-            let Record::ServiceNetId(i) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let i: wire::ServiceNetId = codec::single(input)?;
             table::answer(host, who.owner, i.id, out)
         }
         op::BODY => {
-            let Record::ServiceNetRead(r) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let r: wire::ServiceNetRead = codec::single(input)?;
             table::body(host, who.owner, r.id, r.offset, out)
         }
         op::SERVE => {
-            let Record::ServiceNetServe(s) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let s: wire::ServiceNetServe = codec::single(input)?;
             serving::serve(host, who, &s).map(|()| 0)
         }
         op::STOP_SERVING => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             serving::stop_serving(host, who.owner, t.token).map(|()| 0)
         }
         op::RESPOND => serving::respond(host, who, input).map(|()| 0),

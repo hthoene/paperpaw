@@ -274,6 +274,12 @@ pub use wire::{
     host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
     host_records_visit,
 };
+// The typed codec (#364): decode and encode one record type, linking no other
+// record's code. The host reads and writes records through `codec` (todo 129).
+pub use wire::{
+    RawRecord, WireEncode, WireRecord, record_encode_of, record_framed_len_of,
+    records_encode_counted_of, records_encode_of,
+};
 // Counted service inputs above the registration limit (`ServiceOp::input_rows`).
 pub use wire::{records_encode_counted, records_encode_counted_iter};
 

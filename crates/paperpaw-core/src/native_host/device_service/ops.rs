@@ -1,5 +1,6 @@
 //! The `core.device` backend: decode the op, ask the [`DeviceHost`], encode the
 //! reply exactly per schema into the scratch the dispatcher lends.
+use crate::native_host::codec;
 use super::{
     BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_BONDED,
     MAX_KEYS, MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, NativeFacts, NetworkRow,
@@ -223,9 +224,7 @@ fn bluetooth(facts: BluetoothFacts, out: &mut [u8]) -> Result<usize, i32> {
 /// Normal, times `stretch` in Saving (cut at `u32::MAX`), and 0 in Offline
 /// ("never": a plugin reads `level` first) and for no base.
 fn power(host: &dyn DeviceHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDevInterval(interval) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let interval: wire::ServiceDevInterval = codec::single(input)?;
     let mut slot: Option<Result<usize, i32>> = None;
     host.power(&mut |power| {
         set(&mut slot, || {
@@ -266,9 +265,7 @@ impl Query {
     /// that is not the host's, or generation 0 with a non-zero cursor, is
     /// `ERR_STATE`; reserved `flags` are `ERR_INVALID`.
     fn decode(host: &dyn DeviceHost, input: &[u8]) -> Result<Self, i32> {
-        let Record::ServiceRegQuery(query) = wire::records_decode_single(input)? else {
-            return Err(ERR_INVALID);
-        };
+        let query: wire::ServiceRegQuery<'_> = codec::single(input)?;
         if query.flags != 0 {
             return Err(ERR_INVALID);
         }
