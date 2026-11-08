@@ -87,9 +87,7 @@ impl Vault {
         for (path, text) in notes {
             storage.write(path, text.as_bytes()).unwrap();
         }
-        let config = format!(
-            "[core]\nlanguage = en\n[help]\nshow = false\n[notes-vault]\nfolder = {vault}\n"
-        );
+        let config = format!("[core]\nlanguage = en\n[notes-vault]\nfolder = {vault}\n");
         let mut kernel = Kernel::builder(X4)
             .storage(storage.clone())
             .user_config(&config)
@@ -493,7 +491,7 @@ fn with_widgets(notes: &[(String, String)], extra: &str, page: &str) -> Vault {
         storage.write(path, text.as_bytes()).unwrap();
     }
     let config = format!(
-        "[core]\nlanguage = en\n[help]\nshow = false\n[notes-vault]\nfolder = vault\n{extra}\n\
+        "[core]\nlanguage = en\n[notes-vault]\nfolder = vault\n{extra}\n\
          [home]\npage-1 = {page}\n"
     );
     let mut kernel = Kernel::builder(X4)

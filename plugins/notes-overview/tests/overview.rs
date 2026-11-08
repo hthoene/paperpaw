@@ -126,7 +126,7 @@ impl Device {
             )
             .unwrap();
         }
-        let user = "[core]\nlanguage = en\n[help]\nshow = false\n".to_string();
+        let user = "[core]\nlanguage = en\n".to_string();
         let kernel = Kernel::builder(X4)
             .storage(storage)
             .user_config(user)

@@ -12,7 +12,7 @@ impl<'a> Iterator for ContextParams<'a> {
         if self.bytes.is_empty() {
             return None;
         }
-        match wire::record_decode_prefix(self.bytes) {
+        match wire::RawRecord::prefix(self.bytes) {
             Ok((record, count)) => {
                 self.bytes = &self.bytes[count..];
                 Some(Param::decode(record))
