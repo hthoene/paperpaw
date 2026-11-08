@@ -312,13 +312,10 @@ fn a_widget_is_made_for_the_top_instance_dropped_by_its_maker_and_own_is_flagged
         assert_eq!(w.drop_widget(A, id).err(), Some(ERR_DENIED));
         w.drop_widget(ME, id).unwrap();
         assert_eq!(w.drop_widget(ME, id).err(), Some(ERR_NOT_FOUND));
-        // Not in a screen callback, deeper than 1, or not the top: refused.
+        // Not in a screen callback or not the top: refused.
         w.instance.set(None);
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
         w.instance.set(Some(10));
-        w.depth.set(2);
-        assert_eq!(w.make(ME, "a.w").err(), Some(ERR_BUSY));
-        w.depth.set(1);
         w.rows.borrow_mut().push(row(11, A, false));
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
     });
@@ -485,5 +482,54 @@ fn a_heap_refusal_is_no_memory_and_hands_out_nothing() {
         w.fail.set(0);
         assert!(made.is_err() || made.is_ok());
         assert!(w.make(ME, "a.w").is_ok());
+    });
+}
+
+#[test]
+fn the_cache_compares_whole_keys_holds_sixteen_and_skips_long_ones() {
+    let mut cache = StatusCache::default();
+    cache.put("a.one", b"ctx", false, "v");
+    // The same item under another context, or another item, is a miss.
+    assert_eq!(cache.get("a.one", b"ctx"), Some(&b"v"[..]));
+    assert_eq!(cache.get("a.one", b"cty"), None);
+    assert_eq!(cache.get("a.on", b"ectx"), None);
+    assert_eq!(cache.get("a.one", b""), None);
+    // A key over 128 bytes is not cached.
+    cache.put("a.one", &[7; 128], false, "long");
+    assert_eq!(cache.get("a.one", &[7; 128]), None);
+    // 16 entries; the 17th replaces the oldest, the second the next oldest.
+    cache.clear();
+    for n in 0..16_u8 {
+        cache.put("i", &[n], false, "x");
+    }
+    cache.put("i", &[16], false, "y");
+    assert_eq!(cache.entries.len(), 16);
+    assert_eq!(cache.get("i", &[0]), None);
+    assert_eq!(cache.get("i", &[1]), Some(&b"x"[..]));
+    assert_eq!(cache.get("i", &[16]), Some(&b"y"[..]));
+    cache.put("i", &[17], false, "z");
+    assert_eq!(cache.get("i", &[1]), None);
+    assert_eq!(cache.get("i", &[2]), Some(&b"x"[..]));
+}
+
+#[test]
+fn an_owner_that_runs_out_of_memory_leaves_empty_rows_and_the_op_answers() {
+    world(|w| {
+        w.reply(A, 1, Err(ERR_NO_MEMORY));
+        let rows = w.status(ME, "a.one").unwrap();
+        assert_eq!(rows, std::vec![("a.one".into(), 0, 0, String::new())]);
+    });
+}
+
+#[test]
+fn a_widget_is_made_at_any_depth_and_not_below_a_guard() {
+    world(|w| {
+        w.depth.set(2);
+        assert!(w.make(ME, "a.w").is_ok());
+        w.depth.set(1);
+        // Under a guard of another plugin the caller is not the top instance
+        // (kept as ERR_STATE until Kernel settles ERR_DENIED, ui.md 4.3).
+        w.rows.borrow_mut().push(row(9, A, true));
+        assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
     });
 }

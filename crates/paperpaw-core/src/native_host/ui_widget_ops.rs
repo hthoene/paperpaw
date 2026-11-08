@@ -59,12 +59,24 @@ const OWN: u32 = 4;
 /// `ui_instance.flags` bit 0: the caller's own.
 const INSTANCE_OWN: u32 = 1;
 
+/// The longest key (item, separator, context) a value is cached under; a
+/// longer ask is answered but not cached.
+const KEY_MAX: usize = 128;
+
 /// One answered text value, cached per (item, context).
 #[derive(Debug)]
 struct Cached {
-    key: u64,
+    /// The item, `0xff` (no UTF-8 text holds it), the context: compared whole,
+    /// never by a hash, so no crafted context can reach another item's value.
+    key: Vec<u8>,
     private: bool,
     text: Vec<u8>,
+}
+
+impl Cached {
+    fn is(&self, item: &str, context: &[u8]) -> bool {
+        self.key.iter().copied().eq(key_of(item, context))
+    }
 }
 
 /// The values op 14 keeps until a status change or the minute tick. Bounded
@@ -77,40 +89,41 @@ pub(crate) struct StatusCache {
     next: usize,
 }
 
-fn key_of(item: &str, context: &[u8]) -> u64 {
-    // FNV-1a over the item, a separator no item holds, and the context.
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in item
-        .bytes()
+fn key_of<'a>(item: &'a str, context: &'a [u8]) -> impl Iterator<Item = u8> + 'a {
+    item.bytes()
         .chain(core::iter::once(0xff))
         .chain(context.iter().copied())
-    {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    hash
 }
 
 impl StatusCache {
-    fn get(&self, key: u64) -> Option<&[u8]> {
+    fn get(&self, item: &str, context: &[u8]) -> Option<&[u8]> {
         self.entries
             .iter()
-            .find(|e| e.key == key)
+            .find(|e| e.is(item, context))
             .map(|e| e.text.as_slice())
     }
 
-    fn put(&mut self, key: u64, private: bool, text: &str) {
-        let mut bytes = Vec::new();
-        if bytes.try_reserve_exact(text.len()).is_err() {
+    fn put(&mut self, item: &str, context: &[u8], private: bool, text: &str) {
+        if item.len() + 1 + context.len() > KEY_MAX {
             return;
         }
+        let mut key = Vec::new();
+        let mut bytes = Vec::new();
+        if key
+            .try_reserve_exact(item.len() + 1 + context.len())
+            .is_err()
+            || bytes.try_reserve_exact(text.len()).is_err()
+        {
+            return;
+        }
+        key.extend(key_of(item, context));
         bytes.extend_from_slice(text.as_bytes());
         let entry = Cached {
             key,
             private,
             text: bytes,
         };
-        if let Some(at) = self.entries.iter().position(|e| e.key == key) {
+        if let Some(at) = self.entries.iter().position(|e| e.is(item, context)) {
             self.entries[at] = entry;
         } else if self.entries.len() < CACHE_MAX {
             if self.entries.try_reserve(1).is_ok() {
@@ -262,10 +275,8 @@ pub(super) fn widget_make(
         return Err(ERR_INVALID);
     };
     let base = base_of(reference.widget)?;
+    // No depth rule: op 4 runs no callback (ui.md: ops 7 and 12-15 do).
     frame.callback_epoch()?;
-    if frame.callback_depth()? != 1 {
-        return Err(ERR_BUSY);
-    }
     let screen = frame.calling_instance()?;
     // Only for the caller's own top instance (the one that gets input); a
     // screen below a guard is never the top.
@@ -409,7 +420,7 @@ fn classify(
             .cache
             .try_borrow()
             .map_err(|_| ERR_BUSY)?
-            .get(key_of(item, context))
+            .get(item, context)
         {
             rows[at].set_text(text);
         } else {
@@ -447,8 +458,8 @@ fn fill_group(
     let mut reply = scratch(status::MAX_REPLY)?;
     let length = match frame.status_ask(lead.owner, lead.token, ids, context, &mut reply) {
         Ok(length) => length,
-        Err(ERR_NO_MEMORY) => return Err(ERR_NO_MEMORY),
-        // A failed owner call: its items have no value, the rest go on.
+        // A failed owner call (its own refusal for memory too): its items have
+        // no value, the rest go on.
         Err(_) => return Ok(()),
     };
     let Some(bytes) = reply.get(..length) else {
@@ -492,7 +503,7 @@ fn fill_group(
                 .cache
                 .try_borrow_mut()
                 .map_err(|_| ERR_BUSY)?
-                .put(key_of(items[at], context), lead.private, value.text);
+                .put(items[at], context, lead.private, value.text);
         }
     }
     Ok(())
