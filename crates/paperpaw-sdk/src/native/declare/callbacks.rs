@@ -40,6 +40,14 @@ pub enum EventKind {
     PluginsChanged,
     /// Subscribe to the wifi changed host event.
     WifiChanged,
+    /// A Wi-Fi scan finished (a coalesced hint).
+    WifiScanned,
+    /// A `join` or `host` request of this plugin ended.
+    WifiDone,
+    /// Network work waits for a network (network manager only).
+    NetworkWanted,
+    /// The network is no longer needed (network manager only).
+    NetworkIdle,
     /// Subscribe to the power changed host event.
     PowerChanged,
     /// Subscribe to the status changed host event.
@@ -86,6 +94,10 @@ impl EventKind {
             Self::BookRemoved => records_wire::EVENT_BOOK_REMOVED_TAG,
             Self::PluginsChanged => records_wire::EVENT_PLUGINS_CHANGED_TAG,
             Self::WifiChanged => records_wire::EVENT_WIFI_CHANGED_TAG,
+            Self::WifiScanned => records_wire::EVENT_WIFI_SCANNED_TAG,
+            Self::WifiDone => records_wire::EVENT_WIFI_DONE_TAG,
+            Self::NetworkWanted => records_wire::EVENT_NETWORK_WANTED_TAG,
+            Self::NetworkIdle => records_wire::EVENT_NETWORK_IDLE_TAG,
             Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,
             Self::StatusChanged => records_wire::EVENT_STATUS_CHANGED_TAG,
             Self::ChargeChanged => records_wire::EVENT_CHARGE_CHANGED_TAG,

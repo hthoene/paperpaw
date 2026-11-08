@@ -527,3 +527,87 @@ fn bluetooth_values_follow_the_contract_and_unknown_ones_are_other() {
         assert_eq!(change(8, 0, 0, wire).3, Some(expected), "reason {wire}");
     }
 }
+
+fn wifi_done(request: u32, status: i32, reason: u32, state: u32) -> Record<'static> {
+    Record::EventWifiDone(wire::EventWifiDone {
+        now_ms: 7,
+        request,
+        ssid: "Home",
+        status,
+        reason,
+        state,
+    })
+}
+
+#[test]
+fn radio_hints_and_the_network_manager_edges_are_typed() {
+    let bytes = encode(Record::EventWifiScanned(wire::EventWifiScanned {
+        now_ms: 7,
+        networks: 3,
+    }));
+    assert_eq!(
+        decode(&bytes),
+        Ok(Event::WifiScanned {
+            now_ms: 7,
+            networks: 3
+        })
+    );
+    let bytes = encode(Record::EventNetworkWanted(wire::EventNetworkWanted {
+        now_ms: 8,
+    }));
+    assert_eq!(decode(&bytes), Ok(Event::NetworkWanted { now_ms: 8 }));
+    let bytes = encode(Record::EventNetworkIdle(wire::EventNetworkIdle {
+        now_ms: 9,
+    }));
+    assert_eq!(decode(&bytes), Ok(Event::NetworkIdle { now_ms: 9 }));
+}
+
+#[test]
+fn a_wifi_outcome_says_how_this_request_ended() {
+    use crate::native::device::DeviceRequest;
+    // Online, and hosting.
+    for (state, expected) in [
+        (3, WifiLinkState::Connected),
+        (4, WifiLinkState::AccessPoint),
+    ] {
+        let bytes = encode(wifi_done(5, 0, 0, state));
+        let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+            panic!("a typed outcome");
+        };
+        assert_eq!(done.now_ms(), 7);
+        assert_eq!(done.request(), DeviceRequest::new(5));
+        assert_eq!(done.ssid(), "Home");
+        assert_borrowed_text(&bytes, done.ssid());
+        assert_eq!((done.status(), done.failure()), (Ok(()), None));
+        assert_eq!(done.state(), expected);
+    }
+    // Every reason of the contract, and an unknown one as `Other`.
+    let reasons = [
+        (1, Error::NotFound, WifiFailure::NotFound),
+        (2, Error::Denied, WifiFailure::Password),
+        (3, Error::Timeout, WifiFailure::Timeout),
+        (4, Error::Cancelled, WifiFailure::Superseded),
+        (5, Error::Unsupported, WifiFailure::Unsupported),
+        (6, Error::Denied, WifiFailure::NeedsUser),
+        (0, Error::Io, WifiFailure::Other),
+        (99, Error::Io, WifiFailure::Other),
+    ];
+    for (reason, error, failure) in reasons {
+        let status = error.status();
+        let bytes = encode(wifi_done(5, status, reason, 0));
+        let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+            panic!("a typed outcome");
+        };
+        assert_eq!(done.status(), Err(error));
+        assert_eq!(done.failure(), Some(failure), "reason {reason}");
+        assert_eq!(done.state(), WifiLinkState::Off);
+    }
+    // A join the host started itself has no request number; a failed one never
+    // reports a state it did not reach.
+    let bytes = encode(wifi_done(0, Error::Io.status(), 1, 3));
+    let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(done.request(), None);
+    assert_eq!(done.state(), WifiLinkState::Off);
+}

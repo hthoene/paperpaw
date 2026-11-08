@@ -44,6 +44,13 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
             records_wire::EVENT_PLUGINS_CHANGED_TAG,
         ),
         (EventKind::WifiChanged, records_wire::EVENT_WIFI_CHANGED_TAG),
+        (EventKind::WifiScanned, records_wire::EVENT_WIFI_SCANNED_TAG),
+        (EventKind::WifiDone, records_wire::EVENT_WIFI_DONE_TAG),
+        (
+            EventKind::NetworkWanted,
+            records_wire::EVENT_NETWORK_WANTED_TAG,
+        ),
+        (EventKind::NetworkIdle, records_wire::EVENT_NETWORK_IDLE_TAG),
         (
             EventKind::PowerChanged,
             records_wire::EVENT_POWER_CHANGED_TAG,

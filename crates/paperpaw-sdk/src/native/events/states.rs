@@ -29,13 +29,110 @@ pub enum WifiLinkState {
     AccessPoint,
 }
 impl WifiLinkState {
-    pub(super) fn decode(state: u32) -> Self {
+    pub(super) const fn decode(state: u32) -> Self {
         match state {
             0 => Self::Off,
             2 => Self::Connecting,
             3 => Self::Connected,
             4 => Self::AccessPoint,
             _ => Self::On,
+        }
+    }
+}
+
+/// Why a `join` or `host` request ended without the network (`docs/abi/device.md`
+/// section 4). Values this SDK does not know are [`Self::Other`], as the contract
+/// requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WifiFailure {
+    /// The network was not found.
+    NotFound,
+    /// The password was refused.
+    Password,
+    /// The attempt timed out.
+    Timeout,
+    /// A newer `join` or `host` replaced this request.
+    Superseded,
+    /// The device cannot do this here.
+    Unsupported,
+    /// The user has to act first: the request came without a recent input.
+    NeedsUser,
+    /// Another failure, or a reason this SDK does not know.
+    Other,
+}
+impl WifiFailure {
+    const fn decode(reason: u32) -> Self {
+        match reason {
+            1 => Self::NotFound,
+            2 => Self::Password,
+            3 => Self::Timeout,
+            4 => Self::Superseded,
+            5 => Self::Unsupported,
+            6 => Self::NeedsUser,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// How one `join` or `host` request ended (`event.wifi_done`): exactly once,
+/// success or failure, to the plugin that sent it. It says what happened to
+/// this request; the current radio state is what `event.wifi_changed` and the
+/// device state read say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WifiDone<'a> {
+    pub(super) now_ms: u64,
+    pub(super) request: u32,
+    pub(super) ssid: &'a str,
+    pub(super) status: i32,
+    pub(super) reason: u32,
+    pub(super) state: u32,
+}
+impl<'a> WifiDone<'a> {
+    /// Emission time in monotonic milliseconds.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// The sender's request number, or `None` for a join the host started itself
+    /// (a remembered network at wake): its failure goes to the network manager.
+    #[must_use]
+    pub const fn request(&self) -> Option<crate::native::device::DeviceRequest> {
+        crate::native::device::DeviceRequest::new(self.request)
+    }
+    /// The network's name.
+    #[must_use]
+    pub const fn ssid(&self) -> &'a str {
+        self.ssid
+    }
+    /// `Ok` when the network is up; else the error the request ended with.
+    ///
+    /// # Errors
+    /// The host's status for a request that did not end with the network.
+    pub const fn status(&self) -> Result<(), crate::native::Error> {
+        if self.status == 0 {
+            Ok(())
+        } else {
+            Err(crate::native::Error::from_status(self.status))
+        }
+    }
+    /// The reason of a failed request; `None` when it succeeded.
+    #[must_use]
+    pub const fn failure(&self) -> Option<WifiFailure> {
+        if self.status == 0 {
+            None
+        } else {
+            Some(WifiFailure::decode(self.reason))
+        }
+    }
+    /// The radio state the request reached when it succeeded (connected or
+    /// hosting); [`WifiLinkState::Off`] for a failure.
+    #[must_use]
+    pub const fn state(&self) -> WifiLinkState {
+        if self.status == 0 {
+            WifiLinkState::decode(self.state)
+        } else {
+            WifiLinkState::Off
         }
     }
 }
