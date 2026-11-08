@@ -9,6 +9,7 @@ pub mod look;
 pub mod names;
 pub mod options;
 pub mod settings;
+pub mod shape;
 pub mod text;
 
 pub use cx::Cx;
