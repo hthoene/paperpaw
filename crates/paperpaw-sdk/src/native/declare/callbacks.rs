@@ -76,8 +76,6 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
-    /// A question this plugin asked was answered or cancelled.
-    Answered,
 }
 
 impl EventKind {
@@ -118,7 +116,6 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
-            Self::Answered => records_wire::EVENT_ANSWERED_TAG,
         }
     }
 }

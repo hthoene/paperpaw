@@ -15,10 +15,10 @@ impl FieldCursor {
 #[derive(Clone, Copy, Debug)]
 pub struct Field<'a>(wire::ServiceLibField<'a>);
 impl<'a> Field<'a> {
-    fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceLibField(row) = record else {
-            return Err(Error::Invalid);
-        };
+    fn decode(record: RawRecord<'a>) -> Result<Self, Error> {
+        let row = record
+            .decode::<wire::ServiceLibField<'a>>()
+            .map_err(|_| Error::Invalid)?;
         super::super::ui::navigation::full_id(row.id)?;
         Ok(Self(row))
     }
@@ -98,14 +98,14 @@ impl Library {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<FieldPage<'a>, Error> {
-        let request = Record::ServiceLibFieldPage(wire::ServiceLibFieldPage {
+        let request = wire::ServiceLibFieldPage {
             cursor: cursor.0.offset,
             generation: cursor.0.generation,
-        });
+        };
         let n = self.call(
             host,
             schema::OP_FIELDS,
-            &[book.record(), request],
+            &[book.record(), &request],
             input,
             out,
         )?;

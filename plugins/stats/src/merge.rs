@@ -114,7 +114,8 @@ impl Key {
                 digest.update(part.as_bytes());
                 digest.update(&[0]);
             }
-            Self::from_hex(&digest.hex()).unwrap_or_default()
+            let mut digits = [0u8; 32];
+            Self::from_hex(digest.hex_into(&mut digits)).unwrap_or_default()
         }))
     }
 
@@ -176,7 +177,7 @@ impl Side {
                 highlights: b.highlights,
             });
         }
-        known.sort_unstable_by_key(|k| k.key);
+        paperpaw_sdk::sort::sort_by_key(&mut known, |k| k.key);
         let side = Self {
             path: room::string(&[path])?,
             books: known,
@@ -340,9 +341,14 @@ fn merge_with(
         });
     }
     let per_book = to_time_order(storage, &books, files, out.is_some())?;
-    // The new log replaces the old one.
-    store::replace_log(storage, &files.time)?;
-    store::save_books(storage, &books)?;
+    // Both new files are written before either replaces the old one, so
+    // that a refusal or a full card leaves the log and the books as a pair.
+    store::stage_log(storage, &files.time)?;
+    if let Err(e) = store::stage_books(storage, &books) {
+        store::unstage_log(storage);
+        return Err(e.into());
+    }
+    store::commit_pair(storage, &books)?;
     let outcome = Outcome {
         books: books.len(),
         stays,
@@ -391,7 +397,7 @@ fn merge_books(
     for (at, b) in books.iter().enumerate() {
         here.push((Key::of_book(b), at));
     }
-    here.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut here);
     for theirs in theirs {
         let key = Key::of_ko(&theirs);
         match here.binary_search_by_key(&key, |(k, _)| *k) {
@@ -639,7 +645,7 @@ fn write_side(
     for b in books {
         here.push((Key::of_book(b), b.id));
     }
-    here.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut here);
     let mut ids: Vec<(i64, u16)> = Vec::new();
     room::reserve(&mut ids, side.books.len())?;
     for theirs in &side.books {
@@ -649,7 +655,7 @@ fn write_side(
             ids.push((theirs.id, *id));
         }
     }
-    ids.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut ids);
     drop(here);
     let mut file = Appender::new(storage, path)?;
     let db = Database::open(storage, &side.path).map_err(Failure::Income)?;

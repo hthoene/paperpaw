@@ -706,6 +706,12 @@ mod folder {
     use super::*;
     use crate::cards;
     use crate::sync::tests::{FOLDER, put, run};
+
+    fn put_bytes(storage: &MemoryStorage, name: &str, bytes: &[u8]) {
+        storage
+            .write(&alloc::format!("{FOLDER}/{name}"), bytes)
+            .unwrap();
+    }
     use crate::sync::{self, Job, Mode, Outcome, Step};
 
     /// A card folder with decks, made and merged once, then changed.
@@ -945,6 +951,53 @@ mod folder {
                 Ok(())
             },
             |_| {},
+        );
+    }
+
+    #[test]
+    fn reading_an_anki_deck_refuses_cleanly() {
+        // Made here, not in the run: nothing of the test's own is refused.
+        let path = fixture(|| alloc::format!("{FOLDER}/de.apkg"));
+        let path = path.as_str();
+        use crate::apkg::{
+            self, Fault,
+            tests::{deck_with, note},
+        };
+        let make = || {
+            let q = Quiet::default();
+            fixture(|| {
+                let notes = [
+                    note(&[
+                        "<b>haus</b>",
+                        "the house<br>big&amp;old [sound:a.mp3]",
+                        "Das Haus.",
+                    ]),
+                    note(&["tab\there", "say \"hi\""]),
+                    note(&["gato", "cat"]),
+                ];
+                put_bytes(&q.0, "de.apkg", &deck_with("collection.anki21", &notes));
+            });
+            q
+        };
+        sweep(
+            "apkg",
+            make,
+            |s| match apkg::convert(s, path) {
+                Ok(notes) => {
+                    assert_eq!(notes.count, 3);
+                    Ok(())
+                }
+                Err(Fault::Memory) => Err(StorageError::TooLarge),
+                Err(fault) => panic!("{fault:?}"),
+            },
+            |s| {
+                // The database is only kept while it is read.
+                assert!(
+                    s.get(".paperpaw/plugins/vocabulary/cards/apkg.db")
+                        .is_none()
+                );
+                whole(s);
+            },
         );
     }
 }

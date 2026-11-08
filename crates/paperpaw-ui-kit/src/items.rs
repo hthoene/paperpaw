@@ -32,6 +32,8 @@ pub struct RowItem {
     pub zone: Option<u8>,
     /// A number: − and + buttons at the right (touch screens), each a tap target.
     pub stepper: bool,
+    /// Shown faint, passed by the focus and not chosen by a tap.
+    pub disabled: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -71,13 +73,14 @@ impl Item {
             note: text::copy(note)?,
             zone: None,
             stepper: false,
+            disabled: false,
         }))
     }
 
     /// Whether focus can rest on it.
     #[must_use]
     pub const fn selectable(&self) -> bool {
-        matches!(self, Self::Row(_))
+        matches!(self, Self::Row(row) if !row.disabled)
     }
 }
 
@@ -119,14 +122,14 @@ pub enum Footer<'a> {
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.
 #[derive(Debug, Default)]
 pub struct ItemList {
-    items: Vec<Item>,
-    focus: usize,
+    pub(crate) items: Vec<Item>,
+    pub(crate) focus: usize,
     /// First item of each page, from the last frame.
-    starts: Vec<usize>,
-    hits: Vec<(Rect, usize)>,
+    pub(crate) starts: Vec<usize>,
+    pub(crate) hits: Vec<(Rect, usize)>,
     /// The − and + buttons of the stepper rows of the last frame.
-    steps: Vec<(Rect, Rect, usize)>,
-    header: Page,
+    pub(crate) steps: Vec<(Rect, Rect, usize)>,
+    pub(crate) header: Page,
 }
 
 impl ItemList {
@@ -145,6 +148,22 @@ impl ItemList {
     pub fn replace(&mut self, items: Vec<Item>) {
         self.items = items;
         self.focus = self.nearest(self.focus);
+    }
+
+    /// Zeroes the text of every item and empties the list: for a list that
+    /// showed a secret (a password drawn for the user to read) and is closed.
+    pub fn wipe(&mut self) {
+        for item in core::mem::take(&mut self.items) {
+            match item {
+                Item::Heading(title) => crate::mem::wipe_text(title),
+                Item::Row(row) => {
+                    crate::mem::wipe_text(row.title);
+                    crate::mem::wipe_text(row.value);
+                    crate::mem::wipe_text(row.note);
+                }
+            }
+        }
+        self.focus = 0;
     }
 
     /// The items.
@@ -251,10 +270,12 @@ impl ItemList {
                 return ItemStep::Step(*item, 1);
             }
         }
-        self.hits
-            .iter()
-            .find(|(rect, _)| rect.contains(position))
-            .map_or(ItemStep::Ignored, |(_, item)| ItemStep::Chosen(*item))
+        match self.hits.iter().find(|(rect, _)| rect.contains(position)) {
+            // A faint row is taken, and does nothing.
+            Some((_, item)) if !self.items[*item].selectable() => ItemStep::Focus(self.focus),
+            Some((_, item)) => ItemStep::Chosen(*item),
+            None => ItemStep::Ignored,
+        }
     }
 
     /// Does what [`Self::decide`] says: moves the focus (with a redraw) or
@@ -546,7 +567,12 @@ pub fn paginate(items: &[Item], heights: &[u16], room: u16) -> Result<Vec<usize>
     Ok(starts)
 }
 
-fn item_height(font: &Font<'_>, style: &Style, width: u16, item: &Item) -> Result<u16, Error> {
+pub(crate) fn item_height(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    item: &Item,
+) -> Result<u16, Error> {
     match item {
         Item::Heading(_) => Ok(style.heading),
         Item::Row(row) if row.note.is_empty() => Ok(style.row),
@@ -587,7 +613,7 @@ fn note_lines(
     )
 }
 
-fn heading(
+pub(crate) fn heading(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
@@ -616,7 +642,7 @@ fn heading(
     )
 }
 
-fn draw_row(
+pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
@@ -625,7 +651,11 @@ fn draw_row(
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
     backdrop(paint, style, rect, focused)?;
-    let ink = ink(style, focused);
+    let ink = if row.disabled {
+        style.disabled
+    } else {
+        ink(style, focused)
+    };
     let mut band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
     let mut note_at = rect;
     if let Some(zone) = row.zone {
@@ -751,6 +781,15 @@ mod tests {
     }
 
     #[test]
+    fn a_wiped_list_is_empty_and_its_focus_is_back_at_the_start() {
+        let mut list = ItemList::new(items("hrrr"));
+        list.set_focus(3);
+        list.wipe();
+        assert!(list.items().is_empty());
+        assert_eq!(list.focus(), 0);
+    }
+
+    #[test]
     fn the_focus_starts_on_the_first_row_and_skips_headings() {
         let list = ItemList::new(items("hrrhr"));
         assert_eq!(list.focus(), 1);
@@ -761,6 +800,31 @@ mod tests {
         assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(1));
         list.set_focus(4);
         assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
+    }
+
+    #[test]
+    fn faint_rows_are_passed_by_the_focus_and_do_nothing_when_tapped() {
+        let mut spec = items("rrr");
+        if let Item::Row(row) = &mut spec[1] {
+            row.disabled = true;
+        }
+        let mut list = ItemList::new(spec);
+        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
+        list.set_focus(2);
+        assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(0));
+        // The focus never rests on one.
+        list.set_focus(1);
+        assert_eq!(list.focus(), 0);
+        list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
+        list.focus = 2;
+        assert_eq!(
+            list.decide(&Input::Gesture {
+                now_ms: 0,
+                position: Point::new(1, 1),
+                kind: InputGestureKind::Tap,
+            }),
+            ItemStep::Focus(2)
+        );
     }
 
     #[test]

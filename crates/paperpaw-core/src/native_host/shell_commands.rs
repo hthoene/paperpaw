@@ -1,6 +1,10 @@
 //! Inactive callback staging, exercised through kernel-backed dispatch fixtures.
 use super::{Batch, Context, DispatchDepth, Error, Registration};
-use crate::{Kernel, abi7::core_frame::CoreFrame, native_host::commands::CommandStage};
+use crate::{
+    Kernel,
+    abi7::core_frame::CoreFrame,
+    native_host::commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage},
+};
 use core::pin::Pin;
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
@@ -38,6 +42,10 @@ impl Kernel {
                 instance: None,
                 env: &env,
                 meter: &self.shared.meter,
+                depth: None,
+                directory: None,
+                stack_generation: self.shared.stack_rows.generation(),
+                stack_rows: &self.shared.stack_rows,
                 font_removals: &self.shared.font_removals,
                 usage: &self.shared.usage,
                 plugins: &self.shared.plugins,
@@ -52,8 +60,8 @@ impl Kernel {
                     &owner,
                     env.settings(),
                     Some(self.command_settings_authority(&owner)),
-                    8,
-                    4096,
+                    CALLBACK_COMMANDS,
+                    CALLBACK_COMMAND_BYTES,
                 )
                 .with_ui(
                     &env,

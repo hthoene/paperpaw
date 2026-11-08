@@ -2,12 +2,12 @@
 //! 20221111): reading its books and page stays, and writing the same kind
 //! of file from PaperPaw's statistics, so KOReader can merge it.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
 use paperpaw_sdk::{Storage, StorageError};
-use paperpaw_sqlite::{Database, Error, SchemaEntry, Value, Writer, encode_record};
+use paperpaw_sqlite::{Database, Error, SchemaEntry, Value, Writer, try_encode_record};
 
 use crate::{extsort, room};
 
@@ -239,10 +239,30 @@ fn write_with(
 ) -> Result<(), Error> {
     let mut writer = Writer::new(storage, path);
     let int = Value::Int;
-    let text = |t: &str| Value::Text(t.to_string());
+    // A refused allocation of a text or a record is noted and the value left
+    // empty; the call that took the rows then says `OutOfMemory`, so no half
+    // of a database is taken for a whole one.
+    let refused = Cell::new(false);
+    let text = |t: &str| match room::string(&[t]) {
+        Ok(text) => Value::Text(text),
+        Err(_) => {
+            refused.set(true);
+            Value::Text(String::new())
+        }
+    };
+    let record = |values: &[Value]| {
+        try_encode_record(values).unwrap_or_else(|_| {
+            refused.set(true);
+            Vec::new()
+        })
+    };
+    let checked = |root: Result<u32, Error>| match root {
+        Ok(_) if refused.get() => Err(Error::OutOfMemory),
+        other => other,
+    };
     // Rows and index entries are made one at a time as they are written.
     let book_rows = books.iter().map(|b| {
-        let record = encode_record(&[
+        let record = record(&[
             // The id is the row id.
             Value::Null,
             text(&b.title),
@@ -259,9 +279,9 @@ fn write_with(
         ]);
         (b.id, record)
     });
-    let book_root = writer.table(book_rows)?;
+    let book_root = checked(writer.table(book_rows))?;
     let last_id = books.iter().map(|b| b.id).max().unwrap_or(0);
-    let sequence = writer.table([(1, encode_record(&[text("book"), int(last_id)]))])?;
+    let sequence = checked(writer.table([(1, record(&[text("book"), int(last_id)]))]))?;
     // In SQLite's order: texts bytewise, then the row id.
     let mut order: Vec<usize> = Vec::new();
     room::reserve(&mut order, books.len()).map_err(Error::Storage)?;
@@ -274,12 +294,14 @@ fn write_with(
             b.id,
         )
     }
-    order.sort_by(|&a, &b| index_key(&books[a]).cmp(&index_key(&books[b])));
+    paperpaw_sdk::sort::sort_by(&mut order, |&a, &b| {
+        index_key(&books[a]).cmp(&index_key(&books[b]))
+    });
     let book_index = order.iter().map(|&i| {
         let b = &books[i];
-        encode_record(&[text(&b.title), text(&b.authors), text(&b.md5), int(b.id)])
+        record(&[text(&b.title), text(&b.authors), text(&b.md5), int(b.id)])
     });
-    let book_index_root = writer.index(book_index)?;
+    let book_index_root = checked(writer.index(book_index))?;
 
     // The stays, row by row in time order; the keys of the unique index
     // (book, page, start, row) go to a file to be sorted on the way.
@@ -312,10 +334,10 @@ fn write_with(
         flush(false);
         (
             rowid,
-            encode_record(&[int(book), int(page), int(start), int(duration), int(pages)]),
+            record(&[int(book), int(page), int(start), int(duration), int(pages)]),
         )
     });
-    let stat_root = writer.table(rows)?;
+    let stat_root = checked(writer.table(rows))?;
     flush(true);
     if let Some(e) = records.failed.take().or(failed.take()) {
         return Err(Error::Storage(e));
@@ -324,68 +346,71 @@ fn write_with(
     let mut sorted = extsort::Records::new(storage, keys, 16)?;
     let unique = sorted.by_ref().map(|r| {
         let n = |i: usize| i64::from(be(&r, i));
-        encode_record(&[int(n(0)), int(n(4)), int(n(8)), int(n(12))])
+        record(&[int(n(0)), int(n(4)), int(n(8)), int(n(12))])
     });
-    let unique_root = writer.index(unique)?;
+    let unique_root = checked(writer.index(unique))?;
     // By start time: the rows are in that order already.
     let mut again = extsort::Records::new(storage, stats, STAT)?;
     let by_start = again
         .by_ref()
         .enumerate()
-        .map(|(i, r)| encode_record(&[int(fields(&r)[2]), int(i as i64 + 1)]));
-    let start_root = writer.index(by_start)?;
+        .map(|(i, r)| record(&[int(fields(&r)[2]), int(i as i64 + 1)]));
+    let start_root = checked(writer.index(by_start))?;
     // An index cut short by a read error would not match its table.
     if let Some(e) = sorted.failed.take().or(again.failed.take()) {
         return Err(Error::Storage(e));
     }
-    let numbers_root = writer.table((1..=1000).map(|n| (n, encode_record(&[Value::Null]))))?;
+    let numbers_root = checked(writer.table((1..=1000).map(|n| (n, record(&[Value::Null])))))?;
 
-    let entry = |kind: &str, name: &str, table: &str, root: u32, sql: &str| SchemaEntry {
-        kind: kind.to_string(),
-        name: name.to_string(),
-        table: table.to_string(),
-        root,
-        sql: sql.to_string(),
+    let entry = |kind: &str, name: &str, table: &str, root: u32, sql: &str| {
+        let own = |text: &str| room::string(&[text]).map_err(Error::Storage);
+        Ok::<_, Error>(SchemaEntry {
+            kind: own(kind)?,
+            name: own(name)?,
+            table: own(table)?,
+            root,
+            sql: own(sql)?,
+        })
     };
     let schema = [
-        entry("table", "book", "book", book_root, BOOK_SQL),
+        entry("table", "book", "book", book_root, BOOK_SQL)?,
         entry(
             "table",
             "sqlite_sequence",
             "sqlite_sequence",
             sequence,
             "CREATE TABLE sqlite_sequence(name,seq)",
-        ),
+        )?,
         entry(
             "index",
             "book_title_authors_md5",
             "book",
             book_index_root,
             "CREATE UNIQUE INDEX book_title_authors_md5 ON book(title, authors, md5)",
-        ),
+        )?,
         entry(
             "table",
             "page_stat_data",
             "page_stat_data",
             stat_root,
             PAGE_STAT_DATA_SQL,
-        ),
+        )?,
         entry(
             "index",
             "sqlite_autoindex_page_stat_data_1",
             "page_stat_data",
             unique_root,
             "",
-        ),
+        )?,
         entry(
             "index",
             "page_stat_data_start_time",
             "page_stat_data",
             start_root,
             "CREATE INDEX page_stat_data_start_time ON page_stat_data(start_time)",
-        ),
-        entry("table", "numbers", "numbers", numbers_root, NUMBERS_SQL),
-        entry("view", "page_stat", "page_stat", 0, PAGE_STAT_SQL),
+        )?,
+        entry("table", "numbers", "numbers", numbers_root, NUMBERS_SQL)?,
+        entry("view", "page_stat", "page_stat", 0, PAGE_STAT_SQL)?,
     ];
     writer.finish(&schema, SCHEMA_VERSION)
 }

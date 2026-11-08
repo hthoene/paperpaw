@@ -77,7 +77,7 @@ pub(super) fn deck_entries(
     if crowded {
         return Err(Failure::Outcome(Outcome::Crowded));
     }
-    entries.sort_unstable_by_key(|e| (e.key, e.order));
+    paperpaw_sdk::sort::sort_by_key(&mut entries, |e| (e.key, e.order));
     Ok(entries)
 }
 
@@ -168,7 +168,7 @@ pub(super) fn write_slice(
     mut edits: Vec<Edit>,
 ) -> Result<(), Failure> {
     // The changes by card number, then the new lines in the file's order.
-    edits.sort_unstable_by_key(|e| (e.add, e.id, e.offset));
+    paperpaw_sdk::sort::sort_by_key(&mut edits, |e| (e.add, e.id, e.offset));
     let split = edits.partition_point(|e| !e.add);
     let (changes, adds) = edits.split_at(split);
     let (path, layout) = (&work.path, &work.layout);
@@ -294,8 +294,9 @@ pub(super) fn fault_of(fault: apkg::Fault) -> Failure {
     match fault {
         apkg::Fault::NoNotes => Failure::Outcome(Outcome::NoNotes),
         apkg::Fault::NewerAnki => Failure::Outcome(Outcome::NewerAnki),
-        apkg::Fault::TooLarge | apkg::Fault::Memory => Failure::Outcome(Outcome::DeckTooLarge),
-        apkg::Fault::Storage => Failure::Storage,
+        apkg::Fault::TooLarge => Failure::Outcome(Outcome::DeckTooLarge),
+        // A refused allocation is not the deck's fault: it is tried again.
+        apkg::Fault::Memory | apkg::Fault::Storage => Failure::Storage,
     }
 }
 
@@ -315,5 +316,27 @@ impl From<StorageError> for Failure {
 impl From<Problem> for Failure {
     fn from(_: Problem) -> Self {
         Failure::Storage
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A refused allocation is not the deck's fault, so it is not told as
+    /// "too large" (which is never tried again): the file is tried again.
+    #[test]
+    fn a_deck_the_heap_refused_is_tried_again_and_one_too_large_is_not() {
+        assert!(matches!(fault_of(apkg::Fault::Memory), Failure::Storage));
+        assert!(matches!(fault_of(apkg::Fault::Storage), Failure::Storage));
+        assert!(matches!(
+            fault_of(apkg::Fault::TooLarge),
+            Failure::Outcome(Outcome::DeckTooLarge)
+        ));
+        assert!(matches!(
+            fault_of(apkg::Fault::NoNotes),
+            Failure::Outcome(Outcome::NoNotes)
+        ));
+        assert!(Outcome::DeckTooLarge.is_the_file());
     }
 }

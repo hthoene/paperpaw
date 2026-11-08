@@ -99,6 +99,16 @@ pub struct PpHost {
     pub service_call: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, service: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32,
     /// ui.compose: mutate, status, since 1.
     pub ui_compose: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32) -> i32,
+    /// image.info: query, status, since 1.
+    pub image_info: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, out: PpBuffer) -> i32,
+    /// canvas.draw_image: mutate, status, since 1.
+    pub canvas_draw_image: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32,
+    /// text.hyphenate: query, status, since 1.
+    pub text_hyphenate: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, language: PpBytes, word: PpBytes, left: u32, right: u32, out: PpBuffer) -> i32,
+    /// text.covers: query, length, since 1.
+    pub text_covers: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, text: PpBytes) -> i32,
+    /// icon.glyph: query, length, since 1.
+    pub icon_glyph: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, name: PpBytes, out: PpBuffer) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

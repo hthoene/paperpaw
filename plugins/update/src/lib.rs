@@ -27,6 +27,7 @@ mod dual;
 mod fetch;
 mod found;
 mod look;
+pub mod native_update;
 mod not_dual;
 pub mod online;
 mod page;
@@ -285,6 +286,9 @@ impl Plugin for Update {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod native_parity_tests;
 
 #[cfg(test)]
 mod tests {

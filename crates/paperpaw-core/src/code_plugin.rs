@@ -150,7 +150,7 @@ impl Kernel {
         disabled: &[String],
         code: Option<CodePlugins>,
     ) {
-        found.sort_by_cached_key(|plugin| plugin.manifest().id);
+        paperpaw_sort::sort_by_cached_key(&mut found, |plugin| plugin.manifest().id);
         let Some(CodePlugins {
             mut native,
             mut loader,
@@ -188,10 +188,7 @@ impl Kernel {
         // Plugins whose author's key was revoked (stolen): their code does
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
-        let host = crate::native_host::FlatHost {
-            meter: alloc::rc::Rc::clone(&self.shared.meter),
-            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
-        };
+        let host = self.flat_host();
         for plugin in found {
             let manifest = plugin.manifest();
             let id = manifest.id.clone();

@@ -89,7 +89,6 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
             EventKind::PluginAnswered,
             records_wire::EVENT_PLUGIN_ANSWERED_TAG,
         ),
-        (EventKind::Answered, records_wire::EVENT_ANSWERED_TAG),
     ];
     for (kind, event_tag) in kinds {
         let mut batches = Vec::new();
