@@ -874,7 +874,6 @@ impl Check {
     }
 }
 
-/// The report written before, to go on from; empty where there is none.
 /// The host's milliseconds now and whether the device has touch, read from a
 /// snapshot that is gone again (it is too big to keep in a caller's frame).
 #[inline(never)]
@@ -883,6 +882,7 @@ fn start_facts(host: &Host<'_>) -> Result<(u64, bool), Error> {
     Ok((snapshot.instant().0, snapshot.has_touch()))
 }
 
+/// The report written before, to go on from; empty where there is none.
 #[inline(never)]
 fn read_report(host: &Host<'_>) -> Result<Results, Error> {
     let mut bytes = Vec::new();
