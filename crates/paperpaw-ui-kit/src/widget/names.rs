@@ -166,3 +166,29 @@ pub fn date_text(
         }
     }
 }
+
+/// Today in words: "Thursday, 15 October" (the language's `core.date`).
+///
+/// # Errors
+/// The host's refusal and [`Error::NoMemory`].
+pub fn date_words(cx: &mut Cx<'_>, month: u8, day: u8, weekday: u8) -> Result<String, Error> {
+    let month_text = month_name(cx, month)?;
+    let weekday_text = weekday_name(cx, weekday)?;
+    cx.format(
+        "core.date",
+        &[
+            Arg::Int {
+                name: "day",
+                value: i64::from(day),
+            },
+            Arg::Text {
+                name: "month",
+                value: &month_text,
+            },
+            Arg::Text {
+                name: "weekday",
+                value: &weekday_text,
+            },
+        ],
+    )
+}
