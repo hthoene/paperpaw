@@ -93,7 +93,10 @@ fn the_last_provider_without_an_entry_is_an_empty_entry_too() {
     let (seen, end) = walk(&["a", "b"], &[Ok("x"), Err(ERR_NOT_FOUND)]);
     assert_eq!(seen.len(), 2);
     assert_eq!(seen[1], ("b".to_string(), String::new(), String::new(), 0));
-    assert_eq!(seen[0].3, 0, "the provider's own answer is not touched");
+    assert_eq!(
+        seen[0].3, 1,
+        "the provider's own answer gets the broker's more bit"
+    );
     assert_eq!(end, ERR_NOT_FOUND);
     // Nothing but providers without an entry: one empty entry each.
     let (seen, _) = walk(&["a", "b", "c"], &[Err(ERR_NOT_FOUND); 3]);
@@ -128,10 +131,60 @@ fn the_empty_entry_needs_a_name_it_can_carry_and_room() {
     // A name over 64 bytes cannot be carried: refused, never cut.
     let long = "n".repeat(65);
     let mut out = std::vec![0; 4096];
-    assert!(page(&[long.as_str()], 0, &mut call, &mut out).is_err());
+    assert_eq!(
+        page(&[long.as_str()], 0, &mut call, &mut out),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(page(&[""], 0, &mut call, &mut out), Err(ERR_INVALID));
     let longest = "n".repeat(64);
     assert!(page(&[longest.as_str()], 0, &mut call, &mut out).is_ok());
     // A scratch too small for it.
     let mut small = [0_u8; 4];
     assert_eq!(page(&["a"], 0, &mut call, &mut small), Err(ERR_NO_SPACE));
+}
+
+#[test]
+fn a_providers_own_entry_gets_the_more_bit_of_its_place() {
+    // The broker's rule: `more` where providers follow, clear on the last;
+    // the provider's own `pending` bit stays; the texts are untouched.
+    let pending = |flags: u32| {
+        move |name: &str, out: &mut [u8]| {
+            let mut bytes = std::vec![0; 4096];
+            let used = wire::record_encode_one(
+                &Record::ServiceLookupEntry(wire::ServiceLookupEntry {
+                    provider: name,
+                    title: "Word",
+                    text: "definition",
+                    flags,
+                }),
+                &mut bytes,
+            )?;
+            out[..used].copy_from_slice(&bytes[..used]);
+            Ok(used)
+        }
+    };
+    let run = |flags: u32, cursor: u32| {
+        let mut out = std::vec![0; 4096];
+        let mut call = pending(flags);
+        let length = page(&["a", "b", "c"], cursor, &mut call, &mut out).unwrap();
+        check(&out[..length]).unwrap();
+        read(&out[..length])
+    };
+    // A provider that set `more` itself on the last page: cleared.
+    assert_eq!(run(0, 0).3, 1);
+    assert_eq!(run(1, 1).3, 1);
+    assert_eq!(run(1, 2).3, 0);
+    assert_eq!(run(0, 2).3, 0);
+    // `pending` (bit 1) is the provider's: kept either way.
+    assert_eq!(run(2, 0).3, 3);
+    assert_eq!(run(3, 2).3, 2);
+    let (provider, title, text, _) = run(2, 1);
+    assert_eq!(
+        (provider.as_str(), title.as_str(), text.as_str()),
+        ("b", "Word", "definition")
+    );
+    // An answer that is not one entry is the provider's malformed answer.
+    let mut out = std::vec![0; 4096];
+    let mut short = |_: &str, _: &mut [u8]| Ok(2);
+    assert_eq!(page(&["a"], 0, &mut short, &mut out), Err(ERR_INVALID));
 }

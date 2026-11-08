@@ -7,7 +7,7 @@
 //! Nothing is kept: the empty entry is built in the caller's scratch, and the
 //! providers' own answers pass untouched (the service checks them).
 use crate::native_host::registrations::{self as wire, Record};
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 
 /// What runs a provider: its name and the scratch to write its `lookup_entry`
 /// into; the length written, or its status.
@@ -15,6 +15,8 @@ pub(super) type Call<'a> = dyn FnMut(&str, &mut [u8]) -> Result<usize, i32> + 'a
 
 /// `lookup_entry.flags` bit 0: more provider pages follow.
 const MORE: u32 = 1;
+/// The longest provider name an entry carries.
+const NAME_MAX: usize = 64;
 
 /// The entry of the provider at `cursor` of `providers` (in the user's
 /// order, already filtered), written into `out` as one `lookup_entry`:
@@ -41,10 +43,43 @@ pub(super) fn page(
 ) -> Result<usize, i32> {
     let at = usize::try_from(cursor).map_err(|_| ERR_NOT_FOUND)?;
     let name = providers.get(at).ok_or(ERR_NOT_FOUND)?;
-    match call(name, out) {
-        Err(ERR_NOT_FOUND) => empty(name, at + 1 < providers.len(), out),
-        other => other,
+    if name.is_empty() || name.len() > NAME_MAX {
+        return Err(ERR_INVALID);
     }
+    let more = at + 1 < providers.len();
+    match call(name, out) {
+        Err(ERR_NOT_FOUND) => empty(name, more, out),
+        Ok(length) => set_more(out, length, more),
+        Err(status) => Err(status),
+    }
+}
+
+/// A provider's own entry (`length` bytes of `out`) with `more` as the
+/// broker says. The flags are the last four bytes of the record (a
+/// little-endian `u32`, the last field); they are patched where they are,
+/// after checking that they are what the record decodes to, so that no copy
+/// of the texts is made.
+fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
+    let reply = out.get(..length).ok_or(ERR_INVALID)?;
+    let (Record::ServiceLookupEntry(entry), used) =
+        wire::record_decode_prefix(reply).map_err(|_| ERR_INVALID)?
+    else {
+        return Err(ERR_INVALID);
+    };
+    if used != length || length < 4 {
+        return Err(ERR_INVALID);
+    }
+    let flags = entry.flags;
+    let wanted = (flags & !MORE) | if more { MORE } else { 0 };
+    if wanted == flags {
+        return Ok(length);
+    }
+    let at = length - 4;
+    if reply[at..] != flags.to_le_bytes() {
+        return Err(ERR_INVALID);
+    }
+    out[at..length].copy_from_slice(&wanted.to_le_bytes());
+    Ok(length)
 }
 
 /// The entry of a provider that has none for the text.
