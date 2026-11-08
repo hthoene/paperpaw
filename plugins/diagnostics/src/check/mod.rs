@@ -158,17 +158,18 @@ impl Check {
     ///
     /// # Errors
     /// The host's refusals and allocation failures.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn new(host: &Host<'_>, width: u16, height: u16) -> Result<Self, Error> {
         let machine = reads::machine(host)?;
-        let snapshot = capture_snapshot(host)?;
-        let now = snapshot.instant().0;
-        let results = read_report(host);
+        let (now, has_touch) = start_facts(host)?;
+        let results = read_report(host)?;
         let buttons = Buttons::new(copy_strings(&machine.keys)?);
         let mut check = Self {
             results,
             step: None,
             focus: 0,
-            shown: !snapshot.has_touch(),
+            shown: !has_touch,
             unsaved: None,
             started: false,
             flipped: false,
@@ -226,6 +227,8 @@ impl Check {
         self.save(host)
     }
 
+    // Not inlined: it holds a snapshot and the report's text.
+    #[inline(never)]
     fn save(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let snapshot = capture_snapshot(host).ok();
         let when = snapshot
@@ -434,7 +437,7 @@ impl Check {
                 CommandSender::new(host, &mut scratch).sleep()
             }
             Control::StartOver => {
-                self.results = Results::default();
+                self.results = Results::new()?;
                 self.save(host)?;
                 self.enter(host, Some(Step::ALL[0]))
             }
@@ -638,6 +641,8 @@ impl Check {
     ///
     /// # Errors
     /// The host's refusals.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn shown(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.now = capture_snapshot(host)?.instant().0;
         if self.started {
@@ -653,6 +658,8 @@ impl Check {
     }
 
     /// The screen closed.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn closed(&mut self, host: &Host<'_>) {
         self.end_light(host);
         self.end_radio(host);
@@ -763,6 +770,8 @@ impl Check {
     ///
     /// # Errors
     /// The host's refusals.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
         match *event {
             Event::Tick { now_ms } => {
@@ -866,17 +875,26 @@ impl Check {
 }
 
 /// The report written before, to go on from; empty where there is none.
-fn read_report(host: &Host<'_>) -> Results {
+/// The host's milliseconds now and whether the device has touch, read from a
+/// snapshot that is gone again (it is too big to keep in a caller's frame).
+#[inline(never)]
+fn start_facts(host: &Host<'_>) -> Result<(u64, bool), Error> {
+    let snapshot = capture_snapshot(host)?;
+    Ok((snapshot.instant().0, snapshot.has_touch()))
+}
+
+#[inline(never)]
+fn read_report(host: &Host<'_>) -> Result<Results, Error> {
     let mut bytes = Vec::new();
     if bytes.try_reserve_exact(REPORT_CAP).is_err() {
-        return Results::default();
+        return Results::new();
     }
     bytes.resize(REPORT_CAP.min(storage::MAX_DATA), 0);
     storage::read_at(host, Root::Data, steps::REPORT, 0, &mut bytes)
         .ok()
         .and_then(|count| core::str::from_utf8(bytes.get(..count)?).ok())
         .and_then(|text| Results::parse(text).ok())
-        .unwrap_or_default()
+        .map_or_else(Results::new, Ok)
 }
 
 /// Writes 128 KiB, reads them back and compares them, timed where the device
