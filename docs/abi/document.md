@@ -284,6 +284,11 @@ host passes them on after checking them.
 | 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
 | 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
 
+- [D] **Picture sides are the host's.** A format never asks for the screen and never sees a side
+  of 0: in `open` the host turns a `cover_side` of 0 into its default (the larger of 300 and 3/8
+  of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
+  conversion key is made, so an open with 0 and one with the same sides spelled out share one
+  cache; ops 2, 17 and 18 always carry both sides, set by the host.
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -302,6 +307,12 @@ host passes them on after checking them.
   only, `path` "", during op 2 and 3 only). These three outside such a call are `ERR_UNSUPPORTED`;
   roots 0-2 keep their meaning in every callback (`files.md`). The format writes its cache
   atomically per file (D2.5); it may not write root 3.
+- [D] **Root 3 through the slots and through `core.files`** (Files on #499): for a single-file
+  format, root 3 is read with the storage slots (`storage_size`, `storage_read_at`; `path` "" is
+  the file), and `core.files` `list`/`stat` on it are `ERR_UNSUPPORTED`. For a `folder` or
+  `siblings` format, `core.files` `list` and `stat` work on root 3 inside its `core.format` call.
+  The scope is checked first: root 3 outside such a call is `ERR_UNSUPPORTED` for every op;
+  inside it, every op that changes something is `ERR_DENIED`.
 - [D] **Root numbers mean one thing everywhere** (Code Reviewer on #346): root 2 is the plugin's
   own install folder (`files.md` section 1.1) in every callback, a format's too; the document's
   cache is root 6, not 2.
@@ -551,6 +562,13 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `context: str 1024`, `cursor: u32`) and gets the providers' rows 1093 `lookup_entry` (`provider:
   str 64`, `title: str 256`, `text: str 2048`, `flags` bit 0 more pages, bit 1 pending: the provider
   answers later) in pages, one provider per page.
+- [D] **Provider names:** the registry refuses a `lookup.spec` whose `name` is empty or longer than
+  64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
+- [D] **Empty answers:** a provider's own `ERR_NOT_FOUND` is not passed on: the host answers that
+  provider's page with one `lookup_entry` carrying the provider's name and an empty `title` and
+  `text`. Only running out of providers (a `cursor` past the last) is `ERR_NOT_FOUND` to the asker.
+- [D] **`flags` bit 0 (more) is the host's:** the host sets it on every entry that later providers
+  follow and clears whatever the provider set; the provider's own paging stays inside its page.
 - [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
   ASY's async stage reply by request id (ASY family); the asker gets ASY's completion event and asks
   again with the cursor. Until ASY lands, network providers answer `ERR_UNSUPPORTED` and only local

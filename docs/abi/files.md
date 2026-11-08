@@ -37,8 +37,13 @@ follow once approved. Tags are proposed and numbered without gaps at the records
 | 0 | data | the plugin's data folder `.paperpaw/plugins/<id>/`, `<id>` stamped from the owner | read and write |
 | 1 | card | the user's files from the card's root, without `plugins/` and `.paperpaw/` | read and write, with `uses.storage` |
 | 2 | bundle | the plugin's own install folder `plugins/<id>/` (files it ships, such as `data/`) | read only |
-| 3 and above | reserved | | `ERR_UNSUPPORTED` |
+| 3 | book | inside a `core.format` call of a `folder` or `siblings` document: its folder (`document.md` section 3) | `list` and `stat` only |
+| 4 and above | reserved (4 and 6 are `core.format`'s, through the storage slots) | | `ERR_UNSUPPORTED` |
 
+- [D] **Root 3** is a `core.format` root (`document.md` section 3, Roots). Outside a call for a
+  `folder` or `siblings` document, or for a single-file one, it is `ERR_UNSUPPORTED` on every
+  `core.files` op; inside such a call `list` and `stat` work and every op that changes something
+  is `ERR_DENIED`. A single-file book is read through the storage slots instead.
 - [D] **Root 1** keeps decision 125 unchanged: the gate is the signed `uses.storage` declaration
   read at load, never a runtime argument; the first path segment may not resolve to `plugins` or
   `.paperpaw`, compared by identity (case, 8.3 aliases), not by spelling; a plugin reaches its own
