@@ -50,7 +50,7 @@ pub(crate) fn plan(env: &Env<'_>, out: &mut Commands) {
 /// How long to wait before looking, with `last` the last look and `now`
 /// the time, where known: the rest of the week; a week where the clock
 /// is not known now but a look was (not again at every start).
-fn wait(last: Option<i64>, now: Option<i64>) -> u64 {
+pub(crate) fn wait(last: Option<i64>, now: Option<i64>) -> u64 {
     match (last, now) {
         (Some(last), Some(now)) => WEEK.saturating_sub(now.saturating_sub(last).max(0) as u64),
         (Some(_), None) => WEEK,
