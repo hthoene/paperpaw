@@ -10,9 +10,9 @@
 //! - **Load**: [`ScriptedHost::load`] makes the plugin; its registration
 //!   batches are kept ([`ScriptedHost::registrations`]).
 //! - **Run callbacks**: [`Plugin::event`], [`Plugin::input`] and
-//!   [`Plugin::draw`] return a [`Callback`]: the status, the reply bytes and
+//!   [`Plugin::draw`] return a [`Callback`]: the status and
 //!   the commands the plugin staged, decoded. Staging is the kernel's own
-//!   ([`CommandStage`](paperpaw_core::native_host::commands::CommandStage)),
+//!   ([`CommandStage`]),
 //!   with its limits (set them with [`ScriptedHost::limits`]) and its
 //!   admission of settings (register them with [`ScriptedHost::settings_mut`]);
 //!   a callback that returns a negative status loses everything it staged
