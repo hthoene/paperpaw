@@ -36,11 +36,19 @@ mod declarations;
 pub mod export_file;
 pub mod model;
 mod native_entry;
+pub mod native_export;
+#[cfg(test)]
+mod native_export_tests;
 pub mod native_library;
+pub mod native_notes;
+#[cfg(test)]
+mod native_notes_tests;
 pub mod native_plugin;
+pub mod native_run;
 pub mod native_scan;
 #[cfg(test)]
 mod native_scan_tests;
+pub mod native_staged;
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

@@ -17,6 +17,11 @@
       "key": "uses.library",
       "required": true,
       "revision": 1
+    },
+    {
+      "key": "uses.storage",
+      "required": true,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -34,6 +39,12 @@
   },
   "services": [
     {
+      "key": "core.files",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.library",
       "major": 1,
       "min_table_bytes": 0,
@@ -47,5 +58,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 141
+  "total_bytes": 183
 }
