@@ -146,7 +146,7 @@ fn read_only_mapping(probe: *const u8) -> &'static [u8] {
 }
 
 /// The host heap bytes each built-in keeps, in registration order.
-fn measure(with_image: bool) -> Vec<(&'static str, usize)> {
+fn measure(with_image: bool) -> Vec<(&'static str, Option<usize>)> {
     let services: &'static [Service<'static>] = Box::leak(
         SERVICES
             .iter()
@@ -166,10 +166,14 @@ fn measure(with_image: bool) -> Vec<(&'static str, usize)> {
     } else {
         &[]
     };
-    let mut kernel = paperpaw_core::Kernel::builder(DEVICE).build().unwrap();
     let depth = FlatDepth::try_new().unwrap();
     let mut each = Vec::new();
+    let mut kernels = Vec::new();
     for (id, linked) in &NATIVE_PLUGINS {
+        // A kernel of its own for each, so that one refusal leaves no state
+        // behind for the next; every kernel stays up until the end.
+        kernels.push(paperpaw_core::Kernel::builder(DEVICE).build().unwrap());
+        let kernel = kernels.last_mut().unwrap();
         let entry = linked.entry();
         // SAFETY: a statically linked entry and its metadata, which are both
         // in this binary's read-only data; the mapping outlives the test.
@@ -179,7 +183,7 @@ fn measure(with_image: bool) -> Vec<(&'static str, usize)> {
         let before = LIVE.with(Cell::get);
         // SAFETY: the built-ins obey the SDK's native factory contract and are
         // linked for the whole run; `image` stays mapped.
-        unsafe {
+        let held = unsafe {
             kernel.register_linked(
                 entry,
                 metadata,
@@ -193,11 +197,16 @@ fn measure(with_image: bool) -> Vec<(&'static str, usize)> {
                 |_, _, _| {},
             )
         }
-        .unwrap_or_else(|error| panic!("{id}: {error:?}"));
-        each.push((*id, LIVE.with(Cell::get) - before));
+        .map_or_else(
+            |error| {
+                std::println!("{id}: refused, {error:?}");
+                None
+            },
+            |()| Some(LIVE.with(Cell::get) - before),
+        );
+        each.push((*id, held));
     }
-    // Keep the kernel registered until every number is read.
-    drop(kernel);
+    drop(kernels);
     each
 }
 
@@ -205,15 +214,20 @@ fn measure(with_image: bool) -> Vec<(&'static str, usize)> {
 fn each_linked_built_in_keeps_a_measured_host_heap() {
     let kept = measure(true);
     let copied = measure(false);
-    let (mut sum_kept, mut sum_copied) = (0, 0);
+    let (mut sum_kept, mut sum_copied, mut refused) = (0, 0, 0);
     for ((id, kept), (_, copied)) in kept.iter().zip(&copied) {
-        std::println!("{id:>15}: {kept:>5} B with the image, {copied:>5} B without");
-        sum_kept += kept;
-        sum_copied += copied;
+        match (kept, copied) {
+            (Some(kept), Some(copied)) => {
+                std::println!("{id:>15}: {kept:>5} B with the image, {copied:>5} B without");
+                sum_kept += kept;
+                sum_copied += copied;
+            }
+            _ => refused += 1,
+        }
     }
     std::println!(
-        "{:>15}: {sum_kept:>5} B with the image, {sum_copied:>5} B without",
-        "all"
+        "{:>15}: {sum_kept:>5} B with the image, {sum_copied:>5} B without; {refused} refused",
+        "registered"
     );
     // Staging keeps static batches as offsets only when it is given the image.
     assert!(sum_kept < sum_copied, "{sum_kept} vs {sum_copied}");

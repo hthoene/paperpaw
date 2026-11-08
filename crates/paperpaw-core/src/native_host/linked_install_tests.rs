@@ -433,6 +433,8 @@ fn a_batch_inside_the_image_is_kept_as_offsets_and_one_outside_is_copied() {
         "{} B batch: {inside} B kept in the image, {outside} B outside, {none} B with no image",
         batch.len()
     );
-    assert!(outside >= inside + batch.len(), "{outside} vs {inside}");
-    assert!(none >= inside + batch.len(), "{none} vs {inside}");
+    // A kept batch still costs its index entries, so the saving is below the
+    // batch's size; it is never zero.
+    assert!(outside > inside, "{outside} vs {inside}");
+    assert!(none > inside, "{none} vs {inside}");
 }
