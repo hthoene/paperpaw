@@ -442,6 +442,20 @@ impl Actions {
         }
     }
 
+    /// Makes room for `additional` more actions, so that inserting them
+    /// cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room; nothing changed.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(additional)
+    }
+
     /// Removes every action of `plugin` (those whose id it is the namespace
     /// of) and the handlers it put in place of others'.
     #[cfg(any(test, feature = "kernel"))]

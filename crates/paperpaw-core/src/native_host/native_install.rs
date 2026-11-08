@@ -286,8 +286,15 @@ impl crate::Kernel {
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::Group(group) => {
+                    let group =
+                        super::shared::try_box(group).ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
                     staging
-                        .native(owner, Contribution::SettingGroup(group.into()))
+                        .native(
+                            owner,
+                            Contribution::SettingGroup(paperpaw_sdk::SettingGroup::from_boxed(
+                                group,
+                            )),
+                        )
                         .map_err(shell::Error::Status)?;
                 }
             }
@@ -315,13 +322,82 @@ impl crate::Kernel {
         let publication = declarations
             .stage(pending, key, &mut allocations)
             .map_err(shell::Error::Status)?;
-        // Every contribution at once (all or nothing): the duplicates are
-        // refused before anything is published.
-        self.merge(owner, staging)
+        // Every contribution at once (all or nothing): the refusals come
+        // before anything is published, and the room is made first.
+        self.publish_native(staging)
             .map_err(|error| shell::Error::Status(merge_status(&error)))?;
         publication.commit();
         Ok(())
     }
+}
+
+impl crate::Kernel {
+    /// Publishes what a native plugin contributed: actions, screens, settings
+    /// and groups. Every refusal (a duplicate, a default that does not fit, no
+    /// room) comes before anything changes, and nothing allocates once
+    /// publication starts, so a failure leaves no trace.
+    fn publish_native(
+        &mut self,
+        mut staging: crate::registry::Staging,
+    ) -> Result<(), RegisterError> {
+        for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
+            if self.shared.settings.get(spec.id.as_str()).is_some() {
+                return Err(duplicate(&spec.id));
+            }
+            if !spec.kind.accepts(&spec.default) {
+                return Err(RegisterError::Invalid {
+                    message: "default value does not match the setting kind".into(),
+                });
+            }
+        }
+        for group in &staging.setting_groups {
+            if self
+                .shared
+                .settings
+                .groups()
+                .any(|other| other.id == group.id)
+            {
+                return Err(duplicate(&group.id));
+            }
+        }
+        let (actions, settings, groups) = staging.native_counts();
+        let no_room = || RegisterError::Invalid {
+            message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
+        };
+        self.shared
+            .actions
+            .try_reserve(actions)
+            .map_err(|_| no_room())?;
+        self.shared
+            .settings
+            .try_reserve(settings, groups)
+            .map_err(|_| no_room())?;
+        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
+        for setting in staging.settings.drain(..) {
+            // Cannot fail: checked above, and the room is made.
+            let _ = match setting {
+                crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
+                crate::registry::Staged::Fixed(list, at) => {
+                    self.shared.settings.define_fixed(list, at)
+                }
+            };
+        }
+        for group in staging.setting_groups.drain(..) {
+            // Cannot fail: checked above.
+            let _ = self.shared.settings.add_group(group);
+        }
+        Ok(())
+    }
+}
+
+/// `Duplicate` for `id`, or `Invalid` when the id cannot be copied.
+fn duplicate(id: &Id) -> RegisterError {
+    id.try_clone().map_or(
+        RegisterError::Invalid {
+            message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
+        },
+        |id| RegisterError::Duplicate { id },
+    )
 }
 
 fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, Vec<Owned>), i32> {

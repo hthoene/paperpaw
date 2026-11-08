@@ -754,6 +754,16 @@ impl core::ops::Deref for SettingGroup {
     }
 }
 
+impl SettingGroup {
+    /// A group made at run time, from a spec the caller boxed (and so could
+    /// allocate fallibly).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn from_boxed(group: Box<SettingGroupSpec>) -> Self {
+        Self(GroupAt::Owned(group))
+    }
+}
+
 impl From<&'static SettingGroupSpec> for SettingGroup {
     fn from(group: &'static SettingGroupSpec) -> Self {
         Self(GroupAt::Fixed(group))
@@ -1036,6 +1046,22 @@ impl Settings {
         } else {
             crate::builtin::groups::OTHER
         }
+    }
+
+    /// Makes room for `specs` more settings and `groups` more groups, so that
+    /// defining them cannot fail for lack of memory.
+    ///
+    /// # Errors
+    /// The heap refused the room (some may be kept).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(
+        &mut self,
+        specs: usize,
+        groups: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(specs)?;
+        self.groups.try_reserve(groups)
     }
 
     /// Forgets the settings and groups of `plugin` (ids `<plugin>.…`) and the
