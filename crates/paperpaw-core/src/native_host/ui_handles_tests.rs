@@ -125,7 +125,7 @@ fn a_closed_screen_and_a_stopped_plugin_take_their_instances_along() {
 }
 
 #[test]
-fn an_owner_hears_of_every_drop_once_in_order_and_a_failed_delivery_is_tried_again() {
+fn an_owner_hears_of_every_drop_once_in_order_and_one_attempt_ends_a_notice() {
     let mut table = UiHandles::new(false);
     let a = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
     let b = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
@@ -568,4 +568,36 @@ fn the_room_for_every_notice_is_taken_when_an_instance_is_made() {
     table.drop_plugin(ME);
     assert_eq!(table.widgets(), 0);
     assert!(table.next_dropped(OWNER).is_some());
+}
+
+#[test]
+fn a_dead_owner_or_a_failed_delivery_never_pins_the_cap() {
+    for x4 in [false, true] {
+        let cap = if x4 { MAX_WIDGETS_X4 } else { MAX_WIDGETS };
+        // The owner stopped: its waiting drops go with it, at once.
+        let mut table = UiHandles::new(x4);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+        }
+        assert_eq!(table.drop_screen(7), cap);
+        assert_eq!(table.make_widget(OWNER, ME, 8, 1, false), Err(ERR_FULL));
+        table.drop_plugin(OWNER);
+        assert_eq!(table.next_dropped(OWNER), None);
+        assert!(table.make_widget(OTHER, ME, 8, 1, false).is_ok());
+        // A failed delivery is an attempt: giving the notice back ends it,
+        // however the callback went, and the place is free again.
+        let mut table = UiHandles::new(x4);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+        }
+        assert_eq!(table.drop_screen(7), cap);
+        while let Some(notice) = table.next_dropped(OWNER) {
+            // The callback failed or trapped: the attempt is over all the same.
+            table.dropped_delivered(&notice);
+        }
+        assert_eq!(table.next_dropped(OWNER), None);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 9, 1, false).unwrap();
+        }
+    }
 }

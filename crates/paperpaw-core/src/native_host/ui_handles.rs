@@ -236,14 +236,16 @@ impl UiHandles {
         before - self.widgets.len()
     }
 
-    /// The first drop `owner` has not been told of, and leaves it listed
-    /// until [`Self::dropped_delivered`] (a delivery that failed is tried
-    /// again).
+    /// The first drop `owner` has not been told of. It stays listed until
+    /// [`Self::dropped_delivered`] is given it, which ends it at the first
+    /// delivery attempt whatever the outcome (returned, failed or trapped:
+    /// `ui.md` 8.2), and at once when the owner stops ([`Self::drop_plugin`]).
+    /// A dead owner never holds a place of the cap.
     pub(crate) fn next_dropped(&self, owner: u64) -> Option<Dropped> {
         self.dropped.iter().find(|d| d.owner == owner).copied()
     }
 
-    /// `notice` was delivered: it leaves the list.
+    /// `notice` was attempted (not "succeeded"): it leaves the list.
     pub(crate) fn dropped_delivered(&mut self, notice: &Dropped) {
         if let Some(at) = self.dropped.iter().position(|d| d == notice) {
             self.dropped.remove(at);

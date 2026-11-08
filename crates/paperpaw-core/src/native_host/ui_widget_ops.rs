@@ -193,7 +193,10 @@ impl UiServices {
     /// record for its token (ui.md section 5.2), in `out`; the length, with
     /// the notice to give back to [`Self::widget_dropped_delivered`]. `None`
     /// when there is none. Core's dispatcher calls these two: the notice
-    /// stays listed until the owner's callback took it.
+    /// stays listed until the first delivery attempt is over, whatever its
+    /// outcome (`ui.md` 8.2); then it gives it back, even when the callback
+    /// failed or trapped. An owner that stops, is unloaded, switched off or in
+    /// safe mode loses its notices without a delivery (`plugin_stopped`).
     #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn next_widget_dropped(
         &self,
@@ -218,7 +221,8 @@ impl UiServices {
         Ok(Some((notice, len)))
     }
 
-    /// The owner's callback took the notice: it is not listed any more.
+    /// The first delivery attempt of the notice is over, whatever its
+    /// outcome: it is not listed any more.
     #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
         self.widgets

@@ -255,7 +255,7 @@ fn a_closed_screens_widgets_are_told_to_their_owner_as_event_85_until_delivered(
             .unwrap()
             .is_none()
     );
-    // A buffer too small for the record is a status, and the drop stays listed.
+    // A buffer too small for the record is a status (nothing was attempted), and the drop stays listed.
     w.ui().screen_closed(6).unwrap();
     assert!(w.ui().next_widget_dropped(OWNER, 0, &mut [0; 2]).is_err());
     assert!(
