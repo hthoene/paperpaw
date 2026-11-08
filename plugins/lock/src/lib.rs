@@ -37,9 +37,9 @@ mod code;
 pub mod declarations;
 mod native_entry;
 #[doc(hidden)]
-pub mod native_model;
-#[doc(hidden)]
 pub mod native_flow;
+#[doc(hidden)]
+pub mod native_model;
 #[doc(hidden)]
 pub mod native_pad;
 /// The interface-7 screen lock (slice 1; see `PORTING-7.md`).

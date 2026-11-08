@@ -26,10 +26,18 @@ fn effects(fx: &mut Effects) -> Vec<Effect> {
     fx.take().collect()
 }
 
-fn type_pin(flow: &mut Flow, lock: &mut Lockstate, room: &Context<'_>, digits: &str) -> Vec<Effect> {
+fn type_pin(
+    flow: &mut Flow,
+    lock: &mut Lockstate,
+    room: &Context<'_>,
+    digits: &str,
+) -> Vec<Effect> {
     let mut fx = Effects::default();
     for digit in digits.chars() {
-        let key = model::KEYS.iter().position(|k| k.starts_with(digit)).unwrap();
+        let key = model::KEYS
+            .iter()
+            .position(|k| k.starts_with(digit))
+            .unwrap();
         flow.press(key, lock, room, &mut fx).unwrap();
     }
     // Each digit draws the dots again; the verdict is what *OK* does.
@@ -161,9 +169,15 @@ fn a_new_pin_is_asked_twice_and_kept_when_equal() {
     assert_eq!(flow.step(), Step::New);
     // The first, then a different second one.
     type_pin(&mut flow, &mut lock, &ctx, "1234");
-    assert_eq!((flow.step(), flow.title_key()), (Step::Confirm, "lock.again"));
+    assert_eq!(
+        (flow.step(), flow.title_key()),
+        (Step::Confirm, "lock.again")
+    );
     type_pin(&mut flow, &mut lock, &ctx, "1235");
-    assert_eq!((flow.step(), flow.message()), (Step::New, Message::Mismatch));
+    assert_eq!(
+        (flow.step(), flow.message()),
+        (Step::New, Message::Mismatch)
+    );
     // Twice the same.
     type_pin(&mut flow, &mut lock, &ctx, "1234");
     let done = type_pin(&mut flow, &mut lock, &ctx, "1234");
@@ -186,10 +200,12 @@ fn a_password_is_asked_for_on_the_keyboard_and_typed_twice() {
     let mut fx = Effects::default();
     flow.choose_kind("password", &mut fx);
     assert_eq!(effects(&mut fx), [Effect::AskPassword, Effect::Redraw]);
-    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx).unwrap();
+    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx)
+        .unwrap();
     assert_eq!(effects(&mut fx), [Effect::AskPassword, Effect::Redraw]);
     assert_eq!(flow.step(), Step::Confirm);
-    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx).unwrap();
+    flow.typed("secret1".into(), &mut lock, &ctx, &mut fx)
+        .unwrap();
     assert_eq!(
         effects(&mut fx).first(),
         Some(&Effect::Keep("password", "secret1".into()))
@@ -206,10 +222,18 @@ fn a_pattern_is_drawn_from_dot_to_dot_and_checked_when_the_finger_lifts() {
     };
     let mut flow = Flow::new(true, ctx.active, false);
     let mut fx = Effects::default();
-    assert!(!flow.finger_down(1, Point::new(0, 0), None, &mut fx).unwrap());
-    assert!(flow.finger_down(1, Point::new(10, 10), Some(0), &mut fx).unwrap());
+    assert!(
+        !flow
+            .finger_down(1, Point::new(0, 0), None, &mut fx)
+            .unwrap()
+    );
+    assert!(
+        flow.finger_down(1, Point::new(10, 10), Some(0), &mut fx)
+            .unwrap()
+    );
     for dot in [1, 1, 2, 4] {
-        flow.finger_moved(1, Point::new(20, 20), Some(dot), &mut fx).unwrap();
+        flow.finger_moved(1, Point::new(20, 20), Some(dot), &mut fx)
+            .unwrap();
     }
     assert_eq!(flow.pattern().collect::<Vec<_>>(), [0, 1, 2, 4]);
     effects(&mut fx);
@@ -222,7 +246,8 @@ fn a_pattern_is_drawn_from_dot_to_dot_and_checked_when_the_finger_lifts() {
 fn a_cancelled_contact_drops_the_pattern() {
     let mut flow = Flow::new(true, Some("pattern"), false);
     let mut fx = Effects::default();
-    flow.finger_down(1, Point::new(1, 1), Some(3), &mut fx).unwrap();
+    flow.finger_down(1, Point::new(1, 1), Some(3), &mut fx)
+        .unwrap();
     effects(&mut fx);
     flow.finger_cancelled(&mut fx);
     assert_eq!(effects(&mut fx), [Effect::Redraw]);
