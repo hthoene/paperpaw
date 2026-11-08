@@ -252,7 +252,10 @@ fn a_long_list_of_revocations_is_bounded() {
 fn an_abi_is_a_fingerprint_or_major_dot_minor() {
     use crate::native_model::Abi;
     let f = paperpaw_sdk::native::Fingerprint::of(7, 0x1234);
-    assert_eq!(Abi::parse(&f.to_string()), Some(Abi::Fingerprint(f)));
+    assert_eq!(
+        Abi::parse(&alloc::format!("{f}")),
+        Some(Abi::Fingerprint(f))
+    );
     assert_eq!(
         Abi::parse(" 7.2 "),
         Some(Abi::Dotted { major: 7, minor: 2 })
