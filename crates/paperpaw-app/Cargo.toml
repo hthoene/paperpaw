@@ -85,6 +85,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-files/linked",
     "paperpaw-plugin-keyboard/linked",
+    "paperpaw-plugin-lock/linked",
     "paperpaw-plugin-menu/linked",
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
