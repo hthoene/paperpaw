@@ -39,7 +39,7 @@ runs:
     # package list's, so a cached file can only be the one the mirror offers.
     - name: The apt packages for mbedTLS, kept between runs
       id: apt-debs
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/apt-debs
         key: apt-debs-${{ runner.os }}-${{ env.MBEDTLS_CLANG_PACKAGE }}-${{ hashFiles('tools/ci/build-prerequisites.sh', 'shells/xteink/versions.env') }}
@@ -53,7 +53,7 @@ runs:
         APT_DEB_CACHE="$HOME/apt-debs" bash tools/ci/build-prerequisites.sh
     - name: Keep the apt packages
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.apt-debs.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/apt-debs
         key: ${{ steps.apt-debs.outputs.cache-primary-key }}
@@ -76,7 +76,7 @@ runs:
     - name: espup's toolchain, kept between runs
       id: esp-cache
       if: inputs.device != 'x4' && inputs.device != 'x3'
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: |
           ~/.rustup/toolchains/esp
