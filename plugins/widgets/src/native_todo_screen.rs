@@ -41,6 +41,9 @@ pub struct TodoView {
     list: List,
     /// The list could not be read: it is shown empty and not changed.
     unreadable: bool,
+    /// The rows could not be rebuilt after a change (memory refused) and were
+    /// dropped: the list is saved, the screen says so until it is opened again.
+    not_shown: bool,
     rows: ItemList,
     empty: (String, String),
 }
@@ -96,8 +99,8 @@ fn with_ui<R>(host: &Host<'_>, f: impl FnOnce(&Ui) -> Result<R, Error>) -> Resul
 impl TodoView {
     /// Rebuilds the rows from the list. When that is refused the rows are
     /// dropped: the list has changed, and rows that no longer match it would
-    /// let a tap act on another item than the one shown (the screen shows the
-    /// *empty* message until it is opened again, which reads the card).
+    /// let a tap act on another item than the one shown (the screen says the
+    /// list could not be shown until it is opened again, which reads the card).
     fn rebuild_or_drop(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let rebuilt = self.rebuild(host);
         if rebuilt.is_err() {
@@ -106,9 +109,21 @@ impl TodoView {
         rebuilt
     }
 
-    /// No row to tap.
+    /// No row to tap; the screen says the list could not be shown.
     fn drop_rows(&mut self) {
         self.rows.replace(Vec::new());
+        self.not_shown = true;
+    }
+
+    /// Why nothing can be done with the list, as the key of the notice.
+    fn blocked(&self) -> Option<&'static str> {
+        if self.unreadable {
+            Some("widgets.todo.unreadable")
+        } else if self.not_shown {
+            Some("widgets.todo.not-shown")
+        } else {
+            None
+        }
     }
 
     fn rebuild(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -132,6 +147,7 @@ impl TodoView {
             messages.copy(host, message)?,
         );
         self.rows.replace(rows);
+        self.not_shown = false;
         Ok(())
     }
 }
@@ -163,7 +179,19 @@ impl NativeWidgets {
     ) -> Result<(), Error> {
         let view = self.screens.top(SCREEN).ok_or(Error::State)?;
         let title = Messages::new()?.copy(host, "widgets.todo")?;
-        let footer = if view.unreadable || view.list.items.is_empty() {
+        // After a refused rebuild: said at draw time (the words may not have
+        // been kept).
+        let not_shown = if view.not_shown {
+            Messages::new()?.copy(host, "widgets.todo.not-shown")?
+        } else {
+            String::new()
+        };
+        let footer = if view.not_shown {
+            Footer::Empty {
+                title: &title,
+                text: &not_shown,
+            }
+        } else if view.unreadable || view.list.items.is_empty() {
             Footer::Empty {
                 title: &view.empty.0,
                 text: &view.empty.1,
@@ -220,8 +248,8 @@ impl NativeWidgets {
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(());
         };
-        if view.unreadable {
-            return Self::notify(host, "widgets.todo.unreadable");
+        if let Some(why) = view.blocked() {
+            return Self::notify(host, why);
         }
         if row == 0 {
             return self.ask_text(host, "widgets.todo.add", "", Asked::Add);
@@ -240,8 +268,8 @@ impl NativeWidgets {
         let Some(item) = view.list.items.get(index) else {
             return Ok(());
         };
-        if view.unreadable {
-            return Self::notify(host, "widgets.todo.unreadable");
+        if let Some(why) = view.blocked() {
+            return Self::notify(host, why);
         }
         let title = copy(&item.text)?;
         let wanted = Options::new(item.done.is_some(), index, view.list.items.len());
@@ -479,8 +507,13 @@ mod tests {
             Item::row("bread", "").unwrap(),
         ]);
         assert_eq!(view.rows.items().len(), 3);
+        assert_eq!(view.blocked(), None);
         view.drop_rows();
         assert!(view.rows.items().is_empty());
+        // Nothing can be done with the list until it is opened again.
+        assert_eq!(view.blocked(), Some("widgets.todo.not-shown"));
+        view.unreadable = true;
+        assert_eq!(view.blocked(), Some("widgets.todo.unreadable"));
     }
 
     #[test]

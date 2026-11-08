@@ -148,9 +148,10 @@ reading and by the kit's own sweeps.
   as no-ops). `tests/todo_declarations.rs` compares the screen, the action and the
   icon with interface 6's.
   If the rows cannot be rebuilt after a change (memory refused), they are dropped
-  and the screen shows the *empty* message until it is opened again, which reads
-  the card (where the change was saved): a tap can then never act on another
-  item than the one shown.
+  and the screen says *The list could not be shown. It is saved; open it again.*
+  (`widgets.todo.not-shown`, also as the notice of a tap or the menu button) until
+  it is opened again, which reads the card (where the change was saved): a tap can
+  then never act on another item than the one shown.
 - Metadata now lists the `storage.*` host calls the quote and the to-do list use.
 - Pure model (`native_todo_list`) is tested with the interface-6 properties (round
   trip, any bytes, huge years, version 1 file); drawing and file calls need a host
