@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2083,6 +2083,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2484,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2525,6 +2526,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
