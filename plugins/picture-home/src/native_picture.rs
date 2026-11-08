@@ -548,6 +548,11 @@ fn by_name(a: &str, b: &str) -> core::cmp::Ordering {
 /// is kept does not depend on the order of the card (the interface-6 screen
 /// kept the first 300 the card listed, then sorted them).
 ///
+/// Cost: each insert moves at most about 7 KB (300 names of 24 bytes each in the
+/// vector) and a binary search takes about 9 compares, so a folder listed in
+/// descending order costs about N × (9 compares + one move + one allocation and
+/// one free), which is fine in practice.
+///
 /// Names compare character by character lowercased (`char::to_lowercase`);
 /// the interface-6 screen lowercases each whole name (`str::to_lowercase`),
 /// which differs only where a Greek capital sigma ends a word (`ς` there, `σ`
