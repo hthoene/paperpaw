@@ -10,12 +10,12 @@ const CASES: [Case; 4] = [
     Case {
         name: "the-panel-asks-deepl-and-shows-the-translation-scrolls-and-closes",
         golden: None,
-        blocked_by: &["slice-2-net-facade", "slice-3-panel-screen"],
+        blocked_by: &["slice-3-panel-screen"],
     },
     Case {
         name: "without-a-key-the-panel-asks-for-it-and-keeps-it-with-the-secrets",
         golden: None,
-        blocked_by: &["slice-2-secrets-facade", "keyboard-slot-ask-text"],
+        blocked_by: &["keyboard-slot-ask-text"],
     },
     Case {
         name: "offline-mode-offers-to-go-online-first",
@@ -37,13 +37,13 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: slice 2 (net, secrets) and slice 3 (the panel screen)"]
+#[ignore = "BLOCKED: slice 3 (the panel screen); the asking is run by tests/native_asker.rs"]
 fn the_panel_translates() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: slice 2 secrets facade, keyboard slot"]
+#[ignore = "BLOCKED: the keyboard slot (the key is kept by tests/native_asker.rs)"]
 fn the_key_is_asked_for_and_kept() {
     CASES[1].refuse().unwrap();
 }
