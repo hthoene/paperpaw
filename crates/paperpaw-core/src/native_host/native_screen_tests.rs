@@ -311,3 +311,114 @@ fn only_native_overlays_show_the_screens_below_them() {
     let screen = screen.with_flags(1 << 2);
     assert_eq!(screen.shows_through(), paperpaw_sdk::ShowsThrough::All);
 }
+
+fn fresh() -> (NativeScreen<Rc<Recorder>>, Rc<Recorder>) {
+    screen()
+}
+
+/// What the recorder was sent as `event.text_typed`: (text, done).
+fn typed_calls(dispatch: &Recorder) -> Vec<(alloc::string::String, bool)> {
+    dispatch
+        .calls
+        .borrow()
+        .iter()
+        .map(|(token, bytes)| {
+            assert_eq!(*token, 10);
+            let Record::EventTextTyped(event) = wire::records_decode_single(bytes).unwrap() else {
+                panic!("wrong typed record")
+            };
+            assert!(event.flags <= 1, "no other flag bits");
+            (alloc::string::String::from(event.text), event.flags == 1)
+        })
+        .collect()
+}
+
+#[test]
+fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_last() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(5));
+    // Short: one event, as is.
+    let (screen, dispatch) = fresh();
+    screen.typed("hello", false, &env);
+    screen.typed("ok", true, &env);
+    assert_eq!(
+        typed_calls(&dispatch),
+        [("hello".into(), false), ("ok".into(), true)]
+    );
+    // Exactly the limit is one event; one more byte is two.
+    let (screen, dispatch) = fresh();
+    let full = "a".repeat(1024);
+    screen.typed(&full, true, &env);
+    assert_eq!(typed_calls(&dispatch), [(full.clone(), true)]);
+    let (screen, dispatch) = fresh();
+    let over = "a".repeat(1025);
+    screen.typed(&over, true, &env);
+    assert_eq!(
+        typed_calls(&dispatch),
+        [("a".repeat(1024), false), ("a".into(), true)]
+    );
+    // A character that straddles the limit goes whole into the next event.
+    let (screen, dispatch) = fresh();
+    let straddle = alloc::format!("{}é{}", "a".repeat(1023), "b".repeat(2000));
+    screen.typed(&straddle, false, &env);
+    let calls = typed_calls(&dispatch);
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0], ("a".repeat(1023), false));
+    assert!(calls.iter().all(|(text, done)| text.len() <= 1024 && !done));
+    let joined: alloc::string::String = calls.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(joined, straddle);
+    // Four-byte characters in a long run are never cut either.
+    let (screen, dispatch) = fresh();
+    let emoji = "😀".repeat(700);
+    screen.typed(&emoji, true, &env);
+    let calls = typed_calls(&dispatch);
+    let joined: alloc::string::String = calls.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(joined, emoji);
+    assert!(calls.iter().all(|(text, _)| text.len() <= 1024));
+    assert_eq!(calls.iter().filter(|(_, done)| *done).count(), 1);
+    assert!(calls.last().unwrap().1);
+}
+
+#[test]
+fn empty_typed_text_confirms_only_with_done_and_a_refused_event_stops_the_rest() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(5));
+    let (screen, dispatch) = fresh();
+    screen.typed("", false, &env);
+    assert!(dispatch.calls.borrow().is_empty());
+    screen.typed("", true, &env);
+    assert_eq!(typed_calls(&dispatch), [("".into(), true)]);
+    // The plugin refuses the first of several: its token is dropped, and
+    // the others are not sent.
+    let (screen, dispatch) = fresh();
+    dispatch.result.set(-7);
+    screen.typed(&"a".repeat(3000), true, &env);
+    assert_eq!(dispatch.calls.borrow().len(), 1);
+    assert_eq!(*dispatch.dropped.borrow(), [(10, -7)]);
+}
+
+#[test]
+fn only_type_text_reaches_a_screen_on_top_and_never_before_it_is_shown() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(5));
+    let (mut screen, dispatch) = fresh();
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output);
+    let typed = events::TypeText::new("x".into()).done(true).to_params();
+    // Not shown yet (no instance key): nothing, whatever the event.
+    screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
+    screen.on_event(events::SETTING_CHANGED.id(), &typed, &mut cx);
+    // Undecodable data is ignored too.
+    screen.on_event(
+        events::TYPE_TEXT.id(),
+        &paperpaw_sdk::Params::new(),
+        &mut cx,
+    );
+    assert!(dispatch.calls.borrow().is_empty());
+}

@@ -1,0 +1,3 @@
+### Added
+- Native plugins can ask which part of a text a font draws (host slot 39, `text.covers`): the byte length of the longest start the font and its fallbacks have glyphs for, so a keyboard can hide layouts the device fonts cannot draw. Text over 1,024 bytes is `ERR_INVALID`, text that is not UTF-8 is `ERR_UTF8`, a stale font handle is `ERR_STATE`, and an icon role with no icon font bound answers 0.
+- Text typed from outside (a shell's remote control or a hardware keyboard, `Kernel::type_text`) reaches a native keyboard screen as `event.text_typed` (109), only while that screen is on top and is the one offered on slot `core.keyboard`. Text over 1,024 bytes comes in several events cut between characters, `done` only on the last.
