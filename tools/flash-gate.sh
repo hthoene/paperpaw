@@ -97,7 +97,9 @@ build() { # name rev sha features
     if [ "$image_only" = 0 ]; then
         echo "== $name: the plugin files (tools/plugin-files/build.sh x4)" >&2
         [ -x "$ours/tree/tools/plugin-files/build.sh" ] || die "$name: no tools/plugin-files/build.sh"
+        # The remap is set here too: Beta 3's build.sh does not do it itself.
         env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn-target-$name" \
+            CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$cargo_home=/cargo" \
             "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
             { echo "plugin files failed: $name" >&2; exit 2; }
         rm -rf "$ours/ppn-target-$name"
