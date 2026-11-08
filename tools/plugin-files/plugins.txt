@@ -12,18 +12,6 @@ fonts-browser look
 format-mobi reading
 format-docx reading
 format-images reading
-hyphenation-da reading
-hyphenation-de reading
-hyphenation-es reading
-hyphenation-fr reading
-hyphenation-it reading
-hyphenation-nb reading
-hyphenation-nl reading
-hyphenation-pl reading
-hyphenation-pt reading
-hyphenation-ru reading
-hyphenation-sv reading
-hyphenation-uk reading
 joplin notes
 # keys system  (no file until the store build moves to interface 7, #228)
 koreader sync
