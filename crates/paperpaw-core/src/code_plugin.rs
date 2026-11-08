@@ -1099,3 +1099,7 @@ version = 2.0.0
 #[cfg(test)]
 #[path = "code_plugin_startup_tests.rs"]
 mod startup_tests;
+
+#[cfg(test)]
+#[path = "code_plugin_migration_tests.rs"]
+mod migration_tests;

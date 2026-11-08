@@ -74,14 +74,18 @@ fn book(id: u16, title: &str, authors: &str, last_open: i64, pages: u32) -> Book
 /// 2025-10-14 12:00 UTC, a Tuesday.
 const NOON: i64 = 1_760_443_200;
 
-fn shelf() -> (Vec<Book>, Vec<u64>) {
+fn shelf() -> (Vec<book_list::Row>, Vec<u64>) {
+    let books = [
+        book(1, "Old", "N/A", NOON - 86_400 * 40, 100),
+        book(2, "Unread", "Someone", NOON, 100),
+        book(3, "New", "A\nB", NOON, 0),
+        book(4, "Same time", "", NOON, 10),
+    ];
     (
-        alloc::vec![
-            book(1, "Old", "N/A", NOON - 86_400 * 40, 100),
-            book(2, "Unread", "Someone", NOON, 100),
-            book(3, "New", "A\nB", NOON, 0),
-            book(4, "Same time", "", NOON, 10),
-        ],
+        books
+            .iter()
+            .map(|b| book_list::Row::of(b).unwrap())
+            .collect(),
         alloc::vec![3_600 + 5 * 60, 0, 59, 42 * 60],
     )
 }
@@ -257,7 +261,7 @@ fn the_books_rows_refuse_cleanly() {
 
 #[test]
 fn a_books_numbers_refuse_cleanly() {
-    let (books, _) = shelf();
+    let books = [book(1, "Old", "N/A", NOON - 86_400 * 40, 100)];
     let catalog = RefCell::new(fixture(|| words("en")));
     let totals = fixture(totals);
     sweep(&|| {

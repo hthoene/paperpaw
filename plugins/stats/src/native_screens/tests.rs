@@ -153,3 +153,39 @@ fn the_views_refuse_cleanly() {
         BookView::build(&mut QuietWords(&catalog), &data, Some(77)).map(|view| view.title.len())
     });
 }
+
+#[test]
+fn building_the_books_screen_peaks_the_same_for_a_small_and_a_large_library() {
+    use crate::testing::heap::peak;
+    use crate::testing::library;
+    let small = fixture(|| library(300));
+    let large = fixture(|| library(3000));
+    let mut en = fixture(|| words("en"));
+    let (view, peak_small) = peak(|| BooksView::build(&mut en, &small).unwrap());
+    assert_eq!(view.ids.len(), 200);
+    drop(view);
+    let (view, peak_large) = peak(|| BooksView::build(&mut en, &large).unwrap());
+    assert_eq!(view.ids.len(), 200);
+    assert_eq!(view.ids.first(), Some(&3000), "the last opened first");
+    // The same 200 rows, the rows and their items, a few strings more for the book read.
+    assert!(
+        peak_large <= peak_small + 4096,
+        "{peak_small} bytes for 300 books, {peak_large} for 3,000"
+    );
+    // 200 rows twice over (the books read, then the screen's items) and the set of ids.
+    assert!(peak_large < 112 * 1024, "{peak_large}");
+}
+
+#[test]
+fn a_damaged_books_file_shows_the_same_error_as_before_streaming() {
+    let data = card();
+    data.0
+        .write(store::BOOKS, b"[book.1]\ntitle = \"One\"\n[book.2\n")
+        .unwrap();
+    for result in [
+        BooksView::build(&mut words("en"), &data).map(|_| ()),
+        BookView::build(&mut words("en"), &data, Some(1)).map(|_| ()),
+    ] {
+        assert_eq!(result, Err(Error::Io));
+    }
+}
