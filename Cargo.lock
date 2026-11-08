@@ -2677,14 +2677,16 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
