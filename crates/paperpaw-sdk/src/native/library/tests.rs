@@ -441,3 +441,6 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
 }
 
 mod annotations;
+
+#[path = "tests/fields.rs"]
+mod fields;

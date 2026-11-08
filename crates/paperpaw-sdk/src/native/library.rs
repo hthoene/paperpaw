@@ -12,6 +12,8 @@ pub use annotations::{
 };
 mod annotation_text;
 pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
+mod fields;
+pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};

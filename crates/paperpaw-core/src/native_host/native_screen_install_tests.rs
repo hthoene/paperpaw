@@ -367,11 +367,26 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
                 before + 1
             );
             assert_eq!(DESTROYED.with(Cell::get), 0);
+            let declarations = kernel.shared.registry.native_declarations.as_ref().unwrap();
+            let mut metadata = 0;
+            declarations.store.borrow().find(
+                "factory",
+                crate::native_host::declaration_store::Kind::Screen,
+                "screen",
+                &mut |_| metadata += 1,
+            );
+            assert_eq!(metadata, 1);
             drop(kernel);
             assert_eq!(DESTROYED.with(Cell::get), 1);
             break;
         }
         assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        if let Some(declarations) = &kernel.shared.registry.native_declarations {
+            assert_eq!(
+                declarations.store.borrow().host_owner("factory"),
+                Err(host_glue::ERR_NOT_FOUND)
+            );
+        }
         assert_eq!(DESTROYED.with(Cell::get), 1);
     }
     assert!(
@@ -823,5 +838,37 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     kernel.tick(paperpaw_platform::Instant(51));
     assert!(!pool.hosts().retirements_pending());
     assert!(kernel.native_unload_due().is_none());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
+    use crate::native_host::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+    };
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let directory = crate::native_host::shared::Shared::try_new(
+        crate::native_host::native_declarations::NativeDeclarations::default(),
+    )
+    .unwrap();
+    let mut flat_host = kernel.flat_host();
+    flat_host.directory = directory.downgrade();
+    let (retained, ()) = Retained::make_native(host(0), |_| Ok(())).unwrap();
+    let dispatch = NativeDispatch::new(
+        retained,
+        FlatDepth::try_new().unwrap(),
+        flat_host,
+        |_, _, _| {},
+        crate::native_host::native_instances::test_identity("factory"),
+    );
+    drop(directory);
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    assert_eq!(dispatch.event(91, &[0], &env), Err(host_glue::ERR_STATE));
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    drop(dispatch);
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }

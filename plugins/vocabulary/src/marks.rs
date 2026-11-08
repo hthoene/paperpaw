@@ -87,7 +87,7 @@ fn same_language(kept: &str, language: &str) -> bool {
 fn words_in(storage: &dyn Storage, language: &str) -> WordSet {
     // One string with a word a line, rather than a string for each.
     let mut words = String::new();
-    let _ = store::each_line(storage, &store::file(), |line| {
+    let _ = store::each_line(storage, store::file(), |line| {
         let mut fields = line.splitn(3, '\t');
         let (Some(word), Some(kept)) = (fields.next(), fields.next()) else {
             return;
@@ -122,7 +122,7 @@ pub(crate) fn tapped(env: &Env<'_>, tapped: &events::DecorationTapped, out: &mut
 fn language_of(storage: &dyn Storage, word: &str) -> String {
     let key = fold(word);
     let mut language = String::new();
-    let _ = store::each_line(storage, &store::file(), |line| {
+    let _ = store::each_line(storage, store::file(), |line| {
         let mut fields = line.splitn(3, '\t');
         if let (Some(kept), Some(kept_language)) = (fields.next(), fields.next())
             && fold(kept) == key
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn marks_the_words_of_the_list() {
-        let storage = MemoryStorage::new().with(&store::file(), WORDS);
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
         let cache = Cache::default();
         let changes = Changes::default();
         let text = words(&[
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn skips_words_of_other_languages() {
-        let storage = MemoryStorage::new().with(&store::file(), WORDS);
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
         let cache = Cache::default();
         let changes = Changes::default();
         let text = words(&["Der", "Hase", "und", "das", "Rabbit"]);
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn reads_the_list_again_when_it_changed() {
-        let storage = MemoryStorage::new().with(&store::file(), WORDS);
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
         let cache = Cache::default();
         let changes = Changes::default();
         let text = words(&["a", "quire", "of", "ink"]);
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn a_tap_looks_the_word_up_in_its_language() {
-        let storage = MemoryStorage::new().with(&store::file(), WORDS);
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
         assert_eq!(language_of(&storage, "HASE"), "de");
         assert_eq!(language_of(&storage, "rabbit!"), "en");
         assert_eq!(language_of(&storage, "unknown"), "");

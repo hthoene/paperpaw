@@ -18,7 +18,7 @@
 //!   switch them off until the reader wants them ([`StorePlugins`]).
 //!
 //! The diagnostics screen (feature `diagnostics`) is for developer
-//! builds.
+//! builds; it is a native interface-7 plugin and not registered here yet.
 
 #![no_std]
 
@@ -78,12 +78,10 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 42] = [
+pub const STORE_PLUGINS: [&str; 36] = [
     "aids",
-    "battery",
     "browser",
     "calibre",
-    "end-of-book",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -101,20 +99,16 @@ pub const STORE_PLUGINS: [&str; 42] = [
     "hyphenation-sv",
     "hyphenation-uk",
     "joplin",
-    "keys",
     "koreader",
     "kosync",
     "mail",
-    "menu-editor",
     "news",
     "notes-overview",
     "notes-vault",
     "picture-home",
-    "profiles",
     "read-later-cloud",
     "reading-goal",
     "readwise",
-    "rules",
     "stats",
     "translate",
     "vocabulary",
@@ -225,26 +219,22 @@ pub fn install_with(
         .plugin(paperpaw_plugin_menu::Menu);
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_menu_editor::MenuEditor);
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
-        b = offered(b, store, paperpaw_plugin_end_of_book::EndOfBook);
         b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-        b = offered(b, store, paperpaw_plugin_battery::Battery);
         b = offer_hyphenation(b, store);
     }
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_bluetooth::Bluetooth)
-        .plugin(paperpaw_plugin_power::Power)
         .plugin(paperpaw_plugin_file_manager::FileManager)
         .plugin(paperpaw_plugin_transfer::Transfer)
         .plugin(paperpaw_plugin_opds::Opds);
@@ -253,16 +243,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    #[cfg(feature = "store-plugins")]
-    {
-        b = offered(b, store, paperpaw_plugin_rules::Rules);
-    }
     b = b.plugin(paperpaw_plugin_lock::Lock);
-    #[cfg(feature = "store-plugins")]
-    {
-        b = offered(b, store, paperpaw_plugin_profiles::Profiles);
-        b = offered(b, store, paperpaw_plugin_keys::Keys);
-    }
     b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {
@@ -282,15 +263,10 @@ pub fn install_with(
     let builder = b
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin)
-        .plugin(paperpaw_plugin_plugin_manager::PluginManager);
-    #[cfg(feature = "diagnostics")]
-    let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
+        .plugin(paperpaw_plugin_settings::SettingsPlugin);
     builder
         .plugin(paperpaw_plugin_update::Update)
-        .plugin(paperpaw_plugin_about::About)
         .plugin(paperpaw_plugin_setup::Setup)
-        .plugin(paperpaw_plugin_help::Help)
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are

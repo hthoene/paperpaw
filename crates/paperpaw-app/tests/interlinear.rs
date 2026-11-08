@@ -206,7 +206,7 @@ impl App {
             .with(".paperpaw/plugins/setup/done", "");
         let switch = |on: bool| if on { "on" } else { "off" };
         let config = format!(
-            "[help]\nshow = false\n[core]\nlanguage = en\n[interlinear]\non = {}\nparallel = {}\n",
+            "[core]\nlanguage = en\n[interlinear]\non = {}\nparallel = {}\n",
             switch(on),
             switch(parallel)
         );

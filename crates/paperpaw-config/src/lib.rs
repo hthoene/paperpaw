@@ -33,7 +33,7 @@
 extern crate alloc;
 
 use alloc::borrow::Cow;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, TryReserveError};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -87,7 +87,7 @@ impl<'a> Value<'a> {
                     let rest = chars.as_str();
                     if let Some((c, len)) = parse_unicode_escape(rest) {
                         out.push(c);
-                        chars = rest[len..].chars();
+                        chars = rest.get(len..).unwrap_or_default().chars();
                     }
                 }
                 Some(other) => out.push(other),
@@ -96,6 +96,30 @@ impl<'a> Value<'a> {
         }
         Cow::Owned(out)
     } @ data::CONFIG_AS_STR
+    }
+
+    /// Whether [`Value::as_str`] has to allocate: a quoted value with escape
+    /// sequences. Its text with the escapes resolved is never longer than
+    /// [`Value::raw`].
+    pub fn is_escaped(&self) -> bool {
+        self.quoted && self.raw.contains('\\')
+    }
+
+    /// [`Value::as_str`] without an infallible allocation: borrowed where
+    /// there is no escape, else one fallible reservation of [`Value::raw`]'s
+    /// length (the text with the escapes resolved never needs more), so a
+    /// device short of memory gets the error instead of an abort.
+    ///
+    /// # Errors
+    /// [`TryReserveError`] where the room for the resolved text cannot be had.
+    pub fn try_as_str(&self) -> Result<Cow<'a, str>, TryReserveError> {
+        if !self.is_escaped() {
+            return Ok(Cow::Borrowed(self.raw));
+        }
+        let mut out = String::new();
+        out.try_reserve_exact(self.raw.len())?;
+        unescape_into(self.raw, &mut out);
+        Ok(Cow::Owned(out))
     }
 
     /// Interprets `true/false`, `yes/no`, `on/off` and `1/0`.
@@ -257,18 +281,20 @@ fn parse_value(text: &str) -> Result<Value<'_>, ErrorKind> {
     while let Some((index, c)) = chars.next() {
         match c {
             '"' => {
-                if !inner[index + 1..].trim().is_empty() {
+                if !inner.get(index + 1..).unwrap_or_default().trim().is_empty() {
                     return Err(ErrorKind::InvalidLine);
                 }
                 return Ok(Value {
-                    raw: &inner[..index],
+                    raw: inner.get(..index).unwrap_or_default(),
                     quoted: true,
                 });
             }
             '\\' => match chars.next() {
                 Some((_, '\\' | '"' | 'n' | 't')) => {}
                 Some((u_index, 'u')) => {
-                    let len = parse_unicode_escape(&inner[u_index + 1..])
+                    let len = inner
+                        .get(u_index + 1..)
+                        .and_then(parse_unicode_escape)
                         .ok_or(ErrorKind::InvalidEscape)?
                         .1;
                     for _ in 0..len {
@@ -285,10 +311,36 @@ fn parse_value(text: &str) -> Result<Value<'_>, ErrorKind> {
 }
 
 /// Parses `{XXXX}` (1 to 6 hex digits) and returns the char and consumed bytes.
+/// Appends `raw` (escapes validated by the parser) with its escapes resolved.
+/// `out` must have room for `raw.len()` more bytes, so that it never grows:
+/// every escape is at least as long as what it stands for.
+fn unescape_into(raw: &str, out: &mut String) {
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('u') => {
+                let rest = chars.as_str();
+                if let Some((c, len)) = parse_unicode_escape(rest) {
+                    out.push(c);
+                    chars = rest.get(len..).unwrap_or_default().chars();
+                }
+            }
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+}
+
 fn parse_unicode_escape(s: &str) -> Option<(char, usize)> {
     let body = s.strip_prefix('{')?;
     let end = body.find('}')?;
-    let hex = &body[..end];
+    let hex = body.get(..end)?;
     if hex.is_empty() || hex.len() > 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
@@ -553,6 +605,25 @@ mod tests {
     fn quoted_values_resolve_escapes() {
         let parsed = entries(r#"a = "  line\nnext \"q\" \\ \u{1F4D6}""#);
         assert_eq!(parsed[0].value.as_str(), "  line\nnext \"q\" \\ \u{1F4D6}");
+    }
+
+    #[test]
+    fn try_as_str_matches_as_str_and_never_grows() {
+        let source = r#"a = "  line\nnext \"q\" \\ \u{1F4D6} \t\u{41}"
+b = plain
+c = "quoted plain"
+"#;
+        for entry in entries(source) {
+            let value = entry.value;
+            let tried = value.try_as_str().unwrap();
+            assert_eq!(tried, value.as_str());
+            assert_eq!(value.is_escaped(), matches!(tried, Cow::Owned(_)));
+            if let Cow::Owned(text) = &tried {
+                // One reservation of the raw length, never a second one.
+                assert!(text.capacity() >= value.raw().len());
+                assert!(text.len() <= value.raw().len());
+            }
+        }
     }
 
     #[test]

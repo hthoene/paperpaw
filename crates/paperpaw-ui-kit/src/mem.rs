@@ -18,6 +18,23 @@ pub fn buffer(len: usize) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead store
+/// before the memory is freed: for a password, a key or a typed secret.
+pub fn wipe(bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // SAFETY: each byte is live and exclusively borrowed; the volatile
+        // store keeps the wipe when the allocation is freed right after.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+}
+
+/// Zeroes `text` and frees it.
+pub fn wipe_text(text: String) {
+    let mut bytes = text.into_bytes();
+    wipe(&mut bytes);
+}
+
 /// Appends `item` after reserving room for it.
 ///
 /// # Errors
@@ -134,6 +151,45 @@ pub fn stable_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> cor
     }
 }
 
+/// A vector holding `item` alone, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn one<T>(item: T) -> Result<Vec<T>, Error> {
+    let mut found = Vec::new();
+    found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+    found.push(item);
+    Ok(found)
+}
+
+/// The text of each of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn strs(items: &[String]) -> Result<Vec<&str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    for item in items {
+        found.push(item.as_str());
+    }
+    Ok(found)
+}
+
+/// A copy of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    found.extend_from_slice(items);
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +215,15 @@ mod tests {
         assert_eq!(join(&items, ",").unwrap(), "a,b");
         assert_eq!(join(&[], ",").unwrap(), "");
         assert_eq!(replace_char("a-b-c", '-', ' ').unwrap(), "a b c");
+    }
+
+    #[test]
+    fn wipe_zeroes_what_it_is_given() {
+        let mut bytes = *b"hunter2";
+        wipe(&mut bytes);
+        assert_eq!(bytes, [0; 7]);
+        wipe(&mut []);
+        wipe_text(String::from("hunter2"));
     }
 
     #[test]

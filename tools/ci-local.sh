@@ -4,7 +4,7 @@
 #
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
-#   quick   fmt, lint, test: what every change needs (the default)
+#   quick   changelog, fmt, lint, test: what every change needs (the default)
 #   full    every group below except `fuzz`, `firmware-build` and `release-versions`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
@@ -66,8 +66,8 @@ if [[ -z "${RUSTC_WRAPPER:-}" && "${CI_LOCAL_SCCACHE:-1}" != 0 ]] && command -v 
     export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
 fi
 
-all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
-quick_groups=(fmt lint test)
+all_groups=(changelog fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
+quick_groups=(changelog fmt lint test)
 opt_groups=(firmware-build fuzz release-versions miri miri-stage)
 
 if [[ $list -eq 1 ]]; then
@@ -129,6 +129,11 @@ skip() {
 }
 
 # ---- the groups, in the order of ci.yml's jobs ---------------------------
+
+g_changelog() {
+    run "changelog: fragments" "python3 tools/changelog.py check"
+    run "changelog: collection and PR checks" "python3 -m unittest discover -s tools -p test_changelog.py"
+}
 
 g_fmt() {
     run "fmt: workspace" "cargo fmt --all --check"
@@ -335,8 +340,6 @@ g_emulator() {
         $emu --headless --profile two-buttons \
           --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
           --screenshot out/two-buttons-settings.png
-        $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-          --script "page-forward,long-tap:600:800"
         $emu --registry out/registry.json
         printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
         py="$(command -v python3 || command -v python)"
@@ -379,9 +382,6 @@ g_android() {
 
 # Not in `full`: slow, ask for them with --only.
 g_firmware-build() {
-    # The ppn5 build adds `-C jump-tables=no` to the config's flags (shells/xteink/build.rs).
-    # Exported so the quoted TOML array reaches the `bash -c` commands below intact.
-    export PPN5_CONFIG='target.riscv32imc-unknown-none-elf.rustflags=["-C","jump-tables=no"]'
     if ! have_toolchain "$x4_toolchain"; then
         skip "firmware-build: x4" "toolchain $x4_toolchain not installed"
         return
@@ -394,9 +394,9 @@ g_firmware-build() {
         cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
-    run "firmware-build: clippy the interface-7 host code (ppn5)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --config \"\$PPN5_CONFIG\" -- -D warnings"
+    run "firmware-build: clippy the interface-7 host code (ppn5)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 -- -D warnings"
     run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
-        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --config "$PPN5_CONFIG" --target-dir target/ppn5)
+        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
     run "firmware-build: the interface-7 sample packs to the committed file" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
@@ -430,6 +430,8 @@ g_miri() {
     for model in stacked tree; do
         flags="-Zmiri-strict-provenance"
         [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        run "miri: $model shared ownership and weak teardown" \
+            "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shared::tests::"
         for test_name in token_tests tests; do
             run "miri: $model $test_name" \
                 "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"
