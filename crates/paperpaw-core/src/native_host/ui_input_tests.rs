@@ -1007,3 +1007,26 @@ fn a_released_capture_is_evicted_first_when_the_table_is_full() {
         &pointer(60, 0)
     )));
 }
+
+#[test]
+fn a_malformed_verdict_on_the_rest_of_a_capture_is_counted() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B)];
+    script.set(B, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    // An earlier filter and the capturer both answer an unknown verdict kind:
+    // each counts once; the rest is taken all the same.
+    script.set(A, Answer::Kind(9));
+    script.set(B, Answer::Kind(9));
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(1, 1));
+    assert!(is_taken(&moved));
+    assert_eq!(moved.refused, 2);
+    // A replace that is no input record, from an earlier filter, counts too.
+    script.set(A, Answer::Replace(vec![9, 9]));
+    script.set(B, Answer::Pass);
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(1, 1));
+    assert!(is_taken(&moved));
+    assert_eq!(moved.refused, 1);
+    assert_eq!(chain.held(), 1);
+}

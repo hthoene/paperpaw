@@ -236,3 +236,16 @@ fn strange_dates_and_percentages_do_not_panic() {
     let mut out = String::new();
     put_book(&mut out, &|t| t.clamp(-1 << 50, 1 << 50), "T", "", &[wild]).unwrap();
 }
+
+#[test]
+fn the_detail_line_of_a_note_reads_what_and_how_far() {
+    let detail = |what, percent| {
+        let mut out = String::new();
+        put_detail(&mut out, what, percent).unwrap();
+        out
+    };
+    assert_eq!(detail("Highlight", 42), "Highlight · 42 %");
+    assert_eq!(detail("my own note", 0), "my own note · 0 %");
+    assert_eq!(detail("Bookmark", 100), "Bookmark · 100 %");
+    assert_eq!(detail("", 7), " · 7 %");
+}

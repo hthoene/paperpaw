@@ -1,6 +1,7 @@
 //! Interface-7 Battery recording using callback-scoped SDK services.
 use crate::log::{self, Counts, Kind, Reading};
-use alloc::{format, string::String, vec::Vec};
+use crate::mem;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
     events::Event,
@@ -69,14 +70,11 @@ impl Recorder {
             return Ok(());
         }
         let now = self.reading(host)?;
-        // Logging failures do not prevent sleep or change the historical awake bookkeeping.
-        let _ = append_record(
-            host,
-            log::FILE,
-            log::OLD,
-            log::HEADER,
-            &log::line(kind, &now),
-        );
+        // Logging failures (a refused line, the card) do not prevent sleep or
+        // change the historical awake bookkeeping.
+        if let Ok(line) = log::try_line(kind, &now) {
+            let _ = append_record(host, log::FILE, log::OLD, log::HEADER, &line);
+        }
         let due = self
             .plugins_noted
             .is_none_or(|at| now.ms.saturating_sub(at) >= log::PLUGINS_EVERY_MS);
@@ -88,7 +86,7 @@ impl Recorder {
                     log::PLUGINS,
                     log::PLUGINS_OLD,
                     log::PLUGINS_HEADER,
-                    &rows.concat(),
+                    &rows,
                 );
             }
             let _ = storage::sync(host);
@@ -151,33 +149,65 @@ pub fn append_record(
     Ok(())
 }
 
-fn usage_lines(host: &Host<'_>, ms: u64) -> Result<Vec<String>, Error> {
+/// The rows of what each plugin took by `ms`, one after the other. A plugin
+/// listed twice (a generation change) keeps its last row. A refused
+/// allocation ends the whole write: a partial table would mislead.
+fn usage_lines(host: &Host<'_>, ms: u64) -> Result<String, Error> {
     let mut rows: Vec<(String, String)> = Vec::new();
+    let mut failed = None;
     services::for_each_plugin_usage(host, &mut |p| {
-        let active = p.calls != 0 || p.shown_ms != 0 || p.read != 0 || p.written != 0;
-        let line = if active {
-            format!(
-                "{ms},{},{},{},{},{},{},{},{},{},{}\n",
-                p.plugin,
-                p.busy_us / 1000,
-                p.calls,
-                p.shown_ms,
-                p.fast,
-                p.partial,
-                p.full,
-                p.pixels / 1000,
-                p.read / 1024,
-                p.written / 1024
-            )
-        } else {
-            String::new()
-        };
-        // A generation change may repeat a row: keep the last value without restarting.
-        if let Some((_, value)) = rows.iter_mut().find(|(id, _)| id == p.plugin) {
-            *value = line;
-        } else {
-            rows.push((p.plugin.into(), line));
+        if failed.is_some() {
+            return;
+        }
+        if let Err(error) = note_row(&mut rows, ms, p) {
+            failed = Some(error);
         }
     })?;
-    Ok(rows.into_iter().map(|(_, line)| line).collect())
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    let mut text = String::new();
+    let length = rows
+        .iter()
+        .try_fold(0usize, |sum, (_, line)| sum.checked_add(line.len()))
+        .ok_or(Error::NoMemory)?;
+    text.try_reserve_exact(length)
+        .map_err(|_| Error::NoMemory)?;
+    for (_, line) in &rows {
+        text.push_str(line);
+    }
+    Ok(text)
+}
+
+fn note_row(
+    rows: &mut Vec<(String, String)>,
+    ms: u64,
+    p: &services::ServicePluginUsage<'_>,
+) -> Result<(), Error> {
+    let active = p.calls != 0 || p.shown_ms != 0 || p.read != 0 || p.written != 0;
+    let line = if active {
+        mem::format!(
+            "{ms},{},{},{},{},{},{},{},{},{},{}\n",
+            p.plugin,
+            p.busy_us / 1000,
+            p.calls,
+            p.shown_ms,
+            p.fast,
+            p.partial,
+            p.full,
+            p.pixels / 1000,
+            p.read / 1024,
+            p.written / 1024
+        )?
+    } else {
+        String::new()
+    };
+    // A generation change may repeat a row: keep the last value without restarting.
+    if let Some((_, value)) = rows.iter_mut().find(|(id, _)| id == p.plugin) {
+        *value = line;
+        Ok(())
+    } else {
+        let id = mem::string(p.plugin)?;
+        mem::push(rows, (id, line))
+    }
 }

@@ -14,6 +14,12 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    fn callback_depth(&self) -> u8 {
+        0
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(None);
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -142,6 +148,10 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.pool.as_ref()?.ui_store()
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {

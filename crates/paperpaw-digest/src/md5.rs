@@ -64,18 +64,35 @@ impl Md5 {
     }
 
     /// The digest as 32 lower-case hex digits.
-    pub fn hex(mut self) -> String {
+    pub fn hex(self) -> String {
+        let mut digits = [0u8; 32];
+        let mut out = String::new();
+        out.push_str(self.hex_into(&mut digits));
+        out
+    }
+
+    /// [`Md5::hex`] into `out`, without allocating: the 32 lower-case hex
+    /// digits, also returned as text.
+    pub fn hex_into(self, out: &mut [u8; 32]) -> &str {
+        for (pair, byte) in out.as_chunks_mut::<2>().0.iter_mut().zip(self.finish()) {
+            pair[0] = crate::hex::DIGITS[usize::from(byte >> 4)];
+            pair[1] = crate::hex::DIGITS[usize::from(byte & 15)];
+        }
+        // Hex digits are ASCII.
+        core::str::from_utf8(out).unwrap_or_default()
+    }
+
+    /// The 16 bytes of the digest.
+    fn finish(mut self) -> [u8; 16] {
         let bits = self.length.wrapping_mul(8);
         self.update(&[0x80]);
         while self.used != 56 {
             self.update(&[0]);
         }
         self.update(&bits.to_le_bytes());
-        let mut out = String::new();
-        for word in self.state {
-            for byte in word.to_le_bytes() {
-                crate::hex::push(&mut out, byte);
-            }
+        let mut out = [0u8; 16];
+        for (bytes, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(self.state) {
+            *bytes = word.to_le_bytes();
         }
         out
     }
@@ -120,6 +137,21 @@ pub fn of(text: &str) -> String {
 /// offsets 0, 1 KiB, 4 KiB, 16 KiB, … (×4) up to 1 GiB, as far as the file
 /// reaches. The same file gets the same id on every device.
 pub fn partial(storage: &dyn Storage, path: &str) -> Option<String> {
+    partial_md5(storage, path).map(Md5::hex)
+}
+
+/// [`partial`] into `out`, without allocating: the fingerprint's 32 hex
+/// digits, also returned as text.
+pub fn partial_into<'o>(
+    storage: &dyn Storage,
+    path: &str,
+    out: &'o mut [u8; 32],
+) -> Option<&'o str> {
+    partial_md5(storage, path).map(|md5| md5.hex_into(out))
+}
+
+/// The digest of [`partial`]'s samples, not yet finished.
+fn partial_md5(storage: &dyn Storage, path: &str) -> Option<Md5> {
     let mut md5 = Md5::new();
     let mut buffer = [0u8; 1024];
     for i in -1i32..=10 {
@@ -141,7 +173,7 @@ pub fn partial(storage: &dyn Storage, path: &str) -> Option<String> {
         }
         md5.update(&buffer[..n]);
     }
-    Some(md5.hex())
+    Some(md5)
 }
 
 #[cfg(test)]
@@ -241,5 +273,22 @@ mod tests {
             let storage = ShortReads(MemoryStorage::new().with("b.epub", data.clone()), limit);
             assert_eq!(partial(&storage, "b.epub"), whole, "{limit} bytes a read");
         }
+    }
+
+    #[test]
+    fn hex_into_writes_what_hex_returns_without_allocating() {
+        for text in ["", "abc", "The quick brown fox jumps over the lazy dog"] {
+            let mut md5 = Md5::new();
+            md5.update(text.as_bytes());
+            let mut digits = [0u8; 32];
+            assert_eq!(md5.clone().hex_into(&mut digits), md5.hex(), "{text:?}");
+        }
+        let data: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
+        let storage = MemoryStorage::new().with("b.epub", data);
+        let mut digits = [0u8; 32];
+        assert_eq!(
+            partial_into(&storage, "b.epub", &mut digits).map(alloc::string::ToString::to_string),
+            partial(&storage, "b.epub")
+        );
     }
 }
