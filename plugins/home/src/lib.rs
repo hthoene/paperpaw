@@ -51,6 +51,7 @@ mod declarations;
 mod native_entry;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+pub mod native_dash;
 pub mod native_grid;
 pub mod native_pages;
 pub mod native_plugin;
