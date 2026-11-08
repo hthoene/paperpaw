@@ -681,3 +681,28 @@ fn a_library_hint_for_several_books_has_an_empty_path() {
         Ok(Event::LibraryChanged { path: "", .. })
     ));
 }
+
+#[test]
+fn a_library_hint_is_typed_keeps_future_bits_and_borrows_its_path() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 42,
+        what: 0b100_0011 | (1 << 20),
+        generation: 9,
+        path: "books/a.epub",
+    });
+    let bytes = encode(record);
+    let Ok(Event::LibraryChanged {
+        now_ms,
+        what,
+        generation,
+        path,
+    }) = decode(&bytes)
+    else {
+        panic!("a typed library hint");
+    };
+    assert_eq!((now_ms, generation, path), (42, 9, "books/a.epub"));
+    assert_eq!(what.bits(), 0b100_0011 | (1 << 20), "future bits are kept");
+    assert!(what.books() && what.status() && what.cover());
+    assert!(!(what.positions() || what.annotations() || what.fields() || what.walk()));
+    assert_borrowed_text(&bytes, path);
+}
