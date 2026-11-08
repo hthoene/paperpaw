@@ -1,6 +1,8 @@
-//! `core.secrets` on the X4 (decision 138): values are sealed with AES-256-GCM
-//! under a per-device key kept in the `nvs` partition of the internal flash
-//! (`paperpaw_x4::device_key`), never on the card. A card from another device
+//! `core.secrets` on the X4, X3, X4 Pro and X4 Classic (decisions 138 and 140):
+//! values are sealed with AES-256-GCM under a per-device key kept in a sector
+//! of the internal flash that no installer touches (`paperpaw_x4::device_key`:
+//! the `nvs` partition's fourth sector, the Classic's last flash sector), never
+//! on the card. A card from another device
 //! opens nothing: its values count as absent here, never a crash.
 //!
 //! - The key is read for each seal or open and wiped after: it is not held in
@@ -121,7 +123,11 @@ impl DeviceSealer {
         }
     }
 
-    /// Where the key's sector is: in the `nvs` partition, which must hold it.
+    /// Where the key's sector is (decision 140, `dk::place`): the fourth sector
+    /// of the `nvs` partition on the X4, X3 and X4 Pro; on the X4 Classic the
+    /// last sector of the flash, which no partition of the table may cover (its
+    /// factory `nvs` is never written). A table that does not allow the place
+    /// is `ERR_NOT_FOUND`: nothing is sealed, nothing is written.
     fn sector(&self) -> Result<u32, i32> {
         if let Some(at) = self.at.get() {
             return Ok(at);
@@ -132,19 +138,21 @@ impl DeviceSealer {
             .try_reserve_exact(PARTITION_TABLE_MAX_LEN)
             .map_err(|_| ERR_NO_MEMORY)?;
         table.resize(PARTITION_TABLE_MAX_LEN, 0u8);
-        let found = partitions::read_partition_table(&mut flash, &mut table[..])
+        let at = partitions::read_partition_table(&mut flash, &mut table[..])
             .ok()
             .and_then(|pt| {
-                pt.find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
+                let nvs = pt
+                    .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
                     .ok()
                     .flatten()
-                    .map(|p| (p.offset(), p.len()))
-            });
-        let (offset, len) = found.ok_or(ERR_NOT_FOUND)?;
-        if (len as usize) < dk::OFFSET as usize + dk::SECTOR {
-            return Err(ERR_NOT_FOUND);
-        }
-        let at = offset + dk::OFFSET;
+                    .map(|p| (p.offset(), p.len()));
+                dk::locate(
+                    dk::place(cfg!(feature = "x4-classic")),
+                    nvs,
+                    pt.iter().map(|p| (p.offset(), p.len())),
+                )
+            })
+            .ok_or(ERR_NOT_FOUND)?;
         self.at.set(Some(at));
         Ok(at)
     }

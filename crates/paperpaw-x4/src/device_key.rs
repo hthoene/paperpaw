@@ -32,6 +32,84 @@ pub const SECTOR: usize = 4096;
 /// Where in the `nvs` partition the record is.
 pub const OFFSET: u32 = 3 * SECTOR as u32;
 
+/// The X4 Classic's key sector: the last 4 KiB of its 16 MB flash, in no
+/// partition of PaperPaw's table. Its factory `nvs` (`0x9000` to `0xE000`) is
+/// kept whole and never written (it says which panel the device has), so the
+/// key cannot be a page of it. A table of another firmware that has a
+/// partition there (CrossPoint's `coredump` at `0xFF0000`) makes [`locate`]
+/// refuse, and nothing is sealed.
+pub const OUTSIDE_AT: u32 = 0x00FF_F000;
+/// The flash of every device that seals: 16 MB.
+pub const FLASH_LEN: u32 = 16 * 1024 * 1024;
+
+/// Where a device keeps its key (decision 140).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// The fourth sector of the `nvs` partition (`0xC000` with the partition
+    /// at `0x9000`): the X4, the X3 and the X4 Pro, whose table
+    /// (`partitions.csv`) has a 16 KiB `nvs` that no other user of PaperPaw's
+    /// table touches.
+    InNvs,
+    /// A sector of the flash that no partition of the table covers: the X4
+    /// Classic.
+    Outside(u32),
+}
+
+/// The place of a device: `classic` for the X4 Classic.
+#[must_use]
+pub const fn place(classic: bool) -> Place {
+    if classic {
+        Place::Outside(OUTSIDE_AT)
+    } else {
+        Place::InNvs
+    }
+}
+
+/// The sector the web flasher and every installer must leave alone, as
+/// `[start, end)` (decision 139: a reinstall keeps the passwords). Kept next
+/// to [`place`] so that they cannot disagree.
+#[must_use]
+pub const fn kept_range(classic: bool) -> (u32, u32) {
+    let at = match place(classic) {
+        Place::InNvs => 0x9000 + OFFSET,
+        Place::Outside(at) => at,
+    };
+    (at, at + SECTOR as u32)
+}
+
+/// The flash address of the key sector for `place`, given the partition table:
+/// the `nvs` partition's `(offset, length)` if there is one and the
+/// `(offset, length)` of every partition. `None` when the table does not
+/// allow the place, in which case nothing is sealed:
+/// - `InNvs`: the `nvs` partition must be there and reach the fourth sector;
+/// - `Outside`: the sector must lie in the flash and overlap no partition.
+#[must_use]
+pub fn locate(
+    place: Place,
+    nvs: Option<(u32, u32)>,
+    mut partitions: impl Iterator<Item = (u32, u32)>,
+) -> Option<u32> {
+    match place {
+        Place::InNvs => {
+            let (offset, len) = nvs?;
+            (u64::from(len) >= u64::from(OFFSET) + SECTOR as u64)
+                .then(|| offset.checked_add(OFFSET))
+                .flatten()
+        }
+        Place::Outside(at) => {
+            let end = at.checked_add(SECTOR as u32)?;
+            if end > FLASH_LEN {
+                return None;
+            }
+            let covered = partitions.any(|(offset, len)| {
+                let last = u64::from(offset) + u64::from(len);
+                u64::from(offset) < u64::from(end) && u64::from(at) < last
+            });
+            (!covered).then_some(at)
+        }
+    }
+}
+
 /// The sealed value's nonce.
 pub const NONCE: usize = 12;
 /// The sealed value's authentication tag.
@@ -159,6 +237,146 @@ mod tests {
                 at + size >= KEY_AT + SECTOR as u32,
                 "{name}: nvs does not reach the key sector"
             );
+        }
+    }
+
+    /// A table's partitions, from a `partitions.csv` (name, type, subtype,
+    /// offset, size).
+    fn partitions_of(table: &str) -> alloc::vec::Vec<(&str, u32, u32)> {
+        let number =
+            |text: &str| u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).unwrap();
+        table
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#') && line.contains(','))
+            .map(|line| {
+                let f: alloc::vec::Vec<&str> = line.split(',').collect();
+                (f[0].trim(), number(f[3]), number(f[4]))
+            })
+            .collect()
+    }
+
+    const CROSSPOINT: &str = "\
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x640000,
+app1,     app,  ota_1,   0x650000,0x640000,
+spiffs,   data, spiffs,  0xc90000,0x360000,
+coredump, data, coredump,0xFF0000,0x10000,
+";
+
+    fn find(table: &str, place: Place) -> Option<u32> {
+        let parts = partitions_of(table);
+        let nvs = parts.iter().find(|p| p.0 == "nvs").map(|p| (p.1, p.2));
+        locate(place, nvs, parts.iter().map(|p| (p.1, p.2)))
+    }
+
+    const X4_TABLE: &str = include_str!("../../../shells/xteink/partitions.csv");
+    const CLASSIC_TABLE: &str = include_str!("../../../shells/xteink/partitions-classic.csv");
+
+    /// Decision 140, per device: the key sector, from the table each ships.
+    #[test]
+    fn each_device_has_its_key_sector() {
+        // The X4, the X3 and the X4 Pro share partitions.csv.
+        assert_eq!(find(X4_TABLE, place(false)), Some(0xC000));
+        // The X4 Classic: outside every partition, not in its factory NVS.
+        assert_eq!(find(CLASSIC_TABLE, place(true)), Some(0x00FF_F000));
+    }
+
+    #[test]
+    fn the_classic_never_uses_its_factory_nvs() {
+        assert_eq!(place(true), Place::Outside(OUTSIDE_AT));
+        // It would be there if it were in nvs: 0xC000 is a page of the factory's NVS
+        // (0x9000 to 0xE000), which says which panel the device has.
+        assert_eq!(find(CLASSIC_TABLE, Place::InNvs), Some(0xC000));
+        let nvs = partitions_of(CLASSIC_TABLE)
+            .into_iter()
+            .find(|p| p.0 == "nvs")
+            .unwrap();
+        assert!((nvs.1..nvs.1 + nvs.2).contains(&0xC000));
+        assert!(!(nvs.1..nvs.1 + nvs.2).contains(&OUTSIDE_AT));
+    }
+
+    #[test]
+    fn the_outside_sector_is_in_no_partition_and_is_the_last_of_the_flash() {
+        assert_eq!(OUTSIDE_AT + SECTOR as u32, FLASH_LEN);
+        for table in [X4_TABLE, CLASSIC_TABLE] {
+            for (name, at, len) in partitions_of(table) {
+                assert!(at + len <= OUTSIDE_AT, "{name} reaches the key sector");
+            }
+        }
+    }
+
+    /// Another firmware's table decides too: its `coredump` covers the
+    /// Classic's sector (nothing is sealed there, and nothing of it is
+    /// written), while its NVS holds the others' sector (risk R3: a stock
+    /// firmware that writes its NVS may take it; values are then entered again).
+    #[test]
+    fn another_firmwares_table_is_respected() {
+        assert_eq!(find(CROSSPOINT, place(true)), None);
+        assert_eq!(find(CROSSPOINT, place(false)), Some(0xC000));
+    }
+
+    #[test]
+    fn the_place_needs_what_it_says() {
+        // No nvs partition, or one too short for the fourth sector.
+        assert_eq!(locate(Place::InNvs, None, core::iter::empty()), None);
+        assert_eq!(
+            locate(Place::InNvs, Some((0x9000, 0x3000)), core::iter::empty()),
+            None
+        );
+        assert_eq!(
+            locate(Place::InNvs, Some((0x9000, 0x4000)), core::iter::empty()),
+            Some(0xC000)
+        );
+        // A table claiming the sector, wholly or by one byte at either edge.
+        let at = OUTSIDE_AT;
+        for part in [
+            (at, 1),
+            (at - 1, 2),
+            (0, FLASH_LEN),
+            (at + SECTOR as u32 - 1, 1),
+        ] {
+            assert_eq!(
+                locate(Place::Outside(at), None, [part].into_iter()),
+                None,
+                "{part:?}"
+            );
+        }
+        // Next to it is not over it.
+        assert_eq!(
+            locate(Place::Outside(at), None, [(at - 4096, 4096)].into_iter()),
+            Some(at)
+        );
+        // Out of the flash.
+        assert_eq!(
+            locate(Place::Outside(FLASH_LEN), None, core::iter::empty()),
+            None
+        );
+        assert_eq!(
+            locate(Place::Outside(u32::MAX - 100), None, core::iter::empty()),
+            None
+        );
+        assert_eq!(
+            locate(
+                Place::InNvs,
+                Some((u32::MAX - 100, 0x4000)),
+                core::iter::empty()
+            ),
+            None
+        );
+    }
+
+    /// What the web flasher skips, one range per device (paperpaw.org
+    /// `static/flash/device.js`). A change here is a change there.
+    #[test]
+    fn the_kept_range_is_the_key_sector() {
+        assert_eq!(kept_range(false), (0xC000, 0xD000));
+        assert_eq!(kept_range(true), (0x00FF_F000, 0x0100_0000));
+        for classic in [false, true] {
+            let (start, end) = kept_range(classic);
+            let table = if classic { CLASSIC_TABLE } else { X4_TABLE };
+            assert_eq!(find(table, place(classic)), Some(start));
+            assert_eq!(end - start, SECTOR as u32);
         }
     }
 
