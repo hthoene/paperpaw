@@ -62,3 +62,24 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
     }
     assert!(asked >= 25, "{asked}");
 }
+
+#[test]
+fn the_shared_text_for_a_device_that_cannot_keep_passwords_is_in_the_core_catalogue() {
+    let key = "core.secrets-unsupported";
+    assert!(include_str!("../src/native_plugin.rs").contains(key));
+    for (name, catalog) in [
+        (
+            "en",
+            include_str!("../../../crates/paperpaw-core/i18n/en.ini"),
+        ),
+        (
+            "de",
+            include_str!("../../../crates/paperpaw-core/i18n/de.ini"),
+        ),
+    ] {
+        assert!(
+            catalog.lines().any(|l| l.starts_with(&format!("{key} = "))),
+            "{key} missing in {name}"
+        );
+    }
+}
