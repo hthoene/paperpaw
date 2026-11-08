@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 39] = [
+pub const STORE_PLUGINS: [&str; 36] = [
     "aids",
     "browser",
     "calibre",
@@ -99,16 +99,13 @@ pub const STORE_PLUGINS: [&str; 39] = [
     "hyphenation-sv",
     "hyphenation-uk",
     "joplin",
-    "keys",
     "koreader",
     "kosync",
     "mail",
-    "menu-editor",
     "news",
     "notes-overview",
     "notes-vault",
     "picture-home",
-    "profiles",
     "read-later-cloud",
     "reading-goal",
     "readwise",
@@ -162,7 +159,10 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 9] = [
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
-    ("plugin-manager", &paperpaw_plugin_plugin_manager::NATIVE_ENTRY),
+    (
+        "plugin-manager",
+        &paperpaw_plugin_plugin_manager::NATIVE_ENTRY,
+    ),
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
 ];
@@ -246,7 +246,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_menu_editor::MenuEditor);
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
@@ -275,11 +274,6 @@ pub fn install_with(
     }
     b = b.plugin(paperpaw_plugin_store::Store);
     b = b.plugin(paperpaw_plugin_lock::Lock);
-    #[cfg(feature = "store-plugins")]
-    {
-        b = offered(b, store, paperpaw_plugin_profiles::Profiles);
-        b = offered(b, store, paperpaw_plugin_keys::Keys);
-    }
     b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {

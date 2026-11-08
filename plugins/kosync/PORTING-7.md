@@ -24,7 +24,9 @@ port.
   field by field (name, title, group, help, kind, default, advanced, kept on reset) and the group.
   The one difference is the editor that opens the account screen: the native plugin declares none.
 - `password_key` zeroes its hex array with `mem::wipe` (tested); the MD5 state wipes itself when
-  dropped (#451). The returned key is the credential, so the sync slice that sends it must
+  dropped (#451). The 16 raw digest bytes are a temporary inside the digest
+  crate's `hex_into` (it consumes the digest): the plugin has no array of them to wipe; wiping that
+  temporary is for the digest crate (Kernel). The returned key is the credential, so the sync slice that sends it must
   `wipe_text` it afterwards.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
