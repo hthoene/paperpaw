@@ -352,6 +352,38 @@ fn is_epub(head: &[u8]) -> bool {
         && head.get(data..data + MIME.len()) == Some(MIME)
 }
 
+/// The `core.format` provider of FictionBooks (`fb2`, `fb2.zip`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn fb2_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-fb2.fb2",
+        |storage, name, options| {
+            Fb2Document::open_options(storage, name, options)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
+/// The `core.format` provider of comic book archives (`cbz`): pages are
+/// pictures, shown whole.
+#[must_use]
+pub fn cbz_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-cbz.cbz",
+        |storage, name, options| {
+            CbzDocument::open_options(storage, name, options)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
 /// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
