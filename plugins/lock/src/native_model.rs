@@ -324,19 +324,70 @@ pub fn too_short(code: &str) -> bool {
     code.chars().count() < MIN_LENGTH
 }
 
+/// A code (digits, dots or a password) on its way: its `Debug` shows nothing
+/// of it, comparing takes as long whatever it holds, and it is wiped when it is
+/// dropped, used or not.
+#[derive(Default)]
+pub struct Code(String);
+
+impl Code {
+    /// Takes `text` as a code.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+}
+
+impl core::ops::Deref for Code {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Debug for Code {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Code(..)")
+    }
+}
+
+impl PartialEq for Code {
+    fn eq(&self, other: &Self) -> bool {
+        same(&self.0, &other.0)
+    }
+}
+
+impl Eq for Code {}
+
+impl Drop for Code {
+    fn drop(&mut self) {
+        wipe_string(&mut self.0);
+    }
+}
+
 /// What a key of the keypad did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Pressed {
     /// The digits changed (or nothing: a key past the end, a full PIN).
     Changed,
     /// *OK*: the digits entered.
-    Submit(String),
+    Submit(Code),
 }
 
 /// A PIN being entered.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Pin {
     entered: String,
+}
+
+/// Shows how many digits, never which.
+impl core::fmt::Debug for Pin {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Pin")
+            .field("digits", &self.entered.len())
+            .finish()
+    }
 }
 
 impl Pin {
@@ -360,7 +411,11 @@ impl Pin {
             Some(&DELETE) => {
                 self.entered.pop();
             }
-            Some(&"OK") => return Ok(Pressed::Submit(core::mem::take(&mut self.entered))),
+            Some(&"OK") => {
+                return Ok(Pressed::Submit(Code::new(core::mem::take(
+                    &mut self.entered,
+                ))));
+            }
             Some(digit) if self.entered.len() < MAX_PIN => {
                 // Room for all of it at once, so that no growth leaves a copy
                 // of the digits behind, unwiped.
