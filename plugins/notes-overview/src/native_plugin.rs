@@ -1,10 +1,11 @@
 //! The interface-7 All notes: the list of books with notes and the notes of
-//! one book, over the library service. The export and the opening of a book
-//! at a note need host pieces that are not there yet: those rows refuse
-//! plainly (`PORTING-7.md`).
+//! one book, over the library service, and the export of every note to
+//! `My Clippings.txt`. The opening of a book at a note needs a host piece
+//! that is not there yet: those rows refuse plainly (`PORTING-7.md`).
 use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
 use crate::model::{self, Counted, Handle};
 use crate::native_library::{BUFFER, HostSource};
+use crate::native_run::run;
 use crate::native_scan::scan;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -203,9 +204,10 @@ impl Plugin for NativeNotesOverview {
             return Ok(Handled::Yes);
         }
         match view.rows {
-            // BLOCKED (#228): the export writes through `core.files`
-            // (PORTING-7.md); the row refuses plainly until it is wired.
-            Rows::Books(_) => Err(Error::Unsupported),
+            Rows::Books(_) => {
+                self.export(host)?;
+                Ok(Handled::Yes)
+            }
             // BLOCKED (#228): the book opens at the note with `command.open`
             // into `core.reader` and the goto event (draft 22 `doc_open`).
             Rows::Notes => Err(Error::Unsupported),
@@ -226,6 +228,29 @@ impl NativeNotesOverview {
 
     fn library(&self) -> Result<&Library, Error> {
         self.library.as_ref().ok_or(Error::State)
+    }
+
+    /// Writes every note to `My Clippings.txt` and says what came of it.
+    fn export(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        let mut messages = Messages::new()?;
+        let text = match run(host, self.library()?) {
+            Ok((done, path)) if done.notes > 0 => messages.format(
+                host,
+                "notes-overview.exported",
+                &[
+                    Arg::Count(i64::from(done.notes)),
+                    Arg::Text {
+                        name: "path",
+                        value: &path,
+                    },
+                ],
+            )?,
+            Ok(_) => messages.copy(host, "notes-overview.none")?,
+            Err(_) => messages.copy(host, "notes-overview.export-failed")?,
+        };
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
 
     /// Opens the notes of the book the row `index` of the list names. A

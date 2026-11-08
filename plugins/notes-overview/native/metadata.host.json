@@ -87,6 +87,22 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -112,12 +128,17 @@
     }
   ],
   "services": [
+    "core.files",
     "core.library",
     "core.ui"
   ],
   "features": [
     {
       "key": "uses.library",
+      "required": true
+    },
+    {
+      "key": "uses.storage",
       "required": true
     }
   ]
