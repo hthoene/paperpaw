@@ -2,7 +2,8 @@
 //! (`docs/abi/document.md` 3: "the host passes them on after checking them").
 //! A failed check is `ERR_INVALID` (a malformed answer) or `ERR_STATE`
 //! (a changed generation); the caller counts the first as a strike.
-use super::super::registrations::{self as wire, Record};
+use super::super::codec::Row;
+use super::super::registrations::{self as wire, RawRecord};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
 /// `doc_state.flags`: bits 0-6 are defined.
@@ -26,28 +27,28 @@ const MAX_CELLS: usize = 16;
 const MAX_INLINE_LANGS: usize = 15;
 
 /// The one record of a detail answer, with nothing after it.
-pub(super) fn only(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    let (record, used) = wire::record_decode_prefix(bytes).map_err(|_| ERR_INVALID)?;
-    if used == bytes.len() {
-        Ok(record)
-    } else {
-        Err(ERR_INVALID)
+pub(super) fn only<'a, R: Row<'a>>(bytes: &'a [u8]) -> Result<R, i32> {
+    let (raw, used) = RawRecord::prefix(bytes).map_err(|_| ERR_INVALID)?;
+    if used != bytes.len() {
+        return Err(ERR_INVALID);
     }
+    R::from_raw(raw).map_err(|_| ERR_INVALID)
 }
 
 /// Rows of a paged answer, then exactly one `end`, last. Each row goes to
 /// `row`; more than `max_rows` rows is `ERR_INVALID`.
-pub(super) fn rows<'a>(
+pub(super) fn rows<'a, R: Row<'a>>(
     bytes: &'a [u8],
     max_rows: usize,
-    mut row: impl FnMut(&Record<'a>) -> Result<(), i32>,
+    mut row: impl FnMut(&R) -> Result<(), i32>,
 ) -> Result<wire::ServiceEnd, i32> {
     let mut at = 0;
     let mut count = 0;
     while at < bytes.len() {
-        let (record, used) = wire::record_decode_prefix(&bytes[at..]).map_err(|_| ERR_INVALID)?;
+        let (raw, used) = RawRecord::prefix(&bytes[at..]).map_err(|_| ERR_INVALID)?;
         at += used;
-        if let Record::ServiceEnd(end) = record {
+        if raw.tag() == wire::SERVICE_END_TAG {
+            let end: wire::ServiceEnd = raw.decode().map_err(|_| ERR_INVALID)?;
             return if at == bytes.len() {
                 Ok(end)
             } else {
@@ -58,7 +59,7 @@ pub(super) fn rows<'a>(
         if count > max_rows {
             return Err(ERR_INVALID);
         }
-        row(&record)?;
+        row(&R::from_raw(raw).map_err(|_| ERR_INVALID)?)?;
     }
     Err(ERR_INVALID)
 }
@@ -158,46 +159,76 @@ pub(crate) struct Fragment {
     rank: u8,
 }
 
+/// A record of a block's list (`document.md` 4): any other tag is `ERR_INVALID`.
+#[derive(Clone, Copy)]
+pub(super) enum Part<'a> {
+    Block(wire::ServiceDocBlock<'a>),
+    TextPart(wire::ServiceDocTextPart<'a>),
+    Run(wire::ServiceDocRun),
+    Map(wire::ServiceDocMap),
+    Image(wire::ServiceDocImage),
+    Columns(wire::ServiceDocColumns<'a>),
+    Cell(wire::ServiceDocCell),
+    Ruby(wire::ServiceDocRuby<'a>),
+    InlineLang(wire::ServiceDocInlineLang<'a>),
+}
+
+impl<'a> Row<'a> for Part<'a> {
+    fn from_raw(raw: RawRecord<'a>) -> Result<Self, i32> {
+        Ok(match raw.tag() {
+            wire::SERVICE_DOC_BLOCK_TAG => Self::Block(raw.decode()?),
+            wire::SERVICE_DOC_TEXT_PART_TAG => Self::TextPart(raw.decode()?),
+            wire::SERVICE_DOC_RUN_TAG => Self::Run(raw.decode()?),
+            wire::SERVICE_DOC_MAP_TAG => Self::Map(raw.decode()?),
+            wire::SERVICE_DOC_IMAGE_TAG => Self::Image(raw.decode()?),
+            wire::SERVICE_DOC_COLUMNS_TAG => Self::Columns(raw.decode()?),
+            wire::SERVICE_DOC_CELL_TAG => Self::Cell(raw.decode()?),
+            wire::SERVICE_DOC_RUBY_TAG => Self::Ruby(raw.decode()?),
+            wire::SERVICE_DOC_INLINE_LANG_TAG => Self::InlineLang(raw.decode()?),
+            _ => return Err(ERR_INVALID),
+        })
+    }
+}
+
 /// The place of a record in the list of `document.md` 4: header, text parts,
 /// runs, maps, image, columns, cells, rubies, languages.
-pub(super) fn block_rank(record: &Record<'_>) -> Option<u8> {
-    Some(match record {
-        Record::ServiceDocBlock(_) => 0,
-        Record::ServiceDocTextPart(_) => 1,
-        Record::ServiceDocRun(_) => 2,
-        Record::ServiceDocMap(_) => 3,
-        Record::ServiceDocImage(_) => 4,
-        Record::ServiceDocColumns(_) => 5,
-        Record::ServiceDocCell(_) => 6,
-        Record::ServiceDocRuby(_) => 7,
-        Record::ServiceDocInlineLang(_) => 8,
-        _ => return None,
-    })
+fn block_rank(part: &Part<'_>) -> u8 {
+    match part {
+        Part::Block(_) => 0,
+        Part::TextPart(_) => 1,
+        Part::Run(_) => 2,
+        Part::Map(_) => 3,
+        Part::Image(_) => 4,
+        Part::Columns(_) => 5,
+        Part::Cell(_) => 6,
+        Part::Ruby(_) => 7,
+        Part::InlineLang(_) => 8,
+    }
 }
 
 impl Fragment {
     /// One record of the list, in order. A fragment after the first starts
     /// anywhere in the list, so only its internal order is known.
-    pub(super) fn feed(&mut self, record: &Record<'_>, first: bool, at: usize) -> Result<(), i32> {
-        let rank = block_rank(record).ok_or(ERR_INVALID)?;
+    pub(super) fn feed(&mut self, part: &Part<'_>, first: bool, at: usize) -> Result<(), i32> {
+        let rank = block_rank(part);
         if rank < self.rank || (first && at == 0) != (rank == 0) {
             return Err(ERR_INVALID);
         }
         self.rank = rank;
-        match record {
-            Record::ServiceDocBlock(block) => {
+        match part {
+            Part::Block(block) => {
                 let heading_ok = block.kind != 1 || (1..=6).contains(&block.level);
                 require(heading_ok && block.flags & !BLOCK_FLAGS == 0)?;
                 require(block.dir <= 1 && block.writing_mode <= 2)?;
                 self.kind = Some(block.kind);
                 self.text_bytes = block.text_bytes;
             }
-            Record::ServiceDocTextPart(part) => {
+            Part::TextPart(part) => {
                 self.parts += part.text.len() as u64;
                 // Never past the header's whole length, across fragments.
                 require(self.parts <= u64::from(self.text_bytes))?;
             }
-            Record::ServiceDocRun(run) => {
+            Part::Run(run) => {
                 // Sorted, not overlapping; inside the text where it is known.
                 require(run.start <= run.end && run.start >= self.run_end)?;
                 self.run_end = run.end;
@@ -205,22 +236,22 @@ impl Fragment {
                     require(run.end <= self.text_bytes)?;
                 }
             }
-            Record::ServiceDocImage(_) => {
+            Part::Image(_) => {
                 self.images += 1;
                 require(self.images <= 1)?;
             }
-            Record::ServiceDocColumns(columns) => {
+            Part::Columns(columns) => {
                 // Up to 16 little-endian u16 weights.
                 self.columns += 1;
                 // One per table row, whatever the fragments.
                 require(self.columns <= 1)?;
                 require(columns.weights.len() % 2 == 0 && columns.weights.len() <= 32)?;
             }
-            Record::ServiceDocCell(_) => {
+            Part::Cell(_) => {
                 self.cells += 1;
                 require(self.cells <= MAX_CELLS)?;
             }
-            Record::ServiceDocInlineLang(_) => {
+            Part::InlineLang(_) => {
                 self.langs += 1;
                 require(self.langs <= MAX_INLINE_LANGS)?;
             }
@@ -253,16 +284,16 @@ pub(super) fn block<'a>(
     cursor: u32,
     generation: u32,
     resume: Option<Fragment>,
-    mut each: impl FnMut(&Record<'a>, usize) -> Result<(), i32>,
+    mut each: impl FnMut(&Part<'a>, usize) -> Result<(), i32>,
 ) -> Result<(wire::ServiceEnd, Fragment), i32> {
     // A fragment is a stage payload at most.
     require(bytes.len() <= FRAGMENT_MAX)?;
     require((cursor == 0) == resume.is_none())?;
     let mut fragment = resume.unwrap_or_default();
     let mut index = 0;
-    let end = rows(bytes, usize::MAX, |record| {
-        fragment.feed(record, cursor == 0, index)?;
-        each(record, index)?;
+    let end = rows(bytes, usize::MAX, |part: &Part<'a>| {
+        fragment.feed(part, cursor == 0, index)?;
+        each(part, index)?;
         index += 1;
         Ok(())
     })?;
