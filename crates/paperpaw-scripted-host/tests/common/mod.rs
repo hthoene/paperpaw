@@ -15,7 +15,7 @@ use paperpaw_scripted_host::Plugin;
 use std::cell::RefCell;
 
 thread_local! {
-    static SEEN: RefCell<(i32, Vec<u8>)> = const { RefCell::new((0, Vec::new())) };
+    static SEEN: RefCell<Vec<(i32, Vec<u8>)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// What one proxied call answered.
@@ -42,17 +42,40 @@ impl Done {
 /// Sends `input` (see [`call`]) to the proxy with a reply buffer of `cap`
 /// bytes and returns what the service answered.
 pub fn run(plugin: &Plugin<'_>, input: &[u8], cap: usize) -> Done {
-    let mut framed = u16::try_from(cap).unwrap().to_le_bytes().to_vec();
-    framed.extend_from_slice(input);
-    SEEN.with(|seen| *seen.borrow_mut() = (0, Vec::new()));
-    let done = plugin.event(0, &framed).unwrap();
-    assert_eq!(done.status, OK, "the proxy itself never fails");
-    let (status, out) = SEEN.with(|seen| seen.take());
-    Done {
-        status,
-        out,
-        batches: done.batches,
+    let (status, mut done) = run_calls(plugin, &[(input.to_vec(), cap)], OK);
+    assert_eq!(status, OK, "the proxy itself never fails");
+    done.pop().unwrap()
+}
+
+/// One callback that makes each call of `calls` (`(input, reply capacity)`,
+/// in order) and then returns `end_status`: the callback's own status and
+/// what each service call answered.
+pub fn run_calls(
+    plugin: &Plugin<'_>,
+    calls: &[(Vec<u8>, usize)],
+    end_status: i32,
+) -> (i32, Vec<Done>) {
+    // [end status i32 LE][calls u8] then per call [cap u16 LE][len u16 LE][input]
+    let mut framed = end_status.to_le_bytes().to_vec();
+    framed.push(u8::try_from(calls.len()).unwrap());
+    for (input, cap) in calls {
+        framed.extend_from_slice(&u16::try_from(*cap).unwrap().to_le_bytes());
+        framed.extend_from_slice(&u16::try_from(input.len()).unwrap().to_le_bytes());
+        framed.extend_from_slice(input);
     }
+    SEEN.with(|seen| seen.borrow_mut().clear());
+    let done = plugin.event(0, &framed).unwrap();
+    let seen = SEEN.with(|seen| seen.take());
+    (
+        done.status,
+        seen.into_iter()
+            .map(|(status, out)| Done {
+                status,
+                out,
+                batches: done.batches.clone(),
+            })
+            .collect(),
+    )
 }
 
 struct Proxy {
@@ -69,9 +92,21 @@ unsafe extern "C" fn event(state: *mut c_void, _token: u32, input: PpBytes, _out
             core::slice::from_raw_parts(input.ptr, input.len),
         )
     };
-    // [reply capacity u16 LE][key length][key][op][payload...]
-    let cap = usize::from(u16::from_le_bytes([input[0], input[1]]));
-    let input = &input[2..];
+    let end_status = i32::from_le_bytes([input[0], input[1], input[2], input[3]]);
+    let mut at = 5;
+    for _ in 0..input[4] {
+        let cap = usize::from(u16::from_le_bytes([input[at], input[at + 1]]));
+        let len = usize::from(u16::from_le_bytes([input[at + 2], input[at + 3]]));
+        at += 4;
+        let seen = one_call(proxy, cap, &input[at..at + len]);
+        at += len;
+        SEEN.with(|all| all.borrow_mut().push(seen));
+    }
+    end_status
+}
+
+/// [key length][key][op][payload...] into a reply buffer of `cap` bytes.
+fn one_call(proxy: &Proxy, cap: usize, input: &[u8]) -> (i32, Vec<u8>) {
     let key_len = input[0] as usize;
     let key = std::str::from_utf8(&input[1..=key_len]).unwrap().to_owned();
     let op = u32::from(input[key_len + 1]);
@@ -102,8 +137,7 @@ unsafe extern "C" fn event(state: *mut c_void, _token: u32, input: PpBytes, _out
             )
         };
         if status != OK {
-            SEEN.with(|seen| *seen.borrow_mut() = (status, Vec::new()));
-            return OK;
+            return (status, Vec::new());
         }
         proxy.open.borrow_mut().push((key, handle));
         handle
@@ -125,10 +159,8 @@ unsafe extern "C" fn event(state: *mut c_void, _token: u32, input: PpBytes, _out
             },
         )
     };
-    let written = usize::try_from(status).unwrap_or(0).min(cap);
-    reply.truncate(written);
-    SEEN.with(|seen| *seen.borrow_mut() = (status, reply));
-    OK
+    reply.truncate(usize::try_from(status).unwrap_or(0).min(cap));
+    (status, reply)
 }
 
 unsafe extern "C" fn plugin_drop(state: *mut c_void) {

@@ -3,6 +3,18 @@
 //! limits and its text rules. The test reads what was asked
 //! ([`Dialogs::questions`]) and answers it ([`Dialogs::answer`]), which gives
 //! the batch of the `event.answered` record to send the asker.
+//!
+//! **Modelled:** op 8's form checks (kind, slot, flag bits, choices per kind,
+//! as `Question::check` in the host), request ids, op 9 and op 10's text rules
+//! (append-only parts, start over at 0, commit by `last`, the caps), one open
+//! request at a time (asking again supersedes it) and a failed start: an
+//! asking callback that returns a failure, or leaves an initial text begun but
+//! not committed, cancels the request before any dialog opens (`not_started`).
+//!
+//! **Not modelled:** the dialog's own side: op 2 `question`, op 11 `answer`
+//! (play it with [`Dialogs::answer`]), the dialog instance and who may write or
+//! read the text (any caller may), nested questions, the device-wide request
+//! limits, guard checks, the X4 card and its typing limit.
 use paperpaw_core::native_host::registrations::{
     EventAnswered, RawRecord, Record, ServiceUiAsk, ServiceUiRequest, ServiceUiText,
     ServiceUiTextAt, record_encode_one,
@@ -20,6 +32,12 @@ pub const TEXT_MAX: usize = 24_576;
 pub const SECRET_TEXT_MAX: usize = 8_192;
 /// Most bytes of one `text_write` part and one `text_read` part.
 pub const PART_MAX: usize = 3_072;
+/// Most bytes of a folder answer (a path on root 1).
+pub const FOLDER_MAX: usize = 512;
+/// `event.answered.flags` bit 1: the request was cancelled before it started.
+const NOT_STARTED: u32 = 1 << 1;
+/// The slot the keyboard's "type on the phone" asks on (kind 0 only).
+const REMOTE_KEYBOARD: &str = "core.remote-keyboard";
 
 /// What the asker asked, as the host recorded it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,8 +91,15 @@ struct Request {
     committed: bool,
     /// The final answer came: the request is closed for the dialog.
     closed: bool,
-    /// Closed because the asker asked again; its cancel event is still due.
-    superseded: bool,
+    /// The cancel event is still due, with these `event.answered` flags:
+    /// the asker asked again (0) or the start failed (`not_started`).
+    cancel_due: Option<u32>,
+    /// A part of the initial text was written (committed or not).
+    begun: bool,
+    /// Asked in the callback that is still running (the dialog is not open).
+    in_callback: bool,
+    /// The asking callback returned well: the dialog opened.
+    opened: bool,
 }
 
 struct Inner {
@@ -133,8 +158,8 @@ impl Dialogs {
             .then(|| String::from_utf8_lossy(&request.text).into_owned())
     }
 
-    /// Every secret text the dialog answered with, to assert that none of them
-    /// is in a staged command ([`Callback::batches_contain`](crate::Callback::batches_contain)).
+    /// Every secret text the dialog answered with, final or `typing`, to
+    /// assert that none of them is in a staged command ([`Callback::batches_contain`](crate::Callback::batches_contain)).
     #[must_use]
     pub fn secrets(&self) -> Vec<Vec<u8>> {
         self.inner.borrow().secrets.clone()
@@ -153,10 +178,11 @@ impl Dialogs {
     pub fn answer(&self, request: u32, answer: &Answer) -> Result<Vec<u8>, i32> {
         let mut inner = self.inner.borrow_mut();
         let entry = inner.requests.get_mut(&request).ok_or(ERR_NOT_FOUND)?;
-        if entry.closed && !(entry.superseded && matches!(answer, Answer::Cancelled)) {
+        let due = entry.cancel_due.take();
+        if entry.closed && !(due.is_some() && matches!(answer, Answer::Cancelled)) {
+            entry.cancel_due = due;
             return Err(ERR_STATE);
         }
-        entry.superseded = false;
         let question = entry.question.clone().ok_or(ERR_NOT_FOUND)?;
         let (outcome, choice, text) = match answer {
             Answer::Cancelled => (1, 0, None),
@@ -184,12 +210,15 @@ impl Dialogs {
             if text.len() > cap {
                 return Err(ERR_NO_SPACE);
             }
+            if question.kind == 3 && text.len() > FOLDER_MAX {
+                return Err(ERR_INVALID);
+            }
             entry.text = text.clone().into_bytes();
             entry.committed = true;
             length = u32::try_from(text.len()).map_err(|_| ERR_NO_SPACE)?;
         }
         entry.closed = outcome != 2;
-        if outcome == 0 && question.secret() {
+        if outcome != 1 && question.secret() {
             let secret = entry.text.clone();
             inner.secrets.push(secret);
         }
@@ -200,8 +229,51 @@ impl Dialogs {
             outcome,
             choice,
             length,
-            flags: 0,
+            flags: due.unwrap_or(0),
         }))
+    }
+
+    /// The requests whose `event.answered` cancel is still due: the asker
+    /// asked again, or the asking callback failed (`not_started`). Send each
+    /// with [`answer`](Self::answer)`(request, &Answer::Cancelled)`.
+    #[must_use]
+    pub fn due(&self) -> Vec<u32> {
+        let inner = self.inner.borrow();
+        inner
+            .requests
+            .iter()
+            .filter(|(_, request)| request.cancel_due.is_some())
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Whether the dialog of `request` opened: the asking callback returned
+    /// well with its initial text, if any, committed.
+    #[must_use]
+    pub fn opened(&self, request: u32) -> bool {
+        self.inner
+            .borrow()
+            .requests
+            .get(&request)
+            .is_some_and(|request| request.opened)
+    }
+
+    /// The asking callback returned `status`: every request it asked starts
+    /// (the dialog opens) unless the status is a failure or an initial text was
+    /// begun and not committed, which cancels it before any dialog opens.
+    pub(crate) fn callback_ended(&self, status: i32) {
+        for request in self.inner.borrow_mut().requests.values_mut() {
+            if !request.in_callback {
+                continue;
+            }
+            request.in_callback = false;
+            if status < 0 || (request.begun && !request.committed) {
+                request.closed = true;
+                request.cancel_due = Some(NOT_STARTED);
+            } else {
+                request.opened = true;
+            }
+        }
     }
 
     /// The host freed `request` (after the callback that delivered its answer).
@@ -221,16 +293,14 @@ impl Dialogs {
     }
 
     fn ask(&self, ask: &ServiceUiAsk<'_>) -> Result<Vec<u8>, i32> {
-        if ask.kind > 3 {
-            return Err(ERR_INVALID);
-        }
+        check_ask(ask)?;
         let mut inner = self.inner.borrow_mut();
         // One open request per asker: asking again cancels the open one. Its
         // `event.answered` (outcome 1) is [`Dialogs::answer`] with `Cancelled`.
         for request in inner.requests.values_mut() {
             if !request.closed {
                 request.closed = true;
-                request.superseded = true;
+                request.cancel_due = Some(0);
             }
         }
         let request = inner.next;
@@ -247,6 +317,7 @@ impl Dialogs {
                     text: ask.text.to_owned(),
                     choices: ask.choices.to_owned(),
                 }),
+                in_callback: true,
                 ..Request::default()
             },
         );
@@ -281,6 +352,7 @@ impl Dialogs {
         if request.text.len() + part.data.len() > cap {
             return Err(ERR_NO_SPACE);
         }
+        request.begun = true;
         request.text.extend_from_slice(part.data.as_bytes());
         request.committed = part.flags & 1 != 0;
         Ok(Vec::new())
@@ -315,4 +387,62 @@ impl Dialogs {
         out.truncate(len);
         Ok(out)
     }
+}
+
+/// The form of an `ask` (ui.md 3.1), in the host's order: kind, slot, flag
+/// bits for the kind, then the choices (`Question::check`).
+fn check_ask(ask: &ServiceUiAsk<'_>) -> Result<(), i32> {
+    if ask.kind > 3 {
+        return Err(ERR_INVALID);
+    }
+    match ask.slot {
+        "" => {}
+        REMOTE_KEYBOARD if ask.kind == 0 => {}
+        _ => return Err(ERR_INVALID),
+    }
+    let allowed = match ask.kind {
+        0 => 0xFF,
+        2 => 0x300,
+        _ => 0,
+    };
+    if ask.flags & !allowed != 0 || (ask.kind == 0 && (ask.flags >> 4) & 0xF > 4) {
+        return Err(ERR_INVALID);
+    }
+    match ask.kind {
+        1 => {
+            if ask.choices.is_empty() {
+                return Err(ERR_INVALID);
+            }
+            let mut count = 0;
+            for line in ask.choices.split('\n') {
+                if line.is_empty() {
+                    return Err(ERR_INVALID);
+                }
+                if line.len() > 128 {
+                    return Err(ERR_NO_SPACE);
+                }
+                count += 1;
+            }
+            if count > 32 || ask.choices.len() > 2_048 {
+                return Err(ERR_NO_SPACE);
+            }
+        }
+        2 if !ask.choices.is_empty() => {
+            let mut words = ask.choices.split('\n');
+            let (Some(yes), Some(no), None) = (words.next(), words.next(), words.next()) else {
+                return Err(ERR_INVALID);
+            };
+            if yes.len() > 128 || no.len() > 128 {
+                return Err(ERR_NO_SPACE);
+            }
+            // `only_yes` (bit 8) shows one button, so its `no` line is empty.
+            if ask.flags & (1 << 8) != 0 && !no.is_empty() {
+                return Err(ERR_INVALID);
+            }
+        }
+        2 => {}
+        _ if !ask.choices.is_empty() => return Err(ERR_INVALID),
+        _ => {}
+    }
+    Ok(())
 }

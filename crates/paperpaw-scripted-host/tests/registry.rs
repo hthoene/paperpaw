@@ -143,3 +143,20 @@ fn the_sweep_fails_a_path_that_leaves_a_handle_open() {
         std::mem::forget(plugin);
     });
 }
+
+#[test]
+fn zero_rows_per_page_is_one_and_generation_zero_is_state_as_in_the_host() {
+    let host = ScriptedHost::new();
+    let registry = host.registry();
+    registry.set_rows(3, rows(3));
+    // A page always takes a row that fits: 0 rows per page is 1, never an
+    // empty page that does not advance.
+    registry.page_limits(0, 4096);
+    let plugin = host.load(&entry()).unwrap();
+    let first = run(&plugin, &query(0, 0), 4096);
+    assert_eq!(end_of(&first.out).next, 1);
+    // The host never has generation 0; its page framing answers `ERR_STATE`.
+    registry.set_generation(0);
+    assert_eq!(run(&plugin, &query(0, 0), 4096).status, ERR_STATE);
+    assert_eq!(run(&plugin, &query(1, 0), 4096).status, ERR_STATE);
+}

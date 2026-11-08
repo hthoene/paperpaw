@@ -58,6 +58,9 @@ use std::pin::Pin;
 /// A scripted service's backend: `(op, input)` to the reply bytes or a status.
 pub(crate) type Handler = Box<dyn FnMut(u32, &[u8]) -> Result<Vec<u8>, i32>>;
 
+/// A hook run when a callback returns, with its status.
+pub(crate) type EndedHook = Box<dyn Fn(i32)>;
+
 /// One scripted `core.*` service: `handler(op, input)` is its backend.
 pub(crate) struct ScriptedService {
     pub(crate) key: String,
@@ -99,6 +102,8 @@ pub(crate) struct State {
     pub(crate) live: Cell<usize>,
     pub(crate) clock: Cell<u64>,
     pub(crate) scope: CommandScope,
+    /// Hooks run when a callback returns, with its status (the dialogs').
+    pub(crate) ended: RefCell<Vec<EndedHook>>,
     table: PpHost,
 }
 
@@ -153,6 +158,7 @@ impl ScriptedHost {
             live: Cell::new(0),
             clock: Cell::new(0),
             scope: CommandScope::new(),
+            ended: RefCell::new(Vec::new()),
             table: slots::table(),
         });
         Self { state }
@@ -233,6 +239,11 @@ impl ScriptedHost {
     pub fn dialogs(&self) -> Dialogs {
         let dialogs = Dialogs::new();
         let backend = dialogs.clone();
+        let ended = dialogs.clone();
+        self.state
+            .ended
+            .borrow_mut()
+            .push(Box::new(move |status| ended.callback_ended(status)));
         self.service("core.ui", 1, u16::MAX, move |op, input| {
             backend.call(op, input)
         });
@@ -463,6 +474,9 @@ impl Plugin<'_> {
             Kind::Input if status > 1 => ERR_INVALID,
             _ => status,
         };
+        for hook in state.ended.borrow().iter() {
+            hook(status);
+        }
         let mut commands = stage.into_commands();
         let mut dropped = 0;
         if status < 0 {

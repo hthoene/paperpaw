@@ -8,3 +8,9 @@
   scripted `core.registry` that pages its rows by cursor and generation like
   the host; `sweep_released` runs a refusal sweep and fails a path that leaves
   a heap block or a service handle held.
+  The questions check an `ask` as the host does (kind, slot, flag bits,
+  choices per kind), cancel a request whose asking callback failed or left
+  its initial text uncommitted (`not_started`), keep `typing` text of a
+  secret question for the commands check and cap folder answers at 512
+  bytes; the dialog's own side (op 2, op 11, instances, nesting, device
+  limits) is documented as not modelled.

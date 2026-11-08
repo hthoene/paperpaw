@@ -63,15 +63,19 @@ impl Registry {
     }
 
     /// The registry generation (starts at 1); a page request with another one
-    /// is `ERR_STATE`, as when the registry changed under a reader.
+    /// is `ERR_STATE`, as when the registry changed under a reader. The host
+    /// never has generation 0: with 0 set, every list call is `ERR_STATE`, as
+    /// the host's page framing answers.
     pub fn set_generation(&self, generation: u32) {
         self.inner.borrow().generation.set(generation);
     }
 
-    /// Rows per page (up to 32) and the bytes of a reply (up to the op's bound).
+    /// Rows per page (1 to 32; 0 is 1, because a page always takes a row that
+    /// fits) and the bytes of a reply (up to the op's bound; a row that never
+    /// fits is `ERR_NO_SPACE`).
     pub fn page_limits(&self, rows: usize, max_reply: usize) {
         let inner = self.inner.borrow();
-        inner.page_rows.set(rows.min(PAGE_ROWS));
+        inner.page_rows.set(rows.clamp(1, PAGE_ROWS));
         inner.max_reply.set(max_reply);
     }
 
@@ -89,7 +93,8 @@ impl Registry {
         let query = RawRecord::single(input)?.decode::<ServiceRegQuery<'_>>()?;
         let rows = inner.rows.get(&op).ok_or(ERR_UNSUPPORTED)?;
         let generation = inner.generation.get();
-        if query.generation != 0 && query.generation != generation
+        if generation == 0
+            || query.generation != 0 && query.generation != generation
             || query.generation == 0 && query.cursor != 0
         {
             return Err(ERR_STATE);
