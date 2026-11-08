@@ -486,7 +486,7 @@ mod x4 {
 
         fn table(&mut self) -> Result<(), PluginProblem> {
             if self.resources.is_none() {
-                *self.resources = Some(super::new_resources().ok_or(PluginProblem::NoRoom)?);
+                *self.resources = Some(crate::native::new_resources().ok_or(PluginProblem::NoRoom)?);
             }
             Ok(())
         }
