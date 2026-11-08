@@ -264,6 +264,8 @@ mod native_ui_directory;
 #[path = "native_host/native_install.rs"]
 mod native_install;
 
+#[path = "native_host/native_action.rs"]
+pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
 

@@ -13,7 +13,7 @@
 //! says [`Error::State`]. A reply that does not add up (more rows than the
 //! total it names, a next page that brings nothing) is [`Error::Invalid`]:
 //! the scan never loops on a host that does not end.
-use crate::model::{Kind, Listing, MOST_BOOKS};
+use crate::model::{Handle, Kind, Listing, MOST_BOOKS};
 use alloc::vec::Vec;
 use paperpaw_sdk::native::Error;
 
@@ -61,14 +61,17 @@ pub trait Source {
         each: &mut dyn FnMut(Kind),
     ) -> Result<Page<Self::Notes>, Error>;
 
-    /// Calls `put` with the path and the title of `book`.
+    /// How the library names `book` for as long as the catalog stands.
+    fn handle(&self, book: Self::Book) -> Handle;
+
+    /// Calls `put` with the title of `book`.
     ///
     /// # Errors
     /// `NotFound` for a book that is gone.
-    fn describe(
+    fn title(
         &mut self,
         book: Self::Book,
-        put: &mut dyn FnMut(&str, &str) -> Result<(), Error>,
+        put: &mut dyn FnMut(&str) -> Result<(), Error>,
     ) -> Result<(), Error>;
 }
 
@@ -136,10 +139,11 @@ fn noted<S: Source>(source: &mut S, listing: &mut Listing, book: S::Book) -> Res
         return Ok(());
     }
     if full {
-        return listing.add("", "", highlights, bookmarks);
+        return listing.add(source.handle(book), "", highlights, bookmarks);
     }
-    match source.describe(book, &mut |path, title| {
-        listing.add(path, title, highlights, bookmarks)
+    let handle = source.handle(book);
+    match source.title(book, &mut |title| {
+        listing.add(handle, title, highlights, bookmarks)
     }) {
         Err(Error::NotFound) => Ok(()),
         other => other,

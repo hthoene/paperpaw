@@ -99,7 +99,7 @@ fn sweep<T: std::fmt::Debug>(name: &str, run: impl Fn() -> Result<T, Error>) {
 }
 
 fn marked() -> Results {
-    let mut results = Results::default();
+    let mut results = Results::new().unwrap();
     for (i, step) in Step::ALL.into_iter().enumerate() {
         let note = if i % 2 == 0 { "a note" } else { "" };
         results.set(step, Mark::Done(Outcome::Pass, note.to_string()));
@@ -120,6 +120,11 @@ fn the_report_refuses_cleanly() {
         when: Some("2026-10-23T10:00:00.000Z"),
     };
     sweep("report", || results.report(&about));
+}
+
+#[test]
+fn the_blank_results_refuse_cleanly() {
+    sweep("new", Results::new);
 }
 
 #[test]

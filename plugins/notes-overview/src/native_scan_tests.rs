@@ -2,7 +2,7 @@
 //! books are listed and counted, at any size of the pages, with stale pages,
 //! with replies that do not add up, and with memory refused.
 use crate::fail_alloc::sweep;
-use crate::model::{Kind, MOST_BOOKS, PATH_MAX, TITLE_MAX};
+use crate::model::{Counted, Handle, Kind, MOST_BOOKS, TITLE_MAX};
 use crate::native_scan::{Page, RESTARTS, Source, scan};
 use alloc::format;
 use alloc::string::String;
@@ -109,16 +109,23 @@ impl Source for Fake {
         })
     }
 
-    fn describe(
+    fn handle(&self, book: usize) -> Handle {
+        Handle {
+            key: book as u32,
+            generation: 1,
+        }
+    }
+
+    fn title(
         &mut self,
         book: usize,
-        put: &mut dyn FnMut(&str, &str) -> Result<(), Error>,
+        put: &mut dyn FnMut(&str) -> Result<(), Error>,
     ) -> Result<(), Error> {
         let book = &self.books[book];
         if book.gone {
             return Err(Error::NotFound);
         }
-        put(&book.path, &book.title)
+        put(&book.title)
     }
 }
 
@@ -138,7 +145,7 @@ fn library() -> Vec<Book> {
     ]
 }
 
-/// A book listed: its path and its highlights and bookmarks.
+/// A book listed: its path (found by its handle) and its highlights and bookmarks.
 type Listed = (String, u16, u16);
 
 fn summary(fake: &mut Fake) -> Result<(Vec<Listed>, bool), Error> {
@@ -146,7 +153,10 @@ fn summary(fake: &mut Fake) -> Result<(Vec<Listed>, bool), Error> {
     let books = listing
         .books()
         .iter()
-        .map(|b| (b.path.clone(), b.highlights, b.bookmarks))
+        .map(|b| {
+            let path = fake.books[b.handle.key as usize].path.clone();
+            (path, b.highlights, b.bookmarks)
+        })
         .collect();
     Ok((books, listing.more()))
 }
@@ -281,28 +291,33 @@ fn the_walk_ends_at_the_first_book_past_the_list() {
 }
 
 #[test]
-fn a_title_is_cut_and_a_path_that_cannot_be_opened_is_left_out() {
+fn a_title_is_cut_and_a_book_is_kept_by_handle_not_by_path() {
     // Letters of two bytes: a careless cut falls inside one.
     let long = "\u{e4}".repeat(500);
     let mut books = vec![book(&long, &[Highlight]), book("Fine", &[Highlight])];
-    books[0].path = "Books/long.epub".into();
+    // However long a path is, the list does not hold it.
     books.push(Book {
-        path: format!("Books/{}.epub", "x".repeat(PATH_MAX)),
+        path: format!("Books/{}.epub", "x".repeat(2000)),
         title: "Deep".into(),
         notes: vec![Highlight],
         gone: false,
     });
     let listing = scan(&mut Fake::new(books)).unwrap();
-    assert_eq!(listing.books().len(), 2);
+    assert_eq!(listing.books().len(), 3);
     for book in listing.books() {
         assert!(book.title.len() <= TITLE_MAX);
-        assert!(book.path.len() <= PATH_MAX);
     }
-    let cut = &listing.books()[1].title;
+    let cut = &listing.books()[2].title;
     assert_eq!(cut.len(), TITLE_MAX);
     assert!(cut.chars().all(|c| c == '\u{e4}'));
-    // The most the list holds: 200 books of the longest title and path.
-    assert_eq!(MOST_BOOKS * (TITLE_MAX + PATH_MAX), 128_000);
+    // Deep, Fine, then the cut title: each by its handle (the index).
+    let keys: Vec<_> = listing.books().iter().map(|b| b.handle.key).collect();
+    assert_eq!(keys, [2, 1, 0]);
+    assert!(listing.books().iter().all(|b| b.handle.generation == 1));
+    // The most the list holds: 200 books of the longest title and a handle,
+    // about 30 KiB with the headers of the strings.
+    let most = MOST_BOOKS * (TITLE_MAX + core::mem::size_of::<Counted>());
+    assert!(most < 64 * 1024, "{most}");
 }
 
 #[test]

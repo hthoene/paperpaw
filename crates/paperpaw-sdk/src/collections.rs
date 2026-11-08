@@ -39,6 +39,12 @@ impl<K: Ord, V> VecMap<K, V> {
         }
     }
 
+    /// Keeps the entries `keep` says yes to, in their order.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(crate) fn retain(&mut self, mut keep: impl FnMut(&K, &V) -> bool) {
+        self.entries.retain(|(key, value)| keep(key, value));
+    }
+
     fn find<Q: Ord + ?Sized>(&self, key: &Q) -> Result<usize, usize>
     where
         K: Borrow<Q>,
