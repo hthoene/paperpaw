@@ -181,7 +181,7 @@ impl Listing {
     /// Puts the books in order: by title without regard to case, equal titles
     /// by path.
     pub fn sort(&mut self) {
-        self.books.sort_unstable_by(|a, b| {
+        paperpaw_sdk::sort::sort_by(&mut self.books, |a, b| {
             cmp_lowercase(&a.title, &b.title).then_with(|| a.path.cmp(&b.path))
         });
     }

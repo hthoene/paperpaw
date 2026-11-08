@@ -6,6 +6,12 @@ use super::{
     services::Service,
 };
 
+mod annotations;
+pub use annotations::{
+    Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,
+};
+mod annotation_text;
+pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
 mod query;

@@ -14,7 +14,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         device::{Device, DeviceCursor},
-        events::{BluetoothKind, BookKind, Event},
+        events::{BluetoothKind, BookKind, Event, Incoming},
         formatting::Arg,
         registry::{PageCursor, Registry, RegistryNeedKind},
         reply::Reply,
@@ -94,9 +94,10 @@ impl Plugin for NativeBluetooth {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         match event {
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];

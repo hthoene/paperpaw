@@ -2317,6 +2317,8 @@ enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
+enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }
+enum paperpaw_sdk::native::library::annotations::AnnotationKind { Bookmark, Highlight, Other(0: u32) }
 enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
 enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
 enum paperpaw_sdk::native::library::rows::CatalogPhase { Empty, Walking, Ready, Unknown(0: u32) }
@@ -3010,6 +3012,12 @@ struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
 struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::library::annotation_text::AnnotationTextPart<'a> { text: &'a str, total: u32, next: core::option::Option<u32> }
+struct paperpaw_sdk::native::library::annotation_text::AnnotationTextQuery { id: u32, kind: paperpaw_sdk::native::library::annotation_text::AnnotationTextKind, offset: u32 }
+struct paperpaw_sdk::native::library::annotations::Annotation<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibAnnotation<'a>)
+struct paperpaw_sdk::native::library::annotations::AnnotationCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::library::annotations::AnnotationPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::annotations::AnnotationPageEnd }
+struct paperpaw_sdk::native::library::annotations::AnnotationPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::annotations::AnnotationCursor> }
 struct paperpaw_sdk::native::library::fields::Field<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibField<'a>)
 struct paperpaw_sdk::native::library::fields::FieldCursor(0: paperpaw_sdk::native::library::query::CatalogCursor)
 struct paperpaw_sdk::native::library::fields::FieldPage<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::fields::Field<'a>>)
@@ -3056,6 +3064,15 @@ struct paperpaw_sdk::native::registry::rows::RegistryValue<'a> { row: paperpaw_s
 struct paperpaw_sdk::native::registry::rows::RegistryWidget<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> }
 struct paperpaw_sdk::native::registry::status::RegistryStatus<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceRegStatus<'a>, kind: paperpaw_sdk::native::registry::status::StatusKind }
 struct paperpaw_sdk::native::reply::Reply<'cb> { bytes: &'cb mut [core::mem::maybe_uninit::MaybeUninit<u8>], written: usize }
+struct paperpaw_sdk::native::secrets::Secrets { service: paperpaw_sdk::native::services::call::Service }
+struct paperpaw_sdk::native::secrets::paging::SecretEntry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceSecEntry<'a>)
+struct paperpaw_sdk::native::secrets::paging::SecretPage<'a> { bytes: &'a [u8], end: paperpaw_sdk::native::secrets::paging::SecretPageEnd }
+struct paperpaw_sdk::native::secrets::paging::SecretPageEnd { total: u32, next: core::option::Option<u32> }
+struct paperpaw_sdk::native::secrets::types::RandomBytes<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceSecBytes<'a>)
+struct paperpaw_sdk::native::secrets::types::SecretList { flags: u32, cursor: u32 }
+struct paperpaw_sdk::native::secrets::types::SecretName<'a> { plugin: &'a str, name: &'a str }
+struct paperpaw_sdk::native::secrets::types::SecretValue<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceSecValue<'a>)
+struct paperpaw_sdk::native::secrets::types::SecretWrite<'a> { name: paperpaw_sdk::native::secrets::types::SecretName<'a>, label: &'a str, value: &'a str, flags: u32 }
 struct paperpaw_sdk::native::services::Blob<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
 struct paperpaw_sdk::native::services::call::Service { handle: u32, schema: &'static paperpaw_sdk::native::wire::services_wire::ServiceSchema, minor: u16 }
 struct paperpaw_sdk::native::services::usage::PageEnd { total: u32, generation: u32, next: u32, truncated: bool, left_out: bool }
