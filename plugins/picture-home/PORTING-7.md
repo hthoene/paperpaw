@@ -23,3 +23,5 @@ activates native plugins (then it goes together, no shim).
   declaration is compared with the interface-6 registration (only the editor's name differs); its
   callbacks wait for the native entry (H1/H4), and the finger's drag of a grip is a hold and a tap
   in the kit (`KIT-grip-drag`).
+  The native entry will need `uses core.registry` in its metadata: the view reads the registered
+  items with the kit's `status_items::view::read_entries`.
