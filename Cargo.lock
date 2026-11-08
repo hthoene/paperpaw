@@ -1631,6 +1631,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-widgets",
  "paperpaw-sdk",
  "paperpaw-table",
  "paperpaw-text",
@@ -2454,10 +2455,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",

@@ -10,7 +10,8 @@
     clippy::all,
     clippy::pedantic,
     missing_docs,
-    reason = "schema-generated bounded wire codec"
+    dead_code,
+    reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
 
