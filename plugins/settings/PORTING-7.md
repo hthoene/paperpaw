@@ -1,6 +1,6 @@
 # Interface-7 port
 
-Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeSettings`: five screens, questions,
+Version 1.0.7. Native plugin: `src/native_plugin.rs` (`NativeSettings`: five screens, questions,
 number editing), registry reads in `src/native_data.rs`, what the pages are made of without the host
 in `src/native_model.rs` (visibility, groups, sections, stepping, units, search words, theme in use).
 `NATIVE_ENTRY` (feature `linked`), declarations in `declarations.rs` built into the image by
@@ -14,7 +14,8 @@ link them until the host activates native plugins; then they go together (no shi
 
 - Main page: groups with visible settings (by order, then name; widgets' own groups left out), the
   pages other plugins add to `core.settings-pages` under their section headings, *Search*, the
-  advanced switch, *Reset all*. Group page: parts, actions plugins add to the group, the theme row in
+  advanced switch, *Reset all*, *Restart* (asks first; `CommandSender::restart`, so the
+  metadata declares `uses.power` as not required: a shell without it refuses the command, and a notice says so). Group page: parts, actions plugins add to the group, the theme row in
   the appearance group, settings under their sections with value, unit and description, *More*
   (advanced settings one level down), *Reset to defaults* (asks first, leaves language, kept-on-reset
   settings and secrets, "only this book" last). Rows follow the registry's `shown`, `advanced`,
@@ -42,7 +43,6 @@ search, secrets, restart).
 
 - *Passwords and keys* (list, type anew, remove) and secret text settings: need the `core.secrets`
   SDK facade and host service (SEC; Services todo 79). Secret settings are not listed meanwhile.
-- *Restart PaperPaw*: no DEV restart command facade yet (command 1574, H10).
 - Placements (`widgets.clock@2`) pages and a widget look row: need the placement/widget host pieces
   (H3); the preview of a group's settings (a widget composed above them) needs slot 35.
 - No icons in rows, switches are shown as *On*/*Off* text, no sliders (numbers use − and +); the kit

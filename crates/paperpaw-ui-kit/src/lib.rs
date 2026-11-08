@@ -36,6 +36,7 @@ pub mod screens;
 pub mod style;
 pub mod text;
 pub mod uitext;
+pub mod widget;
 
 pub use focus::{ListFocus, ListInput, Step};
 pub use items::{Footer, Item, ItemList, ItemStep, RowItem};
