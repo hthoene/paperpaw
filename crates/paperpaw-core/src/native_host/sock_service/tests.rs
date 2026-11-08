@@ -14,7 +14,10 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
-use std::string::{String, ToString};
+use std::{
+    collections::BTreeMap,
+    string::{String, ToString},
+};
 
 const OWNER: u64 = 7;
 const OTHER: u64 = 8;
@@ -37,6 +40,16 @@ struct Fake {
     reads: RefCell<Vec<(u32, u32)>>,
     closes: RefCell<Vec<u32>>,
     demand: RefCell<Vec<bool>>,
+    /// The card: finished files and `.part` files by (root, path).
+    files: RefCell<BTreeMap<(u32, String), Vec<u8>>>,
+    parts: RefCell<BTreeMap<(u32, String), Vec<u8>>>,
+    claims: RefCell<Vec<(u64, u32, String)>>,
+    /// Paths another writer holds.
+    in_use: RefCell<Vec<(u32, String)>>,
+    deny: Cell<Option<i32>>,
+    free: Cell<u64>,
+    write_fails: Cell<Option<i32>>,
+    commit_fails: Cell<Option<i32>>,
 }
 
 impl Fake {
@@ -61,6 +74,14 @@ impl Fake {
             reads: RefCell::new(Vec::new()),
             closes: RefCell::new(Vec::new()),
             demand: RefCell::new(Vec::new()),
+            files: RefCell::new(BTreeMap::new()),
+            parts: RefCell::new(BTreeMap::new()),
+            claims: RefCell::new(Vec::new()),
+            in_use: RefCell::new(Vec::new()),
+            deny: Cell::new(None),
+            free: Cell::new(u64::MAX),
+            write_fails: Cell::new(None),
+            commit_fails: Cell::new(None),
         }
     }
     fn x4() -> Self {
@@ -131,6 +152,66 @@ impl SockHost for Fake {
     fn current_run(&self, _: u64) -> Option<u64> {
         self.run.get()
     }
+    fn root_access(&self, _: &Caller<'_>, _: u32, _: &str) -> Result<(), i32> {
+        self.deny.get().map_or(Ok(()), Err)
+    }
+    fn room_for(&self, extra: u64) -> bool {
+        extra <= self.free.get()
+    }
+    fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32> {
+        if self.in_use.borrow().contains(&(root, path.to_string())) {
+            return Err(ERR_BUSY);
+        }
+        self.claims
+            .borrow_mut()
+            .push((owner, root, path.to_string()));
+        Ok(())
+    }
+    fn release_save(&self, owner: u64, root: u32, path: &str) {
+        let mut claims = self.claims.borrow_mut();
+        if let Some(at) = claims
+            .iter()
+            .position(|c| *c == (owner, root, path.to_string()))
+        {
+            claims.remove(at);
+        }
+        self.parts.borrow_mut().remove(&(root, path.to_string()));
+    }
+    fn staged_write(
+        &self,
+        _: u64,
+        root: u32,
+        path: &str,
+        data: &[u8],
+        first: bool,
+    ) -> Result<(), i32> {
+        if let Some(error) = self.write_fails.get() {
+            return Err(error);
+        }
+        let mut parts = self.parts.borrow_mut();
+        let part = parts.entry((root, path.to_string())).or_default();
+        if first {
+            part.clear();
+        }
+        part.extend_from_slice(data);
+        self.free
+            .set(self.free.get().saturating_sub(data.len() as u64));
+        Ok(())
+    }
+    fn staged_commit(&self, _: u64, root: u32, path: &str) -> Result<(), i32> {
+        if let Some(error) = self.commit_fails.get() {
+            return Err(error);
+        }
+        let part = self
+            .parts
+            .borrow_mut()
+            .remove(&(root, path.to_string()))
+            .ok_or(ERR_NOT_FOUND)?;
+        self.files
+            .borrow_mut()
+            .insert((root, path.to_string()), part);
+        Ok(())
+    }
     fn showing_screen(&self, _: u64) -> Option<u64> {
         self.screen.get()
     }
@@ -194,9 +275,10 @@ fn send_bytes(f: &Fake, owner: u64, id: u32, data: &[u8]) -> Result<(), i32> {
 }
 
 fn read_bytes(f: &Fake, owner: u64, id: u32, max: u32, exact: bool) -> Result<(), i32> {
+    let hosts = HostServices::new();
     table::read(
         f,
-        owner,
+        &caller(owner, &hosts),
         &wire::ServiceSockRead {
             socket: id,
             mode: 0,
@@ -388,7 +470,7 @@ fn bad_input_is_refused_before_anything_changes() {
 }
 
 #[test]
-fn what_a_later_slice_brings_is_unsupported_not_invented() {
+fn tls_is_unsupported_not_invented() {
     let f = Fake::x4();
     assert_eq!(
         connect_with(
@@ -403,16 +485,6 @@ fn what_a_later_slice_brings_is_unsupported_not_invented() {
     );
     assert_eq!(f.used(), 0);
     let id = open(&f, OWNER, 1);
-    let file = wire::ServiceSockRead {
-        socket: id,
-        mode: 1,
-        flags: 0,
-        max: 0,
-        len: 10,
-        root: 0,
-        path: "a.txt",
-    };
-    assert_eq!(table::read(&f, OWNER, &file), Err(ERR_UNSUPPORTED));
     assert_eq!(
         read_bytes(&f, OWNER, id, 10, false),
         Ok(()),
@@ -464,6 +536,9 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
     drop(f);
     assert_eq!(pool.used(), 49_152 - 8_192, "the table gave back its own");
 }
+
+#[path = "tests/file.rs"]
+mod file;
 
 // ---- sending ----
 
@@ -617,16 +692,31 @@ fn the_peer_closing_gives_an_empty_read_and_then_a_close() {
     assert_eq!(next(&f, OWNER), None);
     read_bytes(&f, OWNER, id, 10, false).unwrap();
     assert_eq!(drain(&f, OWNER).len(), 2);
-    // A partial exact read hands over what came, then the empty one.
+    // An exact read is all or nothing: the peer closing before `max` bytes
+    // ends the socket `failed` `closed_early`, with no `received` and the
+    // partial bytes freed.
     let id = open(&f, OWNER, 6);
     read_bytes(&f, OWNER, id, 10, true).unwrap();
-    received(&f, id, b"abc").unwrap();
+    received(&f, id, b"abcd").unwrap();
     peer_closed(&f, id).unwrap();
-    assert_eq!(next(&f, OWNER), Some(Ev::new(id, 6, kind::RECEIVED, 0, 3)));
-    assert_eq!(data_of(&f, OWNER, id, 0).unwrap(), b"abc");
-    event_delivered(&f, OWNER).unwrap();
+    assert_eq!(
+        drain(&f, OWNER),
+        std::vec![Ev::new(id, 6, kind::FAILED, reason::CLOSED_EARLY, 0)]
+    );
+    assert_eq!(f.used(), 0);
+    // A plain read keeps the empty read as the peer's close.
+    let id = open(&f, OWNER, 7);
     read_bytes(&f, OWNER, id, 10, false).unwrap();
+    peer_closed(&f, id).unwrap();
     assert_eq!(drain(&f, OWNER).len(), 2);
+    // Closed while no read was asked: an exact read ends at once.
+    let id = open(&f, OWNER, 8);
+    peer_closed(&f, id).unwrap();
+    read_bytes(&f, OWNER, id, 10, true).unwrap();
+    assert_eq!(
+        drain(&f, OWNER),
+        std::vec![Ev::new(id, 8, kind::FAILED, reason::CLOSED_EARLY, 0)]
+    );
     assert_eq!(f.used(), 0);
 }
 
@@ -899,6 +989,31 @@ fn events_come_in_the_order_they_happened_across_sockets() {
         next(&f, OWNER).is_some(),
         "a refused write consumed nothing"
     );
+}
+
+#[test]
+fn the_shell_hears_the_demand_of_net_and_sockets_combined() {
+    use crate::native_host::net_pool::DEMAND_NET;
+    let pool = Rc::new(NetPool::new(49_152));
+    let f = Fake::with_pool(SockProfile::X4, pool.clone());
+    // NET is busy first: the socket adds no edge, and its end none either.
+    assert_eq!(pool.demand(DEMAND_NET, true), Some(true));
+    let id = open(&f, OWNER, 1);
+    assert!(f.demand.borrow().is_empty());
+    close(&f, OWNER, id).unwrap();
+    drain(&f, OWNER);
+    assert!(f.demand.borrow().is_empty());
+    // A live socket outlasts NET going idle.
+    let id = open(&f, OWNER, 2);
+    assert_eq!(pool.demand(DEMAND_NET, false), None, "NET idle: no edge");
+    close(&f, OWNER, id).unwrap();
+    assert_eq!(&*f.demand.borrow(), &[false], "both idle: exactly one");
+    drain(&f, OWNER);
+    // Alone it is one edge each way.
+    f.demand.borrow_mut().clear();
+    let id = open(&f, OWNER, 3);
+    close(&f, OWNER, id).unwrap();
+    assert_eq!(&*f.demand.borrow(), &[true, false]);
 }
 
 // ---- memory ----

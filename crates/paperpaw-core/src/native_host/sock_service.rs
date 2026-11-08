@@ -14,8 +14,19 @@
 //! until it lands, and none of them changes a wire record:
 //! * TLS: `connect` with the `tls` flag or with pins, `start_tls`, `peer`
 //!   (they need the shell's TLS session and trust store, section 2.4);
-//! * file reads (`read` mode 1: the card rules, paths in use, `saved`);
 //! * `broadcast` and `event.broadcast`.
+//!
+//! # Reads to a file
+//! `read` mode 1 writes exactly `len` bytes to the staged file of `path` (`.pp-staged`) and renames it
+//! over `path` when whole, then tells `saved` (`sockets.md` 2.3). The card is
+//! behind [`SockHost`] (the roots and path rules of `files.md`, the paths in
+//! use, the free-space reserve, the staged file); the service owns the
+//! sequence: the read part of the socket is the write buffer, each report is
+//! written at once, and the socket ending first (closed early, a full or
+//! failing card, the idle time, `close`, the screen, the run, the plugin
+//! stopping) removes the staged file, leaves the old file as it was and
+//! gives the claim back. A power cut leaves a staged file only; the target
+//! is never half written.
 //!
 //! # Rules the table keeps
 //! * A socket ends exactly once, with one `closed` or one `failed`; after it
@@ -55,6 +66,7 @@ pub(crate) use table::SockTable;
 pub(crate) mod kind {
     pub(crate) const CONNECTED: u32 = 0;
     pub(crate) const RECEIVED: u32 = 3;
+    pub(crate) const SAVED: u32 = 4;
     pub(crate) const SENT: u32 = 5;
     pub(crate) const CLOSED: u32 = 6;
     pub(crate) const FAILED: u32 = 7;
@@ -67,10 +79,12 @@ pub(crate) mod reason {
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const IO: u32 = 9;
+    pub(crate) const FULL: u32 = 10;
     pub(crate) const OFFLINE: u32 = 11;
     pub(crate) const SAVING: u32 = 12;
     pub(crate) const NETWORK_OFF: u32 = 13;
     pub(crate) const LOST: u32 = 22;
+    pub(crate) const CLOSED_EARLY: u32 = 25;
     pub(crate) const SCREEN_CLOSED: u32 = 26;
     pub(crate) const WORK_ENDED: u32 = 27;
     pub(crate) const NO_MEMORY: u32 = 28;
@@ -167,11 +181,36 @@ pub(crate) trait SockHost {
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd>;
     /// Whether a network is up.
     fn network_up(&self) -> bool;
-    /// `true`: ask the network manager for a network; `false`: the last
-    /// socket ended. The device combines this with `core.net`'s demand.
+    /// `true`: ask the network manager for a network; `false`: no request,
+    /// server or socket is left. Core combines `core.net`'s and the sockets'
+    /// demand (`NetPool::demand`): this is called only when the OR changes.
     fn network_demand(&self, wanted: bool);
     /// The work run the current callback of the plugin belongs to.
     fn current_run(&self, owner: u64) -> Option<u64>;
+    /// The root's access for this caller and the path rules of `files.md`
+    /// section 3 for a write (root 1 needs `uses.storage`, its exclusions,
+    /// `.received/` is the host's): `Ok`, or `ERR_DENIED` / `ERR_INVALID`.
+    fn root_access(&self, who: &Caller<'_>, root: u32, path: &str) -> Result<(), i32>;
+    /// Whether `extra` more bytes can be written and the storage's free-space
+    /// reserve (D2.6) is kept.
+    fn room_for(&self, extra: u64) -> bool;
+    /// Put the target and its staged file in the paths-in-use table:
+    /// `ERR_BUSY` when another writer or the reader holds either.
+    fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
+    /// Remove the staged file (best effort) and free the claim.
+    fn release_save(&self, owner: u64, root: u32, path: &str);
+    /// Append `data` to the staged file of `path` (`.pp-staged`); `first` creates it empty first (an
+    /// older staged file goes). Whole or an error.
+    fn staged_write(
+        &self,
+        owner: u64,
+        root: u32,
+        path: &str,
+        data: &[u8],
+        first: bool,
+    ) -> Result<(), i32>;
+    /// Rename the staged file of `path` (`.pp-staged`) over `path`.
+    fn staged_commit(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// The screen instance whose callback is running if it is showing.
     fn showing_screen(&self, owner: u64) -> Option<u64>;
 }
@@ -214,7 +253,7 @@ pub(crate) fn backend(
         }
         op::READ => {
             let r: wire::ServiceSockRead<'_> = codec::single(input)?;
-            table::read(host, who.owner, &r).map(|()| 0)
+            table::read(host, who, &r).map(|()| 0)
         }
         op::DATA => {
             let a: wire::ServiceSockAt = codec::single(input)?;
