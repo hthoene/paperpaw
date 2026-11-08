@@ -388,7 +388,7 @@ fn days(env: &Env<'_>) -> Option<(i32, Vec<Day>)> {
     let today = fmt::today(env)?;
     Some((
         today,
-        store::days(env.storage(), |unix| fmt::day_of(env, unix)),
+        store::days(env.storage(), |unix| fmt::day_of(env, unix)).unwrap_or_default(),
     ))
 }
 

@@ -78,12 +78,10 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 42] = [
+pub const STORE_PLUGINS: [&str; 40] = [
     "aids",
-    "battery",
     "browser",
     "calibre",
-    "end-of-book",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -231,14 +229,12 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
-        b = offered(b, store, paperpaw_plugin_end_of_book::EndOfBook);
         b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-        b = offered(b, store, paperpaw_plugin_battery::Battery);
         b = offer_hyphenation(b, store);
     }
     b = b
@@ -282,13 +278,11 @@ pub fn install_with(
     let builder = b
         .plugin_off(Pebble)
         .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin)
-        .plugin(paperpaw_plugin_plugin_manager::PluginManager);
+        .plugin(paperpaw_plugin_settings::SettingsPlugin);
     #[cfg(feature = "diagnostics")]
     let builder = builder.plugin(paperpaw_plugin_diagnostics::Diagnostics);
     builder
         .plugin(paperpaw_plugin_update::Update)
-        .plugin(paperpaw_plugin_about::About)
         .plugin(paperpaw_plugin_setup::Setup)
         .plugin(paperpaw_plugin_help::Help)
 }

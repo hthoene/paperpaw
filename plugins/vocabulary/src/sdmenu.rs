@@ -65,7 +65,7 @@ impl SdMenu {
     fn load(&mut self, env: &Env<'_>) {
         let storage = env.storage();
         self.folder = sdcard::folder(env);
-        self.files = sync::pending(storage, &self.folder);
+        self.files = sync::pending(storage, &self.folder).unwrap_or_default();
         self.decks = cards::decks(storage).unwrap_or_default();
         self.ledger = sync::sources(storage).unwrap_or_default();
         self.items.clear();
@@ -119,7 +119,11 @@ impl SdMenu {
                         ("vocabulary.sd.save.anki", link.name.clone())
                     }
                     Some(link) => ("vocabulary.sd.save.linked", link.name.clone()),
-                    None => ("vocabulary.sd.save.new", file_name_of(deck)),
+                    // Interface-6 screen: a refused allocation shows no name.
+                    None => (
+                        "vocabulary.sd.save.new",
+                        file_name_of(deck).unwrap_or_default(),
+                    ),
                 };
                 (
                     i18n.format("vocabulary.sd.save", &[("deck", Arg::Str(deck))]),
