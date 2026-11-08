@@ -6,6 +6,8 @@ use paperpaw_sdk::{Command, Handled, Id, Params};
 std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
+    /// The host table each `make` was handed, in order.
+    static TABLES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
@@ -29,6 +31,7 @@ unsafe extern "C" fn screen_make(
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
 ) -> i32 {
+    TABLES.with(|tables| tables.borrow_mut().push(host.addr()));
     let mut bytes = [0; 128];
     let records = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
@@ -871,4 +874,30 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     assert_eq!(DESTROYED.with(Cell::get), 0);
     drop(dispatch);
     assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
+    let mut kernel = kernel(0);
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
+    for owner in owners {
+        kernel
+            .register_native(
+                host_named(owner, 0),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _| {},
+            )
+            .unwrap();
+    }
+    let each = (live() - before) / owners.len();
+    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
+    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
+    // riscv32 sizes. Bounded here so that growth shows in review.
+    assert!(each <= 2_048, "{each} B per owner");
+    // Every owner's `make` was handed the same static table, not a copy.
+    let tables = TABLES.with(|tables| tables.borrow().clone());
+    assert!(tables.len() > owners.len());
+    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
 }

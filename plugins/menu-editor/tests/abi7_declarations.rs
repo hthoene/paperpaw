@@ -1,89 +1,70 @@
-//! Screen identity parity with the interface-6 registration: ids and titles.
-//! The one deliberate difference is the entry screen's `overlay` flag (it is
-//! drawn over the list, as the interface-6 screen drew its `region`).
-#![allow(clippy::unwrap_used, reason = "test assertions")]
+//! The native declarations (screens, navigation, events) are what the image holds,
+//! and the host takes them as far as it has wired them.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+use paperpaw_core::native_host::{
+    declarations::{validate_batch, validate_record},
+    registrations::records_decode,
+};
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+
 #[path = "../declarations.rs"]
-#[allow(
-    dead_code,
-    reason = "the build script also uses the event declarations"
-)]
 mod declarations;
-use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
-#[test]
-fn screen_identity_matches_existing_registration() {
-    let mut r = Registrar::new(Id::new_static("menu-editor"));
-    paperpaw_plugin_menu_editor::MenuEditor
-        .register(&mut r)
-        .unwrap();
-    let mut expected = Vec::new();
-    {
-        let mut d = Declarations::new(|b: &[u8]| {
-            expected.push(b.to_vec());
-            Ok(())
-        });
-        let mut token = 10;
-        for c in r.into_contributions() {
-            match c {
-                Contribution::FixedScreens(screens) => {
-                    for s in screens {
-                        let name = s.id().as_str().strip_prefix("menu-editor.").unwrap();
-                        let screen = ScreenDecl::new(name, s.title(), token);
-                        d.screen(if name == "entry" {
-                            screen.overlay()
-                        } else {
-                            screen
-                        })
-                        .unwrap();
-                        token += 1;
-                    }
-                }
-                Contribution::Screen(s) => {
-                    d.screen(ScreenDecl::new(
-                        s.id.as_str().strip_prefix("menu-editor.").unwrap(),
-                        &s.title,
-                        token,
-                    ))
-                    .unwrap();
-                    token += 1;
-                }
-                _ => {}
-            }
-        }
-        d.submit().unwrap();
-    }
-    let mut actual = Vec::new();
-    {
-        let mut d = Declarations::new(|b: &[u8]| {
-            actual.push(b.to_vec());
-            Ok(())
-        });
-        declarations::screens(&mut d).unwrap();
-    }
-    assert_eq!(actual, expected);
-    eprintln!(
-        "menu-editor: {} screen bytes",
-        actual.iter().map(Vec::len).sum::<usize>()
-    );
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/menu_editor_declarations.rs"));
 }
 
-#[path = "../../test-support/native_navigation.rs"]
-mod navigation;
+/// The batches `$declare` submits.
+macro_rules! batches {
+    ($declare:path) => {{
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+                out.push(batch.to_vec());
+                Ok(())
+            });
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
+}
 
 #[test]
-fn actions_menus_and_icons_match_existing_registration() {
-    let mut registrar = Registrar::new(Id::new_static("menu-editor"));
-    paperpaw_plugin_menu_editor::MenuEditor
-        .register(&mut registrar)
-        .unwrap();
-    let expected = navigation::encode("menu-editor", registrar.into_contributions());
-    let mut actual = Vec::new();
-    {
-        let mut d = Declarations::new(|bytes: &[u8]| {
-            actual.push(bytes.to_vec());
-            Ok(())
-        });
-        declarations::navigation(&mut d).unwrap();
+fn the_image_is_what_the_builder_makes() {
+    for (name, built, image) in [
+        ("screens", batches!(declarations::screens), image::SCREENS),
+        (
+            "navigation",
+            batches!(declarations::navigation),
+            image::NAVIGATION,
+        ),
+        ("events", batches!(declarations::events), image::EVENTS),
+    ] {
+        assert_eq!(built.len(), image.len(), "{name}");
+        for (built, image) in built.iter().zip(image) {
+            assert_eq!(built.as_slice(), *image, "{name}");
+        }
     }
-    assert_eq!(actual, expected);
+}
+
+/// The host takes the screens; the other families it refuses as unsupported
+/// until it wires them (`screens-input.md` section 1), so `make` is refused
+/// until then: the same state as the other native plugins, pending #944.
+#[test]
+fn the_host_admits_the_screens_and_refuses_the_rest_as_unsupported() {
+    for batch in batches!(declarations::screens) {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("menu-editor", &records).unwrap();
+    }
+    for batch in batches!(declarations::navigation)
+        .into_iter()
+        .chain(batches!(declarations::events))
+    {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            if let Err(status) = validate_record("menu-editor", &record) {
+                assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
+            }
+        }
+    }
 }

@@ -130,7 +130,9 @@ pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
-    table: PpHost,
+    /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
+    /// a static, never a copy per plugin (152 bytes on the X4).
+    table: &'static PpHost,
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
@@ -218,7 +220,7 @@ pub struct Hosted<S, M> {
 /// The host table with this shell's entries in it, as a plugin of `S` sees it.
 /// The shell's preflight may read it before anything is hosted.
 #[must_use]
-pub fn host_table<S: Services>() -> PpHost {
+pub const fn host_table<S: Services>() -> PpHost {
     let mut table = host_glue::host_table();
     table.heap_alloc = heap_alloc::<S>;
     table.heap_dealloc = heap_dealloc::<S>;
@@ -261,6 +263,17 @@ pub fn host_table<S: Services>() -> PpHost {
         table.text_ink = text_ink::<S>;
     }
     table
+}
+
+/// The host table of `S` as one static: every plugin hosted with the same
+/// services type is handed the same table, so a hosted plugin costs no copy
+/// of it on the heap (`abi/heap-word.md`, built-ins).
+struct SharedTable<S>(core::marker::PhantomData<S>);
+
+impl<S: Services> SharedTable<S> {
+    /// Evaluated at compile time; a reference to a constant without interior
+    /// mutability is promoted to a `'static` (read-only data, not heap).
+    const TABLE: &'static PpHost = &host_table::<S>();
 }
 
 impl<S: Services, M> Hosted<S, M> {
@@ -311,7 +324,7 @@ impl<S: Services, M> Hosted<S, M> {
             .map_err(|_| Error::Allocation)?;
         owned.push_str(id);
         let context = Context {
-            table: host_table::<S>(),
+            table: SharedTable::<S>::TABLE,
             id: owned.into_boxed_str(),
             report,
             resources,
@@ -432,7 +445,7 @@ impl<S: Services, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = unsafe { (self.make)(&context.table, ctx, &mut out) };
+        let status = unsafe { (self.make)(context.table, ctx, &mut out) };
         (status, out)
     }
 
@@ -1481,3 +1494,17 @@ pub(crate) use stage::dispatch_stage;
 
 #[path = "shell/native_commit.rs"]
 mod native_commit;
+
+/// The X4's per-plugin host context (`abi/heap-word.md` section 9): the boxed
+/// owner of a hosted plugin holds a reference to the shared table, never a
+/// copy of it. Measured on riscv32: owner 200 bytes, context 168, table 152.
+#[cfg(target_arch = "riscv32")]
+const _: () = {
+    assert!(core::mem::size_of::<Owner<(), ()>>() <= OWNER_BUDGET);
+    assert!(core::mem::size_of::<Context<()>>() < core::mem::size_of::<PpHost>() + 32);
+};
+
+/// The most the boxed owner of one hosted plugin may take on the X4
+/// (`abi/heap-word.md` section 9).
+#[cfg(target_arch = "riscv32")]
+const OWNER_BUDGET: usize = 224;

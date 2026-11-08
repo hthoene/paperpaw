@@ -17,13 +17,16 @@ use paperpaw_sdk::native::Error;
 
 use crate::{mem, text};
 
+pub mod view;
+pub use view::{StatusItemsView, Texts};
+
 /// An item or line that can be shown. Not `Clone`: a copy would allocate
 /// without a way to refuse.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry {
     /// Its id, as the setting keeps it.
     pub id: String,
-    /// The translation key of its name.
+    /// Its name as the user reads it.
     pub title: String,
     /// The id a line had before, which a setting may still hold.
     pub also: Option<String>,
@@ -38,6 +41,13 @@ pub enum Outcome {
     Redraw,
     /// The setting changed; the focus goes to this row.
     Changed(usize),
+}
+
+/// What [`Chooser::snapshot`] keeps.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    ids: Vec<String>,
+    moving: bool,
 }
 
 /// The items to choose from and the ids the setting holds.
@@ -196,6 +206,36 @@ impl Chooser {
     pub fn can_move(&self, focus: usize, focus_shown: bool) -> Result<bool, Error> {
         let shown = self.chosen()?.len();
         Ok(focus_shown && focus < shown && shown > 1)
+    }
+
+    /// A copy of what a change would alter (the setting's ids and whether an
+    /// item is picked up), to [`Self::restore`] if the change cannot be kept.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn snapshot(&self) -> Result<Snapshot, Error> {
+        let mut ids = Vec::new();
+        ids.try_reserve_exact(self.ids.len())
+            .map_err(|_| Error::NoMemory)?;
+        for id in &self.ids {
+            ids.push(text::copy(id)?);
+        }
+        Ok(Snapshot {
+            ids,
+            moving: self.moving,
+        })
+    }
+
+    /// Goes back to a [`Self::snapshot`].
+    pub fn restore(&mut self, snapshot: Snapshot) {
+        self.ids = snapshot.ids;
+        self.moving = snapshot.moving;
+    }
+
+    /// Picks the focused item up (a hold of it): the next place it is put
+    /// is where it goes.
+    pub fn pick_up(&mut self) {
+        self.moving = true;
     }
 
     /// Drops what the buttons held, as a finger takes over from them.
