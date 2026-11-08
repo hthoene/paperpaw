@@ -372,7 +372,7 @@ mod tests {
     /// than that, and in place; also by key and by cached key.
     #[test]
     fn a_comparison_that_is_no_total_order_loses_and_repeats_no_item() {
-        let cycle = |a: &u32, b: &u32| match (a + 3 - b % 3) % 3 {
+        let cycle = |a: &u32, b: &u32| match a.wrapping_add(3).wrapping_sub(b % 3) % 3 {
             0 => Ordering::Equal,
             1 => Ordering::Less,
             _ => Ordering::Greater,
@@ -421,6 +421,12 @@ mod tests {
                 item.wrapping_mul(calls)
             });
             assert!(same_items(&by_key), "key, len {len}");
+            let mut cached = items.clone();
+            sort_by_cached_key(&mut cached, |item| {
+                calls += 1;
+                item.wrapping_mul(calls)
+            });
+            assert!(same_items(&cached), "cached key, len {len}");
         }
     }
 
