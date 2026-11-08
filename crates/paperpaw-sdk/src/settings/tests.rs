@@ -591,6 +591,45 @@ fn a_plugin_setting_its_default_again_moves_to_the_top() {
 }
 
 #[test]
+fn a_layer_going_below_the_top_leaves_the_default_in_force() {
+    let mut s = stacked();
+    // The reader's own value is not touched by either removal.
+    s.set("base.n", SettingValue::Int(7)).unwrap();
+    s.remove_plugin("b");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(7)));
+    assert_eq!(
+        s.spec("base.n").map(|spec| &spec.default),
+        Some(&SettingValue::Int(2))
+    );
+    s.remove_plugin("c");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(7)));
+    assert_eq!(
+        s.spec("base.n").map(|spec| &spec.default),
+        Some(&SettingValue::Int(0))
+    );
+}
+
+#[test]
+fn removing_a_plugin_twice_changes_nothing_the_second_time() {
+    let mut s = stacked();
+    s.remove_plugin("c");
+    s.remove_plugin("c");
+    assert_eq!(s.get("base.n"), Some(&SettingValue::Int(1)));
+    assert_eq!(s.default_from("base.n").map(Id::as_str), Some("b"));
+}
+
+#[test]
+fn a_layer_value_the_setting_no_longer_accepts_is_skipped() {
+    let mut s = stacked();
+    // The range narrows to 3..=9, past b's value (1) and the original (0).
+    assert!(s.set_range("base.n", 3, 9));
+    s.remove_plugin("c");
+    let default = s.spec("base.n").map(|spec| spec.default.clone());
+    // b's 1 and the original 0 are both out of range: the default stays as it was.
+    assert_eq!(default, Some(SettingValue::Int(2)));
+}
+
+#[test]
 fn room_for_made_settings_ends_at_the_places_there_are() {
     let mut s = Settings::new();
     assert!(s.has_room_for(32_768));

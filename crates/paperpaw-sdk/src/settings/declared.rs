@@ -60,8 +60,13 @@ impl Settings {
         // what the plugins below it set, or to what they were (those of its
         // own settings go with them).
         for (setting, set) in self.defaults_by.iter() {
+            // Only the top layer sets the default in force: a layer lower
+            // down going changes nothing there.
             if setting.namespace() == plugin
-                || !set.layers.iter().any(|l| l.by.namespace() == plugin)
+                || !set
+                    .layers
+                    .last()
+                    .is_some_and(|l| l.by.namespace() == plugin)
             {
                 continue;
             }
@@ -120,8 +125,14 @@ impl Settings {
             .is_some_and(|spec| spec.id.namespace() != by.as_str());
         if foreign {
             let layers = self.defaults_by.get_mut(id).map(|set| &mut set.layers);
-            if let Some(layers) = layers {
-                layers.try_reserve(1).map_err(|_| SettingError::Full)?;
+            // The same plugin again takes its own layer's place: no room.
+            if let Some(layers) = layers
+                && !layers.iter().any(|layer| layer.by == by)
+            {
+                // Exactly one: a plain reserve would take four on the X4.
+                layers
+                    .try_reserve_exact(1)
+                    .map_err(|_| SettingError::Full)?;
             }
         }
         let value = self
@@ -140,7 +151,7 @@ impl Settings {
             set.layers.push(Layer { by, value });
         } else if let Some(was) = was {
             let mut layers = alloc::vec::Vec::new();
-            if layers.try_reserve(1).is_err() {
+            if layers.try_reserve_exact(1).is_err() {
                 // Put the default back: nothing changed.
                 self.specs.get_mut(id)?.default = was;
                 return Err(SettingError::Full);
