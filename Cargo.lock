@@ -2691,6 +2691,7 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "proptest",
 ]
 
 [[package]]
