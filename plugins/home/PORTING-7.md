@@ -1,7 +1,7 @@
 # Interface-7 port (slices 1 and 2: the pages' model and the declarations)
 
-Version 1.0.5. Partial: the host-free model of the home screen's pages. No native screen, no
-declarations, no `NATIVE_ENTRY` yet; the interface-6 `Home` and everything of it stays until the
+Version 1.0.6. Partial: the host-free model of the home screen's pages and its declarations. No
+native screen and no `NATIVE_ENTRY` yet; the interface-6 `Home` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
 
 ## Ported

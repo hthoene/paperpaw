@@ -7,6 +7,8 @@
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
 mod declarations;
+#[path = "../../test-support/declared.rs"]
+mod declared;
 use paperpaw_plugin_home::Home;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, MenuNeed, Plugin, Registrar};
@@ -19,17 +21,17 @@ fn legacy() -> Vec<Contribution> {
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
-) -> usize {
-    let mut count = 0;
+) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
     {
-        let mut sink = |_: &[u8]| -> Result<(), i32> {
-            count += 1;
+        let mut sink = |b: &[u8]| -> Result<(), i32> {
+            out.push(b.to_vec());
             Ok(())
         };
         let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
         declare(&mut d);
     }
-    count
+    out
 }
 
 #[test]
@@ -98,7 +100,7 @@ fn the_group_and_the_settings_match() {
         by("home.footer.items").4,
         "Some(Screen(Id(core.status-items)))"
     );
-    assert!(batches(|d| declarations::settings(d).unwrap()) > 0);
+    assert!(!batches(|d| declarations::settings(d).unwrap()).is_empty());
     assert_eq!(
         declarations::DEFAULTS[0],
         "home.clock, home.continue, home.recent"
@@ -202,7 +204,56 @@ fn screens_slot_actions_and_places_match() {
         needs,
         [("home.focus-at-once".to_string(), MenuNeed::NoTouch)]
     );
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()), 1);
-    assert!(batches(|d| declarations::navigation(d).unwrap()) >= 1);
-    assert_eq!(batches(|d| declarations::events(d).unwrap()), 1);
+    assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
+    assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
+    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
+}
+
+/// What the batches say, decoded and checked by the host's rules, is what the
+/// interface-6 registration says: every field of the group, the settings, their
+/// extras (the page editors) and the screens; the rest is checked and refused
+/// as unsupported until the host takes it.
+#[test]
+fn the_decoded_batches_say_what_the_registration_says() {
+    let mut all = Vec::new();
+    for batch in [
+        batches(|d| declarations::settings(d).unwrap()),
+        batches(|d| declarations::screens(d).unwrap()),
+        batches(|d| declarations::navigation(d).unwrap()),
+        batches(|d| declarations::events(d).unwrap()),
+    ] {
+        all.extend(batch);
+    }
+    let native = declared::native("home", &all);
+    let old = declared::legacy("home", "home.group", legacy());
+    assert_eq!(native.groups, old.groups);
+    assert_eq!(native.specs.len(), 24);
+    assert_eq!(native.specs, old.specs);
+    // The footer items' picker is the host's screen in interface 6; Kernel's
+    // ruling (todo 121) gives it a screen of home's own, built on the kit's
+    // `status_items` (an ignored acceptance case until then). Every other
+    // editor is the same.
+    let (footer, others): (Vec<_>, Vec<_>) = old
+        .extras
+        .iter()
+        .cloned()
+        .partition(|e| e.starts_with("footer.items|"));
+    assert_eq!(footer, ["footer.items||||=|1:core.status-items|0|0"]);
+    assert_eq!(native.extras, others);
+    assert_eq!(native.screens, old.screens);
+    // The actions, the offer, the menu places, the icons, the key, the widget
+    // place and the event.
+    for kind in [
+        "SlotOffer",
+        "WidgetPlace",
+        "KeyBind",
+        "MenuEntry",
+        "IconSpec",
+    ] {
+        assert!(
+            native.others.iter().any(|k| k == kind),
+            "{kind} in {:?}",
+            native.others
+        );
+    }
 }
