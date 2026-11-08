@@ -363,12 +363,13 @@ fn the_folder_offers_its_pictures_by_name() {
     ];
     let found = pictures(entries.iter().copied()).unwrap();
     assert_eq!(found, ["a.gif", "A.png", "b.jpg", "Ä.jpg"]);
-    // A long folder is cut at the first 300 the card lists, then sorted.
+    // A long folder keeps the alphabetically first 300, whatever order the
+    // card lists them in.
     let names: Vec<String> = (0..400).map(|n| format!("{:03}.jpg", 399 - n)).collect();
     let found = pictures(names.iter().map(|n| (n.as_str(), false))).unwrap();
     assert_eq!(found.len(), MOST);
-    assert_eq!(found[0], "100.jpg");
-    assert_eq!(found[MOST - 1], "399.jpg");
+    assert_eq!(found[0], "000.jpg");
+    assert_eq!(found[MOST - 1], "299.jpg");
 }
 
 #[test]
@@ -612,4 +613,37 @@ fn names_are_kept_within_their_budget() {
             .len(),
         MOST
     );
+}
+
+#[test]
+fn what_is_kept_does_not_depend_on_the_order_of_the_card() {
+    // Names of every length, so that the budget cuts as well as the count.
+    let names: Vec<String> = (0..700)
+        .map(|n| {
+            let pad = (n * 37) % 180;
+            format!("{:03}{}.JPG", (n * 7919) % 700, "x".repeat(pad))
+        })
+        .collect();
+    let list =
+        |order: &[usize]| pictures(order.iter().map(|n| (names[*n].as_str(), false))).unwrap();
+    let forward: Vec<usize> = (0..names.len()).collect();
+    let backward: Vec<usize> = forward.iter().rev().copied().collect();
+    let shuffled: Vec<usize> = (0..names.len()).map(|n| (n * 311) % names.len()).collect();
+    let a = list(&forward);
+    assert_eq!(a, list(&backward));
+    assert_eq!(a, list(&shuffled));
+    // It is the prefix of all the names, sorted, that fits.
+    let mut all: Vec<&String> = names.iter().collect();
+    all.sort_by(|x, y| x.to_lowercase().cmp(&y.to_lowercase()).then(x.cmp(y)));
+    let mut bytes = 0;
+    let mut expected = Vec::new();
+    for name in all {
+        bytes += name.len();
+        if expected.len() == MOST || bytes > NAMES {
+            break;
+        }
+        expected.push(name.clone());
+    }
+    assert_eq!(a, expected);
+    assert!(a.len() < MOST, "the budget cut it: {}", a.len());
 }

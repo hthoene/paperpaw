@@ -530,40 +530,59 @@ pub fn is_picture(name: &str, is_dir: bool) -> bool {
         })
 }
 
+/// The order of names: without regard to case, character by character
+/// (`char::to_lowercase`, which allocates nothing), then by their bytes so
+/// that two names that differ only in case have a fixed order.
+fn by_name(a: &str, b: &str) -> core::cmp::Ordering {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .cmp(b.chars().flat_map(char::to_lowercase))
+        .then_with(|| a.cmp(b))
+}
+
 /// The names of the pictures of a folder, from its `entries` (name, folder
-/// or not) in the order the card lists them: the first [`MOST`] pictures, as
-/// far as their names fit in [`NAMES`] bytes, then sorted by name without
-/// regard to case.
+/// or not) in whatever order the card lists them: the alphabetically first
+/// [`MOST`] of them as far as their names fit in [`NAMES`] bytes, sorted
+/// without regard to case. The set is kept sorted while the folder is read
+/// and the last name is dropped whenever it is too many or too long, so what
+/// is kept does not depend on the order of the card (the interface-6 screen
+/// kept the first 300 the card listed, then sorted them).
 ///
-/// Sorting compares the names' characters lowercased one by one
-/// (`char::to_lowercase`), which allocates nothing; the interface-6 screen
-/// lowercases each whole name (`str::to_lowercase`), which differs only where
-/// a Greek capital sigma ends a word (`ς` there, `σ` here): such names may
-/// sort differently from each other, never from names of other scripts.
+/// Names compare character by character lowercased (`char::to_lowercase`);
+/// the interface-6 screen lowercases each whole name (`str::to_lowercase`),
+/// which differs only where a Greek capital sigma ends a word (`ς` there, `σ`
+/// here): only names that differ by that sigma can sort differently.
 ///
 /// # Errors
-/// [`Error::NoMemory`].
+/// [`Error::NoMemory`]; nothing is returned then.
 pub fn pictures<'a>(entries: impl Iterator<Item = (&'a str, bool)>) -> Result<Vec<String>, Error> {
     let mut found: Vec<String> = Vec::new();
     let mut bytes = 0usize;
+    // The smallest name dropped so far: no name from there on is kept, even
+    // one that would fit, or what is kept would depend on the card's order.
+    let mut cut: Option<String> = None;
     for (name, is_dir) in entries {
-        if found.len() >= MOST {
-            break;
+        if !is_picture(name, is_dir)
+            || cut
+                .as_deref()
+                .is_some_and(|cut| by_name(name, cut) != core::cmp::Ordering::Less)
+        {
+            continue;
         }
-        if is_picture(name, is_dir) {
-            bytes = bytes.saturating_add(name.len());
-            if bytes > NAMES {
-                break;
-            }
-            found.try_reserve(1).map_err(|_| Error::NoMemory)?;
-            found.push(copy(name)?);
+        let at = match found.binary_search_by(|kept| by_name(kept, name)) {
+            // The same name twice: once.
+            Ok(_) => continue,
+            Err(at) => at,
+        };
+        found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        found.insert(at, copy(name)?);
+        bytes += name.len();
+        while found.len() > MOST || bytes > NAMES {
+            let Some(last) = found.pop() else { break };
+            bytes -= last.len();
+            cut = Some(last);
         }
     }
-    found.sort_unstable_by(|a, b| {
-        a.chars()
-            .flat_map(char::to_lowercase)
-            .cmp(b.chars().flat_map(char::to_lowercase))
-    });
     Ok(found)
 }
 
