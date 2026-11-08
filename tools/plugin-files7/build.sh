@@ -13,10 +13,14 @@
 # does not build or pack is named on standard error, after the others were
 # tried. Exit status: 0 all built; 1 the packer refused some (a plugin that is
 # not ready to be a file: writable data, a frame of 2,048 B or more; the others
-# are built); 3 a plugin or the signer did not BUILD, or a file is not for the
-# X4 (a broken build, never to be waved through); 2 usage.
-# `complete.txt` lists the plugins whose port is complete (one id a line); each
-# must have a file, and its PORTING-7.md must not say "Status: **not complete".
+# are built); 3 anything else that is wrong: a pre-flight failure (no
+# version, no complete.txt, a linker script that differs), a plugin or the signer that
+# did not BUILD, a file not for the X4, a complete.txt entry that fails; never to be
+# waved through; 2 usage.
+# `complete.txt` (it must exist) lists the plugins whose port is complete (one id a
+# line); each must have a file and a PORTING-7.md that does not say "Status: **not
+# complete". A plugin without a PORTING-7.md is accepted only with an explicit
+# `status=complete` after its id in complete.txt.
 # The flash gate counts a file as interface 7 only for those.
 #
 # Needs: the X4's Rust from rust-toolchain.toml. Never set RUSTFLAGS: it would
@@ -44,17 +48,19 @@ target=riscv32imc-unknown-none-elf
 
 ids="$(cd "$here/src/bin" && ls *.rs | sed 's/\.rs$//')"
 if [[ -n "$only" ]]; then
-    grep -qx "$only" <<< "$ids" || { echo "$only has no native entry here (src/bin)" >&2; exit 1; }
+    grep -qx "$only" <<< "$ids" || { echo "$only has no native entry here (src/bin)" >&2; exit 3; }
     ids=$only
 fi
 version_of() {
     sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$root/plugins/$1/Cargo.toml"
 }
 for id in $ids; do
-    [[ -n "$(version_of "$id")" ]] || { echo "plugins/$id/Cargo.toml: no version of its own" >&2; exit 1; }
+    [[ -n "$(version_of "$id")" ]] || { echo "plugins/$id/Cargo.toml: no version of its own" >&2; exit 3; }
 done
 cmp -s "$here/paperpaw-plugin7.x" "$root/crates/paperpaw-native/paperpaw-plugin7.x" ||
-    { echo "paperpaw-plugin7.x differs from the crate's" >&2; exit 1; }
+    { echo "paperpaw-plugin7.x differs from the crate's" >&2; exit 3; }
+[[ -f "$here/complete.txt" ]] ||
+    { echo "tools/plugin-files7/complete.txt is missing: the gate could not tell which ports are complete" >&2; exit 3; }
 
 # The paths of the build are remapped, as tools/plugin-files/build.sh does
 # (a variable split at spaces: with a space in a path the remap is left out).
@@ -102,15 +108,22 @@ for id in $ids; do
 done
 # The plugins whose port is complete (complete.txt) must all be files, and say so.
 if [[ -z "$only" ]]; then
-    for id in $(sed -e 's/#.*//' "$here/complete.txt" | awk 'NF { print $1 }'); do
-        if grep -qE '^Status: \*\*not complete' "$root/plugins/$id/PORTING-7.md" 2>/dev/null; then
-            echo "$id is in complete.txt but its PORTING-7.md says not complete" >&2
+    while read -r id mark _; do
+        notes="$root/plugins/$id/PORTING-7.md"
+        if [[ -e "$notes" ]]; then
+            if grep -qE '^Status: \*\*not complete' "$notes"; then
+                echo "$id is in complete.txt but its PORTING-7.md says not complete" >&2
+                broken+=("$id")
+            fi
+        elif [[ $mark != status=complete ]]; then
+            echo "$id is in complete.txt but has no PORTING-7.md and no status=complete mark there" >&2
             broken+=("$id")
-        elif [[ ! -e "$out/$id-$(version_of "$id")-$device.ppn" ]]; then
+        fi
+        if [[ ! -e "$out/$id-$(version_of "$id")-$device.ppn" ]]; then
             echo "$id is in complete.txt but has no file" >&2
             broken+=("$id")
         fi
-    done
+    done < <(sed -e 's/#.*//' "$here/complete.txt" | awk 'NF { print $1, $2 }')
 fi
 if ((${#broken[@]})); then
     echo "broken: ${broken[*]}" >&2

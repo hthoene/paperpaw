@@ -144,7 +144,8 @@ build() { # name rev sha features
             # current file); 3 is a broken build and anything else a failure: the gate ends.
             [ "$rc" -le 1 ] || { echo "interface-7 plugin files failed ($rc): $name" >&2; exit 2; }
             rm -rf "$ours/ppn7-target-$name"
-            cp "$ours/tree/tools/plugin-files7/complete.txt" "$ours/complete-$name.txt" 2>/dev/null || : > "$ours/complete-$name.txt"
+            [ -f "$ours/tree/tools/plugin-files7/complete.txt" ] || { echo "tools/plugin-files7/complete.txt is missing: $name" >&2; exit 2; }
+            cp "$ours/tree/tools/plugin-files7/complete.txt" "$ours/complete-$name.txt"
         fi
     fi
 }
@@ -184,8 +185,7 @@ bf, hf, bb, hb = files("base"), files("head"), builtin("base"), builtin("head")
 # interface 7: a partial port's file is a native stub beside the interface-6 plugin, not
 # the plugin, and must not be set against a full Beta 3 file. The partial files are
 # counted separately (the informational figure).
-complete = {l.split("#")[0].strip() for l in open(os.path.join(ours, "complete-head.txt")) if l.split("#")[0].strip()} \
-    if os.path.exists(os.path.join(ours, "complete-head.txt")) else set()
+complete = {l.split("#")[0].split()[0] for l in open(os.path.join(ours, "complete-head.txt")) if l.split("#")[0].split()}
 all7 = {k: v for k, v in files("head", "ppn7-").items() if (k in bf or k in hf) and k not in hb}
 hf7 = {k: v for k, v in all7.items() if k in complete}
 nofile = sorted(complete - set(hf7))

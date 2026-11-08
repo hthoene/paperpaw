@@ -1,9 +1,10 @@
 # The plugins whose interface-7 port is complete: their native file is the whole
 # plugin (no interface-6 part left), so the flash gate counts it against the
 # Beta 3 file. One id a line. build.sh fails when one has no file or its
-# PORTING-7.md says "Status: **not complete". A partial port (a native stub
-# beside the interface-6 plugin) is not listed: its file is not the plugin.
-battery
+# PORTING-7.md says "Status: **not complete", or when it has no PORTING-7.md and
+# no `status=complete` after its id. A partial port (a native stub beside the
+# interface-6 plugin) is not listed: its file is not the plugin.
+battery status=complete   # no PORTING-7.md (its notes are plugins/battery/PORTING.md)
 end-of-book
 keys
 menu-editor
