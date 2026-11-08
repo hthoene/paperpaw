@@ -408,6 +408,91 @@ fn working_files_go_after_an_error() {
     assert!(failed > 10, "{failed}");
 }
 
+/// Power lost at any rename of a merge, in particular between the log's and
+/// the books': the log and the books are the old pair or the merged pair, once
+/// the next start has finished what was begun. Never new stays beside the old
+/// books (stays of books the list lacks).
+#[test]
+fn a_cut_between_the_renames_leaves_a_pair_and_the_next_start_finishes_it() {
+    let make = || {
+        let storage = Faulty::new(MemoryStorage::new());
+        this_device(&storage);
+        other_device(
+            &storage,
+            "income.db",
+            &[(7, "Neu", &md5(0xc))],
+            &[(7, 1, 50, 10), (7, 2, 60, 10)],
+        );
+        storage
+    };
+    let old = files(&make().inner);
+    let merged = {
+        let storage = make();
+        merge(&storage, Some("income.db"), None, None, DIR).unwrap();
+        files(&storage.inner)
+    };
+    assert!(
+        old[0] != merged[0] && old[1] != merged[1],
+        "the merge changes both"
+    );
+    let mut between = 0;
+    for cut in 0..16 {
+        let storage = make();
+        storage.cut_after_renames(cut);
+        // Cut: the merge says so (or not, if the cut came after its last rename).
+        merge(&storage, Some("income.db"), None, None, DIR).ok();
+        // The log is new and the books are not: the cut that matters.
+        let raw = files(&storage.inner);
+        if raw[0] == old[0] && raw[1] == merged[1] {
+            between += 1;
+        }
+        // Power is back: the next start.
+        storage.cut_after_renames(u32::MAX);
+        store::recover(&storage);
+        let now = files(&storage.inner);
+        assert!(
+            now == old || now == merged,
+            "cut after {cut} renames: neither the old pair nor the merged one"
+        );
+        assert_eq!(
+            folder(&storage),
+            ["books.ini", "pages.bin"],
+            "cut after {cut}"
+        );
+    }
+    assert!(between > 0, "no cut fell between the renames");
+}
+
+/// A cut after the marker but before any rename (both new files whole): the
+/// next start puts both in place. Before the marker the old pair stays.
+#[test]
+fn a_cut_before_the_first_rename_is_finished_and_before_the_marker_undone() {
+    let storage = MemoryStorage::new();
+    this_device(&storage);
+    other_device(
+        &storage,
+        "income.db",
+        &[(7, "Neu", &md5(0xc))],
+        &[(7, 1, 50, 10)],
+    );
+    let old = files(&storage);
+    let marker = format!("{DIR}/merge.commit");
+    let (log_new, books_new) = (format!("{DIR}/pages.new"), format!("{DIR}/books.new"));
+    // Staged, no marker: the unfinished files go.
+    storage.write(&log_new, b"half a log").unwrap();
+    storage.write(&books_new, b"[book.1]\n").unwrap();
+    store::recover(&storage);
+    assert_eq!(files(&storage), old);
+    assert_eq!(folder(&storage), ["books.ini", "pages.bin"]);
+    // Staged whole, with the marker: both are put in place.
+    storage.write(&log_new, b"").unwrap();
+    storage.write(&books_new, b"").unwrap();
+    storage.write(&marker, b"1").unwrap();
+    store::recover(&storage);
+    assert_eq!(files(&storage), [Some(Vec::new()), Some(Vec::new())]);
+    assert_eq!(folder(&storage), ["books.ini", "pages.bin"]);
+}
+
 /// The file there replaced by an older backup: what the last upload
 /// had and the file lacks was not deleted there, so nothing is deleted
 /// here; and it is said. An empty file (a fresh device's, or all

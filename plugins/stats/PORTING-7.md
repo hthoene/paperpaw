@@ -43,9 +43,15 @@ events) is still in place. It is removed in the PR that finishes the port.
   `register_book` use `hex_into` / `partial_into` on the stack. Sweeps cover writing the other
   app's database and a merge with its file (`merge/alloc_tests.rs`).
 - A merge writes the new log and the new `books.ini` beside the old ones first (`stage_log`,
-  `stage_books`) and renames both after, so a refusal or a full card while writing leaves
-  the pair as it was (the sweep found a refusal in `save_books` after the log was replaced).
-  Only the rename itself, or the upload's own file after both, can fail past that point.
+  `stage_books`) and then puts both in place with `commit_pair`: a marker file
+  (`merge.commit`) says that both are whole, then the two renames follow. A cut between them
+  leaves the marker and the books beside their place, and the next start (`recover`, and
+  `update_books`) finishes the rename; a cut before the marker leaves the old pair and the
+  staged files go as unfinished. A refusal or a full card while writing leaves the pair as it
+  was (the sweep found a refusal in `save_books` after the log was replaced; the cut test
+  `a_cut_between_the_renames_...` found that recovery took the staged books for unfinished).
+  Where the books cannot be renamed after the log, they wait beside their place for the next
+  start; where the card cannot rename at all the books are written in place as before.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 

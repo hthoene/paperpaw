@@ -348,11 +348,7 @@ fn merge_with(
         store::unstage_log(storage);
         return Err(e.into());
     }
-    if let Err(e) = store::commit_log(storage) {
-        store::unstage_books(storage);
-        return Err(e.into());
-    }
-    store::commit_books(storage, &books)?;
+    store::commit_pair(storage, &books)?;
     let outcome = Outcome {
         books: books.len(),
         stays,

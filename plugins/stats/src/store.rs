@@ -134,6 +134,10 @@ const PAGES: &str = ".paperpaw/plugins/stats/pages.bin";
 const PAGES_NEW: &str = ".paperpaw/plugins/stats/pages.new";
 const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
 const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
+/// Present from the moment the new log and the new `books.ini` are both whole
+/// beside the old ones until both are in place: a cut between the two renames
+/// is finished at the next start (see [`finish_commit`]).
+const COMMIT: &str = ".paperpaw/plugins/stats/merge.commit";
 const DAYS: &str = ".paperpaw/plugins/stats/days.bin";
 const DAYS_NEW: &str = ".paperpaw/plugins/stats/days.new";
 /// The most days a kept `days.bin` is read for: 4,096 days (11 years) are
@@ -305,6 +309,7 @@ pub(crate) fn update_books(
 ) -> Result<bool, StorageError> {
     // Books waiting beside their place are put there first: a new list
     // would take their place.
+    finish_commit(storage);
     recover_file(storage, BOOKS, BOOKS_NEW);
     let mut books = load_books(storage)?;
     if !change(&mut books) {
@@ -350,6 +355,58 @@ pub(crate) fn commit_books(storage: &dyn Storage, books: &[Book]) -> Result<(), 
         }
         Ok(()) => Ok(()),
     }
+}
+
+/// Puts the staged log and the staged books in place, as a pair: a marker says
+/// that both are whole, then both are renamed. A cut between the renames leaves
+/// the marker and the books still beside their place, and [`finish_commit`]
+/// puts them there at the next start; a cut before the marker leaves the old
+/// pair (the staged files go as unfinished).
+///
+/// # Errors
+/// Where the marker cannot be written or the log cannot be put in place the old
+/// pair stays and the staged files go; where the books cannot be put in place
+/// after the log they stay beside theirs for the next start.
+pub(crate) fn commit_pair(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    if let Err(e) = storage.write(COMMIT, b"1") {
+        unstage_log(storage);
+        unstage_books(storage);
+        remove_temporary(storage, COMMIT);
+        return Err(e);
+    }
+    if let Err(e) = commit_log(storage) {
+        unstage_books(storage);
+        remove_temporary(storage, COMMIT);
+        return Err(e);
+    }
+    // The log is the new one: the books follow, or are finished later.
+    match storage.rename(BOOKS_NEW, BOOKS) {
+        Ok(()) => {}
+        Err(StorageError::Unsupported) => {
+            unstage_books(storage);
+            let written = write_books(storage, BOOKS, books);
+            remove_temporary(storage, COMMIT);
+            return written;
+        }
+        Err(e) => return Err(e),
+    }
+    remove_temporary(storage, COMMIT);
+    Ok(())
+}
+
+/// After a cut between the two renames of [`commit_pair`]: what is still
+/// beside its place is put there, and the marker goes. A file that cannot be
+/// put there now goes (the old one stays), so that this is not tried for ever.
+fn finish_commit(storage: &dyn Storage) {
+    if !storage.exists(COMMIT) {
+        return;
+    }
+    for (new, file) in [(PAGES_NEW, PAGES), (BOOKS_NEW, BOOKS)] {
+        if storage.exists(new) && storage.rename(new, file).is_err() {
+            remove_temporary(storage, new);
+        }
+    }
+    remove_temporary(storage, COMMIT);
 }
 
 /// Drops what [`stage_books`] wrote, where [`commit_books`] will not follow.
@@ -543,6 +600,7 @@ fn recover_file(storage: &dyn Storage, file: &str, new: &str) {
 /// Puts the log and the books written anew in their place where a cut
 /// left them beside it. Called at start.
 pub(crate) fn recover(storage: &dyn Storage) {
+    finish_commit(storage);
     recover_file(storage, PAGES, PAGES_NEW);
     recover_file(storage, BOOKS, BOOKS_NEW);
 }
