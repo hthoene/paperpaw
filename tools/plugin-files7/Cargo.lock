@@ -194,6 +194,7 @@ dependencies = [
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
+ "paperpaw-plugin-format-txt",
  "paperpaw-plugin-help",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
@@ -214,6 +215,13 @@ dependencies = [
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wikipedia",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-txt"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
 ]
 
 [[package]]

@@ -2059,8 +2059,10 @@ dependencies = [
 name = "paperpaw-plugin-format-txt"
 version = "1.0.2"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-layout",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]

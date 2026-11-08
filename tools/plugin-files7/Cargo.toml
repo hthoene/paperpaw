@@ -47,6 +47,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-txt"
+path = "src/bin/format-txt.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "help"
 path = "src/bin/help.rs"
 test = false
@@ -191,6 +197,7 @@ paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
+paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
 paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
