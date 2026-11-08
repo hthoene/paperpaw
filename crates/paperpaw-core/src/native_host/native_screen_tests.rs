@@ -422,3 +422,40 @@ fn only_type_text_reaches_a_screen_on_top_and_never_before_it_is_shown() {
     );
     assert!(dispatch.calls.borrow().is_empty());
 }
+
+#[test]
+fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(5));
+    let (screen, dispatch) = fresh();
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &env);
+    assert!(dispatch.calls.borrow().is_empty());
+    assert!(dispatch.dropped.borrow().is_empty());
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX), true, &env);
+    let calls = typed_calls(&dispatch);
+    assert_eq!(calls.len(), TYPED_TOTAL_MAX / 1024);
+    assert_eq!(calls.iter().filter(|(_, done)| *done).count(), 1);
+}
+
+#[test]
+fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
+    let key = paperpaw_sdk::ScreenKey::new(3);
+    let kernel = kernel_with_screen(key);
+    let env = kernel.shared.env(Instant(5));
+    let (mut screen, dispatch) = fresh();
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    screen.on_show(&mut cx);
+    dispatch.calls.borrow_mut().clear();
+    // It is shown and on top (a pointer reaches it), but no screen is
+    // offered on `core.keyboard`, and the event is the real one.
+    assert!(screen.is_top(&cx));
+    assert_eq!(cx.env().slot_screen(slots::KEYBOARD.as_str()), None);
+    let typed = events::TypeText::new("secret".into())
+        .done(true)
+        .to_params();
+    screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
+    assert!(dispatch.calls.borrow().is_empty());
+}

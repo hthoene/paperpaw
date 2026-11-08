@@ -14,6 +14,10 @@ use paperpaw_sdk::{
     realtime,
 };
 
+/// The most text one `type_text` call hands to a screen (64 KiB: 64 events of
+/// 1,024 bytes); the contract fixes only the event's own 1,024.
+const TYPED_TOTAL_MAX: usize = 64 * 1024;
+
 /// The owner/runtime supplies admission and the callback-scoped host views.
 /// Implementations keep no input, frame, canvas or environment borrow.
 pub(crate) trait Dispatch {
@@ -240,18 +244,32 @@ impl<D: Dispatch> NativeScreen<D> {
 
     /// Sends `text` as `event.text_typed` records of at most 1,024 bytes,
     /// cut between characters, `done` only on the last; nothing for no text
-    /// without `done`. The buffer is on the heap (the X4's frames are short)
-    /// and fallibly reserved; a refusal drops the screen's token.
+    /// without `done`. At most [`TYPED_TOTAL_MAX`] bytes per call are taken:
+    /// more is dropped whole (not cut, and never confirmed), so a long paste
+    /// cannot cause unbounded callbacks. The buffer is on the heap (the X4's
+    /// frames are short), as large as one chunk needs, fallibly reserved
+    /// (a refusal drops the screen's token) and wiped before it is freed (the
+    /// text may be a password).
     fn typed(&self, text: &str, done: bool, env: &Env<'_>) {
         const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         // Tag, length and fixed fields around the text.
         const FRAME: usize = 64;
+        if text.len() > TYPED_TOTAL_MAX {
+            return;
+        }
+        let size = text.len().min(MAX) + FRAME;
         let mut bytes = Vec::new();
-        if bytes.try_reserve_exact(MAX + FRAME).is_err() {
+        if bytes.try_reserve_exact(size).is_err() {
             self.dispatch.dropped(self.token, ERR_NO_MEMORY);
             return;
         }
-        bytes.resize(MAX + FRAME, 0);
+        bytes.resize(size, 0);
+        self.typed_chunks(text, done, env, &mut bytes);
+        crate::native_host::secret_bytes::wipe(&mut bytes);
+    }
+
+    fn typed_chunks(&self, text: &str, done: bool, env: &Env<'_>, bytes: &mut [u8]) {
+        const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         let mut rest = text;
         loop {
             let mut cut = rest.len().min(MAX);
@@ -267,7 +285,7 @@ impl<D: Dispatch> NativeScreen<D> {
                 text: chunk,
                 flags: u32::from(done && tail.is_empty()),
             });
-            let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
+            let result = codec::encode_batch(&[record], bytes).and_then(|len| {
                 self.dispatch
                     .screen_callback(self.key, self.token, &bytes[..len], env, false)
             });
