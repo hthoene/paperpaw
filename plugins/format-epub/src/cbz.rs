@@ -166,7 +166,7 @@ impl CbzDocument {
         base: &str,
         fit: Fit,
     ) -> Option<ImageRef> {
-        if !crate::pictures::has(storage, base, self.color) {
+        if !crate::pictures::has(storage, base, self.color).ok()? {
             if crate::pictures::failed(storage, base) {
                 return None;
             }

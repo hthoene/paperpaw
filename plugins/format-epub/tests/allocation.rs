@@ -75,9 +75,22 @@ fn refused() -> bool {
                 count.set(count.get() + 1);
                 count.get()
             });
-            count == REFUSE.with(Cell::get)
+            count == REFUSE.with(Cell::get) && !in_sdk_image()
         })
         .unwrap_or(false)
+}
+
+/// Whether the allocation asked for is the SDK's image opener's
+/// (`ImageFile::open`, which copies a path with no way to refuse): its
+/// follow-up is `ImageFile::try_open`, so the sweep leaves it be. The
+/// decoder's own allocations are refused as any.
+fn in_sdk_image() -> bool {
+    PAUSED.with(|paused| paused.set(paused.get() + 1));
+    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    let inside = backtrace.contains("paperpaw_image::ImageFile>::open")
+        || backtrace.contains("paperpaw_image::Decoded>::header");
+    PAUSED.with(|paused| paused.set(paused.get() - 1));
+    inside
 }
 
 // SAFETY: allocations and frees are the system allocator's; a refusal is a
@@ -178,11 +191,12 @@ impl Storage for Host {
     }
 }
 
-/// What a reader sees of an opened document: metadata and every block.
 /// Opens a document on a storage.
 type Open = dyn Fn(&Host) -> Result<Box<dyn Document>, DocumentError>;
 
-type Seen = (Option<String>, Vec<(u32, String, u32)>);
+/// What a reader sees of an opened document: metadata and every block
+/// (section, text, end, and whether it shows a picture).
+type Seen = (Option<String>, Vec<(u32, String, u32, bool)>);
 
 fn read(storage: &Host, open: &Open) -> Result<Seen, DocumentError> {
     let doc = open(storage)?;
@@ -190,17 +204,32 @@ fn read(storage: &Host, open: &Open) -> Result<Seen, DocumentError> {
     for section in 0..doc.sections() {
         let mut at = Locator::new(section, 0);
         while let Some(block) = doc.block_at(storage, at)? {
-            let Block { text, end, .. } = block;
+            let Block {
+                text, end, image, ..
+            } = block;
             assert!(end > at.offset, "no progress at {at:?}");
             at = Locator::new(section, end);
-            host(|| blocks.push((section, text, end)));
+            host(|| blocks.push((section, text, end, image.is_some())));
         }
     }
     Ok((host(|| doc.metadata().title.clone()), blocks))
 }
 
-fn sweep(name: &str, file: &str, content: &str, open: &Open) {
-    let fresh = || Host(MemoryStorage::new().with(file, content.as_bytes().to_vec()));
+fn sweep(
+    name: &str,
+    file: &str,
+    content: &str,
+    extra: &[(&str, &[u8])],
+    short_ok: bool,
+    open: &Open,
+) {
+    let fresh = || {
+        let mut storage = MemoryStorage::new().with(file, content.as_bytes().to_vec());
+        for (path, bytes) in extra {
+            storage = storage.with(path, bytes.to_vec());
+        }
+        Host(storage)
+    };
     // A clean run, counting what the parser allocates.
     ARMED.with(|armed| armed.set(true));
     REFUSE.with(|refuse| refuse.set(0));
@@ -214,6 +243,7 @@ fn sweep(name: &str, file: &str, content: &str, open: &Open) {
         "{name}: {total} allocations is not representative"
     );
     let mut refusals = 0;
+    let mut short = 0;
     for nth in 1..=total {
         let storage = fresh();
         COUNT.with(|count| count.set(0));
@@ -224,6 +254,18 @@ fn sweep(name: &str, file: &str, content: &str, open: &Open) {
         match result {
             Err(DocumentError::OutOfMemory) => refusals += 1,
             Err(other) => panic!("{name}: allocation {nth} refused: {other:?}"),
+            // A picture that found no room to be decoded is its alternative
+            // text, and the chapter is not complete in the cache.
+            Ok(seen)
+                if short_ok && seen != clean && lost_pictures(&seen) == lost_pictures(&clean) =>
+            {
+                assert_eq!(
+                    complete_chapters(&storage),
+                    0,
+                    "{name}: allocation {nth} refused: a chapter without its picture is complete"
+                );
+                short += 1;
+            }
             Ok(seen) => assert_eq!(seen, clean, "{name}: allocation {nth} refused"),
         }
         // Nothing half-made stays: the same storage, nothing refused, reads
@@ -235,6 +277,12 @@ fn sweep(name: &str, file: &str, content: &str, open: &Open) {
         );
     }
     assert!(refusals > 0, "{name}: no refusal answered OutOfMemory");
+    if short_ok {
+        assert!(
+            short > 0,
+            "{name}: no picture was left to its alternative text"
+        );
+    }
 }
 
 const MARKDOWN: &str = "# A title\n\nA paragraph with *emphasis*, **strong**, `code` and a \
@@ -248,7 +296,7 @@ const HTML: &str = "<html><head><title>Page</title><style>p.k { font-style: ital
 
 #[test]
 fn a_refused_allocation_in_markdown_is_out_of_memory() {
-    sweep("markdown", "notes/n.md", MARKDOWN, &|storage| {
+    sweep("markdown", "notes/n.md", MARKDOWN, &[], false, &|storage| {
         let doc = MarkdownDocument::open(storage, "notes/n.md", true)?;
         Ok(host(|| Box::new(doc)))
     });
@@ -256,7 +304,7 @@ fn a_refused_allocation_in_markdown_is_out_of_memory() {
 
 #[test]
 fn a_refused_allocation_in_html_is_out_of_memory() {
-    sweep("html", "web/p.html", HTML, &|storage| {
+    sweep("html", "web/p.html", HTML, &[], false, &|storage| {
         let doc = HtmlDocument::open(storage, "web/p.html", true)?;
         Ok(host(|| Box::new(doc)))
     });
@@ -285,4 +333,81 @@ fn list_infallible_sites() {
         eprintln!("{count:5} {site}");
     }
     eprintln!("{} sites", sites.len());
+}
+
+/// What a reader sees but for which blocks show a picture.
+fn lost_pictures(seen: &Seen) -> Vec<(u32, &str, u32)> {
+    seen.1
+        .iter()
+        .map(|(section, text, end, _)| (*section, text.as_str(), *end))
+        .collect()
+}
+
+/// How many chapters the cache of `storage` holds marked complete.
+fn complete_chapters(storage: &Host) -> usize {
+    fn walk(storage: &Host, dir: &str) -> usize {
+        let mut found = Vec::new();
+        let _ = storage.list(dir, &mut |entry| {
+            found.push((entry.name.to_string(), entry.is_dir));
+        });
+        found
+            .iter()
+            .map(|(name, is_dir)| {
+                let path = if dir.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{dir}/{name}")
+                };
+                if *is_dir {
+                    walk(storage, &path)
+                } else {
+                    usize::from(name.ends_with(".end"))
+                }
+            })
+            .sum()
+    }
+    walk(storage, "")
+}
+
+/// A 4 by 4 gray picture.
+const PNG: [u8; 83] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00, 0x8c, 0x9a, 0xc1,
+    0xa2, 0x00, 0x00, 0x00, 0x1a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0xb0, 0xa9, 0xd8,
+    0xc2, 0x20, 0x12, 0xd0, 0x73, 0x82, 0x41, 0x23, 0x65, 0xc1, 0x1d, 0x10, 0xef, 0x03, 0x00, 0x3e,
+    0x94, 0x07, 0x81, 0x87, 0x5a, 0xf1, 0x08, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+];
+
+/// A picture that finds no room fails the chapter, whose cache is then not
+/// complete: the retry shows the picture (`read` compares what each block
+/// shows, a picture included, with the clean run's).
+#[test]
+fn a_refused_allocation_never_caches_a_chapter_without_its_picture() {
+    const PAGE: &str = "# Pictures\n\nA line.\n\n![A cat](cat.png)\n\nAfter it.\n";
+    let storage = Host(
+        MemoryStorage::new()
+            .with("notes/n.md", PAGE.as_bytes().to_vec())
+            .with("notes/cat.png", PNG.to_vec()),
+    );
+    let (_, blocks) = read(&storage, &|s| {
+        let doc = MarkdownDocument::open(s, "notes/n.md", true)?;
+        Ok(host(|| Box::new(doc)))
+    })
+    .expect("a clean run reads");
+    assert!(
+        blocks.iter().any(|b| b.3),
+        "the picture is shown: {blocks:?}"
+    );
+    sweep(
+        "markdown with a picture",
+        "notes/n.md",
+        PAGE,
+        &[("notes/cat.png", &PNG)],
+        true,
+        &|storage| {
+            let doc = MarkdownDocument::open(storage, "notes/n.md", true)?;
+            Ok(host(|| Box::new(doc)))
+        },
+    );
 }

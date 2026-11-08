@@ -177,7 +177,7 @@ fn read_entry(
         // `cache name<TAB>alternative text`, the picture in either kind,
         // or noted to be decoded when its page shows.
         let (path, alt) = text.split_once('\t').unwrap_or((&text, ""));
-        image = crate::pictures::open_or_noted(storage, path, color);
+        image = crate::pictures::open_or_noted(storage, path, color)?;
         let alt = crate::fallible::string(alt)?;
         if image.is_none() {
             // Not decodable: its alternative text instead.
@@ -281,9 +281,14 @@ const MAX_LINE: usize = 2048;
 
 /// Calls `visit` with each line of a cache file until it returns
 /// `false`, reading in small pieces: without its line break, invalid
-/// UTF-8 replaced, cut at [`MAX_LINE`] bytes.
-pub(crate) fn lines(storage: &dyn Storage, path: &str, mut visit: impl FnMut(&str) -> bool) {
-    lines_from(storage, path, 0, |line, _| visit(line));
+/// UTF-8 replaced, cut at [`MAX_LINE`] bytes. No room for a line is
+/// `OutOfMemory`; a file that cannot be read ends the lines.
+pub(crate) fn lines(
+    storage: &dyn Storage,
+    path: &str,
+    mut visit: impl FnMut(&str) -> bool,
+) -> Result<(), DocumentError> {
+    lines_from(storage, path, 0, |line, _| visit(line))
 }
 
 /// As [`lines`], from byte `from` on (where a line starts); `visit` also
@@ -293,18 +298,18 @@ pub(crate) fn lines_from(
     path: &str,
     from: u64,
     mut visit: impl FnMut(&str, u64) -> bool,
-) {
+) -> Result<(), DocumentError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
     let mut offset = from;
     loop {
         let Ok(n) = storage.read_at(path, offset, &mut chunk) else {
-            return;
+            return Ok(());
         };
         for (i, &byte) in chunk[..n].iter().enumerate() {
             if byte != b'\n' {
                 if line.len() < MAX_LINE {
-                    line.push(byte);
+                    crate::fallible::push(&mut line, byte)?;
                 }
                 continue;
             }
@@ -312,17 +317,17 @@ pub(crate) fn lines_from(
                 line.pop();
             }
             let next = offset + i as u64 + 1;
-            if !visit(&String::from_utf8_lossy(&line), next) {
-                return;
+            if !visit(&crate::fallible::lossy(&line)?, next) {
+                return Ok(());
             }
             line.clear();
         }
         offset += n as u64;
         if n == 0 {
             if !line.is_empty() {
-                visit(&String::from_utf8_lossy(&line), offset);
+                visit(&crate::fallible::lossy(&line)?, offset);
             }
-            return;
+            return Ok(());
         }
     }
 }
@@ -357,7 +362,8 @@ pub(crate) fn anchor(
     let mut found = None;
     for (start, end) in [(from, u64::MAX), (0, from)] {
         let mut at = start;
-        lines_from(storage, &paths.anchors, start, |line, next| {
+        // No room for a line finds no anchor here.
+        let _ = lines_from(storage, &paths.anchors, start, |line, next| {
             if at >= end {
                 return false;
             }
@@ -380,7 +386,8 @@ pub(crate) fn anchor(
 /// The links of a converted chapter that overlap `from..to`, in order.
 pub(crate) fn links(storage: &dyn Storage, paths: &CachePaths, from: u32, to: u32) -> Vec<Link> {
     let mut links = Vec::new();
-    lines(storage, &paths.links, |line| {
+    // No room for a line leaves the links read so far.
+    let _ = lines(storage, &paths.links, |line| {
         let mut parts = line.splitn(3, '\t');
         let (Some(start), Some(end), Some(href)) = (parts.next(), parts.next(), parts.next())
         else {

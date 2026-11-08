@@ -551,6 +551,14 @@ impl EpubDocument {
         let paths = self.paths(storage, section)?;
         let length = match cached::converted_length(storage, &paths) {
             Some(length) => length,
+            // Converted by this very book, but not marked complete (a
+            // picture found no room to be decoded): not again each time.
+            None if slot.get() != UNKNOWN
+                && slot.get() != FAILED
+                && storage.size(&paths.text).ok() == Some(u64::from(slot.get())) =>
+            {
+                slot.get()
+            }
             None if slot.get() == FAILED => {
                 return Err(DocumentError::Malformed(Cow::Borrowed(
                     "chapter cannot be read",
@@ -645,7 +653,8 @@ impl EpubDocument {
             return pages;
         };
         let mut at = 0;
-        cached::lines_from(storage, &path, 0, |line, next| {
+        // No room for a line leaves the pages found so far.
+        let _ = cached::lines_from(storage, &path, 0, |line, next| {
             let line_at = core::mem::replace(&mut at, next);
             let mut fields = line.splitn(3, '\t');
             let (Some(Ok(s)), Some(fragment)) =
@@ -698,8 +707,12 @@ impl Document for EpubDocument {
             .map(|(_, line)| *line)
             .or(pages.before)?;
         let mut label = None;
-        cached::lines_from(storage, &self.pages_path(storage)?, line, |line, _| {
-            label = line.splitn(3, '\t').nth(2).map(String::from);
+        // No room for the line or its copy finds no label.
+        let _ = cached::lines_from(storage, &self.pages_path(storage)?, line, |line, _| {
+            label = line
+                .splitn(3, '\t')
+                .nth(2)
+                .and_then(|text| crate::fallible::string(text).ok());
             false
         });
         label
@@ -769,7 +782,7 @@ impl Document for EpubDocument {
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }
-        if !crate::pictures::has(storage, &base, self.color) {
+        if !crate::pictures::has(storage, &base, self.color)? {
             self.stamped(storage)?;
             convert::decode_image(
                 storage,
@@ -801,7 +814,7 @@ impl Document for EpubDocument {
         let (paths, ..) = self.chapter(storage, at.section).ok()?;
         // The block: the last listed at or before `at`.
         let (mut block, mut path) = (0, String::new());
-        cached::lines(storage, &paths.positions, |line| {
+        let _ = cached::lines(storage, &paths.positions, |line| {
             let Some((offset, element)) = position(line) else {
                 return true;
             };
@@ -816,7 +829,7 @@ impl Document for EpubDocument {
         let fragment = alloc::format!("/body/DocFragment[{}]/body", at.section + 1);
         // The text node the block's text at `at` comes from.
         let mut found: Option<(u32, String, u32)> = None;
-        cached::lines(storage, &paths.xpointers, |line| {
+        let _ = cached::lines(storage, &paths.xpointers, |line| {
             let Some((offset, node, char)) = origin(line) else {
                 return true;
             };
@@ -850,7 +863,7 @@ impl Document for EpubDocument {
         // Exactly, where it points into text PaperPaw shows.
         if let Some((node, char)) = pointer.node() {
             let mut found: Option<(u32, u32)> = None;
-            cached::lines(storage, &paths.xpointers, |line| {
+            let _ = cached::lines(storage, &paths.xpointers, |line| {
                 if let Some((offset, at, from)) = origin(line)
                     && at == node
                     && from <= char
@@ -875,7 +888,7 @@ impl Document for EpubDocument {
         };
         // The element's first block, else the last block it is part of.
         let (mut first, mut within) = (None, None);
-        cached::lines(storage, &paths.positions, |line| {
+        let _ = cached::lines(storage, &paths.positions, |line| {
             let Some((offset, path)) = position(line) else {
                 return true;
             };

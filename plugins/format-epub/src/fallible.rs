@@ -378,3 +378,45 @@ fn push_part(out: &mut String, kept: &mut usize, part: &str) -> Result<(), Docum
     *kept += 1;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `join_url` here and the SDK's join the same address the same way.
+    #[test]
+    fn join_url_is_the_sdks() {
+        let bases = [
+            "https://example.org",
+            "https://example.org/",
+            "https://example.org/a/b/c.html",
+            "https://example.org/a/b/?q=1#top",
+            "http://h:8080/x/y#f",
+            "not an address",
+            "",
+        ];
+        let hrefs = [
+            "",
+            "x",
+            "../x",
+            "../../../../x",
+            "./x/./y",
+            "/abs",
+            "?q=2",
+            "#frag",
+            "//other.org/p",
+            "mailto:a@b.c",
+            "https://elsewhere.net/z",
+            "d/e/../f?x#y",
+        ];
+        for base in bases {
+            for href in hrefs {
+                assert_eq!(
+                    join_url(base, href).as_deref().ok(),
+                    Some(paperpaw_sdk::web::join_url(base, href).as_str()),
+                    "base {base:?} href {href:?}"
+                );
+            }
+        }
+    }
+}

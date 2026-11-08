@@ -197,7 +197,9 @@ fn save_scan(found: &Scan) -> Result<String, DocumentError> {
 
 /// What [`scan`] found, from the cache.
 fn load_scan(storage: &dyn Storage, path: &str) -> Option<Scan> {
-    let mut data = [0u8; 4 * 1024];
+    // On the heap, not the stack: a book is opened deep in the call stack.
+    const CACHE_MAX: usize = 4 * 1024;
+    let mut data = fallible::zeroed(CACHE_MAX).ok()?;
     let mut filled = 0;
     while filled < data.len() {
         match storage

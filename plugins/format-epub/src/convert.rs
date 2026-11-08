@@ -1668,10 +1668,14 @@ pub(crate) fn convert(
     }
     let length = converter.length;
     drop(converter);
-    take_pictures(storage, source, paths, color, fit)?;
+    let complete = take_pictures(storage, source, paths, color, fit)?;
     let _ = storage.remove(&paths.pictures);
-    // Last: its presence marks a complete conversion.
-    storage.write(&paths.end, &length.to_le_bytes())?;
+    // Last: its presence marks a complete conversion. Not written where a
+    // picture found no room to be decoded: that picture is its alternative
+    // text for now, and the next opening converts the chapter again.
+    if complete {
+        storage.write(&paths.end, &length.to_le_bytes())?;
+    }
     Ok(length)
 }
 
@@ -1685,27 +1689,38 @@ const PICTURE_BATCH: usize = 32;
 /// be laid out (a big picture takes seconds to decode on small devices).
 /// Those whose size the first bytes do not say are decoded now, as are
 /// the pictures beside a file made from Markdown and a FictionBook's. One
-/// that cannot be decoded is shown as its alternative text.
+/// that cannot be decoded is shown as its alternative text. So is one
+/// that found no room to be decoded, but then the answer is `false`: the
+/// conversion is not complete, to be made again when there is room.
 fn take_pictures(
     storage: &dyn Storage,
     source: &Source<'_>,
     paths: &CachePaths,
     color: bool,
     fit: Fit,
-) -> Result<(), DocumentError> {
+) -> Result<bool, DocumentError> {
+    let short = core::cell::Cell::new(false);
+    let decoded = |result: Result<(), DocumentError>| {
+        if matches!(result, Err(DocumentError::OutOfMemory)) {
+            short.set(true);
+        }
+    };
     let mut notes: Vec<crate::pictures::Note> = Vec::new();
     let mut wanted: Vec<(String, String, Fit)> = Vec::new();
     let mut refused = None;
     let decode_binaries = |wanted: &mut Vec<(String, String, Fit)>| {
-        if let Source::Fb2 { path, encoding } = source {
-            let _ =
-                crate::fb2::decode_binaries(storage, path, *encoding, wanted, &paths.dir, color);
-        }
+        let result = match source {
+            Source::Fb2 { path, encoding } => {
+                crate::fb2::decode_binaries(storage, path, *encoding, wanted, &paths.dir, color)
+            }
+            _ => Ok(()),
+        };
         wanted.clear();
+        decoded(result);
     };
     let mut each = |path: &str| -> Result<(), DocumentError> {
         let base = image_path(&paths.dir, path)?;
-        if path.is_empty() || crate::pictures::has(storage, &base, color) {
+        if path.is_empty() || crate::pictures::has(storage, &base, color)? {
             return Ok(());
         }
         match source {
@@ -1722,13 +1737,15 @@ fn take_pictures(
                 }
                 _ => {
                     let file = crate::pictures::try_file(&base, color)?;
-                    let _ = decode_image(storage, archive, path, &file, &paths.dir, fit, color);
+                    decoded(decode_image(
+                        storage, archive, path, &file, &paths.dir, fit, color,
+                    ));
                 }
             },
             Source::Html { pictures, .. } => {
                 if let (true, Ok(size)) = (*pictures, storage.size(path)) {
                     let file = crate::pictures::try_file(&base, color)?;
-                    let _ = decode_range(storage, path, 0, size, &file, fit, color);
+                    decoded(decode_range(storage, path, 0, size, &file, fit, color));
                 }
             }
             Source::Fb2 { .. } => {
@@ -1744,7 +1761,7 @@ fn take_pictures(
         }
         Ok(())
     };
-    crate::cached::lines(storage, &paths.pictures, |path| match each(path) {
+    let read = crate::cached::lines(storage, &paths.pictures, |path| match each(path) {
         Ok(()) => true,
         Err(error) => {
             refused = Some(error);
@@ -1754,11 +1771,12 @@ fn take_pictures(
     if let Some(error) = refused {
         return Err(error);
     }
+    read?;
     crate::pictures::try_note_all(storage, &mut notes)?;
     if !wanted.is_empty() {
         decode_binaries(&mut wanted);
     }
-    Ok(())
+    Ok(!short.get())
 }
 
 /// Alternative text with its whitespace collapsed, cut to at most `max`

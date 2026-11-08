@@ -28,42 +28,57 @@ pub(crate) fn try_file(base: &str, color: bool) -> Result<String, DocumentError>
 }
 
 /// The decoded picture `base`, the kind wanted first, else the other; a
-/// picture of no size is none.
-pub(crate) fn open(storage: &dyn Storage, base: &str, color: bool) -> Option<ImageRef> {
-    [color, !color].into_iter().find_map(|color| {
-        ImageFile::open(storage, &file(base, color))
-            .filter(|image| image.width > 0 && image.height > 0)
-            .map(|image| ImageRef {
+/// picture of no size is none. No room is `OutOfMemory`.
+pub(crate) fn try_open(
+    storage: &dyn Storage,
+    base: &str,
+    color: bool,
+) -> Result<Option<ImageRef>, DocumentError> {
+    for color in [color, !color] {
+        let found = ImageFile::open(storage, &try_file(base, color)?)
+            .filter(|image| image.width > 0 && image.height > 0);
+        if let Some(image) = found {
+            return Ok(Some(ImageRef {
                 path: image.path,
                 width: image.width,
                 height: image.height,
-            })
-    })
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// As [`try_open`], where no room finds no picture (for a lookup that has
+/// no way to say so).
+pub(crate) fn open(storage: &dyn Storage, base: &str, color: bool) -> Option<ImageRef> {
+    try_open(storage, base, color).ok().flatten()
 }
 
 /// The mark of picture `base` that could not be decoded.
-fn mark(base: &str) -> String {
-    format!("{base}.bad")
+fn mark(base: &str) -> Option<String> {
+    crate::fallible::try_format!("{base}.bad").ok()
 }
 
 /// Whether picture `base` was found not to be decodable: it is not tried
 /// again each time its page shows (decoding a large one takes seconds on
 /// small devices), until its book's cache goes.
 pub(crate) fn failed(storage: &dyn Storage, base: &str) -> bool {
-    storage.exists(&mark(base))
+    mark(base).is_some_and(|mark| storage.exists(&mark))
 }
 
 /// Notes that picture `base` cannot be decoded, where `error` says the
 /// picture is at fault: short memory or a storage error may pass.
 pub(crate) fn note_failure(storage: &dyn Storage, base: &str, error: &DocumentError) {
-    if matches!(error, DocumentError::Malformed(_)) {
-        let _ = storage.write(&mark(base), &[]);
+    if matches!(error, DocumentError::Malformed(_))
+        && let Some(mark) = mark(base)
+    {
+        let _ = storage.write(&mark, &[]);
     }
 }
 
 /// The list of pictures noted in cache folder `dir`.
-fn list(dir: &str) -> String {
-    format!("{dir}/images.txt")
+fn list(dir: &str) -> Result<String, DocumentError> {
+    crate::fallible::try_format!("{dir}/images.txt")
 }
 
 /// A picture to be noted: its cache name (see [`file`]), the size it is
@@ -105,7 +120,7 @@ pub(crate) fn try_note_all(
             *fresh &= name(note) != noted;
         }
         fresh.contains(&true)
-    });
+    })?;
     let mut lines = String::new();
     for (note, _) in notes.iter().zip(&fresh).filter(|(_, f)| **f) {
         let (width, height) = note.size;
@@ -121,46 +136,80 @@ pub(crate) fn try_note_all(
     Ok(())
 }
 
+/// A noted picture: the size it is decoded to and its path in the archive.
+pub(crate) type Noted = ((u32, u32), String);
+
 /// Picture `base` as noted ([`try_note_all`]): the size it is decoded to and
-/// its path in the archive. The list is read a little at a time.
-pub(crate) fn noted(storage: &dyn Storage, base: &str) -> Option<((u32, u32), String)> {
-    let (dir, name) = base.rsplit_once('/')?;
+/// its path in the archive. The list is read a little at a time. No room
+/// is `OutOfMemory`.
+pub(crate) fn try_noted(storage: &dyn Storage, base: &str) -> Result<Option<Noted>, DocumentError> {
+    let Some((dir, name)) = base.rsplit_once('/') else {
+        return Ok(None);
+    };
     let mut found = None;
-    crate::cached::lines(storage, &list(dir), |line| {
-        found = parse(line, name);
-        found.is_none()
-    });
-    found
+    let mut refused = None;
+    crate::cached::lines(storage, &list(dir)?, |line| {
+        match parse(line, name) {
+            Ok(note) => found = note,
+            Err(error) => refused = Some(error),
+        }
+        found.is_none() && refused.is_none()
+    })?;
+    refused.map_or(Ok(found), Err)
+}
+
+/// As [`try_noted`], where no room finds no note (for a lookup that has
+/// no way to say so).
+pub(crate) fn noted(storage: &dyn Storage, base: &str) -> Option<Noted> {
+    try_noted(storage, base).ok().flatten()
 }
 
 /// A line of the list, if it notes picture `name` at a size it can have.
-fn parse(line: &str, name: &str) -> Option<((u32, u32), String)> {
+fn parse(line: &str, name: &str) -> Result<Option<Noted>, DocumentError> {
     let mut fields = line.split('\t');
-    if fields.next()? != name {
-        return None;
+    if fields.next() != Some(name) {
+        return Ok(None);
     }
-    let width = fields.next()?.parse().ok().filter(|&w| w > 0)?;
-    let height = fields.next()?.parse().ok().filter(|&h| h > 0)?;
-    Some(((width, height), String::from(fields.next()?)))
+    let size = fields
+        .next()
+        .and_then(|w| w.parse().ok())
+        .filter(|&w| w > 0)
+        .zip(
+            fields
+                .next()
+                .and_then(|h| h.parse().ok())
+                .filter(|&h| h > 0),
+        );
+    let (Some(size), Some(source)) = (size, fields.next()) else {
+        return Ok(None);
+    };
+    Ok(Some((size, crate::fallible::string(source)?)))
 }
 
 /// Picture `base`: decoded, else as noted, to be decoded in the kind
-/// wanted, unless it was found not to be decodable.
-pub(crate) fn open_or_noted(storage: &dyn Storage, base: &str, color: bool) -> Option<ImageRef> {
-    open(storage, base, color).or_else(|| {
-        if failed(storage, base) {
-            return None;
-        }
-        let ((width, height), _) = noted(storage, base)?;
-        Some(ImageRef {
-            path: file(base, color),
-            width,
-            height,
-        })
-    })
+/// wanted, unless it was found not to be decodable. No room is
+/// `OutOfMemory`.
+pub(crate) fn open_or_noted(
+    storage: &dyn Storage,
+    base: &str,
+    color: bool,
+) -> Result<Option<ImageRef>, DocumentError> {
+    if let Some(image) = try_open(storage, base, color)? {
+        return Ok(Some(image));
+    }
+    if failed(storage, base) {
+        return Ok(None);
+    }
+    let Some(((width, height), _)) = try_noted(storage, base)? else {
+        return Ok(None);
+    };
+    Ok(Some(ImageRef {
+        path: try_file(base, color)?,
+        width,
+        height,
+    }))
 }
-
 /// Whether picture `base` is decoded in the kind wanted.
-pub(crate) fn has(storage: &dyn Storage, base: &str, color: bool) -> bool {
-    ImageFile::open(storage, &file(base, color)).is_some()
+pub(crate) fn has(storage: &dyn Storage, base: &str, color: bool) -> Result<bool, DocumentError> {
+    Ok(ImageFile::open(storage, &try_file(base, color)?).is_some())
 }
