@@ -16,6 +16,10 @@ fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
         instance: None,
         env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
@@ -258,18 +262,27 @@ fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
         false,
         paperpaw_sdk::ScreenKey::new(8),
     ));
+    kernel.shared.stack_rows.update([7, 8].map(|instance| {
+        crate::native_host::stack_rows::StackRow {
+            instance,
+            owner: 5,
+            flags: 0,
+        }
+    }));
     let env = kernel.shared.env(Instant(0));
     let mut frame = frame(&kernel, &env);
     assert_eq!(frame.calling_instance(), Err(ERR_STATE));
-    for (epoch, instance, expected) in [
-        (0, Some(7), Err(ERR_STATE)),
-        (1, None, Err(ERR_STATE)),
-        (1, Some(0), Err(ERR_STATE)),
-        (1, Some(6), Err(ERR_STATE)),
-        (1, Some(7), Ok(7)),
-        (1, Some(8), Ok(8)),
+    for (owner, epoch, instance, expected) in [
+        (5, 0, Some(7), Err(ERR_STATE)),
+        (5, 1, None, Err(ERR_STATE)),
+        (5, 1, Some(0), Err(ERR_STATE)),
+        (5, 1, Some(6), Err(ERR_STATE)),
+        (5, 1, Some(7), Ok(7)),
+        (5, 1, Some(8), Ok(8)),
+        (6, 1, Some(7), Err(ERR_STATE)),
+        (0, 1, Some(7), Err(ERR_STATE)),
     ] {
-        frame.callback = Some(CallbackStamp { owner: 0, epoch });
+        frame.callback = Some(CallbackStamp { owner, epoch });
         frame.instance = instance;
         assert_eq!(frame.calling_instance(), expected);
     }
