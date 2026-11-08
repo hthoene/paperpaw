@@ -1,0 +1,3 @@
+### Added
+
+- **About is a native interface-7 plugin** (#228). The version, source, plugins built in, the interface and draft code plugins are built for, and the licences run on `paperpaw-ui-kit`'s item lists and the typed device reads; the interface-6 page and its app registration are gone. The licences and the plugins-built-in texts open in the reader only with draft 22. Other plugins' lines come through the plugin-defined stage `about.lines` and follow the licences row under a heading. The fingerprint row is replaced by the interface and draft. Rows that cannot work yet refuse as unsupported and never fake.

@@ -3,11 +3,11 @@
 # and its group in the plugin library (ADR 0023). The firmware leaves them
 # out (crates/paperpaw-app, feature `store-plugins`); keep both in step.
 aids reading
-battery system
+# battery system  (no file until the store build moves to interface 7, #228)
 browser news
 calibre library
 diagnostics system
-end-of-book reading
+# end-of-book reading  (no file until the store build moves to interface 7, #228)
 fonts-browser look
 format-mobi reading
 format-docx reading
@@ -38,7 +38,7 @@ profiles reading
 reading-goal reading
 readwise notes
 read-later-cloud news
-rules system
+# rules system  (no file until the store build moves to interface 7, #228)
 stats reading
 translate reading
 vocabulary learning

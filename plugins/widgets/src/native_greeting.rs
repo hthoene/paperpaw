@@ -117,6 +117,12 @@ fn below(cx: &mut Cx<'_>) -> Result<Option<String>, Error> {
     date_words(cx, t.month, t.day, t.weekday).map(Some)
 }
 
+/// The settings whose text a change of shows (a hash of each is kept in the
+/// mark).
+const MARKED: [&str; 4] = ["name", "line", GLYPH, "face"];
+/// The setting that names the glyph beside the greeting.
+const GLYPH: &str = "icon";
+
 /// What it shows, to tell whether it changed: the part of the day and the
 /// date.
 ///
@@ -128,7 +134,7 @@ pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
     };
     let settings = paperpaw_ui_kit::widget::Settings::new(host, widget);
     let mut mark = crate::native_draw::day_mark(&t) * 4 + part_index(Part::of(t.hour));
-    for key in ["name", "line", "icon", "face"] {
+    for key in MARKED {
         mark = crate::native_draw::fnv(
             mark,
             settings

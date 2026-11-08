@@ -199,6 +199,8 @@ impl FlatPlugin {
             depth,
             host: FlatHost {
                 meter: Rc::clone(&host.meter),
+                directory: host.try_directory().map_err(|_| FlatError::Allocation)?,
+                stack_rows: Rc::clone(&host.stack_rows),
                 font_removals: Rc::clone(&host.font_removals),
             },
         })
@@ -247,8 +249,19 @@ impl Plugin for FlatPlugin {
                 });
                 return;
             };
+            let directory = match self.host.try_directory() {
+                Ok(directory) => directory,
+                Err(_) => {
+                    result = Err(RegisterError::Invalid {
+                        message: "flat directory reference limit".into(),
+                    });
+                    return;
+                }
+            };
             let host = FlatHost {
                 meter: Rc::clone(&self.host.meter),
+                directory,
+                stack_rows: Rc::clone(&self.host.stack_rows),
                 font_removals: Rc::clone(&self.host.font_removals),
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
@@ -342,11 +355,16 @@ fn invoke(
     env: &Env<'_>,
     bytes: &[u8],
 ) -> Result<(), DropReason> {
+    let directory = host.upgrade_directory().map_err(DropReason::Plugin)?;
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
         instance: None,
         env,
         meter: &host.meter,
+        depth: None,
+        directory: directory.as_deref(),
+        stack_generation: host.stack_rows.generation(),
+        stack_rows: &host.stack_rows,
         font_removals: &host.font_removals,
         usage: env.usage(),
         plugins: env.plugins(),

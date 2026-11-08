@@ -216,7 +216,12 @@ pub(crate) fn fetched(env: &Env<'_>, path: &str, base: &str) -> Option<Vec<Font>
 /// files where `outlines`, else packs), by name, their addresses relative
 /// to `base` (the catalog's); `None` if it is no catalog this plugin
 /// reads.
-fn read(storage: &dyn Storage, path: &str, base: &str, outlines: bool) -> Option<Vec<Font>> {
+pub(crate) fn read(
+    storage: &dyn Storage,
+    path: &str,
+    base: &str,
+    outlines: bool,
+) -> Option<Vec<Font>> {
     let mut reader = Reader {
         base,
         outlines,

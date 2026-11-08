@@ -17,12 +17,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "battery"
-path = "src/bin/battery.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "browser"
 path = "src/bin/browser.rs"
 test = false
@@ -107,12 +101,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "end-of-book"
-path = "src/bin/end-of-book.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "notes-overview"
 path = "src/bin/notes-overview.rs"
 test = false
@@ -151,12 +139,6 @@ bench = false
 [[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "rules"
-path = "src/bin/rules.rs"
 test = false
 bench = false
 
@@ -271,9 +253,7 @@ bench = false
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
-paperpaw-plugin-battery = { path = "../../plugins/battery" }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
-paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
@@ -294,7 +274,6 @@ paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
-paperpaw-plugin-rules = { path = "../../plugins/rules" }
 paperpaw-plugin-stats = { path = "../../plugins/stats" }
 paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
