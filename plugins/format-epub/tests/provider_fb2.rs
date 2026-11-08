@@ -315,3 +315,20 @@ fn every_allocation_of_a_read_may_be_refused() {
         "acceptance case: refuse each allocation of open, meta, sections and block; NoMemory, never a panic"
     );
 }
+
+#[test]
+fn a_book_without_pictures_has_no_cover_and_no_picture() {
+    let io = Roots::new("n.fb2", BOOK.as_bytes());
+    let mut p = fb2_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "n.fb2")).unwrap();
+    assert!(matches!(
+        run(&mut p, &io, &call(17, |_| {})),
+        Err(Error::NotFound)
+    ));
+    for index in [0, 5, u32::MAX] {
+        assert!(matches!(
+            run(&mut p, &io, &call(18, |c| c.index = index)),
+            Err(Error::NotFound)
+        ));
+    }
+}

@@ -169,6 +169,31 @@ fn a_comic_reads_like_interface_6_page_by_page() {
         run(&mut p, &io, &call(18, |c| c.index = 999)),
         Err(Error::NotFound)
     ));
+    // Each page's picture is asked for by its number (its section), with no
+    // section on the call: page 2 gives page 2's, not page 1's.
+    let mut paths = Vec::new();
+    for page in 0..3u32 {
+        let block = run(&mut p, &io, &call(8, |c| c.section = page)).unwrap();
+        let from_block = rows(&block)
+            .into_iter()
+            .find_map(|r| match r {
+                stage::Record::FmtImage(i) => Some((i.path.to_string(), i.index)),
+                _ => None,
+            })
+            .expect("an image row");
+        assert_eq!(from_block.1, page, "the number of page {page}");
+        let reply = run(&mut p, &io, &call(18, |c| c.index = page)).unwrap();
+        match rows(&reply)[0] {
+            stage::Record::FmtImage(i) => {
+                assert_eq!((i.path.to_string(), i.index), from_block, "page {page}");
+                paths.push(from_block.0);
+            }
+            other => panic!("not an image: {other:?}"),
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    assert_eq!(paths.len(), 3, "three different pictures");
 }
 
 #[test]
