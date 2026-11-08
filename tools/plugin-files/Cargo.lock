@@ -109,7 +109,7 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-aids"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -123,9 +123,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -185,9 +186,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
