@@ -13,6 +13,17 @@ impl EventTags {
     #[cfg(test)]
     pub(crate) const LIMIT: u32 = 256;
 
+    /// The tags below the limit for which `has` says yes.
+    pub(crate) fn collect(mut has: impl FnMut(u32) -> bool) -> Self {
+        let mut set = Self::default();
+        for tag in 0..256 {
+            if has(tag) {
+                let _ = set.insert(tag);
+            }
+        }
+        set
+    }
+
     /// Add `tag`; `ERR_INVALID` for a tag beyond the set (nothing is added).
     pub(crate) fn insert(&mut self, tag: u32) -> Result<(), i32> {
         let word = self.0.get_mut((tag / 64) as usize).ok_or(ERR_INVALID)?;

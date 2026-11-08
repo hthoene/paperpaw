@@ -164,6 +164,10 @@ impl OwnerResourceView {
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
     }
+    /// The device's owner directory (see [`super::owner_directory`]).
+    pub(crate) fn owners(&self) -> Result<&Shared<super::owner_directory::OwnerDirectory>, i32> {
+        self.table.hosts.owners()
+    }
     pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
         self.table.hosts.retry_retirements()
     }

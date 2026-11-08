@@ -52,6 +52,9 @@ pub(crate) struct HostServices {
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
+    /// The enabled owners' plugin ids and subscriptions, kept by the owner
+    /// registry for the `core.net` adapter.
+    owners: OnceCell<super::shared::Shared<super::owner_directory::OwnerDirectory>>,
     /// The `core.format` calls under way (root 3 of the file service).
     #[allow(
         dead_code,
@@ -104,6 +107,7 @@ impl HostServices {
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             in_use: OnceCell::new(),
+            owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
@@ -279,6 +283,22 @@ impl HostServices {
         self.in_use.get_or_init(Default::default)
     }
 
+    /// The owner directory, made on first use.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`.
+    pub(crate) fn owners(
+        &self,
+    ) -> Result<&super::shared::Shared<super::owner_directory::OwnerDirectory>, i32> {
+        if let Some(directory) = self.owners.get() {
+            return Ok(directory);
+        }
+        let made = super::shared::Shared::try_new(super::owner_directory::OwnerDirectory::new())
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+        let _ = self.owners.set(made);
+        self.owners.get().ok_or(ERR_STATE)
+    }
+
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
     }
@@ -286,7 +306,11 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
-        self.work.set(work).map_err(|_| ERR_STATE)
+        let owners = self.owners()?;
+        let sched = Rc::clone(&work.sched);
+        self.work.set(work).map_err(|_| ERR_STATE)?;
+        owners.attach_sched(&sched);
+        Ok(())
     }
 
     pub(crate) fn work(&self) -> Option<&WorkServices> {

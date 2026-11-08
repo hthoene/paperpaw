@@ -13,14 +13,12 @@
 //! clean-up of a plugin's `.received/`. The shell gets storage paths already
 //! joined, so it needs no notion of plugins or roots.
 //!
-//! # Not wired yet
-//! Four hooks read a core view that does not exist yet (todo 110, Kernel's
-//! ruling): the plugin id of an owner (every path of root 0 and 2, and
-//! `.received/`), the event subscription of a plugin, the work run of the
-//! running callback and the screen instance that is showing. Until those
-//! views land each is a marked `TODO(core view)` that refuses safely: no
-//! request or server is admitted (no subscription), and no root-0 path is
-//! joined. Root 1 (the user's files, with `uses.storage`) works.
+//! # Views of the kernel
+//! The plugin id of an owner, its event subscriptions, the work run of the
+//! running callback and the screen instance that is showing come from the
+//! kernel's [`OwnerDirectory`]. An owner it does not know (stopped, or not
+//! admitted) is refused (`ERR_STATE`): no request or server is admitted
+//! without a subscription, and no root-0 path is joined.
 use super::{
     Decision, NetHost, NetProfile, NetTable, NetTransport, PowerEnd, Refused, Reply, Start,
     args::{self, ROLE_SAVE},
@@ -29,7 +27,9 @@ use super::{
 use crate::native_host::{
     host_services::Caller,
     net_pool::NetPool,
+    owner_directory::OwnerDirectory,
     paths_in_use::PathsInUse,
+    shared::Shared,
     shell_wiring::{
         HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, ServedDecision, ServedReply,
         ServerReason, ShellHttp, ShellNetwork,
@@ -80,17 +80,9 @@ pub(crate) struct NetDevice {
     /// first use to their last cleanup: a stopped owner is gone from the
     /// registry before its saves and `.received/` are cleaned up.
     plugins: RefCell<Vec<(u64, String)>>,
-    /// The tests' stand-ins for the core views that do not exist yet.
-    #[cfg(test)]
-    pub(crate) views: TestViews,
-}
-
-/// What the tests say the missing core views would answer.
-#[cfg(test)]
-#[derive(Default)]
-pub(crate) struct TestViews {
-    pub(crate) subscribed: core::cell::Cell<bool>,
-    pub(crate) plugin: core::cell::Cell<Option<&'static str>>,
+    /// The kernel's view of the owners: plugin ids, subscriptions, the screen
+    /// that shows, the work run.
+    owners: Shared<OwnerDirectory>,
 }
 
 fn owned(text: &str, extra: usize) -> Result<String, i32> {
@@ -118,6 +110,7 @@ impl NetDevice {
         profile: NetProfile,
         pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
+        owners: Shared<OwnerDirectory>,
     ) -> Self {
         Self {
             table: NetTable::new(pool),
@@ -128,14 +121,13 @@ impl NetDevice {
             in_use,
             staged: RefCell::new(Vec::new()),
             plugins: RefCell::new(Vec::new()),
-            #[cfg(test)]
-            views: TestViews::default(),
+            owners,
         }
     }
 
-    /// TODO(core view): the id of the plugin that owns `owner`, from the owner
-    /// registry once Core adds `plugin_id(owner, visit)`. Until then root 0 and
-    /// 2 paths, and `.received/`, cannot be joined.
+    /// Hands the id of the plugin that owns `owner` to `visit`: the id kept
+    /// from an earlier use (a stopped owner is gone from the directory before
+    /// its cleanup), else the directory's. `ERR_STATE` when neither knows it.
     fn plugin_of(&self, owner: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         {
             let known = self.plugins.try_borrow().map_err(|_| ERR_BUSY)?;
@@ -144,14 +136,14 @@ impl NetDevice {
                 return Ok(());
             }
         }
-        #[cfg(test)]
-        if let Some(id) = self.views.plugin.get() {
+        let mut found = false;
+        self.owners.with_id(owner, &mut |id| {
+            found = true;
             self.remember(owner, id);
             visit(id);
-            return Ok(());
-        }
-        let _ = visit;
-        Err(ERR_UNSUPPORTED)
+        })?;
+        debug_assert!(found);
+        Ok(())
     }
 
     /// Keeps the id of `owner`'s plugin for its cleanup after it stopped. When
@@ -433,18 +425,12 @@ impl NetHost for NetDevice {
         }
     }
 
-    fn subscribed(&self, _owner: u64, _tag: u32) -> bool {
-        // TODO(core view): the plugin's event subscription (event routing under
-        // `native_host/flat/`). Until then nothing is admitted.
-        #[cfg(test)]
-        return self.views.subscribed.get();
-        #[cfg(not(test))]
-        false
+    fn subscribed(&self, owner: u64, tag: u32) -> bool {
+        self.owners.subscribed(owner, tag)
     }
 
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd> {
         let mut end = None;
-        // TODO(core view): the plugin id. Without it the shell is not asked.
         self.plugin_of(owner, &mut |id| {
             end = self.network.power_end(id, background);
         })
@@ -466,14 +452,11 @@ impl NetHost for NetDevice {
         self.network.network_demand(wanted);
     }
 
-    fn current_run(&self, _owner: u64) -> Option<u64> {
-        // TODO(core view): the work run of the running callback
-        // (`work_sched`, `enter_run_callback`).
-        None
+    fn current_run(&self, owner: u64) -> Option<u64> {
+        self.owners.current_run(owner)
     }
-    fn showing_screen(&self, _owner: u64) -> Option<u64> {
-        // TODO(core view): the screen instance that is showing.
-        None
+    fn showing_screen(&self, owner: u64) -> Option<u64> {
+        self.owners.showing_screen(owner)
     }
 
     fn room_for(&self, extra: u64) -> bool {
@@ -496,8 +479,7 @@ impl NetHost for NetDevice {
 impl NetDevice {
     fn clear_folder(&self, owner: u64, server: Option<u32>) {
         use core::fmt::Write;
-        // TODO(core view): the plugin folder. A plugin that has none cannot
-        // have received anything.
+        // A plugin that has no id cannot have received anything.
         let mut path = String::new();
         let made = self.plugin_of(owner, &mut |id| {
             if path

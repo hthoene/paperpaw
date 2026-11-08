@@ -1,21 +1,24 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 //! The production `core.net` host over a fake shell and a memory card: what
 //! core derives itself (roots and paths, sizes, claims, the staged file of a
-//! saved answer), the translation to the shell's plain types, and the hooks
-//! that wait for core views.
+//! saved answer), the translation to the shell's plain types, and the views of
+//! the owner directory.
 extern crate std;
 use super::*;
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
+    event_tags::EventTags,
     host_services::HostServices,
     net_service::{
         self, DONE_SAVED, NetProfile, table,
         tests::{self as fixtures, Event, OWNER},
     },
+    owner_directory::OwnerDirectory,
+    shared::Shared,
     shell_wiring::{NetInputs, NetLimits, NetPowerEnd, ShellHttp, ShellNetwork},
 };
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::ERR_IO;
+use paperpaw_native::host_glue::{ERR_IO, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_sdk::MemoryStorage;
 use std::{string::ToString, vec};
@@ -81,6 +84,7 @@ struct Fixture {
     shell: Rc<Shell>,
     device: NetDevice,
     hosts: HostServices,
+    owners: Shared<OwnerDirectory>,
 }
 
 fn fixture(limits: NetLimits) -> Fixture {
@@ -88,14 +92,18 @@ fn fixture(limits: NetLimits) -> Fixture {
     let shell = Rc::new(Shell::default());
     shell.up.set(true);
     let hosts = HostServices::new();
+    let owners = hosts.owners().unwrap().try_clone().unwrap();
     let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits)
-        .device(hosts.in_use().clone());
-    device.views.subscribed.set(true);
+        .device(hosts.in_use().clone(), owners.try_clone().unwrap());
+    // The plugin `mail` runs and subscribed to every event.
+    owners.admit(OWNER, "mail").unwrap();
+    owners.subscribe(OWNER, EventTags::collect(|_| true));
     Fixture {
         card,
         shell,
         device,
         hosts,
+        owners,
     }
 }
 
@@ -332,11 +340,11 @@ fn paths_are_held_once_for_core_net_and_core_files() {
 }
 
 #[test]
-fn what_waits_for_a_core_view_refuses_safely() {
+fn an_owner_the_kernel_does_not_know_is_refused_safely() {
     let f = fixture(x4());
-    f.device.views.subscribed.set(false);
+    f.owners.withdraw(OWNER);
     let d = &f.device;
-    assert_eq!(d.claim_save(OWNER, 0, "a.txt"), Err(ERR_UNSUPPORTED));
+    assert_eq!(d.claim_save(OWNER, 0, "a.txt"), Err(ERR_STATE));
     assert!(!d.subscribed(OWNER, 99));
     assert_eq!(d.current_run(OWNER), None);
     assert_eq!(d.showing_screen(OWNER), None);
@@ -352,7 +360,6 @@ fn what_waits_for_a_core_view_refuses_safely() {
 #[test]
 fn received_bodies_are_cleared_under_the_plugin_folder() {
     let f = fixture(x4());
-    f.device.views.plugin.set(Some("mail"));
     for path in [
         ".paperpaw/plugins/mail/.received/3/4",
         ".paperpaw/plugins/mail/.received/3/5",
@@ -429,7 +436,6 @@ fn a_path_that_ends_inside_a_letter_is_not_cut_in_two() {
 #[test]
 fn saves_and_received_files_are_cleaned_up_after_the_plugin_is_gone() {
     let f = fixture(x4());
-    f.device.views.plugin.set(Some("mail"));
     f.device.claim_save(OWNER, 0, "a.txt").unwrap();
     f.card
         .write(".paperpaw/plugins/mail/a.txt.pp-staged", b"x")
@@ -438,7 +444,7 @@ fn saves_and_received_files_are_cleaned_up_after_the_plugin_is_gone() {
         .write(".paperpaw/plugins/mail/.received/3/4", b"x")
         .unwrap();
     // The owner is out of the registry before the cleanup runs.
-    f.device.views.plugin.set(None);
+    f.owners.withdraw(OWNER);
     f.device.release_save(OWNER, 0, "a.txt");
     assert!(
         f.card
@@ -453,7 +459,7 @@ fn saves_and_received_files_are_cleaned_up_after_the_plugin_is_gone() {
     f.device.clear_received(OWNER, None);
     assert!(f.card.size(".paperpaw/plugins/mail/.received/3/4").is_err());
     // The id is let go with the last cleanup.
-    assert_eq!(f.device.claim_save(OWNER, 0, "a.txt"), Err(ERR_UNSUPPORTED));
+    assert_eq!(f.device.claim_save(OWNER, 0, "a.txt"), Err(ERR_STATE));
 }
 
 #[test]

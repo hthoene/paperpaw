@@ -1,8 +1,10 @@
 //! One retained instance registry and a deduplicated outer-callback start queue.
 //! Registrations retain leases from this registry, never a second plugin owner.
 use super::{
+    event_tags::EventTags,
     native_callbacks::{CallbackClock, CallbackRuntime, NativeCallbackEpoch},
     native_screen::Dispatch,
+    owner_directory::OwnerDirectory,
     resources::OwnerResourceView,
     shared::{self, Shared},
 };
@@ -152,7 +154,27 @@ impl Drop for CallbackEpoch<'_> {
     }
 }
 
+/// The event tags an instance subscribed to.
+fn subscriptions(lease: &NativeLease) -> EventTags {
+    lease.live().map_or_else(
+        |_| EventTags::default(),
+        |instance| EventTags::collect(|tag| instance.subscribed(tag)),
+    )
+}
+
 impl NativeInstances {
+    /// The owner directory of the device pool, once an owner was admitted.
+    fn directory(&self) -> Option<&Shared<OwnerDirectory>> {
+        self.pool.as_ref()?.owners().ok()
+    }
+
+    /// Lets the device services see the kernel's screen stack.
+    pub(crate) fn attach_screens(&self, screens: &alloc::rc::Rc<super::stack_rows::StackRows>) {
+        if let Some(directory) = self.directory() {
+            directory.attach_screens(screens);
+        }
+    }
+
     pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
         self.pool.as_ref()?.ui_store()
     }
@@ -180,6 +202,7 @@ impl NativeInstances {
         enabled: bool,
     ) -> Result<u64, i32> {
         let key = identity.owner_id();
+        let directory = identity.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.adopt_pool(identity)?;
         if self
             .entries
@@ -189,6 +212,12 @@ impl NativeInstances {
             return Err(ERR_INVALID);
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        if enabled {
+            directory.admit(key, id.as_str())?;
+            if let Some(lease) = &instance {
+                directory.subscribe(key, subscriptions(lease));
+            }
+        }
         self.entries.push(Entry {
             key,
             id,
@@ -207,24 +236,6 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .map(|entry| &entry.id)
-    }
-
-    /// The plugin id of an enabled owner (`.received/` paths, root-0 saves).
-    /// A borrow of the entry's id: no allocation. `None` for an owner that is
-    /// unknown or stopped.
-    pub(crate) fn plugin_id(&self, key: u64) -> Option<&Id> {
-        self.id(key)
-    }
-
-    /// Whether the running instance of `key` subscribed to the event `tag`.
-    /// `false` for an owner that is unknown, stopped, not started yet or
-    /// without that subscription. No allocation, no foreign code.
-    pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
-        self.entry(key)
-            .filter(|entry| entry.enabled)
-            .and_then(|entry| entry.instance.as_ref())
-            .and_then(|lease| lease.live().ok())
-            .is_some_and(|instance| instance.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -251,6 +262,9 @@ impl NativeInstances {
     /// A frozen run may retain the returned lease after this entry stops.
     /// Revocation makes that old lease CANCELLED without invoking foreign code.
     pub(crate) fn stop(&mut self, key: u64) -> Result<(), i32> {
+        if let Some(directory) = self.directory() {
+            directory.withdraw(key);
+        }
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.start.set(false);
@@ -284,11 +298,15 @@ impl NativeInstances {
         if self.callbacks.depth() != 0 {
             return Err(ERR_STATE);
         }
+        let subscribed = subscriptions(&instance);
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         if !entry.enabled || entry.instance.is_some() {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        if let Some(directory) = self.directory() {
+            directory.subscribe(key, subscribed);
+        }
         Ok(())
     }
 
@@ -315,6 +333,9 @@ impl NativeInstances {
     /// Retire a published owner. Cleanup is retryable under the same key;
     /// callbacks and broker lookup are revoked even when cleanup is busy.
     pub(crate) fn retire(&mut self, key: u64) -> Result<Option<String>, i32> {
+        if let Some(directory) = self.directory() {
+            directory.withdraw(key);
+        }
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.retiring = true;
@@ -616,7 +637,13 @@ mod tests {
     }
 
     #[test]
-    fn views_answer_plugin_id_and_subscription_only_for_a_running_owner() {
+    fn the_directory_follows_admission_install_and_stop() {
+        let id_of = |dir: &OwnerDirectory, key: u64| {
+            let mut found = None;
+            dir.with_id(key, &mut |id| found = Some(alloc::string::String::from(id)))
+                .ok()
+                .and(found)
+        };
         let mut registry = NativeInstances::default();
         let lease = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
         let key = registry
@@ -625,19 +652,25 @@ mod tests {
         let lazy = registry
             .test_insert(Id::new_static("net.lazy"), None, true)
             .unwrap();
-        assert_eq!(registry.plugin_id(key).map(Id::as_str), Some("net.probe"));
-        assert_eq!(registry.plugin_id(lazy).map(Id::as_str), Some("net.lazy"));
-        assert!(registry.plugin_id(key + 1000).is_none(), "unknown owner");
-        assert!(registry.subscribed(key, 99));
-        assert!(!registry.subscribed(key, 101), "not that event");
-        assert!(
-            !registry.subscribed(lazy, 99),
-            "not started: no subscription"
-        );
-        assert!(!registry.subscribed(key + 1000, 99), "unknown owner");
+        let off = registry
+            .test_insert(Id::new_static("net.off"), None, false)
+            .unwrap();
+        let dir = registry.directory().unwrap().try_clone().unwrap();
+        assert_eq!(id_of(&dir, key).as_deref(), Some("net.probe"));
+        assert_eq!(id_of(&dir, lazy).as_deref(), Some("net.lazy"));
+        assert_eq!(id_of(&dir, off), None, "a disabled owner has no row");
+        assert_eq!(id_of(&dir, key + 1000), None, "unknown owner");
+        assert!(dir.subscribed(key, 99));
+        assert!(!dir.subscribed(key, 101), "not that event");
+        assert!(!dir.subscribed(lazy, 99), "not started: no subscription");
+        let started = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
+        registry.install(lazy, started).unwrap();
+        assert!(dir.subscribed(lazy, 99), "the install records it");
         registry.stop(key).unwrap();
-        assert!(!registry.subscribed(key, 99), "a stopped owner has none");
-        assert!(registry.plugin_id(key).is_none(), "nor an id");
+        assert!(!dir.subscribed(key, 99), "a stopped owner has none");
+        assert_eq!(id_of(&dir, key), None, "nor an id");
+        registry.retire(lazy).unwrap();
+        assert_eq!(id_of(&dir, lazy), None, "a retired owner has no row");
     }
 
     #[test]

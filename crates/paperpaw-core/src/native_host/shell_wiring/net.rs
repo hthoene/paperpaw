@@ -16,7 +16,9 @@ use crate::{
     native_host::{
         net_pool::NetPool,
         net_service::{self, NetDevice, NetProfile},
+        owner_directory::OwnerDirectory,
         paths_in_use::PathsInUse,
+        shared::Shared,
     },
 };
 use alloc::{string::String, vec::Vec};
@@ -345,7 +347,11 @@ impl NetInputs {
         }
     }
 
-    pub(crate) fn device(self, in_use: Rc<PathsInUse>) -> NetDevice {
+    pub(crate) fn device(
+        self,
+        in_use: Rc<PathsInUse>,
+        owners: Shared<OwnerDirectory>,
+    ) -> NetDevice {
         let profile = NetProfile {
             pool: self.limits.pool_bytes,
             memory_bodies: self.limits.memory_bodies,
@@ -354,7 +360,15 @@ impl NetInputs {
             cable: self.limits.cable,
         };
         let pool = Rc::new(NetPool::new(profile.pool));
-        NetDevice::new(self.storage, self.http, self.network, profile, pool, in_use)
+        NetDevice::new(
+            self.storage,
+            self.http,
+            self.network,
+            profile,
+            pool,
+            in_use,
+            owners,
+        )
     }
 }
 

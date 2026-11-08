@@ -18,7 +18,7 @@ pub use net::{
     HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
     NetReports, ServedDecision, ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
-use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
 
 /// What a shell wires into the device's host views. Nothing is wired for a
@@ -152,7 +152,8 @@ impl HostResources {
             hosts.wire_device(host)?;
         }
         if let Some(inputs) = wiring.net {
-            let device = Rc::new(inputs.device(hosts.in_use().clone()));
+            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let device = Rc::new(inputs.device(hosts.in_use().clone(), owners));
             hosts.wire_net(device.clone())?;
             wired.net = Some(NetReports(device));
         }

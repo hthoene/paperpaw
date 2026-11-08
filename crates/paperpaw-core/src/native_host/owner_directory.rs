@@ -1,0 +1,193 @@
+//! Who the running plugin owners are, for the host services that must name a
+//! plugin or ask about its subscriptions (`core.net`: the `.received/` folder,
+//! the root-0 saves, "did the plugin subscribe to the done event").
+//!
+//! The owner registry ([`super::native_instances::NativeInstances`]) lives in
+//! the kernel and cannot be borrowed by a device adapter, so it keeps this
+//! read-only copy up to date: a row when an enabled owner is admitted, its
+//! subscribed event tags when its instance is installed, no row once it
+//! stops. Nothing here runs plugin code, and a read never allocates.
+
+use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
+use alloc::{rc::Rc, string::String, vec::Vec};
+use core::cell::RefCell;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
+
+struct Row {
+    key: u64,
+    id: String,
+    tags: EventTags,
+}
+
+/// The enabled owners: key, plugin id and subscribed event tags.
+#[derive(Default)]
+pub(crate) struct OwnerDirectory {
+    rows: RefCell<Vec<Row>>,
+    /// The kernel's screen stack, once a native owner was admitted.
+    screens: RefCell<Option<Rc<StackRows>>>,
+    /// The scheduler, once `core.work` is wired.
+    sched: RefCell<Option<Rc<WorkSched>>>,
+}
+
+impl core::fmt::Debug for OwnerDirectory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OwnerDirectory").finish_non_exhaustive()
+    }
+}
+
+impl OwnerDirectory {
+    pub(crate) const fn new() -> Self {
+        Self {
+            rows: RefCell::new(Vec::new()),
+            screens: RefCell::new(None),
+            sched: RefCell::new(None),
+        }
+    }
+
+    /// Keeps the screen stack for [`Self::showing_screen`].
+    pub(crate) fn attach_screens(&self, screens: &Rc<StackRows>) {
+        if let Ok(mut slot) = self.screens.try_borrow_mut() {
+            *slot = Some(Rc::clone(screens));
+        }
+    }
+
+    /// Keeps the scheduler for [`Self::current_run`].
+    pub(crate) fn attach_sched(&self, sched: &Rc<WorkSched>) {
+        if let Ok(mut slot) = self.sched.try_borrow_mut() {
+            *slot = Some(Rc::clone(sched));
+        }
+    }
+
+    /// The screen instance of `owner` whose callback runs, if it is showing
+    /// (`None` when unknown, covered, or no stack is attached).
+    pub(crate) fn showing_screen(&self, owner: u64) -> Option<u64> {
+        self.screens
+            .try_borrow()
+            .ok()?
+            .as_ref()?
+            .showing_screen(owner)
+    }
+
+    /// The work run `owner`'s running callback belongs to.
+    pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
+        self.sched.try_borrow().ok()?.as_ref()?.current_run(owner)
+    }
+
+    /// Adds the row of an enabled owner (no subscriptions yet).
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
+    pub(crate) fn admit(&self, key: u64, id: &str) -> Result<(), i32> {
+        let mut rows = self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        let mut copy = String::new();
+        copy.try_reserve_exact(id.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        copy.push_str(id);
+        rows.retain(|row| row.key != key);
+        rows.push(Row {
+            key,
+            id: copy,
+            tags: EventTags::default(),
+        });
+        Ok(())
+    }
+
+    /// Records the event tags the owner's instance subscribed to. An owner
+    /// that has no row (stopped) is left alone.
+    pub(crate) fn subscribe(&self, key: u64, tags: EventTags) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut()
+            && let Some(row) = rows.iter_mut().find(|row| row.key == key)
+        {
+            row.tags = tags;
+        }
+    }
+
+    /// Drops the owner's row (it stopped or was retired).
+    pub(crate) fn withdraw(&self, key: u64) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+            rows.retain(|row| row.key != key);
+        }
+    }
+
+    /// Hands the plugin id of an enabled owner to `visit`.
+    ///
+    /// # Errors
+    /// `ERR_STATE` for an owner that is unknown or stopped, or while another
+    /// reader or writer holds the table.
+    pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
+        let rows = self.rows.try_borrow().map_err(|_| ERR_STATE)?;
+        let row = rows.iter().find(|row| row.key == key).ok_or(ERR_STATE)?;
+        visit(&row.id);
+        Ok(())
+    }
+
+    /// Whether the running instance of `key` subscribed to the event `tag`;
+    /// `false` for an owner that is unknown, stopped or busy.
+    pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
+        self.rows.try_borrow().ok().is_some_and(|rows| {
+            rows.iter()
+                .any(|row| row.key == key && row.tags.contains(tag))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tags(of: &[u32]) -> EventTags {
+        let mut set = EventTags::default();
+        for tag in of {
+            set.insert(*tag).unwrap();
+        }
+        set
+    }
+
+    fn id_of(dir: &OwnerDirectory, key: u64) -> Result<String, i32> {
+        let mut out = String::new();
+        dir.with_id(key, &mut |id| out.push_str(id))?;
+        Ok(out)
+    }
+
+    #[test]
+    fn an_admitted_owner_has_its_id_and_a_stopped_one_has_none() {
+        let dir = OwnerDirectory::new();
+        assert_eq!(id_of(&dir, 7), Err(ERR_STATE));
+        dir.admit(7, "net.probe").unwrap();
+        assert_eq!(id_of(&dir, 7).as_deref(), Ok("net.probe"));
+        assert_eq!(id_of(&dir, 8), Err(ERR_STATE));
+        dir.withdraw(7);
+        assert_eq!(id_of(&dir, 7), Err(ERR_STATE));
+    }
+
+    #[test]
+    fn subscriptions_belong_to_their_owner_only() {
+        let dir = OwnerDirectory::new();
+        dir.admit(1, "a").unwrap();
+        dir.admit(2, "b").unwrap();
+        assert!(!dir.subscribed(1, 99), "nothing before the install");
+        dir.subscribe(1, tags(&[99]));
+        dir.subscribe(3, tags(&[99]));
+        assert!(dir.subscribed(1, 99));
+        assert!(!dir.subscribed(1, 101) && !dir.subscribed(2, 99));
+        assert!(!dir.subscribed(3, 99), "no row, no subscription");
+        dir.withdraw(1);
+        assert!(!dir.subscribed(1, 99));
+    }
+
+    #[test]
+    fn a_busy_table_answers_state_and_never_panics() {
+        let dir = OwnerDirectory::new();
+        dir.admit(1, "a").unwrap();
+        let mut inner = Ok(());
+        dir.with_id(1, &mut |_| {
+            inner = dir.with_id(1, &mut |_| {});
+            assert_eq!(dir.admit(2, "b"), Err(ERR_BUSY));
+            dir.withdraw(1);
+        })
+        .unwrap();
+        assert_eq!(inner, Ok(()), "readers share");
+        assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"), "withdraw waited out");
+    }
+}
