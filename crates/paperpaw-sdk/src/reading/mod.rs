@@ -278,7 +278,7 @@ fn format_settings(env: &crate::Env<'_>) -> Vec<(String, String)> {
         .iter()
         .filter_map(|f| f.id.as_str().split_once('.').map(|(plugin, _)| plugin))
         .collect();
-    owners.sort_unstable();
+    paperpaw_sort::sort(&mut owners);
     owners.dedup();
     env.settings()
         .specs()
