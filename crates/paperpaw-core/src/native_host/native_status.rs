@@ -7,6 +7,7 @@ use super::{
     ui_service::{StatusAsk, UiDirectory},
 };
 use crate::abi7::{context::Frame, core_frame::CoreFrame};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED,
@@ -110,11 +111,11 @@ fn input(items: &[&str], context: &[u8]) -> Result<Vec<u8>, i32> {
         payload: &payload,
     });
     let mut call = scratch(
-        wire::record_framed_len(&record)?
+        codec::framed_len(&record)?
             .checked_add(1)
             .ok_or(ERR_NO_SPACE)?,
     )?;
-    wire::records_encode(&[record], &mut call)?;
+    codec::encode_batch(&[record], &mut call)?;
     Ok(call)
 }
 
@@ -125,7 +126,7 @@ mod tests {
     #[test]
     fn owner_call_preserves_group_order_and_context_inside_stage_envelope() {
         let bytes = input(&["remote.second", "remote.first"], &[0, 9, 255]).unwrap();
-        let Record::StageCall(call) = wire::records_decode_single(&bytes).unwrap() else {
+        let Record::StageCall(call) = codec::decode_any_single(&bytes).unwrap() else {
             panic!("expected stage.call")
         };
         assert_eq!(

@@ -13,6 +13,9 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/codec.rs"]
+pub(crate) mod codec;
+
 #[path = "native_host/event_tags.rs"]
 pub(crate) mod event_tags;
 

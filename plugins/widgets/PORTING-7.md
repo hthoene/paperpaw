@@ -41,8 +41,9 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family (quote, note, to-do, picture,
-greeting) and the books family. The interface-6 pack stays in `src/` until
+The words family's quote, to-do, picture and logo widgets, and the books
+family. Ported from the words family so far: greeting (by time of day) and
+note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
 every widget is ported; then the last commit deletes it, its app wiring and
 its tests together (no shim).
 
@@ -103,3 +104,23 @@ calls (tiles, word clock text and grid, moon rows, the kit's joins); the
 calls that need a host (drawing, measuring, settings reads) have no refusal
 sweep until the SDK has a mock host; their allocations are fallible by
 reading and by the kit's own sweeps.
+
+## Words family: greeting, note, quote
+
+- Greeting draws its sun and moon as shapes (discs, rays and a bite), not with
+  the icon font. Pure calls (`Part`, `short_date`, `draw_icon`, the quote's
+  `parse`, `marks`, `of_the_day`) are tested directly; calls that need the host
+  (settings, fonts, storage) have no refusal sweep until the SDK has a mock host.
+- Text settings are read up to 4096 bytes (the editor holds 4084): a long note,
+  heading, name or title is read whole.
+- Note: a tap asks for the text on the keyboard (`core.ui`), the old text first
+  (written in parts after the request is made); a second tap while a request is
+  open does nothing, the first answer counts.
+- Quote: PaperPaw's quotes come from `data/quotes.<language>.txt` in the install
+  folder (else those the app carries), the reader's own from `quotes.txt` in the
+  data folder; both are streamed a line at a time (a line over 4096 bytes is cut, a file of any size is read to its end). The turns are kept in
+  `quote.txt` of the data folder. The UI language is the setting `core.language`
+  (read when drawing, nothing cached): `de` picks the German quotes, any other
+  language the English, and the quotation marks follow the tag. "Another each time it shows" counts showings in
+  memory, once for all made within a minute.
+

@@ -3,6 +3,7 @@
 //! row stays unconsumed for the next page. Nothing is retained between calls.
 use super::registrations::{self as wire, Record};
 use crate::abi7::services_wire::core_registry_v1;
+use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE};
 
@@ -32,7 +33,7 @@ impl<'a> RegistryPage<'a> {
         if query.cursor > total {
             return Err(ERR_INVALID);
         }
-        let end_bytes = wire::record_framed_len(&end(total, generation, query.cursor))?;
+        let end_bytes = codec::framed_len(&end(total, generation, query.cursor))?;
         if out.len() < end_bytes {
             return Err(ERR_NO_SPACE);
         }
@@ -55,7 +56,7 @@ impl<'a> RegistryPage<'a> {
         if self.rows == core_registry_v1::PAGE_MAX_ROWS {
             return Ok(ControlFlow::Break(()));
         }
-        let length = wire::record_framed_len(record)?;
+        let length = codec::framed_len(record)?;
         let available = self.out.len() - self.used - self.end_bytes;
         if length > available {
             return if self.rows == 0 {
@@ -64,7 +65,7 @@ impl<'a> RegistryPage<'a> {
                 Ok(ControlFlow::Break(()))
             };
         }
-        let written = wire::record_encode_one(record, &mut self.out[self.used..])?;
+        let written = codec::encode_one(record, &mut self.out[self.used..])?;
         self.used += written;
         self.rows += 1;
         self.cursor += 1;
@@ -76,7 +77,7 @@ impl<'a> RegistryPage<'a> {
             return Err(ERR_INVALID);
         }
         let record = end(self.total, self.generation, self.cursor);
-        self.used += wire::record_encode_one(&record, &mut self.out[self.used..])?;
+        self.used += codec::encode_one(&record, &mut self.out[self.used..])?;
         Ok(self.used)
     }
 }
@@ -115,7 +116,7 @@ mod tests {
     fn page_end(mut bytes: &[u8]) -> (usize, wire::ServiceEnd) {
         let mut rows = 0;
         loop {
-            let (record, length) = wire::record_decode_prefix(bytes).unwrap();
+            let (record, length) = codec::decode_any_prefix(bytes).unwrap();
             bytes = &bytes[length..];
             if let Record::ServiceEnd(end) = record {
                 assert!(bytes.is_empty());
@@ -169,8 +170,8 @@ mod tests {
 
     #[test]
     fn byte_capacity_reserves_the_end_and_never_splits_a_row() {
-        let end_bytes = wire::record_framed_len(&end(2, 1, 1)).unwrap();
-        let row_bytes = wire::record_framed_len(&row()).unwrap();
+        let end_bytes = codec::framed_len(&end(2, 1, 1)).unwrap();
+        let row_bytes = codec::framed_len(&row()).unwrap();
         let mut out = [0; 128];
         let mut page =
             RegistryPage::new(&query(0, 0), 1, 2, &mut out[..end_bytes + row_bytes]).unwrap();

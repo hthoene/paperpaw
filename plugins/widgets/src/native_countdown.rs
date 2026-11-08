@@ -104,8 +104,18 @@ pub fn days_until(today: (i32, u8, u8), target: Target) -> (i64, (i32, u8, u8)) 
 /// Host refusals.
 pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
     let settings = Settings::new(host, widget);
-    let mark = fnv(today(host)?, settings.string("date", 64)?.as_bytes());
-    Ok(fnv(mark, settings.string("title", 128)?.as_bytes()))
+    let mark = fnv(
+        today(host)?,
+        settings
+            .string("date", crate::native_draw::TEXT_MAX)?
+            .as_bytes(),
+    );
+    Ok(fnv(
+        mark,
+        settings
+            .string("title", crate::native_draw::TEXT_MAX)?
+            .as_bytes(),
+    ))
 }
 
 /// The height: the number, two small lines, the frame.
@@ -187,7 +197,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     let Some(now) = cx.local_time()? else {
         return no_time(cx, out, &look);
     };
-    let date_setting = cx.settings.string("date", 64)?;
+    let date_setting = cx.settings.string("date", crate::native_draw::TEXT_MAX)?;
     let Some(target) = parse(&date_setting) else {
         let message = cx.tr("widgets.countdown.no-date")?;
         return message_in(cx, out, &look, &message);
@@ -200,7 +210,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
         day.2,
         matches!(target, Target::Once(..)) && day.0 != now.year,
     )?;
-    let title_setting = cx.settings.string("title", 128)?;
+    let title_setting = cx.settings.string("title", crate::native_draw::TEXT_MAX)?;
     let title = title_setting.trim();
     let titled = !title.is_empty();
     // Without a title, the date in short: "24 December".
