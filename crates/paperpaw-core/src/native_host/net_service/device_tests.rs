@@ -406,3 +406,65 @@ fn reports_for_unknown_ids_are_ignored_and_the_staged_list_stays_empty() {
     assert!(f.device.staged.borrow().is_empty());
     let _ = vec![ERR_IO];
 }
+
+#[test]
+fn a_path_that_ends_inside_a_letter_is_not_cut_in_two() {
+    let f = fixture(x4());
+    let storage = caller(&f, 1);
+    // The last ten bytes start inside the two-byte "é".
+    for path in [
+        "éaaaaaaaaa",
+        "dir/éaaaaaaaaa",
+        "aéaaaaaaaaa",
+        "日本語日本語日本語",
+    ] {
+        assert_eq!(f.device.root_access(&storage, 1, path, true), Ok(()));
+    }
+    assert_eq!(
+        f.device.root_access(&storage, 1, "é.PP-STAGED", true),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn saves_and_received_files_are_cleaned_up_after_the_plugin_is_gone() {
+    let f = fixture(x4());
+    f.device.views.plugin.set(Some("mail"));
+    f.device.claim_save(OWNER, 0, "a.txt").unwrap();
+    f.card
+        .write(".paperpaw/plugins/mail/a.txt.pp-staged", b"x")
+        .unwrap();
+    f.card
+        .write(".paperpaw/plugins/mail/.received/3/4", b"x")
+        .unwrap();
+    // The owner is out of the registry before the cleanup runs.
+    f.device.views.plugin.set(None);
+    f.device.release_save(OWNER, 0, "a.txt");
+    assert!(
+        f.card
+            .size(".paperpaw/plugins/mail/a.txt.pp-staged")
+            .is_err()
+    );
+    assert!(
+        !f.hosts
+            .in_use()
+            .holds(".paperpaw/plugins/mail/a.txt", false)
+    );
+    f.device.clear_received(OWNER, None);
+    assert!(f.card.size(".paperpaw/plugins/mail/.received/3/4").is_err());
+    // The id is let go with the last cleanup.
+    assert_eq!(f.device.claim_save(OWNER, 0, "a.txt"), Err(ERR_UNSUPPORTED));
+}
+
+#[test]
+fn debug_output_leaves_out_what_the_plugin_sent_and_got() {
+    let done = HttpDone {
+        body: b"secret-body".to_vec(),
+        etag: "secret-etag",
+        final_url: "https://x.test/?token=secret-url",
+        ..HttpDone::new(200, HttpReason::Ok)
+    };
+    let text = std::format!("{done:?}");
+    assert!(!text.contains("secret"), "{text}");
+    assert!(text.contains("body_len"));
+}

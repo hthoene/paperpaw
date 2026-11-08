@@ -76,6 +76,10 @@ pub(crate) struct NetDevice {
     profile: NetProfile,
     in_use: Rc<PathsInUse>,
     staged: RefCell<Vec<Staged>>,
+    /// The plugin ids of the owners that used the network, kept from their
+    /// first use to their last cleanup: a stopped owner is gone from the
+    /// registry before its saves and `.received/` are cleaned up.
+    plugins: RefCell<Vec<(u64, String)>>,
     /// The tests' stand-ins for the core views that do not exist yet.
     #[cfg(test)]
     pub(crate) views: TestViews,
@@ -123,6 +127,7 @@ impl NetDevice {
             profile,
             in_use,
             staged: RefCell::new(Vec::new()),
+            plugins: RefCell::new(Vec::new()),
             #[cfg(test)]
             views: TestViews::default(),
         }
@@ -132,14 +137,42 @@ impl NetDevice {
     /// registry once Core adds `plugin_id(owner, visit)`. Until then root 0 and
     /// 2 paths, and `.received/`, cannot be joined.
     fn plugin_of(&self, owner: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
-        let _ = owner;
+        {
+            let known = self.plugins.try_borrow().map_err(|_| ERR_BUSY)?;
+            if let Some((_, id)) = known.iter().find(|(o, _)| *o == owner) {
+                visit(id);
+                return Ok(());
+            }
+        }
         #[cfg(test)]
         if let Some(id) = self.views.plugin.get() {
+            self.remember(owner, id);
             visit(id);
             return Ok(());
         }
         let _ = visit;
         Err(ERR_UNSUPPORTED)
+    }
+
+    /// Keeps the id of `owner`'s plugin for its cleanup after it stopped. When
+    /// there is no room, the id is not kept (the cleanup then needs the view).
+    fn remember(&self, owner: u64, id: &str) {
+        let Ok(mut known) = self.plugins.try_borrow_mut() else {
+            return;
+        };
+        if known.try_reserve(1).is_err() {
+            return;
+        }
+        if let Ok(copy) = owned(id, 0) {
+            known.push((owner, copy));
+        }
+    }
+
+    /// The owner's last cleanup is done: its id is let go.
+    fn forget(&self, owner: u64) {
+        if let Ok(mut known) = self.plugins.try_borrow_mut() {
+            known.retain(|(o, _)| *o != owner);
+        }
     }
 
     /// `path` of `root` for `plugin`, joined for the storage.
@@ -340,8 +373,10 @@ impl NetHost for NetDevice {
         // The staged name is core's, as `.part` was: no path of the plugin's
         // may end in it.
         if write
-            && path.len() >= STAGED.len()
-            && path[path.len() - STAGED.len()..].eq_ignore_ascii_case(STAGED)
+            && path
+                .as_bytes()
+                .last_chunk::<{ STAGED.len() }>()
+                .is_some_and(|tail| tail.eq_ignore_ascii_case(STAGED.as_bytes()))
         {
             return Err(ERR_INVALID);
         }
@@ -446,6 +481,20 @@ impl NetHost for NetDevice {
     }
 
     fn clear_received(&self, owner: u64, server: Option<u32>) {
+        self.clear_folder(owner, server);
+        if server.is_none() {
+            // The owner's last cleanup (it started or stopped).
+            self.forget(owner);
+        }
+    }
+
+    fn remove_received(&self, owner: u64, server: u32, request: u32) {
+        self.remove_one(owner, server, request);
+    }
+}
+
+impl NetDevice {
+    fn clear_folder(&self, owner: u64, server: Option<u32>) {
         use core::fmt::Write;
         // TODO(core view): the plugin folder. A plugin that has none cannot
         // have received anything.
@@ -473,7 +522,7 @@ impl NetHost for NetDevice {
         self.storage.remove_dir_all(&path).unwrap_or_default();
     }
 
-    fn remove_received(&self, owner: u64, server: u32, request: u32) {
+    fn remove_one(&self, owner: u64, server: u32, request: u32) {
         use core::fmt::Write;
         let mut path = String::new();
         let made = self.plugin_of(owner, &mut |id| {

@@ -22,10 +22,19 @@ use crate::{
 use alloc::{string::String, vec::Vec};
 
 /// The headers of a request or an answer, in order, as `(name, value)`.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HttpHeaders<'a> {
     items: &'a [Option<ServiceNetHeader<'a>>],
     at: usize,
+}
+
+/// Header values carry credentials: only the number of headers is shown.
+impl core::fmt::Debug for HttpHeaders<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HttpHeaders")
+            .field("count", &self.clone().count())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> HttpHeaders<'a> {
@@ -50,7 +59,7 @@ impl<'a> Iterator for HttpHeaders<'a> {
 /// renames it over the target when the answer is whole and removes it when the
 /// request ends otherwise or is aborted, so the shell never writes a final
 /// name.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct HttpJob<'a> {
     /// The id the shell reports under ([`NetReports::finished`]).
@@ -67,6 +76,20 @@ pub struct HttpJob<'a> {
     pub max_body: u32,
     pub max_file: u64,
     pub timeout_ms: u32,
+}
+
+/// The URL, headers and body are the plugin's data (they can hold
+/// credentials): they are not printed.
+impl core::fmt::Debug for HttpJob<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HttpJob")
+            .field("id", &self.id)
+            .field("method", &self.method)
+            .field("max_body", &self.max_body)
+            .field("max_file", &self.max_file)
+            .field("timeout_ms", &self.timeout_ms)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> HttpJob<'a> {
@@ -99,7 +122,7 @@ impl<'a> HttpJob<'a> {
 }
 
 /// The answer to a request the shell's server received.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct ServedReply<'a> {
     pub status: u32,
@@ -110,6 +133,15 @@ pub struct ServedReply<'a> {
     pub send_path: Option<&'a str>,
     /// Its size, where core has checked it.
     pub file_len: Option<u64>,
+}
+
+/// Headers and body are the plugin's data: they are not printed.
+impl core::fmt::Debug for ServedReply<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ServedReply")
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> ServedReply<'a> {
@@ -341,7 +373,6 @@ pub enum HttpReason {
 }
 
 /// What the shell reports for a request that came to an end.
-#[derive(Debug)]
 #[non_exhaustive]
 pub struct HttpDone<'a> {
     pub status: u32,
@@ -360,6 +391,20 @@ pub struct HttpDone<'a> {
     /// capacity than the reservation is refused: the request ends with
     /// "too large" and nothing is kept.
     pub body: Vec<u8>,
+}
+
+/// The answer's body, URL and tags are the server's data: only sizes and
+/// states are printed.
+impl core::fmt::Debug for HttpDone<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HttpDone")
+            .field("status", &self.status)
+            .field("reason", &self.reason)
+            .field("saved", &self.saved)
+            .field("truncated", &self.truncated)
+            .field("body_len", &self.body.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> HttpDone<'a> {
