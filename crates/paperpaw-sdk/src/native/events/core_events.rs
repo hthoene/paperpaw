@@ -1,7 +1,7 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
-    wire::Record,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, LibraryChanges, PowerChange,
+    ReadingView, WifiDone, WifiLinkState, wire::Record,
 };
 use crate::{
     native::{
@@ -56,11 +56,45 @@ pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
             now_ms: r.now_ms,
             path: r.path,
         },
+        Record::EventLibraryChanged(r) => Event::LibraryChanged {
+            now_ms: r.now_ms,
+            what: LibraryChanges::from_bits(r.what),
+            generation: r.generation,
+            path: r.path,
+        },
         Record::EventPluginsChanged(r) => Event::PluginsChanged { now_ms: r.now_ms },
         Record::EventWifiChanged(r) => Event::WifiChanged {
             now_ms: r.now_ms,
             state: WifiLinkState::decode(r.state),
         },
+        Record::EventWifiScanned(r) => Event::WifiScanned {
+            now_ms: r.now_ms,
+            networks: r.networks,
+        },
+        Record::EventWifiDone(r) => Event::WifiDone(WifiDone {
+            now_ms: r.now_ms,
+            request: r.request,
+            ssid: r.ssid,
+            status: r.status,
+            reason: r.reason,
+            state: r.state,
+        }),
+        Record::EventNetworkWanted(r) => Event::NetworkWanted { now_ms: r.now_ms },
+        Record::EventNetworkIdle(r) => Event::NetworkIdle { now_ms: r.now_ms },
+        Record::EventFirmwareChanged(r) => Event::FirmwareChanged {
+            now_ms: r.now_ms,
+            request: crate::native::device::DeviceRequest::new(r.request),
+            state: crate::native::device::FirmwareState::decode(r.state),
+        },
+        Record::EventInstallDone(r) => Event::InstallDone(InstallDone {
+            now_ms: r.now_ms,
+            request: r.request,
+            kind: r.kind,
+            status: r.status,
+            reason: r.reason,
+            flags: r.flags,
+            id: r.id,
+        }),
         Record::EventBluetooth(r) => Event::Bluetooth(BluetoothChange {
             now_ms: r.now_ms,
             kind: r.kind,
