@@ -27,7 +27,8 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   `nvs` partition); **a full-image flash or an erase of the whole flash
   erases it**, and then the sealed values cannot be read any more. Flash
   the app partitions and the partition table without touching
-  `[0xC000, 0xD000)` (`tools/flash-x4.py` does not).
+  `[0xC000, 0xD000)` (`tools/flash-x4.py` does not). The web flasher keeps it too: a reinstall
+  skips `[0xC000, 0xD000)`, so saved passwords survive it (decision 139).
   On Android the file is in the app's private folder, which only
   PaperPaw reads. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the
