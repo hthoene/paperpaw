@@ -116,7 +116,7 @@ mod tests {
     fn page_end(mut bytes: &[u8]) -> (usize, wire::ServiceEnd) {
         let mut rows = 0;
         loop {
-            let (record, length) = codec::decode_prefix(bytes).unwrap();
+            let (record, length) = codec::decode_any_prefix(bytes).unwrap();
             bytes = &bytes[length..];
             if let Record::ServiceEnd(end) = record {
                 assert!(bytes.is_empty());

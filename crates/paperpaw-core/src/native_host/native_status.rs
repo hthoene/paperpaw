@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn owner_call_preserves_group_order_and_context_inside_stage_envelope() {
         let bytes = input(&["remote.second", "remote.first"], &[0, 9, 255]).unwrap();
-        let Record::StageCall(call) = codec::decode_single(&bytes).unwrap() else {
+        let Record::StageCall(call) = codec::decode_any_single(&bytes).unwrap() else {
             panic!("expected stage.call")
         };
         assert_eq!(

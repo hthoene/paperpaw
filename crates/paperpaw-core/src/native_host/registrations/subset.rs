@@ -10,8 +10,38 @@
 use super::wire::{self, RawRecord, Record, WireEncode};
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
-/// `raw` as the record its tag names, if it is one of the subset.
+/// `raw` as the record its tag names, for the few records the host still reads
+/// through the `Record` enum: the kernel's own events, the router's input, the
+/// library page rows it compares and the lookup reply. Every other op decodes
+/// the type it expects ([`super::super::codec::single`]). Another tag is
+/// `ERR_UNSUPPORTED`.
 pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
+    Ok(match raw.tag() {
+        wire::EVENT_ACTION_RUN_TAG => Record::EventActionRun(raw.decode()?),
+        wire::EVENT_BATTERY_MEASURED_TAG => Record::EventBatteryMeasured(raw.decode()?),
+        wire::EVENT_PAGE_TURNED_TAG => Record::EventPageTurned(raw.decode()?),
+        wire::EVENT_RESUME_TAG => Record::EventResume(raw.decode()?),
+        wire::EVENT_SCREEN_SHOWN_TAG => Record::EventScreenShown(raw.decode()?),
+        wire::EVENT_STARTED_TAG => Record::EventStarted(raw.decode()?),
+        wire::EVENT_STOPPING_TAG => Record::EventStopping(raw.decode()?),
+        wire::EVENT_SUSPEND_TAG => Record::EventSuspend(raw.decode()?),
+        wire::EVENT_SETTING_CHANGED_TAG => Record::EventSettingChanged(raw.decode()?),
+        wire::INPUT_GESTURE_TAG => Record::InputGesture(raw.decode()?),
+        wire::INPUT_KEY_TAG => Record::InputKey(raw.decode()?),
+        wire::INPUT_POINTER_TAG => Record::InputPointer(raw.decode()?),
+        wire::SERVICE_LIB_ANCHOR_TAG => Record::ServiceLibAnchor(raw.decode()?),
+        wire::SERVICE_LIB_ANNOTATION_TAG => Record::ServiceLibAnnotation(raw.decode()?),
+        wire::SERVICE_LIB_ENTRY_TAG => Record::ServiceLibEntry(raw.decode()?),
+        wire::SERVICE_LIB_FACET_TAG => Record::ServiceLibFacet(raw.decode()?),
+        wire::SERVICE_LIB_FIELD_TAG => Record::ServiceLibField(raw.decode()?),
+        wire::SERVICE_LOOKUP_ENTRY_TAG => Record::ServiceLookupEntry(raw.decode()?),
+        _ => return Err(ERR_UNSUPPORTED),
+    })
+}
+
+/// Every record of the subset, for tests that read any reply.
+#[cfg(test)]
+pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
     Ok(match raw.tag() {
         wire::DRAW_FRAME_TAG => Record::DrawFrame(raw.decode()?),
         wire::EVENT_ACTION_RUN_TAG => Record::EventActionRun(raw.decode()?),

@@ -90,6 +90,6 @@ pub(super) fn with_ref<const N: usize>(input: &[u8]) -> Result<Parsed<'_, N>, i3
 }
 
 /// An input of exactly one record (ops that take no `lib_ref`).
-pub(super) fn single(input: &[u8]) -> Result<Record<'_>, i32> {
-    codec::decode_single(input)
+pub(super) fn single<'a, R: wire::WireRecord<'a>>(input: &'a [u8]) -> Result<R, i32> {
+    codec::single(input)
 }

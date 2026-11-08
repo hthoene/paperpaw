@@ -37,20 +37,29 @@ pub(crate) fn single<'a, R: WireRecord<'a>>(bytes: &'a [u8]) -> Result<R, i32> {
 
 // ---- `Record` values of the host's subset (`registrations::subset`) ----
 
-/// A batch of exactly one record, as the `Record` its tag names.
+/// A batch of exactly one record, as the `Record` its tag names (the few the
+/// host reads through the enum: `registrations::subset::decode_record`).
 pub(crate) fn decode_single(bytes: &[u8]) -> Result<Record<'_>, i32> {
     decode_record(RawRecord::single(bytes)?)
-}
-
-/// One bare record, nothing after it.
-pub(crate) fn decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    decode_record(RawRecord::one(bytes)?)
 }
 
 /// The bare record at the front of `bytes`, and the frame length.
 pub(crate) fn decode_prefix(bytes: &[u8]) -> Result<(Record<'_>, usize), i32> {
     let (raw, used) = RawRecord::prefix(bytes)?;
     Ok((decode_record(raw)?, used))
+}
+
+/// Any record of the subset, in tests that read the reply of any op.
+#[cfg(test)]
+pub(crate) fn decode_any_single(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    super::registrations::decode_any(RawRecord::single(bytes)?)
+}
+
+/// The bare record at the front of `bytes`, any of the subset, and the frame length.
+#[cfg(test)]
+pub(crate) fn decode_any_prefix(bytes: &[u8]) -> Result<(Record<'_>, usize), i32> {
+    let (raw, used) = RawRecord::prefix(bytes)?;
+    Ok((super::registrations::decode_any(raw)?, used))
 }
 
 /// One bare `Record` at the front of `out`; the length written.

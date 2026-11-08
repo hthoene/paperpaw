@@ -7,7 +7,6 @@ use super::{
     secret_bytes::wipe,
 };
 use crate::abi7::services_wire::ServiceOp;
-use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
@@ -149,7 +148,9 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             .iter()
             .position(|expected| *expected == tag)
             .ok_or(ERR_INVALID)?;
-        let record = codec::decode_one(framed).map_err(|_| ERR_INVALID)?;
+        // Only the end row's body is read; a row of another tag is framed and
+        // listed by the op, and its body is the backend's own encoding.
+        let raw = registrations::RawRecord::one(framed).map_err(|_| ERR_INVALID)?;
         if op.reply_rows == 0 {
             if tag == registrations::SERVICE_END_TAG || index < next_tag {
                 return Err(ERR_INVALID);
@@ -158,8 +159,9 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             rows += 1;
             return Ok(());
         }
-        match record {
-            registrations::Record::ServiceEnd(end) => {
+        match tag {
+            registrations::SERVICE_END_TAG => {
+                let end: registrations::ServiceEnd = raw.decode().map_err(|_| ERR_INVALID)?;
                 if !op.paged
                     && (end.total != rows || end.next != 0 || end.generation != 0 || end.flags != 0)
                 {

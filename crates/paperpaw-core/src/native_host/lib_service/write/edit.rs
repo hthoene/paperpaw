@@ -268,9 +268,7 @@ pub(super) fn run(
 }
 
 fn reference(input: &[u8]) -> Result<u32, i32> {
-    let Record::ServiceLibTransactionRef(reference) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceLibTransactionRef = args::single(input)?;
     Ok(reference.transaction)
 }
 
@@ -488,9 +486,7 @@ fn text(
     input: &[u8],
     now: u64,
 ) -> Result<usize, i32> {
-    let Record::ServiceLibEditText(part) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let part: wire::ServiceLibEditText<'_> = args::single(input)?;
     let mut transaction = table.lease(who.owner, part.transaction, now)?;
     let last = part.flags & 1 != 0;
     require(part.flags & !1 == 0 && !part.data.is_empty())?;
@@ -582,9 +578,7 @@ fn receipt(
     rows_cap: usize,
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibReceiptAsk(ask) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceLibReceiptAsk = args::single(input)?;
     rows(out, rows_cap, ask.transaction, |visit| {
         host.receipt(who, ask.transaction, ask.cursor, visit)
     })
