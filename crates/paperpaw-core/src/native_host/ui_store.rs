@@ -639,6 +639,28 @@ impl UiStore {
         Ok(())
     }
 
+    /// Find the next retained instance, including request ties and dialogs.
+    /// The kernel compares these ids against its actual stack during recovery.
+    pub(crate) fn next_retained_instance(&self, after: u32) -> Result<Option<u32>, i32> {
+        let inner = self.inner_busy()?;
+        Ok(inner
+            .entries
+            .iter()
+            .filter_map(|entry| match entry.state {
+                State::Owned { instance } => Some(instance),
+                _ => None,
+            })
+            .chain(
+                inner
+                    .requests
+                    .iter()
+                    .flat_map(|request| request.instances())
+                    .flatten(),
+            )
+            .filter(|instance| *instance > after)
+            .min())
+    }
+
     /// An instance closed: what it owns is freed.
     pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;

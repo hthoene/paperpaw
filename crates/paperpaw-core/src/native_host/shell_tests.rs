@@ -790,6 +790,8 @@ mod instance_tests {
         let instance = load().unwrap();
         let host = FlatHost {
             meter: crate::meter::Meter::new(None),
+            directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
@@ -841,6 +843,8 @@ mod instance_tests {
             EVENT_ONLY.with(|e| e.set(true));
             let host = FlatHost {
                 meter: crate::meter::Meter::new(None),
+                directory: None,
+                stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
@@ -926,6 +930,8 @@ mod instance_tests {
     fn flat_host() -> crate::native_host::FlatHost {
         crate::native_host::FlatHost {
             meter: crate::meter::Meter::new(None),
+            directory: None,
+            stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
