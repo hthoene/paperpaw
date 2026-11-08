@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 41] = [
+pub const STORE_PLUGINS: [&str; 40] = [
     "aids",
     "browser",
     "calibre",
