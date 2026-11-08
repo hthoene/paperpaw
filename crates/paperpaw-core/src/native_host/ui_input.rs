@@ -1,0 +1,627 @@
+//! The `core.input-filter` chain (ui.md section 4.1): every key, pointer and
+//! gesture goes to the filters first, one stage call per filter, before
+//! screens, gestures and key maps.
+//!
+//! Pure policy plus one adapter. [`InputFilters`] holds the captures (at most
+//! [`MAX_CAPTURES`], fixed, no allocation) and runs the chain through a
+//! [`FilterRunner`]; [`BrokerRunner`] is the production runner over the stage
+//! broker (one subscription per run, so a `replace` feeds the filters after
+//! it). Nothing here keeps a kernel borrow, and no plugin code runs while the
+//! table is borrowed by anything else: the router applies [`Routed::Run`] and
+//! [`Routed::Raise`] after this returns.
+//!
+//! Rules kept (all from ui.md):
+//! - the hold-Power escape never gets here (the router checks it first);
+//! - at most [`MAX_FILTERS`] filters, in the order given (registration order);
+//!   on the X4 key inputs only (no pointer, no gesture);
+//! - a filter the guard rule skips is not called (`Policy::runs`);
+//! - verdicts: 0 pass, 1 take, 2 run, 3 cancel, 4 replace, 5 raise. Anything
+//!   else, an empty or invalid reply, a failed callback, an over-cap capture,
+//!   a run without an action, a replace that is not one key, pointer or
+//!   gesture record, a raise of a name the filter's plugin did not declare:
+//!   pass, counted in [`Dispatched::refused`] for the log;
+//! - take and cancel of a pointer down or key press capture it whole, for one
+//!   subscription (plugin and token) and keyed by the physical input: its
+//!   moves, up, repeats and release go through the filters before the
+//!   capturer (only their pass and replace count), then to the capturer with
+//!   `filter.input.flags` bit 0, and to nothing after it. The capturer's run
+//!   and raise act on them, replace is ignored, the rest end it. If the
+//!   capturing plugin stops or its callback fails, the capture is released and
+//!   the rest still goes nowhere until the up or release; the next input
+//!   starts fresh with all filters. Flag bit 1 says the top instance is secret;
+//!   a released capture is evicted first when the table is full, and the
+//!   router clears the table on sleep, wake and an input reset (`InputFilters::clear`);
+//! - a filter takes or cancels only at the start (pointer down, key press, or a
+//!   gesture); for an up, move, release or repeat whose start it did not
+//!   capture that is a pass; a replace may not make `power`;
+//! - `raise` and `run` end the chain; `raise` is checked against the
+//!   plugin's own declared inputs and gestures; raised inputs pass no filter
+//!   (the router applies them as a chain step).
+use super::{
+    DispatchDepth,
+    native_instances::NativeInstances,
+    registrations::{self as wire, Record},
+    stage_broker::{Run, Schema, Subscription},
+    stages_wire::core_input_filter_v1 as stage,
+};
+use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_SPACE};
+use paperpaw_platform::buttons;
+use paperpaw_sdk::Env;
+
+/// Filters called per input (the stage's subscriber cap).
+pub(crate) const MAX_FILTERS: usize = stage::MAX_SUBSCRIBERS;
+/// Pointer contacts and keys held under a capture at once.
+pub(crate) const MAX_CAPTURES: usize = 8;
+/// One input record, framed (`filter.input.input`, `filter.verdict.input`).
+const INPUT_BYTES: usize = 128;
+/// A `filter.input` batch: the input, the flags and the framing.
+const PAYLOAD_BYTES: usize = 160;
+/// A `filter.verdict` batch: kind, action, input, raise and the framing.
+const REPLY_BYTES: usize = 384;
+const KEY_BYTES: usize = 32;
+
+/// The stage the broker runs: bounds sized to one input and one verdict, so a
+/// call allocates well under a kilobyte (the stage's own caps are 3,840).
+pub(crate) fn schema() -> Schema {
+    Schema {
+        key: stage::KEY,
+        major: u32::from(stage::MAJOR),
+        max_subscribers: MAX_FILTERS,
+        max_input: PAYLOAD_BYTES,
+        max_reply: REPLY_BYTES,
+        reply_rows: 1,
+        input: |bytes| stage::input_decode(bytes).map(|_| ()),
+        reply: |bytes| stage::reply_decode(bytes).map(|_| ()),
+    }
+}
+
+/// A short text kept by value (an action or an input name).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Short<const N: usize> {
+    bytes: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> Short<N> {
+    fn new(text: &str) -> Option<Self> {
+        let mut bytes = [0; N];
+        bytes
+            .get_mut(..text.len())?
+            .copy_from_slice(text.as_bytes());
+        Some(Self {
+            bytes,
+            len: text.len(),
+        })
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        self.bytes
+            .get(..self.len)
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+            .unwrap_or("")
+    }
+}
+
+/// One input record, encoded as a one-record batch.
+#[derive(Clone, Copy)]
+pub(crate) struct Encoded {
+    bytes: [u8; INPUT_BYTES],
+    len: usize,
+}
+
+impl core::fmt::Debug for Encoded {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Encoded").field("len", &self.len).finish()
+    }
+}
+
+impl Encoded {
+    /// A key, pointer or gesture record; anything else is `ERR_INVALID`.
+    fn from_record(record: &Record<'_>) -> Result<Self, i32> {
+        classify(record)?;
+        let mut bytes = [0; INPUT_BYTES];
+        let len = wire::records_encode(core::slice::from_ref(record), &mut bytes)?;
+        Ok(Self { bytes, len })
+    }
+
+    /// The same, from the bytes of a verdict's `input` (one record).
+    /// It is input made by a plugin, so a key name is checked: 1 to 32 bytes
+    /// without control characters (otherwise `ERR_INVALID`).
+    fn from_batch(batch: &[u8]) -> Result<Self, i32> {
+        let record = wire::records_decode_single(batch)?;
+        // The Power key's escape and power actions come from the physical
+        // button only: a replace may not make it.
+        if let Record::InputKey(key) = &record
+            && (key.key.is_empty()
+                || key.key.chars().any(char::is_control)
+                || key.key == buttons::POWER)
+        {
+            return Err(ERR_INVALID);
+        }
+        Self::from_record(&record)
+    }
+
+    fn batch(&self) -> &[u8] {
+        self.bytes.get(..self.len).unwrap_or(&[])
+    }
+
+    /// The record, to hand on to the router.
+    pub(crate) fn record(&self) -> Result<Record<'_>, i32> {
+        wire::records_decode_single(self.batch())
+    }
+}
+
+/// What an input is for capture: a key (by name), a pointer contact, or a
+/// gesture (never held).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Subject {
+    Key { name: [u8; KEY_BYTES], len: usize },
+    Pointer(u32),
+    Gesture,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Phase {
+    Start,
+    Mid,
+    End,
+    Once,
+}
+
+fn classify(record: &Record<'_>) -> Result<(Subject, Phase), i32> {
+    match record {
+        Record::InputKey(key) => {
+            let mut name = [0; KEY_BYTES];
+            name.get_mut(..key.key.len())
+                .ok_or(ERR_INVALID)?
+                .copy_from_slice(key.key.as_bytes());
+            let phase = match key.state {
+                0 => Phase::Start,
+                1 => Phase::End,
+                // A repeat is more of the held key (screens-input.md 2.2).
+                2 => Phase::Mid,
+                _ => return Err(ERR_INVALID),
+            };
+            Ok((
+                Subject::Key {
+                    name,
+                    len: key.key.len(),
+                },
+                phase,
+            ))
+        }
+        Record::InputPointer(pointer) => {
+            let phase = match pointer.phase {
+                0 => Phase::Start,
+                1 => Phase::Mid,
+                2 | 3 => Phase::End,
+                _ => return Err(ERR_INVALID),
+            };
+            Ok((Subject::Pointer(pointer.contact.unwrap_or(0)), phase))
+        }
+        Record::InputGesture(_) => Ok((Subject::Gesture, Phase::Once)),
+        _ => Err(ERR_INVALID),
+    }
+}
+
+/// What the router does with the input.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Routed {
+    /// Unchanged: on to screens, gestures and key maps.
+    Pass,
+    /// Changed by a `replace` (the last one): on as this input.
+    Replaced(Encoded),
+    /// Nothing else sees it.
+    Taken,
+    /// Nothing else sees it, and the router drops what follows the finger
+    /// or the key (`cancel_input`).
+    Cancelled,
+    /// Run this action as if bound to the input.
+    Run(Short<128>),
+    /// Raise `input` (one of `owner`'s declared inputs or gestures).
+    Raise { owner: u64, input: Short<64> },
+}
+
+/// The verdict of a dispatch and how many filters were refused (failed or
+/// invalid callbacks, replies and verdicts), for the log.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Dispatched {
+    pub(crate) routed: Routed,
+    pub(crate) refused: usize,
+}
+
+/// What the router knows and the chain does not.
+pub(crate) struct Policy<'a> {
+    /// Touch inputs (pointers, gestures) are filtered; the X4 filters keys only.
+    pub(crate) touch: bool,
+    /// The instance on top is secret (`filter.input.flags` bit 1).
+    pub(crate) secret: bool,
+    /// The guard rule: whether the filter of this plugin is called now
+    /// (`ui_guard::filter_runs` over the stack rows).
+    pub(crate) runs: &'a dyn Fn(u64) -> bool,
+    /// Whether the plugin declared this `input.<plugin>.<name>` or
+    /// `gesture.<plugin>.<name>`.
+    pub(crate) declared: &'a dyn Fn(u64, &str) -> bool,
+}
+
+/// One stage call: the reply batch is written to `reply`, its length returned.
+/// `Err` is a failed, invalid or missing callback.
+pub(crate) trait FilterRunner {
+    fn call(
+        &mut self,
+        filter: &Subscription<'_>,
+        payload: &[u8],
+        reply: &mut [u8],
+    ) -> Result<usize, i32>;
+}
+
+/// The production runner: one subscription per stage-broker run, at depth 0,
+/// before routing. The environment, registry and depth are borrowed for the
+/// dispatch only.
+pub(crate) struct BrokerRunner<'a, 'e> {
+    pub(crate) schema: &'a Schema,
+    pub(crate) depth: &'a DispatchDepth,
+    pub(crate) registry: &'a NativeInstances,
+    pub(crate) env: &'a Env<'e>,
+}
+
+impl FilterRunner for BrokerRunner<'_, '_> {
+    fn call(
+        &mut self,
+        filter: &Subscription<'_>,
+        payload: &[u8],
+        reply: &mut [u8],
+    ) -> Result<usize, i32> {
+        let run = Run::prepare(
+            self.schema,
+            self.depth,
+            payload,
+            self.registry,
+            core::iter::once(*filter),
+        )?;
+        let mut written: Option<usize> = None;
+        let outcome = run.apply(
+            &mut written,
+            self.env,
+            |target| Ok(*target),
+            |target, answer| {
+                reply
+                    .get_mut(..answer.bytes.len())
+                    .ok_or(ERR_NO_SPACE)?
+                    .copy_from_slice(answer.bytes);
+                *target = Some(answer.bytes.len());
+                Ok(())
+            },
+        )?;
+        match written {
+            Some(length) if outcome.applied == 1 => Ok(length),
+            _ => Err(ERR_CANCELLED),
+        }
+    }
+}
+
+/// `filter.input.flags` bit 0: this input is the rest of one the filter took
+/// or cancelled.
+const FLAG_CAPTURED: u32 = 1;
+/// `filter.input.flags` bit 1: the instance on top is secret.
+const FLAG_SECRET: u32 = 2;
+
+/// The subscription that holds a capture: its plugin and token.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Holder {
+    plugin: u64,
+    token: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Capture {
+    /// The physical input (the key as the device gave it, the pointer
+    /// contact), not what a replace made of it.
+    subject: Subject,
+    /// The capturing subscription; `None` once its plugin stopped or it
+    /// failed (the rest of the input is swallowed without a call).
+    owner: Option<Holder>,
+}
+
+/// The captures; the only state of the chain.
+#[derive(Debug, Default)]
+pub(crate) struct InputFilters {
+    captures: [Option<Capture>; MAX_CAPTURES],
+}
+
+impl InputFilters {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Captures held now.
+    pub(crate) fn held(&self) -> usize {
+        self.captures.iter().flatten().count()
+    }
+
+    /// The plugin stopped: whatever it captured is swallowed to its up or
+    /// release, without a call.
+    pub(crate) fn owner_stopped(&mut self, plugin: u64) {
+        for capture in self.captures.iter_mut().flatten() {
+            if capture.owner.is_some_and(|o| o.plugin == plugin) {
+                capture.owner = None;
+            }
+        }
+    }
+
+    /// Forgets every capture (a reset of the input path).
+    pub(crate) fn clear(&mut self) {
+        self.captures = [None; MAX_CAPTURES];
+    }
+
+    fn find(&self, subject: &Subject) -> Option<usize> {
+        self.captures
+            .iter()
+            .position(|c| c.is_some_and(|c| c.subject == *subject))
+    }
+
+    fn capture(&mut self, subject: Subject, owner: Holder) -> Result<(), i32> {
+        // Free room first; else a released capture (its plugin stopped or
+        // failed, it only waits for an up that may never come).
+        let at = self
+            .find(&subject)
+            .or_else(|| self.captures.iter().position(Option::is_none))
+            .or_else(|| {
+                self.captures
+                    .iter()
+                    .position(|c| c.is_some_and(|c| c.owner.is_none()))
+            })
+            .ok_or(ERR_FULL)?;
+        self.captures[at] = Some(Capture {
+            subject,
+            owner: Some(owner),
+        });
+        Ok(())
+    }
+
+    /// Sends `input` through the filters (`filters` in registration order).
+    /// `Err` only when the input is not a key, pointer or gesture record
+    /// (`ERR_INVALID`): the router passes it on unfiltered.
+    pub(crate) fn dispatch(
+        &mut self,
+        runner: &mut dyn FilterRunner,
+        filters: &[Subscription<'_>],
+        policy: &Policy<'_>,
+        input: &Record<'_>,
+    ) -> Result<Dispatched, i32> {
+        let original = Encoded::from_record(input)?;
+        // The physical input: captures are keyed by it, whatever a replace
+        // turns it into on the way.
+        let (subject, phase) = classify(input)?;
+        let secret = if policy.secret { FLAG_SECRET } else { 0 };
+        // Moves, up and release of a captured contact or key.
+        if matches!(phase, Phase::Mid | Phase::End)
+            && let Some(at) = self.find(&subject)
+        {
+            return Ok(self.captured_rest(at, phase, runner, filters, policy, &original));
+        }
+        // A press or down while one is held for it: the up was lost; fresh start.
+        if phase == Phase::Start
+            && let Some(at) = self.find(&subject)
+        {
+            self.captures[at] = None;
+        }
+        if !policy.touch && !matches!(subject, Subject::Key { .. }) {
+            return Ok(Dispatched {
+                routed: Routed::Pass,
+                refused: 0,
+            });
+        }
+        let mut current = original;
+        let mut changed = false;
+        let mut refused = 0;
+        for filter in filters.iter().filter(|f| f.enabled).take(MAX_FILTERS) {
+            if !(policy.runs)(filter.plugin) {
+                continue;
+            }
+            let Some(verdict) = ask(runner, filter, &current, secret) else {
+                refused += 1;
+                continue;
+            };
+            let routed = match verdict {
+                Verdict::Pass => continue,
+                // Only the start is taken: a screen that got the down always
+                // gets its up. Take and cancel on anything else are a pass.
+                Verdict::Take | Verdict::Cancel if !matches!(phase, Phase::Start | Phase::Once) => {
+                    continue;
+                }
+                Verdict::Take | Verdict::Cancel => {
+                    let holder = Holder {
+                        plugin: filter.plugin,
+                        token: filter.token,
+                    };
+                    if phase == Phase::Start && self.capture(subject, holder).is_err() {
+                        refused += 1;
+                        continue;
+                    }
+                    if matches!(verdict, Verdict::Take) {
+                        Routed::Taken
+                    } else {
+                        Routed::Cancelled
+                    }
+                }
+                Verdict::Run(action) => run(action),
+                Verdict::Replace(next) => {
+                    if replacement_fits(&next) {
+                        current = next;
+                        changed = true;
+                    } else {
+                        refused += 1;
+                    }
+                    continue;
+                }
+                Verdict::Raise(name) => raise(filter, name, policy),
+                Verdict::Invalid => Routed::Pass,
+            };
+            if matches!(routed, Routed::Pass) {
+                refused += 1;
+                continue;
+            }
+            return Ok(Dispatched { routed, refused });
+        }
+        Ok(Dispatched {
+            routed: if changed {
+                Routed::Replaced(current)
+            } else {
+                Routed::Pass
+            },
+            refused,
+        })
+    }
+
+    /// The rest of a captured input: the filters before the capturer hear it
+    /// first (only their pass and replace count, so a replacer replaces the
+    /// rest as it did the start), then the capturer, with the `captured` flag;
+    /// nothing after it. The capturer's run and raise act, its replace is
+    /// ignored, the others end it. The input is taken either way. A failed call,
+    /// or a subscription no longer there, releases the capture to the up or
+    /// release; a released capture is swallowed without a call.
+    fn captured_rest(
+        &mut self,
+        at: usize,
+        phase: Phase,
+        runner: &mut dyn FilterRunner,
+        filters: &[Subscription<'_>],
+        policy: &Policy<'_>,
+        input: &Encoded,
+    ) -> Dispatched {
+        let secret = if policy.secret { FLAG_SECRET } else { 0 };
+        let mut refused = 0;
+        let mut routed = Routed::Taken;
+        let mut owner = self.captures[at].and_then(|c| c.owner);
+        // A subscription no longer there releases the capture before anyone is
+        // called: the rest goes nowhere.
+        if let Some(held) = owner
+            && !filters
+                .iter()
+                .filter(|f| f.enabled)
+                .take(MAX_FILTERS)
+                .any(|f| f.plugin == held.plugin && f.token == held.token)
+        {
+            if let Some(capture) = self.captures[at].as_mut() {
+                capture.owner = None;
+            }
+            owner = None;
+        }
+        if let Some(owner) = owner {
+            let mut current = *input;
+            let mut found = false;
+            for filter in filters.iter().filter(|f| f.enabled).take(MAX_FILTERS) {
+                let is_owner = filter.plugin == owner.plugin && filter.token == owner.token;
+                if !(policy.runs)(filter.plugin) {
+                    if is_owner {
+                        found = true;
+                        break;
+                    }
+                    continue;
+                }
+                if !is_owner {
+                    match ask(runner, filter, &current, secret) {
+                        Some(Verdict::Replace(next)) if replacement_fits(&next) => current = next,
+                        Some(_) => {}
+                        None => refused += 1,
+                    }
+                    continue;
+                }
+                found = true;
+                match ask(runner, filter, &current, secret | FLAG_CAPTURED) {
+                    None => {
+                        refused += 1;
+                        found = false;
+                    }
+                    Some(Verdict::Run(action)) => routed = run(action),
+                    Some(Verdict::Raise(name)) => routed = raise(filter, name, policy),
+                    Some(_) => {}
+                }
+                break;
+            }
+            if !found && let Some(capture) = self.captures[at].as_mut() {
+                capture.owner = None;
+            }
+            if matches!(routed, Routed::Pass) {
+                // A run or raise that did not fit still ends the rest.
+                refused += 1;
+                routed = Routed::Taken;
+            }
+        }
+        if phase == Phase::End {
+            self.captures[at] = None;
+        }
+        Dispatched { routed, refused }
+    }
+}
+
+/// A run verdict: it needs an action. `Pass` stands for "refused".
+fn run(action: Short<128>) -> Routed {
+    if action.as_str().is_empty() {
+        Routed::Pass
+    } else {
+        Routed::Run(action)
+    }
+}
+
+/// A raise verdict: the name must be one the filter's plugin declared.
+fn raise(filter: &Subscription<'_>, name: Short<64>, policy: &Policy<'_>) -> Routed {
+    if name.as_str().is_empty() || !(policy.declared)(filter.plugin, name.as_str()) {
+        Routed::Pass
+    } else {
+        Routed::Raise {
+            owner: filter.plugin,
+            input: name,
+        }
+    }
+}
+
+/// A replacement is one key, pointer or gesture record, whole (checked when it
+/// was decoded); it only has to be classifiable.
+fn replacement_fits(next: &Encoded) -> bool {
+    next.record().and_then(|record| classify(&record)).is_ok()
+}
+
+enum Verdict {
+    Pass,
+    Take,
+    Run(Short<128>),
+    Cancel,
+    Replace(Encoded),
+    Raise(Short<64>),
+    /// Not a verdict the host knows, or one that does not fit.
+    Invalid,
+}
+
+/// One filter call and the verdict it answers; `None` for a failed callback or
+/// a reply that is not exactly one `filter.verdict`.
+fn ask(
+    runner: &mut dyn FilterRunner,
+    filter: &Subscription<'_>,
+    input: &Encoded,
+    flags: u32,
+) -> Option<Verdict> {
+    let mut payload = [0; PAYLOAD_BYTES];
+    let length = stage::FilterInput::new(input.batch(), flags)
+        .encode(&mut payload)
+        .ok()?;
+    let mut reply = [0; REPLY_BYTES];
+    let replied = runner
+        .call(filter, payload.get(..length)?, &mut reply)
+        .ok()?;
+    let verdict = stage::FilterVerdict::decode(reply.get(..replied)?).ok()?;
+    Some(match verdict.kind {
+        0 => Verdict::Pass,
+        1 => Verdict::Take,
+        2 => Short::new(verdict.action).map_or(Verdict::Invalid, Verdict::Run),
+        3 => Verdict::Cancel,
+        4 => Encoded::from_batch(verdict.input).map_or(Verdict::Invalid, Verdict::Replace),
+        5 => Short::new(verdict.raise).map_or(Verdict::Invalid, Verdict::Raise),
+        _ => Verdict::Invalid,
+    })
+}
+
+#[cfg(test)]
+#[path = "ui_input_tests.rs"]
+mod tests;

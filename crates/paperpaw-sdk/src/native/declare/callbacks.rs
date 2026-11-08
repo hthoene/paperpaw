@@ -58,6 +58,10 @@ pub enum EventKind {
     StackChanged,
     /// A screen drew its first page and is ready for help.
     ScreenReady,
+    /// A request of this plugin ended (`core.net`). Needed before the first request.
+    HttpDone,
+    /// Bytes of a request's body came.
+    HttpProgress,
     /// A question this plugin asked was answered or cancelled.
     Answered,
 }
@@ -91,6 +95,8 @@ impl EventKind {
             Self::PluginAnswered => records_wire::EVENT_PLUGIN_ANSWERED_TAG,
             Self::StackChanged => records_wire::EVENT_STACK_CHANGED_TAG,
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
+            Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
+            Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
             Self::Answered => records_wire::EVENT_ANSWERED_TAG,
         }
     }

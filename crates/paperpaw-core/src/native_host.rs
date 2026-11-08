@@ -36,6 +36,23 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/ui_service.rs"]
+pub(crate) mod ui_service;
+
+#[path = "native_host/ui_requests.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's stack and the core.ui ops 8, 2, 11"
+)]
+pub(crate) mod ui_requests;
+
+#[path = "native_host/ui_store.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's command stage and the core.ui ops"
+)]
+pub(crate) mod ui_store;
+
 #[path = "native_host/ui_compose.rs"]
 pub(crate) mod ui_compose;
 
@@ -52,6 +69,20 @@ pub(crate) mod ui_handles;
     reason = "consumers are the UIX stack applier and the core.ui ops"
 )]
 pub(crate) mod ui_guard;
+
+#[path = "native_host/ui_compose_host.rs"]
+#[allow(
+    dead_code,
+    reason = "Core's frame answers Frame::compose with it when the screen stack is wired"
+)]
+pub(crate) mod ui_compose_host;
+
+#[path = "native_host/ui_input.rs"]
+#[allow(
+    dead_code,
+    reason = "the router hook (todo 76) and the core.input-filter registration admission call it"
+)]
+pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
 mod shared;
