@@ -361,7 +361,7 @@ pub const SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1024;
 /// Separator of the list in `setting.spec.choices`.
 pub const SETTING_SPEC_CHOICES_SEPARATOR: char = '\n';
 /// Most items in `setting.spec.choices`.
-pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 32;
+pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 64;
 /// Longest item of `setting.spec.choices` in bytes.
 pub const SETTING_SPEC_CHOICES_ITEM_MAX_BYTES: usize = 96;
 

@@ -792,17 +792,17 @@ fn spec_choice_list_rules() {
     let wide =
         |n: usize| -> &'static str { Box::leak(format!("a\n{}", "x".repeat(n)).into_boxed_str()) };
     assert_eq!(check(with("a")), Ok(()));
-    assert_eq!(check(with(many(32))), Ok(()));
+    assert_eq!(check(with(many(64))), Ok(()));
     assert_eq!(check(with(wide(96))), Ok(()));
     expect(vec![
         ("empty list", with(""), ERR_INVALID),
-        ("33 values", with(many(33)), ERR_INVALID),
+        ("65 values", with(many(65)), ERR_INVALID),
         ("97 byte value", with(wide(97)), ERR_INVALID),
         ("empty value", with("a\n\nb"), ERR_INVALID),
         ("trailing newline", with("a\n"), ERR_INVALID),
         ("leading newline", with("\na"), ERR_INVALID),
         ("duplicate", with("a\nb\na"), ERR_INVALID),
-        // 512 one-byte values in 1023 bytes: refused at the 33rd, not compared all.
+        // 512 one-byte values in 1023 bytes: refused at the 65th, not compared all.
         (
             "512 tiny values",
             with(Box::leak(

@@ -25,8 +25,22 @@ impl Frame for Env<'_> {
     }
 
     fn snapshot(&self) -> Result<Snapshot, i32> {
-        capture(self.device(), self.status(), self.now())
+        let mut value = capture(self.device(), self.status(), self.now())?;
+        // The zone the user sees (`core.time-zone`, else the system's), as
+        // the SDK's local time reads it; absent without a clock.
+        value.utc_offset_minutes =
+            paperpaw_sdk::time::local_time(self).and_then(|local| utc_offset_minutes(local.offset));
+        Ok(value)
     }
+}
+
+/// `seconds` east of UTC as whole minutes in the snapshot's range; `None`
+/// for an offset no zone has (it is then absent, never clamped).
+pub(crate) fn utc_offset_minutes(seconds: i32) -> Option<i16> {
+    let minutes = i16::try_from(seconds.div_euclid(60)).ok()?;
+    (snapshot_wire::SNAPSHOT_UTC_OFFSET_MIN..=snapshot_wire::SNAPSHOT_UTC_OFFSET_MAX)
+        .contains(&minutes)
+        .then_some(minutes)
 }
 
 /// Copy source values without retaining any device, status or environment borrow.
@@ -63,6 +77,7 @@ pub(crate) fn capture(
         dpi: device.display.dpi,
         touch: device.input.touch,
         pixel,
+        utc_offset_minutes: None,
     })
 }
 
