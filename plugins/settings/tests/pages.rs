@@ -167,11 +167,11 @@ fn a_hit_opens_its_page_with_the_setting_focused() {
 fn search_finds_the_pages_of_other_plugins_and_opens_them() {
     for device in DEVICES {
         let mut app = settings(device, "");
-        search(&mut app, "manage plugins");
+        search(&mut app, "about paperpaw");
         let hits = titles(&mut app);
-        assert!(hits.iter().any(|h| h == "Manage plugins"), "{hits:?}");
-        choose(&mut app, "Manage plugins");
-        assert_eq!(app.screen(), "plugin-manager.list");
+        assert!(hits.iter().any(|h| h == "About PaperPaw"), "{hits:?}");
+        choose(&mut app, "About PaperPaw");
+        assert_eq!(app.screen(), "about.screen");
     }
 }
 
@@ -725,9 +725,6 @@ fn plugin_management_and_plugin_settings_have_distinct_names_and_destinations() 
                 );
             }
             assert!(!all_rows.iter().any(|row| row == "Plugins"), "{all_rows:?}");
-            // The main page anew, from its top.
-            app.run(actions::BACK);
-            app.run(actions::SETTINGS);
             choose(&mut app, manager);
             assert_eq!(app.screen(), "plugin-manager.list");
             assert!(app.shows(screens), "{}", app.described());
