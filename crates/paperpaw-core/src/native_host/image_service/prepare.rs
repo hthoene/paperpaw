@@ -132,13 +132,78 @@ fn source_pixels(storage: &dyn Storage, path: &str) -> Result<Option<u64>, u32> 
             if head.len() < 10 {
                 return Err(DAMAGED);
             }
-            paperpaw_sdk::image::dimensions(head)
+            // The decoder makes the first frame at the frame's own size, so
+            // that is counted too, and a frame outside its screen is no GIF.
+            let (frame_w, frame_h) = gif_frame(storage, path)?;
+            let screen = paperpaw_sdk::image::dimensions(head).ok_or(DAMAGED)?;
+            if frame_w > screen.0 || frame_h > screen.1 {
+                return Err(DAMAGED);
+            }
+            let pixels = (u64::from(screen.0) * u64::from(screen.1))
+                .max(u64::from(frame_w) * u64::from(frame_h));
+            return Ok(Some(pixels));
         }
         Some(Format::Jpeg) => jpeg_size(storage, path)?,
         _ => return Ok(None),
     };
     let (width, height) = size.ok_or(DAMAGED)?;
     Ok(Some(u64::from(width) * u64::from(height)))
+}
+
+/// Blocks (and extension sub-blocks) walked to a GIF's first frame.
+const GIF_BLOCKS_MAX: usize = 1024;
+
+/// The size of a GIF's first frame, from its image descriptor, found by
+/// walking the blocks before it with small reads; `DAMAGED` where the walk
+/// ends first, goes on too long, or the frame has no size.
+fn gif_frame(storage: &dyn Storage, path: &str) -> Result<(u32, u32), u32> {
+    let mut flags = [0_u8; 1];
+    if storage.read_at(path, 10, &mut flags).map_err(|_| CARD)? != 1 {
+        return Err(DAMAGED);
+    }
+    // The header, the screen descriptor and the global colour table.
+    let mut at = 13_u64;
+    if flags[0] & 0x80 != 0 {
+        at += 3 << ((flags[0] & 7) + 1);
+    }
+    let mut steps = 0;
+    while steps < GIF_BLOCKS_MAX {
+        steps += 1;
+        let mut block = [0_u8; 9];
+        let n = storage.read_at(path, at, &mut block).map_err(|_| CARD)?;
+        match block.first() {
+            // An image descriptor: `2C left(2) top(2) width(2) height(2)`.
+            Some(0x2c) if n == 9 => {
+                let width = u32::from(u16::from_le_bytes([block[5], block[6]]));
+                let height = u32::from(u16::from_le_bytes([block[7], block[8]]));
+                return if width > 0 && height > 0 {
+                    Ok((width, height))
+                } else {
+                    Err(DAMAGED)
+                };
+            }
+            // An extension: `21 label`, then sub-blocks of a length byte
+            // and that many bytes, ended by a length of 0.
+            Some(0x21) if n >= 2 => {
+                at += 2;
+                loop {
+                    steps += 1;
+                    let mut len = [0_u8; 1];
+                    if steps > GIF_BLOCKS_MAX
+                        || storage.read_at(path, at, &mut len).map_err(|_| CARD)? != 1
+                    {
+                        return Err(DAMAGED);
+                    }
+                    at += 1 + u64::from(len[0]);
+                    if len[0] == 0 {
+                        break;
+                    }
+                }
+            }
+            _ => return Err(DAMAGED),
+        }
+    }
+    Err(DAMAGED)
 }
 
 /// A JPEG's size from its first frame header, walking the segments before

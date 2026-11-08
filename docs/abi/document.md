@@ -447,7 +447,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
   is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
   `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
-  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
+  resumable decoder replaces this rule if it fails. A `side` above 1,600 is clamped to 1,600, not
+  refused (`image_prepare` and op 16 alike); `event.image_ready` reports the width and height
+  actually made. `event.image_ready` (to the
   caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
@@ -478,7 +480,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
   when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
   or another picture holds it), dithers each call on its own (Atkinson within the call), never an
-  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
+  columns, so a part redrawn alone matches the whole; for a wider rectangle, or where the device's
+  draw scratch does not hold the full width, only the visible columns are dithered and a redrawn
+  part may differ slightly (never an error). These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
   spends its own heap under its own budget.
   Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
   not flags.

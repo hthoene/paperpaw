@@ -51,8 +51,9 @@ pub(crate) const DEVICE_IMAGES: usize = 64;
 pub(crate) const DOC_IMAGES: usize = 8;
 pub(crate) const PREPARED_IMAGES: usize = 8;
 /// The longest side of a picture the host keeps and decodes to: 1,600
-/// pixels on every device (`document.md` 5: `side` at most 1,600, larger is
-/// refused), which keeps the band drawer's rows small.
+/// pixels on every device (`document.md` 5: `side` at most 1,600). A larger
+/// `side` in `image_prepare` is clamped to it, not refused; `event.image_ready`
+/// reports the size the picture really has. Keeps the band drawer's rows small.
 pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).

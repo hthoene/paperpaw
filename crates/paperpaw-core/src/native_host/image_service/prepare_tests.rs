@@ -711,10 +711,9 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
     // A GIF the same way.
-    let mut gif = std::vec::Vec::from(*b"GIF89a");
-    gif.extend_from_slice(&5_000_u16.to_le_bytes());
-    gif.extend_from_slice(&5_000_u16.to_le_bytes());
-    storage.write("huge.gif", &gif).unwrap();
+    storage
+        .write("huge.gif", &gif_with_frame((5_000, 5_000), (5_000, 5_000)))
+        .unwrap();
     t.prepare(A, "huge.gif", 8, 2, false).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // A JPEG whose frame header comes after a long application segment.
@@ -749,6 +748,59 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     // A format this does not read is the decoder's to refuse.
     storage.write("x.bin", b"plain text here").unwrap();
     assert_eq!(source_pixels(&storage, "x.bin"), Ok(None));
+}
+
+/// A GIF of a `screen` with a first frame of `frame`, after a comment
+/// extension of two sub-blocks.
+fn gif_with_frame(screen: (u16, u16), frame: (u16, u16)) -> std::vec::Vec<u8> {
+    let mut bytes = std::vec::Vec::from(*b"GIF89a");
+    bytes.extend_from_slice(&screen.0.to_le_bytes());
+    bytes.extend_from_slice(&screen.1.to_le_bytes());
+    // A global colour table of 2 entries, background, aspect.
+    bytes.extend_from_slice(&[0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+    bytes.extend_from_slice(&[0x21, 0xfe, 3, b'a', b'b', b'c', 2, b'd', b'e', 0]);
+    bytes.extend_from_slice(&[0x2c, 0, 0, 0, 0]);
+    bytes.extend_from_slice(&frame.0.to_le_bytes());
+    bytes.extend_from_slice(&frame.1.to_le_bytes());
+    bytes.push(0);
+    bytes
+}
+
+#[test]
+fn a_gif_frame_is_counted_and_may_not_be_larger_than_its_screen() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    // A tiny logical screen with a huge frame: the decoder would make the
+    // frame, so the file is refused before it is decoded.
+    storage
+        .write("bypass.gif", &gif_with_frame((4, 4), (5_000, 5_000)))
+        .unwrap();
+    assert_eq!(source_pixels(&storage, "bypass.gif"), Err(DAMAGED));
+    t.prepare(A, "bypass.gif", 8, 1, false).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!((ready.status, ready.image), (DAMAGED, 0));
+    // A frame inside its screen is counted at the larger of the two.
+    storage
+        .write("ok.gif", &gif_with_frame((100, 50), (60, 40)))
+        .unwrap();
+    assert_eq!(source_pixels(&storage, "ok.gif"), Ok(Some(5_000)));
+    // Frame and screen both over 8 Mpx: too large.
+    storage
+        .write("huge.gif", &gif_with_frame((4_000, 2_001), (4_000, 2_001)))
+        .unwrap();
+    assert_eq!(source_pixels(&storage, "huge.gif"), Ok(Some(8_004_000)));
+    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
+    // No image descriptor (the file ends in the extension), or one with no
+    // size, is damaged.
+    let mut cut = gif_with_frame((4, 4), (2, 2));
+    cut.truncate(cut.len() - 10);
+    storage.write("cut.gif", &cut).unwrap();
+    assert_eq!(source_pixels(&storage, "cut.gif"), Err(DAMAGED));
+    storage
+        .write("zero.gif", &gif_with_frame((4, 4), (0, 2)))
+        .unwrap();
+    assert_eq!(source_pixels(&storage, "zero.gif"), Err(DAMAGED));
 }
 
 #[test]
