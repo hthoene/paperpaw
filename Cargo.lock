@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2635,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
