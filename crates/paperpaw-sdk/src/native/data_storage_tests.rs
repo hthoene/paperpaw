@@ -259,7 +259,7 @@ fn running_out_of_memory_is_not_taken_for_the_card_taken_out() {
     with_storage(|storage, files| {
         files.status.set(abi::ERR_NO_MEMORY);
         let refused = Storage::append(storage, "a", b"x").unwrap_err();
-        assert_eq!(refused, StorageError::Io);
+        assert_eq!(refused, StorageError::OutOfMemory);
         assert_ne!(refused, StorageError::CARD_GONE);
     });
 }

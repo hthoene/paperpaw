@@ -33,12 +33,15 @@ const CASES: [Case; 6] = [
         golden: None,
         blocked_by: &["H1", "H2", "H4"],
     },
-    // Passwords and keys: the list, typing one anew, removing one. Needs the
-    // core.secrets SDK facade (SEC) and the host service.
+    // Passwords and keys: the list, typing one anew, removing one. The
+    // screens are `native_secrets` and `native_plugin`; `tests/scripted_secrets.rs`
+    // runs what they read from a scripted `core.secrets`. The scripted host
+    // does not answer `i18n.copy` and `i18n.format` yet, so the rows' texts,
+    // the drawing and the answers to the questions are not run.
     Case {
         name: "settings-secrets",
         golden: None,
-        blocked_by: &["SEC", "H1", "H2", "H4"],
+        blocked_by: &["SCRIPTED-i18n", "H1", "H2", "H4"],
     },
     // Restart PaperPaw once asked (`CommandSender::restart`, `uses.power`). Needs
     // the host's dialogs.
@@ -84,7 +87,7 @@ fn settings_search() {
 }
 
 #[test]
-#[ignore = "BLOCKED SEC: no core.secrets SDK facade or host service yet"]
+#[ignore = "BLOCKED SCRIPTED-i18n: the scripted host does not answer i18n.copy and i18n.format"]
 fn settings_secrets() {
     CASES[4].refuse().unwrap();
 }
