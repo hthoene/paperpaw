@@ -112,12 +112,12 @@ fn log_path_try() -> Result<String, Error> {
     in_library("status.log")
 }
 
-fn catalog_path_try() -> Result<String, Error> {
+pub(super) fn catalog_path_try() -> Result<String, Error> {
     in_library("catalog.txt")
 }
 
 /// `text` as a new `String`, reserved fallibly.
-fn copy(text: &str) -> Result<String, Error> {
+pub(super) fn copy(text: &str) -> Result<String, Error> {
     let mut out = String::new();
     out.try_reserve_exact(text.len())
         .map_err(|_| Error::OutOfMemory)?;
@@ -169,60 +169,4 @@ pub fn try_path_at(storage: &dyn Storage, offset: u64) -> Result<Option<String>,
         found = Some(path);
     }
     found.map(copy).transpose()
-}
-
-/// [`super::query_in`] with the memory error: `n` books `query` finds, in
-/// its order, those after `after`. The page held across the scan (`n` books
-/// and their keys) is reserved at once and fallibly; a book and its key are
-/// made as the interface-6 code makes them, one at a time and dropped, so
-/// that the results are exactly [`super::query_in`]'s. The books `books`
-/// gives are its own business ([`super::each_at`] reads a line at a time).
-///
-/// # Errors
-/// [`Error::OutOfMemory`] where the page cannot be reserved; nothing is
-/// returned half made.
-pub fn try_query_in(
-    books: super::Books<'_>,
-    query: &super::Query,
-    after: Option<&super::Record>,
-    n: usize,
-) -> Result<alloc::vec::Vec<super::Record>, Error> {
-    let after = after.map(|r| query.key(r));
-    // One more than the page: a book is put in before the last is dropped.
-    let mut page: alloc::vec::Vec<((u32, String, String), super::Record)> = alloc::vec::Vec::new();
-    page.try_reserve_exact(n.saturating_add(1))
-        .map_err(|_| Error::OutOfMemory)?;
-    books(&mut |_, record| {
-        if n == 0 || !query.finds(&record) {
-            return;
-        }
-        let key = query.key(&record);
-        if after.as_ref().is_some_and(|a| key <= *a) {
-            return;
-        }
-        let at = page.partition_point(|(k, _)| *k < key);
-        if at < n {
-            page.insert(at, (key, record));
-            page.truncate(n);
-        }
-    });
-    let mut found = alloc::vec::Vec::new();
-    found
-        .try_reserve_exact(page.len())
-        .map_err(|_| Error::OutOfMemory)?;
-    found.extend(page.into_iter().map(|(_, record)| record));
-    Ok(found)
-}
-
-/// [`try_query_in`] in the catalog.
-///
-/// # Errors
-/// As [`try_query_in`].
-pub fn try_query(
-    storage: &dyn Storage,
-    query: &super::Query,
-    after: Option<&super::Record>,
-    n: usize,
-) -> Result<alloc::vec::Vec<super::Record>, Error> {
-    try_query_in(&mut |f| super::each_at(storage, f), query, after, n)
 }

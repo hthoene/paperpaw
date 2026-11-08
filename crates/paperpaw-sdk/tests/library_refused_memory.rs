@@ -19,6 +19,11 @@ use paperpaw_sdk::{DirEntry, Storage, StorageError};
 thread_local! {
     static UNTIL: Cell<Option<usize>> = const { Cell::new(None) };
     static REFUSED: Cell<bool> = const { Cell::new(false) };
+    static LARGEST: Cell<usize> = const { Cell::new(0) };
+}
+
+fn note(size: usize) {
+    let _ = LARGEST.try_with(|largest| largest.set(largest.get().max(size)));
 }
 
 fn refuse() -> bool {
@@ -44,6 +49,7 @@ struct Refusing;
 // `GlobalAlloc` allows.
 unsafe impl GlobalAlloc for Refusing {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        note(layout.size());
         if refuse() {
             return core::ptr::null_mut();
         }
@@ -57,6 +63,7 @@ unsafe impl GlobalAlloc for Refusing {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        note(size);
         if refuse() {
             return core::ptr::null_mut();
         }
@@ -78,6 +85,7 @@ fn with_refusal<T>(number: usize, operation: impl FnOnce() -> T) -> (T, bool) {
         }
     }
     REFUSED.with(|refused| refused.set(false));
+    LARGEST.with(|largest| largest.set(0));
     UNTIL.with(|left| left.set(Some(number)));
     let reset = Reset;
     let result = operation();
@@ -485,7 +493,92 @@ fn shelf() -> Vec<catalog::Record> {
         titled("b/a.epub", "alpha", "Yan"),
         titled("b/d.epub", "Delta", "Xi"),
         titled("b/b.epub", "Bravo", "Yan"),
+        titled("b/g.epub", "ΟΔΟΣ Ἀθηνᾶς", "Σοφοκλῆς"),
     ]
+}
+
+/// The catalog file of `shelf()` as the library writes it, `extra` lines
+/// after the header.
+fn catalog_text(extra: &str) -> Vec<u8> {
+    let mut text = String::from("\tcatalog\t2\t1\n");
+    for record in shelf() {
+        text.push_str(&format!(
+            "{}\t{}\t{}\t\t\t\t\t\t\t\t1\n",
+            record.path, record.author, record.title
+        ));
+    }
+    text.push_str(extra);
+    text.into_bytes()
+}
+
+fn on_card(text: Vec<u8>) -> Files {
+    Files(vec![(".paperpaw/library/catalog.txt".into(), text)])
+}
+
+fn paths(records: &[catalog::Record]) -> Vec<&str> {
+    records.iter().map(|r| r.path.as_str()).collect()
+}
+
+#[test]
+fn the_order_of_a_query_is_that_of_str_to_lowercase() {
+    // Titles whose keys depend on the final sigma, Turkish dotted capital I,
+    // sharp s and combining marks: the page order is the stored one.
+    let titles = [
+        "ΟΔΥΣΣΕΥΣ",
+        "ΟΔΥΣ'",
+        "ΟΔΥΣ’Α",
+        "ΑΣ\u{301}",
+        "ΑΣ\u{301}Α",
+        "İstanbul",
+        "Istanbul",
+        "ISTANBUL",
+        "Straße",
+        "STRASSE",
+        "ẞ",
+        "e\u{301}a",
+        "éa",
+        "Éa",
+        "ǅ",
+        "Ǆ",
+        "ΣΑΣ.",
+        "ΣΑΣ",
+    ];
+    let records: Vec<catalog::Record> = titles
+        .iter()
+        .enumerate()
+        .map(|(at, title)| titled(&format!("b/{at}.epub"), title, "Σοφοκλῆς Σ"))
+        .collect();
+    for sort in [
+        catalog::Sort::Title,
+        catalog::Sort::Author,
+        catalog::Sort::Series,
+        catalog::Sort::Added,
+    ] {
+        let query = catalog::Query::new().sort(sort);
+        let books = |f: &mut dyn FnMut(u64, catalog::Record)| {
+            for (at, record) in records.iter().enumerate() {
+                f(at as u64, record.clone());
+            }
+        };
+        let mut after = None;
+        loop {
+            let plain = catalog::query_in(&mut |f| books(f), &query, after.as_ref(), 3);
+            let tried = catalog::try_query_in(
+                &mut |f| {
+                    books(f);
+                    Ok(())
+                },
+                &query,
+                after.as_ref(),
+                3,
+            );
+            assert_eq!(tried.unwrap(), plain, "{sort:?}");
+            let Some(last) = plain.last().cloned() else {
+                break;
+            };
+            after = Some(last);
+        }
+    }
 }
 
 #[test]
@@ -496,52 +589,143 @@ fn a_query_page_is_what_the_plain_query_finds() {
             f(at as u64, record.clone());
         }
     };
-    for sort in [
-        catalog::Sort::Title,
-        catalog::Sort::Author,
-        catalog::Sort::Added,
-    ] {
-        let query = catalog::Query::new().sort(sort);
+    let queries = [
+        catalog::Query::new(),
+        catalog::Query::new().sort(catalog::Sort::Author),
+        catalog::Query::new().sort(catalog::Sort::Series),
+        catalog::Query::new().sort(catalog::Sort::Added),
+        catalog::Query::new().words("ΟΔΟΣ"),
+        catalog::Query::new().words("yan bravo"),
+        catalog::Query::new().words("ΣΟΦΟΚΛΗΣ ".to_lowercase().trim()),
+        catalog::Query::new().author("Yan"),
+    ];
+    for query in &queries {
         let mut after = None;
         loop {
-            let plain = catalog::query_in(&mut |f| books(f), &query, after.as_ref(), 2);
-            let tried = catalog::try_query_in(&mut |f| books(f), &query, after.as_ref(), 2);
-            assert_eq!(tried.unwrap(), plain, "{sort:?}");
+            let plain = catalog::query_in(&mut |f| books(f), query, after.as_ref(), 2);
+            let tried = catalog::try_query_in(
+                &mut |f| {
+                    books(f);
+                    Ok(())
+                },
+                query,
+                after.as_ref(),
+                2,
+            );
+            assert_eq!(tried.unwrap(), plain, "{query:?}");
             let Some(last) = plain.last().cloned() else {
                 break;
             };
             after = Some(last);
         }
     }
+    // The same through the card: every page, the card's own records.
+    let card = on_card(catalog_text(""));
+    let all = catalog::try_query(&card, &catalog::Query::new(), None, 10).unwrap();
+    assert_eq!(
+        paths(&all),
+        ["b/a.epub", "b/b.epub", "b/c.epub", "b/d.epub", "b/g.epub"]
+    );
     let words = catalog::Query::new().words("yan");
     assert_eq!(
-        catalog::try_query_in(&mut |f| books(f), &words, None, 10)
-            .unwrap()
-            .len(),
+        catalog::try_query(&card, &words, None, 10).unwrap().len(),
         2
     );
-    // No place at all for a page of none.
     assert!(
-        catalog::try_query_in(&mut |f| books(f), &words, None, 0)
+        catalog::try_query(&card, &words, None, 0)
             .unwrap()
             .is_empty()
     );
 }
 
 #[test]
-fn a_query_page_that_cannot_be_reserved_is_out_of_memory_not_an_abort() {
-    let none = |_: &mut dyn FnMut(u64, catalog::Record)| {};
+fn a_line_over_the_cap_or_without_an_end_is_skipped_never_held() {
+    let long = format!("b/long.epub\tA\t{}\t\t\t\t\t\t\t\t1\n", "t".repeat(9_000));
+    let card = on_card(catalog_text(&long));
+    let (found, _) = with_refusal(usize::MAX, || {
+        catalog::try_query(&card, &catalog::Query::new(), None, 10)
+    });
+    let found = found.unwrap();
+    assert_eq!(found.len(), 5, "the long line is no book, the rest are");
+    // A damaged line with no newline at all, megabytes of it: skipped, and
+    // no allocation ever grows to hold it.
+    let junk = "x".repeat(200_000);
+    let card = on_card(catalog_text(&format!("b/z.epub\tA\t{junk}")));
+    let (found, _) = with_refusal(usize::MAX, || {
+        catalog::try_query(&card, &catalog::Query::new(), None, 10)
+    });
+    assert_eq!(found.unwrap().len(), 5);
+    let largest = LARGEST.with(Cell::get);
+    assert!(largest <= 16 * 1024, "the largest allocation was {largest}");
+    // A last line without its newline, within the cap, is a book.
+    let card = on_card(catalog_text("b/y.epub\tA\tYankee\t\t\t\t\t\t\t\t1"));
+    assert_eq!(
+        catalog::try_query(&card, &catalog::Query::new(), None, 10)
+            .unwrap()
+            .len(),
+        6
+    );
+}
+
+#[test]
+fn a_query_refused_memory_at_any_allocation_is_an_error_never_an_abort() {
+    let card = on_card(catalog_text(""));
+    let query = catalog::Query::new()
+        .sort(catalog::Sort::Author)
+        .words("yan");
+    let expected = catalog::try_query(&card, &query, None, 2).unwrap();
+    assert_eq!(paths(&expected), ["b/a.epub", "b/b.epub"]);
+    let mut number = 1;
+    loop {
+        let (result, refused) = with_refusal(number, || catalog::try_query(&card, &query, None, 2));
+        if !refused {
+            assert_eq!(result.unwrap(), expected, "after the last allocation");
+            break;
+        }
+        assert_eq!(result, Err(Error::OutOfMemory), "refusal {number}");
+        number += 1;
+    }
+    // The page, the line, the log, a book and its key: more than a few.
+    assert!(number > 6, "{number}");
+}
+
+/// A card that cannot be read past its first chunk.
+struct Faulty(Files);
+impl Storage for Faulty {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if offset >= 512 {
+            return Err(StorageError::Io);
+        }
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn remove(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+}
+
+#[test]
+fn a_card_that_fails_mid_scan_is_an_error_not_a_short_list() {
+    // More than one chunk of books; the second read fails.
+    let more = "b/more.epub\tA\tMore\t\t\t\t\t\t\t\t1\n".repeat(30);
+    let card = Faulty(on_card(catalog_text(&more)));
     let query = catalog::Query::new();
-    // The page is the first allocation: refused, it is the memory error.
-    let (result, refused) = with_refusal(1, || {
-        catalog::try_query_in(&mut |f| none(f), &query, None, 10)
-    });
-    assert!(refused);
-    assert_eq!(result, Err(Error::OutOfMemory));
-    // An empty answer needs nothing more.
-    let (result, refused) = with_refusal(2, || {
-        catalog::try_query_in(&mut |f| none(f), &query, None, 10)
-    });
-    assert!(!refused);
-    assert_eq!(result, Ok(Vec::new()));
+    assert_eq!(
+        catalog::try_query(&card, &query, None, 100),
+        Err(Error::Storage(StorageError::Io))
+    );
+    // A catalog that is not there has no books; any other failure is not that.
+    let none = Files(Vec::new());
+    assert_eq!(catalog::try_query(&none, &query, None, 10), Ok(Vec::new()));
 }
