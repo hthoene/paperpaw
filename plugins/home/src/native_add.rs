@@ -247,6 +247,41 @@ pub fn remove_page(src: &impl Source, layout: &Layout<'_>, page: usize) -> Resul
     Ok(Plan::Writes(pages::store_all(src, &all, layout.wide)?))
 }
 
+/// The widgets of page number `page` whose placements' values are reset when
+/// the page is removed: those no page left (of either layout) still shows.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals.
+pub fn removed_placements(
+    src: &impl Source,
+    layout: &Layout<'_>,
+    page: usize,
+) -> Result<Vec<String>, Error> {
+    let Some(gone) = layout.pages.get(page) else {
+        return Ok(Vec::new());
+    };
+    let other = pages::other_layer(src, layout.wide)?;
+    let mut found = Vec::new();
+    for item in &gone.items {
+        let What::Widget(id) = &item.what else {
+            continue;
+        };
+        let held = layout
+            .pages
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != page)
+            .map(|(_, p)| p)
+            .chain(&other)
+            .flat_map(|p| &p.items)
+            .any(|i| matches!(&i.what, What::Widget(w) if w == id));
+        if !held && !found.iter().any(|f| f == id) {
+            push(&mut found, copy(id)?)?;
+        }
+    }
+    Ok(found)
+}
+
 /// Empties the layout for a screen on its side.
 ///
 /// # Errors

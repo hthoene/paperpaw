@@ -23,23 +23,23 @@ use paperpaw_sdk::{
     widgets::grid::Geometry,
 };
 use paperpaw_ui_kit::{
-    Paint, Style,
+    Messages, Paint, Style,
     mem::{SERVICE_BUFFER, buffer, push},
     paint, text,
 };
 
-use crate::native_dash::{self as dash, Footer, Frame, Metrics, Nav, Wanted};
+use crate::native_add_screen as add_screen;
+use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
-use crate::native_pages::{self, Source};
+use crate::native_pages;
+use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 
 /// Where the widgets are made (the place the plugin declares).
 const PLACE: &str = "home.pages";
 /// Lines a tool's name takes at most.
 const NAME_LINES: usize = 3;
-/// The setting of the gap between widgets.
-const GAP: &str = "core.widgets.gap";
 
 /// One item of the page as it shows.
 #[derive(Debug)]
@@ -66,6 +66,27 @@ struct Laid {
     focus_at_once: bool,
     /// The arrow keys stay on the page.
     arrows_stay: bool,
+    /// Where the pencil (*Done* while editing) is, and its word.
+    pencil: Option<(Rect, String)>,
+    /// Where *Add* is, while editing.
+    plus: Option<Rect>,
+}
+
+/// Which of the footer's buttons are there.
+#[derive(Debug, Clone, Copy)]
+struct Buttons {
+    plus: bool,
+    pencil: bool,
+}
+
+/// What a press on a target leaves to do besides what it did itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Next {
+    Nothing,
+    /// Editing starts (`true`) or ends.
+    Edit(bool),
+    /// The *Add* screen opens for the page that shows.
+    Add,
 }
 
 /// The dashboard.
@@ -78,6 +99,9 @@ pub struct Dashboard {
     stale: bool,
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
+    /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
+    /// tapped runs nothing.
+    editing: bool,
 }
 
 impl Dashboard {
@@ -89,6 +113,11 @@ impl Dashboard {
             reshow: true,
             ..Self::default()
         }
+    }
+
+    /// Starts editing (opened to edit with `mode` = `edit`).
+    pub fn start_editing(&mut self) {
+        self.editing = true;
     }
 
     /// What shows is read and laid out again before the next draw or input.
@@ -141,17 +170,13 @@ impl Dashboard {
         display: &Snapshot,
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
-        let style = Style::read(host, display, font)?;
-        let src = HostSource::read(host, display.display_dpi())?;
-        let metrics = metrics(host, display, &style, font)?;
-        let wide = dash::landscape(&metrics);
-        let columns = native_pages::columns_upright(&src);
-        let frame = dash::frame(&metrics, wide, src.status_bar(), columns, src.rows);
-        let pages = if wide {
-            native_pages::pages_wide(&src, &frame.geometry)?
-        } else {
-            native_pages::pages(&src)?
-        };
+        let Shown {
+            src,
+            metrics,
+            frame,
+            pages,
+            ..
+        } = Shown::read(host, display, font)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
@@ -160,19 +185,25 @@ impl Dashboard {
             None => Vec::new(),
         };
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
+        let editing = self.editing;
+        let pencil_on = editing || src.pencil;
+        let (word, done_word) = self.pencil_word(host, display, font, pencil_on)?;
         let footer = dash::footer(
             &metrics,
             frame.footer,
             &Wanted {
-                editing: false,
-                // No pencil until editing is ported.
-                pencil: false,
+                editing,
+                pencil: pencil_on,
                 actions: src.footer.len(),
-                done_word: 0,
+                done_word,
             },
         )?;
         let mut cells = Vec::new();
-        let made = Self::fill(host, ui, &src, &frame, &shown, &footer, &mut cells);
+        let buttons = Buttons {
+            plus: editing,
+            pencil: pencil_on,
+        };
+        let made = Self::fill(host, ui, &src, &frame, &shown, (&footer, buttons), &mut cells);
         let (targets, actions) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -191,6 +222,8 @@ impl Dashboard {
             tool_labels: src.tool_labels,
             focus_at_once: src.focus_at_once,
             arrows_stay: src.arrows_stay,
+            pencil: pencil_on.then_some((footer.pencil, word)),
+            plus: editing.then_some(footer.plus),
         })
     }
 
@@ -202,7 +235,7 @@ impl Dashboard {
         src: &HostSource,
         frame: &Frame,
         shown: &[grid::Item],
-        footer: &Footer,
+        (footer, buttons): (&Footer, Buttons),
         cells: &mut Vec<Cell>,
     ) -> Result<(Vec<Target>, Vec<String>), Error> {
         for item in shown {
@@ -210,7 +243,7 @@ impl Dashboard {
                 push(cells, cell)?;
             }
         }
-        let targets = Self::targets(host, ui, cells, footer)?;
+        let targets = Self::targets(host, ui, cells, footer, buttons)?;
         let mut actions = Vec::new();
         for (action, _, _) in src.footer.iter().take(footer.actions.len()) {
             push(&mut actions, text::copy(action)?)?;
@@ -279,6 +312,7 @@ impl Dashboard {
         ui: &Ui,
         cells: &[Cell],
         footer: &Footer,
+        buttons: Buttons,
     ) -> Result<Vec<Target>, Error> {
         let mut targets = Vec::new();
         for (index, cell) in cells.iter().enumerate() {
@@ -324,16 +358,35 @@ impl Dashboard {
                 Some(_) => {}
             }
         }
-        for (index, rect) in footer.actions.iter().enumerate() {
-            push(
-                &mut targets,
-                Target {
-                    rect: *rect,
-                    owner: Owner::Button(Button::Action(index)),
-                },
-            )?;
-        }
+        footer_targets(&mut targets, footer, buttons)?;
         Ok(targets)
+    }
+
+    /// The word on the pencil (*Done* while editing, else *Edit*) and, while
+    /// editing, how wide it is; nothing where the pencil is off.
+    fn pencil_word(
+        &self,
+        host: &Host<'_>,
+        display: &Snapshot,
+        font: &Font<'_>,
+        on: bool,
+    ) -> Result<(String, u16), Error> {
+        if !on {
+            return Ok((String::new(), 0));
+        }
+        let key = if self.editing {
+            "home.edit.done"
+        } else {
+            "home.edit.edit"
+        };
+        let word = Messages::new()?.copy(host, key)?;
+        let wide = if self.editing {
+            let style = Style::read(host, display, font)?;
+            clamp_u32((font.measure_text(style.small, &word)? as u32).saturating_add(1))
+        } else {
+            0
+        };
+        Ok((word, wide))
     }
 
     /// The widgets of the page before are let go; a refusal is of no matter
@@ -383,6 +436,12 @@ impl Dashboard {
                 name(&mut below, font, &style, cell.rect, &cell.name)?;
             }
         }
+        if let Some((rect, word)) = &laid.pencil {
+            name(&mut below, font, &style, *rect, word)?;
+        }
+        if let Some(rect) = laid.plus {
+            name(&mut below, font, &style, rect, "+")?;
+        }
         if let Some(nav) = self.nav {
             for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
                 if laid.dots {
@@ -416,10 +475,15 @@ impl Dashboard {
             Input::Action { action, .. } => self.action(host, ui, action),
             Input::Gesture { position, kind, .. } => match touch_of(kind) {
                 Touch::Tap => self.tapped(host, ui, position, WidgetInputKind::Tap),
-                // A long press edits the home screen on interface 6; until
-                // editing is ported it is taken and runs nothing (no tool, no
-                // footer action, no widget).
-                Touch::Held => Ok(Handled::Yes),
+                // A long press starts editing, as on interface 6; while editing
+                // it is taken and runs nothing (no tool, no footer action, no
+                // widget).
+                Touch::Held => {
+                    if !self.editing {
+                        self.next(host, ui, Next::Edit(true))?;
+                    }
+                    Ok(Handled::Yes)
+                }
                 Touch::Pass => Ok(Handled::No),
             },
             _ => Ok(Handled::No),
@@ -429,6 +493,11 @@ impl Dashboard {
     fn action(&mut self, host: &Host<'_>, ui: &Ui, action: &str) -> Result<Handled, Error> {
         if action == "core.next-page" || action == "core.prev-page" {
             return self.turn(host, ui, action == "core.next-page");
+        }
+        if action == "core.back" && self.editing {
+            // Back ends editing, as on interface 6.
+            self.next(host, ui, Next::Edit(false))?;
+            return Ok(Handled::Yes);
         }
         let Some(press) = Press::of(action) else {
             return Ok(Handled::No);
@@ -445,7 +514,8 @@ impl Dashboard {
             }
             Step::Run(at) => {
                 let target = laid.targets.get(at).copied();
-                self.run(host, ui, target, None)?;
+                let next = self.run(host, ui, target, None)?;
+                self.next(host, ui, next)?;
                 Ok(Handled::Yes)
             }
         }
@@ -484,7 +554,8 @@ impl Dashboard {
             .copied()
             .find(|target| inside(target.rect, point));
         if let Some(target) = hit {
-            self.run(host, ui, Some(target), Some((point, kind)))?;
+            let next = self.run(host, ui, Some(target), Some((point, kind)))?;
+            self.next(host, ui, next)?;
             return Ok(Handled::Yes);
         }
         // A tap inside a widget that has no target is the widget's as a whole.
@@ -499,7 +570,8 @@ impl Dashboard {
                 rect: laid.cells[item].rect,
                 owner: Owner::Widget { item, target: 0 },
             };
-            self.run(host, ui, Some(target), Some((point, kind)))?;
+            let next = self.run(host, ui, Some(target), Some((point, kind)))?;
+            self.next(host, ui, next)?;
             return Ok(Handled::Yes);
         }
         Ok(Handled::No)
@@ -513,10 +585,13 @@ impl Dashboard {
         ui: &Ui,
         target: Option<Target>,
         touched: Option<(Point, WidgetInputKind)>,
-    ) -> Result<(), Error> {
+    ) -> Result<Next, Error> {
         let (Some(target), Some(laid)) = (target, self.laid.as_ref()) else {
-            return Ok(());
+            return Ok(Next::Nothing);
         };
+        if let Some(next) = decide(target.owner, self.editing) {
+            return Ok(next);
+        }
         match target.owner {
             Owner::Tool(index) => {
                 let Some(Cell {
@@ -524,34 +599,106 @@ impl Dashboard {
                     ..
                 }) = laid.cells.get(index)
                 else {
-                    return Ok(());
+                    return Ok(Next::Nothing);
                 };
                 let mut scratch = buffer(SERVICE_BUFFER)?;
-                CommandSender::new(host, &mut scratch).run_action(action)
+                CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Button(Button::Action(index)) => {
                 let Some(action) = laid.actions.get(index) else {
-                    return Ok(());
+                    return Ok(Next::Nothing);
                 };
                 let mut scratch = buffer(SERVICE_BUFFER)?;
-                CommandSender::new(host, &mut scratch).run_action(action)
+                CommandSender::new(host, &mut scratch).run_action(action)?;
             }
-            Owner::Button(_) => Ok(()),
             Owner::Widget { item, target: id } => {
                 let Some(widget) = laid.cells.get(item).and_then(|cell| cell.widget) else {
-                    return Ok(());
+                    return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                ui.widget_input(host, widget, id, point, kind, &mut input, &mut out)
+                ui.widget_input(host, widget, id, point, kind, &mut input, &mut out)?;
+            }
+            Owner::Button(_) => {}
+        }
+        Ok(Next::Nothing)
+    }
+
+    /// Does what a press left to do: edit or stop editing (laid out anew, the
+    /// focus where it was), or open the *Add* screen for the page that shows.
+    fn next(&mut self, host: &Host<'_>, ui: &Ui, next: Next) -> Result<(), Error> {
+        match next {
+            Next::Nothing => Ok(()),
+            Next::Edit(on) => {
+                self.set_editing(on);
+                self.ensure(host, ui)?;
+                redraw(host)
+            }
+            Next::Add => {
+                let page = self.nav.map_or(0, |nav| nav.page);
+                add_screen::open(host, ui, page, None)
             }
         }
+    }
+
+    fn set_editing(&mut self, on: bool) {
+        self.editing = on;
+        self.stale = true;
     }
 }
 
 impl Laid {
     fn footer_area(&self) -> Rect {
         self.frame.footer
+    }
+}
+
+/// The footer's buttons as targets, in the order the focus reaches them: *Add*
+/// (while editing), the actions (not while editing), the pencil.
+fn footer_targets(
+    targets: &mut Vec<Target>,
+    footer: &Footer,
+    buttons: Buttons,
+) -> Result<(), Error> {
+    if buttons.plus {
+        push(
+            targets,
+            Target {
+                rect: footer.plus,
+                owner: Owner::Button(Button::Plus),
+            },
+        )?;
+    }
+    for (index, rect) in footer.actions.iter().enumerate() {
+        push(
+            targets,
+            Target {
+                rect: *rect,
+                owner: Owner::Button(Button::Action(index)),
+            },
+        )?;
+    }
+    if buttons.pencil {
+        push(
+            targets,
+            Target {
+                rect: footer.pencil,
+                owner: Owner::Button(Button::Pencil),
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// What a press on `owner` is without asking the host: the pencil starts or
+/// ends editing, *Add* opens its screen, and while editing everything else
+/// runs nothing (arranging is not ported, `PORTING-7.md`). `None`: it runs.
+const fn decide(owner: Owner, editing: bool) -> Option<Next> {
+    match owner {
+        Owner::Button(Button::Pencil) => Some(Next::Edit(!editing)),
+        Owner::Button(Button::Plus) => Some(Next::Add),
+        _ if editing => Some(Next::Nothing),
+        _ => None,
     }
 }
 
@@ -605,30 +752,6 @@ fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
             drop_widget(host, ui, widget);
         }
     }
-}
-
-/// The metrics of the style on this display.
-fn metrics(
-    host: &Host<'_>,
-    display: &Snapshot,
-    style: &Style,
-    font: &Font<'_>,
-) -> Result<Metrics, Error> {
-    let gap = match paperpaw_ui_kit::style::setting_text(host, GAP)?.as_str() {
-        "core.gap.small" => style.gap / 2,
-        "core.gap.large" => style.gap.saturating_mul(2),
-        _ => style.gap,
-    };
-    let line = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
-    Ok(Metrics {
-        width: display.display_width(),
-        height: display.display_height(),
-        margin: style.margin,
-        row: style.row,
-        gap,
-        style_gap: style.gap,
-        status: line.saturating_add(style.gap / 2),
-    })
 }
 
 /// A tool's name under where its icon goes (the icons wait for the host's
@@ -729,6 +852,7 @@ fn clamp_i32(value: i32) -> u16 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
 mod tests {
     use super::*;
 
@@ -740,6 +864,69 @@ mod tests {
         assert!(!inside(r, Point::new(40, 59)));
         assert!(!inside(r, Point::new(39, 60)));
         assert!(!inside(r, Point::new(9, 30)));
+    }
+
+    fn footer() -> Footer {
+        Footer {
+            pencil: Rect::new(300, 400, 60, 60),
+            plus: Rect::new(10, 400, 120, 60),
+            actions: [Rect::new(200, 400, 60, 60), Rect::new(240, 400, 60, 60)].into(),
+        }
+    }
+
+    fn owners(footer: &Footer, buttons: Buttons) -> Vec<Owner> {
+        let mut targets = Vec::new();
+        footer_targets(&mut targets, footer, buttons).unwrap();
+        targets.iter().map(|t| t.owner).collect()
+    }
+
+    #[test]
+    fn the_footer_buttons_are_reached_add_first_and_the_pencil_last() {
+        let f = footer();
+        let both = Buttons {
+            plus: true,
+            pencil: true,
+        };
+        assert_eq!(
+            owners(&f, both),
+            [
+                Owner::Button(Button::Plus),
+                Owner::Button(Button::Action(0)),
+                Owner::Button(Button::Action(1)),
+                Owner::Button(Button::Pencil)
+            ]
+        );
+        let none = Buttons {
+            plus: false,
+            pencil: false,
+        };
+        assert_eq!(owners(&f, none).len(), 2);
+        let pencil = Buttons {
+            plus: false,
+            pencil: true,
+        };
+        assert_eq!(owners(&f, pencil).last(), Some(&Owner::Button(Button::Pencil)));
+    }
+
+    #[test]
+    fn the_pencil_toggles_editing_and_add_opens_its_screen() {
+        let pencil = Owner::Button(Button::Pencil);
+        assert_eq!(decide(pencil, false), Some(Next::Edit(true)));
+        assert_eq!(decide(pencil, true), Some(Next::Edit(false)));
+        assert_eq!(decide(Owner::Button(Button::Plus), true), Some(Next::Add));
+    }
+
+    #[test]
+    fn while_editing_what_is_tapped_runs_nothing() {
+        for owner in [
+            Owner::Tool(0),
+            Owner::Widget { item: 0, target: 1 },
+            Owner::Button(Button::Action(0)),
+        ] {
+            assert_eq!(decide(owner, true), Some(Next::Nothing));
+            // Not editing: it runs (the host decides what).
+            assert_eq!(decide(owner, false), None);
+        }
     }
 
     #[test]

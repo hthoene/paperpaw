@@ -84,11 +84,20 @@ const CASES: [Case; 12] = [
         golden: None,
         blocked_by: &["HOME-subscriptions-slice", "H3"],
     },
-    // Adding a widget or tool to a page (the gallery).
+    // Adding a widget or tool to a page: the gallery that draws widgets as they
+    // would show, the ready-made layouts and the icons of the rows. The list
+    // steps, the page actions and the writes are done (unit-tested).
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-slice", "H1", "H4"],
+        blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
+    },
+    // Arranging while editing: select, move, resize and remove an item with the
+    // buttons, the grip drag, the tools drawer.
+    Case {
+        name: "home-edit-arrange",
+        golden: None,
+        blocked_by: &["HOME-arrange-slice", "H2", "H4"],
     },
 ];
 
@@ -169,7 +178,13 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-slice: the Add screen is not ported yet"]
+#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported"]
 fn home_add() {
     CASES[11].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED HOME-arrange-slice: moving, sizing and removing items while editing is not ported"]
+fn home_edit_arrange() {
+    CASES[12].refuse().unwrap();
 }

@@ -285,3 +285,17 @@ fn every_allocation_may_be_refused() {
         Ok(())
     });
 }
+
+#[test]
+fn a_removed_page_resets_the_placements_no_other_page_shows() {
+    let fake = Fake::new(&["a.b, c.d", "c.d, e.f", "e.f@2, tool:core.library"]);
+    let g = grid4();
+    let pages = crate::native_pages::pages(&fake).unwrap();
+    let l = layout(&g, &pages);
+    // Page 2: c.d is on page 1, e.f is on page 3 only as e.f@2 (another one).
+    assert_eq!(removed_placements(&fake, &l, 1).unwrap(), ["e.f"]);
+    // The last page: the tool has no placement.
+    assert_eq!(removed_placements(&fake, &l, 2).unwrap(), ["e.f@2"]);
+    assert!(removed_placements(&fake, &l, 9).unwrap().is_empty());
+    sweep(|| removed_placements(&fake, &l, 1).map(drop));
+}
