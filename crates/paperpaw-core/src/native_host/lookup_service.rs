@@ -19,13 +19,19 @@ use super::{
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
 use alloc::rc::Rc;
+use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 mod broker;
+mod pending;
+
+pub(crate) use pending::PendingAsks;
 
 /// `lookup_entry.flags`: bit 0 more pages follow, bit 1 pending (the provider
 /// answers later).
 const ENTRY_FLAGS: u32 = 0b11;
+/// `lookup_entry.flags` bit 1.
+const PENDING: u32 = 0b10;
 
 /// What the shell provides under the key `core.lookup`.
 pub(crate) trait LookupHost {
@@ -41,10 +47,120 @@ pub(crate) trait LookupHost {
         ask: &wire::ServiceLookupAsk<'_>,
         out: &mut [u8],
     ) -> Result<usize, i32>;
+
+    /// The owner of the live plugin that provides the lookup `name`; `None`
+    /// where there is none (or the host cannot say: no ask is then kept as
+    /// pending, and the asker asks again itself).
+    fn provider_owner(&self, _name: &str) -> Option<u64> {
+        None
+    }
+
+    /// Whether `asker` subscribes to `event.lookup_ready` (110): only such an
+    /// asker has its pending asks kept.
+    fn subscribed(&self, _asker: u64) -> bool {
+        false
+    }
+
+    /// The clock the 60-second deadlines run on, in milliseconds.
+    fn now_ms(&self) -> u64 {
+        0
+    }
+
+    /// One line in the device log.
+    fn log(&self, _line: &str) {}
 }
 
-/// What the shell hands the frame under the key `core.lookup`.
-pub(crate) struct LookupServices(pub(crate) Rc<dyn LookupHost>);
+/// What the shell hands the frame under the key `core.lookup`: the host and
+/// the table of pending asks (`pending.rs`).
+pub(crate) struct LookupServices {
+    host: Rc<dyn LookupHost>,
+    pending: RefCell<PendingAsks>,
+}
+
+impl LookupServices {
+    pub(crate) fn new(host: Rc<dyn LookupHost>) -> Self {
+        Self {
+            host,
+            pending: RefCell::new(PendingAsks::new()),
+        }
+    }
+
+    /// The provider `provider` kept its result for (`language`, `text`)
+    /// (`command.lookup_ready`): its pending asks end and `deliver` is called
+    /// with each asker, which gets `event.lookup_ready` ([`ready_event`]).
+    /// Never an error to the provider: a command that matches no ask is
+    /// counted and logged at most once a minute.
+    pub(crate) fn ready(
+        &self,
+        provider: u64,
+        language: &str,
+        text: &str,
+        deliver: &mut dyn FnMut(u64),
+    ) {
+        let now = self.host.now_ms();
+        let hash = pending::ask_hash(language, text);
+        let Ok(mut table) = self.pending.try_borrow_mut() else {
+            return;
+        };
+        if table.ready(provider, hash, now, deliver) == 0 && table.log_due(now) {
+            drop(table);
+            self.host.log("lookup_ready matched no pending ask");
+        }
+    }
+
+    /// The plugin `owner` stopped: the asks it made and the asks to it end,
+    /// without an event.
+    pub(crate) fn stopped(&self, owner: u64) {
+        if let Ok(mut table) = self.pending.try_borrow_mut() {
+            table.stopped(owner);
+        }
+    }
+
+    /// How many ready commands matched no pending ask, since the start.
+    #[cfg(test)]
+    pub(crate) fn unmatched(&self) -> u32 {
+        self.pending.borrow().unmatched()
+    }
+
+    /// The pending asks kept now.
+    #[cfg(test)]
+    pub(crate) fn pending_len(&self) -> usize {
+        self.pending.borrow().len()
+    }
+
+    /// Keeps the ask whose answer the provider gave as pending, for an asker
+    /// that subscribes to `event.lookup_ready`. `Err(())`: the table has no
+    /// room (the asker gets the empty entry, and the host logs it).
+    fn keep_pending(
+        &self,
+        asker: u64,
+        provider: &str,
+        ask: &wire::ServiceLookupAsk<'_>,
+    ) -> Result<(), ()> {
+        if !self.host.subscribed(asker) {
+            return Ok(());
+        }
+        let Some(provider) = self.host.provider_owner(provider) else {
+            return Ok(());
+        };
+        let hash = pending::ask_hash(ask.language, ask.text);
+        let now = self.host.now_ms();
+        let Ok(mut table) = self.pending.try_borrow_mut() else {
+            return Err(());
+        };
+        table.record(asker, provider, hash, now).map_err(|_| ())
+    }
+}
+
+/// `event.lookup_ready` (110) for one asker: `now_ms` and the provider's
+/// name, as the event record. The caller (the event delivery) queues it for
+/// the subscribed asker only.
+pub(crate) fn ready_event(now_ms: u64, provider: &str, out: &mut [u8]) -> Result<usize, i32> {
+    wire::record_encode_one(
+        &Record::EventLookupReady(wire::EventLookupReady { now_ms, provider }),
+        out,
+    )
+}
 
 /// The `core.lookup` backend.
 pub(crate) fn backend(
@@ -54,7 +170,7 @@ pub(crate) fn backend(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = who.hosts.lookup().ok_or(ERR_UNSUPPORTED)?;
+    let service = who.hosts.lookup().ok_or(ERR_UNSUPPORTED)?;
     if op.id != 1 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -63,9 +179,30 @@ pub(crate) fn backend(
     if ask.text.is_empty() || !language_ok(ask.language) {
         return Err(ERR_INVALID);
     }
-    let length = services.0.ask(who.owner, &ask, out)?;
+    let length = service.host.ask(who.owner, &ask, out)?;
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
-    check(reply)?;
+    let entry = check(reply)?;
+    if entry.flags & PENDING == 0 {
+        return Ok(length);
+    }
+    // A provider that must fetch answered `pending`: the ask is kept for an
+    // asker that wants the event; where the table has no room, the page is
+    // the empty entry and the host says so in its log.
+    let more = entry.flags & 1 != 0;
+    if service
+        .keep_pending(who.owner, entry.provider, &ask)
+        .is_err()
+    {
+        let mut name = [0_u8; 64];
+        let provider = entry.provider.as_bytes();
+        let name_bytes = name.get_mut(..provider.len()).ok_or(ERR_INVALID)?;
+        name_bytes.copy_from_slice(provider);
+        let provider = core::str::from_utf8(name_bytes).map_err(|_| ERR_INVALID)?;
+        service
+            .host
+            .log("lookup: the pending table is full, empty entry");
+        return broker::empty(provider, more, out);
+    }
     Ok(length)
 }
 
@@ -80,7 +217,7 @@ fn language_ok(tag: &str) -> bool {
             }))
 }
 
-fn check(reply: &[u8]) -> Result<(), i32> {
+fn check(reply: &[u8]) -> Result<wire::ServiceLookupEntry<'_>, i32> {
     let (record, used) = codec::decode_prefix(reply).map_err(|_| ERR_INVALID)?;
     match record {
         Record::ServiceLookupEntry(entry)
@@ -88,12 +225,15 @@ fn check(reply: &[u8]) -> Result<(), i32> {
                 && entry.flags & !ENTRY_FLAGS == 0
                 && !entry.provider.is_empty() =>
         {
-            Ok(())
+            Ok(entry)
         }
         _ => Err(ERR_INVALID),
     }
 }
 
+#[cfg(test)]
+#[path = "lookup_service/pending_service_tests.rs"]
+mod pending_service_tests;
 #[cfg(test)]
 #[path = "lookup_service/tests.rs"]
 mod tests;
