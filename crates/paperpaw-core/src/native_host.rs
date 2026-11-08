@@ -1116,3 +1116,6 @@ mod declaration_reg_index_tests;
 #[cfg(test)]
 #[path = "native_host/native_ui_cleanup_tests.rs"]
 mod native_ui_cleanup_tests;
+#[cfg(test)]
+#[path = "native_host/ui_hooks_tests.rs"]
+mod ui_hooks_tests;

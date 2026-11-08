@@ -164,6 +164,8 @@ impl StatusCache {
 pub(crate) struct WidgetState {
     pub(crate) handles: RefCell<UiHandles>,
     pub(crate) cache: RefCell<StatusCache>,
+    /// The minute (of the monotonic clock) the cache last saw; `u64::MAX` before.
+    minute: core::cell::Cell<u64>,
 }
 
 impl WidgetState {
@@ -171,16 +173,13 @@ impl WidgetState {
         Self {
             handles: RefCell::new(UiHandles::new(x4)),
             cache: RefCell::new(StatusCache::default()),
+            minute: core::cell::Cell::new(u64::MAX),
         }
     }
 }
 
 impl UiServices {
     /// A screen instance closed: the widget instances it made go.
-    #[allow(
-        dead_code,
-        reason = "Core's stack applier calls it when an instance closes"
-    )]
     pub(crate) fn screen_closed(&self, screen: u32) -> Result<usize, i32> {
         Ok(self
             .widgets
@@ -190,8 +189,17 @@ impl UiServices {
             .drop_screen(screen))
     }
 
+    /// The lowest screen above `after` that still has widget instances.
+    pub(crate) fn next_widget_screen(&self, after: u32) -> Result<Option<u32>, i32> {
+        Ok(self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_screen(after))
+    }
+
     /// A callback of `plugin` returned: its status handles end with it.
-    #[allow(dead_code, reason = "the callback scope's end calls it")]
     pub(crate) fn callback_ended(&self, plugin: u64, callback: u64) -> Result<(), i32> {
         self.widgets
             .handles
@@ -202,7 +210,6 @@ impl UiServices {
     }
 
     /// Event 73 or the minute tick: cached status values go.
-    #[allow(dead_code, reason = "the event producers and the tick call it")]
     pub(crate) fn status_changed(&self) -> Result<(), i32> {
         self.widgets
             .cache
@@ -212,8 +219,20 @@ impl UiServices {
         Ok(())
     }
 
+    /// The clock reached `now_ms`: a new minute ends the cached values (the
+    /// minute tick of ui.md op 14); within a minute nothing changes.
+    pub(crate) fn minute_tick(&self, now_ms: u64) -> Result<(), i32> {
+        let minute = now_ms / 60_000;
+        if self.widgets.minute.get() == minute {
+            return Ok(());
+        }
+        self.status_changed()?;
+        // Only a cleared cache counts as seen: a refusal tries again.
+        self.widgets.minute.set(minute);
+        Ok(())
+    }
+
     /// A guard started: private cached values go.
-    #[allow(dead_code, reason = "the stack applier calls it when a guard starts")]
     pub(crate) fn guard_started(&self) -> Result<(), i32> {
         self.widgets
             .cache

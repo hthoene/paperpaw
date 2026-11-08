@@ -157,16 +157,25 @@ impl crate::Kernel {
     }
 
     pub(crate) fn native_instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut result = Ok(());
         if let Some(store) = self.shared.native_instances.ui_store() {
-            store.dialog_closed(instance)?;
-            store.asker_instance_closed(instance, &mut |cancelled| {
-                if let Some(dialog) = cancelled.dialog {
-                    self.queue_native_dialog_close(dialog);
-                }
-            })?;
-            store.instance_closed(instance)?;
+            result = (|| {
+                store.dialog_closed(instance)?;
+                store.asker_instance_closed(instance, &mut |cancelled| {
+                    if let Some(dialog) = cancelled.dialog {
+                        self.queue_native_dialog_close(dialog);
+                    }
+                })?;
+                store.instance_closed(instance)
+            })();
         }
-        Ok(())
+        // The widget instances the screen made go too, whatever the store
+        // steps said (a retry repeats every step; each is idempotent).
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            let widgets = ui.screen_closed(instance).map(|_| ());
+            result = result.and(widgets);
+        }
+        result
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {

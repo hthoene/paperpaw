@@ -189,6 +189,16 @@ impl UiHandles {
         before - self.widgets.len()
     }
 
+    /// The lowest screen above `after` that still has widgets (the sweep of
+    /// closed screens whose cleanup was refused).
+    pub(crate) fn next_screen(&self, after: u32) -> Option<u32> {
+        self.widgets
+            .iter()
+            .map(|w| w.screen)
+            .filter(|screen| *screen > after)
+            .min()
+    }
+
     /// `(instance, owner)` of the widgets `screen` made, to tell their owners.
     #[allow(dead_code, reason = "read by the applier when a screen closes")]
     pub(crate) fn dropped_by_screen(&self, screen: u32) -> impl Iterator<Item = (u32, u64)> + '_ {
@@ -300,6 +310,12 @@ impl UiHandles {
             return Err(ERR_BUSY);
         }
         Ok(target)
+    }
+
+    /// Status handles granted now (tests).
+    #[cfg(test)]
+    pub(crate) fn statuses(&self) -> usize {
+        self.status.len()
     }
 
     /// Instances made now (for the heap gauge and tests).
