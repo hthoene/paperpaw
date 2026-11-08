@@ -44,6 +44,12 @@ pub(crate) struct HostServices {
     net: OnceCell<NetServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The `core.format` calls under way (root 3 of the file service).
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    format_scope: super::format_scope::FormatScope,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -84,6 +90,7 @@ impl HostServices {
             net: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -252,6 +259,15 @@ impl HostServices {
         self.secrets.get()
     }
 
+    /// The `core.format` calls under way: the document service enters one
+    /// around each call, the file service asks it for root 3.
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
+        &self.format_scope
+    }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
     }

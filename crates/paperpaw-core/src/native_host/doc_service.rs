@@ -60,6 +60,11 @@ pub(crate) struct Options<'a> {
 }
 impl<'a> Options<'a> {
     pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
+    /// The options of a counted batch of `doc_option` rows (tests).
+    #[cfg(test)]
+    pub(crate) const fn from_batch(batch: &'a [u8]) -> Self {
+        Options { batch }
+    }
     /// Each option in order, `key` a full setting id. The host forwards the
     /// ones of the format's own plugin whole; none is cut, none is dropped.
     pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
