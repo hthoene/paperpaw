@@ -145,6 +145,11 @@ pub(crate) mod sock_service;
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 

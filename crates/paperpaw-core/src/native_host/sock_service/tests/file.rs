@@ -1,4 +1,4 @@
-//! Reads to a file: the card rules, the paths in use, the `.part` file and
+//! Reads to a file: the card rules, the paths in use, the staged file and
 //! the rename, what ends a read and what it leaves behind.
 use super::*;
 
@@ -25,7 +25,7 @@ fn key(root: u32, path: &str) -> (u32, String) {
 
 fn clean(f: &Fake) {
     assert!(f.claims.borrow().is_empty(), "no claim left");
-    assert!(f.parts.borrow().is_empty(), "no .part file left");
+    assert!(f.parts.borrow().is_empty(), "no staged file left");
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn every_refusal_changes_nothing() {
     assert_eq!(ask(5, 2, "a"), Err(ERR_INVALID), "root 2 is read-only");
     assert_eq!(ask(5, 3, "a"), Err(ERR_INVALID));
     assert_eq!(ask(5, 0, ""), Err(ERR_INVALID));
-    for name in ["a.part", "dir/A.PART", "x.Part", ".part"] {
+    for name in ["a.pp-staged", "a.PP-STAGED", "dir/b.Pp-Staged"] {
         assert_eq!(ask(5, 0, name), Err(ERR_INVALID), "{name}: the host's own");
     }
     let hosts = HostServices::new();
@@ -320,8 +320,8 @@ fn a_target_already_claimed_is_busy_for_everyone_the_same_plugin_too() {
     assert_eq!(read_file(&f, OTHER, c, 5, 0, "book.epub"), Err(ERR_BUSY));
     assert_eq!(f.claims.borrow().len(), 1, "the refusals claimed nothing");
     assert!(
-        read_file(&f, 9, open(&f, 9, 4), 5, 0, "book.parts").is_ok(),
-        "only the suffix .part is the host's"
+        read_file(&f, 9, open(&f, 9, 4), 5, 0, "book.part").is_ok(),
+        "`.part` is an ordinary name again"
     );
     // Another root's file of the same name is another file.
     assert!(read_file(&f, 10, open(&f, 10, 5), 5, 1, "book.epub").is_ok());

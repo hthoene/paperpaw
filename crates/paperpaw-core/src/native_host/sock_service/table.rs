@@ -480,12 +480,11 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         || !host_ok(c.host)
         || c.timeout_ms > TIMEOUT_MAX_MS
         || c.idle_ms > IDLE_MAX_MS
-        || (c.flags & FLAG_TLS == 0 && pins != 0)
+        // Pins and `server_name` mean something only with `tls` (2.1).
+        || (c.flags & FLAG_TLS == 0 && (pins != 0 || !c.server_name.is_empty()))
     {
         return Err(ERR_INVALID);
     }
-    // `server_name` is for TLS only (sockets.md 2.1); without `tls` it is
-    // ignored, as the contract does not refuse it.
     if c.flags & FLAG_TLS != 0 {
         // TLS needs the shell's session and trust store: a later slice.
         return Err(ERR_UNSUPPORTED);

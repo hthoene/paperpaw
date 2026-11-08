@@ -17,12 +17,6 @@ pub(super) struct File {
     first: bool,
 }
 
-/// Whether `path` is a `.part` name (any case): the host's own temporary,
-/// never a target (as for `net_file`, `network.md` 3.1).
-fn has_part_suffix(path: &str) -> bool {
-    path.len() >= 5 && path.as_bytes()[path.len() - 5..].eq_ignore_ascii_case(b".part")
-}
-
 /// `read` mode 1. Everything that can fail comes before the first change.
 pub(super) fn read(
     host: &dyn SockHost,
@@ -35,7 +29,7 @@ pub(super) fn read(
         || r.len > LEN_MAX
         || r.path.is_empty()
         || !matches!(r.root, 0 | 1)
-        || has_part_suffix(r.path)
+        || crate::native_host::staged_name::is_staged(r.path)
     {
         return Err(ERR_INVALID);
     }
