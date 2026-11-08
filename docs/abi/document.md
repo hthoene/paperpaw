@@ -225,13 +225,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `doc_meta` (interface 6 `Metadata`): `title: str 512`, `language: str 35`, `series: str 512`,
   `series_index: str 32`, `direction` (0 left to right, 1 right to left), `writing_mode` (0
-  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `authors`, `subjects`
-  (their counts, no cap), `description_bytes`, `flags` (bit 0 the title was cut, bit 1 the series).
-  Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`, `kind` 0 title, 1 author, 2
-  subject, 3 description, 4 series; `index` below the count, else `ERR_NOT_FOUND`; `offset`) answers
-  one `doc_text` (`kind`, `index`, `total` its whole length, `text` at most 1,024 bytes from
-  `offset`, cut at a UTF-8 boundary): an opener lists every author and subject by index and reads
-  any text whole by offsets. Nothing is cut for good and nothing is left out.
+  horizontal, 1 vertical right to left, 2 vertical left to right, 3 and 4 sideways, section 4),
+  `sections`, `authors`, `subjects` (their counts, no cap), `description_bytes`, `flags` (bit 0 the
+  title was cut, bit 1 the series). Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`,
+  `kind` 0 title, 1 author, 2 subject, 3 description, 4 series; `index` below the count, else
+  `ERR_NOT_FOUND`; `offset`) answers one `doc_text` (`kind`, `index`, `total` its whole length,
+  `text` at most 1,024 bytes from `offset`, cut at a UTF-8 boundary): an opener lists every author
+  and subject by index and reads any text whole by offsets. Nothing is cut for good and nothing is
+  left out.
 
 ### 2.3 Navigation and links
 
@@ -383,6 +384,24 @@ meaning (the format's own split of a very long paragraph).
   `i32::MIN` / `u32::MAX` for "the reader's" (interface 6 `None`); `style` the interface-6
   `TextStyle` bits unchanged (they are already a stable `u32`); `lang` a BCP 47 tag, empty for
   unknown.
+- [D] **Direction, writing mode, language** (interface 6 `Block.dir`, `writing_mode`, `lang`,
+  `inline_langs`; the SDK's `lang::Direction`, `lang::WritingMode`, `Lang`): `dir` 0 auto (the first
+  strong letter, UAX #9 P2/P3), 1 left to right, 2 right to left; `writing_mode` 0 horizontal top to
+  bottom, 1 vertical right to left, 2 vertical left to right, 3 sideways right to left, 4 sideways
+  left to right (`doc_meta.writing_mode` uses the same numbers). A later value the reader does not
+  know reads as 0 (auto, horizontal), never an error, so a newer format still opens in an older
+  reader; the reader lays out horizontal lines only, as interface 6. `lang` is interface 6's
+  `Block.lang` as a BCP 47 tag (language, script, region; `Lang`'s text form): the element's own
+  (`lang`, `xml:lang`, inherited), else the book's (`doc_meta.language`), as the format resolves it;
+  empty only when neither is known (`Lang::NONE`). The `doc_inline_lang`s are `inline_langs` in
+  order: a run's `TextStyle::lang_index` n names the n-th (from 1), 0 the block's `lang`; an index
+  past the list reads as the block's `lang`.
+- [D] **Annotations** (`doc_ruby`, interface 6 `Annotation`, now re-exported as
+  `paperpaw_sdk::document::{Annotation, AnnotationKind}`): `kind` 0 ruby, 1 phonetic, 2 gloss, 3+n
+  `Other(n)` (n at most 65,535); a value the reader does not know reads as a gloss, as
+  `AnnotationKind::Other` says. `size` is the percent of the text below, 0 for the reader's. A
+  footnote or note text is **not** an annotation: it stays a link to its target (`doc_link`, section
+  2.3) as in interface 6; a format sends a gloss only for a text meant to stand above the words.
 - [D] Inserted blocks and `leading_above` are the reader's (its text filters, #964); formats answer
   none, as in interface 6.
 
@@ -497,13 +516,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
-  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
-  MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
-  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the
-  document's opener: for any other plugin `ERR_NOT_FOUND`), which the host
-  resolves to that cache file and renders from the card like a card font. A damaged font is
-  `ERR_INVALID` at `font.acquire` (the reader falls back to the user's font and counts it, interface
-  6 `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
+  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16 MiB,
+  interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a font
+  handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the document's
+  opener: for any other plugin `ERR_NOT_FOUND`), which the host resolves to that cache file and
+  renders from the card like a card font. Face `index` i is the root-6 file `fonts/<i>` (decimal, no
+  extension), the format's to write; the host opens nothing else, and a file whose size is not the
+  row's `bytes` is `ERR_INVALID` at `font.acquire`. A damaged font is `ERR_INVALID` at
+  `font.acquire` (the reader falls back to the user's font and counts it, interface 6
+  `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
   text call) and are released as usual.
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
