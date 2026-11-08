@@ -46,9 +46,10 @@ for elf in "$@"; do
         bad=1
     fi
     if [ -n "$events" ]; then
-        extra=$("$nm" -C "$elf" | grep -oE 'native::events::(host_events|core_events|uix_events)::[a-z_0-9]+$|native::events::kinds::decode_any$' \
-            | while read -r symbol; do
-                case "$events" in *",${symbol##*::},"*) ;; *) echo "$symbol" ;; esac
+        extra=$("$nm" -C "$elf" \
+            | sed -nE 's/.*native::events::(host_events|core_events|uix_events)::([a-z_0-9]+)::alone$/\2/p; s/.*native::events::kinds::(decode_any)$/\1/p' \
+            | while read -r kind; do
+                case "$events" in *",$kind,"*) ;; *) echo "$kind" ;; esac
             done || true)
         if [ -n "$extra" ]; then
             echo "$elf reads event kinds it should not (only$events):" >&2

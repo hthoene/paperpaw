@@ -7,15 +7,28 @@ use super::{Error, declare::records_wire as wire};
 /// `$r` is the decoded record, `$body` the event (it may use `?`).
 macro_rules! event_fn {
     ($name:ident, $ty:ty, |$r:ident| $body:expr) => {
-        // Kept a function of its own, so that a plugin's link holds the decoders of the
-        // kinds it reads and `tools/plugin-symbols.sh --events` can tell which.
-        #[inline(never)]
-        pub(super) fn $name<'a>(
-            raw: wire::RawRecord<'a>,
-            _bytes: &'a [u8],
-        ) -> Result<Event<'a>, Error> {
-            let $r: $ty = raw.decode().map_err(Error::from_status)?;
-            Ok($body)
+        // Two entries to one decoder. `inline` is what `decode_any` (every kind) uses,
+        // folded into it. `alone` is what `Incoming::decode_as` uses: a function of its
+        // own, so that a plugin's link holds the decoders of the kinds it reads and
+        // `tools/plugin-symbols.sh --events` can tell which.
+        pub(super) mod $name {
+            #[allow(unused_imports, reason = "what the decoder of one kind happens to use")]
+            use super::*;
+            #[inline(always)]
+            pub(in crate::native::events) fn inline<'a>(
+                raw: wire::RawRecord<'a>,
+                _bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                let $r: $ty = raw.decode().map_err(Error::from_status)?;
+                Ok($body)
+            }
+            #[inline(never)]
+            pub(in crate::native::events) fn alone<'a>(
+                raw: wire::RawRecord<'a>,
+                bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                inline(raw, bytes)
+            }
         }
     };
 }

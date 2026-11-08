@@ -41,7 +41,7 @@ macro_rules! kinds {
                     raw: wire::RawRecord<'a>,
                     bytes: &'a [u8],
                 ) -> Result<Event<'a>, Error> {
-                    $module::$decode(raw, bytes)
+                    $module::$decode::alone(raw, bytes)
                 }
             }
             impl Kind for $marker {
@@ -61,7 +61,7 @@ macro_rules! kinds {
             bytes: &'a [u8],
         ) -> Result<Event<'a>, Error> {
             match raw.tag() {
-                $(wire::$tag => $module::$decode(raw, bytes),)*
+                $(wire::$tag => $module::$decode::inline(raw, bytes),)*
                 _ => Err(Error::Unsupported),
             }
         }

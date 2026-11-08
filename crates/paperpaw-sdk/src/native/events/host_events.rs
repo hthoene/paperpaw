@@ -1,11 +1,25 @@
 //! The host's own events: lifecycle, pages, screens, actions, registry and plugin requests.
 use super::{Error, Event, PluginRequestId, ReadingView, RegistryChanges, RequestedPlugins, wire};
 
-pub(super) fn tick<'a>(_raw: wire::RawRecord<'a>, bytes: &'a [u8]) -> Result<Event<'a>, Error> {
-    // The whole bytes: this event is read without the generic record decoder.
-    wire::tick_decode(bytes)
-        .map(|now_ms| Event::Tick { now_ms })
-        .map_err(Error::from_status)
+pub(super) mod tick {
+    use super::{Error, Event, wire};
+    #[inline(always)]
+    pub(in crate::native::events) fn inline<'a>(
+        _raw: wire::RawRecord<'a>,
+        bytes: &'a [u8],
+    ) -> Result<Event<'a>, Error> {
+        // The whole bytes: this event is read without the generic record decoder.
+        wire::tick_decode(bytes)
+            .map(|now_ms| Event::Tick { now_ms })
+            .map_err(Error::from_status)
+    }
+    #[inline(never)]
+    pub(in crate::native::events) fn alone<'a>(
+        raw: wire::RawRecord<'a>,
+        bytes: &'a [u8],
+    ) -> Result<Event<'a>, Error> {
+        inline(raw, bytes)
+    }
 }
 
 event_fn!(stage_call, wire::StageCall<'_>, |r| Event::StageCall {
@@ -53,7 +67,7 @@ event_fn!(screen_shown, wire::EventScreenShown<'_>, |r| {
         height: r.height,
         instance: r
             .instance
-            .map(|value| super::super::ui::Instance::new(value).ok_or(Error::Invalid))
+            .map(|value| crate::native::ui::Instance::new(value).ok_or(Error::Invalid))
             .transpose()?,
     }
 });
@@ -79,7 +93,7 @@ event_fn!(plugins_requested, wire::EventPluginsRequested<'_>, |r| {
     }
 });
 event_fn!(plugin_answered, wire::EventPluginAnswered<'_>, |r| {
-    use super::super::commands::PluginOutcome;
+    use crate::native::commands::PluginOutcome;
     Event::PluginAnswered {
         now_ms: r.now_ms,
         request: PluginRequestId(r.request),
