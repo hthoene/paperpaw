@@ -63,7 +63,8 @@ pub fn decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
 /// # Errors
 /// [`TryReserveError`] when the vector cannot be reserved.
 pub fn try_decode(text: &str) -> Result<Option<Vec<u8>>, TryReserveError> {
-    if !text.len().is_multiple_of(2) {
+    // Checked before anything is reserved: bad text never asks for memory.
+    if !text.len().is_multiple_of(2) || !text.bytes().all(|c| digit(c).is_some()) {
         return Ok(None);
     }
     let mut out = Vec::new();
