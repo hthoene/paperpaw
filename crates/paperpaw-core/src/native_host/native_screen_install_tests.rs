@@ -6,6 +6,8 @@ use paperpaw_sdk::{Command, Handled, Id, Params};
 std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
+    /// The host table each `make` was handed, in order.
+    static TABLES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     /// 1: the batch also declares a group, a setting, its extra and an action;
     /// 2: and a secret setting the host does not map (the batch is refused).
@@ -180,6 +182,7 @@ unsafe extern "C" fn screen_make(
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
 ) -> i32 {
+    TABLES.with(|tables| tables.borrow_mut().push(host.addr()));
     let mut bytes = [0; 1024];
     let len = declaration_batch(&mut bytes);
     // SAFETY: the linked factory receives a live host table and context, and
@@ -1302,4 +1305,30 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
         reached_success,
         "the fault walk reached a fully admitted owner"
     );
+}
+
+#[test]
+fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
+    let mut kernel = kernel(0);
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
+    for owner in owners {
+        kernel
+            .register_native(
+                host_named(owner, 0),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _| {},
+            )
+            .unwrap();
+    }
+    let each = (live() - before) / owners.len();
+    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
+    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
+    // riscv32 sizes. Bounded here so that growth shows in review.
+    assert!(each <= 2_048, "{each} B per owner");
+    // Every owner's `make` was handed the same static table, not a copy.
+    let tables = TABLES.with(|tables| tables.borrow().clone());
+    assert!(tables.len() > owners.len());
+    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
 }

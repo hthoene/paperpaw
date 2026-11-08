@@ -4,7 +4,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
-use paperpaw_plugin_mail::native_model::{codec, header, html, mem};
+use paperpaw_plugin_mail::native_model::imap::{self, Fault};
+use paperpaw_plugin_mail::native_model::{codec, header, html, mem, smtp};
 use paperpaw_sdk::native::Error;
 
 #[global_allocator]
@@ -111,5 +112,84 @@ fn the_html_reader_survives_refused_allocations() {
             parser.push(piece, &mut out)?;
         }
         parser.finish(&mut out)
+    });
+}
+
+/// A fault of the IMAP reader as the sweep sees it: only a refusal is allowed.
+fn refusal(fault: Fault) -> Error {
+    match fault {
+        Fault::NoMemory => Error::NoMemory,
+        _ => Error::Invalid,
+    }
+}
+
+#[test]
+fn the_imap_reader_survives_refused_allocations() {
+    const LINES: &[&str] = &[
+        "A1 OK LOGIN completed",
+        "+ go ahead",
+        "* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN",
+        "* LIST (\\HasNoChildren \\Trash) \"/\" \"Deleted Items\"",
+        "* SEARCH 2 84 882",
+        "* STATUS \"INBOX\" (MESSAGES 231 UNSEEN 7)",
+        "* BYE gone",
+        "* OK [UIDVALIDITY 3857529045] UIDs valid",
+        "* 12 FETCH (UID 42 FLAGS (\\Seen \\Answered) RFC822.SIZE 1000 INTERNALDATE \"d\")",
+        "* 3 FETCH (BODY[HEADER.FIELDS (FROM TO)] {342}",
+    ];
+    for line in LINES {
+        swept("response", || {
+            imap::response(line.as_bytes()).map_err(refusal)?;
+            imap::tokens(line.as_bytes()).map_err(refusal)
+        });
+    }
+    swept("fetch parts", || {
+        let line = b"* 12 FETCH (UID 42 FLAGS (\\Seen \\Deleted) RFC822.SIZE 9)";
+        let Some(imap::Response::Untagged(imap::Untagged::Fetch { items, .. })) =
+            imap::response(line).map_err(refusal)?
+        else {
+            return Err(Error::Invalid);
+        };
+        let flags = imap::fetch_flags(&items).map_err(refusal)?;
+        assert_eq!(imap::flag_letters(&flags)?, "SD");
+        Ok(())
+    });
+    swept("names and quoting", || {
+        assert_eq!(imap::mailbox_display("Entw&APw-rfe")?, "Entw\u{fc}rfe");
+        imap::quoted("a \"b\" c")?;
+        let secret = imap::quoted_secret("pa\"ss")?;
+        assert_eq!(secret.as_str(), "\"pa\\\"ss\"");
+        Ok(())
+    });
+    swept("line buffer", || {
+        let mut buffer = imap::LineBuffer::default();
+        buffer
+            .push(b"A1 OK one\r\nA2 OK two\r\n{5}abcde")
+            .map_err(refusal)?;
+        assert!(buffer.line().map_err(refusal)?.is_some());
+        assert!(buffer.line().map_err(refusal)?.is_some());
+        buffer.take(3)?;
+        Ok(())
+    });
+}
+
+#[test]
+fn the_smtp_reader_survives_refused_allocations() {
+    swept("replies", || {
+        let mut parser = smtp::ReplyParser::default();
+        for line in ["250-mail.example.org", "250-STARTTLS", "250 AUTH PLAIN"] {
+            parser.line(line.as_bytes())?;
+        }
+        parser.line(b"garbage")?;
+        parser.line(&[b'x'; 1001])?;
+        Ok(())
+    });
+    swept("commands", || {
+        assert_eq!(smtp::mail_from("a@b.c")?, "MAIL FROM:<a@b.c>\r\n");
+        smtp::rcpt_to("a@b.c>\r\nDATA")?;
+        let line = smtp::auth_plain("ada", "hunter2")?;
+        assert_eq!(line.as_str(), "AUTH PLAIN AGFkYQBodW50ZXIy\r\n");
+        smtp::data("a\n.b\n..c\n")?;
+        Ok(())
     });
 }
