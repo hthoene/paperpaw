@@ -706,6 +706,12 @@ mod folder {
     use super::*;
     use crate::cards;
     use crate::sync::tests::{FOLDER, put, run};
+
+    fn put_bytes(storage: &MemoryStorage, name: &str, bytes: &[u8]) {
+        storage
+            .write(&alloc::format!("{FOLDER}/{name}"), bytes)
+            .unwrap();
+    }
     use crate::sync::{self, Job, Mode, Outcome, Step};
 
     /// A card folder with decks, made and merged once, then changed.
@@ -834,6 +840,164 @@ mod folder {
                 Ok(())
             },
             whole,
+        );
+    }
+
+    /// A save refused anywhere is cut off: the file is as it was or whole,
+    /// no part is left, and the decks and the ledger read whole.
+    fn saving(name: &str, loose: bool) {
+        use crate::export::{self, Outcome as Saved, Saver, Step as Saving};
+        let make = move || {
+            let q = card();
+            if loose {
+                fixture(|| {
+                    cards::add_deck(&q, "Loose").unwrap();
+                    put(&q.0, "Loose.tsv", "someone else's file");
+                });
+            }
+            q
+        };
+        let deck_of = |q: &Quiet| {
+            fixture(|| cards::decks(q).unwrap())
+                .into_iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .id
+        };
+        let save = |q: &Quiet| -> Result<(), StorageError> {
+            let deck = deck_of(q);
+            let mut saver = Saver::new(FOLDER, deck)?;
+            loop {
+                match saver.step(q) {
+                    Saving::Working => {}
+                    Saving::Done(report) if report.outcome == Saved::Saved => return Ok(()),
+                    // A refusal cuts the save off (or leaves it unlinked).
+                    Saving::Done(report)
+                        if matches!(
+                            report.outcome,
+                            Saved::Failed | Saved::NotLinked | Saved::Unreadable
+                        ) =>
+                    {
+                        return Err(StorageError::TooLarge);
+                    }
+                    Saving::Done(report) => panic!("{name}: {report:?}"),
+                }
+            }
+        };
+        let files = |q: &Quiet| -> Vec<(String, Option<Vec<u8>>)> {
+            let mut names = Vec::new();
+            q.0.list(FOLDER, &mut |e| {
+                names.push(alloc::string::String::from(e.name));
+            })
+            .unwrap();
+            names.sort();
+            names
+                .into_iter()
+                .map(|n| {
+                    let bytes = q.get(&alloc::format!("{FOLDER}/{n}"));
+                    (n, bytes)
+                })
+                .collect()
+        };
+        let before = files(&make());
+        let after = {
+            let q = make();
+            save(&q).unwrap();
+            files(&q)
+        };
+        sweep("save", make, save, |q| {
+            whole(q);
+            let now = files(q);
+            // No part is left; every file there was is as it was or as saved
+            // (the backup, the file, a new name).
+            assert!(now.iter().all(|(n, _)| !n.ends_with(".part")), "{now:?}");
+            for (n, bytes) in &before {
+                let there = now.iter().find(|(m, _)| m == n);
+                let saved = after.iter().find(|(m, _)| m == n);
+                assert!(
+                    there.is_some_and(|t| t.1 == *bytes || Some(t) == saved),
+                    "{name}: {n} is neither as it was nor as saved"
+                );
+            }
+        });
+        // The linked deck's file: its update first, then the save.
+        sweep(
+            "update_first",
+            make,
+            |q| export::update_first(q, FOLDER, deck_of(q)).map(|_| ()),
+            whole,
+        );
+    }
+
+    #[test]
+    fn saving_a_deck_refuses_cleanly_and_keeps_the_files() {
+        saving("Spanish", false);
+        saving("French", false);
+        // No file yet, and the name taken: a free name is looked for.
+        saving("Loose", true);
+    }
+
+    #[test]
+    fn the_names_of_a_save_refuse_cleanly() {
+        use crate::export::{backup_name, file_name_of};
+        sweep(
+            "names",
+            Quiet::default,
+            |_| {
+                assert_eq!(file_name_of("A/B: C")?, "A_B_ C.tsv");
+                assert_eq!(file_name_of("  ..")?, "Deck.tsv");
+                assert_eq!(backup_name("W.tsv")?, "_W.bak.tsv");
+                assert_eq!(backup_name("W")?, "_W.bak");
+                Ok(())
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn reading_an_anki_deck_refuses_cleanly() {
+        // Made here, not in the run: nothing of the test's own is refused.
+        let path = fixture(|| alloc::format!("{FOLDER}/de.apkg"));
+        let path = path.as_str();
+        use crate::apkg::{
+            self, Fault,
+            tests::{deck_with, note},
+        };
+        let make = || {
+            let q = Quiet::default();
+            fixture(|| {
+                let notes = [
+                    note(&[
+                        "<b>haus</b>",
+                        "the house<br>big&amp;old [sound:a.mp3]",
+                        "Das Haus.",
+                    ]),
+                    note(&["tab\there", "say \"hi\""]),
+                    note(&["gato", "cat"]),
+                ];
+                put_bytes(&q.0, "de.apkg", &deck_with("collection.anki21", &notes));
+            });
+            q
+        };
+        sweep(
+            "apkg",
+            make,
+            |s| match apkg::convert(s, path) {
+                Ok(notes) => {
+                    assert_eq!(notes.count, 3);
+                    Ok(())
+                }
+                Err(Fault::Memory) => Err(StorageError::TooLarge),
+                Err(fault) => panic!("{fault:?}"),
+            },
+            |s| {
+                // The database is only kept while it is read.
+                assert!(
+                    s.get(".paperpaw/plugins/vocabulary/cards/apkg.db")
+                        .is_none()
+                );
+                whole(s);
+            },
         );
     }
 }

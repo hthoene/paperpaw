@@ -1277,12 +1277,10 @@ fn event_only_wire_batch_remains_committable() {
     assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
 }
 
-/// UIX declarations (`docs/abi/ui.md`: inputs, help hints, widgets, status
-/// items, lines and places) decode but stay refused until the host admits
-/// them, so a batch carrying one is never accepted with it dropped.
+/// Input/help declarations stay refused until their host admission lands.
 #[test]
-fn uix_declarations_stay_refused_until_admitted() {
-    for tag in [29, 30, 224, 225, 226, 227, 228] {
+fn input_and_help_declarations_stay_refused_until_admitted() {
+    for tag in [29, 30] {
         // Sixty-four zero bytes are a valid body of every generated record.
         let bytes = batch(&[record(tag, &[vec![0; 64]])]);
         let decoded = records_decode(&bytes).unwrap();
@@ -1297,6 +1295,24 @@ fn uix_declarations_stay_refused_until_admitted() {
         assert!(
             committed.is_err(),
             "tag {tag}: refusal must poison construction"
+        );
+    }
+}
+
+#[test]
+fn malformed_widget_and_status_declarations_poison_construction() {
+    for tag in [224, 225, 226, 227, 228] {
+        let bytes = batch(&[record(tag, &[vec![0; 64]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &decoded.iter().next().unwrap()),
+            Err(ERR_INVALID)
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_INVALID), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "invalid declarations are never dropped silently"
         );
     }
 }

@@ -21,6 +21,11 @@ use paperpaw_sdk::Settings;
 pub(crate) mod usage_views;
 pub(crate) use usage_views::{DeviceUsageView, PluginRow};
 
+#[path = "../native_host/ui_guard.rs"]
+pub(crate) mod ui_guard;
+#[path = "ui_views.rs"]
+pub(crate) mod ui_views;
+
 /// Table position after a scoped visitor stops; counters are not snapshotted.
 #[allow(dead_code, reason = "row offsets are read by the service encoder")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +68,9 @@ pub(crate) struct ComposeRequest {
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    fn settings_editor(&self) -> Option<&str> {
+        None
+    }
     /// Broker access exists only for the duration of the outer callback.
     /// The broker completes checks and subscriber calls before publishing a reply.
     /// On success it initializes exactly the returned prefix using writes only,
@@ -92,9 +100,39 @@ pub(crate) trait Frame {
     fn calling_instance(&self) -> Result<u32, i32> {
         Err(ERR_STATE)
     }
-    /// The host view a service family keeps behind its key (`core.document`,
-    /// `core.library`, `core.lookup`), downcast by that family's backend; a
-    /// frame without one answers the family `ERR_UNSUPPORTED`.
+    fn callback_depth(&self) -> Result<u8, i32> {
+        Err(ERR_STATE)
+    }
+
+    fn with_stack(&self, _visit: &mut dyn FnMut(&dyn ui_guard::UiStackView)) -> Result<(), i32> {
+        Err(ERR_STATE)
+    }
+    fn ui_x4(&self) -> Result<bool, i32> {
+        Err(ERR_STATE)
+    }
+    fn close_dialog(&self, _instance: u32) -> Result<(), i32> {
+        Err(ERR_STATE)
+    }
+
+    fn ui_directory(&self) -> Result<&dyn ui_views::UiDirectory, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    fn status_ask(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _items: &[&str],
+        _context: &[u8],
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// A host view kept behind a service key, as `dyn Any`. **Not used by the
+    /// families any more**: `core.device`, `core.document`, `core.library` and
+    /// `core.lookup` reach theirs through the caller's `hosts`
+    /// (`Caller::hosts`, wired once per device by `HostServices::wire_*`), and
+    /// a family without one answers `ERR_UNSUPPORTED`. No frame overrides this.
     fn host_service(&self, _key: &str) -> Option<&dyn core::any::Any> {
         None
     }
