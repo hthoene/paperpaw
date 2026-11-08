@@ -31,7 +31,7 @@ use paperpaw_ui_kit::{
 use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
-use crate::native_grid::{self as grid, What};
+use crate::native_grid::{self as grid, Sizes, What};
 use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
@@ -45,6 +45,10 @@ const NAME_LINES: usize = 3;
 #[derive(Debug)]
 struct Cell {
     what: What,
+    /// The item it shows: its number among `Laid::items`.
+    item: usize,
+    /// The fewest rows a widget may be made (as it measured), one for a tool.
+    least: u8,
     rect: Rect,
     /// A tool's name.
     name: String,
@@ -70,11 +74,20 @@ struct Laid {
     pencil: Option<(Rect, String)>,
     /// Where *Add* is, while editing.
     plus: Option<Rect>,
+    /// The items shown, each with its cells: what is kept when one is moved,
+    /// sized or removed.
+    items: Vec<grid::Item>,
+    /// The setting that keeps the page (0 for `home.page-1`), and whether the
+    /// screen is on its side.
+    slot: usize,
+    wide: bool,
 }
 
 /// Which of the footer's buttons are there.
 #[derive(Debug, Clone, Copy)]
 struct Buttons {
+    /// Editing: each item is one target, not what its widget answers.
+    editing: bool,
     plus: bool,
     pencil: bool,
 }
@@ -87,7 +100,11 @@ enum Next {
     Edit(bool),
     /// The *Add* screen opens for the page that shows.
     Add,
+    /// The options of the item of this cell open.
+    Options(usize),
 }
+
+mod arrange;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -100,8 +117,12 @@ pub struct Dashboard {
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
-    /// tapped runs nothing.
+    /// tapped offers the item's options.
     editing: bool,
+    /// The options of an item, over the page.
+    options: Option<arrange::Options>,
+    /// An item the buttons are moving or sizing.
+    moving: Option<arrange::Moving>,
 }
 
 impl Dashboard {
@@ -166,6 +187,9 @@ impl Dashboard {
             return Err(error);
         }
         self.drop_widgets(host, ui);
+        // The cells are new: what pointed at the old ones is no more.
+        self.options = None;
+        self.moving = None;
         self.focus.clamp(laid.targets.len());
         if self.reshow {
             // As on interface 6: at every show the focus is drawn only if the
@@ -190,11 +214,13 @@ impl Dashboard {
             metrics,
             frame,
             pages,
+            wide,
             ..
         } = Shown::read(host, display, font)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
+        let slot = pages.get(page).map_or(0, |p| p.slot);
         let items = match pages.get(page) {
             Some(page) => native_pages::expand(&src, &page.items)?,
             None => Vec::new(),
@@ -215,6 +241,7 @@ impl Dashboard {
         )?;
         let mut cells = Vec::new();
         let buttons = Buttons {
+            editing,
             plus: editing,
             pencil: pencil_on,
         };
@@ -235,6 +262,13 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let items = match grid::copy_items(&shown) {
+            Ok(items) => items,
+            Err(error) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -247,6 +281,9 @@ impl Dashboard {
             arrows_stay: src.arrows_stay,
             pencil: pencil_on.then_some((footer.pencil, word)),
             plus: editing.then_some(footer.plus),
+            items,
+            slot,
+            wide,
         })
     }
 
@@ -261,8 +298,8 @@ impl Dashboard {
         (footer, buttons): (&Footer, Buttons),
         cells: &mut Vec<Cell>,
     ) -> Result<(Vec<Target>, Vec<String>), Error> {
-        for item in shown {
-            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, item)? {
+        for (index, item) in shown.iter().enumerate() {
+            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, (index, item))? {
                 push(cells, cell)?;
             }
         }
@@ -280,7 +317,7 @@ impl Dashboard {
         ui: &Ui,
         src: &HostSource,
         geometry: &Geometry,
-        item: &grid::Item,
+        (index, item): (usize, &grid::Item),
     ) -> Result<Option<Cell>, Error> {
         let Some(at) = item.at else {
             return Ok(None);
@@ -303,7 +340,7 @@ impl Dashboard {
                             drop_widget(host, ui, handle);
                             return Err(error);
                         }
-                        (String::new(), Some(handle))
+                        (text::copy(Self::widget_title(src, id))?, Some(handle))
                     }
                     // A widget that is gone, or not for this screen: no cell.
                     Err(Error::NotFound | Error::Denied) => return Ok(None),
@@ -320,12 +357,27 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let least = match &item.what {
+            What::Widget(id) => src.widget(geometry, id).2,
+            What::Tool(_) => 1,
+        };
         Ok(Some(Cell {
             what,
+            item: index,
+            least,
             rect,
             name,
             widget,
         }))
+    }
+
+    /// A widget's name as the registry lists it (its id where it has none).
+    fn widget_title<'a>(src: &'a HostSource, id: &'a str) -> &'a str {
+        let base = native_pages::base(id);
+        src.widget_rows()
+            .iter()
+            .find(|row| row.id == base)
+            .map_or(id, |row| row.title.as_str())
     }
 
     /// The places the buttons reach: tools, what the widgets answer, the
@@ -340,6 +392,14 @@ impl Dashboard {
         let mut targets = Vec::new();
         for (index, cell) in cells.iter().enumerate() {
             match cell.widget {
+                // Editing: an item is one target, whatever it is.
+                _ if buttons.editing => push(
+                    &mut targets,
+                    Target {
+                        rect: cell.rect,
+                        owner: Owner::Tool(index),
+                    },
+                )?,
                 None => push(
                     &mut targets,
                     Target {
@@ -432,6 +492,7 @@ impl Dashboard {
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         self.ensure(host, ui)?;
+        self.ensure_dialog(host)?;
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
@@ -455,6 +516,18 @@ impl Dashboard {
         let mut below = Vec::new();
         let mut above = Vec::new();
         for cell in &laid.cells {
+            if self.editing {
+                // The cells show while editing.
+                paintpush(
+                    &mut below,
+                    Paint::Focus(
+                        cell.rect,
+                        style.corner,
+                        Some(u32::from(style.line).max(1)),
+                        style.ink,
+                    ),
+                )?;
+            }
             if matches!(cell.what, What::Tool(_)) && laid.tool_labels {
                 name(&mut below, font, &style, cell.rect, &cell.name)?;
             }
@@ -484,7 +557,10 @@ impl Dashboard {
                 .filter_map(|cell| Some((cell.widget.filter(|w| !w.is_own())?, cell.rect))),
             |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
         );
-        paint::replay(frame, font, above.iter())
+        paint::replay(frame, font, above.iter())?;
+        let mut dialog = Vec::new();
+        self.dialog_paint(font, &mut dialog)?;
+        paint::replay(frame, font, dialog.iter())
     }
 
     /// Takes an input: the page buttons turn the page, the others move the
@@ -494,6 +570,9 @@ impl Dashboard {
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
         self.ensure(host, ui)?;
+        if let Some(handled) = self.arrange_input(host, ui, input)? {
+            return Ok(handled);
+        }
         match *input {
             Input::Action { action, .. } => self.action(host, ui, action),
             Input::Gesture { position, kind, .. } => match touch_of(kind) {
@@ -657,6 +736,7 @@ impl Dashboard {
                 self.ensure(host, ui)?;
                 redraw(host)
             }
+            Next::Options(cell) => self.open_options(host, cell),
             Next::Add => {
                 let page = self.nav.map_or(0, |nav| nav.page);
                 add_screen::open(host, ui, page, None)
@@ -720,6 +800,9 @@ const fn decide(owner: Owner, editing: bool) -> Option<Next> {
     match owner {
         Owner::Button(Button::Pencil) => Some(Next::Edit(!editing)),
         Owner::Button(Button::Plus) => Some(Next::Add),
+        // An item tapped or chosen while editing offers its options.
+        Owner::Tool(cell) if editing => Some(Next::Options(cell)),
+        Owner::Widget { item, .. } if editing => Some(Next::Options(item)),
         _ if editing => Some(Next::Nothing),
         _ => None,
     }
@@ -907,6 +990,7 @@ mod tests {
     fn the_footer_buttons_are_reached_add_first_and_the_pencil_last() {
         let f = footer();
         let both = Buttons {
+            editing: true,
             plus: true,
             pencil: true,
         };
@@ -920,11 +1004,13 @@ mod tests {
             ]
         );
         let none = Buttons {
+            editing: false,
             plus: false,
             pencil: false,
         };
         assert_eq!(owners(&f, none).len(), 2);
         let pencil = Buttons {
+            editing: false,
             plus: false,
             pencil: true,
         };
@@ -943,14 +1029,22 @@ mod tests {
     }
 
     #[test]
-    fn while_editing_what_is_tapped_runs_nothing() {
+    fn while_editing_an_item_offers_its_options_and_the_rest_runs_nothing() {
+        assert_eq!(decide(Owner::Tool(2), true), Some(Next::Options(2)));
+        assert_eq!(
+            decide(Owner::Widget { item: 1, target: 3 }, true),
+            Some(Next::Options(1))
+        );
+        assert_eq!(
+            decide(Owner::Button(Button::Action(0)), true),
+            Some(Next::Nothing)
+        );
+        // Not editing: it runs (the host decides what).
         for owner in [
             Owner::Tool(0),
             Owner::Widget { item: 0, target: 1 },
             Owner::Button(Button::Action(0)),
         ] {
-            assert_eq!(decide(owner, true), Some(Next::Nothing));
-            // Not editing: it runs (the host decides what).
             assert_eq!(decide(owner, false), None);
         }
     }

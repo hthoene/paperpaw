@@ -92,12 +92,13 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
     },
-    // Arranging while editing: select, move, resize and remove an item with the
-    // buttons, the grip drag, the tools drawer.
+    // Arranging while editing: moving and sizing an item with a finger (drag by
+    // the item, by its corner), and the options' *Settings* entry. Moving,
+    // sizing and removing with the buttons are done (unit-tested).
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["HOME-arrange-slice", "H2", "H4"],
+        blocked_by: &["H4", "HOME-item-settings"],
     },
 ];
 
@@ -184,7 +185,7 @@ fn home_add() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-arrange-slice: moving, sizing and removing items while editing is not ported"]
+#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs the pointer input; the options' Settings entry is not ported"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

@@ -60,6 +60,20 @@ impl Shown {
         })
     }
 
+    /// Reads the device now, with the font and display of the callback.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals.
+    pub fn current(host: &Host<'_>) -> Result<Self, Error> {
+        let display = paperpaw_sdk::native::snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, paperpaw_sdk::native::fonts::FontRole::Ui)?;
+        let read = Self::read(host, &display, &font);
+        let released = font.release();
+        let shown = read?;
+        released?;
+        Ok(shown)
+    }
+
     /// The grid of a screen on its side.
     #[must_use]
     pub fn wide_grid(&self) -> Geometry {

@@ -164,9 +164,22 @@ settings, the placements a removed page's widgets set reset with `reset_setting`
 staged in one callback, and an error return drops them all (`screens-input.md` 2.1), so a choice is
 all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say so ("This change is too big to save at once."), stage nothing and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
 
+### Arranging (slice 3d)
+
+While editing each item is one target and a tap (or *Confirm*) on it opens its options, a dialog
+over the page (the kit's dialog: *Move*, *Change the size*, *Remove*, *Cancel*, the core's words).
+*Move* and *Change the size* pick the item up: left/right and up/down (the page buttons too, as on
+interface 6) move it a cell or make it a cell wider/narrower or taller/lower; where another item is in
+the way the core's message says so; *Select* or *Back* sets it down and writes the page
+(`native_pages::store`, for a screen on its side the whole derived layout, as *Add* does).
+*Remove* takes it off the page and resets what its placement (`id@n`) set. A widget is kept at
+least as high as it measured at the grid's width (one while measuring is not ported) and one cell
+wide; its own size hint (`CellSpan::keep`) is not read. A change too big for one callback says so
+and leaves the old layout (see *Add*). The page is laid out anew from the settings after a write.
+
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
 
-- Arranging while editing (select, move, resize, remove with the buttons, the grip drag): `home-edit-arrange`.
+- Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4); the options' *Settings* entry (the widget's settings, with a placement of its own) is not ported: `home-edit-arrange`.
 - *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made
   layouts and the rows' icons: `home-add` (#517). The things are listed by name.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
