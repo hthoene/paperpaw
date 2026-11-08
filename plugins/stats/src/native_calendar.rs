@@ -27,7 +27,6 @@ use crate::texts::{self, HostWords, Words};
 /// The calendar's contents and where it was last drawn.
 pub(crate) struct CalendarView {
     days: Vec<Day>,
-    books: Vec<model::Named>,
     today: Option<i32>,
     /// The first day of the week, 0 being Sunday.
     week_start: u8,
@@ -99,10 +98,8 @@ impl CalendarView {
         week_start: u8,
     ) -> Result<Self, Error> {
         let days = store::days(data, utc_day).map_err(failed)?;
-        // Only the names stay: the books' other fields are dropped here.
-        let books = model::names(&store::load_books(data).map_err(failed)?)?;
         let day = model::clamp_day(today.or(days.last().map(|d| d.day)).unwrap_or(0));
-        let (said, title) = contents(words, data, &books, &days, day)?;
+        let (said, title) = contents(words, data, &days, day)?;
         let mut names = Vec::new();
         names.try_reserve_exact(7).map_err(|_| Error::NoMemory)?;
         for col in 0..7 {
@@ -113,7 +110,6 @@ impl CalendarView {
             heading: words.copy("stats.calendar")?,
             no_clock: words.copy("stats.no-clock")?,
             days,
-            books,
             today,
             week_start,
             day,
@@ -542,7 +538,7 @@ impl CalendarView {
 
     /// Makes `day` the chosen one; nothing changes where this fails.
     fn show(&mut self, words: &mut impl Words, data: &dyn Storage, day: i32) -> Result<(), Error> {
-        let (said, title) = contents(words, data, &self.books, &self.days, day)?;
+        let (said, title) = contents(words, data, &self.days, day)?;
         self.day = day;
         self.said = said;
         self.title = title;
@@ -554,11 +550,10 @@ impl CalendarView {
 fn contents(
     words: &mut impl Words,
     data: &dyn Storage,
-    books: &[model::Named],
     days: &[Day],
     day: i32,
 ) -> Result<(DayText, [String; 2]), Error> {
-    let detail = model::detail(data, books, days, day, utc_day)?;
+    let detail = model::detail(data, days, day, utc_day)?;
     Ok((
         model::day_text(words, day, &detail)?,
         model::title(words, day)?,
