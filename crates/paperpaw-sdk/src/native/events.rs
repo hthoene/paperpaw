@@ -256,6 +256,31 @@ impl<'a> ReadingView<'a> {
     }
 }
 
+/// Text typed from outside (`event.text_typed`). It may be a password, so `Debug`
+/// shows only its length; read it with [`TypedText::as_str`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TypedText<'a>(&'a str);
+
+impl<'a> TypedText<'a> {
+    pub(super) const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The typed text, borrowed from the callback input.
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+impl core::fmt::Debug for TypedText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TypedText")
+            .field("len", &self.0.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// One event, borrowing its callback's bytes. The scalar variants carry the
 /// emission time on the snapshot's monotonic millisecond clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -285,6 +310,17 @@ pub enum Event<'a> {
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
+    /// Text typed from outside: a hardware keyboard's keys or a shell's remote
+    /// control (`event.text_typed`, 109). Sent only to the instance on top when it
+    /// is a screen offered on slot `core.keyboard`, through `dispatch_event`, and
+    /// needs no subscription (naming 109 in a registration refuses the batch). Text
+    /// over 1,024 bytes comes in several events cut between characters; `done` is
+    /// set only on the last, and confirms the dialog.
+    TextTyped {
+        now_ms: u64,
+        text: TypedText<'a>,
+        done: bool,
+    },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
     ///

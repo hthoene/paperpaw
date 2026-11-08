@@ -79,6 +79,7 @@ kinds! {
     PageTurned => EVENT_PAGE_TURNED_TAG, host_events::page_turned, PageTurned;
     ScreenShown => EVENT_SCREEN_SHOWN_TAG, host_events::screen_shown, ScreenShown;
     ActionRun => EVENT_ACTION_RUN_TAG, host_events::action_run, ActionRun;
+    TextTyped => EVENT_TEXT_TYPED_TAG, host_events::text_typed, TextTyped;
     RegistryChanged => EVENT_REGISTRY_CHANGED_TAG, host_events::registry_changed, RegistryChanged;
     PreviewChanged => EVENT_PREVIEW_CHANGED_TAG, host_events::preview_changed, PreviewChanged;
     PluginsRequested => EVENT_PLUGINS_REQUESTED_TAG, host_events::plugins_requested, PluginsRequested;

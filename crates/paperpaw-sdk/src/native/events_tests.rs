@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
 use crate::native::declare::records_wire::Record;
+use alloc::format;
 use wire::{
     EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
 };
@@ -543,4 +544,46 @@ fn lookup_ready_names_the_provider_that_kept_its_answer() {
     )
     .unwrap();
     assert!(Event::decode(&long[..n]).is_ok());
+}
+
+#[test]
+fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
+    let encode = |flags| {
+        let mut bytes = [0; 128];
+        let n = wire::records_encode(
+            &[wire::Record::EventTextTyped(wire::EventTextTyped {
+                now_ms: 4,
+                text: "héllo wörld",
+                flags,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[..n].to_vec()
+    };
+    assert_eq!(
+        Event::decode(&encode(0)),
+        Ok(Event::TextTyped {
+            now_ms: 4,
+            text: TypedText::new("héllo wörld"),
+            done: false
+        })
+    );
+    // The text may be a password: `Debug` shows its length, never the text.
+    let shown = format!("{:?}", Event::decode(&encode(0)).unwrap());
+    assert!(
+        shown.contains("len: 13") && !shown.contains("llo"),
+        "{shown}"
+    );
+    assert!(matches!(
+        Event::decode(&encode(1)),
+        Ok(Event::TextTyped { done: true, .. })
+    ));
+    for flags in [2, 3, 0x8000_0000] {
+        assert_eq!(
+            Event::decode(&encode(flags)),
+            Err(Error::Invalid),
+            "{flags}"
+        );
+    }
 }

@@ -244,6 +244,11 @@ fn fixtures() -> Vec<Vec<u8>> {
                 now_ms: 42,
                 provider: "wikipedia.lookup",
             }),
+            Record::EventTextTyped(EventTextTyped {
+                now_ms: 42,
+                text: "héllo",
+                flags: 1,
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",
