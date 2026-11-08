@@ -303,6 +303,7 @@ g_architecture() {
     fi
     run "architecture: handbook tests" "python3 -m unittest discover -s tools -p test_handbook.py"
     run "architecture: CI tool setup tests" "python3 -m unittest discover -s tools -p test_ci_tools.py"
+    run "architecture: local check script tests" "python3 -m unittest discover -s tools -p test_check_local.py"
     run "architecture: lockfile check tests" "python3 -m unittest discover -s tools -p test_check_lockfiles.py"
     run "architecture: Android version codes" '
         for pair in "0.4.0-dev 40050" "0.5.0-beta.1 50001" "0.5.0-beta.2 50002" \
