@@ -322,7 +322,6 @@ fn a_book_that_cannot_be_named_keeps_its_names() {
     );
 }
 
-<<<<<<< HEAD
 #[test]
 fn reading_time_per_book_refuses_cleanly_never_partial() {
     use crate::totals::seconds_per_book;
@@ -340,7 +339,9 @@ fn reading_time_per_book_refuses_cleanly_never_partial() {
             Ok(())
         },
         |_, _| {},
-=======
+    );
+}
+
 /// A refusal inside the database library is its `OutOfMemory`; the plugin's
 /// own refusals are `TooLarge`: both are a refused allocation.
 fn refused(error: Error) -> Result<(), StorageError> {
@@ -436,6 +437,5 @@ fn a_merge_with_the_other_sides_database_refuses_cleanly() {
                 "a working file is left"
             );
         },
->>>>>>> origin/port-d/stats-shell-228
     );
 }

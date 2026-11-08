@@ -166,6 +166,9 @@ fn style() -> Style {
         muted: Color::gray(100),
         note: Color::gray(80),
         heading: 30,
+        card: Color::gray(230),
+        on_dark_muted: Color::gray(200),
+        strong: false,
     }
 }
 

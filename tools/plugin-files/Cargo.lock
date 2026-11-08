@@ -433,6 +433,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
