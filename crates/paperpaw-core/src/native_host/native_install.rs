@@ -5,7 +5,7 @@ use super::{
     native_instances::NativeLease,
     native_screen_factory::NativeScreenSpec,
     native_values::{self, Callback, Value},
-    registrations::Record,
+    registrations::{self as wire, Record, Registration},
     retained::Retained,
     shell,
 };
@@ -75,12 +75,11 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
-        let (retained, (owner, owned), raw) = Retained::make_native_stored(host, map_declarations)?;
-        // Callback registrations need their own mapping arm. Never accept an
-        // owner while silently leaving any committed contribution unrouted.
-        if !retained.batch().map_err(shell::Error::from)?.is_empty() {
-            return Err(shell::Error::Status(ERR_UNSUPPORTED));
-        }
+        let (retained, (owner, owned, tokens), raw) =
+            Retained::make_native_stored(host, map_declarations)?;
+        // The callback registrations are admitted whole or the owner is not:
+        // none is dropped unrouted.
+        check_registrations(&retained, &depth, &tokens)?;
         let key = self
             .shared
             .native_instances
@@ -400,12 +399,62 @@ fn duplicate(id: &Id) -> RegisterError {
     )
 }
 
-fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, Vec<Owned>), i32> {
+/// Admits the callback registrations of a committed batch: an event needs a
+/// tag the host encodes (`ERR_UNSUPPORTED` otherwise) and one entry for each
+/// tag, a draw the token of a screen or widget the plugin declared and one
+/// entry for each token (`ERR_INVALID` otherwise). The registrations stay in
+/// the batch, which teardown drops before the owner stops; nothing is copied.
+fn check_registrations<S: Services + 'static, M: 'static>(
+    retained: &Retained<S, M>,
+    depth: &FlatDepth,
+    tokens: &[u32],
+) -> Result<(), shell::Error> {
+    let mut events = super::event_tags::EventTags::default();
+    let mut drawn = [0_u32; super::registrations::REGISTRATION_MAX_RECORDS];
+    let mut draws = 0;
+    let mut verdict = Ok(());
+    retained
+        .registrations(depth.as_depth(), &mut |_, record| {
+            if verdict.is_err() {
+                return;
+            }
+            verdict = match record {
+                Registration::Event { event_tag, .. } => {
+                    if !super::events::is_event_tag(event_tag) {
+                        Err(ERR_UNSUPPORTED)
+                    } else if events.contains(event_tag) {
+                        Err(ERR_INVALID)
+                    } else {
+                        events.insert(event_tag)
+                    }
+                }
+                Registration::Draw { token } => {
+                    if !tokens.contains(&token) || drawn[..draws].contains(&token) {
+                        Err(ERR_INVALID)
+                    } else if draws == drawn.len() {
+                        Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+                    } else {
+                        drawn[draws] = token;
+                        draws += 1;
+                        Ok(())
+                    }
+                }
+            };
+        })
+        .map_err(shell::Error::from)?;
+    verdict.map_err(shell::Error::Status)
+}
+
+fn map_declarations(
+    view: &super::declaration_checks::View<'_>,
+) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    // The tokens of the screens and widgets, which draws may name.
+    let mut tokens = Vec::new();
     let mut any = false;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
@@ -413,6 +462,12 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
             return;
         }
         result = (|| {
+            if let Record::ScreenSpec(wire::ScreenSpec { token, .. })
+            | Record::WidgetSpec(wire::WidgetSpec { token, .. }) = record
+            {
+                tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                tokens.push(token);
+            }
             if let Some(value) = map_record(view.plugin, record)? {
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
@@ -425,7 +480,7 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
     if !any {
         return Err(ERR_UNSUPPORTED);
     }
-    Ok((owner, owned))
+    Ok((owner, owned, tokens))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

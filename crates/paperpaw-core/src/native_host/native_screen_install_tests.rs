@@ -11,7 +11,10 @@ std::thread_local! {
     /// 2: and a secret setting the host does not map (the batch is refused).
     static ARMS: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
-    static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
+    /// The callback registrations `make` submits: 1 an event; 2 the same event
+    /// twice; 3 a draw of the screen's token; 4 a draw of a token nobody
+    /// declared; 5 the same draw twice; 6 an event and a draw.
+    static REGS: Cell<u8> = const { Cell::new(0) };
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
     static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
@@ -103,6 +106,30 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
     .unwrap()
 }
 
+/// Submits the callback registrations of the mode `REGS`; the refusing status
+/// when the host refuses them.
+fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
+    let event = |token| wire::Registration::Event {
+        event_tag: wire::EVENT_STARTED_TAG,
+        token,
+    };
+    let draw = |token| wire::Registration::Draw { token };
+    let mut bytes = [0; 128];
+    let len = match REGS.with(Cell::get) {
+        0 => return None,
+        1 => wire::registrations_encode(&[event(91)], &mut bytes),
+        2 => wire::registrations_encode(&[event(91), event(92)], &mut bytes),
+        3 => wire::registrations_encode(&[draw(91)], &mut bytes),
+        4 => wire::registrations_encode(&[draw(77)], &mut bytes),
+        5 => wire::registrations_encode(&[draw(91), draw(91)], &mut bytes),
+        _ => wire::registrations_encode(&[event(91), draw(91)], &mut bytes),
+    }
+    .unwrap();
+    // SAFETY: the encoded registrations remain readable for the call.
+    let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+    (status != OK).then_some(status)
+}
+
 unsafe extern "C" fn screen_make(
     host: *const PpHost,
     ctx: *mut c_void,
@@ -118,20 +145,8 @@ unsafe extern "C" fn screen_make(
             return status;
         }
     }
-    if EXTRA_CALLBACK.with(Cell::get) {
-        let len = wire::registrations_encode(
-            &[wire::Registration::Event {
-                event_tag: wire::EVENT_STARTED_TAG,
-                token: 91,
-            }],
-            &mut bytes,
-        )
-        .unwrap();
-        // SAFETY: the encoded callback registration remains readable for submit.
-        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
-        if status != OK {
-            return status;
-        }
+    if let Some(status) = submit_registrations(host, ctx) {
+        return status;
     }
     let state = Box::into_raw(Box::new(ScreenState {
         host,
@@ -460,25 +475,81 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
 }
 
 #[test]
-fn empty_or_unmapped_callback_install_is_refused_without_publication() {
-    for (empty, callback) in [(true, false), (false, true)] {
-        reset(NORMAL);
-        DESTROYED.with(|value| value.set(0));
-        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .build()
-            .unwrap();
-        let before = kernel.shared.registry.screens.list().iter().count();
-        EMPTY.with(|value| value.set(empty));
-        EXTRA_CALLBACK.with(|value| value.set(callback));
-        let result = install(&mut kernel, 0);
-        EMPTY.with(|value| value.set(false));
-        EXTRA_CALLBACK.with(|value| value.set(false));
-        assert!(matches!(
-            result,
-            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
-        ));
-        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
-        assert_eq!(DESTROYED.with(Cell::get), 1);
+fn an_empty_install_is_refused_without_publication() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    EMPTY.with(|value| value.set(true));
+    let result = install(&mut kernel, 0);
+    EMPTY.with(|value| value.set(false));
+    assert!(matches!(
+        result,
+        Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+    ));
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+fn regs_kernel(regs: u8) -> (crate::Kernel, Result<(), Error>) {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    REGS.with(|value| value.set(regs));
+    let result = install(&mut kernel, 0);
+    REGS.with(|value| value.set(0));
+    (kernel, result)
+}
+
+#[test]
+fn event_and_draw_registrations_are_admitted_and_dropped_with_the_owner() {
+    for regs in [1, 3, 6] {
+        let (mut kernel, result) = regs_kernel(regs);
+        result.unwrap();
+        let key = kernel.shared.native_instances.find("factory").unwrap();
+        let events = kernel
+            .shared
+            .native_instances
+            .subscribed(key, wire::EVENT_STARTED_TAG);
+        assert_eq!(events, regs != 3, "mode {regs}");
+        assert!(kernel.unload_plugin(&Id::new_static("factory")));
+        assert!(
+            !kernel
+                .shared
+                .native_instances
+                .subscribed(key, wire::EVENT_STARTED_TAG),
+            "an unloaded owner has no subscriptions"
+        );
+        assert_eq!(DESTROYED.with(Cell::get), 1, "mode {regs}");
+    }
+}
+
+#[test]
+fn registrations_that_do_not_fit_the_declarations_refuse_the_whole_install() {
+    for (regs, status) in [
+        // The same event twice; a draw nobody declared; the same draw twice.
+        (2, host_glue::ERR_INVALID),
+        (4, host_glue::ERR_INVALID),
+        (5, host_glue::ERR_INVALID),
+    ] {
+        let (kernel, result) = regs_kernel(regs);
+        assert!(
+            matches!(result, Err(Error::Status(code)) if code == status),
+            "mode {regs}: {result:?}"
+        );
+        assert!(
+            !kernel
+                .shared
+                .registry
+                .screens
+                .contains_key("factory.screen")
+        );
+        assert!(kernel.shared.native_instances.find("factory").is_none());
+        assert_eq!(DESTROYED.with(Cell::get), 1, "mode {regs}");
     }
 }
 
@@ -1027,4 +1098,50 @@ fn unload_removes_the_actions_settings_and_groups() {
     install(&mut kernel, 0).unwrap();
     ARMS.with(|value| value.set(0));
     assert!(kernel.shared.settings.spec("factory.flag").is_some());
+}
+
+#[test]
+fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
+    let mut reached_success = false;
+    for allocation in 1..96 {
+        reset(NORMAL);
+        DESTROYED.with(|value| value.set(0));
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        ARMS.with(|value| value.set(1));
+        REGS.with(|value| value.set(6));
+        INSTALL_FAIL_NTH.with(|value| value.set(allocation));
+        let result = install(&mut kernel, 0);
+        arm_failure(0);
+        INSTALL_FAIL_NTH.with(|value| value.set(0));
+        ARMS.with(|value| value.set(0));
+        REGS.with(|value| value.set(0));
+        let shared = &kernel.shared;
+        if result.is_ok() {
+            reached_success = true;
+            assert!(shared.actions.contains("factory.action"));
+            assert!(shared.settings.spec("factory.flag").is_some());
+            assert!(shared.registry.screens.contains_key("factory.screen"));
+            break;
+        }
+        assert!(!shared.actions.contains("factory.action"), "{allocation}");
+        assert!(
+            shared.settings.spec("factory.flag").is_none(),
+            "{allocation}"
+        );
+        assert!(
+            !shared
+                .settings
+                .groups()
+                .any(|g| g.id.as_str() == "factory.g"),
+            "{allocation}"
+        );
+        assert!(!shared.registry.screens.contains_key("factory.screen"));
+        assert_eq!(DESTROYED.with(Cell::get), 1, "{allocation}");
+    }
+    assert!(
+        reached_success,
+        "the fault walk reached a fully admitted owner"
+    );
 }
