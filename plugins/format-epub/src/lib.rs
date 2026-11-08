@@ -36,8 +36,8 @@ mod native_io;
 mod obfuscation;
 mod package;
 mod pictures;
-mod woff;
 pub mod provider;
+mod woff;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

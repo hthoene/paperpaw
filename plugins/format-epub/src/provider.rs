@@ -14,8 +14,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::min;
 use paperpaw_sdk::document::{
-    Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator,
-    PageProgression, VerticalAlign, is_external,
+    Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator, PageProgression,
+    VerticalAlign, is_external,
 };
 use paperpaw_sdk::native::{
     Error,
