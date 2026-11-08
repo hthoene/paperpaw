@@ -615,8 +615,6 @@ jobs:
           $emu --headless --profile two-buttons \
             --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
             --screenshot out/two-buttons-settings.png
-          $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-            --script "page-forward,long-tap:600:800"
           # What a release hands the workshop: the registry, --stdio, the
           # handbook.
           $emu --registry out/registry.json
