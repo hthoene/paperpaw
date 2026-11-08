@@ -408,3 +408,57 @@ fn a_setting_of_a_later_kind_keeps_its_value_as_text() {
     assert!(SLIDER.accepts(&value));
     assert!(!SLIDER.accepts(&SettingValue::Int(35)));
 }
+
+#[test]
+fn a_plugins_settings_and_groups_go_and_the_others_keep_their_places() {
+    static LIST: [SettingSpec; 2] = [
+        SettingSpec::new(
+            Id::new_static("keep.fixed"),
+            "keep.fixed",
+            SettingKind::Bool,
+            SettingValue::Bool(true),
+            crate::builtin::groups::OTHER,
+        ),
+        SettingSpec::new(
+            Id::new_static("gone.fixed"),
+            "gone.fixed",
+            SettingKind::Bool,
+            SettingValue::Bool(true),
+            crate::builtin::groups::OTHER,
+        ),
+    ];
+    let flag = |id: &'static str| {
+        SettingSpec::new(
+            Id::new_static(id),
+            id,
+            SettingKind::Bool,
+            SettingValue::Bool(false),
+            crate::builtin::groups::OTHER,
+        )
+    };
+    let mut s = Settings::new();
+    s.define(flag("keep.first")).unwrap();
+    s.define(flag("gone.one")).unwrap();
+    s.define_fixed(&LIST, 0).unwrap();
+    s.define(flag("keep.second")).unwrap();
+    s.define_fixed(&LIST, 1).unwrap();
+    s.define(flag("gone.two")).unwrap();
+    s.add_group(SettingGroupSpec::new(Id::new_static("gone.group"), "gone"))
+        .unwrap();
+    s.add_group(SettingGroupSpec::new(Id::new_static("keep.group"), "keep"))
+        .unwrap();
+    s.remove_plugin("gone");
+    for id in ["keep.first", "keep.fixed", "keep.second"] {
+        assert!(s.spec(id).is_some(), "{id}");
+    }
+    for id in ["gone.one", "gone.fixed", "gone.two"] {
+        assert!(s.spec(id).is_none(), "{id}");
+    }
+    let order: Vec<&str> = s.specs.iter().map(|spec| spec.id.as_str()).collect();
+    assert_eq!(order, ["keep.first", "keep.fixed", "keep.second"]);
+    let groups: Vec<&str> = s.groups().map(|g| g.id.as_str()).collect();
+    assert_eq!(groups, ["keep.group"]);
+    // The room that is left takes new settings again.
+    s.define(flag("gone.three")).unwrap();
+    assert!(s.spec("gone.three").is_some());
+}

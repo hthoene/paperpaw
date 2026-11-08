@@ -7,6 +7,9 @@ std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// 1: the batch also declares a group, a setting, its extra and an action;
+    /// 2: and a secret setting the host does not map (the batch is refused).
+    static ARMS: Cell<u8> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
     static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
@@ -24,12 +27,10 @@ struct ScreenState {
     context: *mut c_void,
 }
 
-unsafe extern "C" fn screen_make(
-    host: *const PpHost,
-    ctx: *mut c_void,
-    out: *mut *const PpPlugin,
-) -> i32 {
-    let mut bytes = [0; 128];
+/// The batch `screen_make` submits, by the mode: the screen alone, with the
+/// unsupported records, or with the group, setting, extra and action.
+fn declaration_batch(bytes: &mut [u8]) -> usize {
+    let arms = ARMS.with(Cell::get);
     let records = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
@@ -60,7 +61,55 @@ unsafe extern "C" fn screen_make(
         }),
     ];
     let count = if UNSUPPORTED.with(Cell::get) { 3 } else { 1 };
-    let len = wire::records_encode(&records[..count], &mut bytes).unwrap();
+    let flag = wire::Record::SettingSpec(wire::SettingSpec {
+        name: "flag",
+        kind: 0,
+        flags: 0,
+        group: "factory.g",
+        title: "factory.flag",
+        help: "",
+        default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+        min: 0,
+        max: 0,
+        choices: "",
+    });
+    let extra = wire::Record::SettingExtra(wire::SettingExtra {
+        name: "flag",
+        unit: "",
+        section: "",
+        follows: "",
+        shown_id: "",
+        shown_value: "",
+        editor_kind: 0,
+        editor: "",
+        step: 0,
+        flags: 0,
+        check: 0,
+    });
+    let action = wire::Record::ActionSpec(wire::ActionSpec {
+        name: "action",
+        title: "factory.action",
+        token: 92,
+        flags: 0,
+    });
+    let all = [records[0], records[1], flag, extra, action, records[2]];
+    match arms {
+        0 => wire::records_encode(&records[..count], bytes),
+        // The group, the setting and its extra, the action and the screen;
+        // the secret setting last when the batch must be refused.
+        1 => wire::records_encode(&all[..5], bytes),
+        _ => wire::records_encode(&[all[1], all[2], all[3], all[4], all[0], all[5]], bytes),
+    }
+    .unwrap()
+}
+
+unsafe extern "C" fn screen_make(
+    host: *const PpHost,
+    ctx: *mut c_void,
+    out: *mut *const PpPlugin,
+) -> i32 {
+    let mut bytes = [0; 1024];
+    let len = declaration_batch(&mut bytes);
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
@@ -886,4 +935,96 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     assert_eq!(DESTROYED.with(Cell::get), 0);
     drop(dispatch);
     assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+fn arms_kernel(arms: u8) -> (crate::Kernel, Result<(), Error>) {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    ARMS.with(|value| value.set(arms));
+    let result = install(&mut kernel, 0);
+    ARMS.with(|value| value.set(0));
+    (kernel, result)
+}
+
+#[test]
+fn settings_groups_and_actions_install_with_the_screens() {
+    let (kernel, result) = arms_kernel(1);
+    result.unwrap();
+    let shared = &kernel.shared;
+    assert!(shared.registry.screens.contains_key("factory.screen"));
+    assert!(shared.actions.contains("factory.action"));
+    assert!(shared.actions.get("factory.action").unwrap().runs_itself());
+    let spec = shared.settings.spec("factory.flag").unwrap();
+    assert_eq!(spec.title, "factory.flag");
+    assert!(
+        shared
+            .settings
+            .groups()
+            .any(|g| g.id.as_str() == "factory.g")
+    );
+}
+
+#[test]
+fn a_batch_with_a_family_the_host_does_not_map_is_refused_whole() {
+    let (kernel, result) = arms_kernel(2);
+    assert!(
+        matches!(result, Err(Error::Status(host_glue::ERR_UNSUPPORTED))),
+        "{result:?}"
+    );
+    let shared = &kernel.shared;
+    assert!(!shared.registry.screens.contains_key("factory.screen"));
+    assert!(!shared.actions.contains("factory.action"));
+    assert!(shared.settings.spec("factory.flag").is_none());
+    assert!(
+        !shared
+            .settings
+            .groups()
+            .any(|g| g.id.as_str() == "factory.g")
+    );
+    assert!(shared.native_instances.find("factory").is_none());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn a_duplicate_setting_is_refused_before_anything_is_published() {
+    let (mut kernel, result) = arms_kernel(1);
+    result.unwrap();
+    // Another plugin that claims the same setting and action ids is refused.
+    reset(NORMAL);
+    ARMS.with(|value| value.set(1));
+    let again = kernel.register_native(
+        host_named("factory", 0),
+        &FlatDepth::try_new().unwrap(),
+        |_, _, _| {},
+    );
+    ARMS.with(|value| value.set(0));
+    assert!(again.is_err());
+    assert!(kernel.shared.settings.spec("factory.flag").is_some());
+    assert!(kernel.shared.actions.contains("factory.action"));
+}
+
+#[test]
+fn unload_removes_the_actions_settings_and_groups() {
+    let (mut kernel, result) = arms_kernel(1);
+    result.unwrap();
+    let owner = Id::new_static("factory");
+    assert!(kernel.unload_plugin(&owner));
+    let shared = &kernel.shared;
+    assert!(!shared.actions.contains("factory.action"));
+    assert!(shared.settings.spec("factory.flag").is_none());
+    assert!(
+        !shared
+            .settings
+            .groups()
+            .any(|g| g.id.as_str() == "factory.g")
+    );
+    assert!(!shared.registry.screens.contains_key("factory.screen"));
+    // The same plugin installs again under a fresh key.
+    ARMS.with(|value| value.set(1));
+    install(&mut kernel, 0).unwrap();
+    ARMS.with(|value| value.set(0));
+    assert!(kernel.shared.settings.spec("factory.flag").is_some());
 }
