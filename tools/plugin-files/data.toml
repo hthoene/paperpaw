@@ -55,7 +55,7 @@ de.description = "Fett-kursiver Buchtext in Literata, wo sonst Fett dafür steht
 # points from there on.
 
 [script-arabic]
-version = "1.1.2"
+version = "1.1.3"
 group = "languages"
 licence = "OFL-1.1"
 formats = 3
@@ -69,7 +69,7 @@ de.name = "Arabische Schrift"
 de.description = "Bücher auf Arabisch, Persisch und Urdu in Noto Naskh Arabic, mit ihren Vokalzeichen, und Tastaturen dafür."
 
 [script-hebrew]
-version = "1.1.2"
+version = "1.1.3"
 group = "languages"
 licence = "OFL-1.1"
 formats = 3

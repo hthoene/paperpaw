@@ -352,7 +352,7 @@ pub fn sort_folders(folders: &mut [Folder]) {
             2
         }
     };
-    folders.sort_by(|a, b| {
+    paperpaw_sdk::sort::sort_by(folders, |a, b| {
         rank(a)
             .cmp(&rank(b))
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))

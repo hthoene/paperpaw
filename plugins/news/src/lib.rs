@@ -12,9 +12,21 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 mod convert;
+pub mod native_convert;
+pub mod native_news;
 mod widget;
+
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -945,3 +957,7 @@ mod tests {
 
 #[cfg(test)]
 mod feeds_tests;
+#[cfg(test)]
+mod native_convert_tests;
+#[cfg(test)]
+mod native_parity_tests;

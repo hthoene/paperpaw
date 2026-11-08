@@ -110,6 +110,8 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
+pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod fmt_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -136,11 +138,18 @@ pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
 mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
@@ -292,6 +301,8 @@ pub(crate) mod native_instances;
 )]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
 
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.

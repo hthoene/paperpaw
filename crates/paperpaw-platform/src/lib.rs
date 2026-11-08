@@ -2,8 +2,9 @@
 //!
 //! This crate is the common language between platform shells and the
 //! kernel: display descriptions, pixel formats and raw input events. It has
-//! no dependencies and never allocates, so it can be used on every target,
-//! down to bare-metal microcontrollers.
+//! no dependencies and allocates only in the generic tree walk (`tree`, the
+//! path it walks, fallibly), so it can be used on every target, down to
+//! bare-metal microcontrollers.
 //!
 //! The kernel itself never calls into a platform. It consumes
 //! [`InputEvent`]s and emits effects, which a shell executes, for example
@@ -17,6 +18,7 @@ pub mod input;
 pub mod pixel;
 pub mod status;
 pub mod storage;
+pub mod tree;
 
 pub use display::{ColorPanel, Display, DisplayInfo, FrameView, RefreshMode, Rotation};
 pub use geometry::{Point, Rect};

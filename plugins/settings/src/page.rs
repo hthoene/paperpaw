@@ -257,7 +257,7 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
             .position(|s| *s == key.as_ref())
             .map_or(group_sections::ORDER.len() + 1, |p| p + 1),
     };
-    sections.sort_by_cached_key(rank);
+    paperpaw_sdk::sort::sort_by_cached_key(&mut sections, rank);
     // Headings only where there is more than one part.
     let headed = sections.len() > 1;
     if *of == groups::LOOK && !placed && !more {

@@ -27,6 +27,7 @@ dependencies = [
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -63,6 +64,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -116,14 +118,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -153,16 +156,13 @@ dependencies = [
  "paperpaw-plugin-hyphenation-sv",
  "paperpaw-plugin-hyphenation-uk",
  "paperpaw-plugin-joplin",
- "paperpaw-plugin-keys",
  "paperpaw-plugin-koreader",
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-mail",
- "paperpaw-plugin-menu-editor",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
- "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -310,14 +310,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-xml",
 ]
 
 [[package]]
-name = "paperpaw-plugin-keys"
+name = "paperpaw-plugin-koreader"
 version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
@@ -325,15 +325,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-koreader"
-version = "1.0.7"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -341,14 +334,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-menu-editor"
-version = "1.0.8"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -356,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -366,14 +352,16 @@ name = "paperpaw-plugin-notes-overview"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-notes-vault"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -384,16 +372,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-profiles"
-version = "1.0.9"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -407,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-readwise"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -439,14 +419,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -480,12 +460,17 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
+ "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
  "paperpaw-zip",
 ]
+
+[[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-sqlite"
@@ -505,6 +490,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 

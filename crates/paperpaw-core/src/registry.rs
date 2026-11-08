@@ -451,7 +451,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
             .iter()
             .filter(|c| c.slot.as_str() == slot && self.screens.contains_key(c.screen.as_str()))
             .collect();
-        candidates.sort_by_key(|c| core::cmp::Reverse(c.priority));
+        paperpaw_sort::sort_by_key(&mut candidates, |c| core::cmp::Reverse(c.priority));
         let mut screens: Vec<&Id> = Vec::new();
         for candidate in candidates {
             if !screens.contains(&&candidate.screen) {
