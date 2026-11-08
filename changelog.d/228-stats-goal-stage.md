@@ -1,0 +1,1 @@
+- Stats: the daily goal setting is declared on interface 7 (20 minutes at first), and today's reading is answered to Reading goal through the stage `reading-goal.read-today` from memory (#228)

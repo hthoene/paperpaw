@@ -2,7 +2,7 @@
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl, StageDecl,
+    ScreenDecl, SpecDecl, SubscribeDecl,
 };
 
 /// Callback tokens are stable within this plugin image.
@@ -15,11 +15,29 @@ pub const BOOK_TOKEN: u32 = 22;
 pub const CALENDAR_TOKEN: u32 = 23;
 /// The action that opens the overview.
 pub const OPEN_TOKEN: u32 = 30;
+/// The question Reading goal asks (the stage `reading-goal.read-today`).
+pub const ASKED_TOKEN: u32 = 40;
 
 pub const GROUP: &str = "stats.group";
 
-/// The group, and the three settings: recording on or off, and the shortest and
-/// longest stay on a page that count (KOReader's rule).
+/// The choices of the daily goal: none, then minutes.
+pub const GOALS: [&str; 12] = [
+    "stats.goal.off",
+    "stats.goal.10",
+    "stats.goal.15",
+    "stats.goal.20",
+    "stats.goal.30",
+    "stats.goal.45",
+    "stats.goal.60",
+    "stats.goal.90",
+    "stats.goal.120",
+    "stats.goal.180",
+    "stats.goal.240",
+    "stats.goal.300",
+];
+
+/// The group, and the four settings: recording on or off, the daily goal, and the
+/// shortest and longest stay on a page that count (KOReader's rule).
 pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     let mut group = GroupDecl::new("group", "stats.group");
@@ -28,6 +46,20 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
     let mut enabled = SpecDecl::new("enabled", Kind::Bool(true), GROUP, "stats.setting.enabled");
     enabled.help = "stats.setting.enabled.help";
     declarations.spec(enabled)?;
+    // The daily goal the widgets, the overview and Reading goal go by: minutes,
+    // or none. 20 minutes at first (interface 6: Reading goal set that default
+    // where it is installed).
+    let mut goal = SpecDecl::new(
+        "goal",
+        Kind::Choice {
+            default: "stats.goal.20",
+            choices: &GOALS,
+        },
+        GROUP,
+        "stats.setting.goal",
+    );
+    goal.help = "stats.setting.goal.help";
+    declarations.spec(goal)?;
     for (name, default, min, max, step, title) in [
         ("min-seconds", 5, 1, 60, 1, "stats.setting.min"),
         ("max-seconds", 120, 30, 600, 10, "stats.setting.max"),
@@ -92,12 +124,13 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// The stage `stats.read-today` (schema 1): asked with nothing, it answers the
-/// day (days since 1970, local) as an `i32` and the seconds read on it as a
-/// `u32`, both little-endian, for those who show the reading goal. It answers
-/// nothing where the device does not know the date yet.
+/// The subscription to the stage `reading-goal.read-today` (schema 1), which
+/// Reading goal owns and runs when it needs today's reading: asked with the day
+/// as an `i32` (empty: today), it answers the day and the seconds read on it as
+/// a `u32`, little-endian, from memory. A day it does not know is `ERR_NOT_FOUND`.
+/// Without Reading goal installed the subscription stays inert.
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
-    declarations.stage(StageDecl::new("read-today", 1, 1, 8, 1))?;
+    declarations.subscribe(SubscribeDecl::new("reading-goal.read-today", ASKED_TOKEN))?;
     declarations.submit()
 }

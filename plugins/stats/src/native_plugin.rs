@@ -20,7 +20,7 @@ use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
-use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+use crate::recorder::{Asked, Limits, Reading, Recorder, Surroundings, Told};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -28,8 +28,8 @@ mod image {
 
 /// The plugin's callback tokens (see `declarations.rs`).
 const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
-/// The stage that tells today's reading.
-const READ_TODAY: &str = "stats.read-today";
+/// The stage Reading goal runs to ask for today's reading.
+const ASKED: &str = "reading-goal.read-today";
 
 /// An open screen's view.
 #[allow(
@@ -82,17 +82,19 @@ impl Plugin for NativeStats {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         if let Event::StageCall {
-            stage: READ_TODAY, ..
+            stage: ASKED,
+            schema: 1,
+            payload,
         } = event
+            && token == crate::declarations::ASKED_TOKEN
         {
-            let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-            if let Some((day, seconds)) = today {
-                let mut bytes = [0u8; 8];
-                bytes[..4].copy_from_slice(&day.to_le_bytes());
-                bytes[4..].copy_from_slice(&seconds.to_le_bytes());
-                reply.write(&bytes)?;
-            }
-            return Ok(());
+            // From memory: no card read and no write inside this callback.
+            let answer = with_cx(host, 0, |cx| self.recorder.asked(cx, payload));
+            return match answer {
+                Ok(bytes) => reply.write(&bytes),
+                Err(Asked::Unknown) => Err(Error::NotFound),
+                Err(Asked::Invalid) => Err(Error::Invalid),
+            };
         }
         match event {
             Event::ActionRun {

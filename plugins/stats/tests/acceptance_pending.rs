@@ -23,9 +23,11 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
 }
 
 #[test]
-#[ignore = "needs a host that admits stage declarations, and a native reading-goal that asks stats.read-today"]
+#[ignore = "needs a host that admits stage subscriptions, and a native reading-goal that runs reading-goal.read-today (PR #450)"]
 fn reading_goal_is_told_todays_seconds() {
-    unreachable!("the stage answers day and seconds as the stay is recorded");
+    unreachable!(
+        "the stage answers day and seconds from memory (Recorder::asked), ERR_NOT_FOUND for a day it does not know"
+    );
 }
 
 #[test]
