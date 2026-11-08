@@ -137,6 +137,10 @@ impl Plugin for NativeWifi {
             }
             Event::ScreenShown { .. } if token == SCREEN_SHOWN => Ok(()),
             Event::ScreenClosed { instance, .. } => {
+                // The setup screen showed a password: wiped, not just dropped.
+                if let Some(View::Phone(list)) = self.screens.get(instance) {
+                    list.wipe();
+                }
                 self.screens.close(instance);
                 Ok(())
             }
@@ -504,8 +508,9 @@ impl NativeWifi {
                 push(&mut items, Item::row(&title, own.ssid())?)?;
                 let title = say.copy(host, "wifi.phone.password")?;
                 let grouped = crate::native_own::grouped(own.password().as_str())?;
-                push(&mut items, Item::row(&title, &grouped)?)?;
+                let item = Item::row(&title, &grouped);
                 paperpaw_ui_kit::mem::wipe_text(grouped);
+                push(&mut items, item?)?;
             }
             None => {
                 let text = say.copy(host, "wifi.phone.no-random")?;
@@ -651,12 +656,15 @@ impl NativeWifi {
                 self.page_row(host, row)
             }
             Some(View::Networks(view)) => {
-                if let Some(network) = view.networks.get(index).cloned() {
-                    self.network(host, &network)
+                // A copy: the choice reads the services, which borrow the plugin.
+                if let Some(network) = view.networks.get(index).map(Network::try_clone) {
+                    self.network(host, &network?)
                 } else {
-                    // The last row: look again.
-                    let mut scratch = [0; 64];
-                    CommandSender::new(host, &mut scratch).wifi_scan()?;
+                    // The last row: look again, unless a scan runs.
+                    if !self.read_info(host)?.scanning {
+                        let mut scratch = [0; 64];
+                        CommandSender::new(host, &mut scratch).wifi_scan()?;
+                    }
                     redraw(host)
                 }
             }
@@ -750,22 +758,28 @@ impl NativeWifi {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let question = Question::text(&title, "")?.secret()?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let request = ui.ask(host, question, &mut input, &mut out)?;
-        if let Some((pending, typed)) = &self.policy.pending
-            && pending == ssid
-        {
-            ui.text_write(
-                host,
-                request.text(),
-                0,
-                typed.as_str(),
-                paperpaw_sdk::native::ui::TextWrite::Last,
-                &mut input,
-                &mut out,
-            )?;
-        }
+        let asked = ui
+            .ask(host, question, &mut input, &mut out)
+            .and_then(|request| {
+                if let Some((pending, typed)) = &self.policy.pending
+                    && pending == ssid
+                {
+                    ui.text_write(
+                        host,
+                        request.text(),
+                        0,
+                        typed.as_str(),
+                        paperpaw_sdk::native::ui::TextWrite::Last,
+                        &mut input,
+                        &mut out,
+                    )?;
+                }
+                Ok(request)
+            });
+        // The typed password went through both buffers: wiped on every path.
         wipe(&mut input);
         wipe(&mut out);
+        let request = asked?;
         let ssid = copy(ssid)?;
         self.asked = Some((request, ssid));
         Ok(())
@@ -786,7 +800,11 @@ impl NativeWifi {
         if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
         }
-        let password = self.read_password(host, request)?;
+        let Some(password) = self.read_password(host, request)? else {
+            // Longer than a network's password can be: said, not joined.
+            native_model::best_effort(Self::tell(host, "wifi.password.too-long", &ssid));
+            return Ok(());
+        };
         let radio = self.radio_for_policy(host)?;
         let steps = self.policy.choose(radio, &ssid, password.as_str())?;
         self.policy.pending = Some((ssid, password));
@@ -794,18 +812,26 @@ impl NativeWifi {
         redraw(host)
     }
 
-    /// The password typed, read with buffers that are wiped.
-    fn read_password(&self, host: &Host<'_>, request: RequestId) -> Result<Password, Error> {
+    /// The password typed, read with buffers that are wiped; `None` for one
+    /// longer than a network's password can be.
+    fn read_password(
+        &self,
+        host: &Host<'_>,
+        request: RequestId,
+    ) -> Result<Option<Password>, Error> {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let result = ui
             .text_read(host, request.text(), 0, &mut input, &mut out)
             .and_then(|part| {
                 let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
-                if total > PASSWORD_MOST || part.data().len() != total {
+                if total > PASSWORD_MOST {
+                    return Ok(None);
+                }
+                if part.data().len() != total {
                     return Err(Error::Invalid);
                 }
-                Password::new(part.data())
+                Password::new(part.data()).map(Some)
             });
         wipe(&mut input);
         wipe(&mut out);

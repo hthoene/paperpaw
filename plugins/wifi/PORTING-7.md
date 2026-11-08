@@ -83,7 +83,10 @@ until the host activates native plugins (then it goes together, no shim).
   nothing else: no weaker draw is substituted. The screen shows the network's name and the password
   in groups of five; it does **not** open the network or serve the page (`NET-serve`: the SDK has no
   `serve`/`respond`, and the QR code needs the canvas drawing of the old screen, to be ported with it),
-  so the drawn password belongs to a network that is not opened yet.
+  so the drawn password belongs to a network that is not opened yet. The text of the password in the
+  list is wiped when the screen closes (`ItemList::wipe`).
+  A password typed longer than 63 bytes is not joined: the user is told (`wifi.password.too-long`),
+  the callback does not fail. The row that looks again scans only while no scan runs.
   Tests: `native_model::tests` (rows, idle choices, bars against the old ones, notes, the choice of
   a network), `tests/native_alloc_refusal.rs` (every allocation of the rows refused),
   `tests/translations.rs` (every text asked for exists in en and de), `tests/linked_entry.rs`

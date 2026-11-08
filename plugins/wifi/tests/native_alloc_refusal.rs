@@ -23,6 +23,7 @@ fn rows_and_notes_survive_refused_allocations() {
         native_model::note_keys(Link::Connected, true, &network)?;
         native_model::note_keys(Link::Apart, false, &network)?;
         native_model::collect(found, 8)?;
+        network.try_clone()?;
         Ok(())
     });
 }

@@ -71,6 +71,20 @@ pub struct Network {
     pub secured: bool,
 }
 
+impl Network {
+    /// A copy of the network.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            ssid: copy(&self.ssid)?,
+            signal: self.signal,
+            secured: self.secured,
+        })
+    }
+}
+
 /// The signal in bars from 1 to 4.
 #[must_use]
 pub fn bars(signal: i32) -> u8 {
@@ -265,6 +279,12 @@ mod tests {
         assert_eq!(pick(None, false, &open), Pick::Open);
         // A kept open network is joined as kept.
         assert_eq!(pick(None, true, &open), Pick::Kept);
+    }
+
+    #[test]
+    fn a_copy_is_equal() {
+        let n = net("a", -50, true);
+        assert_eq!(n.try_clone().unwrap(), n);
     }
 
     #[test]
