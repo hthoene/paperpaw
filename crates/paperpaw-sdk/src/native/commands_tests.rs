@@ -870,9 +870,10 @@ fn lookup_ready_names_the_text_and_language_of_the_ask() {
     // A language may be empty; the limits are the contract's 1,024 and 35.
     sender.lookup_ready("x".repeat(1024), "").unwrap();
     sender.lookup_ready("a", "l".repeat(35)).unwrap();
-    for (text, language) in [("", "en"), ("tooLong", "l".repeat(36).as_str())] {
-        assert_eq!(sender.lookup_ready(text, language), Err(Error::Invalid));
-    }
+    assert_eq!(
+        sender.lookup_ready("word", "l".repeat(36)),
+        Err(Error::Invalid)
+    );
     assert_eq!(
         sender.lookup_ready("x".repeat(1025), "en"),
         Err(Error::Invalid)

@@ -15,8 +15,8 @@ impl CommandSender<'_, '_> {
     /// never an error.
     ///
     /// # Errors
-    /// Returns Invalid for empty text, text over 1,024 bytes or a language over
-    /// 35 bytes (nothing is staged), NoSpace for short scratch, or the host's
+    /// Returns Invalid for text over 1,024 bytes or a language over 35 bytes
+    /// (nothing is staged), NoSpace for short scratch, or the host's
     /// refusal.
     pub fn lookup_ready(
         &mut self,
@@ -24,8 +24,7 @@ impl CommandSender<'_, '_> {
         language: impl AsRef<str>,
     ) -> Result<(), Error> {
         let (text, language) = (text.as_ref(), language.as_ref());
-        if text.is_empty()
-            || text.len() > wire::COMMAND_LOOKUP_READY_TEXT_MAX_BYTES
+        if text.len() > wire::COMMAND_LOOKUP_READY_TEXT_MAX_BYTES
             || language.len() > wire::COMMAND_LOOKUP_READY_LANGUAGE_MAX_BYTES
         {
             return Err(Error::Invalid);
