@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2428,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2570,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2911,7 +2911,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-platform",
- "paperpaw-sort",
  "paperpaw-zip",
  "proptest",
 ]
