@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use alloc::{vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -428,7 +429,9 @@ fn power_control_bits_are_independent_and_unknown_bits_are_ignored() {
             panic!("fixture")
         };
         row.controls = (1 << bit) | (1 << 31);
-        let device = DeviceIdentity::decode(Record::ServiceDevDevice(row)).unwrap();
+        let mut bytes = [0_u8; 512];
+        let n = wire::record_encode_of(&row, &mut bytes).unwrap();
+        let device = DeviceIdentity::decode(RawRecord::one(&bytes[..n]).unwrap()).unwrap();
         for control in controls {
             assert_eq!(device.can_control(control), control == *expected);
         }

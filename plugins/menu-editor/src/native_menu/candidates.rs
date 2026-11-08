@@ -31,6 +31,28 @@ impl Candidate {
     }
 }
 
+/// Notes that `by` (a plugin id) took `item` out of the menu, if it is a candidate.
+fn mark_hidden(found: &mut [Candidate], item: &str, by: &str) -> Result<(), Error> {
+    if let Some(candidate) = found.iter_mut().find(|c| c.id == item) {
+        candidate.hidden_by = Some(copy(by)?);
+    }
+    Ok(())
+}
+
+/// Replaces the plugin id `id` by its display `name` where it is noted as
+/// a hider and the name is known.
+fn name_hider(found: &mut [Candidate], id: &str, name: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Ok(());
+    }
+    for candidate in found.iter_mut() {
+        if candidate.hidden_by.as_deref() == Some(id) {
+            candidate.hidden_by = Some(copy(name)?);
+        }
+    }
+    Ok(())
+}
+
 /// Lower-case order of names without allocating, then by identity.
 fn by_name(a: &Candidate, b: &Candidate) -> core::cmp::Ordering {
     a.title
@@ -130,9 +152,7 @@ impl MenuGraph {
                 if row.flags() & HIDDEN == 0 {
                     continue;
                 }
-                if let Some(candidate) = found.iter_mut().find(|c| c.id == row.item()) {
-                    candidate.hidden_by = Some(copy(row.by())?);
-                }
+                mark_hidden(found, row.item(), row.by())?;
             }
             let Some(next) = page.end().next_cursor() else {
                 break;
@@ -147,11 +167,7 @@ impl MenuGraph {
         loop {
             let page = registry.plugins(host, cursor, input, output)?;
             for row in page.rows() {
-                for candidate in found.iter_mut() {
-                    if candidate.hidden_by.as_deref() == Some(row.id()) && !row.name().is_empty() {
-                        candidate.hidden_by = Some(copy(row.name())?);
-                    }
-                }
+                name_hider(found, row.id(), row.name())?;
             }
             let Some(next) = page.end().next_cursor() else {
                 break;
@@ -159,5 +175,49 @@ impl MenuGraph {
             cursor = next;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+
+    fn candidate(id: &str) -> Candidate {
+        Candidate {
+            id: String::from(id),
+            title: String::from(id),
+            submenu: false,
+            hidden_by: None,
+        }
+    }
+
+    #[test]
+    fn who_took_an_entry_out_is_noted_beside_it_by_name() {
+        let mut found = [candidate("early.a"), candidate("early.b")];
+        mark_hidden(&mut found, "early.b", "hider").unwrap();
+        // Not a candidate: nothing noted.
+        mark_hidden(&mut found, "early.zzz", "other").unwrap();
+        assert_eq!(found[0].hidden_by(), None);
+        assert_eq!(found[1].hidden_by(), Some("hider"));
+        // The plugin's name replaces its id; an unknown name leaves the id.
+        name_hider(&mut found, "hider", "").unwrap();
+        assert_eq!(found[1].hidden_by(), Some("hider"));
+        name_hider(&mut found, "other", "Other").unwrap();
+        assert_eq!(found[1].hidden_by(), Some("hider"));
+        name_hider(&mut found, "hider", "Hider").unwrap();
+        assert_eq!(found[0].hidden_by(), None);
+        assert_eq!(found[1].hidden_by(), Some("Hider"));
+    }
+
+    #[test]
+    fn a_refused_allocation_is_reported_and_recovers() {
+        let mut found = [candidate("early.b")];
+        crate::fail_alloc::sweep(|| {
+            found[0].hidden_by = None;
+            mark_hidden(&mut found, "early.b", "hider")?;
+            name_hider(&mut found, "hider", "Hider")?;
+            Ok(found[0].hidden_by().map(str::len))
+        });
     }
 }

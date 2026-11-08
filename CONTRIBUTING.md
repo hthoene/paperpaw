@@ -46,11 +46,21 @@ before 1.0.
    (`tools/sccache-wrap.sh`, `CI_LOCAL_SCCACHE=0` turns it off); for your own
    `cargo` runs, `export RUSTC_WRAPPER=$PWD/tools/sccache-wrap.sh` does the same,
    so that crates.io dependencies are compiled once for every build folder.
+   For a change to a few crates, `tools/check-local.sh [crate ...]` is the
+   quick local part (fmt, clippy `-D warnings`, tests, rustdoc `-D warnings`,
+   changelog, lockfiles, licences, `paperpaw-checks`, and `rustfmt` on changed
+   files of `shells/xteink` and `fuzz`, which `cargo fmt` does not reach;
+   `--features` adds a
+   feature set). It runs every step, prints a summary and exits non-zero if
+   any step failed: do not pipe it through `grep`, and read the exit code or
+   the summary, not a marker line.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
    limited, and a draft pull request skips full CI; the lightweight
-   changelog check still runs.
+   changelog check still runs. Push runs on `main` and the integration
+   branches are never cancelled; a red one is triaged by QA, who names the
+   failing jobs and their owners.
 
    The full run includes the inactive stable ABI's `abi` group. Set
    `ABI_BASE_REV` to the exact 40-character reviewed PR-base commit and set
@@ -85,7 +95,14 @@ before 1.0.
   install from the store as files, for every release (its README). Each
   plugin has a version of its own: one that changed gets a newer one
   (CI checks it), or its commits say `Plugin-unchanged: <id>` where no
-  reader sees the change.
+  reader sees the change. A bump (or a removed or added dependency)
+  changes every `Cargo.lock` that lists the crate: the root, `shells/xteink`,
+  `tools/plugin-files`, `fuzz` and the samples. Run
+  `python3 tools/check-lockfiles.py` before pushing: it checks each lock
+  against its own manifests (a root-level `cargo metadata --locked` reads
+  only the root's lock) and finds entries nothing needs any more. Fix a
+  stale lock with `cargo metadata --manifest-path <dir>/Cargo.toml` and
+  commit it; then run `python3 tools/licences/build.py --check`.
 - **`tools/xtensa-std`** builds and installs the X4 Pro's core libraries
   for code plugins (its README).
 - **`tools/fontgen`** converts fonts into bitmap font packs (`.ppfp`) for
@@ -281,6 +298,13 @@ where the specifications come from and mark values you could not verify.
   never edits `CHANGELOG.md`: that shared list made parallel PRs conflict.
   Only release preparation collects entries, as
   [RELEASING.md](RELEASING.md) describes.
+- A GitHub action in `.github/` is named by its full commit SHA with the
+  version as a comment (`uses: owner/action@<40 hex digits> # v1.2.3`), never
+  by a tag or branch, which can move. `dtolnay/rust-toolchain` also gets
+  its `toolchain:` input, which its ref used to say. Dependabot updates the
+  SHA and the comment together, except for `dtolnay/rust-toolchain`, which it
+  ignores: bump those pins by hand. A test in `tools/test_ci_tools.py` fails
+  on an unpinned action.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.

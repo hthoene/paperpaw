@@ -20,7 +20,7 @@ pub(crate) fn order(books: &[Book], seconds: &[u64]) -> Result<Vec<usize>, Error
         .try_reserve_exact(books.len())
         .map_err(|_| Error::NoMemory)?;
     places.extend((0..books.len()).filter(|&at| seconds.get(at).is_some_and(|s| *s > 0)));
-    places.sort_unstable_by_key(|&at| {
+    paperpaw_sdk::sort::sort_by_key(&mut places, |&at| {
         books.get(at).map_or((core::cmp::Reverse(0), 0), |b| {
             (core::cmp::Reverse(b.last_open), b.id)
         })

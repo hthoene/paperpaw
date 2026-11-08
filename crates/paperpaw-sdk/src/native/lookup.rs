@@ -13,7 +13,7 @@
 //! counting `cursor` up from 0 until `None` comes back.
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    declare::records_wire::{self as wire, RawRecord},
     reply::Reply,
     services::Service,
 };
@@ -286,14 +286,14 @@ impl Lookup {
             .service
             .operation(schema::OP_LOOKUP)
             .ok_or(Error::Unsupported)?;
-        let row = Record::ServiceLookupAsk(wire::ServiceLookupAsk {
+        let row = wire::ServiceLookupAsk {
             text: question.text,
             language: question.language,
             context: question.context,
             cursor: question.cursor,
-        });
-        let len = wire::records_encode_counted(
-            &[row],
+        };
+        let len = wire::records_encode_counted_of(
+            [&row].into_iter(),
             usize::from(operation.input_rows),
             operation.max_input,
             input,
@@ -307,14 +307,13 @@ impl Lookup {
             Err(Error::NotFound) => return Ok(None),
             Err(error) => return Err(error),
         };
-        match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
-            Record::ServiceLookupEntry(entry)
-                if !entry.provider.is_empty() && entry.flags & !(MORE | PENDING) == 0 =>
-            {
-                Ok(Some(ProviderEntry(entry)))
-            }
-            _ => Err(Error::Invalid),
+        let entry = RawRecord::one(&out[..n])
+            .and_then(|record| record.decode::<wire::ServiceLookupEntry<'a>>())
+            .map_err(|_| Error::Invalid)?;
+        if entry.provider.is_empty() || entry.flags & !(MORE | PENDING) != 0 {
+            return Err(Error::Invalid);
         }
+        Ok(Some(ProviderEntry(entry)))
     }
 }
 

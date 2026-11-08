@@ -243,7 +243,7 @@ impl Entry {
     }
 
     /// Its line in the index, tabs and line ends of the list left out.
-    fn line(&self) -> String {
+    pub(crate) fn line(&self) -> String {
         let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
         format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
@@ -266,7 +266,7 @@ impl Entry {
         )
     }
 
-    fn parse(line: &str) -> Option<Entry> {
+    pub(crate) fn parse(line: &str) -> Option<Entry> {
         let mut f = line.splitn(12, '\t');
         let group = f.next()?.parse().ok()?;
         let size = f.next()?.parse().ok()?;
@@ -671,9 +671,7 @@ impl Item {
 /// An Ed25519 public key written as 64 hex digits.
 /// A signature in hexadecimal (128 digits).
 fn signature(hex: &str) -> Option<[u8; 64]> {
-    paperpaw_sdk::digest::hex::decode(hex.trim())?
-        .try_into()
-        .ok()
+    paperpaw_sdk::digest::hex::decode_array(hex.trim())
 }
 
 fn key(hex: &str) -> Option<[u8; 32]> {
@@ -1277,7 +1275,7 @@ impl Index {
         let mut run: Vec<Keyed> = Vec::new();
         let mut kept = storage.write(&runs_path, b"").is_ok();
         let mut flush = |run: &mut Vec<Keyed>, runs: &mut Vec<u32>| {
-            run.sort_by(|a, b| order_of(*a, *b));
+            paperpaw_sdk::sort::sort_by(run, |a, b| order_of(*a, *b));
             let mut bytes = Vec::with_capacity(run.len() * KEYED);
             for (key, n) in run.iter() {
                 bytes.extend_from_slice(&key.to_le_bytes());

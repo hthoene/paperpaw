@@ -5,6 +5,19 @@
 
 extern crate alloc;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration tests also use the builders"
+)]
+mod declarations;
+mod native_entry;
+pub mod native_model;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin (slice 1: its settings; see `PORTING-7.md`).
+pub mod native_plugin;
+
 pub mod account;
 pub mod browser;
 pub mod codec;
