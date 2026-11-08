@@ -689,7 +689,7 @@ fn key(hex: &str) -> Option<[u8; 32]> {
 }
 
 /// Cuts `text` to at most `max` bytes, at a character's end.
-fn cut(text: &str, max: usize) -> String {
+pub(crate) fn cut(text: &str, max: usize) -> String {
     let mut end = text.len().min(max);
     while !text.is_char_boundary(end) {
         end -= 1;

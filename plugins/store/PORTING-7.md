@@ -80,6 +80,15 @@ finishes the port; until then nothing is dropped.
   PaperPaw); no draft check. **Pending Kernel draft 29:** `Native::minor` is not in
   the SDK yet, so `Provides::minor` is `None` and the minor is not checked; switch
   `Provides::of` to the field when it lands.
+- **A difference from the old reading, on purpose:** `Entry::parse` refuses a
+  line whose id, version, SDK, author, licence or name is over 80 bytes, or whose
+  summary is over 300 (and a line over 1,024); the interface-6 `Entry::parse`
+  took them. The caps are the old code's own `cut`s (`MAX_NAME`, `MAX_SUMMARY`,
+  made when the library is read), so every line the store has ever written is
+  within them: a **Beta 3 index holds no such name**, and a hand-made or damaged
+  line is skipped (the index is a cache, rebuilt from the library). The parity
+  tests (`native_parity_tests.rs`) keep the generator wide and assert "old takes
+  it, native refuses" for it.
 
 ## Not yet (the install and the fetch)
 
