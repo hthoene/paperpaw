@@ -41,10 +41,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
-    table.text_hyphenate = text_hyphenate::<S>;
-    table.icon_glyph = icon_glyph::<S>;
-    table.image_info = image_info::<S>;
-    table.canvas_draw_image = canvas_draw_image::<S>;
+    doc_slots::install::<S>(&mut table);
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
     {

@@ -106,6 +106,7 @@ pub fn draw_image_over(
             kind,
             width,
             height,
+            scratch_max: usize::MAX,
         },
         area,
         opacity,
@@ -135,6 +136,10 @@ pub struct Picture<'a> {
     pub width: u32,
     /// Height in pixels, as its header says.
     pub height: u32,
+    /// The most heap the draw may take for its one transient block, the
+    /// device's (32 KiB on the X4, more where there is memory): a draw that
+    /// needs more is `OutOfMemory` with nothing drawn.
+    pub scratch_max: usize,
 }
 
 /// The kind and size of the decoded picture file at `path`, only if its size
@@ -236,9 +241,16 @@ fn draw_picture(
     // On gray frames an opaque colour picture is drawn as colour rows the
     // frame turns to gray.
     if picture.kind == PictureKind::Color && opacity == 255 && canvas.picture_levels().is_none() {
-        return draw_color_image(canvas, storage, &source, area);
+        return draw_color_image(canvas, storage, &source, area, picture.scratch_max);
     }
-    draw_source(canvas, storage, &source, area, opacity, retain)
+    draw_source(
+        canvas,
+        storage,
+        &source,
+        area,
+        opacity,
+        (retain, picture.scratch_max),
+    )
 }
 
 /// Where the rows of a picture drawn as gray come from: a checked decoded
@@ -328,7 +340,7 @@ fn draw_source(
     source: &ImageSource<'_>,
     area: Rect,
     opacity: u8,
-    retain: bool,
+    (retain, budget): (bool, usize),
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (usize::from(area.width), usize::from(area.height));
@@ -361,9 +373,11 @@ fn draw_source(
         picture_key(source, canvas.origin(), area, (vx0, vw), levels)
     });
     // Every buffer of this call, summed before any is taken: the call's one
-    // transient block is at most `TRANSIENT_MAX` bytes.
+    // transient block is at most the device's `scratch_max`.
     let wanted = scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
-    if wanted > TRANSIENT_MAX {
+    // The device's limit (the plugins' `draw_image_over` has always taken what
+    // a picture needs, wherever there is memory for it: no limit).
+    if wanted > budget {
         return Err(crate::image::ImageError::OutOfMemory);
     }
     let (first, mut diffusion) = match levels {
@@ -452,11 +466,18 @@ fn scratch_bytes(
     blended: bool,
     dithered: bool,
 ) -> usize {
-    ROWS_BYTES.max(sw * source.bytes())
-        + sw * 2 * if taller { 3 } else { 1 }
-        + vw * if blended { 2 } else { 1 }
-        + if wider { vw * 6 } else { (vw + 1) * 2 }
-        + if dithered { vw * 5 } else { 0 }
+    // Saturating: the sizes come from a picture's own header.
+    let part = |n: usize, each: usize| n.saturating_mul(each);
+    ROWS_BYTES
+        .max(part(sw, source.bytes()))
+        .saturating_add(part(sw, 2 * if taller { 3 } else { 1 }))
+        .saturating_add(part(vw, if blended { 2 } else { 1 }))
+        .saturating_add(if wider {
+            part(vw, 6)
+        } else {
+            part(vw.saturating_add(1), 2)
+        })
+        .saturating_add(if dithered { part(vw, 5) } else { 0 })
 }
 
 /// Which picture is diffused where (see [`Canvas::take_diffusion`]): the
@@ -610,10 +631,6 @@ fn draw_row(canvas: &mut Canvas<'_>, left: i32, y: i32, row: &[u8], blended: boo
     }
 }
 
-/// Bytes one draw call takes of the heap at most, all together, for as long
-/// as it runs (document.md, memory).
-pub(super) const TRANSIENT_MAX: usize = 32 * 1024;
-
 /// Bytes of a picture's rows read at a time.
 pub(super) const ROWS_BYTES: usize = 8192;
 
@@ -660,6 +677,7 @@ fn draw_color_image(
     storage: &dyn Storage,
     file: &ImageSource<'_>,
     area: Rect,
+    budget: usize,
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (i32::from(area.width), i32::from(area.height));
@@ -682,7 +700,7 @@ fn draw_color_image(
     }
     let (skip, vw) = ((vx0 - left) as usize, (vx1 - vx0) as usize);
     let sw = file.width as usize;
-    if ROWS_BYTES.max(sw * 3) + vw * 3 > TRANSIENT_MAX {
+    if ROWS_BYTES.max(sw.saturating_mul(3)).saturating_add(vw * 3) > budget {
         return Err(crate::image::ImageError::OutOfMemory);
     }
     let mut rows = RowChunk::new(sw * 3)?;
