@@ -52,7 +52,7 @@ proposed and numbered without gaps at the records step.
   most 64 bytes, kept in the catalog so queries and rows show it), else at most 1,024 bytes kept per
   book. Other bits `ERR_INVALID`. At most 8 per plugin, 64 device-wide.
 - [D] `book_badge.spec` (interface 6 `BookBadge`): a badge on a book's row, answered by its owner
-  through the host-defined stage `core.book_badge` (major 1, generated stage schema; input
+  through the host-defined stage `core.book-badge` (major 1, generated stage schema; input
   `badge.ask` with up to 16 book keys of a page, reply up to 16 `badge.value`: `key`, `text: str 16`
   a few letters, or `icon: str 64`); asked when a page of rows is read, never while drawing; views
   show two at most. `flags` reserved, 0.
@@ -506,7 +506,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 | `positions::{load, load_for_update, save, save_with_book, book}` | ops 13, 14 |
 | `annotations::{load, marks, save, add, remove, set_note, note_of, relocate, stamp, changed}` | ops 15-21 (anchors, staged transactions); event 91 |
 | `Registrar::add_book_field`, `library::set_field`, `Book::fields` | `book_field.spec`; ops 22, 23 |
-| `Registrar::add_book_badge`, `BadgeFn`, `badges` | `book_badge.spec`; stage `core.book_badge` |
+| `Registrar::add_book_badge`, `BadgeFn`, `badges` | `book_badge.spec`; stage `core.book-badge` |
 | `Registrar::add_book_data`, `add_book_cache`, `kept_path`, `move_data`, `remove_data`, `clean_up` | `book_data.spec`; op 25; host moves and removes |
 | `library::provide`, `Provided` | op 24 |
 | `library::key`, `Fingerprint` | op 25 |
@@ -515,7 +515,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 ## 9. Hand-offs (after approval)
 
-- **Kernel:** records, `core.library@1` schema, `core.book_badge@1` stage schema, the `uses.library`
+- **Kernel:** records, `core.library@1` schema, `core.book-badge@1` stage schema, the `uses.library`
   feature, this document final.
 - **Kernel (`paperpaw-fat`):** the per-block cut replay for moves, deletes, imports and swaps,
   folder moves' `..` entry, the exFAT gate (#5).
