@@ -366,6 +366,9 @@ pub enum Kind {
     Int { min: i64, max: i64 },
     /// One of a list of ids.
     Choice,
+    /// A list kept as one text (the status-line items): any text goes, as in
+    /// interface 6; the setting has no choices to check it against.
+    List,
 }
 
 /// A value of the kind in the text of a configuration file, as the profile
@@ -444,6 +447,7 @@ impl Value {
                 .map(Self::Int),
             Kind::Choice if text.is_empty() => None,
             Kind::Choice => Some(Self::Text(copy(text)?)),
+            Kind::List => Some(Self::Text(copy(text)?)),
         })
     }
 }
