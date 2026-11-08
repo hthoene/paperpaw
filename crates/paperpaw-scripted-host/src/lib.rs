@@ -33,9 +33,13 @@
     reason = "test support: statuses are the interface's, named at the types"
 )]
 mod refusal;
+mod registry;
 mod slots;
+mod ui;
 
 pub use refusal::Slot;
+pub use registry::{PAGE_ROWS, Registry, row};
+pub use ui::{Answer, Dialogs, Question};
 
 use core::ffi::c_void;
 use paperpaw_core::native_host::commands::{
@@ -182,6 +186,31 @@ impl ScriptedHost {
         });
     }
 
+    /// Adds `core.ui` for questions (ops 8, 9 and 10) and returns the handle
+    /// that shows what was asked and answers it.
+    pub fn dialogs(&self) -> Dialogs {
+        let dialogs = Dialogs::new();
+        let backend = dialogs.clone();
+        self.service("core.ui", 1, u16::MAX, move |op, input| {
+            backend.call(op, input)
+        });
+        dialogs
+    }
+
+    /// Adds `core.registry` and returns the handle that scripts its rows,
+    /// pages and generation.
+    pub fn registry(&self) -> Registry {
+        let registry = Registry::new();
+        let backend = registry.clone();
+        self.service(
+            "core.registry",
+            registry::MAJOR,
+            u16::MAX,
+            move |op, input| backend.call(op, input),
+        );
+        registry
+    }
+
     /// The `nth` call (from 1) of `slot` answers `status` and does nothing
     /// else. Counts run from the host's making or the last
     /// [`reset_counts`](Self::reset_counts).
@@ -291,6 +320,19 @@ enum Kind {
     Event,
     Input,
     Draw,
+}
+
+impl Callback {
+    /// Whether any batch the callback submitted holds `needle` (for example a
+    /// secret that must never be in a command).
+    #[must_use]
+    pub fn batches_contain(&self, needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && self
+                .batches
+                .iter()
+                .any(|batch| batch.windows(needle.len()).any(|window| window == needle))
+    }
 }
 
 impl Plugin<'_> {
@@ -426,4 +468,39 @@ pub fn sweep<R>(
         results.push((Some(nth), scenario(&mut host, Some(nth))));
     }
     results
+}
+
+/// As [`sweep`], and after every run (the scenario has dropped its plugin)
+/// the host must hold no heap block and no service handle: a path that
+/// leaves one fails the test, naming the refused call.
+///
+/// # Panics
+/// A run left a block or a handle held.
+pub fn sweep_released<R>(
+    slot: Slot,
+    status: i32,
+    mut scenario: impl FnMut(&mut ScriptedHost, Option<usize>) -> R,
+) -> Vec<(Option<usize>, R)> {
+    let mut results = Vec::new();
+    let mut clean = ScriptedHost::new();
+    let first = scenario(&mut clean, None);
+    assert_released(&clean, None);
+    let calls = clean.calls(slot);
+    results.push((None, first));
+    for nth in 1..=calls {
+        let mut host = ScriptedHost::new();
+        host.refuse_nth(slot, nth, status);
+        let result = scenario(&mut host, Some(nth));
+        assert_released(&host, Some(nth));
+        results.push((Some(nth), result));
+    }
+    results
+}
+
+fn assert_released(host: &ScriptedHost, refused: Option<usize>) {
+    assert_eq!(
+        (host.live_allocations(), host.open_handles()),
+        (0, 0),
+        "after the run with call {refused:?} refused: heap blocks and service handles still held"
+    );
 }
