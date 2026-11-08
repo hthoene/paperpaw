@@ -416,8 +416,9 @@ impl CodeLoader for Loader {
         self.load_file(storage, code)
     }
 
-    /// `text.hyphenate` is served to interface-7 plugins: the data plugins'
-    /// tables are files on the card.
+    /// What interface-7 plugins are served: `text.hyphenate` (the data
+    /// plugins' tables are files on the card) and `core.ui` (the screen stack's
+    /// store, sized for this device; nothing is allocated until a plugin uses it).
     #[cfg(feature = "ppn5")]
     fn hyphenation_sink(
         &mut self,
@@ -430,7 +431,11 @@ impl CodeLoader for Loader {
         let wired = self
             .resources
             .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
+            .wire(
+                HostWiring::new()
+                    .hyphenation(storage.clone())
+                    .ui(crate::DEVICE.id),
+            )
             .ok()?;
         wired.hyphen().cloned()
     }
