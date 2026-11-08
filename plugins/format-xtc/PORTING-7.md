@@ -18,8 +18,11 @@ Ops 11-13 and 15 answer `NotFound`, 14 and 16 an empty list, anything else (3 pr
 
 - `format.spec` declaration builder in the SDK; Host #417 and Core #944 for the host side.
 - Title fallback from the file name belongs to the library (root 3 has no name).
-- No allocation-refusal sweep for the provider yet (format-txt has one: `tests/provider_allocation.rs`).
 - X4: decoding a page writes up to a page's gray picture per `block` call; time and stack are not measured.
+
+## Refusals
+
+`tests/provider_allocation.rs` refuses every allocation of open, meta, sections, toc, block (decoding a page), cover and image in turn: each refusal is `NoMemory`, and the same provider reads on afterwards. A failure of memory or the card while a page is decoded is passed on by `block_at` and `cover` (not turned into a named page); only a damaged page is named. A chapter that cannot be read makes the toc call fail (an error, never a gap that would shift the list).
 
 ## Left in place (intermediate)
 

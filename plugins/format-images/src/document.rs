@@ -4,8 +4,7 @@
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::document::{
@@ -14,7 +13,7 @@ use paperpaw_sdk::document::{
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::{Env, OpenOptions, Storage};
 
-use crate::names::{Page, is_picture, pages_from};
+use crate::names::{Page, copy, is_picture, pages_from};
 use crate::{PLUGIN, pictures};
 
 /// An open picture, as a book of the pictures from it on.
@@ -57,10 +56,10 @@ impl ImagesDocument {
         name: &str,
         options: &OpenOptions,
     ) -> Result<Self, DocumentError> {
-        if name.contains('/') {
+        if name.contains('/') || name.contains(':') {
             return Err(malformed("not a name in the book's folder"));
         }
-        Self::open_in(storage, name, options, String::from(pictures::CACHE))
+        Self::open_in(storage, name, options, copy(pictures::CACHE)?)
     }
 
     fn open_in(
@@ -73,12 +72,12 @@ impl ImagesDocument {
         if !is_picture(name) {
             return Err(malformed("not a picture"));
         }
-        let first = (name.to_string(), storage.size(path)?);
-        let pages = pages_from(storage, dir, &first);
+        let first = (copy(name)?, storage.size(path)?);
+        let pages = pages_from(storage, dir, &first)?;
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
-        let metadata = Metadata::default().title(stem.to_string());
+        let metadata = Metadata::default().title(copy(stem)?);
         Ok(Self {
-            dir: dir.to_string(),
+            dir: copy(dir)?,
             pages,
             cache,
             metadata,
@@ -88,20 +87,28 @@ impl ImagesDocument {
         })
     }
 
-    fn path(&self, index: usize) -> Option<String> {
-        let (name, _) = self.pages.get(index)?;
-        Some(if self.dir.is_empty() {
-            name.clone()
+    fn path(&self, index: usize) -> Result<Option<String>, DocumentError> {
+        let Some((name, _)) = self.pages.get(index) else {
+            return Ok(None);
+        };
+        if self.dir.is_empty() {
+            copy(name).map(Some)
         } else {
-            format!("{}/{name}", self.dir)
-        })
+            pictures::text(&[&self.dir, "/", name]).map(Some)
+        }
     }
 
     /// Page `index` as shown in its page, decoded now if it is not yet.
-    pub(crate) fn page_picture(&self, storage: &dyn Storage, index: u32) -> Option<ImageRef> {
+    pub(crate) fn page_picture(
+        &self,
+        storage: &dyn Storage,
+        index: u32,
+    ) -> Result<Option<ImageRef>, DocumentError> {
         let index = index as usize;
-        let (name, size) = self.pages.get(index)?;
-        let base = pictures::base(&self.cache, index, name, *size);
+        let Some((name, size)) = self.pages.get(index) else {
+            return Ok(None);
+        };
+        let base = pictures::base(&self.cache, index, name, *size)?;
         self.picture(storage, index, &base, self.image_fit)
     }
 
@@ -112,8 +119,10 @@ impl ImagesDocument {
         index: usize,
         base: &str,
         fit: Fit,
-    ) -> Option<ImageRef> {
-        let path = self.path(index)?;
+    ) -> Result<Option<ImageRef>, DocumentError> {
+        let Some(path) = self.path(index)? else {
+            return Ok(None);
+        };
         let size = self.pages[index].1;
         pictures::shown(storage, &path, size, base, fit, self.color)
     }
@@ -144,12 +153,12 @@ impl Document for ImagesDocument {
         if at.offset >= 1 {
             return Ok(None);
         }
-        let base = pictures::base(&self.cache, index, name, *size);
-        let image = self.picture(storage, index, &base, self.image_fit);
+        let base = pictures::base(&self.cache, index, name, *size)?;
+        let image = self.picture(storage, index, &base, self.image_fit)?;
         // A picture that cannot be shown is named instead.
         let (kind, text) = match &image {
             Some(_) => (BlockKind::Image, String::new()),
-            None => (BlockKind::Paragraph, name.clone()),
+            None => (BlockKind::Paragraph, copy(name)?),
         };
         Ok(Some(
             Block::new(kind, 0, 1, text)
@@ -160,8 +169,10 @@ impl Document for ImagesDocument {
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {
-        let base = pictures::join(&self.cache, &format!("cover-{}", self.cover_fit.long));
-        Ok(self.picture(storage, 0, &base, self.cover_fit))
+        let mut digits = [0u8; 20];
+        let long = pictures::decimal(u64::from(self.cover_fit.long), &mut digits);
+        let base = pictures::join(&self.cache, &["cover-", long])?;
+        self.picture(storage, 0, &base, self.cover_fit)
     }
 }
 

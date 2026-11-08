@@ -179,7 +179,7 @@ fn what_is_no_picture_is_named_and_bad_names_fail_the_document() {
     let r = rows(&reply);
     assert!(matches!(r[0], stage::Record::FmtBlock(b) if b.kind == 0));
     assert!(matches!(r[1], stage::Record::FmtTextPart(t) if t.text == "a.png"));
-    for (id, name) in [(2, ""), (3, "readme.txt"), (4, "../a.png"), (5, "gone.png")] {
+    for (id, name) in [(2, ""), (3, "readme.txt"), (4, "../a.png"), (5, "gone.png"), (6, "cache:1.png")] {
         let reply = run(&mut p, &io, &call(2, id, |c| c.text = name)).unwrap();
         let stage::Record::FmtState(s) = rows(&reply)[0] else {
             panic!("state")

@@ -354,7 +354,7 @@ impl ImagesProvider {
                 if call.index >= document.sections() {
                     return Err(Error::NotFound);
                 }
-                Self::picture(Ok(document.page_picture(io, call.index)), call.index, out)
+                Self::picture(document.page_picture(io, call.index), call.index, out)
             }
             10 | 11 | 12 | 13 | 15 => Err(Error::NotFound),
             9 | 14 | 16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),

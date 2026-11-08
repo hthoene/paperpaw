@@ -354,9 +354,12 @@ impl XtcProvider {
                 entries.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
                 for index in from..min(total, from + ROWS - 1) {
                     let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
-                    if let Some(entry) = document.toc_entry(io, index) {
-                        entries.push((index, entry));
-                    }
+                    // A chapter that cannot be read is an error, not a gap: the list
+                    // after it would shift.
+                    let entry = document
+                        .chapter(io, index)
+                        .map_err(|e| document_error(&e))?;
+                    entries.push((index, entry));
                 }
                 let mut rows: Vec<Record<'_>> = Vec::new();
                 rows.try_reserve(entries.len())
@@ -393,7 +396,11 @@ impl XtcProvider {
                 if call.index >= document.sections() {
                     return Err(Error::NotFound);
                 }
-                Self::picture(document.page(io, call.index).map(Some), call.index, out)
+                Self::picture(
+                    crate::undamaged(document.page(io, call.index)),
+                    call.index,
+                    out,
+                )
             }
             11 | 12 | 13 | 15 => Err(Error::NotFound),
             14 | 16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),

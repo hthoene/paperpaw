@@ -19,8 +19,11 @@ A refused allocation is `NoMemory` end to end and an open that hits it leaves no
 - Listing the book's folder (root 3) has no SDK function: the host-side form opens with the one picture
   until `native::storage` can list root 3 (the pages after the opened picture are not found).
 - `format.spec` declaration builder (flags `whole_pages`, `siblings`); Host #417 and Core #944.
-- No allocation-refusal sweep for the provider yet.
-- Cover size 0 uses 300 pixels, not the larger of 300 and 3/8 of the screen (the plugin does not know the screen).
+- **Difference from interface 6:** a `cover_side` of 0 uses 300 pixels, not the larger of 300 and 3/8 of the screen's long side: a plugin has no way to ask the screen's size in a format callback. The host (DOC) should send the computed side instead of 0 (`document.md` section 2.1 says 0 means that default); if it does, nothing changes here. `image_side` 0 is 1600, as in interface 6.
+
+## Refusals
+
+`tests/provider_allocation.rs` refuses every allocation of open, meta, sections and block (of pages that are no pictures) in turn: each refusal is `NoMemory`, and the same provider reads on afterwards. **Gap:** decoding a picture (block, cover, image) reaches `paperpaw-image`'s `GrayWriter::start`, whose 12-byte header `Vec::with_capacity` is not fallible (Kernel: write the header from a stack array), so that path is not swept yet. A failure of memory or the card while a picture is decoded is now passed on by `block_at` (not turned into a named page); only a damaged picture is named. A name in the folder with a `:` is refused at open.
 
 ## Left in place (intermediate)
 
