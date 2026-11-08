@@ -42,6 +42,7 @@ pub(crate) struct HostServices {
     lookup: OnceCell<LookupServices>,
     hyphen: OnceCell<HyphenServices>,
     images: super::image_service::ImageTable,
+    pub(super) image_work: super::image_work::ImageWork,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
     net: OnceCell<NetServices>,
@@ -85,6 +86,7 @@ impl HostServices {
             lookup: OnceCell::new(),
             hyphen: OnceCell::new(),
             images: super::image_service::ImageTable::new(),
+            image_work: super::image_work::ImageWork::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
             net: OnceCell::new(),
@@ -318,6 +320,7 @@ impl HostServices {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
         }
         // The plugin's pictures end with it (its image ids are its own).
+        result = result.and(self.image_work.owner_stopped(owner));
         result = result.and(self.images.owner_stopped(owner));
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {

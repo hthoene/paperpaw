@@ -1,8 +1,9 @@
 //! Inactive callback staging, exercised through kernel-backed dispatch fixtures.
 use super::{Batch, Context, DispatchDepth, Error, Registration};
+use crate::native_host::image_service::commands::ImageAdmit;
 use crate::{Kernel, abi7::core_frame::CoreFrame, native_host::commands::CommandStage};
 use core::pin::Pin;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, IdError, ScreenKey};
 
@@ -22,7 +23,7 @@ pub(crate) struct CommandTarget {
 impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
-    /// Draw is render-only and must never use this helper. No second queue is kept.
+    /// Draw is render-only and must never use this helper. Image retries stay host-owned.
     pub(crate) fn with_native_commands<S, M>(
         &mut self,
         batch: &Batch<'_, S, M, Registration>,
@@ -48,6 +49,17 @@ impl Kernel {
                     IdError::NoMemory => Error::Allocation,
                     _ => Error::Status(ERR_INVALID),
                 })?;
+                let storage_root = context
+                    .declared_services
+                    .features()
+                    .feature("uses.storage")
+                    .is_ok();
+                let hosts = context.resources.hosts();
+                let host_owner = context.resources.owner_id();
+                let images = hosts
+                    .image_work
+                    .begin(host_owner, &owner, storage_root)
+                    .map_err(Error::Status)?;
                 let mut stage = CommandStage::new(
                     &owner,
                     env.settings(),
@@ -55,6 +67,10 @@ impl Kernel {
                     8,
                     4096,
                 )
+                .with_images(ImageAdmit {
+                    storage_root,
+                    room: hosts.images().prepare_room(host_owner),
+                })
                 .with_ui(
                     &env,
                     target.screen,
@@ -69,7 +85,15 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
+                if context.stopped.get() {
+                    return Err(Error::Status(ERR_STATE));
+                }
+                let image_commands = stage.take_image_commands();
                 let output = stage.into_ui_output();
+                images.finish(image_commands).map_err(Error::Status)?;
+                // Failures retain every unapplied command for image_turn, which
+                // reports the error and advances the decoder before retrying.
+                let _ = hosts.image_work.apply(hosts.images());
                 Ok::<_, Error>((status, owner, output))
             })??
         };
