@@ -59,14 +59,16 @@ def transient(error):
 
 def download(url, checksum):
     """The archive at `url`, whose SHA-256 is `checksum`: fetched again, after
-    a wait that doubles, where the server fails or the body is cut short."""
+    a wait that doubles, where the server fails or the connection breaks (a
+    body cut short is a broken connection). A complete archive that is not
+    the pinned one is no transient failure: it fails at once."""
     wait = FIRST_WAIT
     for attempt in range(1, ATTEMPTS + 1):
         try:
             data = fetch(url)
-            if hashlib.sha256(data).hexdigest() == checksum:
-                return data
-            problem = "the SHA-256 differs from the reviewed pin"
+            if hashlib.sha256(data).hexdigest() != checksum:
+                raise ValueError("espflash release archive SHA-256 differs from the reviewed pin")
+            return data
         except ValueError:
             raise
         except Exception as error:  # noqa: BLE001 - classified just below

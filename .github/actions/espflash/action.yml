@@ -11,7 +11,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/espflash-archive
-        key: espflash-archive-${{ runner.os }}-${{ env.ESPFLASH_VERSION }}
+        key: espflash-archive-${{ runner.os }}-${{ env.ESPFLASH_VERSION }}-${{ hashFiles('tools/ci/espflash.py') }}
     - shell: bash
       env:
         ESPFLASH_ARCHIVE_DIR: ${{ runner.temp }}/espflash-archive

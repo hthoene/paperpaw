@@ -98,9 +98,16 @@ class Espflash(unittest.TestCase):
 
     def test_a_cut_short_download_is_fetched_again(self):
         good = self.fetch.return_value
-        self.fetch.side_effect = [good[:10], good]
+        self.fetch.side_effect = [espflash.http.client.IncompleteRead(good[:10], 100), good]
         self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
         self.assertEqual(self.fetch.call_count, 2)
+
+    def test_an_archive_that_is_not_the_pinned_one_fails_at_once(self):
+        self.fetch.return_value += b"changed"
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            espflash.install("4.6.0", self.destination)
+        self.fetch.assert_called_once()
+        self.sleep.assert_not_called()
 
     def test_it_gives_up_after_the_attempts_and_says_so(self):
         self.fetch.side_effect = self.gateway_timeout()
