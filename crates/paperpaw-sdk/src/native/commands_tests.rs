@@ -910,3 +910,27 @@ fn install_and_remove_commands_refuse_bad_arguments_before_the_host() {
     assert!(sender.remove_plugin(1, &long).is_err());
     assert!(ctx.batches.borrow().is_empty());
 }
+
+#[test]
+fn install_and_remove_commands_keep_the_wire_limits() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (path, id) = ("p".repeat(512), "i".repeat(64));
+    sender
+        .install_plugin(1, InstallRoot::Data, &path, false, false)
+        .unwrap();
+    sender.remove_plugin(2, &id).unwrap();
+    assert!(
+        sender
+            .install_plugin(3, InstallRoot::Data, &"p".repeat(513), false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(4, &"i".repeat(65)).is_err());
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}

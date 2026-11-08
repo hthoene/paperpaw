@@ -197,10 +197,14 @@ impl CommandSender<'_, '_> {
     /// Ask the host to install the plugin downloaded into `path` of `root`
     /// (`uses.install`, `docs/abi/device.md` 5.2): a `.ppn` file or a plugin
     /// folder. The host copies it, checks it and **asks the user** before it
-    /// installs (decisions 132 and 134); a plugin never decides. `update`
+    /// installs (decision 132); a plugin never decides. `update`
     /// replaces an installed plugin of the same id, `allow_older` also takes an
     /// older version. `request` is the caller's own non-zero number: the end of
     /// the request is `install_done` (kind 0) and `Device::install` its state.
+    /// A user who granted this plugin the trusted-installer grant is not asked
+    /// (the checks still run). The catalog's author key, recovery key and
+    /// rotations (`install_author`, `install_rotation`, commands 1580 and 1581)
+    /// are not sent by this method.
     ///
     /// # Errors
     /// Returns `Invalid` for a zero request or an empty path, buffer limits or
