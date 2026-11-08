@@ -23,10 +23,11 @@ pub(crate) const ZIGZAG: [u8; 64] = [
 
 #[derive(Clone)]
 pub(crate) struct Huffman {
-    /// Largest code of each length (1 to 16), -1 if none.
-    max_code: [i32; 18],
-    /// Index into `values` of the first code of each length, minus that code.
-    offset: [i32; 17],
+    /// The largest code of each length (1 to 16; -1 if none, a sentinel
+    /// at 17), then from [`OFFSETS`] on the index into `values` of the
+    /// first code of each length, minus that code. On the heap: eight
+    /// tables of them in the decoder's frame overran the X4's 2,048 B.
+    codes: Vec<i32>,
     values: Vec<u8>,
     /// The codes of up to [`FAST_BITS`] bits by the next bits: their
     /// length times 256 plus their value, 0 where a longer code begins.
@@ -38,10 +39,28 @@ pub(crate) struct Huffman {
 /// Bits of the codes looked up at once.
 const FAST_BITS: u32 = 8;
 
+/// The four quantization tables, on the heap (1 KB less in the decoder's
+/// frame).
+pub(crate) type Quant = Vec<[u16; 64]>;
+
+/// Four zeroed quantization tables.
+pub(crate) fn quant_tables() -> Result<Quant, ImageError> {
+    let mut tables = Vec::new();
+    tables
+        .try_reserve_exact(4)
+        .map_err(|_| ImageError::OutOfMemory)?;
+    tables.extend(core::iter::repeat_n([0u16; 64], 4));
+    Ok(tables)
+}
+
+/// Where the offsets start in [`Huffman::codes`] (after 18 largest codes).
+const OFFSETS: usize = 18;
+
 impl Huffman {
     fn new(counts: &[u8; 16], values: Vec<u8>) -> Result<Self, ImageError> {
-        let mut max_code = [-1i32; 18];
-        let mut offset = [0i32; 17];
+        let mut codes: Vec<i32> = crate::zeroed(OFFSETS + 17)?;
+        let (max_code, offset) = codes.split_at_mut(OFFSETS);
+        max_code.fill(-1);
         let mut fast: Vec<u16> = crate::zeroed(1 << FAST_BITS)?;
         let (mut code, mut k) = (0i32, 0i32);
         for len in 1..=16 {
@@ -68,8 +87,7 @@ impl Huffman {
         // Sentinel: longer codes do not exist.
         max_code[17] = i32::MAX;
         Ok(Self {
-            max_code,
-            offset,
+            codes,
             values,
             fast,
         })
@@ -234,8 +252,8 @@ impl<'r, 'a> Bits<'r, 'a> {
         let mut code = next as i32;
         for len in FAST_BITS as usize + 1..=16 {
             code = (code << 1) | self.bit()? as i32;
-            if code <= table.max_code[len] {
-                let index = (table.offset[len] + code) as usize;
+            if code <= table.codes[len] {
+                let index = (table.codes[OFFSETS + len] + code) as usize;
                 return table
                     .values
                     .get(index)
@@ -413,7 +431,7 @@ pub(crate) fn decode(
     if reader.byte()? != 0xff || reader.byte()? != 0xd8 {
         return Err(ImageError::Invalid("not a JPEG"));
     }
-    let mut quant = [[0u16; 64]; 4];
+    let mut quant = quant_tables()?;
     let mut dc_tables: [Option<Huffman>; 4] = [None, None, None, None];
     let mut ac_tables: [Option<Huffman>; 4] = [None, None, None, None];
     let mut components: Vec<Component> = Vec::new();
@@ -529,7 +547,7 @@ pub(crate) fn decode(
 pub(crate) fn read_quant(
     reader: &mut Reader<'_>,
     len: usize,
-    quant: &mut [[u16; 64]; 4],
+    quant: &mut [[u16; 64]],
 ) -> Result<(), ImageError> {
     let mut left = len;
     while left > 0 {
@@ -593,7 +611,7 @@ pub(crate) fn read_huffman(
 fn scan(
     reader: &mut Reader<'_>,
     components: &mut [Component],
-    quant: &[[u16; 64]; 4],
+    quant: &[[u16; 64]],
     dc_tables: &[Option<Huffman>; 4],
     ac_tables: &[Option<Huffman>; 4],
     (width, height, restart_interval): (u32, u32, u32),

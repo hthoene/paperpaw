@@ -33,7 +33,7 @@ pub(crate) struct Frame {
     pub width: u32,
     pub height: u32,
     pub components: Vec<Component>,
-    pub quant: [[u16; 64]; 4],
+    pub quant: crate::jpeg::Quant,
     pub dc_tables: [Option<Huffman>; 4],
     pub ac_tables: [Option<Huffman>; 4],
     pub restart_interval: u32,
