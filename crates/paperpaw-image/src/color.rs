@@ -190,6 +190,28 @@ mod tests {
         }
     }
 
+    /// A row longer than the room taken at the start is written as it is,
+    /// not grown into, and the file reads back whole.
+    #[test]
+    fn a_longer_row_is_written_without_growing() {
+        let storage = OneFile::default();
+        let mut gray = crate::GrayWriter::new(&storage, "g.gray");
+        gray.start(10, 3).unwrap();
+        let room = gray.buffer.capacity();
+        gray.row(&[1; 10]).unwrap();
+        gray.row(&alloc::vec![2; room + 1]).unwrap();
+        gray.row(&[3; 10]).unwrap();
+        assert_eq!(gray.buffer.capacity(), room);
+        gray.finish().unwrap();
+        let data = storage.0.borrow();
+        assert_eq!(&data[..4], b"PPGI");
+        assert_eq!(&data[4..12], &[10, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(data.len(), 12 + 10 + room + 1 + 10);
+        assert!(data[12..22].iter().all(|b| *b == 1));
+        assert!(data[22..22 + room + 1].iter().all(|b| *b == 2));
+        assert!(data[22 + room + 1..].iter().all(|b| *b == 3));
+    }
+
     /// The writers take the room for their rows once, at the start, and
     /// never grow it: growing held old and new at once.
     #[test]
