@@ -92,6 +92,82 @@ impl<'a> Cx<'a> {
         self.messages.format(self.host, key, args)
     }
 
+    /// Whether times are shown on a twelve-hour clock (`core.clock-format`).
+    ///
+    /// # Errors
+    /// The host's refusal.
+    pub fn twelve_hours(&self) -> Result<bool, Error> {
+        text_of(self.host, "core.clock-format", |value| {
+            value == paperpaw_sdk::time::CLOCK_12H
+        })
+    }
+
+    /// A time of day as the reader wants to see it: `14:05` or `2:05 PM`, in
+    /// the digits of the language shown.
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    #[allow(dead_code, reason = "the world clock and the word clock use it")]
+    pub fn clock_of(&mut self, hour: u8, minute: u8) -> Result<String, Error> {
+        let mut text = super::settings::Stack::<16>::new();
+        if !self.twelve_hours()? {
+            core::fmt::Write::write_fmt(&mut text, format_args!("{hour:02}:{minute:02}"))
+                .map_err(|_| Error::NoSpace)?;
+            return self.messages.digits(self.host, text.as_str());
+        }
+        let key = if hour < 12 {
+            "core.clock.am"
+        } else {
+            "core.clock.pm"
+        };
+        let shown = match hour % 12 {
+            0 => 12,
+            h => h,
+        };
+        core::fmt::Write::write_fmt(&mut text, format_args!("{shown}:{minute:02}"))
+            .map_err(|_| Error::NoSpace)?;
+        let time = self.messages.digits(self.host, text.as_str())?;
+        self.messages.format(
+            self.host,
+            key,
+            &[Arg::Text {
+                name: "time",
+                value: &time,
+            }],
+        )
+    }
+
+    /// The catalog's text for `key` in the form `count` selects, with the
+    /// arguments (`{count}` is bound too).
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    pub fn plural(&mut self, key: &str, count: i64, args: &[Arg<'_>]) -> Result<String, Error> {
+        let mut all: alloc::vec::Vec<Arg<'_>> = alloc::vec::Vec::new();
+        all.try_reserve(args.len() + 1)
+            .map_err(|_| Error::NoMemory)?;
+        all.push(Arg::Count(count));
+        all.extend_from_slice(args);
+        self.messages.format(self.host, key, &all)
+    }
+
+    /// The first day of the week, 0 (Sunday) or 1 (Monday), as set for the
+    /// device, or as the language's habit says.
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    pub fn week_start(&mut self) -> Result<u8, Error> {
+        let set = text_of(self.host, "core.week-start", |value| match value {
+            "core.week.sunday" => Some(0),
+            "core.week.monday" => Some(1),
+            _ => None,
+        })?;
+        match set {
+            Some(day) => Ok(day),
+            None => Ok(u8::from(self.tr("core.week-start-day")? != "0")),
+        }
+    }
+
     /// `value` written in the language's digits.
     ///
     /// # Errors
