@@ -1,5 +1,11 @@
 //! Small event state views carry no owned strings or callback host bindings.
-use crate::power::PowerLevel;
+use crate::{
+    native::{
+        Error,
+        device::{DeviceOutcome, DeviceRequest, InstallKind},
+    },
+    power::PowerLevel,
+};
 
 /// A reading-session edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,6 +140,68 @@ impl<'a> WifiDone<'a> {
         } else {
             WifiLinkState::Off
         }
+    }
+}
+
+/// How one install, removal, firmware or file-check request ended
+/// (`event.install_done`): exactly once, to the plugin that sent it, only once
+/// done (`docs/abi/device.md` sections 4 and 5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InstallDone<'a> {
+    pub(super) now_ms: u64,
+    pub(super) request: u32,
+    pub(super) kind: u32,
+    pub(super) status: i32,
+    pub(super) reason: u32,
+    pub(super) flags: u32,
+    pub(super) id: &'a str,
+}
+impl<'a> InstallDone<'a> {
+    /// Emission time in monotonic milliseconds.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// The sender's request number.
+    #[must_use]
+    pub const fn request(&self) -> Option<DeviceRequest> {
+        DeviceRequest::new(self.request)
+    }
+    /// Which kind of request ended; a future kind is `Unknown`.
+    #[must_use]
+    pub const fn kind(&self) -> InstallKind {
+        InstallKind::decode(self.kind)
+    }
+    /// `Ok` when it was done; else the host's status.
+    ///
+    /// # Errors
+    /// The host's status for a request that did not complete.
+    pub const fn status(&self) -> Result<(), Error> {
+        if self.status == 0 {
+            Ok(())
+        } else {
+            Err(Error::from_status(self.status))
+        }
+    }
+    /// The verdict; a reason this SDK does not know is `Other`.
+    #[must_use]
+    pub const fn outcome(&self) -> DeviceOutcome {
+        DeviceOutcome::decode(self.reason)
+    }
+    /// A removal that kept the plugin's data.
+    #[must_use]
+    pub const fn data_kept(&self) -> bool {
+        self.flags & 1 != 0
+    }
+    /// The change takes effect at the next start.
+    #[must_use]
+    pub const fn at_next_start(&self) -> bool {
+        self.flags & 2 != 0
+    }
+    /// The plugin concerned.
+    #[must_use]
+    pub const fn id(&self) -> &'a str {
+        self.id
     }
 }
 

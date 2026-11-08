@@ -611,3 +611,59 @@ fn a_wifi_outcome_says_how_this_request_ended() {
     assert_eq!(done.request(), None);
     assert_eq!(done.state(), WifiLinkState::Off);
 }
+
+#[test]
+fn firmware_progress_and_install_outcomes_are_typed() {
+    use crate::native::device::{DeviceOutcome, DeviceRequest, FirmwareState, InstallKind};
+    let bytes = encode(Record::EventFirmwareChanged(wire::EventFirmwareChanged {
+        now_ms: 5,
+        request: 2,
+        state: 2,
+    }));
+    assert_eq!(
+        decode(&bytes),
+        Ok(Event::FirmwareChanged {
+            now_ms: 5,
+            request: DeviceRequest::new(2),
+            state: FirmwareState::Installing,
+        })
+    );
+    let done = |request, kind, status, reason, flags| {
+        encode(Record::EventInstallDone(wire::EventInstallDone {
+            now_ms: 6,
+            request,
+            kind,
+            status,
+            reason,
+            flags,
+            id: "wifi",
+        }))
+    };
+    // A removal that kept the data and takes effect at the next start.
+    let bytes = done(9, 2, 0, 0, 0b11);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.now_ms(), 6);
+    assert_eq!(end.request(), DeviceRequest::new(9));
+    assert_eq!(end.kind(), InstallKind::Removal);
+    assert_eq!((end.status(), end.outcome()), (Ok(()), DeviceOutcome::Ok));
+    assert!(end.data_kept() && end.at_next_start());
+    assert_eq!(end.id(), "wifi");
+    assert_borrowed_text(&bytes, end.id());
+    // A refused install, an unknown reason and a future kind.
+    let bytes = done(1, 0, Error::Denied.status(), 2, 0);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.kind(), InstallKind::Plugin);
+    assert_eq!(end.status(), Err(Error::Denied));
+    assert_eq!(end.outcome(), DeviceOutcome::Declined);
+    assert!(!end.data_kept() && !end.at_next_start());
+    let bytes = done(1, 77, Error::Io.status(), 999, 0);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.kind(), InstallKind::Unknown(77));
+    assert_eq!(end.outcome(), DeviceOutcome::Other);
+}

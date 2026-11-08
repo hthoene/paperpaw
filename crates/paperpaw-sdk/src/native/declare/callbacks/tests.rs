@@ -52,6 +52,11 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         ),
         (EventKind::NetworkIdle, records_wire::EVENT_NETWORK_IDLE_TAG),
         (
+            EventKind::FirmwareChanged,
+            records_wire::EVENT_FIRMWARE_CHANGED_TAG,
+        ),
+        (EventKind::InstallDone, records_wire::EVENT_INSTALL_DONE_TAG),
+        (
             EventKind::PowerChanged,
             records_wire::EVENT_POWER_CHANGED_TAG,
         ),

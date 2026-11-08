@@ -48,6 +48,10 @@ pub enum EventKind {
     NetworkWanted,
     /// The network is no longer needed (network manager only).
     NetworkIdle,
+    /// Firmware installation progressed (a hint).
+    FirmwareChanged,
+    /// An install, removal, firmware or check request of this plugin ended.
+    InstallDone,
     /// Subscribe to the power changed host event.
     PowerChanged,
     /// Subscribe to the status changed host event.
@@ -98,6 +102,8 @@ impl EventKind {
             Self::WifiDone => records_wire::EVENT_WIFI_DONE_TAG,
             Self::NetworkWanted => records_wire::EVENT_NETWORK_WANTED_TAG,
             Self::NetworkIdle => records_wire::EVENT_NETWORK_IDLE_TAG,
+            Self::FirmwareChanged => records_wire::EVENT_FIRMWARE_CHANGED_TAG,
+            Self::InstallDone => records_wire::EVENT_INSTALL_DONE_TAG,
             Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,
             Self::StatusChanged => records_wire::EVENT_STATUS_CHANGED_TAG,
             Self::ChargeChanged => records_wire::EVENT_CHARGE_CHANGED_TAG,

@@ -1,7 +1,7 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiDone,
-    WifiLinkState, wire::Record,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, PowerChange, ReadingView,
+    WifiDone, WifiLinkState, wire::Record,
 };
 use crate::{
     native::{
@@ -75,6 +75,20 @@ pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
         }),
         Record::EventNetworkWanted(r) => Event::NetworkWanted { now_ms: r.now_ms },
         Record::EventNetworkIdle(r) => Event::NetworkIdle { now_ms: r.now_ms },
+        Record::EventFirmwareChanged(r) => Event::FirmwareChanged {
+            now_ms: r.now_ms,
+            request: crate::native::device::DeviceRequest::new(r.request),
+            state: crate::native::device::FirmwareState::decode(r.state),
+        },
+        Record::EventInstallDone(r) => Event::InstallDone(InstallDone {
+            now_ms: r.now_ms,
+            request: r.request,
+            kind: r.kind,
+            status: r.status,
+            reason: r.reason,
+            flags: r.flags,
+            id: r.id,
+        }),
         Record::EventBluetooth(r) => Event::Bluetooth(BluetoothChange {
             now_ms: r.now_ms,
             kind: r.kind,

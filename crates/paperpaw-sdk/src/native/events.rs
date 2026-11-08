@@ -10,7 +10,7 @@ mod core_events;
 mod states;
 pub use states::{
     BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
-    PowerChange, WifiDone, WifiFailure, WifiLinkState,
+    InstallDone, PowerChange, WifiDone, WifiFailure, WifiLinkState,
 };
 
 /// A host-issued plugin installation request, obtained from a decoded event.
@@ -317,6 +317,16 @@ pub enum Event<'a> {
     /// The network is no longer needed (`event.network_idle`); the network
     /// manager may switch the radio off. Only the network manager gets it.
     NetworkIdle { now_ms: u64 },
+    /// Firmware installation progressed (`event.firmware_changed`), at most every
+    /// 250 ms: a hint, read the details with the device's firmware read.
+    FirmwareChanged {
+        now_ms: u64,
+        request: Option<super::device::DeviceRequest>,
+        state: super::device::FirmwareState,
+    },
+    /// An install, removal, firmware or file-check request of this plugin ended,
+    /// exactly once.
+    InstallDone(InstallDone<'a>),
     /// A Bluetooth device or scan changed; sent to the plugin bound to
     /// `core.bluetooth` only, so it is declared as a slot offer, not as a
     /// subscription.
