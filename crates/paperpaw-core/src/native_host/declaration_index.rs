@@ -314,8 +314,8 @@ mod packed_tests {
     #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
     use super::*;
     #[test]
-    fn every_five_bit_kind_preserves_record_and_extension_in_eight_bytes() {
-        for kind in 0..=31 {
+    fn every_seven_bit_kind_preserves_record_and_extension_in_eight_bytes() {
+        for kind in 0..=127 {
             for record in 0..8 {
                 for extension in [false, true] {
                     let entry = NameEntry::new(17, 3, kind, record, extension).unwrap();
@@ -327,7 +327,7 @@ mod packed_tests {
                 }
             }
         }
-        assert!(NameEntry::new(0, 0, 32, 0, false).is_err());
+        assert!(NameEntry::new(0, 0, 128, 0, false).is_err());
         assert!(NameEntry::new(0, 0, 7, 8, false).is_err());
         assert_eq!(core::mem::size_of::<NameEntry>(), 8);
     }
