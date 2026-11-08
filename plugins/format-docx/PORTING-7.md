@@ -1,10 +1,11 @@
 # Interface-7 port
 
-Version 1.0.3 (bumped since Beta 3 already; no further bump). Slice 1 of the Word documents port (#228,
-assignment #1774): the fallible converter and the `core.format` provider. Slice 2 (declaration, native
-entry, metadata, `.ppn`) follows the way format-txt, format-xtc and format-images did (PR #611, #612, #614).
+Version 1.0.3 (bumped since Beta 3 already; no further bump). The Word documents port (#228, assignment #1774):
+slice 1 (PR #617) the fallible converter and the `core.format` provider; slice 2 (this one) the declaration, native
+entry, metadata and `.ppn`, as format-txt, format-xtc and format-images did (PR #611, #612, #614).
 
-Status: **not complete** (no native entry yet; the interface-6 `DocxFormat` is still in place).
+Status: **not complete** until the removal step below (the interface-6 `DocxFormat` is still beside the native one;
+nothing registers both in a shipped build: `NativeDocx` is not in `paperpaw_app::NATIVE_PLUGINS` yet).
 
 ## Ported
 
@@ -53,7 +54,9 @@ None: the plugin reads no setting (`OpenOptions::settings` is never read); `imag
   (`ZipArchive::stream` into the XML tokenizer): there is no state to keep between calls, so it cannot give the
   host the 50 ms steps format-txt and format-mobi have, nor a progress. A resumable reader (the `EntryReader` of
   `paperpaw-zip` borrows its archive) would make the steps; time and stack of the call on the X4 are not measured.
-- Declaration (`Declarations::format`: extension `docx`, `prepared`), the `NATIVE_ENTRY` and the `.ppn`: slice 2.
+- Declaration (`declarations.rs`: format `docx`, extension `docx`, `prepared`, no sniffing), `NativeDocx`, the `NATIVE_ENTRY`
+  (`linked`/`native-entry` features) and metadata (`native/`): this slice. `tests/hosted_construction.rs` is ignored,
+  BLOCKED #944 (the host's format broker does not admit formats yet; a second test pins the refusal).
 - `ImageFile::open` of `paperpaw-image` makes its path infallibly; `images::decoded` reads the header the writers
   made itself (interim). Named step: switch to `ImageFile::try_open` after #610 and drop this header parser, so
   there is one parser, not two.
@@ -79,4 +82,4 @@ left) and bad calls (unknown document, an id opened twice, too many documents, b
 2. `DocxDocument::open` with its plugin-folder cache, `fingerprint` and the `VERSION` stamp (the native cache's
    stamp is the host's);
 3. the app's store-offer line and the other plugins' tests that register `DocxFormat`;
-4. list `NativeDocx` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt` (slice 2).
+4. list `NativeDocx` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
