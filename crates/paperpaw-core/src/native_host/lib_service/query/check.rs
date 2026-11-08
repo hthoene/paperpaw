@@ -6,8 +6,7 @@ use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::ERR_INVALID;
 
 const PPM: u32 = 1_000_000;
-/// `lib_entry.flags` and `lib_book.flags`: bits 0-7.
-/// The flags of a `lib_entry`; a `lib_book` also has bit 8 `missing`.
+/// The flags of a `lib_entry`: bits 0-7; a `lib_book` also has bit 8 `missing`.
 const ENTRY_FLAGS: u32 = 0xff;
 const BOOK_FLAGS: u32 = ENTRY_FLAGS | 1 << 8;
 /// `lib_position.flags`: has xpointer, has conversion, from sync.

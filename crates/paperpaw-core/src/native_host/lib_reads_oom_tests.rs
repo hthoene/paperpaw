@@ -9,6 +9,7 @@ use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::{self as wire, Record};
 extern crate std;
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_platform::Storage as _;
 
 /// What a read answered, as numbers (a visitor must not allocate here).
 type Seen = Option<[u64; 6]>;
@@ -55,6 +56,9 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
         let kept = Position::new(Locator::new(7, 1234), 41.5).xpointer(Some("/body/p[3]".into()));
         positions::save(&*card.storage, "books/a.epub", &kept).unwrap();
         put_annotations(&card, &annotation_file("a note"));
+        // The book's file is there: a gone one is looked for as a directory
+        // by the storage, whose own allocations are not the host's.
+        card.storage.write("books/b.epub", &[7_u8; 10]).unwrap();
     }
     let by_path = BookRef::Path("books/b.epub");
     let by_key = BookRef::Key { key: a, generation };

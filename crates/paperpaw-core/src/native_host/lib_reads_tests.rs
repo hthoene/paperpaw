@@ -510,8 +510,13 @@ fn position(reads: &CatalogReads, book: BookRef<'_>) -> Result<[u64; 7], i32> {
     Ok(got.unwrap())
 }
 
-/// A card that cannot say whether one file is there (a failing card).
-struct Failing(Rc<MemoryStorage>, &'static str);
+/// A card that answers `error` for one path (a failing card, a card that is
+/// not mounted, a path it cannot name), for the file and the directory alike.
+struct Failing(
+    Rc<MemoryStorage>,
+    &'static str,
+    paperpaw_platform::StorageError,
+);
 impl paperpaw_platform::Storage for Failing {
     fn read_at(
         &self,
@@ -523,7 +528,7 @@ impl paperpaw_platform::Storage for Failing {
     }
     fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
         if path == self.1 {
-            Err(paperpaw_platform::StorageError::Io)
+            Err(self.2)
         } else {
             self.0.size(path)
         }
@@ -539,11 +544,17 @@ impl paperpaw_platform::Storage for Failing {
         dir: &str,
         visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
     ) -> Result<(), paperpaw_platform::StorageError> {
-        self.0.list(dir, visit)
+        if dir == self.1 {
+            Err(self.2)
+        } else {
+            self.0.list(dir, visit)
+        }
     }
     fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
         self.0.remove(path)
     }
+    // As FAT and the desktop's folders: a directory has no size, so by
+    // default it does not "exist" either.
 }
 
 #[test]
@@ -562,14 +573,62 @@ fn a_book_whose_file_is_gone_says_missing() {
     // Back again: clear. The catalog line is untouched throughout.
     card.storage.write("books/a.epub", &[7_u8; 10]).unwrap();
     assert_eq!(flags("books/a.epub"), 0b11);
-    // A card that fails for the file is the card's error, never "gone".
-    let failing = Failing(card.storage.clone(), "books/e.epub");
-    let reads = CatalogReads::new(Rc::new(failing), card.env.clone());
-    assert_eq!(
-        book(&reads, BookRef::Path("books/e.epub")).unwrap_err(),
-        ERR_IO
+    // A card that fails for the file, or is not mounted, is the storage's
+    // error, never "gone" (a catalog on another storage still answers).
+    use paperpaw_platform::StorageError;
+    for error in [StorageError::Io, StorageError::CARD_GONE] {
+        let failing = Failing(card.storage.clone(), "books/e.epub", error);
+        let reads = CatalogReads::new(Rc::new(failing), card.env.clone());
+        assert_eq!(
+            book(&reads, BookRef::Path("books/e.epub")).unwrap_err(),
+            ERR_IO,
+            "{error:?}"
+        );
+        assert!(book(&reads, BookRef::Path("books/b.epub")).is_ok());
+    }
+    // A path the storage cannot name is a book that is not there, not a
+    // failure of the whole call.
+    let odd = Failing(
+        card.storage.clone(),
+        "books/e.epub",
+        StorageError::InvalidPath,
     );
-    assert!(book(&reads, BookRef::Path("books/b.epub")).is_ok());
+    let reads = CatalogReads::new(Rc::new(odd), card.env.clone());
+    assert_eq!(
+        book(&reads, BookRef::Path("books/e.epub")).unwrap().flags,
+        MISSING | 0b1000,
+        "gone, and still new"
+    );
+}
+
+#[test]
+fn a_folder_book_is_there_while_its_directory_is() {
+    const MISSING: u32 = 1 << 8;
+    let card = card();
+    // A book that is a folder (a comic of pictures): no size of its own.
+    card.storage
+        .append(
+            ".paperpaw/library/catalog.txt",
+            "books/comic\tCo\tComic\t\t\t\t\t\t\t\t1\n".as_bytes(),
+        )
+        .unwrap();
+    card.storage
+        .write("books/comic/p1.png", &[1_u8; 10])
+        .unwrap();
+    card.storage
+        .write("books/comic/p2.png", &[1_u8; 10])
+        .unwrap();
+    let reads = card.reads();
+    let comic = BookRef::Path("books/comic");
+    // The folder has no size and no `exists`, yet it is there.
+    assert!(card.storage.size("books/comic").is_err());
+    assert!(!card.storage.exists("books/comic"));
+    assert_eq!(book(&reads, comic).unwrap().flags & MISSING, 0);
+    // Its pictures gone: the folder is gone.
+    card.storage.remove("books/comic/p1.png").unwrap();
+    assert_eq!(book(&reads, comic).unwrap().flags & MISSING, 0);
+    card.storage.remove("books/comic/p2.png").unwrap();
+    assert_eq!(book(&reads, comic).unwrap().flags & MISSING, MISSING);
 }
 
 #[test]
