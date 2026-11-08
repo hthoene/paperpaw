@@ -740,3 +740,7 @@ impl Screen for CableScreen {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "native_parity_tests.rs"]
+mod native_parity_tests;
