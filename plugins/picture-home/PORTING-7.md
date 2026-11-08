@@ -17,5 +17,9 @@ activates native plugins (then it goes together, no shim).
 
 - The screens (H1, H3 compose, H2/H4 input), the picture's decode and scale (image slots 36/37,
   `core.files`), and the bars drawn through the host's status frame.
-- The bar's three item settings have no editor: the picker is the host's `core.status-items`
-  screen, which `ExtraDecl` cannot name (the same gap as the home screen's footer items).
+- The bar's three item settings are edited on the screen `status-items` of this plugin
+  (`EditorDecl::Screen`, one screen for the three, opened with the setting's id), built on
+  `paperpaw_ui_kit::status_items` as home's footer items are (Kernel's ruling, todo 121). The
+  declaration is compared with the interface-6 registration (only the editor's name differs); its
+  callbacks wait for the native entry (H1/H4), and the finger's drag of a grip is a hold and a tap
+  in the kit (`KIT-grip-drag`).
