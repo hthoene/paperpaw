@@ -18,6 +18,11 @@ use proptest::prelude::*;
 
 use super::*;
 
+/// `days` for tests: the memory of a test is not refused.
+fn days(storage: &dyn Storage, day_of: impl Fn(u32) -> i32) -> Vec<Day> {
+    super::days(storage, day_of).unwrap()
+}
+
 /// A day of 100 seconds, for short numbers.
 fn short_days(unix: u32) -> i32 {
     (unix / 100) as i32
@@ -53,7 +58,7 @@ fn log_with_tail(stays: &[PageStat], tail: &[u8]) -> MemoryStorage {
         data.extend_from_slice(&s.encode());
     }
     data.extend_from_slice(tail);
-    storage.write(&path("pages.bin"), &data).unwrap();
+    storage.write(PAGES, &data).unwrap();
     storage
 }
 
@@ -175,7 +180,7 @@ fn a_day_of_very_many_long_stays_does_not_overflow() {
     for page in 0..65_540u32 {
         data.extend_from_slice(&stay(1, page + 1, 1000, u16::MAX).encode());
     }
-    storage.write(&path("pages.bin"), &data).unwrap();
+    storage.write(PAGES, &data).unwrap();
     let days = days(&storage, short_days);
     assert_eq!(days.len(), 1);
     assert!(days[0].seconds >= u32::MAX - u32::from(u16::MAX));
@@ -192,7 +197,7 @@ fn a_broken_days_file_is_summed_anew_from_the_log() {
     };
     // Shorter than its header.
     let storage = log_with_tail(&stays, &[]);
-    storage.write(&path("days.bin"), &[1, 2, 3]).unwrap();
+    storage.write(DAYS, &[1, 2, 3]).unwrap();
     assert_eq!(as_tuples(days(&storage, short_days)), expected);
     // Covering more than the log has (the log was replaced).
     let mut stale = Vec::new();
@@ -205,13 +210,13 @@ fn a_broken_days_file_is_summed_anew_from_the_log() {
         }
         .encode(),
     );
-    storage.write(&path("days.bin"), &stale).unwrap();
+    storage.write(DAYS, &stale).unwrap();
     assert_eq!(as_tuples(days(&storage, short_days)), expected);
     // Its days cut off in a record: the whole ones kept.
     let mut cut = Vec::new();
     cut.extend_from_slice(&0u64.to_le_bytes());
     cut.extend_from_slice(&[7; 5]);
-    storage.write(&path("days.bin"), &cut).unwrap();
+    storage.write(DAYS, &cut).unwrap();
     assert_eq!(as_tuples(days(&storage, short_days)), expected);
     // And brought up to date, it is read as written.
     assert_eq!(as_tuples(days(&storage, short_days)), expected);
@@ -238,7 +243,7 @@ fn odd_sections_of_books_ini_are_left_out() {
         [other]\ntitle = Not a book\n\
         [book.1]\ntitle = One\npages = many\nlast-open = soon\nfinished = -5\nunknown = kept out\n\
         [book.2]\ntitle = Two again\n";
-    let storage = MemoryStorage::new().with(&path("books.ini"), text);
+    let storage = MemoryStorage::new().with(BOOKS, text);
     let books = books(&storage);
     assert_eq!(
         books
@@ -255,7 +260,7 @@ fn odd_sections_of_books_ini_are_left_out() {
 #[test]
 fn books_ini_that_is_no_text_has_no_books() {
     let storage = MemoryStorage::new().with(
-        &path("books.ini"),
+        BOOKS,
         alloc::vec![0xFF, 0xFE, b'[', b'b', 0xC3, 0x28, b'\n'],
     );
     assert!(books(&storage).is_empty());
@@ -263,10 +268,7 @@ fn books_ini_that_is_no_text_has_no_books() {
 
 #[test]
 fn books_of_version_1_are_written_back_as_read() {
-    let storage = MemoryStorage::new().with(
-        &path("books.ini"),
-        include_str!("../../testdata/books.ini.v1"),
-    );
+    let storage = MemoryStorage::new().with(BOOKS, include_str!("../../testdata/books.ini.v1"));
     let v1 = books(&storage);
     assert_eq!(v1.len(), 2);
     // Without `finished`, which version 1 did not have.
@@ -278,7 +280,7 @@ fn books_of_version_1_are_written_back_as_read() {
 #[test]
 fn the_log_of_version_1_is_appended_to_as_written() {
     let storage = MemoryStorage::new().with(
-        &path("pages.bin"),
+        PAGES,
         include_bytes!("../../testdata/pages.bin.v1").to_vec(),
     );
     let new = stay(1, 6, 1_760_000_100, 12);
@@ -373,9 +375,9 @@ proptest! {
         since in any::<u32>(),
     ) {
         let storage = MemoryStorage::new()
-            .with(&path("pages.bin"), log.clone())
-            .with(&path("books.ini"), ini)
-            .with(&path("days.bin"), cache);
+            .with(PAGES, log.clone())
+            .with(BOOKS, ini)
+            .with(DAYS, cache);
         let mut count = 0usize;
         let _ = scan(&storage, |_| count += 1);
         prop_assert_eq!(count, log.len() / RECORD);

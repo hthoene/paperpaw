@@ -17,7 +17,7 @@ use paperpaw_sdk::{Storage, StorageError};
 use paperpaw_sqlite::{Database, Error as SqlError, Row, Value};
 use paperpaw_zip::{ZipArchive, ZipError};
 
-use crate::{cards, table};
+use crate::{cards, lines, table};
 
 /// The deck's database inflated: at most this large. Inflating it and
 /// reading it are a step each; on the X4 (an SD card on the SPI bus) a step
@@ -39,6 +39,8 @@ const MAX_PAYLOAD: usize = 16 * 1024;
 /// How far back from the end of a ZIP its end record is looked for: a
 /// comment is at most 64 KiB.
 const COMMENT: u64 = 0xffff;
+/// What the text of notes is collected in before it is written.
+const BUFFER: usize = 2048 + 1024;
 
 /// Why a deck could not be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,26 +88,30 @@ impl From<SqlError> for Fault {
 pub(crate) fn is_apkg(name: &str) -> bool {
     name.len() > 5
         && name.is_char_boundary(name.len() - 5)
-        && name[name.len() - 5..].eq_ignore_ascii_case(".apkg")
+        && name
+            .get(name.len() - 5..)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(".apkg"))
 }
 
 /// Where the database is inflated to.
-fn database_path() -> String {
-    cards::path("apkg.db")
-}
+const DATABASE: &str = ".paperpaw/plugins/vocabulary/cards/apkg.db";
+/// Where the notes are written to as text.
+const TEXT: &str = ".paperpaw/plugins/vocabulary/cards/apkg.tsv";
 
 /// Where the notes are written to as text, to be read as a file of the
 /// folder (until the job is done with it).
-pub(crate) fn text_path() -> String {
-    cards::path("apkg.tsv")
+pub(crate) const fn text_path() -> &'static str {
+    TEXT
 }
 
 /// Removes what a deck left in the plugin's folder.
 pub(crate) fn tidy(storage: &dyn Storage) {
-    for path in [database_path(), text_path()] {
-        if storage.exists(&path) {
+    // The names are constants: tidying allocates nothing, so it runs
+    // whatever the heap says.
+    for path in [DATABASE, TEXT] {
+        if storage.exists(path) {
             // A leftover is overwritten by the next deck; nothing to tell.
-            let _ = storage.remove(&path);
+            let _ = storage.remove(path);
         }
     }
 }
@@ -182,13 +188,13 @@ fn inflate_database(storage: &dyn Storage, path: &str) -> Result<(), Fault> {
     if entry.size > MAX_DB {
         return Err(Fault::TooLarge);
     }
-    let db = database_path();
-    storage.write(&db, &[])?;
+    let db = DATABASE;
+    storage.write(db, &[])?;
     let mut failed = None;
     zip.stream(
         storage,
         &entry,
-        &mut |chunk| match storage.append(&db, chunk) {
+        &mut |chunk| match storage.append(db, chunk) {
             Ok(()) => true,
             Err(e) => {
                 failed = Some(e);
@@ -205,10 +211,9 @@ fn inflate_database(storage: &dyn Storage, path: &str) -> Result<(), Fault> {
 /// The notes of the inflated database written as text to [`text_path`], in
 /// one step; the database is removed after it.
 pub(crate) fn notes(storage: &dyn Storage) -> Result<Notes, Fault> {
-    let db = database_path();
-    let result = write_notes(storage, &db);
+    let result = write_notes(storage, DATABASE);
     // The database is only needed while it is read.
-    let _ = storage.remove(&db);
+    let _ = storage.remove(DATABASE);
     result
 }
 
@@ -222,21 +227,28 @@ pub(crate) fn convert(storage: &dyn Storage, path: &str) -> Result<Notes, Fault>
 /// The notes table of the database at `db` written as text.
 fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
     let database = Database::open(storage, db)?;
-    let (columns, root) = database.table("notes").map_err(|_| Fault::NoNotes)?;
+    let (columns, root) = database.table("notes").map_err(Fault::from)?;
     let flds = columns
         .iter()
         .position(|c| c.eq_ignore_ascii_case("flds"))
         .ok_or(Fault::NoNotes)?;
     let out = text_path();
-    storage.write(&out, b"#separator:tab\n")?;
-    let (mut count, mut skipped, mut buffer, mut failed) = (0usize, 0usize, String::new(), None);
-    let mut put = |buffer: &mut String| match storage.append(&out, buffer.as_bytes()) {
+    storage.write(out, b"#separator:tab\n")?;
+    let (mut count, mut skipped, mut buffer) = (0usize, 0usize, String::new());
+    // What stopped the scan: a refused allocation or a write that failed.
+    let failed: core::cell::Cell<Option<Fault>> = core::cell::Cell::new(None);
+    // A buffer for a few notes is reserved at once: the pushes below take
+    // from it, and a note larger than what is left grows it fallibly.
+    buffer
+        .try_reserve_exact(BUFFER)
+        .map_err(|_| Fault::Memory)?;
+    let put = |buffer: &mut String| match storage.append(out, buffer.as_bytes()) {
         Ok(()) => {
             buffer.clear();
             true
         }
         Err(e) => {
-            failed = Some(e);
+            failed.set(Some(e.into()));
             false
         }
     };
@@ -257,7 +269,14 @@ fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
             return true;
         }
         let mut fields = text.split('\x1f').map(note_text);
-        let front = fields.next().unwrap_or_default();
+        let (Ok(front), Ok(back), Ok(example)) = (
+            fields.next().unwrap_or(Ok(String::new())),
+            fields.next().unwrap_or(Ok(String::new())),
+            fields.next().unwrap_or(Ok(String::new())),
+        ) else {
+            failed.set(Some(Fault::Memory));
+            return false;
+        };
         if front.is_empty() {
             return true;
         }
@@ -266,15 +285,19 @@ fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
             return false;
         }
         count += 1;
-        let back = fields.next().unwrap_or_default();
-        let example = fields.next().unwrap_or_default();
+        let mut line = Ok(());
         for (i, cell) in [front, back, example].iter().enumerate() {
-            if i > 0 {
-                buffer.push('\t');
+            if line.is_ok() && i > 0 {
+                line = lines::push(&mut buffer, "\t");
             }
-            quote(&mut buffer, cell);
+            if line.is_ok() {
+                line = quote(&mut buffer, cell);
+            }
         }
-        buffer.push('\n');
+        if line.and_then(|()| lines::push(&mut buffer, "\n")).is_err() {
+            failed.set(Some(Fault::Memory));
+            return false;
+        }
         buffer.len() < 2048 || put(&mut buffer)
     })?;
     if too_many {
@@ -283,8 +306,8 @@ fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
     if !buffer.is_empty() {
         put(&mut buffer);
     }
-    match failed {
-        Some(e) => Err(e.into()),
+    match failed.get() {
+        Some(e) => Err(e),
         None if count == 0 => Err(Fault::NoNotes),
         None => Ok(Notes { count, skipped }),
     }
@@ -292,12 +315,15 @@ fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
 
 /// A field of Anki's as plain text: markup and sounds out, pictures that
 /// are text (`data:` addresses) out, cut at what a card's text may be.
-fn note_text(field: &str) -> String {
-    let mut text = String::with_capacity(field.len().min(table::MAX_FIELD) + 16);
+fn note_text(field: &str) -> Result<String, StorageError> {
+    let mut text = String::new();
+    // Never longer than the field: one reservation.
+    text.try_reserve_exact(field.len())
+        .map_err(|_| StorageError::TooLarge)?;
     let mut rest = field;
     while let Some((at, end)) = next_hole(rest) {
-        text.push_str(&rest[..at]);
-        rest = &rest[end..];
+        text.push_str(rest.get(..at).unwrap_or(""));
+        rest = rest.get(end..).unwrap_or("");
     }
     text.push_str(rest);
     table::plain(cut(&text, table::MAX_FIELD))
@@ -342,15 +368,23 @@ fn cut(text: &str, most: usize) -> &str {
 }
 
 /// `cell` as a field of a tab separated file, quoted where it has to be.
-fn quote(out: &mut String, cell: &str) {
-    if cell.contains(['\t', '"', '\n', '\r']) {
-        out.push('"');
-        out.push_str(&cell.replace('"', "\"\""));
-        out.push('"');
-    } else {
-        out.push_str(cell);
+fn quote(out: &mut String, cell: &str) -> Result<(), StorageError> {
+    if !cell.contains(['\t', '"', '\n', '\r']) {
+        return lines::push(out, cell);
     }
+    // At most a doubled quote for a byte, and the two around.
+    out.try_reserve(cell.len().saturating_mul(2).saturating_add(2))
+        .map_err(|_| StorageError::TooLarge)?;
+    out.push('"');
+    for c in cell.chars() {
+        if c == '"' {
+            out.push('"');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

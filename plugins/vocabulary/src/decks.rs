@@ -64,6 +64,7 @@ pub(crate) fn due_now(env: &Env<'_>) -> usize {
         day.end,
         cards::new_left(env.storage(), day, per_day),
     )
+    .unwrap_or(0)
 }
 
 impl DecksScreen {
@@ -89,7 +90,7 @@ impl DecksScreen {
 
     fn load(&mut self, env: &Env<'_>) {
         crate::take_lookups(env);
-        let sizes = cards::sizes(env.storage());
+        let sizes = cards::sizes(env.storage()).unwrap_or_default();
         self.decks = cards::decks(env.storage())
             .unwrap_or_default()
             .into_iter()

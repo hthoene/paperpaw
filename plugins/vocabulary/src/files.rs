@@ -7,11 +7,6 @@
 //! on the SDK's `native::storage::DataStorage` unchanged. It goes when
 //! the layer's paths are the short ones (with the interface-6 callers).
 
-#![allow(
-    dead_code,
-    reason = "the native shell that builds DataFolder follows; until then only the tests do"
-)]
-
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
 /// The folder root 0 stands for.
@@ -57,6 +52,66 @@ impl Storage for DataFolder<'_> {
         self.0.sync()
     }
 }
+
+/// Where a file being written at `path` waits until it is whole.
+pub(crate) fn part_of(path: &str) -> Result<alloc::string::String, StorageError> {
+    let mut out = alloc::string::String::new();
+    crate::lines::push(&mut out, path)?;
+    crate::lines::push(&mut out, ".part")?;
+    Ok(out)
+}
+
+/// Puts the file made at `part` at `path`, replacing what is there: what
+/// was at `path` stays until the new file is whole. Where that fails, the
+/// part is removed, unless the failed move took the old file away (FAT
+/// removes it first): then the part is all there is.
+pub(crate) fn put_in_place(
+    storage: &dyn Storage,
+    part: &str,
+    path: &str,
+) -> Result<(), StorageError> {
+    let had_old = storage.exists(path);
+    let moved = storage.rename(part, path);
+    if moved.is_err() && (!had_old || storage.exists(path)) {
+        let _ = storage.remove(part);
+    }
+    moved
+}
+
+/// Copies the file `from` to `to` through a part beside it, put in place when
+/// whole: a copy cut short (a full card, a refused allocation) leaves no half
+/// file that looks whole, and what was at `to` stays. The buffer is one
+/// fallible allocation.
+pub(crate) fn copy_file(storage: &dyn Storage, from: &str, to: &str) -> Result<(), StorageError> {
+    let part = part_of(to)?;
+    let mut chunk = alloc::vec::Vec::new();
+    chunk
+        .try_reserve_exact(COPY_CHUNK)
+        .map_err(|_| StorageError::TooLarge)?;
+    chunk.resize(COPY_CHUNK, 0u8);
+    let copied = (|| {
+        storage.write(&part, &[])?;
+        let mut at = 0u64;
+        loop {
+            let n = storage.read_at(from, at, &mut chunk)?;
+            if n == 0 {
+                return Ok(());
+            }
+            storage.append(&part, chunk.get(..n).ok_or(StorageError::Io)?)?;
+            at += n as u64;
+        }
+    })();
+    match copied {
+        Ok(()) => put_in_place(storage, &part, to),
+        Err(error) => {
+            let _ = storage.remove(&part);
+            Err(error)
+        }
+    }
+}
+
+/// What one read of a copy takes (the host takes 4 KiB a call).
+const COPY_CHUNK: usize = 4096;
 
 #[cfg(test)]
 mod tests {

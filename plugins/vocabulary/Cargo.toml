@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-vocabulary"
 description = "PaperPaw vocabulary: the words looked up while reading, with their sentences"
-version = "1.1.4"
+version = "1.1.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -21,16 +21,22 @@ card-files = ["data/phone.txt"]
 # folder.
 default = ["embedded-page"]
 embedded-page = []
+linked = []
+native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
 paperpaw-sqlite.workspace = true
 paperpaw-zip.workspace = true
 
+[build-dependencies]
+paperpaw-sdk.workspace = true
+
 [dev-dependencies]
 paperpaw-zip = { workspace = true, features = ["testing"] }
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-sleep.workspace = true

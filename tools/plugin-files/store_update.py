@@ -61,7 +61,7 @@ import versions  # noqa: E402
 # tools/plugin-files only the project that builds the plugin files: the
 # scripts (build.sh, sign.sh, the Python tools) and the linker script stay
 # the trusted checkout's, and a change to one is for `accept` to name.
-OWN_FOLDERS = ("tools/plugin-files/src/", "docs/")
+OWN_FOLDERS = ("tools/plugin-files/src/", "docs/", "changelog.d/")
 OWN_FILES = ("CHANGELOG.md", "README.md", "tools/plugin-files/Cargo.toml", "tools/plugin-files/Cargo.lock",
              "tools/plugin-files/plugins.txt")
 # The workspace's list of members and versions: changed only as far as a
