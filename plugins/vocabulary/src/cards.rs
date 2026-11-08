@@ -87,8 +87,9 @@ const ANSWERS: &str = ".paperpaw/plugins/vocabulary/cards/answers.txt";
 const LOOKUPS: &str = ".paperpaw/plugins/vocabulary/cards/looked-up.txt";
 const ADDING: &str = ".paperpaw/plugins/vocabulary/cards/adding.txt";
 
-/// The file `name` of the cards' folder. For the modules of the plugin
-/// not ported yet; the ported ones use the constants and [`deck_path`].
+/// The file `name` of the cards' folder, for the tests; the plugin uses the
+/// constants and [`deck_path`].
+#[cfg(test)]
 pub(crate) fn path(name: &str) -> String {
     alloc::format!("{DIR}/{name}")
 }

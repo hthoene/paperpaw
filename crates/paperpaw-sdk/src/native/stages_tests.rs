@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use core::{cell::Cell, ffi::c_void, ptr};
 use paperpaw_native::host_glue as abi;
 
