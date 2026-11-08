@@ -254,7 +254,7 @@ mod tests {
         // The table that gives no place is what makes the sealer answer so.
         assert_eq!(
             locate(
-                Place::Outside,
+                Place::Outside(OUTSIDE_AT),
                 None,
                 core::iter::once((0xFF_0000, 0x1_0000))
             ),
