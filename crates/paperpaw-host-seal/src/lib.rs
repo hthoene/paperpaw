@@ -19,7 +19,9 @@
 //!   written beside itself and put in place without replacing a file that is
 //!   there (the first creator wins, the others use its key), the folder is
 //!   synced, and the key is read back. Only a file that is not a key record is
-//!   replaced.
+//!   replaced. Where the folder has no hard links (a FAT folder), the same
+//!   comes from a lock file made exclusively around the check and a rename; a
+//!   lock that stood for ten seconds is a leftover and is taken away.
 //! - A device that cannot make a key refuses the seal (`ERR_IO` or `ERR_STATE`)
 //!   and the host writes nothing; there is no weaker fallback.
 
@@ -60,6 +62,9 @@ impl ShellRandom for OsRandom {
 #[derive(Debug)]
 pub struct FileSealer {
     path: PathBuf,
+    /// Whether the folder takes hard links (tests turn it off to stand for a
+    /// FAT folder, which has none).
+    links: bool,
 }
 
 /// Key creators in this process, one at a time.
@@ -77,7 +82,17 @@ impl FileSealer {
     /// shell's own, never the card's folder).
     #[must_use]
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            links: true,
+        }
+    }
+
+    /// A sealer over a folder with no hard links (what a FAT folder is).
+    #[cfg(test)]
+    fn without_hard_links(mut self) -> Self {
+        self.links = false;
+        self
     }
 
     /// The key file's path.
@@ -166,11 +181,7 @@ impl FileSealer {
             if replace {
                 fs::rename(&temp, &self.path)?;
             } else {
-                match fs::hard_link(&temp, &self.path) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(e) => return Err(e),
-                }
+                self.publish_new(&temp)?;
             }
             sync_dir(&self.path)
         })();
@@ -179,6 +190,85 @@ impl FileSealer {
         // is already gone).
         let _ = fs::remove_file(&temp);
         result.map_err(|_| ERR_IO)
+    }
+}
+
+/// How long a lock file may stand before it is taken for a leftover of a
+/// process that ended with it, and how long and how often a creator waits.
+const STALE: std::time::Duration = std::time::Duration::from_secs(10);
+const WAIT_STEP: std::time::Duration = std::time::Duration::from_millis(20);
+const WAIT_STEPS: u32 = 100;
+
+/// A lock file held: removed when it goes out of use.
+struct Lock(PathBuf);
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+impl FileSealer {
+    /// Puts `temp` at the key file's path where no file is, leaving one that is
+    /// there alone (no error). A hard link does it in one step; a folder with no
+    /// hard links (a FAT folder) gets the same by a lock file and a rename.
+    fn publish_new(&self, temp: &Path) -> std::io::Result<()> {
+        let linked = if self.links {
+            fs::hard_link(temp, &self.path)
+        } else {
+            Err(std::io::ErrorKind::Unsupported.into())
+        };
+        match linked {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            // Not "it is there": the folder cannot link. The same guarantee
+            // from an exclusive lock file (`create_new`) held across the check
+            // and the rename: only one creator is between them.
+            Err(_) => self.publish_locked(temp),
+        }
+    }
+
+    fn publish_locked(&self, temp: &Path) -> std::io::Result<()> {
+        let mut name = self.path.clone().into_os_string();
+        name.push(".lock");
+        let lock_path = PathBuf::from(name);
+        let mut tries = 0;
+        let _lock = loop {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&lock_path) {
+                Ok(_) => break Lock(lock_path.clone()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // A lock that stood for long is the leftover of a creator
+                    // that was cut off: it goes, and the creator tries again.
+                    let old = fs::metadata(&lock_path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age > STALE);
+                    if old {
+                        let _ = fs::remove_file(&lock_path);
+                        continue;
+                    }
+                    tries += 1;
+                    if tries >= WAIT_STEPS {
+                        return Err(std::io::ErrorKind::WouldBlock.into());
+                    }
+                    std::thread::sleep(WAIT_STEP);
+                }
+                Err(e) => return Err(e),
+            }
+        };
+        // Under the lock: a file there is left alone (the first creator won).
+        if fs::symlink_metadata(&self.path).is_ok() {
+            return Ok(());
+        }
+        fs::rename(temp, &self.path)
     }
 }
 

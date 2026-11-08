@@ -284,3 +284,68 @@ fn the_temporary_file_is_private_from_the_start() {
     let mode = fs::metadata(dir.key_file()).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 }
+
+#[test]
+fn a_folder_with_no_hard_links_gets_a_key_and_a_second_creator_leaves_it() {
+    let dir = Dir::new("nolinks");
+    let s = FileSealer::new(dir.key_file()).without_hard_links();
+    let first = [1u8; KEY];
+    s.write(&first, false).unwrap();
+    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
+    // The file is there: the second write leaves it alone and is no error.
+    s.write(&[2u8; KEY], false).unwrap();
+    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
+    // A seal and an open work over it, and nothing is left beside the key.
+    let sealed = seal(&s, AAD, b"v").unwrap();
+    assert_eq!(open(&s, AAD, &sealed).unwrap(), b"v");
+    let names: Vec<_> = fs::read_dir(&dir.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["device.key"]);
+}
+
+#[test]
+fn creators_at_once_with_no_hard_links_end_with_one_key_that_all_use() {
+    let dir = Dir::new("nolinks-race");
+    let path = dir.key_file();
+    let sealed: Vec<Vec<u8>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                scope.spawn(move || {
+                    seal(&FileSealer::new(path).without_hard_links(), AAD, b"v").unwrap()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let s = FileSealer::new(&path).without_hard_links();
+    for one in &sealed {
+        assert_eq!(open(&s, AAD, one).unwrap(), b"v");
+    }
+}
+
+#[test]
+fn a_leftover_lock_is_taken_away_and_a_fresh_one_is_waited_for() {
+    let dir = Dir::new("nolinks-lock");
+    let mut lock = dir.key_file().into_os_string();
+    lock.push(".lock");
+    let lock = PathBuf::from(lock);
+    // A lock of a creator that was cut off long ago.
+    let file = fs::File::create(&lock).unwrap();
+    file.set_modified(std::time::SystemTime::now() - 2 * STALE)
+        .unwrap();
+    drop(file);
+    let s = FileSealer::new(dir.key_file()).without_hard_links();
+    s.write(&[5u8; KEY], false).unwrap();
+    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&[5u8; KEY]));
+    assert!(!lock.exists(), "the lock is gone with its holder");
+    // A fresh lock held by someone: waited for, then given up (an error, no key).
+    fs::remove_file(dir.key_file()).unwrap();
+    fs::File::create(&lock).unwrap();
+    let started = std::time::Instant::now();
+    assert!(s.write(&[6u8; KEY], false).is_err());
+    assert!(started.elapsed() >= WAIT_STEP * (WAIT_STEPS - 1));
+    assert!(!dir.key_file().exists(), "no key is made without the lock");
+}
