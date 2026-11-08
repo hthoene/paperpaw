@@ -42,7 +42,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// # Errors
     /// Returns encoding, allocation or latched sink refusals.
     pub fn book_field(&mut self, field: BookFieldDecl<'_>) -> Result<&mut Self, DeclareError> {
-        self.accept_record(Ok(wire::Record::BookFieldSpec(field.0)))
+        self.accept_record(Ok(field.0))
     }
     /// Declare a badge callback token. The host owns the `core.book_badge` stage;
     /// this declaration does not subscribe to a plugin-defined stage.
@@ -55,12 +55,10 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             wire::BOOK_BADGE_SPEC_NAME_MAX_BYTES,
             "book badge name",
         )
-        .map(|()| {
-            wire::Record::BookBadgeSpec(wire::BookBadgeSpec {
-                name,
-                token,
-                flags: 0,
-            })
+        .map(|()| wire::BookBadgeSpec {
+            name,
+            token,
+            flags: 0,
         });
         self.accept_record(record)
     }

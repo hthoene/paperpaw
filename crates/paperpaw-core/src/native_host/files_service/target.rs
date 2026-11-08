@@ -11,6 +11,9 @@ pub(super) const DATA: u32 = 0;
 pub(super) const CARD: u32 = 1;
 /// Root 2: the plugin's install folder, read only.
 pub(super) const BUNDLE: u32 = 2;
+/// Root 3: the book of the format call the caller is in, read only
+/// (`document.md` "Roots").
+pub(super) const BOOK: u32 = 3;
 
 /// The host's folder in root 0, where served request bodies arrive.
 const RECEIVED: &str = ".received";
@@ -91,6 +94,13 @@ impl Target {
         })
     }
 
+    /// Whether the path is the top of the card (root 1 `""`, or root 3 `""`
+    /// of a book whose folder is the card's top): where the kernel's folders
+    /// are hidden and refused.
+    pub(super) fn is_card_top(&self) -> bool {
+        self.is_root() && (self.root == CARD || (self.root == BOOK && self.base == 0))
+    }
+
     /// The joined path of the root itself (`""` for the card).
     pub(super) fn base(&self) -> &str {
         &self.joined()[..self.base]
@@ -104,7 +114,8 @@ impl Target {
 }
 
 /// Resolves `path` of `root` for the caller, checking in the contract's
-/// order: the root (`ERR_UNSUPPORTED` from 3 on, `ERR_DENIED` without
+/// order: the root (`ERR_UNSUPPORTED` from 4 on, and for 3 outside a call of
+/// a `folder` or `siblings` format, `ERR_DENIED` without
 /// `uses.storage` on root 1 and for a change on root 2), the path rules
 /// (`ERR_INVALID`, `ERR_UTF8`, `ERR_NO_SPACE`), the root-1 exclusions
 /// (`ERR_INVALID`). The path may be `""`, the root.
@@ -116,6 +127,9 @@ pub(super) fn resolve(
     path: &str,
     intent: Intent,
 ) -> Result<(), i32> {
+    if root == BOOK {
+        return resolve_book(view, target, path, intent);
+    }
     match root {
         DATA => {}
         CARD => view.who.storage?,
@@ -164,6 +178,59 @@ pub(super) fn resolve(
     target.start = target.len;
     push(target, path.as_bytes())?;
     Ok(())
+}
+
+/// Root 3: the folder of the book the caller's format call is for. A caller
+/// that is in no such call, or whose format reads a single file, has no root
+/// 3 (`ERR_UNSUPPORTED`); a change is `ERR_DENIED`; the path rules are those
+/// of the other roots, and nothing resolves above the folder (no `..`).
+#[inline(never)]
+fn resolve_book(
+    view: &View<'_>,
+    target: &mut Target,
+    path: &str,
+    intent: Intent,
+) -> Result<(), i32> {
+    let mut result = Err(ERR_UNSUPPORTED);
+    view.scope.current(view.who.owner, &mut |book| {
+        let Some(folder) = book.folder() else {
+            return;
+        };
+        result = fill_book(view, target, folder, path, intent);
+    });
+    result
+}
+
+fn fill_book(
+    view: &View<'_>,
+    target: &mut Target,
+    folder: &str,
+    path: &str,
+    intent: Intent,
+) -> Result<(), i32> {
+    if intent == Intent::Change {
+        return Err(ERR_DENIED);
+    }
+    if !path.is_empty() {
+        relative_path(path.as_bytes())?;
+    }
+    // A book at the top of the card must not reach the kernel's folders.
+    let first = path.split('/').next().unwrap_or_default();
+    if folder.is_empty() && !first.is_empty() && reaches_protected(view, first) {
+        return Err(ERR_INVALID);
+    }
+    target.len = 0;
+    target.start = 0;
+    target.base = 0;
+    target.root = BOOK;
+    target.received = false;
+    push(target, folder.as_bytes())?;
+    target.base = target.len;
+    if !path.is_empty() && !folder.is_empty() {
+        push(target, b"/")?;
+    }
+    target.start = target.len;
+    push(target, path.as_bytes())
 }
 
 fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {

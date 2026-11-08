@@ -138,6 +138,8 @@ pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
 mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
@@ -302,6 +304,8 @@ pub(crate) mod native_instances;
 )]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
 
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.

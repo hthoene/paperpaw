@@ -116,7 +116,7 @@ fn bold_beginnings(block: &mut Block) {
             .any(|r| r.start < run.end && run.start < r.end)
     });
     block.runs.extend(runs);
-    block.runs.sort_by_key(|run| run.start);
+    paperpaw_sdk::sort::sort_by_key(&mut block.runs, |run| run.start);
 }
 
 /// The reading aids plugin.
