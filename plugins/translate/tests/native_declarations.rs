@@ -113,8 +113,8 @@ fn the_host_admits_the_screen_and_the_subscription_to_the_end_of_a_request() {
     }
 }
 
-/// The offer is declared but not submitted: the host admits a slot offer
-/// now, so `make` can submit `image::OFFER` (a port todo).
+/// The host admits the slot offer; `make` submits `image::OFFER` after the
+/// screen (`tests/native_asking.rs`).
 #[test]
 fn the_host_admits_a_slot_offer() {
     for batch in image::OFFER {
