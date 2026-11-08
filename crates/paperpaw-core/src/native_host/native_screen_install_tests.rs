@@ -8,6 +8,9 @@ std::thread_local! {
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     static EMPTY: Cell<bool> = const { Cell::new(false) };
+    /// 1: also a stage and a subscription to another plugin's; 2: also a
+    /// subscription to its own stage.
+    static STAGES: Cell<u8> = const { Cell::new(0) };
     static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
     static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
@@ -29,7 +32,7 @@ unsafe extern "C" fn screen_make(
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
 ) -> i32 {
-    let mut bytes = [0; 128];
+    let mut bytes = [0; 256];
     let records = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
@@ -45,7 +48,38 @@ unsafe extern "C" fn screen_make(
         }),
     ];
     let count = if UNSUPPORTED.with(Cell::get) { 2 } else { 1 };
-    let len = wire::records_encode(&records[..count], &mut bytes).unwrap();
+    let stages = [
+        wire::Record::ScreenSpec(wire::ScreenSpec {
+            name: "screen",
+            title: "factory.title",
+            token: 91,
+            flags: FLAGS.with(Cell::get),
+        }),
+        wire::Record::StageSpec(wire::StageSpec {
+            name: "insert",
+            schema: 1,
+            flags: 0,
+            max_input: 16,
+            max_reply: 16,
+            max_records: 1,
+        }),
+        wire::Record::RegistrationStage(wire::RegistrationStage {
+            stage: if STAGES.with(Cell::get) == 2 {
+                "factory.insert"
+            } else {
+                "other.insert"
+            },
+            token: 91,
+            order: 0,
+            signature: 0,
+        }),
+    ];
+    let len = if STAGES.with(Cell::get) == 0 {
+        wire::records_encode(&records[..count], &mut bytes)
+    } else {
+        wire::records_encode(&stages, &mut bytes)
+    }
+    .unwrap();
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
@@ -871,4 +905,63 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     assert_eq!(DESTROYED.with(Cell::get), 0);
     drop(dispatch);
     assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+#[test]
+fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {
+    reset(NORMAL);
+    STAGES.with(|value| value.set(1));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    result.unwrap();
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let store = directory.store.borrow();
+    let stage = store
+        .stage("factory.insert")
+        .expect("the stage is declared");
+    assert_eq!(
+        (stage.max_input, stage.max_reply, stage.max_records),
+        (16, 16, 1)
+    );
+    // Its subscription to another plugin's stage is kept, and inert.
+    let kept = store.stage_subscribers("other.insert").unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        (kept[0].plugin, kept[0].token, kept[0].owner),
+        ("factory", 91, stage.owner)
+    );
+    drop(kept);
+    drop(store);
+    // The owner leaves: stage and subscription with it.
+    kernel.unload_plugin(&Id::new_static("factory"));
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let store = directory.store.borrow();
+    assert!(store.stage("factory.insert").is_none());
+    assert!(store.stage_subscribers("other.insert").unwrap().is_empty());
+}
+
+#[test]
+fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_nothing() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    STAGES.with(|value| value.set(2));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let before = kernel.shared.registry.screens.list().iter().count();
+    let result = install(&mut kernel, 0);
+    STAGES.with(|value| value.set(0));
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
+    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    let stage = kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .map(|directory| directory.store.borrow().stage("factory.insert"));
+    assert!(stage.flatten().is_none());
 }

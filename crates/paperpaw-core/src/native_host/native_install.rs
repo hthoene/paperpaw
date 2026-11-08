@@ -35,6 +35,10 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // The extras (section, editor, check) are presentation the settings
         // page reads from the declaration store; the store keeps the record.
         Record::SettingExtra(_) => Ok(None),
+        // A stage and a subscription are read from the declaration store (the
+        // broker is fed by `DeclarationStore::stage` and `stage_subscribers`);
+        // they go with the owner's declarations.
+        Record::StageSpec(_) | Record::RegistrationStage(_) => Ok(None),
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
