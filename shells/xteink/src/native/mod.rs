@@ -428,15 +428,17 @@ impl CodeLoader for Loader {
         if self.resources.is_none() {
             self.resources = HostResources::try_new().ok();
         }
-        let wired = self
-            .resources
-            .as_ref()?
-            .wire(
-                HostWiring::new()
-                    .hyphenation(storage.clone())
-                    .ui(crate::DEVICE.id),
-            )
-            .ok()?;
+        let wired = match self.resources.as_ref()?.wire(
+            HostWiring::new()
+                .hyphenation(storage.clone())
+                .ui(crate::DEVICE.id),
+        ) {
+            Ok(wired) => wired,
+            Err(status) => {
+                warn!("native: text.hyphenate and core.ui not wired ({status})");
+                return None;
+            }
+        };
         wired.hyphen().cloned()
     }
 
