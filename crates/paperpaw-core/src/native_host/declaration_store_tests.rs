@@ -20,6 +20,19 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::StatusItem,
     Kind::StatusLine,
     Kind::StatusPlace,
+    Kind::MenuEntry,
+    Kind::Icon,
+    Kind::MenuNeed,
+    Kind::MenuSection,
+    Kind::MenuHide,
+    Kind::MenuDescribe,
+    Kind::SlotSpec,
+    Kind::SlotOffer,
+    Kind::KeyBind,
+    Kind::SettingDefault,
+    Kind::SettingChoice,
+    Kind::PresetSpec,
+    Kind::PresetValue,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -1019,8 +1032,10 @@ fn check_busy_cleanup(fallback: bool) {
 #[path = "declaration_screen_action_tests.rs"]
 mod screen_action;
 
+#[path = "declaration_reg_admission_tests.rs"]
+mod reg_admission;
+
 // A mixed batch retains this unnamed record without giving it a Kind index.
-// REG admission remains separately gated until the catalog producer is wired.
 fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
     let source = image();
     let records = [
