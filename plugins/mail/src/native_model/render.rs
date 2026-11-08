@@ -325,8 +325,10 @@ impl Walker {
             header::MAX_SUBJECT,
         )?;
         info.date = headers.get("date").and_then(header::date_seconds);
-        info.message_id =
-            header::capped(headers.get("message-id").unwrap_or("").trim(), header::MAX_ID)?;
+        info.message_id = header::capped(
+            headers.get("message-id").unwrap_or("").trim(),
+            header::MAX_ID,
+        )?;
         info.references = header::last_ids(
             headers.get("references").unwrap_or(""),
             header::MAX_REFERENCES,

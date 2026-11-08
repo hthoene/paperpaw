@@ -4,12 +4,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
-use paperpaw_plugin_mail::native_model::imap::{self, Fault};
 use paperpaw_plugin_mail::native_model::fail::Fail;
+use paperpaw_plugin_mail::native_model::imap::{self, Fault};
 use paperpaw_plugin_mail::native_model::{codec, header, html, mem, render, smtp, store};
+use paperpaw_sdk::native::Error;
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 use std::cell::{Cell, RefCell};
-use paperpaw_sdk::native::Error;
 
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
@@ -329,8 +329,9 @@ fn rendering_and_the_store_survive_refused_allocations() {
     // Made before the sweeps: the test's own allocations are not the code's.
     let seen = vec!["\\Seen".to_string()];
     swept("index and counts", || {
-        let row = store::Row::from_headers(3, &seen, 9, 100, b"From: A <a@x>\r\nSubject: s\r\n\r\n")
-            .map_err(refused)?;
+        let row =
+            store::Row::from_headers(3, &seen, 9, 100, b"From: A <a@x>\r\nSubject: s\r\n\r\n")
+                .map_err(refused)?;
         store::write_index(&card, "i.txt", &[row]).map_err(refused)?;
         let rows = store::read_index(&card, "i.txt").map_err(refused)?;
         assert_eq!(rows.len(), 1);
@@ -342,20 +343,35 @@ fn rendering_and_the_store_survive_refused_allocations() {
     });
     swept("folders and names", || {
         let mut folders = Vec::new();
-        for (raw, flag) in [("INBOX", ""), ("Sent", "\\sent"), ("Zeta", ""), ("alpha", "")] {
+        for (raw, flag) in [
+            ("INBOX", ""),
+            ("Sent", "\\sent"),
+            ("Zeta", ""),
+            ("alpha", ""),
+        ] {
             let mut flags = Vec::new();
             if !flag.is_empty() {
                 mem::push(&mut flags, mem::copy(flag)?)?;
             }
-            mem::push(&mut folders, store::Folder::new(raw, flags).map_err(refused)?)?;
+            mem::push(
+                &mut folders,
+                store::Folder::new(raw, flags).map_err(refused)?,
+            )?;
         }
         store::sort_folders(&mut folders);
         store::write_folders(&card, "f.txt", &folders).map_err(refused)?;
-        assert_eq!(store::read_folders(&card, "f.txt").map_err(refused)?.len(), 4);
+        assert_eq!(
+            store::read_folders(&card, "f.txt").map_err(refused)?.len(),
+            4
+        );
         store::index_file(1, "INBOX").map_err(refused)?;
         store::text_file(1, "Archiv/2026", 7).map_err(refused)?;
         store::field(" a\tb\n ").map_err(refused)?;
         Ok(())
     });
-    assert_eq!(card.get("raw.eml").len(), 0, "the letter took the raw message away");
+    assert_eq!(
+        card.get("raw.eml").len(),
+        0,
+        "the letter took the raw message away"
+    );
 }

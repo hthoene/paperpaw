@@ -74,7 +74,11 @@ pub fn folder_key(raw_name: &str) -> Result<String, Fail> {
     }
     let mut key = string_with(24)?;
     push_char(&mut key, 'f')?;
-    for c in raw_name.chars().filter(char::is_ascii_alphanumeric).take(12) {
+    for c in raw_name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(12)
+    {
         push_char(&mut key, c)?;
     }
     text::write_to(&mut key, format_args!("-{hash:08x}"))?;
@@ -178,10 +182,7 @@ pub fn outbox_file(account: u8) -> Result<String, Fail> {
 pub fn field(value: &str) -> Result<String, Fail> {
     let mut out = string_with(value.len())?;
     for c in value.chars() {
-        push_char(
-            &mut out,
-            if c == '\t' || c.is_control() { ' ' } else { c },
-        )?;
+        push_char(&mut out, if c == '\t' || c.is_control() { ' ' } else { c })?;
     }
     let trimmed = out.trim();
     if trimmed.len() == out.len() {
@@ -298,8 +299,7 @@ impl Row {
         let Some(size) = f.next().and_then(|v| v.parse().ok()) else {
             return Ok(None);
         };
-        let (Some(from), Some(from_address), Some(subject)) = (f.next(), f.next(), f.next())
-        else {
+        let (Some(from), Some(from_address), Some(subject)) = (f.next(), f.next(), f.next()) else {
             return Ok(None);
         };
         Ok(Some(Self {
@@ -416,7 +416,10 @@ pub fn write_index(storage: &dyn Storage, file: &str, rows: &[Row]) -> Result<()
     let mut out = string_with(256)?;
     text::write_to(
         &mut out,
-        format_args!("{SERIAL_MARK}{}\n", index_serial(storage, file).saturating_add(1)),
+        format_args!(
+            "{SERIAL_MARK}{}\n",
+            index_serial(storage, file).saturating_add(1)
+        ),
     )?;
     for row in rows.iter().take(MAX_MESSAGES as usize) {
         push_str(&mut out, &row.line()?)?;
