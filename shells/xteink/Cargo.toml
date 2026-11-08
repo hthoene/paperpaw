@@ -43,7 +43,13 @@ ppn5 = ["paperpaw-native/kernel"]
 # statically (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of
 # their interface-6 forms. For measuring the image: they are linked and kept,
 # not activated; no interface-7 plugin runs on the X4 until the stack gate.
+# MEASUREMENT ONLY, NOT FLASHABLE: the interface-6 forms of those plugins are
+# left out and nothing hosts the linked ones, so the image has no Files, Menu,
+# Keyboard, Settings or OPDS. It does not build unless `flash-gate-measure`
+# is set too (`tools/flash-gate.sh --head-features x4,static-native,flash-gate-measure`).
 static-native = ["ppn5", "paperpaw-app/native-linked"]
+# Allows `static-native`, for tools/flash-gate.sh only. Never flash the result.
+flash-gate-measure = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [

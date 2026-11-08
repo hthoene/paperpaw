@@ -27,6 +27,12 @@ extern crate alloc;
 #[cfg(all(feature = "textprobe", not(feature = "x4")))]
 compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
 
+#[cfg(all(feature = "static-native", not(feature = "flash-gate-measure")))]
+compile_error!(
+    "static-native is measurement only and not flashable: it drops the interface-6 plugins it \
+     links natively and nothing hosts them yet; set `flash-gate-measure` too (tools/flash-gate.sh)"
+);
+
 #[cfg(all(feature = "bluetooth", not(feature = "x4-pro")))]
 compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
