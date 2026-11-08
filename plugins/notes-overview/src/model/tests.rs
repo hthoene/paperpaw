@@ -252,3 +252,15 @@ fn the_detail_line_of_a_note_reads_what_and_how_far() {
     assert_eq!(detail("Bookmark", 100), "Bookmark · 100 %");
     assert_eq!(detail("", 7), " · 7 %");
 }
+
+#[test]
+fn a_text_is_cut_at_a_character_end() {
+    assert_eq!(cut("abc", 8), "abc");
+    assert_eq!(cut("abcdef", 3), "abc");
+    assert_eq!(cut("", 3), "");
+    // Two-byte letters: a cut in the middle of one falls back to its start.
+    assert_eq!(cut("\u{e4}\u{e4}\u{e4}", 3), "\u{e4}");
+    assert_eq!(cut("\u{e4}\u{e4}", 4), "\u{e4}\u{e4}");
+    assert_eq!(cut("a\u{20ac}", 3), "a");
+    assert_eq!(cut("anything", 0), "");
+}

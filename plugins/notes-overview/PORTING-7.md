@@ -86,9 +86,23 @@ services it needs are not there. It is removed in the PR that finishes the port.
   text. Choosing a book opens the notes screen with the book's handle handed over (`core.ui` handover,
   the parameters `key` and `generation`). The book's screen: its notes in reading order, bookmarks as their label,
   highlights quoted, each with its own note (else its kind) and `· 42 %` under it; kinds a newer
-  reader keeps are not listed. **New cap: 300 notes shown per book** (`MOST_NOTES`; interface 6
-  showed all, from a file of up to 1 MiB); a note's text is the library's 512 B preview (the
-  interface-6 screen had the whole text, wrapped to two lines in the row either way).
+  reader keeps are not listed. **New caps (memory):** at most 100 notes shown per book
+  (`MOST_NOTES`; interface 6 showed all, from a file of up to 1 MiB), a note's text cut to 160 bytes
+  (`TEXT_MAX`) and the reader's own note to 64 bytes (`NOTE_MAX`), both at a character's end; the
+  row shows two lines anyway (interface 6 wrapped the whole text to two lines), and the library's
+  preview is up to 512 B. **Worst case of the book screen:** a row is the item (80 B) + 166 B of
+  quoted text + 64 B of note + 16 B of detail suffix + 24 B of allocator headers, at most 350 B;
+  100 rows are 35 KB plus the vector grown to 128 items (10 KB), about 45 KiB (a test holds it
+  under 48 KiB). The first draft (300 rows of 512 + 512 B) was about 330 KiB.
+- **Open parity item (slice 3, with the export):** interface 6 showed all of a book's notes, this
+  port the first 100. Paging would close it within the 45 KiB: a last row "more" that loads the next
+  100 from the annotation query (the page's cursor kept, the old rows freed) and a way back; it
+  needs the cursor kept per screen and the focus kept across the swap, so it is not in this slice.
+  Until then the notes past 100 of a book are in the export only.
+- If the catalog changes between the handover of a chosen book and the book screen opening
+  (`opened_book`; one host callback apart), the book's handle is stale (`State`/`NotFound`) and the
+  screen does not open, with no notice. The list itself handles a stale handle before the handover
+  (see above), so the window is only that one callback.
 - Read through `Library` with 4,096-byte buffers; a pass over a book's notes ends after 64 pages.
 - `tests/scripted_library.rs` drives the plugin with the scripted host over a scripted
   `core.library`: the pages of the catalog continued in their generation, each book's notes counted

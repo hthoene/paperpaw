@@ -55,11 +55,21 @@ fn digits(mut n: u32, buf: &mut [u8; DIGITS]) -> &str {
 }
 
 /// Notes of one book shown at most. A book has more only by the thousand;
-/// interface 6 showed them all, from a file of up to 1 MiB.
-pub const MOST_NOTES: usize = 300;
+/// interface 6 showed them all, from a file of up to 1 MiB. With the texts
+/// cut at [`model::TEXT_MAX`] and [`model::NOTE_MAX`] a row costs at most
+/// 350 bytes (`ROW_WORST` in the tests), so the screen holds 100 x that, about 44 KiB.
+pub const MOST_NOTES: usize = 100;
 /// A pass over a book's notes ends after this many pages (a book with 300
 /// notes has a dozen), so a host that never ends cannot hold the screen.
 const MOST_PAGES: usize = 64;
+
+/// The most a row of a note takes: the item (three strings and flags), the
+/// quoted text (two curly quotes, 6 bytes), the detail (the note or the kind,
+/// then `· 100 %`, at most 16 bytes more) and 8 bytes of allocator header for
+/// each of the three strings.
+#[cfg(test)]
+const ROW_WORST: usize =
+    core::mem::size_of::<Item>() + model::TEXT_MAX + 6 + model::NOTE_MAX + 16 + 3 * 8;
 
 /// What a screen's rows stand for.
 #[derive(Debug)]
@@ -373,7 +383,10 @@ impl NativeNotesOverview {
             for row in page.rows() {
                 let row = row?;
                 let (kind, text) = match row.kind() {
-                    AnnotationKind::Bookmark => ("notes-overview.bookmark", copy(row.text())?),
+                    AnnotationKind::Bookmark => (
+                        "notes-overview.bookmark",
+                        copy(model::cut(row.text(), model::TEXT_MAX))?,
+                    ),
                     AnnotationKind::Highlight => (
                         "notes-overview.highlight",
                         messages.format(
@@ -381,7 +394,7 @@ impl NativeNotesOverview {
                             "notes-overview.quoted",
                             &[Arg::Text {
                                 name: "text",
-                                value: row.text(),
+                                value: model::cut(row.text(), model::TEXT_MAX),
                             }],
                         )?,
                     ),
@@ -393,7 +406,7 @@ impl NativeNotesOverview {
                 let what = if row.note().is_empty() {
                     messages.copy(host, kind)?
                 } else {
-                    copy(row.note())?
+                    copy(model::cut(row.note(), model::NOTE_MAX))?
                 };
                 let mut detail = String::new();
                 model::put_detail(
@@ -494,6 +507,15 @@ mod tests {
         // The *Export* row is not a book, even under the title of a book.
         assert_eq!(find_again(&new, &handles[..2], "Export", 0), None);
         assert_eq!(find_again(&new, &handles[..2], "Quince", 0), None);
+    }
+
+    #[test]
+    fn the_notes_of_a_book_fit_in_48_kib_at_worst() {
+        // The rows of a screen, and the vector holding them grown to the next
+        // power of two (an item is 80 bytes or so).
+        let rows = super::MOST_NOTES * super::ROW_WORST;
+        let vector = super::MOST_NOTES.next_power_of_two() * core::mem::size_of::<Item>();
+        assert!(rows + vector <= 48 * 1024, "{}", rows + vector);
     }
 
     #[test]

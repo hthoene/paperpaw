@@ -32,7 +32,11 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     for c in r.into_contributions() {
         match c {
             Contribution::Screen(s) => {
-                screens.push((s.id.as_str().to_string(), s.title.to_string()));
+                screens.push((
+                    s.id.as_str().to_string(),
+                    s.title.to_string(),
+                    s.instances == paperpaw_sdk::Instances::PER_PARAMS,
+                ));
             }
             Contribution::FixedActions(list) => {
                 for a in list {
@@ -62,8 +66,12 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
         for record in records_decode(&batch).unwrap().iter() {
             match record {
                 Record::ScreenSpec(s) => {
-                    // One instance at a time, as before (the flags say it).
-                    dscreens.push((format!("notes-overview.{}", s.name), s.title.to_string()));
+                    // One instance for each set of parameters, as before (bits 6-7 of the flags: 0).
+                    dscreens.push((
+                        format!("notes-overview.{}", s.name),
+                        s.title.to_string(),
+                        (s.flags >> 6) & 3 == 0,
+                    ));
                 }
                 Record::ActionSpec(a) => {
                     dactions.push((format!("notes-overview.{}", a.name), a.title.to_string()));
