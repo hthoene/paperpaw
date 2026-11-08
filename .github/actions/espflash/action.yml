@@ -1,9 +1,20 @@
 name: Pinned espflash
-description: Reuse the exact cached version or verify the official static release archive.
+description: >
+  Reuse the exact cached version or verify the official static release archive.
+  The archive is kept between runs (by its version) and always checked against
+  the reviewed SHA-256 before use; a failing download is tried again
+  (tools/ci/espflash.py).
 runs:
   using: composite
   steps:
+    - name: The espflash archive, kept between runs
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/espflash-archive
+        key: espflash-archive-${{ runner.os }}-${{ env.ESPFLASH_VERSION }}
     - shell: bash
+      env:
+        ESPFLASH_ARCHIVE_DIR: ${{ runner.temp }}/espflash-archive
       run: |
         binary="$(python3 tools/ci/espflash.py "$ESPFLASH_VERSION" "$RUNNER_TEMP/espflash")"
         echo "$(dirname "$binary")" >> "$GITHUB_PATH"
