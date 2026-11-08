@@ -85,6 +85,68 @@ fn root_three_needs_no_storage_grant_but_a_format_call() {
     }
 }
 
+/// The scope is checked first: a change op on root 3 outside a call of a `folder` or
+/// `siblings` format (none, or a single-file format) is `ERR_UNSUPPORTED`; inside such a
+/// call it is `ERR_DENIED` (`root_three_is_read_only_and_for_list_and_stat_only`).
+#[test]
+fn a_change_op_outside_a_format_call_is_unsupported_not_denied() {
+    let (card, host) = series();
+    let before = card.paths();
+    let single = Setup {
+        book: Some((BookKind::File, "Series/vol1.cbz", "")),
+        ..NORMAL
+    };
+    for setup in [NORMAL, single] {
+        for (op, record) in [
+            (4, path(3, "new")),
+            (5, list_record(3, "extras", 0)),
+            (6, move_record(3, "vol1.cbz", 1, "Books/x.cbz", 0)),
+            (6, move_record(1, "Other/x.cbz", 3, "y.cbz", 0)),
+        ] {
+            assert_eq!(
+                call_with(&host, setup, op, record),
+                Err(ERR_UNSUPPORTED),
+                "op {op}"
+            );
+        }
+    }
+    assert_eq!(card.paths(), before, "nothing changed");
+}
+
+/// A trailing `/` of a book's own path is not part of its folder (the storage joins
+/// folders without it); a trailing `/` in a request path is an empty segment, which the
+/// path rules (`files.md` §1.1) refuse.
+#[test]
+fn a_trailing_slash_is_dropped_from_the_book_and_refused_in_a_request() {
+    let (_card, host) = series();
+    let folder = Setup {
+        book: Some((BookKind::Folder, "Series/", "")),
+        ..NORMAL
+    };
+    let siblings_slash = Setup {
+        book: Some((BookKind::Siblings, "Series/vol1.cbz/", "vol1.cbz")),
+        ..NORMAL
+    };
+    for setup in [folder, siblings_slash] {
+        let mut top = names(&host, setup, "");
+        top.sort();
+        assert_eq!(top, ["extras", "vol1.cbz", "vol2.cbz"]);
+        assert_eq!(names(&host, setup, "extras"), ["map.png"]);
+        for bad in ["extras/", "/", "vol1.cbz/"] {
+            assert_eq!(
+                call_with(&host, setup, 2, path(3, bad)),
+                Err(ERR_INVALID),
+                "{bad}"
+            );
+            assert_eq!(
+                call_with(&host, setup, 1, list_record(3, bad, 0)),
+                Err(ERR_INVALID),
+                "{bad}"
+            );
+        }
+    }
+}
+
 #[test]
 fn paths_stay_below_the_book_folder() {
     let (_card, host) = series();
