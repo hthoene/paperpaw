@@ -93,20 +93,25 @@ impl<'a> FormatDecl<'a> {
     }
 }
 
-/// The extensions as the contract spells them: one to 16, each 1 to 31 bytes
-/// without a leading dot, no uppercase letter and no control character, and
-/// none twice.
+/// One extension as the host checks it: lowercase ASCII letters and digits with
+/// inner dots (`fb2.zip`), no leading or trailing dot, no `..`, 1 to 31 bytes.
+fn valid_extension(extension: &str) -> bool {
+    (1..=wire::FORMAT_SPEC_EXTENSIONS_ITEM_MAX_BYTES).contains(&extension.len())
+        && !extension.starts_with('.')
+        && !extension.ends_with('.')
+        && !extension.contains("..")
+        && extension
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.')
+}
+
+/// The extensions as the contract spells them: one to 16 lines, each a valid
+/// extension, none twice.
 fn valid_extensions(list: &str) -> bool {
     let mut seen = 0;
     for extension in list.split(wire::FORMAT_SPEC_EXTENSIONS_SEPARATOR) {
         seen += 1;
-        let fine = !extension.is_empty()
-            && extension.len() <= wire::FORMAT_SPEC_EXTENSIONS_ITEM_MAX_BYTES
-            && !extension.starts_with('.')
-            && !extension
-                .chars()
-                .any(|c| c.is_uppercase() || c.is_control());
-        if !fine
+        if !valid_extension(extension)
             || seen > wire::FORMAT_SPEC_EXTENSIONS_MAX_ITEMS
             || list
                 .split(wire::FORMAT_SPEC_EXTENSIONS_SEPARATOR)
@@ -121,13 +126,18 @@ fn valid_extensions(list: &str) -> bool {
 
 impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Declares a file format. Declaring it subscribes the plugin to
-    /// `core.format` for this format; the host counts formats per plugin (8) and
-    /// device-wide (32).
+    /// `core.format` for this format.
     ///
     /// # Errors
     /// Refuses a name that is not a relative id, an empty or overlong title, and
-    /// extensions that are empty, repeated, too many (16), too long (31 bytes),
-    /// written with a dot in front, in uppercase or with control characters.
+    /// extensions that are empty, repeated, too many (16), too long (31 bytes) or
+    /// not made of lowercase ASCII letters, digits and inner dots (no leading or
+    /// trailing dot, no `..`).
+    ///
+    /// Only the host sees the whole plugin, so these surface when the batch is
+    /// submitted: an extension or a name the plugin declared twice, more than 8
+    /// formats for the plugin or 32 on the device (`ERR_FULL`), and a joined id
+    /// `<plugin>.<name>` of more than 128 bytes.
     pub fn format(&mut self, format: FormatDecl<'_>) -> Result<&mut Self, DeclareError> {
         let record = (|| {
             menu_identifier(format.name, wire::FORMAT_SPEC_NAME_MAX_BYTES, "format name")?;

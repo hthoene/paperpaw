@@ -64,7 +64,8 @@ fn a_format_is_refused_for_what_the_host_would_refuse() {
         .collect::<Vec<_>>()
         .join("\n");
     let bad = vec![
-        "", "\nx", "x\n", "x\n\ny", ".epub", "EPUB", "ep\tub", "a\nb\na", &long, &many,
+        "", "\nx", "x\n", "x\n\ny", ".epub", "epub.", "a..b", "EPUB", "ep\tub", "ep ub", "é",
+        "a/b", "a-b", "a_b", "a\nb\na", &long, &many,
     ];
     for extensions in bad {
         assert!(
