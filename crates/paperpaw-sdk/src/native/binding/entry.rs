@@ -168,6 +168,11 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
     OK
 }
 
+/// The callbacks are thin shims over cores that do not depend on the plugin type: the
+/// buffer checks, the decoding and the purpose check are compiled once, the shim only
+/// hands the cores a call into the plugin. Statuses and the order of the checks are
+/// those of one function per callback.
+///
 /// # Safety
 /// The host enforces reentry deny: no callback re-enters this same instance.
 unsafe extern "C" fn event<T: Plugin>(
@@ -179,6 +184,44 @@ unsafe extern "C" fn event<T: Plugin>(
     if state.is_null() {
         return ERR_INVALID;
     }
+    // SAFETY: host retains and exclusively admits this live instance.
+    let state = unsafe { &mut *state.cast::<State<T>>() };
+    // SAFETY: make retained the table lease until destroy; input and output as the host
+    // lends them for this callback.
+    unsafe {
+        event_core(
+            state.host,
+            state.ctx,
+            token,
+            input,
+            out,
+            &mut |host, token, event, reply| state.value.event(host, token, event, reply),
+        )
+    }
+}
+
+/// The plugin's `event`, as the non-generic core calls it.
+type EventCall<'a> = dyn FnMut(
+        &Host<'_>,
+        u32,
+        super::super::events::Event<'_>,
+        &mut super::super::reply::Reply<'_>,
+    ) -> Result<(), Error>
+    + 'a;
+
+/// The type-independent part of [`event`].
+///
+/// # Safety
+/// As [`event`]; `table` is the lease `make` retained.
+#[inline(never)]
+unsafe fn event_core(
+    table: *const PpHost,
+    ctx: *mut c_void,
+    token: u32,
+    input: PpBytes,
+    out: PpBuffer,
+    call: &mut EventCall<'_>,
+) -> i32 {
     // SAFETY: host lends disjoint input/output for this callback only.
     let input = match unsafe {
         paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
@@ -198,14 +241,12 @@ unsafe extern "C" fn event<T: Plugin>(
         Err(e) => return e.status(),
     };
     let mut reply = super::super::reply::Reply::new(out);
-    // SAFETY: host retains and exclusively admits this live instance.
-    let state = unsafe { &mut *state.cast::<State<T>>() };
     let host = Host {
         // SAFETY: make retained the table lease until destroy.
-        table: unsafe { &*state.host },
-        ctx: state.ctx,
+        table: unsafe { &*table },
+        ctx,
     };
-    match state.value.event(&host, token, event, &mut reply) {
+    match call(&host, token, event, &mut reply) {
         Ok(()) => i32::try_from(reply.len()).unwrap_or(ERR_INVALID),
         Err(e) => e.status(),
     }
@@ -217,6 +258,36 @@ unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32, input: PpBy
     if state.is_null() {
         return ERR_INVALID;
     }
+    // SAFETY: host retains and exclusively admits this live instance.
+    let state = unsafe { &mut *state.cast::<State<T>>() };
+    // SAFETY: make retained the table lease until destroy; admitted input is readable.
+    unsafe {
+        draw_core(
+            state.host,
+            state.ctx,
+            token,
+            input,
+            &mut |host, token, frame| state.value.draw(host, token, frame),
+        )
+    }
+}
+
+/// The type-independent part of [`draw`].
+///
+/// # Safety
+/// As [`draw`]; `table` is the lease `make` retained.
+#[inline(never)]
+unsafe fn draw_core(
+    table: *const PpHost,
+    ctx: *mut c_void,
+    token: u32,
+    input: PpBytes,
+    call: &mut dyn FnMut(
+        &Host<'_>,
+        u32,
+        super::super::callbacks::DrawFrame<'_>,
+    ) -> Result<(), Error>,
+) -> i32 {
     // SAFETY: admitted input is readable and disjoint from plugin state.
     let bytes = match unsafe {
         paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
@@ -234,17 +305,12 @@ unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32, input: PpBy
     ) {
         return OK;
     }
-    // SAFETY: host retains and exclusively admits this live instance.
-    let state = unsafe { &mut *state.cast::<State<T>>() };
     let host = Host {
         // SAFETY: make retained the table lease until destroy.
-        table: unsafe { &*state.host },
-        ctx: state.ctx,
+        table: unsafe { &*table },
+        ctx,
     };
-    state
-        .value
-        .draw(&host, token, frame.bind(&host))
-        .map_or_else(Error::status, |()| OK)
+    call(&host, token, frame.bind(&host)).map_or_else(Error::status, |()| OK)
 }
 
 /// # Safety
@@ -253,6 +319,36 @@ unsafe extern "C" fn input<T: Plugin>(state: *mut c_void, token: u32, input: PpB
     if state.is_null() {
         return ERR_INVALID;
     }
+    // SAFETY: host retains and exclusively admits this live instance.
+    let state = unsafe { &mut *state.cast::<State<T>>() };
+    // SAFETY: make retained the table lease until destroy; admitted input is readable.
+    unsafe {
+        input_core(
+            state.host,
+            state.ctx,
+            token,
+            input,
+            &mut |host, token, input| state.value.input(host, token, input),
+        )
+    }
+}
+
+/// The type-independent part of [`input`].
+///
+/// # Safety
+/// As [`input`]; `table` is the lease `make` retained.
+#[inline(never)]
+unsafe fn input_core(
+    table: *const PpHost,
+    ctx: *mut c_void,
+    token: u32,
+    input: PpBytes,
+    call: &mut dyn FnMut(
+        &Host<'_>,
+        u32,
+        super::super::callbacks::Input<'_>,
+    ) -> Result<crate::Handled, Error>,
+) -> i32 {
     // SAFETY: admitted input is readable and disjoint from plugin state.
     let bytes = match unsafe {
         paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
@@ -264,20 +360,15 @@ unsafe extern "C" fn input<T: Plugin>(state: *mut c_void, token: u32, input: PpB
         Ok(input) => input,
         Err(e) => return e.status(),
     };
-    // SAFETY: host retains and exclusively admits this live instance.
-    let state = unsafe { &mut *state.cast::<State<T>>() };
     let host = Host {
         // SAFETY: make retained the table lease until destroy.
-        table: unsafe { &*state.host },
-        ctx: state.ctx,
+        table: unsafe { &*table },
+        ctx,
     };
-    state
-        .value
-        .input(&host, token, input)
-        .map_or_else(Error::status, |handled| match handled {
-            crate::Handled::Yes => 1,
-            crate::Handled::No => 0,
-        })
+    call(&host, token, input).map_or_else(Error::status, |handled| match handled {
+        crate::Handled::Yes => 1,
+        crate::Handled::No => 0,
+    })
 }
 
 unsafe extern "C" fn destroy<T: Plugin>(state: *mut c_void) {

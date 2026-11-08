@@ -68,7 +68,7 @@ fn one(buf: &mut [u8]) -> bool {
 /// [`home`] on a device with `device`.
 fn home_on(storage: MemoryStorage, page: &str, config: &str, device: Device) -> (String, usize) {
     let user = format!(
-        "[core]\nlanguage = en\n[help]\nshow = false\n[home]\ncolumns = 4\npage-1 = \"{page}\"\n[vocabulary]\n{config}\n"
+        "[core]\nlanguage = en\n[home]\ncolumns = 4\npage-1 = \"{page}\"\n[vocabulary]\n{config}\n"
     );
     let mut builder = Kernel::builder(DEVICE);
     if device == Device::Random {

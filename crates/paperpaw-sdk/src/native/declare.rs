@@ -58,6 +58,13 @@ use records_wire::{
 };
 use settings_value::{SettingValueRef, settings_encode};
 
+mod format;
+pub use format::FormatDecl;
+mod lookup;
+pub use lookup::LookupProviderDecl;
+mod library;
+pub use library::BookFieldDecl;
+
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 

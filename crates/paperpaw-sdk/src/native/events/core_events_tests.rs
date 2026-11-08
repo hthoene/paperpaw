@@ -415,3 +415,116 @@ fn complete_book_paths_and_text_caps_survive_without_truncation() {
         Err(paperpaw_native::host_glue::ERR_NO_SPACE)
     );
 }
+
+#[test]
+fn bluetooth_event_has_an_exact_typed_view_and_borrows_its_name() {
+    let bytes = encode(Record::EventBluetooth(wire::EventBluetooth {
+        now_ms: 42,
+        kind: 2,
+        device: 9,
+        name: "Remote",
+        device_kind: 2,
+        signal: -61,
+        reason: 5,
+    }));
+    assert_eq!(bytes[1], 98);
+    match Event::decode(&bytes).unwrap() {
+        Event::Bluetooth(change) => {
+            assert_eq!(
+                (
+                    change.now_ms(),
+                    change.kind(),
+                    change.device(),
+                    change.name(),
+                    change.device_kind(),
+                    change.signal(),
+                    change.reason()
+                ),
+                (
+                    42,
+                    BluetoothKind::Found,
+                    9,
+                    "Remote",
+                    BluetoothDeviceKind::Remote,
+                    Some(-61),
+                    Some(BluetoothReason::Timeout)
+                )
+            );
+            assert_borrowed_text(&bytes, change.name());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn bluetooth_values_follow_the_contract_and_unknown_ones_are_other() {
+    let change = |kind, device_kind, signal, reason| {
+        let bytes = encode(Record::EventBluetooth(wire::EventBluetooth {
+            now_ms: 1,
+            kind,
+            device: 4,
+            name: "x",
+            device_kind,
+            signal,
+            reason,
+        }));
+        match Event::decode(&bytes).unwrap() {
+            Event::Bluetooth(change) => (
+                change.kind(),
+                change.device_kind(),
+                change.signal(),
+                change.reason(),
+            ),
+            other => panic!("{other:?}"),
+        }
+    };
+    use BluetoothDeviceKind as D;
+    use BluetoothKind as K;
+    use BluetoothReason as R;
+    let kinds = [
+        (1, K::Changed),
+        (2, K::Found),
+        (3, K::ScanEnded),
+        (4, K::Connected),
+        (5, K::Disconnected),
+        (6, K::Paired),
+        (7, K::Done),
+        (8, K::Failed),
+        (9, K::Other),
+        (0, K::Other),
+    ];
+    for (wire, expected) in kinds {
+        assert_eq!(change(wire, 0, 0, 0).0, expected, "kind {wire}");
+    }
+    let devices = [
+        (0, D::Other),
+        (1, D::Keyboard),
+        (2, D::Remote),
+        (3, D::Sensor),
+        (4, D::Phone),
+        (5, D::Other),
+    ];
+    for (wire, expected) in devices {
+        assert_eq!(change(2, wire, 0, 0).1, expected, "device kind {wire}");
+    }
+    // Zero is "not known" for the signal and "not said" for the reason.
+    assert_eq!(change(2, 0, 0, 0).2, None);
+    assert_eq!(change(2, 0, -60, 0).2, Some(-60));
+    assert_eq!(change(8, 0, 0, 0).3, None);
+    let reasons = [
+        (1, R::Off),
+        (2, R::NotAllowed),
+        (3, R::NotFound),
+        (4, R::Busy),
+        (5, R::Timeout),
+        (6, R::Declined),
+        (7, R::Lost),
+        (8, R::Att),
+        (9, R::Held),
+        (10, R::Unsupported),
+        (11, R::Other),
+    ];
+    for (wire, expected) in reasons {
+        assert_eq!(change(8, 0, 0, wire).3, Some(expected), "reason {wire}");
+    }
+}

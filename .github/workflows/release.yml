@@ -92,6 +92,11 @@ jobs:
           if [[ "$DRY_RUN" == true ]]; then
             echo "::notice::DRY RUN of $RELEASE_TAG: no tag, no release, no upload"
           fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Release notes were collected before tagging
+        run: python3 tools/changelog.py check --release
 
   android:
     name: Android app
@@ -366,8 +371,14 @@ jobs:
       - name: Build the firmware
         working-directory: shells/xteink
         # Without remote control over USB, which is for testing.
+        # The runner's paths are remapped (`--config`, which adds to the
+        # flags of `.cargo/config.toml`; RUSTFLAGS would replace them), so the
+        # panic messages in the image do not carry them, and a little flash is
+        # saved. (The same sources in the same folder give the same image; the
+        # folder still changes the layout a little.)
         run: |
-          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+          remap="target.$FIRMWARE_TARGET.rustflags=[\"--remap-path-prefix=$GITHUB_WORKSPACE=/build\",\"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo\"]"
+          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           elf="target/$FIRMWARE_TARGET/release/paperpaw-xteink"
           table=partitions.csv

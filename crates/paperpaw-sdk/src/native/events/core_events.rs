@@ -1,7 +1,14 @@
 //! Exact generated EVT records become borrowed typed views.
-use super::{BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState, wire};
+use super::{
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
+    wire,
+};
 use crate::{
-    native::{declare::settings_value as settings, settings::SettingValue},
+    native::{
+        declare::settings_value as settings,
+        net::{HttpDone, HttpProgress},
+        settings::SettingValue,
+    },
     power::PowerLevel,
 };
 
@@ -102,6 +109,26 @@ pub(super) fn decode(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
                 now_ms: r.now_ms,
                 flags: ChargeFlags::from_bits(r.flags),
             }
+        }
+        wire::EVENT_BLUETOOTH_TAG => {
+            let r: wire::EventBluetooth<'_> = raw.decode().map_err(Error::from_status)?;
+            Event::Bluetooth(BluetoothChange {
+                now_ms: r.now_ms,
+                kind: r.kind,
+                device: r.device,
+                name: r.name,
+                device_kind: r.device_kind,
+                signal: r.signal,
+                reason: r.reason,
+            })
+        }
+        wire::EVENT_HTTP_DONE_TAG => {
+            let r: wire::EventHttpDone = raw.decode().map_err(Error::from_status)?;
+            Event::HttpDone(HttpDone::decode(r)?)
+        }
+        wire::EVENT_HTTP_PROGRESS_TAG => {
+            let r: wire::EventHttpProgress = raw.decode().map_err(Error::from_status)?;
+            Event::HttpProgress(HttpProgress::decode(r)?)
         }
         _ => return Err(Error::Unsupported),
     })

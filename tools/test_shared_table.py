@@ -157,5 +157,14 @@ class BodyHashes(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "stage_run.*generated or native source"):
             shared.reach({}, caller, "{ stage_run() }", {"stage_run": [native]})
 
+    def test_an_unhashed_crate_method_the_native_facade_also_names_is_that_method(self):
+        caller = pathlib.Path("crate/src/ui/header.rs")
+        native = pathlib.Path("crate/src/native/declare/format.rs")
+        self.assertEqual(shared.reach({}, caller, '{ i18n.format("k", &[]) }',
+                                      {"format": [native]}), set())
+        wire = pathlib.Path("crate/src/wire.rs")
+        with self.assertRaisesRegex(SystemExit, "format.*generated or native source"):
+            shared.reach({}, caller, '{ i18n.format("k", &[]) }', {"format": [wire]})
+
 if __name__ == "__main__":
     unittest.main()

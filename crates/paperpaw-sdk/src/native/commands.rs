@@ -8,6 +8,7 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+mod bluetooth;
 mod device;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]

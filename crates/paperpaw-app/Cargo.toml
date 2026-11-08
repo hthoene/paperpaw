@@ -29,17 +29,11 @@ store-plugins = [
     "dep:paperpaw-plugin-koreader",
     "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
-    "dep:paperpaw-plugin-rules",
-    "dep:paperpaw-plugin-profiles",
-    "dep:paperpaw-plugin-keys",
-    "dep:paperpaw-plugin-menu-editor",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-translate",
-    "dep:paperpaw-plugin-battery",
     "dep:paperpaw-plugin-reading-goal",
-    "dep:paperpaw-plugin-end-of-book",
     "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
@@ -66,7 +60,10 @@ store-plugins = [
     "dep:paperpaw-plugin-hyphenation-uk",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
-diagnostics = ["dep:paperpaw-plugin-diagnostics"]
+# Kept so builds that name it still work: the diagnostics plugin is a native
+# interface-7 plugin now and is not registered here until Core publishes
+# native plugins (#228).
+diagnostics = []
 # Scalable default fonts (needs atomics: not on the ESP32-C3).
 outline = ["paperpaw-plugin-fonts-default/outline"]
 # Bitmap font packs next to the scalable fonts.
@@ -78,7 +75,6 @@ paperpaw-i18n.workspace = true
 [dependencies]
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
-paperpaw-plugin-diagnostics = { workspace = true, optional = true }
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
@@ -103,13 +99,10 @@ paperpaw-plugin-hyphenation-sv = { workspace = true, optional = true }
 paperpaw-plugin-hyphenation-uk = { workspace = true, optional = true }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-menu-editor = { workspace = true, optional = true }
 paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
-paperpaw-plugin-battery = { workspace = true, optional = true }
 paperpaw-plugin-reading-goal = { workspace = true, optional = true }
-paperpaw-plugin-end-of-book = { workspace = true, optional = true }
 paperpaw-plugin-notes-overview = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
@@ -119,15 +112,11 @@ paperpaw-plugin-format-images = { workspace = true, optional = true }
 paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
 paperpaw-plugin-bluetooth.workspace = true
-paperpaw-plugin-power.workspace = true
 paperpaw-plugin-file-manager.workspace = true
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
-paperpaw-plugin-rules = { workspace = true, optional = true }
 paperpaw-plugin-lock.workspace = true
-paperpaw-plugin-profiles = { workspace = true, optional = true }
-paperpaw-plugin-keys = { workspace = true, optional = true }
 paperpaw-plugin-wikipedia.workspace = true
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
@@ -139,13 +128,10 @@ paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-koreader = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
-paperpaw-plugin-about.workspace = true
 paperpaw-plugin-setup.workspace = true
-paperpaw-plugin-help.workspace = true
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }
-paperpaw-plugin-plugin-manager.workspace = true
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
