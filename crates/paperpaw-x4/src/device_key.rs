@@ -124,6 +124,44 @@ fn crc32(bytes: &[u8]) -> u32 {
 mod tests {
     use super::*;
 
+    /// The web flasher keeps the key through a reinstall (decision 139):
+    /// paperpaw.org `static/flash/device.js` has `NVS_AT = 0x9000` and
+    /// `KEY_AT` (this record's sector, `0xC000`) and skips that sector in
+    /// every write. A change here, or in a table's `nvs` line, must change
+    /// there too; its own test reads `SECTOR`, `OFFSET` and these tables.
+    #[test]
+    fn the_key_sector_is_where_the_web_flasher_keeps_it() {
+        const NVS_AT: u32 = 0x9000;
+        const KEY_AT: u32 = 0xC000;
+        assert_eq!(NVS_AT + OFFSET, KEY_AT);
+        assert_eq!(SECTOR, 4096);
+        for (name, table) in [
+            (
+                "partitions.csv",
+                include_str!("../../../shells/xteink/partitions.csv"),
+            ),
+            (
+                "partitions-classic.csv",
+                include_str!("../../../shells/xteink/partitions-classic.csv"),
+            ),
+        ] {
+            let nvs = table
+                .lines()
+                .find(|line| line.trim_start().starts_with("nvs,"))
+                .unwrap_or_else(|| panic!("{name}: no nvs line"));
+            let field = |n: usize| {
+                let text = nvs.split(',').nth(n).unwrap().trim();
+                u32::from_str_radix(text.trim_start_matches("0x"), 16).unwrap()
+            };
+            let (at, size) = (field(3), field(4));
+            assert_eq!(at, NVS_AT, "{name}: nvs begins elsewhere");
+            assert!(
+                at + size >= KEY_AT + SECTOR as u32,
+                "{name}: nvs does not reach the key sector"
+            );
+        }
+    }
+
     fn key() -> [u8; KEY] {
         core::array::from_fn(|i| i as u8 ^ 0x5A)
     }
