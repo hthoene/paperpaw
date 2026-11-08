@@ -108,9 +108,16 @@ pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod fmt_call;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_index;
+#[allow(
+    dead_code,
+    reason = "entered by the DOC adapter's format calls; read by the file service"
+)]
+pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 pub(crate) mod host_services;

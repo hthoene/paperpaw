@@ -523,8 +523,10 @@ impl InputFilters {
                 if !is_owner {
                     match ask(runner, filter, &current, secret) {
                         Some(Verdict::Replace(next)) if replacement_fits(&next) => current = next,
+                        // A verdict that is none (unknown kind, bad replace
+                        // or raise) is counted for the log, as at the start.
+                        Some(Verdict::Replace(_) | Verdict::Invalid) | None => refused += 1,
                         Some(_) => {}
-                        None => refused += 1,
                     }
                     continue;
                 }
@@ -536,6 +538,7 @@ impl InputFilters {
                     }
                     Some(Verdict::Run(action)) => routed = run(action),
                     Some(Verdict::Raise(name)) => routed = raise(filter, name, policy),
+                    Some(Verdict::Invalid) => refused += 1,
                     Some(_) => {}
                 }
                 break;

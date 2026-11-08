@@ -12,11 +12,12 @@ macro_rules! declaration {
         pub struct $name<'a>(wire::$row<'a>);
         impl<'a> $name<'a> {
             fn checked(row: wire::$row<'a>) -> Result<Self, Error> {
+                wire::record_framed_len_of(&row).map_err(Error::from_status)?;
                 validate(wire::Record::$variant(row))?;
                 Ok(Self(row))
             }
-            fn record(self) -> wire::Record<'a> {
-                wire::Record::$variant(self.0)
+            fn record(self) -> wire::$row<'a> {
+                self.0
             }
         }
     };
@@ -378,8 +379,8 @@ fn optional_id(value: &str) -> Result<(), Error> {
         full_id(value)
     }
 }
+/// The field rules of a declaration; matching the enum links no record codec.
 fn validate(record: wire::Record<'_>) -> Result<(), Error> {
-    wire::record_framed_len(&record).map_err(Error::from_status)?;
     match record {
         wire::Record::InputSpec(r) => {
             relative(r.name)?;
