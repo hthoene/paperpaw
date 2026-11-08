@@ -220,3 +220,45 @@ fn refused_allocations_end_in_no_memory_and_recover() {
         Ok(pictures.next(2).map(|(n, k)| n.len() + k))
     });
 }
+
+#[test]
+fn a_folder_of_thousands_keeps_the_first_by_name() {
+    use alloc::format;
+    // Listed in an order that is not the name's: the same first pictures.
+    let total = MAX_PICTURES + 300;
+    let mut pictures = Pictures::default();
+    for i in 0..total {
+        let n = (i * 7919) % total;
+        pictures.take(&format!("p{n:05}.jpg"), false).unwrap();
+    }
+    assert_eq!(pictures.names.len(), MAX_PICTURES);
+    assert_eq!(pictures.next(0), Some(("p00000.jpg", 1)));
+    assert_eq!(
+        pictures.next(MAX_PICTURES - 1),
+        Some((
+            format!("p{:05}.jpg", MAX_PICTURES - 1).as_str(),
+            MAX_PICTURES
+        ))
+    );
+    // Then round again: only the kept ones are shown.
+    assert_eq!(
+        pictures.next(MAX_PICTURES),
+        Some(("p00000.jpg", MAX_PICTURES + 1))
+    );
+    // The names' bytes are bounded as well, and a name that cannot fit
+    // is left out.
+    let mut pictures = Pictures::default();
+    let long = |c: char| format!("{}.jpg", c.to_string().repeat(250));
+    for c in ('a'..='z').chain('A'..='Z') {
+        pictures.take(&long(c), false).unwrap();
+    }
+    assert!(pictures.bytes <= MAX_NAME_BYTES);
+    assert!(pictures.names.windows(2).all(|w| w[0] < w[1]));
+    assert_eq!(pictures.bytes, pictures.names.iter().map(String::len).sum());
+    pictures.take(&"z".repeat(MAX_NAME_BYTES), false).unwrap();
+    let kept = pictures.names.len();
+    pictures
+        .take(&format!("{}.png", "x".repeat(MAX_NAME_BYTES)), false)
+        .unwrap();
+    assert_eq!(pictures.names.len(), kept);
+}

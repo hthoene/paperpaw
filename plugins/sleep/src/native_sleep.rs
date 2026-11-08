@@ -7,7 +7,6 @@
 //! screen's (see `PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::mem::push;
 
 /// The modes the plugin has itself.
 pub const CAT: &str = "sleep.show.cat";
@@ -118,19 +117,47 @@ pub fn is_picture(name: &str, is_dir: bool) -> bool {
         })
 }
 
-/// The listing of the pictures folder, entry by entry.
+/// Pictures kept of a folder at most: the first by name, so that a folder of
+/// thousands costs a bounded part of the heap and what is shown does not
+/// depend on the order the card lists them in.
+pub const MAX_PICTURES: usize = 512;
+/// The names of the kept pictures take this many bytes at most.
+pub const MAX_NAME_BYTES: usize = 24 * 1024;
+
+/// The listing of the pictures folder, entry by entry: the first
+/// [`MAX_PICTURES`] pictures by name, within [`MAX_NAME_BYTES`] of names.
 #[derive(Debug, Default)]
-pub struct Pictures(Vec<String>);
+pub struct Pictures {
+    /// In order of name.
+    names: Vec<String>,
+    bytes: usize,
+}
 
 impl Pictures {
-    /// Takes one entry of the folder; pictures only.
+    /// Takes one entry of the folder; pictures only. One that sorts after the
+    /// pictures kept, when no more fit, is left out.
     ///
     /// # Errors
-    /// [`Error::NoMemory`]; the entry is not taken.
+    /// [`Error::NoMemory`]; the entry is not taken and nothing changed.
     pub fn take(&mut self, name: &str, is_dir: bool) -> Result<(), Error> {
-        if is_picture(name, is_dir) {
-            let name = paperpaw_ui_kit::text::copy(name)?;
-            push(&mut self.0, name)?;
+        if !is_picture(name, is_dir) || name.len() > MAX_NAME_BYTES {
+            return Ok(());
+        }
+        let Err(at) = self.names.binary_search_by(|kept| kept.as_str().cmp(name)) else {
+            return Ok(());
+        };
+        let full = self.names.len() >= MAX_PICTURES
+            || self.bytes.saturating_add(name.len()) > MAX_NAME_BYTES;
+        if full && at >= self.names.len() {
+            return Ok(());
+        }
+        let name = paperpaw_ui_kit::text::copy(name)?;
+        self.names.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.bytes = self.bytes.saturating_add(name.len());
+        self.names.insert(at, name);
+        while self.names.len() > MAX_PICTURES || self.bytes > MAX_NAME_BYTES {
+            let Some(last) = self.names.pop() else { break };
+            self.bytes = self.bytes.saturating_sub(last.len());
         }
         Ok(())
     }
@@ -138,12 +165,8 @@ impl Pictures {
     /// The picture after `shown` pictures, one after the other from where the
     /// last sleep left off, and the count to keep for the next time; `None`
     /// for a folder with none.
-    pub fn next(&mut self, shown: usize) -> Option<(&str, usize)> {
-        if self.0.is_empty() {
-            return None;
-        }
-        self.0.sort_unstable();
-        let name = &self.0[shown % self.0.len()];
+    pub fn next(&self, shown: usize) -> Option<(&str, usize)> {
+        let name = self.names.get(shown.checked_rem(self.names.len())?)?;
         Some((name, shown.wrapping_add(1)))
     }
 }

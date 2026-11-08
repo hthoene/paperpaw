@@ -6,6 +6,8 @@
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
 mod declarations;
+#[path = "../../test-support/declared.rs"]
+mod declared;
 use paperpaw_plugin_sleep::Sleep;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, MenuNeed, Plugin, Registrar};
@@ -18,17 +20,17 @@ fn legacy() -> Vec<Contribution> {
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
-) -> usize {
-    let mut count = 0;
+) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
     {
-        let mut sink = |_: &[u8]| -> Result<(), i32> {
-            count += 1;
+        let mut sink = |b: &[u8]| -> Result<(), i32> {
+            out.push(b.to_vec());
             Ok(())
         };
         let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
         declare(&mut d);
     }
-    count
+    out
 }
 
 #[test]
@@ -96,7 +98,7 @@ fn the_group_and_the_settings_match() {
     assert!(found[6].contains("unit=Some(\"core.unit.percent\") step=5 slider=true"));
     assert!(found[7].contains("Int { min: 0, max: 90 } Int(0)"));
     assert!(found[8].contains("Text(\"sleep.when.always\")"));
-    assert!(batches(|d| declarations::settings(d).unwrap()) >= 1);
+    assert!(!batches(|d| declarations::settings(d).unwrap()).is_empty());
 }
 
 #[test]
@@ -170,6 +172,37 @@ fn screens_slot_icon_needs_and_places_match() {
             ),
         ]
     );
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()), 1);
-    assert!(batches(|d| declarations::navigation(d).unwrap()) >= 1);
+    assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
+    assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
+}
+
+/// What the batches say, decoded and checked by the host's rules, is what the
+/// interface-6 registration says: every field of the group, the nine settings,
+/// their extras (editors, units, steps, sliders) and the screens; the rest is
+/// checked and refused as unsupported until the host takes it.
+#[test]
+fn the_decoded_batches_say_what_the_registration_says() {
+    let mut all = Vec::new();
+    for batch in [
+        batches(|d| declarations::settings(d).unwrap()),
+        batches(|d| declarations::screens(d).unwrap()),
+        batches(|d| declarations::navigation(d).unwrap()),
+    ] {
+        all.extend(batch);
+    }
+    let native = declared::native("sleep", &all);
+    let old = declared::legacy("sleep", "sleep.group", legacy());
+    assert_eq!(native.groups, old.groups);
+    assert_eq!(native.specs.len(), 9);
+    assert_eq!(native.specs, old.specs);
+    assert_eq!(native.extras, old.extras);
+    assert_eq!(native.screens, old.screens);
+    // The icon, the needs, the offer and the two places of widgets.
+    for kind in ["IconSpec", "MenuNeed", "SlotOffer", "WidgetPlace"] {
+        assert!(
+            native.others.iter().any(|k| k == kind),
+            "{kind} in {:?}",
+            native.others
+        );
+    }
 }
