@@ -97,10 +97,9 @@ impl Plugin for NativeHome {
                 ..
             } => self.opened(host, screen, instance, handover),
             Event::ScreenShown {
-                screen: ITEMS_SCREEN,
                 instance: Some(instance),
                 ..
-            } => self.screens.shown(STATUS_ITEMS, instance),
+            } if token == STATUS_ITEMS => self.screens.shown(STATUS_ITEMS, instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -172,21 +171,16 @@ impl NativeHome {
     /// The editor for the setting the handover names (`id`): the items there
     /// are, and what the setting holds now.
     fn items_editor(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<Editor, Error> {
-        let mut setting = None;
-        if let Some(handover) = handover {
-            let mut input = buffer(SERVICE_BUFFER)?;
-            let mut output = buffer(SERVICE_BUFFER)?;
-            for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
-                let param = param?;
-                if param.key() == "id" {
-                    setting = Some(copy(param.value())?);
-                }
-            }
-        }
-        // The only setting this screen is declared as the editor of.
-        let setting = setting
-            .filter(|id| id == FOOTER_ITEMS)
-            .ok_or(Error::Invalid)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let setting = match handover {
+            Some(handover) => editor_setting(
+                self.ui()?
+                    .params(host, handover, &mut input, &mut output)?
+                    .map(|param| param.map(|param| (param.key(), param.value()))),
+            )?,
+            None => return Err(Error::Invalid),
+        };
         let mut scratch = buffer(SERVICE_BUFFER)?;
         let held = match settings::read_setting(host, &setting, &mut scratch)? {
             SettingValue::Text(text) => copy(text)?,
@@ -197,5 +191,83 @@ impl NativeHome {
         let title = Messages::new()?.copy(host, "home.setting.footer-items")?;
         let view = StatusItemsView::new(entries, &held, title, texts)?;
         Ok(Editor { setting, view })
+    }
+}
+
+/// The setting a handover names (`id`): the only one this screen is declared as
+/// the editor of. No `id`, another one or one repeated differently is
+/// `Invalid`.
+fn editor_setting<'a>(
+    params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
+) -> Result<String, Error> {
+    let mut setting = None;
+    for param in params {
+        let (key, value) = param?;
+        if key == "id" {
+            if setting.is_some_and(|seen: &str| seen != value) {
+                return Err(Error::Invalid);
+            }
+            setting = Some(value);
+        }
+    }
+    match setting {
+        Some(FOOTER_ITEMS) => copy(FOOTER_ITEMS),
+        _ => Err(Error::Invalid),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+    use crate::fail_alloc;
+
+    fn pairs<'a>(
+        list: &'a [(&'a str, &'a str)],
+    ) -> impl Iterator<Item = Result<(&'a str, &'a str), Error>> {
+        list.iter().map(|pair| Ok(*pair))
+    }
+
+    #[test]
+    fn the_footer_items_setting_is_the_one_named() {
+        let named = [("mode", "edit"), ("id", FOOTER_ITEMS)];
+        assert_eq!(editor_setting(pairs(&named)).unwrap(), FOOTER_ITEMS);
+    }
+
+    #[test]
+    fn another_setting_is_invalid() {
+        let other = [("id", "home.columns")];
+        assert_eq!(editor_setting(pairs(&other)), Err(Error::Invalid));
+        let empty = [("id", "")];
+        assert_eq!(editor_setting(pairs(&empty)), Err(Error::Invalid));
+    }
+
+    #[test]
+    fn a_handover_without_an_id_is_invalid() {
+        assert_eq!(editor_setting(pairs(&[])), Err(Error::Invalid));
+        let none = [("mode", "edit")];
+        assert_eq!(editor_setting(pairs(&none)), Err(Error::Invalid));
+    }
+
+    #[test]
+    fn two_ids_that_differ_are_invalid() {
+        let two = [("id", FOOTER_ITEMS), ("id", "home.columns")];
+        assert_eq!(editor_setting(pairs(&two)), Err(Error::Invalid));
+    }
+
+    #[test]
+    fn a_host_refusal_while_reading_the_params_is_passed_on() {
+        let refused = [Ok(("id", FOOTER_ITEMS)), Err(Error::Invalid)];
+        assert_eq!(editor_setting(refused.into_iter()), Err(Error::Invalid));
+        let busy = [Err(Error::Busy)];
+        assert_eq!(editor_setting(busy.into_iter()), Err(Error::Busy));
+    }
+
+    #[test]
+    fn every_allocation_of_the_setting_may_be_refused() {
+        fail_alloc::sweep(|| {
+            let named = [("mode", "edit"), ("id", FOOTER_ITEMS)];
+            editor_setting(pairs(&named)).map(drop)
+        });
     }
 }
