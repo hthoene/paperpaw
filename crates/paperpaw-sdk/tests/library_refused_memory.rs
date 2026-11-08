@@ -295,12 +295,15 @@ fn the_plain_book_never_answers_none_for_a_memory_shortage() {
     assert_ne!(status.code(), Some(4));
 }
 
-/// A catalog with a book that has everything: a long title, tags, fields.
-fn rich() -> (Files, u64, u64) {
-    let long = "é".repeat(300); // 600 bytes, cut at 512
+/// A catalog with a book that has everything: a long title, tags, fields,
+/// and one whose number has a 3-byte character across the cap.
+fn rich() -> (Files, u64, u64, u64) {
+    let long = "é".repeat(300); // 600 bytes
     let first = "books/a.epub\tAda\tTitle A\t\t\t\t40\tf\t20000\t\t5\n";
     let second =
         format!("books/d.epub\tDee\t{long}\tSeries\t3\tx\u{1f}y\u{1f}z\t\t\t\tk=v\u{1f}m=n\t9\n");
+    // 33 bytes of "€": cut at the cap of 32 is inside the 11th character.
+    let third = format!("books/e.epub\tEve\tT\t\t{}\t\t\t\t\t\t1\n", "€".repeat(11));
     let log = format!(
         "{:016x}\t100\tfo\n",
         paperpaw_digest::fnv1a64("books/a.epub")
@@ -308,56 +311,69 @@ fn rich() -> (Files, u64, u64) {
     let files = Files(vec![
         (
             ".paperpaw/library/catalog.txt".to_owned(),
-            format!("{HEADER}{first}{second}").into_bytes(),
+            format!("{HEADER}{first}{second}{third}").into_bytes(),
         ),
         (".paperpaw/library/status.log".to_owned(), log.into_bytes()),
     ]);
-    (
-        files,
-        HEADER.len() as u64,
-        (HEADER.len() + first.len()) as u64,
-    )
+    let (a, d) = (HEADER.len(), HEADER.len() + first.len());
+    (files, a as u64, d as u64, (d + second.len()) as u64)
+}
+
+/// What the test keeps of a `catalog::View`, which only lives in the
+/// visitor.
+#[derive(Debug)]
+struct Seen {
+    path: String,
+    number: String,
+    lengths: (u32, u32, u32),
+    counts: (u32, u32),
+    status: (Option<u8>, bool, bool),
+    added: Option<u32>,
+    size: Option<u64>,
+}
+
+/// What `try_view_at` shows of the line at `offset`.
+fn view_of(storage: &Files, offset: u64) -> Result<Option<Seen>, Error> {
+    let mut seen = None;
+    catalog::try_view_at(storage, offset, &mut |view| {
+        seen = Some(Seen {
+            path: view.path.to_owned(),
+            number: view.number.to_owned(),
+            lengths: (view.author_bytes, view.title_bytes, view.series_bytes),
+            counts: (view.tags, view.fields),
+            status: (
+                view.status.progress,
+                view.status.favourite,
+                view.status.opened,
+            ),
+            added: view.added,
+            size: view.size,
+        });
+    })?;
+    Ok(seen)
 }
 
 #[test]
-fn a_catalog_line_is_seen_cut_and_counted_without_holding_it() {
-    let (storage, first, second) = rich();
-    let view = |offset| {
-        let mut seen = None;
-        let found = catalog::try_view_at(&storage, offset, &mut |view| {
-            seen = Some((
-                view.path.to_owned(),
-                view.title.len(),
-                view.title_bytes,
-                view.series.to_owned(),
-                (view.tags, view.fields),
-                (
-                    view.status.progress,
-                    view.status.favourite,
-                    view.status.opened,
-                ),
-                (view.added, view.size),
-            ));
-        })?;
-        Ok::<_, Error>((found, seen))
-    };
+fn a_catalog_line_is_seen_counted_and_cut_without_holding_it() {
+    let (storage, first, second, third) = rich();
     // The log's note wins over the catalog's columns.
-    let (found, seen) = view(first).unwrap();
-    assert!(found);
-    let seen = seen.unwrap();
-    assert_eq!(seen.0, "books/a.epub");
+    let a = view_of(&storage, first).unwrap().unwrap();
+    assert_eq!(a.path, "books/a.epub");
+    assert_eq!(a.status, (Some(100), true, true));
+    assert_eq!((a.added, a.size, a.lengths.1), (Some(20000), Some(5), 7));
+    // The long title: its whole length is told, 3 tags, 2 fields.
+    let d = view_of(&storage, second).unwrap().unwrap();
+    assert_eq!(d.lengths, (3, 600, 6));
     assert_eq!(
-        (seen.5, seen.6),
-        ((Some(100), true, true), (Some(20000), Some(5)))
+        (d.counts, d.size, d.number.as_str()),
+        ((3, 2), Some(9), "3")
     );
-    // The long title: 512 bytes kept (a whole number of é), 600 whole.
-    let (_, seen) = view(second).unwrap();
-    let seen = seen.unwrap();
-    assert_eq!((seen.1, seen.2, seen.3.as_str()), (512, 600, "Series"));
-    assert_eq!((seen.4, seen.6), ((3, 2), (None, Some(9))));
+    // A number is cut at a character, never inside the 3-byte "€".
+    let e = view_of(&storage, third).unwrap().unwrap();
+    assert_eq!(e.number, "€".repeat(10), "30 of 33 bytes");
     // No line, a header and a line from nowhere are not books.
-    assert!(!view(0).unwrap().0);
-    assert!(!view(1_000_000).unwrap().0);
+    assert!(view_of(&storage, 0).unwrap().is_none());
+    assert!(view_of(&storage, 1_000_000).unwrap().is_none());
     // Where lines start, by path.
     assert_eq!(
         catalog::try_offset_of(&storage, "books/d.epub"),
@@ -377,6 +393,33 @@ fn a_catalog_line_is_seen_cut_and_counted_without_holding_it() {
 }
 
 #[test]
+fn a_path_that_is_not_text_or_a_line_that_is_too_long_is_no_book() {
+    let mut bad = b"\tcatalog\t2\t7\nbooks/\xff.epub\tAda\tT\t\t\t\t\t\t\t\t1\n".to_vec();
+    let head = 14;
+    let long_at = bad.len() as u64;
+    bad.extend_from_slice(b"books/z.epub\tAda\t");
+    bad.extend(std::iter::repeat_n(b'x', 20_000));
+    bad.push(b'\n');
+    let storage = Files(vec![(".paperpaw/library/catalog.txt".to_owned(), bad)]);
+    // Neither is cut and passed on as a book.
+    assert!(view_of(&storage, head).unwrap().is_none());
+    assert!(view_of(&storage, long_at).unwrap().is_none());
+    let mut out = [0_u8; 8];
+    let mut text = |offset| {
+        catalog::try_text_at(
+            &storage,
+            offset,
+            catalog::TextColumn::Author,
+            0,
+            0,
+            &mut out,
+        )
+    };
+    assert_eq!(text(head), Ok(None));
+    assert_eq!(text(long_at), Ok(None));
+}
+
+#[test]
 fn state_and_generation_are_the_plain_ones() {
     let (storage, ..) = rich();
     assert_eq!(
@@ -393,4 +436,37 @@ fn state_and_generation_are_the_plain_ones() {
     assert_eq!(catalog::try_generation(&none), Ok(None));
     assert!(sweep(&Some(7), || catalog::try_generation(&storage)) >= 1);
     assert!(sweep(&catalog::state(&storage), || catalog::try_state(&storage)) >= 2);
+}
+
+#[test]
+fn a_long_text_or_a_list_item_is_read_from_a_byte_on_without_holding_the_line() {
+    use catalog::TextColumn::{Author, Field, Tag, Title};
+    let (storage, first, second, _) = rich();
+    let read = |offset, column, part, from| {
+        let mut out = [0_u8; 1024];
+        let text = catalog::try_text_at(&storage, offset, column, part, from, &mut out)?;
+        Ok::<_, Error>(text.map(|t| (t.total, out[..t.filled].to_vec())))
+    };
+    // The whole title is 600 bytes; from byte 512 the last 88 are left.
+    let (total, bytes) = read(second, Title, 0, 0).unwrap().unwrap();
+    assert_eq!((total, bytes.len()), (600, 600));
+    let (total, tail) = read(second, Title, 0, 512).unwrap().unwrap();
+    assert_eq!((total, tail.as_slice()), (600, &bytes[512..]));
+    assert_eq!(read(second, Author, 0, 0).unwrap().unwrap().1, b"Dee");
+    // Tags and fields are the n-th item; one past the last is no item.
+    assert_eq!(read(second, Tag, 1, 0).unwrap().unwrap().1, b"y");
+    assert_eq!(read(second, Field, 1, 0).unwrap().unwrap().1, b"m=n");
+    assert_eq!(read(second, Tag, 3, 0), Ok(None));
+    assert_eq!(read(second, Title, 1, 0), Ok(None));
+    // A book without tags has no first tag; a title is there even if empty.
+    assert_eq!(read(first, Tag, 0, 0), Ok(None));
+    assert_eq!(read(first, Title, 0, 0).unwrap().unwrap().1, b"Title A");
+    assert_eq!(read(1_000_000, Title, 0, 0), Ok(None));
+    // Nothing is allocated inside the sweep: the answer is a length and a byte.
+    let sites = sweep(&Some((1, 1, b'y')), || {
+        let mut out = [0_u8; 8];
+        let text = catalog::try_text_at(&storage, second, Tag, 1, 0, &mut out)?;
+        Ok(text.map(|t| (t.total, t.filled, out[0])))
+    });
+    assert!(sites >= 2);
 }

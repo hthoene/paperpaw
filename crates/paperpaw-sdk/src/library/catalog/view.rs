@@ -1,7 +1,10 @@
-//! One catalog line seen without holding it: a book's columns read into
-//! fixed buffers on the stack (a line can be 16 KiB, a title is cut at
-//! 512 bytes), with the full lengths of what was cut and the counts of the
-//! tags and fields. The memory error is [`Error::OutOfMemory`].
+//! One catalog line seen without holding it: a book's path and numbers read
+//! into fixed buffers on the stack (a line can be 16 KiB), with the whole
+//! lengths of its texts and the counts of the tags and fields; a text
+//! itself (title, author, series, a tag, a field) is read from a byte on
+//! into the caller's buffer by [`try_text_at`], so no frame here holds
+//! more than the path and one chunk (about 0.9 KiB). The memory error is
+//! [`Error::OutOfMemory`].
 
 use super::fallible::{each_head, in_library, path_of, try_changes};
 use super::{Changes, State, Status};
@@ -9,24 +12,21 @@ use crate::data::Error;
 use crate::{Storage, StorageError};
 use paperpaw_digest::fnv1a64;
 
-/// The longest path, title and author, series, number kept by a [`View`].
+/// The longest path of a book; a longer one is no book of the library.
 pub const VIEW_PATH: usize = 512;
-/// Bytes of a title or an author kept.
-pub const VIEW_TEXT: usize = 512;
-/// Bytes of a series kept.
-pub const VIEW_SERIES: usize = 256;
 /// Bytes of a number in the series kept.
 pub const VIEW_NUMBER: usize = 32;
+/// Bytes of a catalog line read at most (a value is a kilobyte at most);
+/// a longer line is no book.
+pub const LINE_MAX: usize = 16 * 1024;
 
-/// A book of the catalog as noted last. Texts are cut at a character
-/// boundary at their caps; the `_bytes` fields are the whole lengths.
+/// A book of the catalog as noted last. The number is cut at a character
+/// boundary at [`VIEW_NUMBER`]; the `_bytes` fields are the whole lengths
+/// of the texts [`try_text_at`] reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct View<'a> {
     pub path: &'a str,
-    pub author: &'a str,
-    pub title: &'a str,
-    pub series: &'a str,
     pub number: &'a str,
     pub author_bytes: u32,
     pub title_bytes: u32,
@@ -72,6 +72,14 @@ impl<const N: usize> Column<N> {
         }
     }
 
+    /// The whole text, if it is valid UTF-8 and was not cut.
+    fn strict(&self) -> Option<&str> {
+        if self.whole as usize > N {
+            return None;
+        }
+        core::str::from_utf8(&self.bytes[..self.kept]).ok()
+    }
+
     fn number<T: core::str::FromStr>(&self) -> Option<T> {
         self.text().parse().ok()
     }
@@ -80,9 +88,10 @@ impl<const N: usize> Column<N> {
 /// The columns of a line, in the order the catalog writes them.
 struct Columns {
     path: Column<VIEW_PATH>,
-    author: Column<VIEW_TEXT>,
-    title: Column<VIEW_TEXT>,
-    series: Column<VIEW_SERIES>,
+    // Only their lengths are kept.
+    author: Column<0>,
+    title: Column<0>,
+    series: Column<0>,
     number: Column<VIEW_NUMBER>,
     progress: Column<4>,
     flags: Column<4>,
@@ -112,7 +121,7 @@ impl Columns {
                     (&mut self.field_open, &mut self.fields)
                 };
                 if byte == SEPARATOR {
-                    *count += u32::from(core::mem::take(open));
+                    *count = count.saturating_add(u32::from(core::mem::take(open)));
                 } else {
                     *open = true;
                 }
@@ -126,8 +135,47 @@ impl Columns {
     }
 
     fn finish(&mut self) {
-        self.tags += u32::from(core::mem::take(&mut self.tag_open));
-        self.fields += u32::from(core::mem::take(&mut self.field_open));
+        self.tags = self
+            .tags
+            .saturating_add(u32::from(core::mem::take(&mut self.tag_open)));
+        self.fields = self
+            .fields
+            .saturating_add(u32::from(core::mem::take(&mut self.field_open)));
+    }
+}
+
+/// Calls `take` with the column and the byte of each byte of the line that
+/// starts at `offset` (a tab ends a column): `false` where the catalog is
+/// not there.
+fn scan(
+    storage: &dyn Storage,
+    file: &str,
+    offset: u64,
+    take: &mut dyn FnMut(usize, u8),
+) -> Result<bool, Error> {
+    let (mut index, mut at) = (0_usize, offset);
+    let mut chunk = [0_u8; 256];
+    loop {
+        if at - offset > LINE_MAX as u64 {
+            // No catalog line is this long: not a book.
+            return Ok(false);
+        }
+        let n = match storage.read_at(file, at, &mut chunk) {
+            Ok(n) => n,
+            Err(StorageError::NotFound) => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+        if n == 0 {
+            return Ok(true);
+        }
+        at += n as u64;
+        for &byte in &chunk[..n] {
+            match byte {
+                b'\n' => return Ok(true),
+                b'\t' => index += 1,
+                byte => take(index, byte),
+            }
+        }
     }
 }
 
@@ -160,35 +208,17 @@ pub fn try_view_at(
         tag_open: false,
         field_open: false,
     };
-    let (mut index, mut at, mut done) = (0_usize, offset, false);
-    let mut chunk = [0_u8; 256];
-    while !done {
-        let n = match storage.read_at(&file, at, &mut chunk) {
-            Ok(n) => n,
-            Err(StorageError::NotFound) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
-        if n == 0 {
-            break;
-        }
-        at += n as u64;
-        for &byte in &chunk[..n] {
-            match byte {
-                b'\n' => {
-                    done = true;
-                    break;
-                }
-                b'\t' => index += 1,
-                byte => columns.take(index, byte),
-            }
-        }
-    }
-    columns.finish();
-    // A path cut at its cap is no path of the library.
-    if columns.path.whole as usize > VIEW_PATH || columns.path.kept == 0 {
+    if !scan(storage, &file, offset, &mut |index, byte| {
+        columns.take(index, byte)
+    })? {
         return Ok(false);
     }
-    let path = columns.path.text();
+    columns.finish();
+    // A path cut at its cap, or not text, is no path of the library: it is
+    // refused, never cut and passed.
+    let Some(path) = columns.path.strict().filter(|path| !path.is_empty()) else {
+        return Ok(false);
+    };
     let hash = fnv1a64(path);
     if changes.removed(hash) {
         return Ok(false);
@@ -199,9 +229,6 @@ pub fn try_view_at(
     }
     visit(&View {
         path,
-        author: columns.author.text(),
-        title: columns.title.text(),
-        series: columns.series.text(),
         number: columns.number.text(),
         author_bytes: columns.author.whole,
         title_bytes: columns.title.whole,
@@ -281,4 +308,95 @@ pub fn try_generation(storage: &dyn Storage) -> Result<Option<u64>, Error> {
     Ok(Some(
         rest.trim_start_matches('\t').trim().parse().unwrap_or(0),
     ))
+}
+
+/// A text of a book's catalog line that can be longer than a [`View`]
+/// keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TextColumn {
+    Author,
+    Title,
+    Series,
+    /// The `part`-th tag.
+    Tag,
+    /// The `part`-th in-catalog field (`id=value`).
+    Field,
+}
+
+/// What [`try_text_at`] read: the text's whole length and how many bytes
+/// of it are in the buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Text {
+    pub total: u32,
+    pub filled: usize,
+}
+
+/// The text `column` (its `part`-th item for a tag or a field, else 0) of
+/// the book whose line starts at `offset`, from byte `from` on into `out`:
+/// `None` where there is no such book or item. The bytes may begin or end
+/// inside a character; the caller cuts them.
+///
+/// # Errors
+/// As [`try_view_at`].
+pub fn try_text_at(
+    storage: &dyn Storage,
+    offset: u64,
+    column: TextColumn,
+    part: u32,
+    from: u32,
+    out: &mut [u8],
+) -> Result<Option<Text>, Error> {
+    const SEPARATOR: u8 = 0x1f;
+    let changes = try_changes(storage)?;
+    let file = in_library("catalog.txt")?;
+    let wanted = match column {
+        TextColumn::Author => 1,
+        TextColumn::Title => 2,
+        TextColumn::Series => 3,
+        TextColumn::Tag => 5,
+        TextColumn::Field => 9,
+    };
+    let list = wanted == 5 || wanted == 9;
+    if !list && part != 0 {
+        return Ok(None);
+    }
+    let mut path = Column::<VIEW_PATH>::new();
+    // Non-empty items started in the wanted column, and bytes of the item.
+    let (mut items, mut open) = (0_u32, false);
+    let (mut total, mut filled) = (0_u32, 0_usize);
+    let mut exists = !list;
+    let found = scan(storage, &file, offset, &mut |index, byte| {
+        if index == 0 {
+            path.push(byte);
+        } else if index == wanted {
+            if list {
+                if byte == SEPARATOR {
+                    open = false;
+                    return;
+                }
+                if !open {
+                    open = true;
+                    items = items.saturating_add(1);
+                }
+                if items != part.saturating_add(1) {
+                    return;
+                }
+                exists = true;
+            }
+            if total >= from && filled < out.len() {
+                out[filled] = byte;
+                filled += 1;
+            }
+            total = total.saturating_add(1);
+        }
+    })?;
+    let Some(path) = path.strict().filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    if !found || !exists || changes.removed(fnv1a64(path)) {
+        return Ok(None);
+    }
+    Ok(Some(Text { total, filled }))
 }
