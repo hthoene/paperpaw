@@ -93,21 +93,21 @@ fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
 
 const BOOK: &str = "# A Title\n\nFirst *paragraph* with `code` and a [link](#two).\n\n## Two\n\n- one\n- two\n\n> quoted words\n\n```\nlet x = 1;\n```\n";
 
+/// Text, runs (start, end, style), maps, span and flags of a block.
+type Joined = (
+    String,
+    Vec<(u32, u32, u32)>,
+    Vec<(u32, u32)>,
+    (u32, u32),
+    u32,
+);
+
 /// One block of the provider, joined from its fragments: text, runs, maps.
 fn block(
     p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
     io: &dyn Storage,
     offset: u32,
-) -> Result<
-    (
-        String,
-        Vec<(u32, u32, u32)>,
-        Vec<(u32, u32)>,
-        (u32, u32),
-        u32,
-    ),
-    Error,
-> {
+) -> Result<Joined, Error> {
     let (mut text, mut runs, mut maps, mut span) = (String::new(), Vec::new(), Vec::new(), (0, 0));
     let (mut cursor, mut generation) = (0, 0);
     loop {
