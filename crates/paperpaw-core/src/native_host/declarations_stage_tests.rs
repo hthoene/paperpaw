@@ -5,6 +5,7 @@ use super::*;
 use crate::native_host::registrations::{
     ServiceEcho, StageCall, StageReply, records_decode, records_encode,
 };
+use alloc::format;
 
 const PLUGIN: &str = "reader";
 
@@ -64,6 +65,53 @@ fn bounds_names_and_orders_are_checked() {
             stage_registration_check(&subscribe(stage, order)),
             Err(ERR_INVALID),
             "{stage} {order}"
+        );
+    }
+}
+
+#[test]
+fn a_stage_name_is_one_segment_of_one_to_sixty_four_bytes() {
+    // `a` + `b.c` would be the same full id as `a.b` + `c`: refused.
+    assert_eq!(
+        stage_spec_check("a", &spec("b.c", 0, 1, 1, 1)),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(stage_spec_check("a.b", &spec("c", 0, 1, 1, 1)), Ok(()));
+    assert_eq!(
+        stage_spec_check("a", &spec(&"x".repeat(64), 0, 1, 1, 1)),
+        Ok(())
+    );
+    assert_eq!(
+        stage_spec_check("a", &spec(&"x".repeat(65), 0, 1, 1, 1)),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        stage_spec_check("a", &spec("", 0, 1, 1, 1)),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn a_subscribed_full_id_splits_at_its_last_dot() {
+    for stage in ["a.b.c", "a.b", &format!("a.{}", "x".repeat(64))] {
+        assert_eq!(
+            stage_registration_check(&subscribe(stage, 0)),
+            Ok(()),
+            "{stage}"
+        );
+    }
+    for stage in [
+        "",
+        "a",
+        "a.",
+        ".a",
+        "a..b",
+        &format!("a.{}", "x".repeat(65)),
+    ] {
+        assert_eq!(
+            stage_registration_check(&subscribe(stage, 0)),
+            Err(ERR_INVALID),
+            "{stage}"
         );
     }
 }

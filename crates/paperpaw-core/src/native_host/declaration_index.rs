@@ -39,7 +39,7 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 /// Category of `registration.stage`: keyed by the stage's full id and the
 /// token, so one plugin may subscribe two tokens to a stage, never one twice.
-pub(crate) const STAGE_SUBSCRIPTION_KIND: u8 = 29;
+pub(crate) const STAGE_SUBSCRIPTION_KIND: u8 = KIND_TABLE[29].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
 const KIND_MASK: u16 = 0x7f;
 const EXTENSION: u16 = 1 << 15;
