@@ -894,8 +894,6 @@ impl Book {
         self.xpointer = None;
         self.prepare_images(&env);
         self.update_chapter(&env);
-        // Found now, so the status lines read nothing while drawn.
-        self.chapter_first(&env);
         self.update_links(&env);
         let save_at = self.position_changed(cx);
         cx.wake_at(save_at);
@@ -907,8 +905,25 @@ impl Book {
                 cx.command(events::BOOK_FINISHED.emit(self.reading(&env)));
             }
         }
+        // Last, so that what the status lines ask the index is what it found last.
+        self.warm_status(&env);
         cx.request_redraw();
         true
+    }
+
+    /// Finds in the index what the status lines ask of it while a page is drawn
+    /// (where the chapter starts, how many pages it has left, the page itself), so
+    /// that drawing reads nothing. The index remembers only its last answer, so the
+    /// page's own comes last. Nothing where the pages are not counted yet: the step
+    /// that completes the count does it.
+    fn warm_status(&self, env: &Env<'_>) {
+        let Some(index) = self.index.as_ref().filter(|i| i.is_complete()) else {
+            return;
+        };
+        self.chapter_first(env);
+        // Fills the chapter's end as it asks.
+        self.reading(env);
+        index.locate(env.storage(), self.page.start);
     }
 
     /// One step of background pagination. Returns whether more work
@@ -920,6 +935,9 @@ impl Book {
         }
         let more = self.index_pages(env);
         self.index_stopped = more.is_none();
+        // Counted to the end now: what the status lines ask the index is found
+        // here, not while a page is drawn.
+        self.warm_status(env);
         more == Some(true)
     }
 
