@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The dashboard: the picture behind the plates, the pages of widgets and
     // tools, the bars, the press that shows a hidden bar and does nothing else.
     Case {
@@ -28,18 +28,25 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["IMG-slots-36-37", "FS"],
     },
-    // The bar's items are picked on the host's status items screen, which a
-    // setting cannot name as its editor.
+    // The items' editor is a screen of the plugin's own, built on the kit's
+    // status items view (opened with the setting's id, drawn, taking input).
     Case {
         name: "picture-home-bar-items-editor",
         golden: None,
-        blocked_by: &["EDITOR-foreign-screen"],
+        blocked_by: &["H1", "H4"],
     },
     // The bar's items drawn by the host's status frame and the hints row.
     Case {
         name: "picture-home-bars",
         golden: None,
         blocked_by: &["H1"],
+    },
+    // The grip of a shown item dragged with a finger (down, move, up), as on
+    // interface 6: the kit's view takes a hold and a tap instead.
+    Case {
+        name: "picture-home-bar-items-editor-grip-drag",
+        golden: None,
+        blocked_by: &["KIT-grip-drag"],
     },
 ];
 
@@ -72,7 +79,7 @@ fn picture_home_picture() {
 }
 
 #[test]
-#[ignore = "BLOCKED EDITOR-foreign-screen: ExtraDecl names only the plugin's own screens or a slot"]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
 fn picture_home_bar_items_editor() {
     CASES[3].refuse().unwrap();
 }
@@ -81,4 +88,10 @@ fn picture_home_bar_items_editor() {
 #[ignore = "BLOCKED H1: the status frame and the hints row are not drawn by the native screen yet"]
 fn picture_home_bars() {
     CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
+fn picture_home_bar_items_editor_grip_drag() {
+    CASES[5].refuse().unwrap();
 }

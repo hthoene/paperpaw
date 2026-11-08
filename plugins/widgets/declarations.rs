@@ -20,6 +20,7 @@ pub mod category {
     pub const TIME: &str = "core.widgets.time";
     pub const PERSONAL: &str = "core.widgets.personal";
     pub const WORDS: &str = "core.widgets.words";
+    pub const DEVICE: &str = "core.widgets.device";
 }
 
 /// A widget of the pack.
@@ -239,6 +240,24 @@ const ANALOGUE_OPTIONS: &[Opt] = &[
     ),
     Opt::DateFormat("widgets.date-format.weekday"),
     Opt::Part("centre", "widgets.setting.centre-dot", true),
+];
+
+const BATTERY_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.battery.lying",
+            "widgets.battery.standing",
+            "widgets.battery.ring",
+        ],
+        "widgets.battery.lying",
+        "widgets.battery.style.help",
+    ),
+    Opt::Part("percent", "widgets.books.part.percent", true),
+    Opt::Part("charging", "widgets.books.part.charging", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
 ];
 
 const MOON_OPTIONS: &[Opt] = &[
@@ -604,6 +623,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.left",
         look_last: true,
         options: TODO_OPTIONS,
+    },
+    Def {
+        name: "battery",
+        token: 113,
+        category: category::DEVICE,
+        live: true,
+        align: "core.align.center",
+        look_last: false,
+        options: BATTERY_OPTIONS,
     },
 ];
 

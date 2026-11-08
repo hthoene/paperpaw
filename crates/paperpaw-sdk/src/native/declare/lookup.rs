@@ -1,6 +1,6 @@
 //! A lookup provider's declaration (`lookup.spec`, `docs/abi/document.md` 7).
 use super::menus::menu_identifier;
-use super::records_wire::{self as wire, Record};
+use super::records_wire as wire;
 use super::{Declarations, DeclareError, filled};
 use paperpaw_native::host_glue::ERR_INVALID;
 
@@ -93,13 +93,13 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                     }
                 }
             }
-            Ok(Record::LookupSpec(wire::LookupSpec {
+            Ok(wire::LookupSpec {
                 name: provider.name,
                 title: provider.title,
                 languages: provider.languages,
                 flags: u32::from(provider.network),
                 token: provider.token,
-            }))
+            })
         })();
         self.accept_record(record)
     }

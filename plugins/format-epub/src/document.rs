@@ -661,7 +661,7 @@ impl EpubDocument {
             }
             true
         });
-        pages.here.sort_by_cached_key(|(offset, _)| *offset);
+        paperpaw_sdk::sort::sort_by_cached_key(&mut pages.here, |(offset, _)| *offset);
         pages
     }
 

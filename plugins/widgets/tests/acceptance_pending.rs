@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 8] = [
+const CASES: [Case; 9] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -50,6 +50,13 @@ const CASES: [Case; 8] = [
         name: "widgets-todo-ticks-on-tap",
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
+    },
+    // The battery lying, standing and as a ring, a low charge shaded, the bolt
+    // while charging, the caption.
+    Case {
+        name: "widgets-battery-draws-each-style",
+        golden: None,
+        blocked_by: &["H1", "H3"],
     },
     Case {
         name: "widgets-todo-screen-adds-ticks-and-moves",
@@ -110,7 +117,13 @@ fn widgets_todo_ticks_on_tap() {
 }
 
 #[test]
+#[ignore = "BLOCKED H1/H3: native screen commands and composition are not qualified"]
+fn widgets_battery_draws_each_style() {
+    CASES[7].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1/H2/H4: native screen commands, dialogs and input are not qualified"]
 fn widgets_todo_screen_adds_ticks_and_moves() {
-    CASES[7].refuse().unwrap();
+    CASES[8].refuse().unwrap();
 }

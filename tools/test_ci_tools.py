@@ -5,6 +5,7 @@ import hashlib
 import io
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,11 @@ class Espflash(unittest.TestCase):
         self.which = self.patches.enter_context(mock.patch.object(espflash.shutil, "which", return_value=None))
         self.fetch = self.patches.enter_context(mock.patch.object(espflash, "fetch"))
         self.matches = self.patches.enter_context(mock.patch.object(espflash, "matches", return_value=True))
+        self.sleep = self.patches.enter_context(mock.patch.object(espflash.time, "sleep"))
+        self.build = self.patches.enter_context(mock.patch.object(
+            espflash, "build_from_crates", side_effect=ValueError("cargo install failed")))
+        self.patches.enter_context(mock.patch.dict(espflash.os.environ))
+        espflash.os.environ.pop("ESPFLASH_ARCHIVE_DIR", None)
         self.archive({"espflash": b"verified executable"})
 
     def archive(self, entries):
@@ -81,10 +87,126 @@ class Espflash(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pinned version"):
             espflash.install("4.6.0", self.destination)
 
+    def gateway_timeout(self, code=504):
+        return espflash.urllib.error.HTTPError("https://example.org/e.zip", code, "Gateway Time-out", {}, None)
+
+    def test_a_gateway_timeout_is_tried_again_with_growing_waits(self):
+        good = self.fetch.return_value
+        self.fetch.side_effect = [self.gateway_timeout(), self.gateway_timeout(502), good]
+        self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
+        self.assertEqual(self.fetch.call_count, 3)
+        waits = [call.args[0] for call in self.sleep.call_args_list]
+        self.assertEqual(len(waits), 2)
+        self.assertGreaterEqual(waits[1], 2 * espflash.FIRST_WAIT)
+
+    def test_a_cut_short_download_is_fetched_again(self):
+        good = self.fetch.return_value
+        self.fetch.side_effect = [espflash.http.client.IncompleteRead(good[:10], 100), good]
+        self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_an_archive_that_is_not_the_pinned_one_fails_at_once(self):
+        self.fetch.return_value += b"changed"
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            espflash.install("4.6.0", self.destination)
+        self.fetch.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_it_gives_up_after_the_attempts_and_says_so(self):
+        self.fetch.side_effect = self.gateway_timeout()
+        with self.assertRaisesRegex(ValueError, "504.*after 6 attempts.*fallback failed too"):
+            espflash.install("4.6.0", self.destination)
+        self.assertEqual(self.fetch.call_count, espflash.ATTEMPTS)
+        self.build.assert_called_once()
+        self.assertEqual(self.sleep.call_count, espflash.ATTEMPTS - 1)
+        self.matches.assert_not_called()
+
+    def test_a_missing_release_is_not_tried_again_but_built_from_crates_io(self):
+        self.fetch.side_effect = self.gateway_timeout(404)
+        self.build.side_effect = None
+        self.build.return_value = self.destination / "espflash"
+        self.assertEqual(espflash.install("4.6.0", self.destination), self.destination / "espflash")
+        self.fetch.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_when_the_release_is_down_espflash_is_built_from_crates_io(self):
+        self.fetch.side_effect = self.gateway_timeout()
+        self.build.side_effect = None
+        self.build.return_value = self.destination / "espflash"
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(self.destination.parent / "cache")
+        self.assertEqual(espflash.install("4.6.0", self.destination), self.destination / "espflash")
+        self.assertEqual(self.fetch.call_count, espflash.ATTEMPTS)
+        self.build.assert_called_once_with("4.6.0", self.destination, str(self.destination.parent / "cache"))
+
+    def test_a_wrong_archive_never_falls_back_to_a_build(self):
+        self.fetch.return_value += b"changed"
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            espflash.install("4.6.0", self.destination)
+        self.build.assert_not_called()
+
+    def test_a_build_kept_by_an_earlier_run_needs_neither_download_nor_build(self):
+        cache = self.destination.parent / "cache"
+        cache.mkdir()
+        (cache / "espflash-cargo-4.6.0").write_bytes(b"built earlier")
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
+        self.assertEqual((espflash.install("4.6.0", self.destination)).read_bytes(), b"built earlier")
+        self.fetch.assert_not_called()
+        self.build.assert_not_called()
+
+    def test_a_connection_that_breaks_is_tried_again(self):
+        good = self.fetch.return_value
+        self.fetch.side_effect = [espflash.http.client.IncompleteRead(b"x"), TimeoutError("slow"), good]
+        self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
+
+    def test_a_downloaded_archive_is_kept_and_then_reused_without_a_download(self):
+        cache = self.destination.parent / "archive-cache"
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
+        espflash.install("4.6.0", self.destination)
+        self.assertTrue((cache / "espflash.zip").is_file())
+        self.fetch.reset_mock()
+        shutil.rmtree(self.destination)
+        self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
+        self.fetch.assert_not_called()
+
+    def test_a_cached_archive_that_is_not_the_pinned_one_is_replaced(self):
+        cache = self.destination.parent / "archive-cache"
+        cache.mkdir()
+        (cache / "espflash.zip").write_bytes(b"damaged")
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
+        self.assertTrue(espflash.install("4.6.0", self.destination).is_file())
+        self.fetch.assert_called_once()
+        self.assertEqual((cache / "espflash.zip").read_bytes(), self.fetch.return_value)
+
+    def test_an_archive_failing_its_pin_is_never_cached(self):
+        cache = self.destination.parent / "archive-cache"
+        espflash.os.environ["ESPFLASH_ARCHIVE_DIR"] = str(cache)
+        self.fetch.return_value += b"changed"
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            espflash.install("4.6.0", self.destination)
+        self.assertFalse(cache.exists())
+
     def test_version_updates_require_a_reviewed_pin(self):
         with self.assertRaisesRegex(ValueError, "no reviewed"):
             espflash.install("4.7.0", self.destination)
         self.fetch.assert_not_called()
+
+
+class ActionsArePinned(unittest.TestCase):
+    """Every third-party action is named by a full commit SHA, with the version as a comment."""
+
+    USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<action>[^\s#]+)(?P<comment>\s*#.*)?$")
+
+    def test_no_action_is_named_by_a_tag_or_branch(self):
+        problems = []
+        for path in sorted((HERE.parent / ".github").rglob("*.yml")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                found = self.USES.match(line)
+                if not found or found["action"].startswith("./"):
+                    continue
+                name, _, ref = found["action"].partition("@")
+                if not re.fullmatch(r"[0-9a-f]{40}", ref) or not found["comment"]:
+                    problems.append(f"{path.relative_to(HERE.parent)}:{number}: {found['action']}")
+        self.assertEqual(problems, [], "pin third-party actions by full SHA with a '# vX.Y.Z' comment")
 
 
 class BuildPrerequisites(unittest.TestCase):

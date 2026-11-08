@@ -9,7 +9,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        events::{AnswerOutcome, Event},
+        events::{AnswerOutcome, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -97,36 +97,47 @@ impl Plugin for NativeProfiles {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        match event {
-            Event::ActionRun {
-                action: "profiles.open",
-                ..
-            } if token == OPEN => {
-                let mut scratch = [0; 128];
-                CommandSender::new(host, &mut scratch).open(Open::screen("profiles.list")?)
-            }
-            Event::ActionRun {
-                action: "profiles.next",
-                ..
-            } if token == NEXT => Self::next(host),
-            Event::ScreenOpened { instance, .. } => self.opened(host, instance),
-            Event::ScreenShown {
-                instance: Some(instance),
-                ..
-            } => self.screens.shown(LIST, instance),
-            Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
-                Ok(())
-            }
-            // "In use" may have changed.
-            Event::SettingChanged { .. } if token == SETTINGS => self.refresh(host),
-            Event::Answered { answer, .. } => self.answered(host, answer),
-            _ => Ok(()),
+        // Only the kinds this plugin handles are read, so only their decoders are linked.
+        if let Some(Event::ActionRun { action, .. }) = incoming.decode_as::<kinds::ActionRun>()? {
+            return match action {
+                "profiles.open" if token == OPEN => {
+                    let mut scratch = [0; 128];
+                    CommandSender::new(host, &mut scratch).open(Open::screen("profiles.list")?)
+                }
+                "profiles.next" if token == NEXT => Self::next(host),
+                _ => Ok(()),
+            };
         }
+        if let Some(Event::ScreenOpened { instance, .. }) =
+            incoming.decode_as::<kinds::ScreenOpened>()?
+        {
+            return self.opened(host, instance);
+        }
+        if let Some(Event::ScreenShown {
+            instance: Some(instance),
+            ..
+        }) = incoming.decode_as::<kinds::ScreenShown>()?
+        {
+            return self.screens.shown(LIST, instance);
+        }
+        if let Some(Event::ScreenClosed { instance, .. }) =
+            incoming.decode_as::<kinds::ScreenClosed>()?
+        {
+            self.screens.close(instance);
+            return Ok(());
+        }
+        // "In use" may have changed.
+        if token == SETTINGS && incoming.decode_as::<kinds::SettingChanged>()?.is_some() {
+            return self.refresh(host);
+        }
+        if let Some(Event::Answered { answer, .. }) = incoming.decode_as::<kinds::Answered>()? {
+            return self.answered(host, answer);
+        }
+        Ok(())
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
@@ -224,18 +235,23 @@ impl NativeProfiles {
         let changes = reader.finish(changes)?;
         let mut scratch = buffer(2048)?;
         let mut commands = CommandSender::new(host, &mut scratch);
-        native_data::apply(&mut commands, &changes)?;
-        // A failure to note the profile loses only "next" going round.
-        let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
-        let text = Messages::new()?.format(
-            host,
-            "profiles.applied",
-            &[Arg::Text {
-                name: "name",
-                value: &profile.name,
-            }],
-        )?;
-        commands.notify(Notify::new(&text)?)
+        // A refusal is returned from the callback: nothing is applied.
+        native_data::commit(&mut commands, &changes, |commands| {
+            let text = Messages::new()?.format(
+                host,
+                "profiles.applied",
+                &[Arg::Text {
+                    name: "name",
+                    value: &profile.name,
+                }],
+            )?;
+            // The note first: a refused note leaves `last.txt` as it was, never
+            // naming a profile that was not applied.
+            commands.notify(Notify::new(&text)?)?;
+            // A failure to note the profile loses only "next" going round.
+            let _ = files::replace(host, Root::Data, LAST, profile.name.as_bytes());
+            Ok(())
+        })
     }
 
     /// The profile after the one applied last.

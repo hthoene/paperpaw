@@ -13,8 +13,8 @@ import data  # noqa: E402
 
 # The versions they are at now: a change of a pack bumps it here too.
 PACKS = {
-    "script-arabic": "1.1.2",
-    "script-hebrew": "1.1.2",
+    "script-arabic": "1.1.3",
+    "script-hebrew": "1.1.3",
     "script-greek": "1.0.2",
     "script-cyrillic": "1.0.2",
     "script-korean": "1.1.3",

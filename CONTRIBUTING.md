@@ -85,7 +85,14 @@ before 1.0.
   install from the store as files, for every release (its README). Each
   plugin has a version of its own: one that changed gets a newer one
   (CI checks it), or its commits say `Plugin-unchanged: <id>` where no
-  reader sees the change.
+  reader sees the change. A bump (or a removed or added dependency)
+  changes every `Cargo.lock` that lists the crate: the root, `shells/xteink`,
+  `tools/plugin-files`, `fuzz` and the samples. Run
+  `python3 tools/check-lockfiles.py` before pushing: it checks each lock
+  against its own manifests (a root-level `cargo metadata --locked` reads
+  only the root's lock) and finds entries nothing needs any more. Fix a
+  stale lock with `cargo metadata --manifest-path <dir>/Cargo.toml` and
+  commit it; then run `python3 tools/licences/build.py --check`.
 - **`tools/xtensa-std`** builds and installs the X4 Pro's core libraries
   for code plugins (its README).
 - **`tools/fontgen`** converts fonts into bitmap font packs (`.ppfp`) for
@@ -281,6 +288,13 @@ where the specifications come from and mark values you could not verify.
   never edits `CHANGELOG.md`: that shared list made parallel PRs conflict.
   Only release preparation collects entries, as
   [RELEASING.md](RELEASING.md) describes.
+- A GitHub action in `.github/` is named by its full commit SHA with the
+  version as a comment (`uses: owner/action@<40 hex digits> # v1.2.3`), never
+  by a tag or branch, which can move. `dtolnay/rust-toolchain` also gets
+  its `toolchain:` input, which its ref used to say. Dependabot updates the
+  SHA and the comment together, except for `dtolnay/rust-toolchain`, which it
+  ignores: bump those pins by hand. A test in `tools/test_ci_tools.py` fails
+  on an unpinned action.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.

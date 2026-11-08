@@ -206,7 +206,7 @@ pub(crate) fn distinct_pages(
     if refused {
         return Err(Error::NoMemory);
     }
-    pages.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pages);
     pages.dedup();
     Ok(pages.len() as u32)
 }

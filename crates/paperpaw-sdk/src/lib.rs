@@ -111,6 +111,9 @@ pub mod semantics;
 pub mod served;
 pub mod services;
 pub mod setting;
+/// One shared, stable sorter: use it instead of `slice::sort_by` and its
+/// kin, which compile a copy per element type (see `paperpaw_sort`).
+pub use paperpaw_sort as sort;
 mod settings;
 pub mod setup;
 #[cfg(all(
@@ -263,7 +266,7 @@ pub mod layout {
 
 /// Streaming XML/XHTML tokenizer (see `paperpaw-xml`) for format plugins.
 pub mod xml {
-    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name};
+    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name, try_decode};
 }
 
 /// Streaming JPEG, PNG and GIF decoding to gray or colour (see

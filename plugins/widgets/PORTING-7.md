@@ -41,8 +41,8 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's quote, to-do, picture and logo widgets, and the books
-family. Ported from the words family so far: greeting (by time of day) and
+The words family's picture and logo widgets, and the books family except the battery (see below):
+Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
 every widget is ported; then the last commit deletes it, its app wiring and
 its tests together (no shim).
@@ -158,3 +158,18 @@ reading and by the kit's own sweeps.
   and have no refusal sweep until a mock host exists. Ignored case
   `widgets-todo-ticks-on-tap` (H1/H3/H4).
 
+## Battery (widget)
+
+- The battery (`widgets.battery`, category device): the charge large beside a
+  battery drawn to scale (lying or standing) or inside a ring, a bolt while it
+  charges, shaded when it is at or below `core.battery-low`, an optional caption;
+  read from the device snapshot (`battery_percent`, `is_charging`), redrawn when
+  the charge or the charging changes (`live`, the minute tick). Where the device
+  reports no battery the widget says so. No time left is shown (no service offers it),
+  as before. The settings are the interface-6 ones (`settings_parity`).
+- Shapes (`native_battery_shapes`): the battery, the ring and the bolt are unit-tested
+  and have an allocation sweep (`refusals_tests`); the layout needs fonts and the host,
+  so it has no sweep until a mock host exists. Ignored case
+  `widgets-battery-draws-each-style` (H1/H3).
+- Differences: the bolt and the rounded battery are made of rounded rectangles and span
+  fills (no smooth edges); the low charge is a plain gray (110), not a dither.
