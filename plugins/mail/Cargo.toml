@@ -16,6 +16,7 @@ native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
 paperpaw-sdk.workspace = true

@@ -18,6 +18,18 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   `metadata*.json` lists no feature yet (`uses.network`, `uses.secrets` and `uses.storage` join with
   the slices that make the calls).
 
+- `src/native_model/` (host-free, the interface-6 code made fallible and tested to give the same
+  answers, `tests/native_model.rs`): `codec` (base64 whole and in pieces, quoted-printable,
+  RFC 2047 words, the charsets of mail, `AUTH PLAIN` credentials in a buffer that wipes itself),
+  `header` (headers, Content-Type with RFC 2231 parameters, addresses, dates, reply subjects)
+  and `mem` (fallible growth; `Secret` and `SecretBytes` wipe on drop and show nothing in
+  `Debug`). Bounds the old code had not: a message has at most 256 headers of 8 KiB, a
+  Content-Type 32 parameters, a header 32 addresses, and a date is read for the years 1 to 9999
+  only. `tests/native_model_alloc_refusal.rs` refuses each allocation in turn;
+  `hostile_bytes_are_read_without_a_panic` feeds random bytes to every reader.
+- Still interface 6, to be made fallible next: `html`, `imap` (the response parser) and `smtp`
+  (the reply parser); then `render` and `store`.
+
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
 | Piece | Waits for |

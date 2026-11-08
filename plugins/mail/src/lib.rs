@@ -12,6 +12,7 @@ extern crate alloc;
 )]
 mod declarations;
 mod native_entry;
+pub mod native_model;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin (slice 1: its settings; see `PORTING-7.md`).
