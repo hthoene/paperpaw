@@ -46,6 +46,17 @@ impl<B: Storage, P: Storage> Private<B, P> {
         }
     }
 
+    /// Whether the secrets file is in the private folder: only `NotFound`
+    /// says it is not, any other error is the caller's (a file that cannot be
+    /// looked at is not gone).
+    fn has_secrets(&self) -> Result<bool, StorageError> {
+        match self.private.size(NAME) {
+            Ok(_) => Ok(true),
+            Err(StorageError::NotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     /// The storage and the path in it for `path`.
     fn route<'p>(&self, path: &'p str) -> (&dyn Storage, &'p str) {
         if path == FILE {
@@ -120,6 +131,57 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.base.create_dir(path)
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.base.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.base.remove_listed(dir, place)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        if root == FILE {
+            // The secrets file itself is in the private folder, not in the
+            // base: it is removed there, and done is told only then.
+            let existed = self.has_secrets()?;
+            self.private.remove(NAME)?;
+            return Ok(paperpaw_platform::tree::TreeStep::new(
+                u32::from(existed),
+                true,
+                0,
+            ));
+        }
+        let mut step = self.base.remove_tree_step(root, keep_root, place)?;
+        // The secrets go with the folder that holds them, as one removal of
+        // the call's share: with the share used up it is left to the next
+        // call (which finds the base's tree done at once), and `done` is told
+        // only once the file is gone.
+        let inside = root.is_empty()
+            || FILE
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('/'));
+        if step.done && inside && self.has_secrets()? {
+            if step.removed >= paperpaw_platform::tree::MAX_REMOVALS {
+                step.done = false;
+                step.next = 1;
+            } else {
+                self.private.remove(NAME)?;
+                step.removed += 1;
+            }
+        }
+        Ok(step)
     }
 
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
@@ -244,6 +306,247 @@ mod tests {
         assert_eq!(
             storage.rename(FILE, "elsewhere.txt"),
             Err(StorageError::Unsupported)
+        );
+    }
+
+    /// The step on the secrets file itself removes the file in the private
+    /// folder (not in the base, where there is none); on a folder that holds
+    /// it only once the whole folder is gone.
+    #[test]
+    fn a_tree_step_reaches_the_secrets_in_the_private_folder() {
+        let storage = Private::new(MemoryStorage::new(), MemoryStorage::new());
+        storage.write(FILE, b"s").unwrap();
+        storage.write(".paperpaw/other.txt", b"o").unwrap();
+        let step = storage.remove_tree_step(FILE, false, 0).unwrap();
+        assert!(step.done && step.removed == 1);
+        assert!(!storage.exists(FILE));
+        assert!(storage.base.exists(".paperpaw/other.txt"));
+        // Again: nothing there, still done.
+        let step = storage.remove_tree_step(FILE, false, 0).unwrap();
+        assert!(step.done && step.removed == 0);
+    }
+
+    /// A base whose tree steps are scripted: not done until the third call,
+    /// each call removing `removed` entries.
+    struct Scripted {
+        calls: core::cell::Cell<u32>,
+        removed: u32,
+    }
+
+    impl Scripted {
+        fn new(removed: u32) -> Self {
+            Self {
+                calls: core::cell::Cell::new(0),
+                removed,
+            }
+        }
+    }
+
+    impl Storage for Scripted {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove_tree_step(
+            &self,
+            _: &str,
+            _: bool,
+            _: u64,
+        ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+            let calls = self.calls.get() + 1;
+            self.calls.set(calls);
+            Ok(paperpaw_platform::tree::TreeStep::new(
+                // Once done, a tree has nothing left to remove.
+                if calls > 3 { 0 } else { self.removed },
+                calls >= 3,
+                u64::from(calls),
+            ))
+        }
+    }
+
+    /// A private folder whose file cannot be looked at.
+    struct Blind;
+
+    impl Storage for Blind {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::Io)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    /// A private folder whose file cannot be removed.
+    struct Stuck;
+
+    impl Storage for Stuck {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Ok(1)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+    }
+
+    /// The secrets go with the folder that holds them, in the step that
+    /// finishes the tree, not before; a folder that does not hold them never
+    /// reaches them.
+    #[test]
+    fn a_tree_step_takes_the_secrets_with_the_last_piece_of_their_folder() {
+        for (root, holds) in [
+            (".paperpaw", true),
+            ("", true),
+            (".paperpaw/plugins", false),
+            ("Books", false),
+        ] {
+            let storage = Private::new(Scripted::new(1), MemoryStorage::new());
+            storage.private.write(NAME, b"s").unwrap();
+            for piece in 1..=3 {
+                let step = storage.remove_tree_step(root, false, 0).unwrap();
+                assert_eq!(step.done, piece == 3);
+                let kept = !(holds && step.done);
+                assert_eq!(storage.exists(FILE), kept, "{root:?} piece {piece}");
+            }
+        }
+    }
+
+    /// The removal of the secrets is one removal of the call's share: with the
+    /// share used up by the base it is left to the next call, counted when it
+    /// is made, and `done` is told only once the file is gone.
+    #[test]
+    fn the_secrets_are_one_removal_of_the_share() {
+        use paperpaw_platform::tree::MAX_REMOVALS;
+        // The share is used up, the file is there: not done after the base.
+        let storage = Private::new(Scripted::new(MAX_REMOVALS), MemoryStorage::new());
+        storage.private.write(NAME, b"s").unwrap();
+        let mut counted = 0;
+        let mut pieces = 0;
+        loop {
+            let step = storage.remove_tree_step(".paperpaw", false, 0).unwrap();
+            assert!(step.removed <= MAX_REMOVALS, "{}", step.removed);
+            counted += step.removed;
+            pieces += 1;
+            if step.done {
+                break;
+            }
+            assert!(pieces < 10);
+        }
+        assert!(!storage.exists(FILE));
+        // Three pieces of the base (64 each), and the file as one removal more.
+        assert_eq!(counted, 3 * MAX_REMOVALS + 1);
+        // Below the share it goes along, counted.
+        let storage = Private::new(Scripted::new(MAX_REMOVALS - 1), MemoryStorage::new());
+        storage.private.write(NAME, b"s").unwrap();
+        let mut last = None;
+        for _ in 0..3 {
+            last = Some(storage.remove_tree_step(".paperpaw", false, 0).unwrap());
+        }
+        let last = last.unwrap();
+        assert!(last.done && last.removed == MAX_REMOVALS);
+        assert!(!storage.exists(FILE));
+        // No file: the base's count as it is, done at once.
+        let storage = Private::new(Scripted::new(MAX_REMOVALS), MemoryStorage::new());
+        for _ in 0..2 {
+            assert!(
+                !storage
+                    .remove_tree_step(".paperpaw", false, 0)
+                    .unwrap()
+                    .done
+            );
+        }
+        let last = storage.remove_tree_step(".paperpaw", false, 0).unwrap();
+        assert!(last.done && last.removed == MAX_REMOVALS);
+    }
+
+    /// A file that cannot be removed is an error, never `done`.
+    #[test]
+    fn a_secret_that_stays_is_never_reported_done() {
+        for removed in [3, paperpaw_platform::tree::MAX_REMOVALS] {
+            let storage = Private::new(Scripted::new(removed), Stuck);
+            let mut outcomes = Vec::new();
+            for _ in 0..4 {
+                outcomes.push(
+                    storage
+                        .remove_tree_step(".paperpaw", false, 0)
+                        .map(|s| s.done),
+                );
+            }
+            assert!(
+                outcomes.iter().all(|o| *o != Ok(true)),
+                "{removed}: {outcomes:?}"
+            );
+            assert_eq!(outcomes.last(), Some(&Err(StorageError::Io)), "{removed}");
+        }
+    }
+
+    /// A secrets file that cannot be looked at is not taken for gone: the
+    /// error is told, never `done`, also right after the base finished.
+    #[test]
+    fn an_unreadable_secret_is_an_error_not_a_done() {
+        for removed in [
+            3,
+            paperpaw_platform::tree::MAX_REMOVALS - 1,
+            paperpaw_platform::tree::MAX_REMOVALS,
+        ] {
+            let storage = Private::new(Scripted::new(removed), Blind);
+            for _ in 0..2 {
+                assert!(
+                    !storage
+                        .remove_tree_step(".paperpaw", false, 0)
+                        .unwrap()
+                        .done
+                );
+            }
+            assert_eq!(
+                storage
+                    .remove_tree_step(".paperpaw", false, 0)
+                    .map(|s| s.done),
+                Err(StorageError::Io),
+                "{removed}"
+            );
+        }
+        let storage = Private::new(Scripted::new(1), Blind);
+        assert_eq!(
+            storage.remove_tree_step(FILE, false, 0).map(|s| s.done),
+            Err(StorageError::Io)
         );
     }
 }

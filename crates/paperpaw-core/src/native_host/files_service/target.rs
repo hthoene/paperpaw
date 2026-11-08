@@ -1,0 +1,212 @@
+//! Roots and paths of `core.files` (`files.md` 1 and 3): which root, which
+//! feature, the path rules and the root-1 exclusions, in the order the contract
+//! lists them, then the path joined for the storage in a stack buffer.
+use super::View;
+use crate::native_host::storage::{MAX_FOLDER, MAX_JOINED, PREFIX, relative_path};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED};
+
+/// Root 0: the plugin's data folder.
+pub(super) const DATA: u32 = 0;
+/// Root 1: the user's files on the card.
+pub(super) const CARD: u32 = 1;
+/// Root 2: the plugin's install folder, read only.
+pub(super) const BUNDLE: u32 = 2;
+
+/// The host's folder in root 0, where served request bodies arrive.
+const RECEIVED: &str = ".received";
+/// The install folders, and the kernel's, which root 1 never reaches.
+const INSTALL: &str = "plugins";
+const KERNEL: &str = ".paperpaw";
+
+/// What a call does to the path, for the root rules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Intent {
+    Read,
+    Change,
+}
+
+/// A path of a root, checked, and joined for the storage.
+pub(super) struct Target {
+    buf: [u8; MAX_JOINED],
+    len: usize,
+    /// Where the plugin's part of the path starts in `buf`.
+    start: usize,
+    /// The length of the root's own folder in `buf`.
+    base: usize,
+    pub(super) root: u32,
+    /// Whether the path is `.received` or below it (root 0).
+    received: bool,
+}
+
+impl Target {
+    /// A target not yet resolved; [`resolve`] fills it.
+    pub(super) const EMPTY: Self = Self {
+        buf: [0; MAX_JOINED],
+        len: 0,
+        start: 0,
+        base: 0,
+        root: 0,
+        received: false,
+    };
+
+    /// The path for the storage, from the card's root.
+    pub(super) fn joined(&self) -> &str {
+        // Built from `&str` parts at their boundaries below.
+        core::str::from_utf8(&self.buf[..self.len]).unwrap_or_default()
+    }
+
+    /// The path the plugin gave, `""` for its root.
+    pub(super) fn rel(&self) -> &str {
+        core::str::from_utf8(&self.buf[self.start..self.len]).unwrap_or_default()
+    }
+
+    pub(super) fn is_root(&self) -> bool {
+        self.start == self.len
+    }
+
+    /// Whether the path is `.received` of root 0 or below it: the host's.
+    pub(super) fn is_received(&self) -> bool {
+        self.received
+    }
+
+    /// Whether the path is root 0's `.received` itself.
+    pub(super) fn is_received_folder(&self) -> bool {
+        self.received && !self.rel().contains('/')
+    }
+
+    /// The folder above the path in the plugin's part (`""` for the root).
+    pub(super) fn parent_rel(&self) -> &str {
+        self.rel().rsplit_once('/').map_or("", |(parent, _)| parent)
+    }
+
+    /// The joined path of the folder above the path, `None` for a root.
+    pub(super) fn parent_joined(&self) -> Option<&str> {
+        if self.is_root() {
+            return None;
+        }
+        let joined = self.joined();
+        Some(match self.rel().rsplit_once('/') {
+            Some(_) => joined.rsplit_once('/').map_or("", |(parent, _)| parent),
+            None => &joined[..self.base],
+        })
+    }
+
+    /// The joined path of the root itself (`""` for the card).
+    pub(super) fn base(&self) -> &str {
+        &self.joined()[..self.base]
+    }
+
+    /// The last segment of the path, `""` for a root.
+    pub(super) fn name(&self) -> &str {
+        let rel = self.rel();
+        rel.rsplit_once('/').map_or(rel, |(_, name)| name)
+    }
+}
+
+/// Resolves `path` of `root` for the caller, checking in the contract's
+/// order: the root (`ERR_UNSUPPORTED` from 3 on, `ERR_DENIED` without
+/// `uses.storage` on root 1 and for a change on root 2), the path rules
+/// (`ERR_INVALID`, `ERR_UTF8`, `ERR_NO_SPACE`), the root-1 exclusions
+/// (`ERR_INVALID`). The path may be `""`, the root.
+#[inline(never)]
+pub(super) fn resolve(
+    view: &View<'_>,
+    target: &mut Target,
+    root: u32,
+    path: &str,
+    intent: Intent,
+) -> Result<(), i32> {
+    match root {
+        DATA => {}
+        CARD => view.who.storage?,
+        BUNDLE if intent == Intent::Change => return Err(ERR_DENIED),
+        BUNDLE => {}
+        _ => return Err(ERR_UNSUPPORTED),
+    }
+    if !path.is_empty() {
+        relative_path(path.as_bytes())?;
+    }
+    let first = path.split('/').next().unwrap_or_default();
+    if root == CARD && !first.is_empty() && reaches_protected(view, first) {
+        return Err(ERR_INVALID);
+    }
+    let received = root == DATA
+        && !first.is_empty()
+        && (first.eq_ignore_ascii_case(RECEIVED) || view.host.excluded(DATA, first));
+    // Filled in the caller's place: a path is 640 bytes, and a copy of it per
+    // return would put several of them in the frame of an op with two.
+    target.len = 0;
+    target.start = 0;
+    target.base = 0;
+    target.root = root;
+    target.received = received;
+    let (kind, folder) = match root {
+        DATA => (PREFIX, Some(view.who.plugin)),
+        BUNDLE => ("plugins/", Some(view.who.plugin)),
+        _ => ("", None),
+    };
+    if let Some(id) = folder {
+        // The id is the host's, stamped from the owner; it must still be
+        // one segment that leaves room for every permitted path.
+        if kind.len() + id.len() + 1 > MAX_FOLDER
+            || id.contains('/')
+            || relative_path(id.as_bytes()).is_err()
+        {
+            return Err(ERR_INVALID);
+        }
+        push(target, kind.as_bytes())?;
+        push(target, id.as_bytes())?;
+        target.base = target.len;
+        if !path.is_empty() {
+            push(target, b"/")?;
+        }
+    }
+    target.start = target.len;
+    push(target, path.as_bytes())?;
+    Ok(())
+}
+
+fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
+    let end = target.len + bytes.len();
+    target
+        .buf
+        .get_mut(target.len..end)
+        .ok_or(ERR_INVALID)?
+        .copy_from_slice(bytes);
+    target.len = end;
+    Ok(())
+}
+
+/// Whether a first segment of root 1 is `plugins` or `.paperpaw`, by
+/// spelling in any case or by identity (the host).
+pub(super) fn reaches_protected(view: &View<'_>, first: &str) -> bool {
+    first.eq_ignore_ascii_case(INSTALL)
+        || first.eq_ignore_ascii_case(KERNEL)
+        || view.host.excluded(CARD, first)
+}
+
+/// Whether `path` is `folder` or below it, `ignore_case` for a storage that
+/// takes names differing in case for one.
+pub(super) fn within(ignore_case: bool, path: &str, folder: &str) -> bool {
+    let same = |a: char, b: char| a == b || (ignore_case && a.to_lowercase().eq(b.to_lowercase()));
+    let mut path = path.chars();
+    for expected in folder.chars() {
+        match path.next() {
+            Some(found) if same(found, expected) => {}
+            _ => return false,
+        }
+    }
+    matches!(path.next(), None | Some('/'))
+}
+
+/// Whether the two paths are spelt alike (`ignore_case` for FAT).
+pub(super) fn same_spelling(ignore_case: bool, a: &str, b: &str) -> bool {
+    let mut b = b.chars();
+    for x in a.chars() {
+        match b.next() {
+            Some(y) if x == y || (ignore_case && x.to_lowercase().eq(y.to_lowercase())) => {}
+            _ => return false,
+        }
+    }
+    b.next().is_none()
+}
