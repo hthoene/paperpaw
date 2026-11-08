@@ -413,7 +413,7 @@ impl PendingDeclarations {
                 .ok_or(ERR_NO_SPACE)?;
             Ok((self.resident, index_bytes, image_entries))
         } else {
-            let limits = [
+            let limits: [usize; KIND_COUNT] = [
                 GROUPS_MAX,
                 SPECS_MAX,
                 EXTRAS_MAX,
