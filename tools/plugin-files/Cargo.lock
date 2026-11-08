@@ -350,6 +350,7 @@ name = "paperpaw-plugin-notes-overview"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

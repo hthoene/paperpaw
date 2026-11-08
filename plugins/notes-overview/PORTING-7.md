@@ -1,6 +1,7 @@
 # Notes overview on interface 7 (partly ported)
 
-Status: **not complete.** The interface-6 plugin (`clippings.rs`, `scan.rs`,
+Status: **not complete** (the native plugin lists the books and a book's notes; the export and
+the opening of a note wait for the host). The interface-6 plugin (`clippings.rs`, `scan.rs`,
 `screen.rs`, the `Plugin` in `lib.rs`) is still in place, because the host
 services it needs are not there. It is removed in the PR that finishes the port.
 
@@ -51,13 +52,41 @@ services it needs are not there. It is removed in the PR that finishes the port.
   mock host): it compiles against the SDK and is exercised by the acceptance cases below.
 - Not read here: the cut texts (op 4) and the notes' own texts; the export slice does that.
 
+## Ported (the native plugin, slice 3): `src/native_plugin.rs`, `declarations.rs`
+
+- `NativeNotesOverview` (`native_plugin!` in `src/native_entry.rs`, features `linked` and
+  `native-entry`; `build.rs` builds the declarations into the image; metadata in `native/` with
+  `uses.library`, `core.library` and `core.ui`, regenerated with `tools/abi-metadata.py` as for the
+  other plugins). `declarations.rs`: the list screen (`notes-overview.screen`) and the book's
+  (`notes-overview.book`), one instance at a time each, the action `notes-overview.open`, the Tools
+  menu entry (order 37) and the `bookmarks` icon; `tests/native_declarations.rs` compares them with
+  what the interface-6 plugin registered, field by field, and checks every record against the
+  host's validation (the menu entry and the icon wait for the host's admission, as for every
+  plugin of this port).
+- The list screen: the books with notes by title with `3 highlights · 1 bookmark` under each, then
+  the *Export* row (with the longer help when the list is cut at 200); with no books the empty
+  text. Choosing a book opens the notes screen with the path handed over (`core.ui` handover, the
+  parameter `path`). The book's screen: its notes in reading order, bookmarks as their label,
+  highlights quoted, each with its own note (else its kind) and `· 42 %` under it; kinds a newer
+  reader keeps are not listed. **New cap: 300 notes shown per book** (`MOST_NOTES`; interface 6
+  showed all, from a file of up to 1 MiB); a note's text is the library's 512 B preview (the
+  interface-6 screen had the whole text, wrapped to two lines in the row either way).
+- Read through `Library` with 4,096-byte buffers; a pass over a book's notes ends after 64 pages.
+- `tests/scripted_library.rs` drives the plugin with the scripted host over a scripted
+  `core.library`: the pages of the catalog continued in their generation, each book's notes counted
+  page by page, only the books with notes described, a stale catalog read again from its start,
+  and a refusal of every service call and every service opening turning into an error status. The
+  scripted host does not answer `i18n.copy`/`i18n.format` yet (`ERR_UNSUPPORTED`), so the rows'
+  texts are not checked there and the callback ends in that status after the library was read: a
+  gap for Core.
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
-- The notes' rows with 512 B previews and the cut values by op 4 in 1,024 B parts (the export
-  and the book's screen).
-- Files (PR #339): `Exports/` folder, `.part` file, append and rename.
-- Native screens (core.ui compose, Input H3) and the draft-22 `doc_open` to open
-  a book at a note.
-- Registration (action `notes-overview.open`, Tools menu entry order 37,
-  icon `bookmarks`): the host does not admit menu entries and icons from native
-  plugins yet (as in `plugins/power/PORTING-7.md`).
+- The export: the notes of every book with their cut texts (op 4, 1,024 B parts) written to
+  `Exports/My Clippings.txt` through `core.files` (PR #339; `PartFile` is over `Storage`, the
+  native files facade has none). The *Export* row refuses with `Unsupported` until then.
+- Opening a book at a note (the draft-22 `doc_open`/`command.open` into `core.reader`, then the
+  goto event): choosing a note refuses with `Unsupported`.
+- The rows' texts and the pixels (H1/H3 and the catalog in the scripted host).
+- Removing the interface-6 plugin (`clippings.rs`, `scan.rs`, `screen.rs`, the `Plugin` in
+  `lib.rs`): with the activation, in one commit, no shim.
