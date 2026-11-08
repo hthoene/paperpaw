@@ -60,6 +60,16 @@ unsafe impl GlobalAlloc for Failing {
     }
 }
 
+/// Runs `build` with nothing refused or counted: the test's own allocations
+/// (its fixtures, a server double) are not the code's.
+#[allow(dead_code)]
+pub fn exempt<T>(build: impl FnOnce() -> T) -> T {
+    let at = REFUSE_AT.with(|a| a.replace(0));
+    let value = build();
+    REFUSE_AT.with(|a| a.set(at));
+    value
+}
+
 /// Runs `run` once to count its allocations, then once more with each of them
 /// refused in turn. A refused run must end in `Err(Error::NoMemory)` or succeed
 /// anyway; an abort (an infallible allocation) fails the whole test binary.
