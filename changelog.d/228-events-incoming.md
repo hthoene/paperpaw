@@ -1,6 +1,6 @@
 ### Changed
 
-- **A plugin reads only the events it handles** (#228, draft 27). `Plugin::event`
+- **A plugin reads only the events it handles** (#228, draft 26). `Plugin::event`
   receives `events::Incoming` (the event framed, its body not read) instead of a decoded
   `Event`. `decode_as::<events::kinds::Tick>()?` reads one kind and links only its
   decoder (`Ok(None)` for any other, body unread), `is::<K>()` asks without reading,
