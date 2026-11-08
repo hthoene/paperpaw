@@ -1,6 +1,6 @@
-# Interface-7 port (slices 1 to 4: the radio policy, the declarations, the phone setup, the own network, the kept networks and the screens)
+# Interface-7 port (slices 1 to 5: the radio policy, the declarations, the phone setup, the own network, the kept networks, the screens and the file on the card)
 
-Version 1.0.4. Partial: the decisions of the plugin, what it declares and the screens, up to what the
+Version 1.0.4. Partial: the decisions of the plugin, what it declares, the screens and the file on the card, up to what the
 host cannot do yet. The native plugin (`native_plugin::NativeWifi`) has a `NATIVE_ENTRY` (feature
 `linked`) and metadata in `native/`; the interface-6 `Wifi` and everything of it stays registered
 until the host activates native plugins (then it goes together, no shim).
@@ -98,6 +98,21 @@ until the host activates native plugins (then it goes together, no shim).
   switch rows (the kit has none yet); the page shows nothing where the device has no radio; the
   own network's name is the device's model name.
 
+- `src/native_ini.rs` (slice 5): the `wifi.ini` in the plugin's data folder (`Root::Data`, not
+  `core.files`: it is the plugin's own storage, as `env.storage()` was), read once at a start
+  (`Started`, where there is a radio): at most 16 KiB (a larger file is removed unread and said,
+  `wifi.file-too-large`), lines `ssid = …` and `password = …` read as the old plugin read them
+  (compared on samples with the old function). The networks are kept among the secrets (a network
+  without a password does not take the password kept; a name over 32 bytes or a password over 63
+  cannot be a network and is dropped), then the file is removed. Where the device keeps no passwords
+  (`Unsupported`) the file stays for the next start and the user is told (`core.secrets-unsupported`);
+  after any other failure it stays and nothing is said. Differences: a line that is not UTF-8 is skipped
+  (the old reading replaced the bad bytes); at most 64 networks are taken (no more can be kept); the
+  old plugin removed the file after reading the secrets back, the native one after every `keep`
+  answered. The buffer with the passwords is wiped. Metadata gains `storage.remove`. The host calls
+  are not run in a scripted test (the scripted host has no storage yet); the parsing is, and
+  every allocation of it is refused in turn.
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
 - The scripted host does not answer `i18n.copy`/`i18n.format` (`SCRIPTED-i18n`), so the rows' texts,
@@ -111,7 +126,6 @@ until the host activates native plugins (then it goes together, no shim).
   family; the policy takes the clock as an argument.
 - The phone setup serves a page on port 80 of the device's own network: the SDK has no `serve` or
   `respond` yet (`NET-serve`); the decisions and pages are ported (`native_phone`).
-- The `wifi.ini` on the card (read once at a start) needs `core.files`.
 - Without `wifi_done` (event 93) a wrong password stays "pending" (it is offered again as the initial
   text when the network is chosen again, and kept only if the device is online in that network); the
   policy's `failed` entry, which lets it go, runs when the event is there.

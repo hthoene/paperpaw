@@ -31,6 +31,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 )]
 mod declarations;
 mod native_entry;
+pub mod native_ini;
 pub mod native_known;
 #[doc(hidden)]
 pub mod native_model;
