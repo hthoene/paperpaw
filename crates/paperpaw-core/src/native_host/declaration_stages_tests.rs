@@ -248,3 +248,22 @@ fn memory_refused_at_any_reservation_installs_nothing() {
     }
     assert!(done);
 }
+
+#[test]
+fn plugin_ids_with_dots_split_the_stage_id_at_the_last_dot() {
+    let (dotted, plain) = (plugin("a.b", 4), plugin("a", 5));
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    install(
+        &mut store,
+        &dotted,
+        &[batch(&[spec("c")])],
+        &mut allocations,
+    )
+    .unwrap();
+    install(&mut store, &plain, &[batch(&[spec("b")])], &mut allocations).unwrap();
+    // `a.b.c` is `a.b`'s stage `c`, never `a`'s `b.c`; `a.b` is `a`'s `b`.
+    assert_eq!(store.stage("a.b.c").unwrap().owner, 4);
+    assert_eq!(store.stage("a.b").unwrap().owner, 5);
+    assert_eq!(store.stage("a.c"), None);
+}

@@ -803,7 +803,7 @@ pub(crate) fn stage_spec_check(plugin_id: &str, spec: &StageSpec<'_>) -> Check {
         max_reply,
         max_records,
     } = spec;
-    relative(plugin_id, name)?;
+    stage_name(plugin_id, name)?;
     let payload = 1..=STAGE_CALL_PAYLOAD_MAX_BYTES as u32;
     ensure(payload.contains(max_input) && payload.contains(max_reply))?;
     ensure((1..=STAGE_MAX_RECORDS).contains(max_records))?;
@@ -823,7 +823,26 @@ pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> 
         signature: _,
     } = registration;
     full_id(stage)?;
+    // `<plugin>.<name>` splits at its last dot: both parts must be there, and
+    // the name is one segment of at most `STAGE_NAME_MAX_BYTES`.
+    let (plugin, name) = stage.rsplit_once('.').ok_or(ERR_INVALID)?;
+    ensure(!plugin.is_empty() && !name.is_empty() && name.len() <= STAGE_NAME_MAX_BYTES)?;
     ensure(i16::try_from(*order).is_ok())
+}
+
+/// Longest stage name (one segment of the full id).
+pub(crate) const STAGE_NAME_MAX_BYTES: usize = 64;
+
+/// A stage's own name is exactly one id segment: `[a-z0-9-]`, 1..=64 bytes,
+/// no dot, so the full id `<plugin>.<name>` splits at its last dot even though
+/// plugin ids contain dots (`stages-services.md` section 1.1).
+fn stage_name(plugin_id: &str, name: &str) -> Check {
+    ensure(
+        !name.is_empty()
+            && name.len() <= STAGE_NAME_MAX_BYTES
+            && name.bytes().all(is_name_byte)
+            && plugin_id.len() + 1 + name.len() <= FULL_ID_MAX_BYTES,
+    )
 }
 
 #[path = "declarations_docs.rs"]

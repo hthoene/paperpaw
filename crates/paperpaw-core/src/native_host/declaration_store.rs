@@ -482,12 +482,13 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
                 // Stage specs and subscriptions: the plugin's eight
                 // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
                 usize::MAX,
-                usize::MAX,
-                usize::MAX,
+                // `setup.step` shares the aggregate byte cap.
                 usize::MAX,
             ];
             if self

@@ -50,6 +50,10 @@ impl DeclarationStore {
             else {
                 continue;
             };
+            // A stage name is one segment, so `a` + `b.c` is nothing.
+            if name.contains('.') {
+                continue;
+            }
             let Ok(host) = owner.source.owner_id() else {
                 continue;
             };
