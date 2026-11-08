@@ -143,16 +143,36 @@ placed and composed into its cell (`ui.compose`, after the tools and the footer,
 over it). *Next page* / *Previous page* turn the page (a swipe is the host's key map turning it to
 those actions; at the first or last page the press is taken, nothing turns), a tap runs the tool,
 the footer's action, or is forwarded to the widget (`widget_input`; a press of *Confirm* on a widget's
-target is a tap in its middle). A long press is taken and runs nothing (on interface 6 it edits; it
-waits for editing, `home-edit`). A widget the host cannot compose is left out of the draw, the rest
+target is a tap in its middle). A long press starts editing (see below). A widget the host cannot compose is left out of the draw, the rest
 of the page shows; widgets made when a layout fails are let go. At every show the focus is drawn
 only if `home.focus-at-once` is on. A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
 not ported) is not drawn.
 
+### Editing and *Add* (slice 3c)
+
+The pencil (a long press anywhere too) starts editing: the pencil becomes *Done* (*Back* ends it
+too), *Add* shows at the left and the footer's actions go. The page opened to edit (`mode` = `edit`,
+from *Edit home screen*) starts in it. While editing what is tapped runs nothing. *Add* opens the
+screen `home.add-widget` for the page that shows (`native_add_screen.rs`, the rules in `native_add.rs`
+without the host): the kinds (the widgets' registry kind, the tools last) with how many there are,
+*Add a page* (under 8 pages), *Remove this page* (more than one), *Reset landscape layout* (where
+one is kept); a kind lists its things (the widgets, the tools not on the page). A widget goes into
+the first free cells as a placement of its own (`id@n`: no page of either layout holds it and the
+registry has no values for it), as wide as the page and as high as measured (one row until measuring
+is ported); a tool one cell; it is added to the other layout too. Only the pages whose text changes are written. All of a choice's writes (the
+settings, the placements a removed page's widgets set reset with `reset_setting`, the message) are
+staged in one callback, and an error return drops them all (`screens-input.md` 2.1), so a choice is
+all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say so ("This change is too big to save at once."), stage nothing and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
+
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
 
-- Editing (the pencil is left out, so is *Add* and the grip drag): `home-edit`. The page opened to
-  edit (`mode` = `edit`) shows as it is.
+- Arranging while editing (select, move, resize, remove with the buttons, the grip drag): `home-edit-arrange`.
+- *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made
+  layouts and the rows' icons: `home-add` (#517). The things are listed by name.
+- The kind rows are named by the catalog key the registry gives; a kind without a translation shows
+  the key.
+- At a show the focus is drawn only if `home.focus-at-once` is on; interface 6 also asks whether the
+  last input was by keys (`ui::focus_shown`), which waits for the input mode (H4): `home-dashboard`.
 - The status line above the grid is made room for but not drawn (`home-status-line`).
 - Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
   admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
@@ -162,7 +182,7 @@ not ported) is not drawn.
   A widget that pages itself (a list, a calendar) is not told the page buttons.
 - The built-in widgets of the home screen (status, date, clock, continue, recent) are not declared:
   `home-builtin-widgets`.
-- *Add* and the drawer: `home-add`, `home-drawer`.
+- The drawer: `home-drawer`.
 - Nothing here is drawn or taken through a host yet (H1/H4): `home-dashboard`.
 
 Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and tools of a few
