@@ -6,8 +6,8 @@
 //! the next one; set to change each time it shows, the showings are counted in
 //! memory ([`made`]).
 use alloc::{string::String, vec::Vec};
+use core::cell::Cell;
 use core::ops::ControlFlow;
-use core::sync::atomic::{AtomicU32, Ordering};
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -28,6 +28,8 @@ use paperpaw_ui_kit::{
     },
 };
 
+/// The token of the quote widget.
+pub const TOKEN: u32 = 111;
 /// Where the turns of the quotes are kept (see [`Turns`]).
 const TURNS_FILE: &str = "quote.txt";
 /// The reader's own quotes, in the data folder.
@@ -42,24 +44,42 @@ const GERMAN: &str = include_str!("../data/quotes.de.txt");
 
 /// Showings made within this many seconds of the last count as one.
 const APART: u32 = 60;
-/// How often a quote was shown since the device started, and when the last
+/// How often a quote was shown since the plugin started, and when the last
 /// showing was counted (in seconds; `u32::MAX`: none yet). A screen makes a
 /// widget several times as it shows it (to measure it, to place it, anew
-/// after a change); nothing is written for the count.
-static SHOWINGS: AtomicU32 = AtomicU32::new(0);
-static COUNTED_AT: AtomicU32 = AtomicU32::new(u32::MAX);
+/// after a change); nothing is written for the count. It lives in the plugin
+/// (a native plugin has no writable statics), not in a global.
+#[derive(Debug)]
+pub struct Showings {
+    count: Cell<u32>,
+    counted_at: Cell<u32>,
+}
 
-/// Counts a showing at `now_ms` (when the host made the widget), unless one was
-/// counted less than a minute before.
-pub fn made(now_ms: u64) {
-    let now = u32::try_from(now_ms / 1000).unwrap_or(u32::MAX - 1);
-    let last = COUNTED_AT.load(Ordering::Relaxed);
-    if last == u32::MAX || now.saturating_sub(last) >= APART {
-        COUNTED_AT.store(now, Ordering::Relaxed);
-        SHOWINGS.store(
-            SHOWINGS.load(Ordering::Relaxed).wrapping_add(1),
-            Ordering::Relaxed,
-        );
+impl Default for Showings {
+    fn default() -> Self {
+        Self {
+            count: Cell::new(0),
+            counted_at: Cell::new(u32::MAX),
+        }
+    }
+}
+
+impl Showings {
+    /// Counts a showing at `now_ms` (when the host made the widget), unless
+    /// one was counted less than a minute before.
+    pub fn made(&self, now_ms: u64) {
+        let now = u32::try_from(now_ms / 1000).unwrap_or(u32::MAX - 1);
+        let last = self.counted_at.get();
+        if last == u32::MAX || now.saturating_sub(last) >= APART {
+            self.counted_at.set(now);
+            self.count.set(self.count.get().wrapping_add(1));
+        }
+    }
+
+    /// How many showings were counted.
+    #[must_use]
+    pub fn count(&self) -> u32 {
+        self.count.get()
     }
 }
 
@@ -409,14 +429,14 @@ fn language(host: &Host<'_>) -> Result<String, Error> {
 
 /// Today's quote, turned on as often as tapped (and, where another shows each
 /// time, as often as shown).
-fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
+fn quote_of_the_day(
+    cx: &mut Cx<'_>,
+    day: i64,
+    showings: &Showings,
+) -> Result<Option<Quote>, Error> {
     let source = Source::of(&cx.settings)?;
     let daily = daily(&cx.settings)?;
-    let showing = if daily {
-        0
-    } else {
-        SHOWINGS.load(Ordering::Relaxed)
-    };
+    let showing = if daily { 0 } else { showings.count() };
     let turns = Turns::load(cx.host)?.on(day, daily).wrapping_add(showing);
     let tag = language(cx.host)?;
     let tongue = if tag.starts_with("de") { "de" } else { "en" };
@@ -444,14 +464,18 @@ fn quote_of_the_day(cx: &mut Cx<'_>, day: i64) -> Result<Option<Quote>, Error> {
 /// # Errors
 /// Host refusals.
 pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
+    shows_with(host, widget, &Showings::default())
+}
+
+/// [`shows`] with the showings the plugin has counted.
+///
+/// # Errors
+/// Host refusals.
+pub fn shows_with(host: &Host<'_>, widget: &str, showings: &Showings) -> Result<u64, Error> {
     let settings = Settings::new(host, widget);
     let daily = daily(&settings)?;
     let day = crate::native_draw::epoch_day(host)?;
-    let showing = if daily {
-        0
-    } else {
-        SHOWINGS.load(Ordering::Relaxed)
-    };
+    let showing = if daily { 0 } else { showings.count() };
     let turns = Turns::load(host)?.on(day, daily).wrapping_add(showing);
     let mut mark = crate::native_draw::fnv(
         1,
@@ -678,9 +702,22 @@ fn paint_plan(
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+    draw_with(cx, out, area, &Showings::default())
+}
+
+/// [`draw`] with the showings the plugin has counted.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw_with(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    showings: &Showings,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let day = crate::native_draw::epoch_day(cx.host)?;
-    let Some(quote) = quote_of_the_day(cx, day)? else {
+    let Some(quote) = quote_of_the_day(cx, day, showings)? else {
         let message = cx.tr("widgets.quote.none")?;
         let small = cx.style().small;
         if paperpaw_ui_kit::geometry::line_px(&cx.font, small)? <= look.area.height {
@@ -884,15 +921,16 @@ mod tests {
 
     #[test]
     fn a_showing_counts_once_within_a_minute() {
-        SHOWINGS.store(0, Ordering::Relaxed);
-        COUNTED_AT.store(u32::MAX, Ordering::Relaxed);
+        let showings = Showings::default();
         for ms in [0, 5, 400, 59_000] {
-            made(ms);
-            assert_eq!(SHOWINGS.load(Ordering::Relaxed), 1);
+            showings.made(ms);
+            assert_eq!(showings.count(), 1);
         }
-        made(61_000);
-        assert_eq!(SHOWINGS.load(Ordering::Relaxed), 2);
-        made(3_600_000);
-        assert_eq!(SHOWINGS.load(Ordering::Relaxed), 3);
+        showings.made(61_000);
+        assert_eq!(showings.count(), 2);
+        showings.made(3_600_000);
+        assert_eq!(showings.count(), 3);
+        // Another plugin instance counts on its own.
+        assert_eq!(Showings::default().count(), 0);
     }
 }

@@ -118,9 +118,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -333,9 +334,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -355,10 +357,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-notes-vault"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -403,6 +406,7 @@ name = "paperpaw-plugin-translate"
 version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -411,6 +415,7 @@ version = "1.1.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
 ]
 

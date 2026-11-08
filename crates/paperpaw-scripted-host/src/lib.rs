@@ -23,6 +23,10 @@
 //!   [`ScriptedHost::set_env`] script `settings.read` and `env.snapshot`.
 //!   Questions are answered by sending the plugin its `Answered` event
 //!   ([`event_batch`]).
+//! - **Texts**: [`ScriptedHost::add_catalog`], [`ScriptedHost::add_catalogs_in`]
+//!   (a plugin's `i18n` folder) and [`ScriptedHost::set_language`] feed
+//!   `i18n.copy`, `i18n.format` and `i18n.digits`, answered by the shell's own
+//!   code, so keys, plurals, fallbacks and placeholders give its results.
 //! - **Refuse**: [`ScriptedHost::refuse_nth`] makes the n-th call of a slot
 //!   fail with a status (`ERR_FULL`, `ERR_BUSY`, `ERR_NO_MEMORY` ...);
 //!   [`sweep`] runs a scenario once clean and once per call, each with that
@@ -33,15 +37,20 @@
     reason = "test support: statuses are the interface's, named at the types"
 )]
 mod refusal;
+mod registry;
 mod slots;
+mod ui;
 
 pub use refusal::Slot;
+pub use registry::{PAGE_ROWS, Registry, row};
+pub use ui::{Answer, Dialogs, Question};
 
 use core::ffi::c_void;
 use paperpaw_core::native_host::commands::{
     CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandScope, CommandStage,
 };
 use paperpaw_core::native_host::environment::{SettingValueRef, settings_encode};
+use paperpaw_i18n::{Catalog, CatalogError, Translator};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin,
 };
@@ -53,6 +62,9 @@ use std::pin::Pin;
 
 /// A scripted service's backend: `(op, input)` to the reply bytes or a status.
 pub(crate) type Handler = Box<dyn FnMut(u32, &[u8]) -> Result<Vec<u8>, i32>>;
+
+/// A hook run when a callback returns, with its status.
+pub(crate) type EndedHook = Box<dyn Fn(i32)>;
 
 /// One scripted `core.*` service: `handler(op, input)` is its backend.
 pub(crate) struct ScriptedService {
@@ -95,6 +107,10 @@ pub(crate) struct State {
     pub(crate) live: Cell<usize>,
     pub(crate) clock: Cell<u64>,
     pub(crate) scope: CommandScope,
+    /// The plugin's catalogs and the language (`i18n.*`).
+    pub(crate) translator: RefCell<Translator>,
+    /// Hooks run when a callback returns, with its status (the dialogs').
+    pub(crate) ended: RefCell<Vec<EndedHook>>,
     table: PpHost,
 }
 
@@ -149,6 +165,8 @@ impl ScriptedHost {
             live: Cell::new(0),
             clock: Cell::new(0),
             scope: CommandScope::new(),
+            translator: RefCell::new(Translator::new()),
+            ended: RefCell::new(Vec::new()),
             table: slots::table(),
         });
         Self { state }
@@ -158,6 +176,49 @@ impl ScriptedHost {
     /// commands; define them before loading.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.state.settings
+    }
+
+    /// Adds the catalog `source` (the text of an `i18n/<language>.ini`): the
+    /// plugin's texts for `i18n.copy`, `i18n.format` and plurals. Catalogs
+    /// added later take precedence for the same language.
+    ///
+    /// # Errors
+    /// The catalog does not parse.
+    pub fn add_catalog(&self, source: &str) -> Result<(), CatalogError> {
+        let catalog = Catalog::parse(source.to_owned())?;
+        self.state.translator.borrow_mut().add(catalog);
+        Ok(())
+    }
+
+    /// Adds every `*.ini` of `folder` (a plugin's `i18n` folder, by file name
+    /// order), as the kernel reads a plugin's catalogs. A directory entry that
+    /// cannot be read is skipped (the files that can be read are added), and
+    /// so is anything that is not a `*.ini` file.
+    ///
+    /// # Errors
+    /// The folder or a file cannot be read, or a catalog does not parse (the
+    /// text names the file).
+    pub fn add_catalogs_in(&self, folder: impl AsRef<std::path::Path>) -> Result<usize, String> {
+        let mut files: Vec<_> = std::fs::read_dir(folder.as_ref())
+            .map_err(|error| format!("{}: {error}", folder.as_ref().display()))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "ini"))
+            .collect();
+        files.sort();
+        for path in &files {
+            let source = std::fs::read_to_string(path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            self.add_catalog(&source)
+                .map_err(|error| format!("{}: {error:?}", path.display()))?;
+        }
+        Ok(files.len())
+    }
+
+    /// The UI language the catalogs answer in (`en` by default; a key the
+    /// language lacks falls back as the kernel's does, ending in English).
+    pub fn set_language(&self, language: &str) {
+        self.state.translator.borrow_mut().set_language(language);
     }
 
     /// The most commands and bytes one callback may stage (the kernel's
@@ -222,6 +283,39 @@ impl ScriptedHost {
             bound: DEFAULT_REPLY_BOUND,
             op_bounds: Vec::new(),
         });
+    }
+
+    /// Adds `core.ui` for questions (ops 8, 9 and 10) and returns the handle
+    /// that shows what was asked and answers it.
+    pub fn dialogs(&self) -> Dialogs {
+        let dialogs = Dialogs::new();
+        let backend = dialogs.clone();
+        let ended = dialogs.clone();
+        self.state
+            .ended
+            .borrow_mut()
+            .push(Box::new(move |status| ended.callback_ended(status)));
+        self.service("core.ui", 1, u16::MAX, move |op, input| {
+            backend.call(op, input)
+        });
+        // The schema's reply bounds: `ask` and `text_read` 4,096 bytes,
+        // `text_write` 64 (the default 4,096 covers the first two).
+        self.reply_bound("core.ui", 9, 64);
+        dialogs
+    }
+
+    /// Adds `core.registry` and returns the handle that scripts its rows,
+    /// pages and generation.
+    pub fn registry(&self) -> Registry {
+        let registry = Registry::new();
+        let backend = registry.clone();
+        self.service(
+            "core.registry",
+            registry::MAJOR,
+            u16::MAX,
+            move |op, input| backend.call(op, input),
+        );
+        registry
     }
 
     /// The reply bound of `op` of the service `key`: the plugin's `out` for a
@@ -350,6 +444,19 @@ enum Kind {
     Draw,
 }
 
+impl Callback {
+    /// Whether any batch the callback submitted holds `needle` (for example a
+    /// secret that must never be in a command).
+    #[must_use]
+    pub fn batches_contain(&self, needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && self
+                .batches
+                .iter()
+                .any(|batch| batch.windows(needle.len()).any(|window| window == needle))
+    }
+}
+
 impl Plugin<'_> {
     /// `dispatch_event(token, batch)`. An event has no reply buffer (its
     /// capacity is 0, as in the shell) and returns a status only: a positive
@@ -418,6 +525,9 @@ impl Plugin<'_> {
             Kind::Input if status > 1 => ERR_INVALID,
             _ => status,
         };
+        for hook in state.ended.borrow().iter() {
+            hook(status);
+        }
         let mut commands = stage.into_commands();
         let mut dropped = 0;
         if status < 0 {
@@ -485,4 +595,39 @@ pub fn sweep<R>(
         results.push((Some(nth), scenario(&mut host, Some(nth))));
     }
     results
+}
+
+/// As [`sweep`], and after every run (the scenario has dropped its plugin)
+/// the host must hold no heap block and no service handle: a path that
+/// leaves one fails the test, naming the refused call.
+///
+/// # Panics
+/// A run left a block or a handle held.
+pub fn sweep_released<R>(
+    slot: Slot,
+    status: i32,
+    mut scenario: impl FnMut(&mut ScriptedHost, Option<usize>) -> R,
+) -> Vec<(Option<usize>, R)> {
+    let mut results = Vec::new();
+    let mut clean = ScriptedHost::new();
+    let first = scenario(&mut clean, None);
+    assert_released(&clean, None);
+    let calls = clean.calls(slot);
+    results.push((None, first));
+    for nth in 1..=calls {
+        let mut host = ScriptedHost::new();
+        host.refuse_nth(slot, nth, status);
+        let result = scenario(&mut host, Some(nth));
+        assert_released(&host, Some(nth));
+        results.push((Some(nth), result));
+    }
+    results
+}
+
+fn assert_released(host: &ScriptedHost, refused: Option<usize>) {
+    assert_eq!(
+        (host.live_allocations(), host.open_handles()),
+        (0, 0),
+        "after the run with call {refused:?} refused: heap blocks and service handles still held"
+    );
 }

@@ -52,6 +52,7 @@ mod core_plugin;
 mod data_plugin;
 mod drawing;
 mod effects;
+mod font_refresh;
 mod free_count;
 mod gestures;
 mod hints;

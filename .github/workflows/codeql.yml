@@ -20,9 +20,11 @@ permissions:
   contents: read
   security-events: write
 
+# Only pull request runs are cancelled by a newer push; push and scheduled
+# runs each get their own group (per commit) and always finish.
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:

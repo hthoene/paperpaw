@@ -1,7 +1,7 @@
 # Notes overview on interface 7 (partly ported)
 
-Status: **not complete** (the native plugin lists the books and a book's notes; the export and
-the opening of a note wait for the host). The interface-6 plugin (`clippings.rs`, `scan.rs`,
+Status: **not complete** (the native plugin lists the books, pages a book's notes and exports them
+all; the opening of a note at its place waits for the host). The interface-6 plugin (`clippings.rs`, `scan.rs`,
 `screen.rs`, the `Plugin` in `lib.rs`) is still in place, because the host
 services it needs are not there. It is removed in the PR that finishes the port.
 
@@ -94,27 +94,36 @@ services it needs are not there. It is removed in the PR that finishes the port.
   quoted text + 64 B of note + 16 B of detail suffix + 24 B of allocator headers, at most 350 B;
   100 rows are 35 KB plus the vector grown to 128 items (10 KB), about 45 KiB (a test holds it
   under 48 KiB). The first draft (300 rows of 512 + 512 B) was about 330 KiB.
-- **Book screens open at once.** Both screens are per parameters, as in interface 6, so the kit
-  keeps one state per instance with no cap of its own. In this slice a book screen is reached only
-  from a row of the list (the list is one instance, it has no parameters), and a book's own rows
-  open nothing (they refuse plainly until the reader's open-at-place exists), so the stack holds the
-  list and **one** book screen: at most about 30 KiB + 45 KiB = **75 KiB** of rows, and a real
-  library about half that. Nothing frees the list's rows under a book screen: the host sends no
-  event when a screen is covered, and making the list again on each return would walk the library
-  again. When the notes open the reader (slice 3), the book screen stays under the reader, still
-  one book at a time; if the stack can ever hold two books, a hidden book's rows are to be freed
-  and read again when it is shown (the cursor is not kept, so paging comes with that). 75 KiB of
-  the 256 KiB heap is an X4 risk to measure (memory gate), not measured.
-- **Open parity item (slice 3, with the export):** interface 6 showed all of a book's notes, this
-  port the first 100. Paging would close it within the 45 KiB: a last row "more" that loads the next
-  100 from the annotation query (the page's cursor kept, the old rows freed) and a way back; it
-  needs the cursor kept per screen and the focus kept across the swap, so it is not in this slice.
-  Until then the notes past 100 of a book are in the export only.
+- **Book screens open at once.** Both screens are per parameters, as in interface 6. Reopening the
+  list from Tools closes a book screen under it (`docs/abi/ui.md`), so at most one book screen is
+  open and the stack holds the list (about 30 KiB) and one book (about 45 KiB): **75 KiB** of rows
+  at most, a real library about half that. As a safeguard for the day a note opens another screen
+  above (the reader), a book screen that opens or is shown frees the rows of every other notes
+  screen first (`free_notes`; the book's handle, its page and the focused row are kept) and a
+  screen shown after it had freed its rows reads its page again from its handle; if the book
+  changed meanwhile (`State`/`NotFound`) the screen says so (`notes-overview.gone`) and its list is
+  empty. Nothing frees the list's rows under a book screen: the host sends no event when a screen
+  is covered, and making the list again on each return would walk the library again. 75 KiB of the
+  256 KiB heap is an X4 risk to measure (memory gate), not measured. Tested: the policy of
+  `free_notes` (unit test over views); the opening of two books in the scripted host is not,
+  because the scripted host does not answer `i18n.copy`/`i18n.format` yet and the instances are
+  host-issued.
+- **Paging (closes the parity item of the 100-note cap).** A book's notes are shown 100 to a page
+  (`native_notes.rs`): a last row *Next notes* reads on from where the page ended and a first row
+  *Previous notes* goes back; the page before is read again from its start (the starts of the pages
+  shown so far are kept, 24 bytes each), so only **one page of rows is held** and the memory stays
+  at about 45 KiB however long the book is. A page starts at a library reply and a row inside it, so
+  every size of reply gives the same pages. A cursor the library no longer knows (the book's notes
+  changed) starts again at the first page. A page is read from at most 256 replies (`MOST_REPLIES`; a reply holds a few notes). Pages beyond the
+  256th (25,600 notes) are not reachable; those notes are in the export. Tested over a scripted
+  reply source (`native_notes_tests.rs`): the same pages at any reply size, forward and back, the
+  ends (exactly 100 notes, none), a stale cursor, a host that never ends, every allocation
+  refused in turn. Not tested end to end: the rows' texts (scripted host without `i18n`).
 - If the catalog changes between the handover of a chosen book and the book screen opening
   (`opened_book`; one host callback apart), the book's handle is stale (`State`/`NotFound`) and the
   screen does not open, with no notice. The list itself handles a stale handle before the handover
   (see above), so the window is only that one callback.
-- Read through `Library` with 4,096-byte buffers; a pass over a book's notes ends after 64 pages.
+- Read through `Library` with 4,096-byte buffers; a pass over a page of a book's notes ends after 256 replies.
 - `tests/scripted_library.rs` drives the plugin with the scripted host over a scripted
   `core.library`: the pages of the catalog continued in their generation, each book's notes counted
   page by page, only the books with notes described, a stale catalog read again from its start,
@@ -123,11 +132,35 @@ services it needs are not there. It is removed in the PR that finishes the port.
   texts are not checked there and the callback ends in that status after the library was read: a
   gap for Core.
 
+## Ported (the export): `src/native_export.rs`, `native_staged.rs`, `native_run.rs`, `HostSource::for_export`
+
+- Choosing *Export as My Clippings.txt* writes the notes of every book to `Exports/My
+  Clippings.txt` beside the library folder (`core.library-folder`, default `books`; `Exports` is
+  made if missing), in place of the file there, and says how many notes were saved and where (the
+  interface-6 texts: `notes-overview.exported`, `.none`, `.export-failed`). The catalog is passed a
+  page at a time and each book's notes a page at a time, every note written as it comes (the
+  entries are those of `model::put_book`, tested unchanged from interface 6), so the memory is a
+  page, one note and a 4 KiB piece however many books there are. A note or its own note that the
+  library cut is read whole with `core.library` op 4 (1,024 B parts); **new cap: 8 KiB each**
+  (`TEXT_LIMIT`; interface 6 read them whole, from a file of up to 1 MiB), cut at a character's end.
+- The file is staged in the plugin's data folder (`export.part`, `storage` write/append, `sync`) and
+  moved onto the card with `core.files` `move_entry` with replace (declared `uses.storage`,
+  `core.files`); a refusal anywhere (memory, a full card, the host) removes the staged file and the
+  old export stays. A drop of the staging object removes it too. With no notes nothing is written
+  and the old file stays. A stale page restarts the whole export up to 3 times (`State` after that).
+- The walk is synchronous in one callback, as in interface 6; a library of thousands of books costs
+  one host call per book for its names and one per notes page. No budget or cancel yet (there is
+  no declared work for it); a long library will hold the screen for that time.
+- Note times are written in UTC until the system time zone comes with the snapshot (draft 25);
+  interface 6 wrote local time. The library folder comes from the setting, as in `files`.
+- Tested over a scripted library (`native_export_tests.rs`): the file byte for byte (a highlight with
+  its note, a bookmark, a kind not exported, a book with no author), at any size of the pages, a
+  book that is gone, a stale page, replies that do not add up, a sink that fills, every allocation
+  refused in turn. Not tested: the staging and the move on a card (the scripted host has no
+  `storage`/`core.files`): acceptance on the desktop shell when the host runs native plugins.
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
-- The export: the notes of every book with their cut texts (op 4, 1,024 B parts) written to
-  `Exports/My Clippings.txt` through `core.files` (PR #339; `PartFile` is over `Storage`, the
-  native files facade has none). The *Export* row refuses with `Unsupported` until then.
 - Opening a book at a note (the draft-22 `doc_open`/`command.open` into `core.reader`, then the
   goto event): choosing a note refuses with `Unsupported`.
 - The rows' texts and the pixels (H1/H3 and the catalog in the scripted host).

@@ -46,11 +46,21 @@ before 1.0.
    (`tools/sccache-wrap.sh`, `CI_LOCAL_SCCACHE=0` turns it off); for your own
    `cargo` runs, `export RUSTC_WRAPPER=$PWD/tools/sccache-wrap.sh` does the same,
    so that crates.io dependencies are compiled once for every build folder.
+   For a change to a few crates, `tools/check-local.sh [crate ...]` is the
+   quick local part (fmt, clippy `-D warnings`, tests, rustdoc `-D warnings`,
+   changelog, lockfiles, licences, `paperpaw-checks`, and `rustfmt` on changed
+   files of `shells/xteink` and `fuzz`, which `cargo fmt` does not reach;
+   `--features` adds a
+   feature set). It runs every step, prints a summary and exits non-zero if
+   any step failed: do not pipe it through `grep`, and read the exit code or
+   the summary, not a marker line.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
    limited, and a draft pull request skips full CI; the lightweight
-   changelog check still runs.
+   changelog check still runs. Push runs on `main` and the integration
+   branches are never cancelled; a red one is triaged by QA, who names the
+   failing jobs and their owners.
 
    The full run includes the inactive stable ABI's `abi` group. Set
    `ABI_BASE_REV` to the exact 40-character reviewed PR-base commit and set

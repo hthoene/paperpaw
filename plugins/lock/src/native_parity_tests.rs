@@ -190,7 +190,7 @@ fn the_keypad_enters_deletes_and_submits() {
     assert_eq!(pin.digits(), "123");
     assert_eq!(
         pin.press(key("OK")).unwrap(),
-        native::Pressed::Submit(String::from("123"))
+        native::Pressed::Submit(native::Code::new(String::from("123")))
     );
     assert!(pin.is_empty());
     // Deleting nothing is harmless.

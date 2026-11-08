@@ -10,10 +10,10 @@ fn the_books_with_notes_are_listed_with_their_counts() {
 }
 
 #[test]
-#[ignore = "needs core.files (PR #339) for the part file and the rename over the old file, and op 4 for the cut values (1,024 B parts)"]
+#[ignore = "the walk and the entries are tested (src/native_export_tests.rs); the staging in the data folder and the move onto the card with replace need a host with storage and core.files (the scripted host has neither)"]
 fn the_export_is_written_to_a_part_file_and_replaces_the_old_one_when_whole() {
     unreachable!(
-        "Exports/My Clippings.txt.part appended in 6 KiB pieces, renamed when whole, removed on a refusal"
+        "export.part staged in 4 KiB pieces, moved to Exports/My Clippings.txt with replace when whole, removed on a refusal"
     );
 }
 

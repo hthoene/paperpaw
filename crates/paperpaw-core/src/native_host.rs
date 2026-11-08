@@ -44,6 +44,7 @@ pub mod host_slot;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
+pub use ui_service::check_ask;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -124,7 +125,7 @@ pub(crate) mod format_index;
 )]
 pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
-mod formatting;
+pub mod formatting;
 pub(crate) mod host_services;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
@@ -258,12 +259,21 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_menus.rs"]
+#[allow(
+    dead_code,
+    reason = "core.registry op 11 (Core) reads the declared menus through it"
+)]
+pub(crate) mod native_menus;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+mod native_resources;
 
+#[path = "native_host/native_action.rs"]
+pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
 

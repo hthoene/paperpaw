@@ -1,0 +1,50 @@
+//! Acceptance of the interface-7 translation plugin, pending on the host and
+//! the later slices. The interface-6 test (`tests/panel.rs`) drives a kernel
+//! and stays as the reference; none of these cases passes by itself.
+#![allow(clippy::unwrap_used, reason = "acceptance assertions")]
+#[path = "../../test-support/pending.rs"]
+mod pending;
+use pending::Case;
+
+const CASES: [Case; 3] = [
+    Case {
+        name: "the-panel-is-drawn-over-the-lower-part-of-the-page",
+        golden: None,
+        blocked_by: &["kernel-backed-pixel-harness"],
+    },
+    Case {
+        name: "the-language-setting-is-in-the-reading-settings",
+        golden: None,
+        blocked_by: &["draft-29-choice-limit-64"],
+    },
+    Case {
+        name: "the-readers-translate-action-opens-the-panel-with-the-selected-text",
+        golden: None,
+        blocked_by: &["slot-offers-522", "reader-translate-slot-host"],
+    },
+];
+
+#[test]
+fn every_case_still_has_its_reference() {
+    for case in &CASES {
+        assert!(case.golden_exists(), "{}", case.name);
+    }
+}
+
+#[test]
+#[ignore = "BLOCKED: a pixel harness backed by the kernel (as Battery's), for the panel's drawing"]
+fn the_panel_is_drawn() {
+    CASES[0].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED: draft 29 raises a choice to 64 values; the setting is built and tested to be refused until then"]
+fn the_language_setting_is_there() {
+    CASES[1].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED: #522 (the host admits slot offers) and the reader's slot host"]
+fn the_reader_opens_the_panel() {
+    CASES[2].refuse().unwrap();
+}

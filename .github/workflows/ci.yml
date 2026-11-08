@@ -24,11 +24,13 @@ on:
       - "AGENTS.md"
       - ".claude/**"
 
-# A newer push to the same branch or PR cancels the run before it; main keeps
-# a full result for every commit.
+# A newer push to the same pull request cancels the run before it. Push
+# runs (main, integration, abi7/integration) each get their own group, keyed
+# by commit, so none is cancelled or replaced while queued and every merge
+# keeps a full result.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -337,6 +339,16 @@ jobs:
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
+      # default and so not in the lint and build above; the X4's own job
+      # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
+      # as above.
+      - name: Lint and build the S3 with interface-7 plugins
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
+        working-directory: shells/xteink
+        run: |
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
       - name: The install image fits CrossPoint's slot
@@ -389,6 +401,22 @@ jobs:
           tools/plugin-files/sign.sh "$out" target/release/paperpaw-sign --key "$RUNNER_TEMP/ci.key"
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # Interface 7 (decision 142): every first-party plugin with a native
+      # entry builds and links for the ESP32-S3 (espup's compiler, the
+      # release's core libraries). Packing waits for the target-9 profile of
+      # abi/ppn5.md; until then this is the build, not the file. The X4 Classic
+      # runs the X4 Pro's code, so one device builds it.
+      - name: The interface-7 plugins build for the S3
+        if: matrix.device == 'x4-pro'
+        run: |
+          # Exit 4 is "pending": the S3's generated ABI metadata does not exist
+          # yet. Shown as a notice, never as a pass; every other failure fails.
+          rc=0
+          tools/plugin-files7/build.sh x4-pro "$RUNNER_TEMP/plugins7-s3" || rc=$?
+          if [[ $rc = 4 ]]; then
+            echo "::notice title=S3 interface-7 plugins::NOT BUILT: the target-9 metadata profile is not there yet (decision 142)"
+          fi
+          [[ $rc = 0 || $rc = 4 ]]
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
@@ -587,6 +615,8 @@ jobs:
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback
         run: python3 -m unittest discover -s tools -p "test_ci_tools.py"
+      - name: The local check script fails when a step fails
+        run: python3 -m unittest discover -s tools -p "test_check_local.py"
       - name: The lockfile check finds a stale version and a left-over entry
         run: python3 -m unittest discover -s tools -p "test_check_lockfiles.py"
       - name: Android takes each version over the ones before it, as the update plugin orders them

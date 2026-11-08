@@ -1536,6 +1536,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-dictionary",
@@ -1583,6 +1584,7 @@ dependencies = [
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
+ "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
@@ -1888,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -1896,6 +1898,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2091,6 +2094,7 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
@@ -2291,14 +2295,16 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2359,10 +2365,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-notes-vault"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-default",
@@ -2370,6 +2377,7 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-plugin-reader",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2510,6 +2518,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2558,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2573,6 +2582,8 @@ dependencies = [
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
+ "proptest",
 ]
 
 [[package]]
@@ -2597,9 +2608,12 @@ version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2629,6 +2643,7 @@ dependencies = [
  "paperpaw-plugin-sleep",
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2679,11 +2694,14 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "proptest",
 ]
 
 [[package]]
@@ -2754,6 +2772,7 @@ name = "paperpaw-scripted-host"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
 ]

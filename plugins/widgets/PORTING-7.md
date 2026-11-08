@@ -158,6 +158,17 @@ reading and by the kit's own sweeps.
   and have no refusal sweep until a mock host exists. Ignored case
   `widgets-todo-ticks-on-tap` (H1/H3/H4).
 
+
+## No writable statics
+
+A native plugin file may have no writable `.data` or `.bss` (the interface-7 file pipeline,
+`tools/plugin-files7`, refuses to pack it). The quote's count of showings (`SHOWINGS` and
+`COUNTED_AT`, two atomics) was the only such state; it is now `native_quote::Showings` held by
+`NativeWidgets` beside the to-do `Cache`, passed to the quote's drawing and tick code
+(`draw_with`, `shows_with`) as the to-do list's cache is. The rule is unchanged (a showing counts once a
+minute at most, in memory only); the count now starts at zero with each plugin instance. Checked with
+`tools/plugin-files7/build.sh x4 <out> --only widgets`: packs, no writable data symbols left.
+
 ## Battery (widget)
 
 - The battery (`widgets.battery`, category device): the charge large beside a
