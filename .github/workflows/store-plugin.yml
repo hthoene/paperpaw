@@ -113,13 +113,13 @@ jobs:
       store: ${{ steps.source.outputs.store }}
     steps:
       # This workflow's own scripts.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           persist-credentials: false
       # The source to publish: data to the scripts, never run by them.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
@@ -219,7 +219,7 @@ jobs:
       DEVICE: ${{ matrix.device }}
       LIST: ${{ needs.check.outputs.plugins }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
@@ -256,7 +256,7 @@ jobs:
           for id in $(jq -r '.[] | select(.kind == "code") | .id' <<< "$LIST"); do
             tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT" --only "$id"
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-${{ matrix.device }}
           path: dist/plugins/*.ppn
@@ -275,11 +275,11 @@ jobs:
       # Nothing of the source here: this workflow's own checkout builds the
       # signing tool, checks the build's files and signs them (audit O-17:
       # the key is on the disk only while the files are signed).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: unsigned-*
           path: dist/unsigned
@@ -334,7 +334,7 @@ jobs:
           want=$(( 3 * $(jq '[.[] | select(.kind == "code")] | length' <<< "$LIST") ))
           have=$(ls dist/signed/*.ppn | wc -l)
           [[ "$have" -eq "$want" ]] || { echo "::error::expected $want signed files, found $have"; exit 1; }
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signed
           path: dist/signed/*.ppn
@@ -353,11 +353,11 @@ jobs:
     steps:
       # The source's scripts run here (its folders and entries): no secret, a
       # token that reads. The release job takes only their ZIPs and sums.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.check.outputs.code == '1'
         with:
           name: signed
@@ -385,7 +385,7 @@ jobs:
             cp "$work/$id-$version.zip" dist/out/store/
           done < <(jq -r '.[] | "\(.id) \(.version) \(.kind)"' <<< "$LIST")
           ls -l dist/out
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: catalogue
           path: dist/out
@@ -411,16 +411,16 @@ jobs:
       LIST: ${{ needs.check.outputs.plugins }}
       STORE: ${{ needs.check.outputs.store }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.check.outputs.code == '1'
         with:
           name: signed
           path: dist/signed
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: catalogue
           path: dist/out
@@ -484,7 +484,7 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" > /dev/null
             echo "tagged $tag"
           done < <(jq -r '.[] | "\(.id) \(.version)"' <<< "$LIST")
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && env.DRY_RUN == 'true'
         with:
           name: dry-run-plan

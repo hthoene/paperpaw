@@ -68,6 +68,28 @@ diagnostics = []
 outline = ["paperpaw-plugin-fonts-default/outline"]
 # Bitmap font packs next to the scalable fonts.
 packs = ["paperpaw-plugin-fonts-default/packs"]
+# The built-in plugins that are interface-7 native plugins already, linked
+# statically (`NATIVE_PLUGINS`, ADR 0034 "One path") instead of their interface-6
+# versions; the first-party list stays what Beta 3 built in.
+native-linked = [
+    "dep:paperpaw-plugin-about",
+    "dep:paperpaw-plugin-bluetooth",
+    "dep:paperpaw-plugin-help",
+    "dep:paperpaw-plugin-plugin-manager",
+    "dep:paperpaw-plugin-power",
+    "dep:paperpaw-plugin-setup",
+    "paperpaw-plugin-about/linked",
+    "paperpaw-plugin-bluetooth/linked",
+    "paperpaw-plugin-help/linked",
+    "paperpaw-plugin-plugin-manager/linked",
+    "paperpaw-plugin-power/linked",
+    "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-keyboard/linked",
+    "paperpaw-plugin-menu/linked",
+    "paperpaw-plugin-opds/linked",
+    "paperpaw-plugin-settings/linked",
+    "paperpaw-plugin-setup/linked",
+]
 
 [build-dependencies]
 paperpaw-i18n.workspace = true
@@ -120,6 +142,12 @@ paperpaw-plugin-wikipedia.workspace = true
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
 paperpaw-plugin-sleep.workspace = true
+paperpaw-plugin-about = { workspace = true, optional = true }
+paperpaw-plugin-bluetooth = { workspace = true, optional = true }
+paperpaw-plugin-setup = { workspace = true, optional = true }
+paperpaw-plugin-help = { workspace = true, optional = true }
+paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
+paperpaw-plugin-power = { workspace = true, optional = true }
 paperpaw-plugin-translate = { workspace = true, optional = true }
 paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
