@@ -162,7 +162,7 @@ registry has no values for it), as wide as the page and as high as measured (one
 is ported); a tool one cell; it is added to the other layout too. Only the pages whose text changes are written. All of a choice's writes (the
 settings, the placements a removed page's widgets set reset with `reset_setting`, the message) are
 staged in one callback, and an error return drops them all (`screens-input.md` 2.1), so a choice is
-all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say the no-room message and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
+all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say so ("This change is too big to save at once."), stage nothing and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
 
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
 

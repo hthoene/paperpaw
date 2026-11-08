@@ -293,8 +293,10 @@ impl AddScreen {
         let writes = match plan {
             Plan::Nothing => return Ok(()),
             Plan::NoRoom => return Self::say(host, "home.grid.no-room"),
+            // Over the host's budget for one callback: nothing is staged, the old
+            // layout stays.
             Plan::Writes(writes) if !add::fits(&writes, resets) => {
-                return Self::say(host, "home.grid.no-room");
+                return Self::say(host, "home.grid.too-big");
             }
             Plan::Writes(writes) => writes,
         };
