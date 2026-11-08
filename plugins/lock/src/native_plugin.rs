@@ -27,7 +27,7 @@ use paperpaw_ui_kit::{
 use crate::declarations::{NOW, RESUME, SCREEN, STARTED};
 use crate::native_clock;
 use crate::native_flow::{Context, Effect, Effects, Flow, Lockstate, Step};
-use crate::native_gate::{self as gate, Device, Door};
+use crate::native_gate::{self as gate, Bare, Device, Door};
 use crate::native_input::Act;
 use crate::native_model::{self as model, Code};
 use crate::native_screen::{Clock, View, prepare};
@@ -81,6 +81,8 @@ pub struct NativeLock {
     lock: Lockstate,
     screens: Screens<View>,
     door: Door,
+    /// A screen opened without a view (`gate::recover`).
+    bare: Bare<Instance>,
 }
 
 impl Plugin for NativeLock {
@@ -131,6 +133,7 @@ impl Plugin for NativeLock {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
+        self.recover(host)?;
         let now_ms = snapshot::capture_snapshot(host)?.instant().millis();
         let wait_left = if self.lock.attempts.waiting(now_ms) {
             self.lock.attempts.seconds_left(now_ms)
@@ -186,6 +189,7 @@ impl Plugin for NativeLock {
 
 impl NativeLock {
     fn take(&mut self, host: &Host<'_>, token: u32, input: &Input<'_>) -> Result<Handled, Error> {
+        self.recover(host)?;
         let Some(instance) = self.screens.top_instance(token) else {
             return Ok(Handled::No);
         };
@@ -203,6 +207,39 @@ impl NativeLock {
         self.carry_out(host, instance, &mut fx)?;
         Ok(handled)
     }
+}
+
+/// The guard policy of an unlock screen: nothing above it but its own (the
+/// keyboard of a password); others wait below until it is unlocked.
+fn guard(host: &Host<'_>, screens: &mut Screens<View>, instance: Instance) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).screen_policy(
+        Some(instance),
+        ScreenPolicy::new().guards().secret().holds_edges(),
+    )?;
+    if let Some(view) = screens.get(instance) {
+        view.guarded = true;
+    }
+    Ok(())
+}
+
+/// The view of a screen the host opened. A refusal of the guard policy comes
+/// after the view is made: it is set again when the screen shows.
+fn make_view(
+    host: &Host<'_>,
+    screens: &mut Screens<View>,
+    door: &mut Door,
+    instance: Instance,
+    unlock: bool,
+) -> Result<(), Error> {
+    let read = Read::new(host)?;
+    let flow = Flow::new(unlock, read.active, !read.touch);
+    screens.open(instance, View::new(flow))?;
+    if unlock {
+        door.opening = false;
+        guard(host, screens, instance)?;
+    }
+    Ok(())
 }
 
 /// The time of an input.
@@ -386,20 +423,6 @@ impl NativeLock {
         gate::lock_now(&HostDevice(host), &mut self.lock, &mut self.door)
     }
 
-    /// The guard policy of an unlock screen: nothing above it but its own
-    /// (the keyboard of a password); others wait below until it is unlocked.
-    fn guard(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).screen_policy(
-            Some(instance),
-            ScreenPolicy::new().guards().secret().holds_edges(),
-        )?;
-        if let Some(view) = self.screens.get(instance) {
-            view.guarded = true;
-        }
-        Ok(())
-    }
-
     /// Whether the handover says the screen is to unlock.
     fn unlocks(host: &Host<'_>, handover: Option<HandoverId>) -> Result<bool, Error> {
         let Some(handover) = handover else {
@@ -427,27 +450,39 @@ impl NativeLock {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        // A handover that cannot be read on a locked device is for unlocking.
+        // A handover that cannot be read is the lock screen's own on a locked
+        // device (it asks for the code: nothing is released, it only keeps the
+        // lock) and a setup screen where nothing is locked.
         let unlock = Self::unlocks(host, handover).unwrap_or(self.lock.locked);
-        let read = Read::new(host)?;
-        let flow = Flow::new(unlock, read.active, !read.touch);
-        self.screens.open(instance, View::new(flow))?;
-        if unlock {
-            self.door.opening = false;
-            // Refused here, it is set again when the screen shows.
-            self.guard(host, instance)?;
+        // Noted before anything can fail: whatever fails below, the view is made
+        // when the screen shows, draws or takes an input.
+        self.bare.note(instance, unlock);
+        self.recover(host)
+    }
+
+    /// Makes the view of a screen that has none.
+    fn recover(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some((instance, _)) = self.bare.needs() else {
+            return Ok(());
+        };
+        if self.screens.top_instance(SCREEN).is_none() {
+            self.screens.shown(SCREEN, instance)?;
         }
-        Ok(())
+        let (screens, door) = (&mut self.screens, &mut self.door);
+        gate::recover(&mut self.bare, |instance, unlock| {
+            make_view(host, screens, door, instance, unlock)
+        })
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        self.recover(host)?;
         let unguarded = self
             .screens
             .get(instance)
             .is_some_and(|view| view.flow.step() == Step::Unlock && !view.guarded);
         if unguarded {
-            self.guard(host, instance)?;
+            guard(host, &mut self.screens, instance)?;
         }
         let read = Read::new(host)?;
         let now_ms = snapshot::capture_snapshot(host)?.instant().millis();
@@ -473,6 +508,7 @@ impl NativeLock {
     /// Something closed the lock screen while locked: it opens again.
     fn closed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.screens.close(instance);
+        self.bare.forget(instance);
         self.door.opening = false;
         // Whatever closed, a locked device with no unlock screen gets one (also
         // where the closed screen never got its view).

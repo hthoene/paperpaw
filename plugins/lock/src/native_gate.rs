@@ -181,3 +181,55 @@ pub fn woke(device: &impl Device, lock: &mut Lockstate, door: &mut Door) -> Resu
     let repaired = repair(device, &stored);
     settle(asked, locked.and(read).and(repaired))
 }
+
+/// A screen the host opened whose view could not be made (a refused allocation
+/// or read): it is made when the screen shows, draws or takes an input, so
+/// that the screen never stays blank. One at a time: the host shows one lock
+/// screen at once.
+#[derive(Debug, Clone, Copy)]
+pub struct Bare<I> {
+    screen: Option<(I, bool)>,
+}
+
+impl<I> Default for Bare<I> {
+    fn default() -> Self {
+        Self { screen: None }
+    }
+}
+
+impl<I: Copy + PartialEq> Bare<I> {
+    /// `instance` was opened (to unlock, or not) and has no view yet.
+    pub fn note(&mut self, instance: I, unlock: bool) {
+        self.screen = Some((instance, unlock));
+    }
+
+    /// The screen that waits for its view.
+    #[must_use]
+    pub fn needs(&self) -> Option<(I, bool)> {
+        self.screen
+    }
+
+    /// `instance` is closed: nothing waits for it.
+    pub fn forget(&mut self, instance: I) {
+        if self.screen.is_some_and(|(waiting, _)| waiting == instance) {
+            self.screen = None;
+        }
+    }
+}
+
+/// Makes the view of the screen that waits for one with `make` (its instance
+/// and whether it unlocks); what `make` refuses leaves the screen waiting.
+///
+/// # Errors
+/// What `make` refused.
+pub fn recover<I: Copy + PartialEq>(
+    bare: &mut Bare<I>,
+    make: impl FnOnce(I, bool) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let Some((instance, unlock)) = bare.needs() else {
+        return Ok(());
+    };
+    make(instance, unlock)?;
+    bare.forget(instance);
+    Ok(())
+}

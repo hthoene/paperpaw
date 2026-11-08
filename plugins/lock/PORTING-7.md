@@ -80,3 +80,21 @@ of two new codes), the kit's list of four kinds and the geometry of the last fra
 A frame prepares at most a few hundred operations (about 60 for the keypad, 30 for the pattern), 
 freed at the end of the draw. The secrets calls use two 2 KiB buffers, the password read two
 4 KiB buffers, all wiped and freed in the callback. No static data.
+
+## Fail-closed rules (review of the lock slice 2b)
+
+- The code kept decides the lock, never the kind setting (`native_gate::active`): a reset or a plain
+  list of choices may set the kind to `off` while the code stays; the kind is put back at the start
+  and when the device wakes, after the lock.
+- Starting, waking and *Lock now* lock first (`native_gate`). An error returned from a callback drops
+  the commands it staged (screens-input.md 2.1), so once the unlock screen is staged the callback
+  returns `Ok` and what failed after it is left for the next occasion (the kind, the tries). The
+  device counts as locked before the screen is asked for; a locked device with no unlock screen gets
+  one at *Lock now*, at waking and whenever a screen closes.
+- Locked, an input that fails is taken (`Handled::Yes`), and so is one for an instance without a view.
+- A handover that cannot be read, on a locked device, opens the screen *as the lock screen*: it asks
+  for the code and releases nothing. The device is only ever unlocked by the right code
+  (`Flow::unlock`) or by the code no longer being kept (`Flow::released`).
+- A screen the host opened whose view could not be made (a refused allocation or read in `opened`)
+  is made when it shows, draws or takes an input (`native_gate::Bare`, `recover`): it never stays
+  blank.
