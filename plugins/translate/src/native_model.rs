@@ -159,6 +159,18 @@ pub fn authorization(key: &str) -> Result<Secret, Error> {
 pub struct Secret(String);
 
 impl Secret {
+    /// A copy of `text` that wipes itself when it is dropped.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn new(text: &str) -> Result<Self, Error> {
+        let mut copy = String::new();
+        copy.try_reserve_exact(text.len())
+            .map_err(|_| Error::NoMemory)?;
+        copy.push_str(text);
+        Ok(Self(copy))
+    }
+
     /// The text.
     #[must_use]
     pub fn as_str(&self) -> &str {

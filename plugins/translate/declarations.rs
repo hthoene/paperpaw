@@ -4,11 +4,14 @@
 //! yet), the panel's screen and its offer for the slot `core.translate`. The DeepL key is
 //! not a setting: it is kept with the secrets (`PORTING-7.md`).
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, ExtraDecl, Kind, ScreenDecl, SlotOfferDecl, SpecDecl,
+    Declarations, DeclareError, EventKind, ExtraDecl, Kind, ScreenDecl, SlotOfferDecl, SpecDecl,
 };
 
 /// The token of the panel's callbacks.
 pub const PANEL_TOKEN: u32 = 1;
+
+/// The token of the event that ends a request to DeepL (`core.net`).
+pub const HTTP_TOKEN: u32 = 2;
 
 /// The reading settings' group, as the settings name it.
 const GROUP: &str = "core.group.reading";
@@ -105,6 +108,16 @@ pub fn offer<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.slot_offer(SlotOfferDecl::new(SLOT, "translate.panel"))?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The end of a request: a request to `core.net` is refused without the
+/// subscription to `http_done`.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
     d.submit()?;
     Ok(())
 }
