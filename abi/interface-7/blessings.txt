@@ -64,3 +64,4 @@
 26 additive: xml::try_decode re-exported from paperpaw-xml (#510) (#228)
 26 additive: sort re-exported from paperpaw-sort (sort, sort_by, sort_by_key, sort_by_cached_key: one shared stable sorter) (#515) (#228)
 27 Settings.defaults_by keeps the replaced owner default (DefaultBy { by, was }) so remove_plugin restores a foreign default (#521, P1 of the built-in admission plan): a private field of an SDK type changes shape, so the next draft; no public item changes (#228)
+27 additive: native::work (Work: declare, cancel, state; WorkSpec, WorkList, WorkRows, WorkRow, Moment, Hold, Phase, retry_delay_ms and its constants) for core.work@1 (#548) (#228)
