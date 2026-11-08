@@ -23,6 +23,7 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+pub mod dialog;
 pub mod files;
 pub mod focus;
 pub mod geometry;
@@ -39,6 +40,7 @@ pub mod text;
 pub mod uitext;
 pub mod widget;
 
+pub use dialog::Dialog;
 pub use focus::{ListFocus, ListInput, Step};
 pub use items::{Footer, Item, ItemList, ItemStep, RowItem};
 pub use list::ListRenderer;
