@@ -173,7 +173,7 @@ fn languages() -> Vec<String> {
 fn ids_are_found_where_shown() {
     let app = App::new("en");
     assert!(app.is_id("core.status-font"));
-    assert!(app.is_id("about.title"));
+    assert!(app.is_id("core.settings-pages"));
     assert!(!app.is_id("Status lines"));
     assert!(!app.is_id("paperpaw.org"));
     assert!(!app.is_id("1.5"));
