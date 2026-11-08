@@ -77,8 +77,8 @@ struct Cached {
 }
 
 impl Cached {
-    fn is(&self, item: &str, context: &[u8]) -> bool {
-        self.key.iter().copied().eq(key_of(item, context))
+    fn is(&self, owner: u64, item: &str, context: &[u8]) -> bool {
+        self.key.iter().copied().eq(key_of(owner, item, context))
     }
 }
 
@@ -92,41 +92,50 @@ pub(crate) struct StatusCache {
     next: usize,
 }
 
-fn key_of<'a>(item: &'a str, context: &'a [u8]) -> impl Iterator<Item = u8> + 'a {
-    item.bytes()
+/// The owner (8 bytes), the item, `0xff`, the context: an item re-declared by
+/// another plugin never reads the earlier owner's value.
+fn key_of<'a>(owner: u64, item: &'a str, context: &'a [u8]) -> impl Iterator<Item = u8> + 'a {
+    owner
+        .to_le_bytes()
+        .into_iter()
+        .chain(item.bytes())
         .chain(core::iter::once(0xff))
         .chain(context.iter().copied())
 }
 
 impl StatusCache {
-    fn get(&self, item: &str, context: &[u8]) -> Option<&[u8]> {
+    pub(crate) fn get(&self, owner: u64, item: &str, context: &[u8]) -> Option<&[u8]> {
         self.entries
             .iter()
-            .find(|e| e.is(item, context))
+            .find(|e| e.is(owner, item, context))
             .map(|e| e.text.as_slice())
     }
 
-    fn put(&mut self, item: &str, context: &[u8], private: bool, text: &str) {
-        if item.len() + 1 + context.len() > KEY_MAX {
+    pub(crate) fn put(
+        &mut self,
+        owner: u64,
+        item: &str,
+        context: &[u8],
+        private: bool,
+        text: &str,
+    ) {
+        let length = 8 + item.len() + 1 + context.len();
+        if length > KEY_MAX {
             return;
         }
         let mut key = Vec::new();
         let mut bytes = Vec::new();
-        if key
-            .try_reserve_exact(item.len() + 1 + context.len())
-            .is_err()
-            || bytes.try_reserve_exact(text.len()).is_err()
-        {
+        if key.try_reserve_exact(length).is_err() || bytes.try_reserve_exact(text.len()).is_err() {
             return;
         }
-        key.extend(key_of(item, context));
+        key.extend(key_of(owner, item, context));
         bytes.extend_from_slice(text.as_bytes());
         let entry = Cached {
             key,
             private,
             text: bytes,
         };
-        if let Some(at) = self.entries.iter().position(|e| e.is(item, context)) {
+        if let Some(at) = self.entries.iter().position(|e| e.is(owner, item, context)) {
             self.entries[at] = entry;
         } else if self.entries.len() < CACHE_MAX {
             if self.entries.try_reserve(1).is_ok() {
@@ -263,7 +272,9 @@ fn below_guard_gate(frame: &dyn Frame, who: &Caller<'_>) -> Result<(), i32> {
             (Some(guard), Some(at)) => {
                 at <= guard && ui_guard::guard_owner(view) != Some(who.owner)
             }
-            _ => false,
+            // A caller's screen the stack does not hold, under a guard: fail closed.
+            (Some(_), None) => ui_guard::guard_owner(view) != Some(who.owner),
+            (None, _) => false,
         };
     })?;
     if denied {
@@ -443,12 +454,12 @@ fn classify(
             rows[at].flags = OWN;
         } else if declared.private && guarded {
             rows[at].flags = HIDDEN;
-        } else if let Some(text) = ui
-            .widgets
-            .cache
-            .try_borrow()
-            .map_err(|_| ERR_BUSY)?
-            .get(item, context)
+        } else if let Some(text) =
+            ui.widgets
+                .cache
+                .try_borrow()
+                .map_err(|_| ERR_BUSY)?
+                .get(declared.owner, item, context)
         {
             rows[at].set_text(text);
         } else {
@@ -476,6 +487,7 @@ fn fill_group(
     items: &[&str],
     lead: Pending,
     group: &[usize],
+    pending: &[Option<Pending>; ITEMS_MAX],
     rows: &mut [Value],
 ) -> Result<(), i32> {
     let mut ids = [""; ITEMS_MAX];
@@ -531,7 +543,14 @@ fn fill_group(
                 .cache
                 .try_borrow_mut()
                 .map_err(|_| ERR_BUSY)?
-                .put(items[at], context, lead.private, value.text);
+                // Each item's own flag, not the group's first (fail closed).
+                .put(
+                    lead.owner,
+                    items[at],
+                    context,
+                    pending[at].is_none_or(|p| p.private),
+                    value.text,
+                );
         }
     }
     Ok(())
@@ -583,6 +602,7 @@ pub(super) fn status_values(
             items,
             lead,
             &group[..members],
+            &pending,
             &mut rows,
         )?;
     }

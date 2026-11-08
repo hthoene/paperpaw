@@ -491,28 +491,28 @@ fn a_heap_refusal_is_no_memory_and_hands_out_nothing() {
 #[test]
 fn the_cache_compares_whole_keys_holds_sixteen_and_skips_long_ones() {
     let mut cache = StatusCache::default();
-    cache.put("a.one", b"ctx", false, "v");
+    cache.put(1, "a.one", b"ctx", false, "v");
     // The same item under another context, or another item, is a miss.
-    assert_eq!(cache.get("a.one", b"ctx"), Some(&b"v"[..]));
-    assert_eq!(cache.get("a.one", b"cty"), None);
-    assert_eq!(cache.get("a.on", b"ectx"), None);
-    assert_eq!(cache.get("a.one", b""), None);
+    assert_eq!(cache.get(1, "a.one", b"ctx"), Some(&b"v"[..]));
+    assert_eq!(cache.get(1, "a.one", b"cty"), None);
+    assert_eq!(cache.get(1, "a.on", b"ectx"), None);
+    assert_eq!(cache.get(1, "a.one", b""), None);
     // A key over 128 bytes is not cached.
-    cache.put("a.one", &[7; 128], false, "long");
-    assert_eq!(cache.get("a.one", &[7; 128]), None);
+    cache.put(1, "a.one", &[7; 128], false, "long");
+    assert_eq!(cache.get(1, "a.one", &[7; 128]), None);
     // 16 entries; the 17th replaces the oldest, the second the next oldest.
     cache.clear();
     for n in 0..16_u8 {
-        cache.put("i", &[n], false, "x");
+        cache.put(1, "i", &[n], false, "x");
     }
-    cache.put("i", &[16], false, "y");
+    cache.put(1, "i", &[16], false, "y");
     assert_eq!(cache.entries.len(), 16);
-    assert_eq!(cache.get("i", &[0]), None);
-    assert_eq!(cache.get("i", &[1]), Some(&b"x"[..]));
-    assert_eq!(cache.get("i", &[16]), Some(&b"y"[..]));
-    cache.put("i", &[17], false, "z");
-    assert_eq!(cache.get("i", &[1]), None);
-    assert_eq!(cache.get("i", &[2]), Some(&b"x"[..]));
+    assert_eq!(cache.get(1, "i", &[0]), None);
+    assert_eq!(cache.get(1, "i", &[1]), Some(&b"x"[..]));
+    assert_eq!(cache.get(1, "i", &[16]), Some(&b"y"[..]));
+    cache.put(1, "i", &[17], false, "z");
+    assert_eq!(cache.get(1, "i", &[1]), None);
+    assert_eq!(cache.get(1, "i", &[2]), Some(&b"x"[..]));
 }
 
 #[test]
@@ -548,5 +548,42 @@ fn a_screen_below_another_plugins_guard_gets_denied_for_status_and_may_still_dro
         w.drop_widget(ME, id).unwrap();
         // The guard's own plugin is not denied.
         assert!(w.status(A, "a.one").is_ok());
+    });
+}
+
+#[test]
+fn a_caller_screen_missing_from_the_stack_is_denied_under_a_guard_and_fine_without() {
+    world(|w| {
+        w.instance.set(Some(77));
+        assert!(w.status(ME, "a.one").is_ok());
+        w.rows.borrow_mut().push(row(9, A, true));
+        assert_eq!(w.status(ME, "a.one").err(), Some(ERR_DENIED));
+        assert_eq!(w.line(ME, "a.line").err(), Some(ERR_DENIED));
+        // The guard's own plugin is not denied.
+        assert!(w.status(A, "a.one").is_ok());
+    });
+}
+
+#[test]
+fn each_item_keeps_its_own_private_flag_in_a_group_and_cache_keys_hold_the_owner() {
+    world(|w| {
+        // a.one is public, a.priv private, both owner A, token 1, one group.
+        w.reply(
+            A,
+            1,
+            Ok(values(&[("a.one", 0, "open"), ("a.priv", 0, "secret")])),
+        );
+        w.status(ME, "a.one\na.priv").unwrap();
+        w.status(ME, "a.priv\na.one").unwrap();
+        {
+            let cache = w.hosts.ui().unwrap().widgets.cache.borrow();
+            assert_eq!(cache.get(A, "a.priv", b"ctx"), Some(&b"secret"[..]));
+            // Another owner's item of the same name is another key.
+            assert_eq!(cache.get(A + 1, "a.priv", b"ctx"), None);
+        }
+        w.hosts.ui().unwrap().guard_started().unwrap();
+        let cache = w.hosts.ui().unwrap().widgets.cache.borrow();
+        assert_eq!(cache.get(A, "a.priv", b"ctx"), None);
+        assert_eq!(cache.get(A, "a.one", b"ctx"), Some(&b"open"[..]));
     });
 }
