@@ -6,13 +6,20 @@ use super::*;
 use alloc::{vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 
-const KINDS: [Kind; 6] = [
+const KINDS: [Kind; KIND_COUNT] = [
     Kind::Group,
     Kind::Spec,
     Kind::Extra,
     Kind::Hyphenation,
     Kind::Face,
     Kind::Extension,
+    Kind::Screen,
+    Kind::Action,
+    Kind::Widget,
+    Kind::WidgetPlace,
+    Kind::StatusItem,
+    Kind::StatusLine,
+    Kind::StatusPlace,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -23,6 +30,9 @@ struct Image {
     denied: Cell<usize>,
 }
 impl ImageOwner for Image {
+    fn plugin_id(&self) -> &str {
+        "fixture"
+    }
     fn generation(&self) -> u32 {
         self.generation.get()
     }
@@ -372,7 +382,12 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
     assert!(construction.declarations().is_empty());
     assert!(matches!(
-        construction.commit(|_| {}),
+        construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {}
+        }),
         Err(super::super::Error::DeclarationViewsUnavailable)
     ));
 }
@@ -863,4 +878,262 @@ fn changed_image_font_names_are_unique_across_face_and_extension_runs() {
         assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
         assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
     }
+}
+
+struct CleanupContext {
+    store: Rc<RefCell<DeclarationStore>>,
+    busy: Cell<bool>,
+    destroyed: Rc<Cell<bool>>,
+    reports: Rc<Cell<usize>>,
+}
+impl CleanupContext {
+    fn teardown() -> super::super::Teardown<Self> {
+        use super::super::{Error, Teardown};
+        Teardown {
+            report: |context, step, error| {
+                assert_eq!(step, super::super::TeardownStep::Cancel);
+                assert_eq!(error, Error::Busy);
+                context.reports.set(context.reports.get() + 1);
+            },
+            cancel: |context| {
+                if context.busy.replace(false) {
+                    Err(Error::Busy)
+                } else {
+                    Ok(())
+                }
+            },
+            release: |context| {
+                context
+                    .store
+                    .try_borrow_mut()
+                    .map_err(|_| Error::Busy)?
+                    .remove_owner(&Id::new_static("fixture"), 1);
+                Ok(())
+            },
+            destroy: |context| context.destroyed.set(true),
+        }
+    }
+}
+struct CleanupModule {
+    store: Rc<RefCell<DeclarationStore>>,
+    batch_live: Rc<Cell<bool>>,
+    destroyed: Rc<Cell<bool>>,
+    unmapped: Rc<Cell<bool>>,
+}
+impl Drop for CleanupModule {
+    fn drop(&mut self) {
+        assert!(
+            keys(&self.store.borrow()).is_empty(),
+            "declarations must be removed first"
+        );
+        assert!(!self.batch_live.get(), "batch must be dropped first");
+        assert!(self.destroyed.get());
+        self.unmapped.set(true);
+    }
+}
+struct CleanupBatchRecord(Rc<Cell<bool>>);
+impl Drop for CleanupBatchRecord {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+#[test]
+fn busy_cleanup_releases_declarations_and_batch_before_module_unmap() {
+    check_busy_cleanup(false);
+}
+
+#[test]
+fn busy_fallback_releases_declarations_and_batch_before_module_unmap() {
+    check_busy_cleanup(true);
+}
+
+fn check_busy_cleanup(fallback: bool) {
+    use super::super::{Error, HostOwner};
+    let store = Rc::new(RefCell::new(DeclarationStore::default()));
+    let batch_live = Rc::new(Cell::new(true));
+    let destroyed = Rc::new(Cell::new(false));
+    let reports = Rc::new(Cell::new(0));
+    let unmapped = Rc::new(Cell::new(false));
+    let source = image();
+    let source_guard = Rc::downgrade(&source);
+    let mut allocations = Allocations::default();
+    store
+        .borrow_mut()
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    drop(source);
+    let owner = Box::pin(HostOwner::new(
+        CleanupContext {
+            store: Rc::clone(&store),
+            busy: Cell::new(true),
+            reports: Rc::clone(&reports),
+            destroyed: Rc::clone(&destroyed),
+        },
+        CleanupModule {
+            store: Rc::clone(&store),
+            batch_live: Rc::clone(&batch_live),
+            destroyed: Rc::clone(&destroyed),
+            unmapped: Rc::clone(&unmapped),
+        },
+    ));
+    let mut construction = owner.as_ref().begin("fixture").unwrap();
+    assert!(
+        construction
+            .stage(CleanupBatchRecord(Rc::clone(&batch_live)))
+            .is_ok()
+    );
+    let batch = construction.commit(CleanupContext::teardown()).unwrap();
+    if fallback {
+        drop(batch);
+        assert!(!batch_live.get());
+    } else {
+        assert_eq!(owner.as_ref().prepare_teardown(), Err(Error::Busy));
+        assert!(!keys(&store.borrow()).is_empty());
+        assert!(batch_live.get() && !unmapped.get());
+        owner.as_ref().prepare_teardown().unwrap();
+        assert!(keys(&store.borrow()).is_empty());
+        assert!(
+            source_guard.upgrade().is_none(),
+            "store's module guard released immediately"
+        );
+        assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
+        drop(batch);
+        assert!(!batch_live.get());
+        owner.as_ref().finish().unwrap();
+        assert!(destroyed.get() && !unmapped.get());
+    }
+    drop(owner);
+    assert_eq!(reports.get(), usize::from(fallback));
+    assert!(source_guard.upgrade().is_none());
+    assert!(
+        unmapped.get(),
+        "module actually unmapped after both releases"
+    );
+}
+
+#[path = "declaration_screen_action_tests.rs"]
+mod screen_action;
+
+// A mixed batch retains this unnamed record without giving it a Kind index.
+// REG admission remains separately gated until the catalog producer is wired.
+fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
+    let source = image();
+    let records = [
+        Record::SettingGroup(SettingGroup {
+            name: "group",
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        }),
+        Record::Registration(Registration::Draw { token: 17 }),
+    ];
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    let offset = super::super::raw_declarations::offsets(&bytes, records.len()).unwrap()[1];
+    *source.bytes.borrow_mut() = bytes;
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    store
+        .prepare(
+            pending(&source, owned, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let key = DeclKey {
+        record: offset,
+        ..keys(&store)[0]
+    };
+    (source, store, key)
+}
+
+#[test]
+fn unnamed_record_visit_uses_both_backings_and_holds_the_owner_guard() {
+    for owned in [false, true] {
+        let (source, store, key) = unnamed_fixture(owned);
+        assert!(!store.with_record(key, &mut |_| panic!("unnamed indexed record")));
+        assert!(store.visit_record(key, &mut |record| {
+            assert!(matches!(
+                record,
+                Record::Registration(Registration::Draw { token: 17 })
+            ));
+            assert!(source.active.get());
+            assert!(source.bytes.try_borrow_mut().is_err());
+        }));
+    }
+}
+
+#[test]
+fn unnamed_visit_rejects_stale_missing_and_reused_owner_keys() {
+    for owned in [false, true] {
+        let (source, mut store, key) = unnamed_fixture(owned);
+        let refused: &mut dyn for<'a> FnMut(Record<'a>) =
+            &mut |_| panic!("invalid record reached reader");
+        source.generation.set(2);
+        assert!(!store.visit_record(key, refused));
+        source.generation.set(1);
+        source.live.set(false);
+        assert!(!store.visit_record(key, refused));
+        source.live.set(true);
+        assert!(!store.visit_record(
+            DeclKey {
+                owner: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                generation: 2,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                batch: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                record: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        assert!(!store.visit_record(key, refused));
+        let replacement = image();
+        let mut allocations = Allocations::default();
+        store
+            .prepare(
+                pending(&replacement, owned, &mut allocations).unwrap(),
+                &mut allocations,
+            )
+            .unwrap()
+            .commit();
+        assert!(!store.visit_record(key, refused));
+    }
+}
+
+#[test]
+fn unnamed_visit_revalidates_image_bytes_instead_of_caching_the_record() {
+    let (source, store, key) = unnamed_fixture(false);
+    let offset = usize::from(key.record);
+    let byte = source.bytes.borrow()[offset];
+    source.bytes.borrow_mut()[offset] = 0xff;
+    assert!(!store.visit_record(key, &mut |_| panic!("corrupt record")));
+    source.bytes.borrow_mut().truncate(offset);
+    assert!(!store.visit_record(key, &mut |_| panic!("truncated record")));
+    source.bytes.borrow_mut().resize(offset + 1, byte);
+    assert!(!store.visit_record(key, &mut |_| panic!("short record")));
 }

@@ -55,6 +55,10 @@ class Handbook(unittest.TestCase):
         # Nor the generated table of icon names: data with nothing to read, 53 KB zipped.
         self.assertNotIn(top + "src/paperpaw-sdk/icon_table.rs", names)
         self.assertIn(top + "src/paperpaw-sdk/icons.rs", names)
+        # Nor the SDK's private copies of the generated wire codecs.
+        self.assertFalse(any(n.startswith(top + "src/paperpaw-sdk/native/wire/") for n in names))
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/records_wire.rs", names)
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/settings_value.rs", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)
@@ -76,10 +80,21 @@ class Handbook(unittest.TestCase):
         # in: checked file by file against 23256027b, 3.57 MB). The interface-7
         # work to come adds more SDK code, so the bound is 4.5 MB: room for it,
         # still a limit that notices an asset or a generated file by mistake.
+        # And past 4.5 MB (4.55 MB at c82746881) with the rest of the interface-7
+        # round (#228), by 0.95 MB since the 3.60 MB of d6779acc2, all of it
+        # things a plugin author reads: the ABI contract docs (docs/abi, +161 KB
+        # zipped: the service chapters), PaperPaw's own plugins ported to the
+        # native interface (their sources are the examples: +522 KB over about
+        # 20 plugins, widgets +81 KB, stats, file-manager, notes-overview,
+        # keyboard, settings, mail ...), the SDK's native layer (+143 KB) and its
+        # API listing (+24 KB). Checked: no test, asset or generated table is in
+        # (the checks above), and the few generated source files are 31 KB zipped
+        # together. About 30 plugins are still to port and add their sources, so
+        # the bound is 5.5 MB; a stray asset or generated table still shows.
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.
-        self.assertLess(size, 4_500_000, "near 4.5 MB")
+        self.assertLess(size, 5_500_000, "near 5.5 MB")
 
 
 if __name__ == "__main__":

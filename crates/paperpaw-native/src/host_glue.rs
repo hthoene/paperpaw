@@ -25,9 +25,14 @@ mod generated {
 }
 
 pub use generated::{ENTRY_SYMBOL, METADATA_SYMBOL, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
+// The heap word and its context-free table (`abi/heap-word.md`).
+pub use generated::{
+    HEAP_ALIAS, HEAP_SECTION, HEAP_SYMBOL, PpHeap, read_heap_abort, read_heap_alloc,
+    read_heap_dealloc, read_heap_realloc,
+};
 pub use generated::{
     PLUGIN_PREFIX_BYTES, read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop,
-    read_plugin_size, read_plugin_state,
+    read_plugin_input, read_plugin_size, read_plugin_state,
 };
 
 pub use generated::{
@@ -292,6 +297,66 @@ unsafe extern "C" fn unsupported_text_measure(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_text_metrics(
+    _: *mut c_void,
+    _: u32,
+    _: f32,
+    _: *mut f32,
+    _: *mut f32,
+    _: *mut f32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_text_ink(
+    _: *mut c_void,
+    _: u32,
+    _: f32,
+    _: PpBytes,
+    _: *mut i32,
+    _: *mut i32,
+    _: *mut i32,
+    _: *mut i32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_canvas_clip(
+    _: *mut c_void,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_stage_run(
+    _: *mut c_void,
+    _: PpBytes,
+    _: u32,
+    _: PpBytes,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_service_call(
+    _: *mut c_void,
+    _: u32,
+    _: u32,
+    _: PpBytes,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_ui_compose(
+    _: *mut c_void,
+    _: u32,
+    _: u32,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -396,6 +461,13 @@ pub const fn host_table() -> PpHost {
         storage_sync: unsupported_storage_sync,
         i18n_format: unsupported_format,
         i18n_digits: unsupported_read,
+        text_metrics: unsupported_text_metrics,
+        text_ink: unsupported_text_ink,
+        canvas_clip: unsupported_canvas_clip,
+        stage_run: unsupported_stage_run,
+        service_open: unsupported_services_query,
+        service_call: unsupported_service_call,
+        ui_compose: unsupported_ui_compose,
     }
 }
 

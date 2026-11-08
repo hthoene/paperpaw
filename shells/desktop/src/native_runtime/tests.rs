@@ -362,3 +362,149 @@ fn a_segment_with_more_file_than_memory_or_past_the_file_gives_no_image() {
     let inside = elf_with_loads(&[(R, 0x100, 0x100, 0x200, 0x400)], 0x300);
     assert_eq!(read_only_segment(&inside, 0x1000, 0x110), (0x1100, 0x200));
 }
+
+#[test]
+fn metadata_omits_optional_features_and_names_unavailable_required_ones() {
+    let host = crate::host_services::desktop_host();
+    let key = "test.unimplemented";
+    for flags in [0_u16, 1, 2] {
+        let mut bytes = metadata_bytes();
+        for value in [(8 + key.len()) as u16, key.len() as u16, 1, flags] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(key.as_bytes());
+        let total = bytes.len() as u32;
+        bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4].copy_from_slice(&total.to_le_bytes());
+        bytes[wire::FEATURES..wire::FEATURES + 2].copy_from_slice(&1_u16.to_le_bytes());
+        let expected = match flags {
+            0 => Ok(1),
+            1 => Err(RuntimeError::RequiredFeature {
+                key: key.into(),
+                revision: 1,
+            }),
+            _ => Err(RuntimeError::Metadata),
+        };
+        assert_eq!(metadata(&bytes, host.table()), expected);
+    }
+}
+
+pub(super) fn service_metadata(key: &str, major: u16, revision: u16) -> Vec<u8> {
+    let mut bytes = metadata_bytes();
+    for value in [(12 + key.len()) as u16, key.len() as u16, major, revision] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(key.as_bytes());
+    let total = bytes.len() as u32;
+    bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4].copy_from_slice(&total.to_le_bytes());
+    bytes[wire::SERVICES..wire::SERVICES + 2].copy_from_slice(&1_u16.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn core_device_is_offered_by_the_emulator_and_not_by_the_data_catalog() {
+    let host =
+        paperpaw_core::native_host::shell::host_table::<crate::host_services::DesktopServices>();
+    let bytes = service_metadata("core.device", 1, 0);
+    let offered = crate::device_host::offered_services();
+    let checked = checked_metadata(&bytes, &host, offered).unwrap();
+    assert_eq!(checked.services().next().unwrap().key, "core.device");
+    // The catalog the X4 firmware uses does not carry it.
+    let data = paperpaw_core::native_host::shell::DATA_SERVICES;
+    assert!(matches!(
+        checked_metadata(&bytes, &host, data),
+        Err(RuntimeError::Metadata)
+    ));
+    for (major, revision) in [(2, 0), (1, 1)] {
+        let bytes = service_metadata("core.device", major, revision);
+        assert!(matches!(
+            checked_metadata(&bytes, &host, offered),
+            Err(RuntimeError::Metadata)
+        ));
+    }
+}
+
+#[test]
+fn data_service_admission_is_enabled_only_for_the_implemented_host() {
+    use paperpaw_core::native_host::shell::{DeclaredServices, host_table};
+    let host = host_table::<crate::host_services::DesktopServices>();
+    let catalog = paperpaw_core::native_host::shell::DATA_SERVICES;
+    assert_eq!(catalog.len(), 4);
+    for service in catalog {
+        let bytes = service_metadata(service.key, 1, 0);
+        let checked = checked_metadata(&bytes, &host, catalog).unwrap();
+        let declared = DeclaredServices::try_from_iter(checked.services()).unwrap();
+        assert_eq!(declared.count(), 1);
+        assert_eq!(checked.services().next().unwrap().key, service.key);
+        // The qualification-only loaders have no implemented data slots.
+        assert!(matches!(
+            checked_metadata(&bytes, &host, &[]),
+            Err(RuntimeError::Metadata)
+        ));
+        for (major, revision) in [(2, 0), (1, 1)] {
+            let bytes = service_metadata(service.key, major, revision);
+            assert!(matches!(
+                checked_metadata(&bytes, &host, catalog),
+                Err(RuntimeError::Metadata)
+            ));
+        }
+    }
+    let bytes = service_metadata("test.unknown", 1, 0);
+    assert!(matches!(
+        checked_metadata(&bytes, &host, catalog),
+        Err(RuntimeError::Metadata)
+    ));
+}
+
+#[test]
+fn desktop_feature_copy_outlives_metadata_and_never_grants_omitted_requests() {
+    use paperpaw_core::native_host::shell::DeclaredServices;
+    use paperpaw_native::metadata::{self, Feature, Host, Profile};
+    const FEATURES: &[Feature<'static>] = &[Feature {
+        key: "uses.registry",
+        revision: 1,
+    }];
+    for requested in [false, true] {
+        let declared = {
+            let mut bytes = metadata_bytes();
+            if requested {
+                let key = FEATURES[0].key;
+                for value in [
+                    u16::try_from(8 + key.len()).unwrap(),
+                    u16::try_from(key.len()).unwrap(),
+                    1,
+                    0,
+                ] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes.extend_from_slice(key.as_bytes());
+                let total = u32::try_from(bytes.len()).unwrap();
+                bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4]
+                    .copy_from_slice(&total.to_le_bytes());
+                bytes[wire::FEATURES..wire::FEATURES + 2].copy_from_slice(&1_u16.to_le_bytes());
+            }
+            // Model a future wired host; production WIRED_FEATURES stays empty.
+            let capabilities = Host {
+                abi_major: 7,
+                minor: 1,
+                profile: Profile {
+                    target: core::str::from_utf8(wire::PROFILE).unwrap(),
+                    entry_layout: u16::try_from(wire::PROFILE_ENTRY_LAYOUT).unwrap(),
+                    entry_bytes: u16::try_from(wire::PROFILE_ENTRY_BYTES).unwrap(),
+                },
+                services: &[],
+                features: FEATURES,
+            };
+            let checked = metadata::check(&bytes, &capabilities).unwrap();
+            DeclaredServices::try_from_metadata(&checked, FEATURES).unwrap()
+        };
+        assert_eq!(
+            declared.features().feature(FEATURES[0].key),
+            if requested {
+                Ok(())
+            } else {
+                Err(paperpaw_native::host_glue::ERR_DENIED)
+            }
+        );
+    }
+}

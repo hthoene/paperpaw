@@ -7,7 +7,7 @@
 
 use paperpaw_native::host_glue::ERR_INVALID;
 
-use super::registrations::{DrawFrame, Record, records_encode};
+use super::registrations::{DrawFrame, Record};
 
 /// `draw.frame.purpose`: what the drawing is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +23,8 @@ pub enum Purpose {
     Status,
     /// A widget.
     Widget,
+    /// A status line drawn whole by its owner (`docs/abi/ui.md` section 5.3).
+    StatusLine,
 }
 
 impl Purpose {
@@ -35,6 +37,7 @@ impl Purpose {
             Self::Insert => 2,
             Self::Status => 3,
             Self::Widget => 4,
+            Self::StatusLine => 5,
         }
     }
 }
@@ -76,7 +79,7 @@ pub fn encode(frame: &DrawFrame<'_>, out: &mut [u8]) -> Result<usize, i32> {
     if !(top <= clip_top && clip_top < clip_bottom && clip_bottom <= bottom) {
         return Err(ERR_INVALID);
     }
-    records_encode(&[Record::DrawFrame(*frame)], out)
+    super::codec::encode_batch(&[Record::DrawFrame(*frame)], out)
 }
 
 #[cfg(test)]

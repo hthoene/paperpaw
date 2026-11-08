@@ -6,6 +6,7 @@ mod lifecycle;
 
 use calls::{Depth, Instance};
 use lifecycle::{Error, Owner};
+use paperpaw_core::native_host;
 use std::{
     cell::{Cell, RefCell},
     marker::PhantomPinned,
@@ -22,7 +23,15 @@ fn context_address_stays_pinned_through_activation_dispatch_and_destruction() {
     let owner = tracked_owner(&state);
     let address = std::ptr::from_ref(owner.as_ref().context().get_ref());
     state.address.set(address);
-    owner.as_ref().activate(destroy).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy,
+        })
+        .unwrap();
     // Moving the owning pointer must not move the pinned context.
     let moved_owner = owner;
     let lease = moved_owner.as_ref().lease().unwrap();
@@ -44,12 +53,30 @@ fn admission_requires_activation_and_stops_at_revocation() {
     assert!(owner.is_constructing());
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     assert_eq!(owner.as_ref().finish(), Err(Error::State));
-    owner.as_ref().activate(ignore_context).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert!(!owner.is_constructing());
-    assert_eq!(owner.as_ref().activate(ignore_context), Err(Error::State));
+    assert_eq!(
+        owner.as_ref().activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
+        Err(Error::State)
+    );
     let lease = owner.as_ref().lease().unwrap();
     let called = Cell::new(false);
     owner.as_ref().revoke();
+    owner.as_ref().prepare_teardown().unwrap();
+    assert_eq!(owner.take_teardown_error(), None);
     owner.as_ref().revoke();
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     assert_eq!(
@@ -60,13 +87,29 @@ fn admission_requires_activation_and_stops_at_revocation() {
     drop(lease);
     owner.as_ref().finish().unwrap();
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
-    assert_eq!(owner.as_ref().activate(ignore_context), Err(Error::State));
+    assert_eq!(
+        owner.as_ref().activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
+        Err(Error::State)
+    );
 }
 
 #[test]
 fn different_leases_share_one_instance_guard() {
     let owner = Box::pin(Owner::new((), ()));
-    owner.as_ref().activate(ignore_context).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     let first = owner.as_ref().lease().unwrap();
     let second = owner.as_ref().lease().unwrap();
     let depth = Depth::new();
@@ -92,7 +135,15 @@ fn distinct_owners_obey_one_shared_depth_limit_and_recover() {
         Box::pin(Owner::new((), ())),
     ];
     for owner in &owners {
-        owner.as_ref().activate(ignore_context).unwrap();
+        owner
+            .as_ref()
+            .activate(lifecycle::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: ignore_context,
+            })
+            .unwrap();
     }
     let first = owners[0].as_ref().lease().unwrap();
     let second = owners[1].as_ref().lease().unwrap();
@@ -121,7 +172,15 @@ fn distinct_owners_obey_one_shared_depth_limit_and_recover() {
 #[test]
 fn eight_leases_are_allowed_and_releasing_one_restores_capacity() {
     let owner = Box::pin(Owner::new((), ()));
-    owner.as_ref().activate(ignore_context).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     let mut leases = Vec::new();
     for _ in 0..8 {
         leases.push(owner.as_ref().lease().unwrap());
@@ -145,7 +204,15 @@ fn revocation_during_dispatch_defers_destruction_until_every_lease_is_released()
     state
         .address
         .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
-    owner.as_ref().activate(destroy).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy,
+        })
+        .unwrap();
     let running = owner.as_ref().lease().unwrap();
     let queued = owner.as_ref().lease().unwrap();
     let depth = Depth::new();
@@ -172,7 +239,15 @@ fn finish_and_owner_drop_destroy_exactly_once_before_dependencies_drop() {
     state
         .address
         .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
-    owner.as_ref().activate(destroy).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy,
+        })
+        .unwrap();
     owner.as_ref().revoke();
     owner.as_ref().finish().unwrap();
     owner.as_ref().finish().unwrap();
@@ -191,7 +266,15 @@ fn owner_drop_also_destroys_an_activated_instance_exactly_once() {
     state
         .address
         .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
-    owner.as_ref().activate(destroy).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy,
+        })
+        .unwrap();
     drop(owner);
     assert_eq!(state.destroyed.get(), 1);
     assert_eq!(&*state.events.borrow(), &["destroy", "context", "module"]);
@@ -211,7 +294,15 @@ fn unactivated_owner_only_drops_its_host_dependencies() {
 #[test]
 fn callback_error_and_unwind_release_instance_and_depth_admission() {
     let owner = Box::pin(Owner::new((), ()));
-    owner.as_ref().activate(ignore_context).unwrap();
+    owner
+        .as_ref()
+        .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     let lease = owner.as_ref().lease().unwrap();
     let depth = Depth::new();
     assert_eq!(lease.dispatch(&depth, |_| Err::<(), _>(7)), Ok(Err(7)));
@@ -298,9 +389,22 @@ fn activation_with_first_lease_transfers_only_on_success() {
     state
         .address
         .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
-    let lease = owner.as_ref().activate_leased(destroy).unwrap();
+    let lease = owner
+        .as_ref()
+        .activate_leased(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy,
+        })
+        .unwrap();
     assert!(matches!(
-        owner.as_ref().activate_leased(destroy),
+        owner.as_ref().activate_leased(lifecycle::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy
+        }),
         Err(Error::State)
     ));
     owner.as_ref().revoke();

@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-menu-editor"
 description = "PaperPaw menu editor: reorders, removes and adds the entries of every menu on the device"
-version = "1.0.6"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,19 +10,23 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
-# By path alone: the app has this plugin built in, so a version here
-# would make the two wait for each other on crates.io; cargo publish
-# leaves a dev-dependency without one out.
-paperpaw-app = { path = "../../crates/paperpaw-app" }
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
-paperpaw-platform.workspace = true
 proptest.workspace = true
-paperpaw-plugin-fonts-default.workspace = true
 
 [lints]
 workspace = true

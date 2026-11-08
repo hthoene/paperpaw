@@ -111,6 +111,9 @@ pub mod semantics;
 pub mod served;
 pub mod services;
 pub mod setting;
+/// One shared, stable sorter: use it instead of `slice::sort_by` and its
+/// kin, which compile a copy per element type (see `paperpaw_sort`).
+pub use paperpaw_sort as sort;
 mod settings;
 pub mod setup;
 #[cfg(all(
@@ -173,7 +176,7 @@ pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use hyphenation::CardTable;
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
-pub use id::{Id, InvalidId};
+pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::{
     ItemState, ItemStateFn, MenuEntry, MenuItem, MenuNeed, MenuPlace, MenuSection, MenuView, Menus,
@@ -238,10 +241,11 @@ pub mod qr {
 /// The format-independent document model (see `paperpaw-document`).
 pub mod document {
     pub use paperpaw_document::{
-        Align, Block, BlockKind, Document, DocumentError, EmbeddedFont, ImageRef,
+        Align, Block, BlockKind, Document, DocumentError, EditError, EmbeddedFont, ImageRef,
         LETTER_SPACING_STEPS, LineStyle, Link, LinkKind, Locator, MAX_COLUMNS, MAX_FAMILIES,
         MAX_INLINE_LANGS, MAX_LETTER_SPACING, MIN_LETTER_SPACING, Metadata, OffsetMap,
-        PageProgression, Run, TableCell, TableRow, TextStyle, TocEntry, VerticalAlign, is_external,
+        PageProgression, Run, TableCell, TableRow, TextEdit, TextStyle, TocEntry, VerticalAlign,
+        is_external,
     };
 }
 
@@ -262,7 +266,7 @@ pub mod layout {
 
 /// Streaming XML/XHTML tokenizer (see `paperpaw-xml`) for format plugins.
 pub mod xml {
-    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name};
+    pub use paperpaw_xml::{Attrs, Token, Tokenizer, decode, escape, local_name, try_decode};
 }
 
 /// Streaming JPEG, PNG and GIF decoding to gray or colour (see

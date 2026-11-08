@@ -1,6 +1,38 @@
 //! Compact name index shared by construction checks and guarded lookups.
 use super::registrations::Record;
 
+/// Shared declaration categories. Slots 8..=15 belong to REG, 16..=22 to UIX.
+/// Services adds its entries here; every category fits the five-bit packed field.
+pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
+    ("setting.group", 0),
+    ("setting.spec", 1),
+    ("setting.extra", 2),
+    ("resource.hyphenation", 3),
+    ("resource.font", 4),
+    ("screen.spec", 5),
+    ("action.spec", 6),
+    ("stage.spec", 7),
+    ("setup.step", 8),
+    ("slot.spec", 9),
+    ("slot.offer", 10),
+    ("key.bind", 11),
+    ("setting.default", 12),
+    ("setting.choice", 13),
+    ("preset.spec", 14),
+    ("preset.value", 15),
+    ("input.spec", 16),
+    ("help.hint", 17),
+    ("widget.spec", 18),
+    ("widget.place", 19),
+    ("status.item", 20),
+    ("status.line", 21),
+    ("status.place", 22),
+];
+pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
+pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
+const KIND_MASK: u16 = 0x1f;
+const EXTENSION: u16 = 1 << 8;
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct NameEntry {
     pub(crate) hash: u32,
@@ -8,11 +40,30 @@ pub(crate) struct NameEntry {
     pub(crate) record_kind: u16,
 }
 impl NameEntry {
+    pub(crate) fn new(
+        hash: u32,
+        batch: u16,
+        kind: u8,
+        record: usize,
+        extension: bool,
+    ) -> Result<Self, i32> {
+        if u16::from(kind) > KIND_MASK || record >= super::registrations::REGISTRATION_MAX_RECORDS {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        Ok(Self {
+            hash,
+            batch,
+            record_kind: (u16::from(kind) << 3)
+                | (u16::from(extension) << 8)
+                | u16::try_from(record).map_err(|_| paperpaw_native::host_glue::ERR_INVALID)?,
+        })
+    }
+
     pub(crate) fn kind(self) -> u8 {
-        ((self.record_kind >> 3) & 7) as u8
+        ((self.record_kind >> 3) & KIND_MASK) as u8
     }
     pub(crate) fn is_extension(self) -> bool {
-        self.record_kind & (1 << 6) != 0
+        self.record_kind & EXTENSION != 0
     }
     pub(crate) fn record(self) -> usize {
         usize::from(self.record_kind & 7)
@@ -33,9 +84,85 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         // host finds them by name (`open_screen`, `run_action` use `<plugin>.<name>`).
         Record::ScreenSpec(r) => (5, r.name),
         Record::ActionSpec(r) => (6, r.name),
+        Record::StageSpec(r) => (STAGE_KIND, r.name),
+        Record::SetupStep(r) => (KIND_TABLE[8].1, r.name),
+        Record::SlotSpec(r) => (KIND_TABLE[9].1, r.name),
+        Record::SlotOffer(r) => (KIND_TABLE[10].1, r.slot),
+        Record::KeyBind(r) => (KIND_TABLE[11].1, r.layer),
+        Record::SettingDefault(r) => (KIND_TABLE[12].1, r.key),
+        Record::SettingChoice(r) => (KIND_TABLE[13].1, r.key),
+        Record::PresetSpec(r) => (KIND_TABLE[14].1, r.name),
+        Record::PresetValue(r) => (KIND_TABLE[15].1, r.preset),
+        Record::WidgetSpec(r) => (KIND_TABLE[18].1, r.name),
+        Record::WidgetPlace(r) => (KIND_TABLE[19].1, r.name),
+        Record::StatusItem(r) => (KIND_TABLE[20].1, r.name),
+        Record::StatusLine(r) => (KIND_TABLE[21].1, r.name),
+        Record::StatusPlace(r) => (KIND_TABLE[22].1, r.name),
         _ => return None,
     })
 }
+/// All unique-key fields, borrowed from the record without joining strings.
+fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
+    let (kind, name) = key(record)?;
+    let mut parts = [name, "", "", ""];
+    let len = match record {
+        Record::SlotOffer(r) => {
+            parts[1] = r.screen;
+            2
+        }
+        Record::KeyBind(r) => {
+            parts[1] = r.input;
+            parts[2] = r.when_key;
+            parts[3] = r.when_value;
+            4
+        }
+        Record::SettingChoice(r) => {
+            parts[1] = r.value;
+            2
+        }
+        Record::PresetValue(r) => {
+            parts[1] = r.key;
+            2
+        }
+        _ => 1,
+    };
+    Some((kind, parts, len))
+}
+
+pub(crate) fn record_hash(record: Record<'_>) -> Option<u32> {
+    let (kind, parts, len) = name_parts(record)?;
+    Some(if len == 1 {
+        name_hash(kind, parts[0])
+    } else {
+        composite_hash(kind, &parts[..len])
+    })
+}
+
+/// Hash equality never replaces comparison of every original key field.
+pub(crate) fn same_record_name(a: Record<'_>, b: Record<'_>) -> bool {
+    let (Some((ak, a, al)), Some((bk, b, bl))) = (name_parts(a), name_parts(b)) else {
+        return false;
+    };
+    ak == bk
+        && al == bl
+        && a[..al]
+            .iter()
+            .zip(&b[..bl])
+            .all(|(a, b)| same_name(ak, a, b))
+}
+
+pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bool {
+    let Some((actual_kind, parts, len)) = name_parts(record) else {
+        return false;
+    };
+    actual_kind == kind
+        && len == wanted.len()
+        && parts[..len]
+            .iter()
+            .zip(wanted)
+            .all(|(a, b)| same_name(kind, a, b))
+}
+
 pub(crate) fn same_name(kind: u8, a: &str, b: &str) -> bool {
     if kind == 3 {
         a.eq_ignore_ascii_case(b)
@@ -45,15 +172,36 @@ pub(crate) fn same_name(kind: u8, a: &str, b: &str) -> bool {
 }
 /// FNV-1a over the full relative name; language tags are case-insensitive.
 pub(crate) fn name_hash(kind: u8, name: &str) -> u32 {
-    name.bytes().fold(2_166_136_261, |hash, byte| {
-        let byte = if kind == 3 {
-            byte.to_ascii_lowercase()
-        } else {
-            byte
-        };
-        (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
-    })
+    composite_hash(kind, &[name])
 }
+
+/// Separate composite fields with a byte that cannot occur in an admitted id.
+/// Callers compare the original fields after a hash match, as for plain names.
+pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
+    let mut hash = 2_166_136_261_u32;
+    for (index, part) in parts.iter().enumerate() {
+        if index != 0 {
+            hash = (hash ^ u32::from(COMPOSITE_SEPARATOR)).wrapping_mul(16_777_619);
+        }
+        for byte in part.bytes() {
+            let byte = if kind == 3 {
+                byte.to_ascii_lowercase()
+            } else {
+                byte
+            };
+            hash = (hash ^ u32::from(byte)).wrapping_mul(16_777_619);
+        }
+    }
+    hash
+}
+
+const _: () = {
+    let mut index = 0;
+    while index < KIND_TABLE.len() {
+        assert!(KIND_TABLE[index].1 < 32);
+        index += 1;
+    }
+};
 const _: () = assert!(core::mem::size_of::<NameEntry>() == 8);
 
 // The low three bits of record_kind hold the record index.
@@ -133,5 +281,44 @@ mod sort_tests {
         let mut same = vec![7_u32; 300];
         sort_by_key(&mut same, |v| *v);
         assert!(same.iter().all(|v| *v == 7));
+    }
+}
+
+#[cfg(test)]
+mod packed_tests {
+    #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
+    use super::*;
+    #[test]
+    fn every_five_bit_kind_preserves_record_and_extension_in_eight_bytes() {
+        for kind in 0..=31 {
+            for record in 0..8 {
+                for extension in [false, true] {
+                    let entry = NameEntry::new(17, 3, kind, record, extension).unwrap();
+                    assert_eq!(
+                        (entry.kind(), entry.record(), entry.is_extension()),
+                        (kind, record, extension)
+                    );
+                    assert_eq!((entry.hash, entry.batch), (17, 3));
+                }
+            }
+        }
+        assert!(NameEntry::new(0, 0, 32, 0, false).is_err());
+        assert!(NameEntry::new(0, 0, 7, 8, false).is_err());
+        assert_eq!(core::mem::size_of::<NameEntry>(), 8);
+    }
+    #[test]
+    fn composite_keys_have_unambiguous_field_boundaries() {
+        assert_ne!(
+            composite_hash(STAGE_KIND, &["a", "bc"]),
+            composite_hash(STAGE_KIND, &["ab", "c"])
+        );
+        assert_eq!(
+            composite_hash(STAGE_KIND, &["a", "bc"]),
+            name_hash(STAGE_KIND, "a\u{1f}bc")
+        );
+        assert_eq!(name_hash(3, "en-US"), name_hash(3, "EN-us"));
+        for (index, (_, kind)) in KIND_TABLE.iter().enumerate() {
+            assert_eq!(usize::from(*kind), index);
+        }
     }
 }

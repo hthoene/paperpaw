@@ -46,6 +46,10 @@ impl Kernel {
         self.now = now;
         // While the reader waits for the network, what Wi-Fi says is theirs.
         self.shared.reader = self.io.http.reader_waits();
+        // Native plugins' join and host requests end by what the radio says.
+        if let Ok(mut table) = self.radio_requests.try_borrow_mut() {
+            table.on_wifi_event(&event);
+        }
         let Some(wifi) = &mut self.shared.wifi else {
             return self.finish();
         };
@@ -59,12 +63,14 @@ impl Kernel {
                     self.output.commands.push(events::WIFI_CHANGED.emit(()));
                     // Status lines show it (`wifi.status`).
                     self.output.commands.push(events::STATUS_CHANGED.emit(()));
+                    self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
+                    self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
             }
             WifiEvent::Scanned(mut networks) => {
                 // Strongest first, each name once (several access points
                 // may carry one network).
-                networks.sort_by_cached_key(|n| core::cmp::Reverse(n.signal));
+                paperpaw_sort::sort_by_cached_key(&mut networks, |n| core::cmp::Reverse(n.signal));
                 let mut seen: Vec<String> = Vec::new();
                 networks.retain(|n| {
                     let new = !n.ssid.is_empty() && !seen.contains(&n.ssid);

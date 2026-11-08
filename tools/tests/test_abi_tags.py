@@ -43,6 +43,8 @@ TEST_FILE = re.compile(r'^(tests?|test_\w+|\w+_tests?)\.rs$')
 COPIES = {
     'abi/generated/records_wire.rs': ['crates/paperpaw-core/src/abi7/records_wire.rs',
                                       'crates/paperpaw-sdk/src/native/declare/records_wire.rs'],
+    'abi/generated/commands_wire.rs': ['crates/paperpaw-core/src/abi7/commands_wire.rs',
+                                       'crates/paperpaw-sdk/src/native/wire/commands_wire.rs'],
 }
 
 
@@ -149,7 +151,10 @@ const CASES: &[(u32, &[u8])] = &[
         # Families that share a block on purpose: all declarations (submitted
         # through slot 16), and draw frames inside the input block.
         shared = {frozenset({'setting', 'resource', 'action', 'menu', 'screen', 'icon',
-                             'format', 'registration'}), frozenset({'input', 'draw'})}
+                             'format', 'registration', 'setup', 'slot', 'key', 'preset',
+                             'help', 'widget', 'status', 'reader', 'lookup', 'book_field',
+                             'book_badge', 'book_data'}),
+                  frozenset({'input', 'draw'})}
         top = {name: spans for name, spans in TAG_RANGES.items() if '.' not in name}
         for first, spans in top.items():
             for second, others in top.items():

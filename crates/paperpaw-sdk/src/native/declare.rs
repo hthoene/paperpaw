@@ -1,7 +1,8 @@
 //! Declaration records for native plugins (interface 7): a builder that writes
 //! the records `setting.group`, `setting.spec`, `setting.extra`,
-//! `resource.hyphenation`, `resource.font_face` and `resource.font_extension`
-//! (tags 5-10) with the generated encoder, as the batches a plugin submits
+//! `resource.hyphenation`, `resource.font_face`, `resource.font_extension`,
+//! `screen.spec`, `action.spec`, menu and icon records (tags 5-18), and event/draw callback
+//! registrations (tags 1-2) with the generated encoder, as the batches a plugin submits
 //! through `registrations.submit` while it is made.
 //!
 //! A plugin creates [`Declarations`] with a submission sink, adds borrowed
@@ -49,13 +50,38 @@ pub(crate) mod records_wire;
     dead_code,
     reason = "generated settings value codec (abi/generated/settings_value.rs, byte for byte)"
 )]
-mod settings_value;
+pub(crate) mod settings_value;
 
 use records_wire::{
-    Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, SettingExtra,
-    SettingGroup, SettingSpec, records_encode,
+    ActionSpec, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
+    SettingExtra, SettingGroup, SettingSpec, WireEncode, records_encode_of,
 };
 use settings_value::{SettingValueRef, settings_encode};
+
+mod format;
+pub use format::FormatDecl;
+mod lookup;
+pub use lookup::LookupProviderDecl;
+mod library;
+pub use library::BookFieldDecl;
+
+mod stages;
+pub use stages::{StageDecl, SubscribeDecl};
+
+mod uix;
+pub use uix::{
+    HelpHintDecl, InputDecl, InputKind, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
+    WidgetDecl, WidgetLayout, WidgetPlaceDecl,
+};
+mod registry;
+pub use registry::{
+    KeyBindingDecl, PresetDecl, PresetValueDecl, SetupPage, SetupStepDecl, SlotDecl, SlotOfferDecl,
+};
+
+mod callbacks;
+pub use callbacks::EventKind;
+mod menus;
+pub use menus::{EntryPlacement, MenuEntryDecl, MenuSectionDecl};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -347,14 +373,137 @@ impl<'a> FontExtensionDecl<'a> {
     }
 }
 
+/// How repeated opens of a native screen create or reuse instances.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Instances {
+    /// Reuse the instance with equal parameters.
+    #[default]
+    PerParams,
+    /// Reuse any open instance of the screen.
+    Single,
+    /// Create a new instance for every open.
+    Many,
+}
+
+/// A `screen.spec` declaration with a plugin-owned callback token.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ScreenDecl<'a> {
+    /// The screen's id, relative to the plugin.
+    pub name: &'a str,
+    /// The translation key of its title.
+    pub title: &'a str,
+    /// Token passed to the screen's callbacks.
+    pub token: u32,
+    /// Request a full refresh when the screen opens.
+    pub full_refresh_on_open: bool,
+    policy_flags: u32,
+}
+
+impl<'a> ScreenDecl<'a> {
+    /// A screen with no refresh flag set.
+    pub fn new(name: &'a str, title: &'a str, token: u32) -> Self {
+        Self {
+            name,
+            title,
+            token,
+            full_refresh_on_open: false,
+            policy_flags: 0,
+        }
+    }
+}
+
+impl ScreenDecl<'_> {
+    /// Choose how ordinary opens create or reuse this screen's instances.
+    #[must_use]
+    pub const fn instances(mut self, instances: Instances) -> Self {
+        let bits = match instances {
+            Instances::PerParams => 0,
+            Instances::Single => 1,
+            Instances::Many => 2,
+        };
+        self.policy_flags = (self.policy_flags & !0xc0) | (bits << 6);
+        self
+    }
+
+    /// Guard the device from this screen's opening.
+    #[must_use]
+    pub const fn guards(mut self) -> Self {
+        self.policy_flags |= 2;
+        self
+    }
+    /// Draw over the screen below, subject to host privacy checks.
+    #[must_use]
+    pub const fn overlay(mut self) -> Self {
+        self.policy_flags |= 4;
+        self
+    }
+    /// Wait for screen_ready before offering help.
+    #[must_use]
+    pub const fn waits_ready(mut self) -> Self {
+        self.policy_flags |= 8;
+        self
+    }
+    /// Keep this screen's contents out from under another plugin's overlay.
+    #[must_use]
+    pub const fn secret(mut self) -> Self {
+        self.policy_flags |= 16;
+        self
+    }
+    /// Hold edge gestures until the screen releases them.
+    #[must_use]
+    pub const fn holds_edges(mut self) -> Self {
+        self.policy_flags |= 32;
+        self
+    }
+}
+
+/// An `action.spec` declaration with a plugin-owned callback token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ActionDecl<'a> {
+    /// The action's id, relative to the plugin.
+    pub name: &'a str,
+    /// The translation key of its title.
+    pub title: &'a str,
+    /// Token passed to the action's event callback.
+    pub token: u32,
+    /// Run only while one of this plugin's screens is on top.
+    pub needs_screen: bool,
+}
+
+impl<'a> ActionDecl<'a> {
+    /// An action which can run without a screen.
+    pub fn new(name: &'a str, title: &'a str, token: u32) -> Self {
+        Self {
+            name,
+            title,
+            token,
+            needs_screen: false,
+        }
+    }
+}
+
 enum Item<'a> {
+    Registry(&'a dyn records_wire::WireEncode),
+    MenuEntry(records_wire::MenuEntry<'a>),
+    Icon(records_wire::IconSpec<'a>),
+    MenuNeed(records_wire::MenuNeed<'a>),
+    MenuSection(records_wire::MenuSection<'a>),
+    MenuHide(records_wire::MenuHide<'a>),
+    MenuDescribe(records_wire::MenuDescribe<'a>),
+    Registration(records_wire::Registration),
     Group(GroupDecl<'a>),
     Spec(SpecDecl<'a>, SpecParts),
     Extra(ExtraDecl<'a>),
     Hyphenation { language: &'a str, path: &'a str },
     FontFace(FontFaceDecl<'a>),
     FontExtension(FontExtensionDecl<'a>),
+    Screen(ScreenDecl<'a>),
+    Action(ActionDecl<'a>),
+    Stage(StageDecl<'a>),
+    Subscribe(SubscribeDecl<'a>),
 }
 
 /// The items a plugin declares, in the order it declares them.
@@ -840,6 +989,66 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         Ok(self)
     }
 
+    /// Adds a `screen.spec` declaration.
+    ///
+    /// # Errors
+    /// An empty name or title, a field over its generated cap, or a sink refusal.
+    pub fn screen(&mut self, screen: ScreenDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
+        let result = (|| {
+            filled(screen.name, "screen name")?;
+            filled(screen.title, "screen title")?;
+            within(
+                screen.name,
+                records_wire::SCREEN_SPEC_NAME_MAX_BYTES,
+                "screen name",
+            )?;
+            within(
+                screen.title,
+                records_wire::SCREEN_SPEC_TITLE_MAX_BYTES,
+                "screen title",
+            )?;
+            self.push(Item::Screen(screen))
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
+        Ok(self)
+    }
+
+    /// Adds an `action.spec` declaration.
+    ///
+    /// # Errors
+    /// An empty name or title, a field over its generated cap, or a sink refusal.
+    pub fn action(&mut self, action: ActionDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
+        let result = (|| {
+            filled(action.name, "action name")?;
+            filled(action.title, "action title")?;
+            within(
+                action.name,
+                records_wire::ACTION_SPEC_NAME_MAX_BYTES,
+                "action name",
+            )?;
+            within(
+                action.title,
+                records_wire::ACTION_SPEC_TITLE_MAX_BYTES,
+                "action title",
+            )?;
+            self.push(Item::Action(action))
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
+        Ok(self)
+    }
+
     /// Submits the pending batch. Earlier full batches were submitted as items
     /// were added. The sink borrows each batch only for the duration of its call.
     ///
@@ -876,9 +1085,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         if self.count == BATCH_MAX_RECORDS {
             self.submit()?;
         }
-        let record = item.record();
         let previous = self.bytes[self.used - 1];
-        let result = records_encode(&[record], &mut self.bytes[self.used - 1..]);
+        let result = item.encode(&mut self.bytes[self.used - 1..]);
         let length = match result {
             Ok(length) => {
                 self.bytes[self.used - 1] = previous;
@@ -886,7 +1094,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             }
             Err(ERR_NO_SPACE) if self.count > 0 => {
                 self.submit()?;
-                records_encode(&[item.record()], &mut self.bytes).map_err(DeclareError::Encode)?
+                item.encode(&mut self.bytes).map_err(DeclareError::Encode)?
             }
             Err(status) => return Err(DeclareError::Encode(status)),
         };
@@ -899,34 +1107,74 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 }
 
 impl<'a> Item<'a> {
-    fn record(&self) -> Record<'_> {
+    /// Encodes the item as a one-record batch, by its own record type: a plugin's
+    /// declarations link only the codecs of the declarations it makes.
+    fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+        let one = |record: &dyn WireEncode, out: &mut [u8]| records_encode_of(&[record], out);
         match self {
-            Item::Group(g) => Record::SettingGroup(SettingGroup {
-                name: g.name,
-                title: g.title,
-                order: g.order,
-                page: g.page,
-                parent: g.parent,
-            }),
-            Item::Spec(s, parts) => Record::SettingSpec(spec_record(s, parts)),
-            Item::Extra(e) => Record::SettingExtra(extra_record(e)),
+            Item::Registry(record) => one(*record, out),
+            Item::MenuEntry(entry) => one(entry, out),
+            Item::Icon(icon) => one(icon, out),
+            Item::MenuNeed(need) => one(need, out),
+            Item::MenuSection(section) => one(section, out),
+            Item::MenuHide(hide) => one(hide, out),
+            Item::MenuDescribe(describe) => one(describe, out),
+            Item::Registration(registration) => one(registration, out),
+            Item::Group(g) => one(
+                &SettingGroup {
+                    name: g.name,
+                    title: g.title,
+                    order: g.order,
+                    page: g.page,
+                    parent: g.parent,
+                },
+                out,
+            ),
+            Item::Spec(s, parts) => one(&spec_record(s, parts), out),
+            Item::Extra(e) => one(&extra_record(e), out),
             Item::Hyphenation { language, path } => {
-                Record::ResourceHyphenation(ResourceHyphenation { language, path })
+                one(&ResourceHyphenation { language, path }, out)
             }
-            Item::FontFace(f) => Record::ResourceFontFace(ResourceFontFace {
-                name: f.name,
-                path: f.path,
-                family: f.family,
-                style: f.style,
-                weight: f.weight,
-                role: f.role,
-                priority: f.priority,
-            }),
-            Item::FontExtension(e) => Record::ResourceFontExtension(ResourceFontExtension {
-                name: e.name,
-                path: e.path,
-                extends: e.extends,
-            }),
+            Item::FontFace(f) => one(
+                &ResourceFontFace {
+                    name: f.name,
+                    path: f.path,
+                    family: f.family,
+                    style: f.style,
+                    weight: f.weight,
+                    role: f.role,
+                    priority: f.priority,
+                },
+                out,
+            ),
+            Item::FontExtension(e) => one(
+                &ResourceFontExtension {
+                    name: e.name,
+                    path: e.path,
+                    extends: e.extends,
+                },
+                out,
+            ),
+            Item::Screen(s) => one(
+                &ScreenSpec {
+                    name: s.name,
+                    title: s.title,
+                    token: s.token,
+                    flags: u32::from(s.full_refresh_on_open) | s.policy_flags,
+                },
+                out,
+            ),
+            Item::Stage(stage) => one(&stage.record(), out),
+            Item::Subscribe(to) => one(&to.record(), out),
+            Item::Action(a) => one(
+                &ActionSpec {
+                    name: a.name,
+                    title: a.title,
+                    token: a.token,
+                    flags: u32::from(a.needs_screen),
+                },
+                out,
+            ),
         }
     }
 }
@@ -995,3 +1243,9 @@ fn extra_record<'a>(e: &ExtraDecl<'a>) -> SettingExtra<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod typed_wire_tests;
+
+#[cfg(test)]
+mod uix_tests;

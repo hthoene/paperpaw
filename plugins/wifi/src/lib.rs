@@ -14,6 +14,23 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+pub mod native_known;
+pub mod native_own;
+pub mod native_phone;
+pub mod native_policy;
+#[cfg(test)]
+mod native_secret_tests;
+
 mod networks;
 mod page;
 mod phone;

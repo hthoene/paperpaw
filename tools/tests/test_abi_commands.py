@@ -136,6 +136,132 @@ mod tests {
     }
 
     #[test]
+    fn screen_action_redraw_and_close_commands() {
+        let goldens: [(Command<'static>, &[u8]); 4] = [
+            (Command::OpenScreen { screen: "a.b" }, &[1, 56, 5, 0, 3, b'a', b'.', b'b']),
+            (Command::RunAction { action: "x" }, &[1, 57, 3, 0, 1, b'x']),
+            (Command::Redraw { mode: 2 }, &[1, 58, 5, 0, 2, 0, 0, 0]),
+            (Command::CloseScreen, &[1, 59, 1, 0]),
+        ];
+        for (command, bytes) in goldens {
+            assert_eq!(encode(&[command]).unwrap(), bytes, "{command:?}");
+            assert_eq!(decode(bytes).unwrap(), [command]);
+        }
+        let id = "s".repeat(COMMAND_MAX_SCREEN_BYTES);
+        let mixed = [FLAG, Command::OpenScreen { screen: &id }, Command::Redraw { mode: 3 },
+                     Command::RunAction { action: "p.go" }, Command::CloseScreen];
+        assert_eq!(decode(&encode(&mixed).unwrap()).unwrap(), mixed);
+        let long = "s".repeat(COMMAND_MAX_SCREEN_BYTES + 1);
+        for (command, error) in [(Command::OpenScreen { screen: "" }, -2),
+                                 (Command::RunAction { action: &long }, -3),
+                                 (Command::Redraw { mode: COMMAND_REDRAW_MAX_MODE + 1 }, -2)] {
+            let mut out = [0xa5_u8; 300];
+            assert_eq!(commands_encode(&[FLAG, command], &mut out), Err(error));
+            assert!(out.iter().all(|&byte| byte == 0xa5));
+        }
+        let cases: [(&[u8], i32); 5] = [
+            (&[1, 56, 2, 0, 0], -2),
+            (&[1, 57, 3, 0, 1, 0xff], -5),
+            (&[1, 58, 5, 0, 4, 0, 0, 0], -2),
+            (&[1, 58, 4, 0, 2, 0, 0], -2),
+            (&[1, 61, 1, 0], -1),
+        ];
+        for (bytes, error) in cases {
+            assert_eq!(decode(bytes), Err(error), "{bytes:?}");
+        }
+        // A known command skips an extended bitmap and trailing fields.
+        assert_eq!(decode(&[1, 59, 3, 1, 0xff, 7]).unwrap(), [Command::CloseScreen]);
+    }
+
+    #[test]
+    fn item_state_command() {
+        const STATE: Command<'static> = Command::SetItemState {
+            item: "x",
+            flags: COMMAND_ITEM_SWITCH | COMMAND_ITEM_ON,
+            label: "",
+            label_args: &[],
+            badge: "b",
+            badge_args: &[0],
+        };
+        const BYTES: [u8; 16] = [1, 60, 13, 0, 1, b'x', 12, 0, 0, 0, 0, 0, 1, b'b', 1, 0];
+        assert_eq!(encode(&[STATE]).unwrap(), BYTES);
+        assert_eq!(decode(&BYTES).unwrap(), [STATE]);
+        assert_eq!((COMMAND_ITEM_HIDDEN, COMMAND_ITEM_FAINT, COMMAND_ITEM_KEEP), (1, 2, 16));
+        assert_eq!(COMMAND_ITEM_FLAGS, 31);
+        let item = "i".repeat(COMMAND_MAX_ITEM_BYTES);
+        let key = "k".repeat(COMMAND_MAX_ITEM_KEY_BYTES);
+        let args = std::vec![7_u8; COMMAND_MAX_ITEM_ARGS_BYTES];
+        let full = Command::SetItemState {
+            item: &item,
+            flags: COMMAND_ITEM_FLAGS,
+            label: &key,
+            label_args: &args,
+            badge: &key,
+            badge_args: &args,
+        };
+        let batch = [full, FLAG, full, Command::CloseScreen];
+        assert_eq!(decode(&encode(&batch).unwrap()).unwrap(), batch);
+        let long_item = "i".repeat(COMMAND_MAX_ITEM_BYTES + 1);
+        let long_key = "k".repeat(COMMAND_MAX_ITEM_KEY_BYTES + 1);
+        let long_args = std::vec![7_u8; COMMAND_MAX_ITEM_ARGS_BYTES + 1];
+        let with = |item, flags, label, label_args, badge, badge_args| Command::SetItemState {
+            item,
+            flags,
+            label,
+            label_args,
+            badge,
+            badge_args,
+        };
+        let refused = [
+            (with("", 0, "", &[], "", &[]), -2),
+            (with(&long_item, 0, "", &[], "", &[]), -3),
+            (with("x", COMMAND_ITEM_FLAGS + 1, "", &[], "", &[]), -2),
+            (with("x", COMMAND_ITEM_ON, "", &[], "", &[]), -2),
+            (with("x", 0, "", &[0], "", &[]), -2),
+            (with("x", 0, "", &[], "", &[0]), -2),
+            (with("x", 0, &long_key, &[], "", &[]), -3),
+            (with("x", 0, "l", &long_args, "", &[]), -3),
+            (with("x", 0, "", &[], "b", &long_args), -3),
+        ];
+        for (command, error) in refused {
+            let mut out = [0xa5_u8; 1024];
+            assert_eq!(commands_encode(&[FLAG, command], &mut out), Err(error), "{command:?}");
+            assert!(out.iter().all(|&byte| byte == 0xa5));
+        }
+        let mut cases: Vec<(Vec<u8>, i32)> = Vec::new();
+        let mut patched = |index: usize, byte: u8, error| {
+            let mut bytes = BYTES.to_vec();
+            bytes[index] = byte;
+            cases.push((bytes, error));
+        };
+        patched(6, 8, -2); // ON without SWITCH
+        patched(9, 0x80, -2); // an unknown flag
+        patched(5, 0xff, -5); // item not UTF-8
+        patched(13, 0xff, -5); // badge key not UTF-8
+        cases.push((std::vec![1, 60, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], -2)); // empty item
+        // Arguments without a key.
+        cases.push((std::vec![1, 60, 12, 0, 1, b'x', 0, 0, 0, 0, 0, 1, 0, 0, 0], -2));
+        for (bytes, error) in cases {
+            assert_eq!(decode(&bytes), Err(error), "{bytes:?}");
+        }
+        for len in 0..BYTES.len() {
+            assert!(decode(&BYTES[..len]).is_err());
+        }
+        // An extended bitmap and a trailing field are skipped.
+        let mut extended = std::vec![1, 60, 15, 1, 0xff];
+        extended.extend_from_slice(&BYTES[4..]);
+        extended.push(7);
+        assert_eq!(decode(&extended).unwrap(), [STATE]);
+        for index in 0..BYTES.len() {
+            for byte in 0..=u8::MAX {
+                let mut bytes = BYTES;
+                bytes[index] = byte;
+                let _result = decode(&bytes);
+            }
+        }
+    }
+
+    #[test]
     fn arbitrary_mutations_never_panic() {
         for index in 0..GOLDEN.len() {
             for byte in 0..=u8::MAX {
@@ -172,10 +298,12 @@ class CommandTests(unittest.TestCase):
         later = copy.deepcopy(self.schema)
         later['minor'] = 2
         later['command_codec']['since'] = 2
-        record = self.record(later)
-        record['since'] = 2
-        for field in record['fields']:
-            field['since'] = 2
+        # Every command record follows the codec it belongs to.
+        for record in later['records']:
+            if record['name'].startswith('command.'):
+                record['since'] = 2
+                for field in record['fields']:
+                    field['since'] = 2
         ABI.validate(later)
         self.assertEqual(required_minor(later, [dict(kind='host', name='commands.submit')], 0), 2)
         self.assertEqual(required_minor(later, [dict(kind='host', name='heap.alloc')], 0), 1)
@@ -217,6 +345,125 @@ class CommandTests(unittest.TestCase):
         self.assertIn('COMMAND_MAX_RECORDS: usize = 4;', source)
         with self.assertRaisesRegex(ValueError, 'command codec contract'):
             ABI.compatible(self.schema, candidate)
+
+    def growth(self, schema):
+        return [item for item in schema['records'] if item['name'].startswith('command.')
+                and 1536 <= item['id'] <= 2047]
+
+    def test_growth_block_commands_are_generated_from_their_fields(self):
+        # REG (#228): commands 1536-2047 come from their abi.def fields, into
+        # the command codec only, never into the record codec.
+        from abi_declarations import wire_records
+        self.assertEqual([item['id'] for item in self.growth(self.schema)],
+                         list(range(1536, 1553)) + [1556, 1557, 1558, 1561, 1562, 1563,
+                                                                   1559, 1560]
+                         + list(range(1564, 1583)) + [1592] + list(range(1583, 1592)))
+        self.assertFalse([r for r in wire_records(self.schema) if r['name'].startswith('command.')])
+        source = rust_commands(self.schema)
+        for line in ['pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;',
+                     'pub const COMMAND_SET_MENU_ITEMS_MAX_BYTES: usize = 2048;',
+                     "pub const COMMAND_SET_MENU_ITEMS_SEPARATOR: char = '\\n';",
+                     'pub const COMMAND_SET_MENU_ITEMS_MAX_ITEMS: usize = 64;',
+                     'pub const COMMAND_REQUEST_PLUGINS_PLUGINS_MAX_ITEMS: usize = 16;',
+                     '    SetPluginEnabled {', '    PreviewEnd {',
+                     '            COMMAND_APPLY_PRESET_TAG => {', 'fn write_blob(']:
+            self.assertIn(line, source)
+        # Without growth commands the codec is the locked one, byte for byte.
+        bare = copy.deepcopy(self.schema)
+        bare['records'] = [r for r in bare['records'] if r not in self.growth(bare)]
+        self.assertNotIn('fn write_blob(', rust_commands(bare))
+        mutations = [
+            # An optional field (the growth codec has no presence bits yet).
+            lambda s: self.growth(s)[0]['fields'][-1].update(optional=True, ordinal=0, default=0),
+            # A cap outside the record rules, a field type outside them.
+            lambda s: self.growth(s)[0]['fields'][0].update(max_bytes=0),
+            lambda s: self.growth(s)[0]['fields'][0].update(type='f32'),
+            # A command outside both blocks, a tag taken twice, a variant taken twice.
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=2100,
+                                               name='command.later')),
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=60,
+                                               name='command.again')),
+            lambda s: s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=1600,
+                                               name='command.open_screen_x')) or
+                      s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=1601,
+                                               name='command.open.screen_x')),
+            lambda s: self.growth(s)[0].update(since=2),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                ABI.validate(candidate)
+
+    def test_secret_fields_are_wrapped_and_closed(self):
+        # DEV (#228): a `secret` str field of a command is SecretText, whose
+        # Debug shows nothing of it; only those fields, only where marked.
+        def field(s, record, name):
+            item = next(r for r in s['records'] if r['name'] == record)
+            return next(f for f in item['fields'] if f['name'] == name)
+        source = rust_commands(self.schema)
+        for line in ["pub struct SecretText<'a>(&'a str);", "        password: SecretText<'a>,",
+                     '        f.write_str("SecretText(..)")',
+                     '    /// The `command.wifi_join` command (`docs/abi/device.md`).',
+                     '    /// The `command.reset_setting` command (`docs/abi/registry.md`).',
+                     '    /// The `command.open` command (`docs/abi/ui.md`).',
+                     '    /// The `command.screen_policy` command (`docs/abi/ui.md`).',
+                     '    /// The `command.image_prepare` command (`docs/abi/document.md`).']:
+            self.assertIn(line, source)
+        self.assertEqual(source.count("password: SecretText<'a>,"), 2)
+        # Without a secret field the codec has no SecretText at all.
+        bare = copy.deepcopy(self.schema)
+        for record in ('command.wifi_join', 'command.wifi_host'):
+            del field(bare, record, 'password')['secret']
+        self.assertNotIn('SecretText', rust_commands(bare))
+        mutations = [
+            lambda s: field(s, 'command.wifi_join', 'password').update(secret=False),
+            lambda s: field(s, 'command.wifi_join', 'request').update(secret=True),
+            lambda s: field(s, 'command.install_firmware', 'key').update(secret=True),
+            lambda s: field(s, 'event.wifi_done', 'ssid').update(secret=True),
+            lambda s: field(s, 'command.set_menu', 'items').update(secret=True),
+            # A bytes field may be secret only in a service record (sec_bytes.data is).
+            lambda s: field(s, 'service.sec_bytes', 'flags').update(secret=True),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                ABI.validate(candidate)
+
+    def item_state(self, schema):
+        return next(item for item in schema['records']
+                    if item['name'] == 'command.set_item_state')
+
+    def test_item_state_record_is_closed(self):
+        source = rust_commands(self.schema)
+        for line in ['COMMAND_SET_ITEM_STATE_TAG: u32 = 60;', 'COMMAND_MAX_ITEM_BYTES: usize = 96;',
+                     'COMMAND_MAX_ITEM_KEY_BYTES: usize = 128;',
+                     'COMMAND_MAX_ITEM_ARGS_BYTES: usize = 256;', 'COMMAND_ITEM_FLAGS: u32 = 31;']:
+            self.assertIn(line, source)
+        mutations = [
+            lambda r: r['fields'].reverse(),
+            lambda r: r['fields'].pop(),
+            lambda r: r['fields'][0].update(max_bytes=0),
+            lambda r: r['fields'][0].update(max_bytes=256),
+            lambda r: r['fields'][1].update(type='u64'),
+            lambda r: r['fields'][1].update(max_bytes=4),
+            lambda r: r['fields'][2].update(max_bytes=64),
+            lambda r: r['fields'][3].update(max_bytes=128),
+            lambda r: r['fields'][3].update(max_bytes=2048),
+            lambda r: r['fields'][3].update(type='str'),
+            lambda r: r['fields'][4].update(optional=True),
+            lambda r: r['fields'][5].update(name='args'),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(self.item_state(candidate))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                validate_commands(candidate)
+        candidate = copy.deepcopy(self.schema)
+        self.item_state(candidate)['id'] = 4
+        with self.assertRaises(ValueError):
+            validate_commands(candidate)
 
     def test_absence_backdating_and_lock_pinning(self):
         before = copy.deepcopy(self.schema)

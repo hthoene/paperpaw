@@ -607,6 +607,8 @@ impl BuilderParts {
         translator.built_catalogs(self.built_catalogs);
         Kernel {
             shared: Shared {
+                native_events: None,
+                native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 registry: Registry::default(),
                 meter,
                 device: self.device,
@@ -614,6 +616,10 @@ impl BuilderParts {
                 translator,
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                stack_rows: alloc::rc::Rc::new(Default::default()),
+                font_removals: alloc::rc::Rc::new(
+                    crate::native_host::font_removals::FontRemovals::new(),
+                ),
                 formats: Formats::new(),
                 hyphenation,
                 menus: Menus::new(),
@@ -758,6 +764,8 @@ impl BuilderParts {
             own_trusted: Vec::new(),
             held_notice: None,
             last_activity: Instant(0),
+            last_user_input: None,
+            radio_requests: alloc::rc::Rc::default(),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,

@@ -6,10 +6,152 @@
 //! No type here is a wire record or a foreign callback signature.
 
 use crate::abi7::{calls, lifecycle};
-use core::{cell::Cell, fmt, pin::Pin};
+use alloc::boxed::Box;
+use core::{cell::Cell, fmt, mem::ManuallyDrop, ops::Deref, pin::Pin};
+pub use lifecycle::{Teardown, TeardownStep};
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
+
+#[path = "native_host/codec.rs"]
+pub(crate) mod codec;
+
+#[path = "native_host/event_tags.rs"]
+pub(crate) mod event_tags;
+
+#[path = "native_host/font_removals.rs"]
+pub(crate) mod font_removals;
+
+#[path = "native_host/work_sched.rs"]
+#[allow(dead_code, reason = "the shell feeds the scheduler; tests do today")]
+pub(crate) mod work_sched;
+
+#[path = "native_host/work_service.rs"]
+mod work_service;
+
+#[path = "native_host/secrets_file.rs"]
+pub(crate) mod secrets_file;
+
+#[path = "native_host/secrets_service.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell wires the sealer and the source; tests do today"
+)]
+pub(crate) mod secrets_service;
+
+#[path = "native_host/host_slot.rs"]
+pub mod host_slot;
+
+#[path = "native_host/ui_service.rs"]
+pub(crate) mod ui_service;
+
+#[path = "native_host/ui_requests.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's stack and the core.ui ops 8, 2, 11"
+)]
+pub(crate) mod ui_requests;
+
+#[path = "native_host/ui_store.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's command stage and the core.ui ops"
+)]
+pub(crate) mod ui_store;
+
+#[path = "native_host/ui_compose.rs"]
+pub(crate) mod ui_compose;
+
+#[path = "native_host/ui_handles.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are the core.ui ops 4/14/15 and the compose hook"
+)]
+pub(crate) mod ui_handles;
+
+#[path = "native_host/stack_rows.rs"]
+pub(crate) mod stack_rows;
+
+pub(crate) use crate::abi7::context::ui_guard;
+
+#[path = "native_host/ui_compose_host.rs"]
+#[allow(
+    dead_code,
+    reason = "Core's frame answers Frame::compose with it when the screen stack is wired"
+)]
+pub(crate) mod ui_compose_host;
+
+#[path = "native_host/ui_input.rs"]
+#[allow(
+    dead_code,
+    reason = "the router hook (todo 76) and the core.input-filter registration admission call it"
+)]
+pub(crate) mod ui_input;
+
+#[path = "native_host/shared.rs"]
+mod shared;
+
+#[path = "native_host/resources.rs"]
+pub mod resources;
+pub use resources::HostResources;
+
+#[path = "native_host/fonts.rs"]
+mod fonts;
+
+mod admitted_features;
+#[path = "native_host/secret_bytes.rs"]
+pub(crate) mod secret_bytes;
+
+#[path = "native_host/call_services.rs"]
+mod call_services;
+#[path = "native_host/data_services.rs"]
+mod data_services;
+mod declared_services;
+pub mod device_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
+pub(crate) mod files_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod fmt_call;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod format_call;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod format_index;
+#[allow(
+    dead_code,
+    reason = "entered by the DOC adapter's format calls; read by the file service"
+)]
+pub(crate) mod format_scope;
+#[path = "native_host/formatting.rs"]
+mod formatting;
+pub(crate) mod host_services;
+#[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
+pub(crate) mod lib_service;
+#[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
+pub(crate) mod lookup_service;
+#[allow(
+    dead_code,
+    reason = "the shell builds the pool with the NET host and the SOCK host charges it"
+)]
+pub(crate) mod net_pool;
+#[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
+pub(crate) mod net_service;
+mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
+#[allow(
+    dead_code,
+    reason = "stage broker wiring follows this framing foundation"
+)]
+mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
+#[path = "native_host/storage_slots.rs"]
+mod storage_slots;
 
 const REGISTRATIONS: usize = 8;
 
@@ -21,11 +163,28 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+/// The device-wide table of Wi-Fi join and host requests (DEV).
+#[path = "native_host/radio_requests.rs"]
+pub mod radio_requests;
+
 #[path = "native_host/declaration_index.rs"]
 mod declaration_index;
 
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
+
+#[path = "native_host/declarations_uix.rs"]
+mod declarations_uix;
+
+#[path = "native_host/declaration_reg_checks.rs"]
+mod declaration_reg_checks;
+
+#[path = "native_host/reg_catalog.rs"]
+#[allow(
+    dead_code,
+    reason = "REG callback attachment follows the catalog ownership implementation"
+)]
+pub(crate) mod reg_catalog;
 
 #[path = "native_host/raw_declarations.rs"]
 mod raw_declarations;
@@ -48,6 +207,26 @@ pub mod environment;
 /// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
+// State is attached to Core's single registry when its publication seam lands.
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_pending.rs"]
+pub(crate) mod event_pending;
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_producers.rs"]
+pub(crate) mod event_producers;
+
+#[allow(
+    dead_code,
+    reason = "native runtime installation and EVT producer hooks follow this accessor"
+)]
+#[path = "native_host/event_sink.rs"]
+mod event_sink;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
@@ -58,6 +237,75 @@ pub mod frames;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this owner holder"
+)]
+#[path = "native_host/retained.rs"]
+mod retained;
+
+#[path = "native_host/native_declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "shared declaration producer is attached by the UI admission slice"
+)]
+pub(crate) mod native_declarations;
+
+#[path = "native_host/native_status.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame hook attachment follows the owner-directed status path"
+)]
+pub(crate) mod native_status;
+
+#[path = "native_host/native_ui_directory.rs"]
+mod native_ui_directory;
+
+#[path = "native_host/native_install.rs"]
+mod native_install;
+
+#[path = "native_host/native_action.rs"]
+pub(crate) mod native_action;
+#[path = "native_host/native_screen_factory.rs"]
+pub(crate) mod native_screen_factory;
+
+#[path = "native_host/native_screen.rs"]
+mod native_screen;
+
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows these owned values"
+)]
+#[path = "native_host/native_values.rs"]
+mod native_values;
+
+#[allow(
+    dead_code,
+    reason = "native registry publication follows this dispatcher"
+)]
+#[path = "native_host/native_dispatch.rs"]
+mod native_dispatch;
+
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
+
+#[allow(
+    dead_code,
+    reason = "production native activation and stage broker follow this registry"
+)]
+#[path = "native_host/native_instances.rs"]
+pub(crate) mod native_instances;
+
+// Static-entry activation uses the shared D1 reader; registry wiring follows.
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this prerequisite"
+)]
+#[path = "native_host/linked_entry.rs"]
+pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
+
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
 #[path = "native_host/shell.rs"]
@@ -78,7 +326,42 @@ use staged::Declarations;
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct FlatHost {
+    pub(crate) stack_rows: alloc::rc::Rc<stack_rows::StackRows>,
+    pub(crate) directory: Option<native_declarations::DirectoryWeak>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
+    pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
+}
+
+impl FlatHost {
+    pub(crate) fn upgrade_directory(
+        &self,
+    ) -> Result<Option<native_declarations::DirectoryHandle>, i32> {
+        match &self.directory {
+            None => Ok(None),
+            Some(directory) => directory
+                .upgrade()
+                .map_err(|_| paperpaw_native::host_glue::ERR_STATE)?
+                .map(Some)
+                .ok_or(paperpaw_native::host_glue::ERR_STATE),
+        }
+    }
+    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
+        self.directory
+            .as_ref()
+            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
+            .transpose()
+    }
+}
+
+impl crate::Kernel {
+    pub(crate) fn flat_host(&self) -> FlatHost {
+        FlatHost {
+            meter: alloc::rc::Rc::clone(&self.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
+            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
+        }
+    }
 }
 
 /// Host admission or construction failure.
@@ -118,6 +401,10 @@ impl From<lifecycle::Error> for Error {
 pub struct DispatchDepth(calls::Depth);
 
 impl DispatchDepth {
+    pub(crate) fn current(&self) -> u8 {
+        self.0.current()
+    }
+
     /// Construct an idle budget. Owners must share this value during nesting.
     #[must_use]
     pub const fn new() -> Self {
@@ -131,8 +418,65 @@ impl Default for DispatchDepth {
     }
 }
 
+/// Owns the pinned allocation and retains it if plugin code is still active.
+/// Shell holders must use this instead of dropping a raw pinned owner Box.
+#[allow(
+    missing_debug_implementations,
+    reason = "holds opaque context and module"
+)]
+#[must_use]
+pub struct PinnedOwner<C, M>(ManuallyDrop<Pin<Box<HostOwner<C, M>>>>);
+
+impl<C, M> PinnedOwner<C, M> {
+    /// Allocate the owner fallibly, keeping the pinned Box private forever.
+    ///
+    /// Returns None if the actual owner allocation fails.
+    pub fn try_new(owner: HostOwner<C, M>) -> Option<Self> {
+        const { assert!(core::mem::size_of::<HostOwner<C, M>>() != 0) };
+        let layout = core::alloc::Layout::new::<HostOwner<C, M>>();
+        // SAFETY: lifecycle flags make the owner nonzero-sized; layout is exact.
+        let allocation = unsafe { alloc::alloc::alloc(layout) }.cast::<HostOwner<C, M>>();
+        if allocation.is_null() {
+            return None;
+        }
+        // SAFETY: uniquely allocated Box storage, initialized before pinning.
+        Some(Self(ManuallyDrop::new(unsafe {
+            allocation.write(owner);
+            Box::into_pin(Box::from_raw(allocation))
+        })))
+    }
+
+    /// Borrow the pinned owner without exposing ownership of its allocation.
+    #[must_use]
+    pub fn as_ref(&self) -> Pin<&HostOwner<C, M>> {
+        self.0.as_ref()
+    }
+}
+
+impl<C, M> Deref for PinnedOwner<C, M> {
+    type Target = HostOwner<C, M>;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref().get_ref()
+    }
+}
+
+impl<C, M> Drop for PinnedOwner<C, M> {
+    fn drop(&mut self) {
+        if self.0.as_ref().inner().abandon_if_active() {
+            // Retain the entire allocation: ctx still points inside it.
+            return;
+        }
+        // SAFETY: inactive allocation, released exactly once by this holder.
+        unsafe { ManuallyDrop::drop(&mut self.0) };
+    }
+}
+
 /// Pinned host context and opaque executable-module guard for one plugin.
 /// Allocate fallibly and account for C, M and registration storage externally.
+/// The shell must prepare teardown, remove subscriptions and queued work, then
+/// finish before dropping the owner. Drop is a last-resort host bug path; its
+/// hooks must own only host resources that cannot reference plugin state,
+/// executable code or its mapped image.
 #[non_exhaustive]
 pub struct HostOwner<C, M> {
     inner: lifecycle::Owner<C, M>,
@@ -194,6 +538,17 @@ impl<C, M> HostOwner<C, M> {
     ///
     /// # Errors
     /// Returns State unless live, or Capacity when all lease slots are held.
+    ///
+    /// A safe lease cannot escape the host that owns its pinned allocation.
+    /// ```compile_fail,E0515
+    /// use paperpaw_core::native_host::{CallbackLease, shell::{Context, Hosted}};
+    /// use paperpaw_native::host_glue::Services;
+    /// fn escape<S: Services + 'static, M: 'static>(host: Hosted<S, M>)
+    ///     -> CallbackLease<'static, Context<S>, M>
+    /// {
+    ///     host.owner().lease().unwrap()
+    /// }
+    /// ```
     pub fn lease(self: Pin<&Self>) -> Result<CallbackLease<'_, C, M>, Error> {
         Ok(CallbackLease(self.inner().lease()?))
     }
@@ -201,6 +556,39 @@ impl<C, M> HostOwner<C, M> {
     /// Stop callback admission before removing registrations and queued work.
     pub fn revoke(self: Pin<&Self>) {
         self.inner().revoke();
+    }
+
+    /// Whether this owner is inside a callback. After revoke, resource cleanup
+    /// must wait for the active call to return; retained leases are separate.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    /// Whether callback admission remains open, including between callbacks.
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.is_live()
+    }
+
+    /// Revoke immediately and run cancellation then release once, unless a
+    /// callback is active. The shell must defer Busy to its next tick. After
+    /// success, remove subscriptions and queued work before calling finish.
+    ///
+    /// # Errors
+    /// Returns Busy during construction or an active callback.
+    pub fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
+        self.revoke();
+        if self.preparing.get() {
+            return Err(Error::Busy);
+        }
+        self.inner().prepare_teardown().map_err(Into::into)
+    }
+
+    /// Take a non-retryable cleanup-hook error for shell logging. Such a hook
+    /// is marked done, so a broken backend cannot cause an infinite retry.
+    #[must_use]
+    pub fn take_teardown_error(&self) -> Option<Error> {
+        self.inner.take_teardown_error()
     }
 
     /// Destroy the plugin once all leases have been released.
@@ -231,6 +619,12 @@ pub struct Construction<'a, C, M, T> {
     image: Option<&'a [u8]>,
     submitted: bool,
 }
+
+type StoredConstruction<'a, C, M, T, R> = (
+    RegistrationBatch<'a, C, M, T>,
+    R,
+    raw_declarations::RawDeclarations,
+);
 
 impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Supply the module's immutable read-only image before make submits data.
@@ -268,8 +662,14 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
     pub fn reject(&mut self) {
+        self.reject_with(Error::Invalid);
+    }
+
+    /// [`reject`](Self::reject) with a cause other than Invalid, such as
+    /// Memory when the host could not allocate to decode a batch.
+    pub fn reject_with(&mut self, cause: Error) {
         if self.failure.is_none() {
-            self.failure = Some(Error::Invalid);
+            self.failure = Some(cause);
         }
     }
 
@@ -308,7 +708,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
     /// distinct from cleaning partial or invalid output from a failed make.
-    pub fn commit(mut self, destroy: fn(Pin<&C>)) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
+    pub fn commit(
+        mut self,
+        teardown: Teardown<C>,
+    ) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         if let Some(error) = self.failure {
             return Err(error);
         }
@@ -317,13 +720,51 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
-        let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
+        self.publish(teardown)
+    }
+
+    /// Validate and map every native declaration before callback activation.
+    /// Mapping returns only host-owned staging; nothing is visible on failure.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this transaction"
+    )]
+    pub(crate) fn commit_native<R>(
+        self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        drop(raw);
+        Ok((batch, staging))
+    }
+
+    /// Transfer original declaration batches to the shared store's producer.
+    /// No address from a runtime submission survives its construction call.
+    pub(crate) fn commit_native_stored<R>(
+        mut self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
+        if let Some(error) = self.failure {
+            return Err(registrations::status(error));
+        }
+        self.finish_declarations()?;
+        let staging = map(&self.declaration_view())?;
+        self.declarations = Declarations::default();
+        let raw = core::mem::take(&mut self.raw);
+        let batch = self.publish(teardown).map_err(registrations::status)?;
+        Ok((batch, staging, raw))
+    }
+
+    fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
+        let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
-            _image: self.image,
+            _image: core::marker::PhantomData,
             lease,
         })
     }
@@ -446,11 +887,27 @@ pub struct RegistrationBatch<'a, C, M, T> {
     len: usize,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
-    _image: Option<&'a [u8]>,
+    _image: core::marker::PhantomData<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
 impl<C, M, T> RegistrationBatch<'_, C, M, T> {
+    /// The caller retains the pinned owner and image until this batch drops.
+    unsafe fn into_retained(self) -> RegistrationBatch<'static, C, M, T>
+    where
+        T: 'static,
+    {
+        RegistrationBatch {
+            records: self.records,
+            len: self.len,
+            declarations: self.declarations,
+            raw: self.raw,
+            _image: core::marker::PhantomData,
+            // SAFETY: the caller provides the retained pinned owner lifetime.
+            lease: CallbackLease(unsafe { self.lease.0.into_retained() }),
+        }
+    }
+
     /// Number of published host records.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -474,6 +931,16 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
+    }
+
+    /// Dispatch a declared contribution's token through this batch's owner.
+    /// The host resolves and validates the declaration before calling this.
+    pub(crate) fn dispatch_owner<R>(
+        &self,
+        depth: &DispatchDepth,
+        callback: impl FnOnce(Pin<&C>) -> R,
+    ) -> Result<R, Error> {
+        self.lease.dispatch(depth, callback)
     }
 
     /// Dispatch one registered record after owner and shared-state admission.
@@ -559,3 +1026,112 @@ impl<C, M> fmt::Debug for CallbackLease<'_, C, M> {
 #[cfg(test)]
 #[path = "native_host/declaration_image_tests.rs"]
 mod declaration_image_tests;
+
+#[cfg(test)]
+mod pinned_owner_tests {
+    use super::*;
+    use alloc::rc::Rc;
+
+    struct Context {
+        canary: u32,
+        reports: Rc<Cell<u8>>,
+        dropped: Rc<Cell<bool>>,
+    }
+    impl Drop for Context {
+        fn drop(&mut self) {
+            self.dropped.set(true);
+        }
+    }
+    struct Module(Rc<Cell<bool>>);
+    impl Drop for Module {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+
+    #[test]
+    fn active_pinned_owner_retains_the_allocation_and_reports_once() {
+        active_holder(false);
+    }
+
+    #[test]
+    fn last_shared_owner_retains_the_active_pinned_allocation() {
+        active_holder(true);
+    }
+
+    fn active_holder(shared: bool) {
+        let reports = Rc::new(Cell::new(0));
+        let context_dropped = Rc::new(Cell::new(false));
+        let module_dropped = Rc::new(Cell::new(false));
+        let holder = PinnedOwner::try_new(HostOwner::new(
+            Context {
+                canary: 0x1234_5678,
+                reports: Rc::clone(&reports),
+                dropped: Rc::clone(&context_dropped),
+            },
+            Module(Rc::clone(&module_dropped)),
+        ))
+        .unwrap();
+        let batch = holder
+            .as_ref()
+            .begin::<()>("fixture")
+            .unwrap()
+            .commit(Teardown {
+                report: |context, step, error| {
+                    assert_eq!((step, error), (TeardownStep::Release, Error::Busy));
+                    context.reports.set(context.reports.get() + 1);
+                },
+                cancel: |_| panic!("active owner must not cancel"),
+                release: |_| panic!("active owner must not release"),
+                destroy: |_| panic!("active owner must not destroy"),
+            })
+            .unwrap();
+        drop(batch);
+        let context = holder.as_ref().context().get_ref() as *const Context;
+        holder.as_ref().inner().force_active();
+        if shared {
+            let holder = super::shared::Shared::try_new(holder).unwrap();
+            let retained = holder.try_clone().unwrap();
+            drop(holder);
+            assert_eq!(reports.get(), 0);
+            drop(retained);
+        } else {
+            drop(holder);
+        }
+        assert_eq!(reports.get(), 1);
+        assert!(!context_dropped.get() && !module_dropped.get());
+        // SAFETY: the active holder deliberately retained the entire allocation.
+        assert_eq!(unsafe { (*context).canary }, 0x1234_5678);
+    }
+}
+
+#[cfg(test)]
+#[path = "native_host/event_hook_tests.rs"]
+mod event_hook_tests;
+/// Generated stage-local payload records, shared byte for byte with the SDK.
+#[path = "abi7/stages_wire.rs"]
+#[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
+pub mod stages_wire;
+
+#[path = "native_host/stage_broker.rs"]
+#[allow(
+    dead_code,
+    reason = "host stage entry point is wired by the reader port"
+)]
+pub(crate) mod stage_broker;
+
+#[cfg(test)]
+#[path = "native_host/registry_page.rs"]
+mod registry_page;
+
+#[cfg(test)]
+#[path = "native_host/declaration_reg_index_tests.rs"]
+mod declaration_reg_index_tests;
+
+#[cfg(test)]
+#[path = "native_host/native_ui_cleanup_tests.rs"]
+mod native_ui_cleanup_tests;
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+#[path = "native_host/native_image_declarations_tests.rs"]
+mod native_image_declarations_tests;

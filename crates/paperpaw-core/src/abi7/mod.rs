@@ -3,9 +3,10 @@ pub(crate) mod calls;
 pub(crate) mod context;
 pub(crate) mod core_frame;
 pub(crate) mod graphics;
-mod handles;
+pub(crate) mod handles;
 pub(crate) mod lifecycle;
 pub(crate) mod queries;
+pub(crate) mod settings_visibility;
 #[allow(
     clippy::all,
     clippy::pedantic,
@@ -37,3 +38,15 @@ pub(crate) mod color_wire;
     reason = "generated slot-15 command batch codec"
 )]
 pub(crate) mod commands_wire;
+#[rustfmt::skip]
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    missing_docs,
+    dead_code,
+    reason = "generated service op tables (abi/generated/services_wire.rs, byte for byte)"
+)]
+pub(crate) mod services_wire;
+
+#[cfg(test)]
+mod settings_visibility_tests;

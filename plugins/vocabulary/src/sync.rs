@@ -37,14 +37,16 @@
 //! A merge is a function of the file and the deck, so one cut off or done
 //! again changes nothing it did not: the ledger is written last.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
 use crate::apkg;
-use crate::cards::{self, MAX_NAME, MAX_TEXT, Problem, Texts, clean};
+use crate::cards::{self, MAX_NAME, MAX_TEXT, Problem, Texts};
+use crate::files::{part_of, put_in_place};
+use crate::lines::{self, copy, push, same_folded, trimmed_cut};
 use crate::table::{self, Fault, Item, Layout};
 
 /// The folder files are looked for in, if the setting names none.
@@ -67,25 +69,39 @@ const MOST_PROBLEMS: usize = 20;
 const LEDGER_HEADER: &str = "paperpaw-sources 1";
 const EXTENSIONS: [&str; 4] = [".tsv", ".csv", ".txt", ".apkg"];
 
-pub(crate) fn ledger_path() -> String {
-    cards::path("sources.txt")
+/// The ledger's file.
+const LEDGER: &str = ".paperpaw/plugins/vocabulary/cards/sources.txt";
+
+#[cfg(test)]
+pub(crate) fn ledger_path() -> &'static str {
+    LEDGER
+}
+
+/// Whether `text` ends in `ending` (ASCII), whatever the case.
+pub(crate) fn ends_with_ignore_case(text: &str, ending: &str) -> bool {
+    text.len() >= ending.len()
+        && text
+            .as_bytes()
+            .get(text.len() - ending.len()..)
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(ending.as_bytes()))
 }
 
 /// The folder as a setting says it: no slashes around it.
-pub(crate) fn folder_of(setting: &str) -> String {
+pub(crate) fn folder_of(setting: &str) -> Result<String, StorageError> {
     let name = setting
         .trim()
         .trim_matches(|c| c == '/' || c == '\\')
         .trim();
     // Not the plugin's own data (its .txt files are no decks), nor a way up.
-    let own = cards::path("").to_lowercase();
-    let own = own.trim_matches('/');
-    let lower = name.to_lowercase();
-    let inside = lower == own || lower.starts_with(&alloc::format!("{own}/"));
+    let own = cards::DIR.trim_matches('/');
+    let inside = name
+        .get(..own.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(own))
+        && matches!(name.as_bytes().get(own.len()), None | Some(b'/'));
     if name.is_empty() || inside || name.split(['/', '\\']).any(|part| part == "..") {
-        String::from(DEFAULT_FOLDER)
+        copy(DEFAULT_FOLDER)
     } else {
-        String::from(name)
+        copy(name)
     }
 }
 
@@ -99,57 +115,83 @@ pub(crate) struct Found {
     pub modified: Option<i64>,
 }
 
-/// The deck a file's name makes: without its extension.
-pub(crate) fn deck_name(file: &str) -> String {
-    let stem = EXTENSIONS
+/// A file's name without its extension.
+fn stem(file: &str) -> &str {
+    EXTENSIONS
         .iter()
-        .find(|e| file.to_lowercase().ends_with(*e))
-        .map_or(file, |e| &file[..file.len() - e.len()]);
-    clean(stem, MAX_NAME)
+        .find(|e| ends_with_ignore_case(file, e))
+        .and_then(|e| file.get(..file.len() - e.len()))
+        .unwrap_or(file)
+}
+
+/// The deck a file's name makes: without its extension.
+pub(crate) fn deck_name(file: &str) -> Result<String, StorageError> {
+    copy(trimmed_cut(stem(file), MAX_NAME))
 }
 
 /// The deck of a file in the folder listed as `listed`: its name, but where
 /// an earlier file has the same name (`Spanish.csv`, `Spanish.tsv`), the
 /// extension is in it too.
-fn deck_name_among(file: &str, listed: &[String]) -> String {
-    let name = deck_name(file);
-    let lower = name.to_lowercase();
+pub(crate) fn deck_name_among(file: &str, listed: &[String]) -> Result<String, StorageError> {
+    let name = trimmed_cut(stem(file), MAX_NAME);
     let taken = listed
         .iter()
         .take_while(|other| other.as_str() != file)
-        .any(|other| deck_name(other).to_lowercase() == lower);
+        .any(|other| same_folded(trimmed_cut(stem(other), MAX_NAME), name));
     if !taken {
-        return name;
+        return copy(name);
     }
     let extension = EXTENSIONS
         .iter()
-        .find(|e| file.to_lowercase().ends_with(*e))
-        .map_or("", |e| &e[1..]);
-    clean(&alloc::format!("{name} ({extension})"), MAX_NAME)
+        .find(|e| ends_with_ignore_case(file, e))
+        .and_then(|e| e.get(1..))
+        .unwrap_or("");
+    let mut both = String::new();
+    push(&mut both, name)?;
+    push(&mut both, " (")?;
+    push(&mut both, extension)?;
+    push(&mut both, ")")?;
+    copy(trimmed_cut(&both, MAX_NAME))
 }
 
 /// The files of `folder` that make decks, by name, and whether the folder
-/// is there. Files starting with `_` or `.` and folders are no decks.
-pub(crate) fn files(storage: &dyn Storage, folder: &str) -> (bool, Vec<Found>) {
-    let mut found = Vec::new();
+/// is there. Files starting with `_` or `.` and folders are no decks. A
+/// refused allocation is an error: no file is left out for it.
+pub(crate) fn files(
+    storage: &dyn Storage,
+    folder: &str,
+) -> Result<(bool, Vec<Found>), StorageError> {
+    let mut found: Vec<Found> = Vec::new();
+    let mut refused = false;
     let listed = storage.list(folder, &mut |entry| {
         let name = entry.name;
-        let lower = name.to_lowercase();
-        if entry.is_dir
+        if refused
+            || entry.is_dir
             || name.starts_with(['_', '.'])
-            || !EXTENSIONS.iter().any(|e| lower.ends_with(e))
+            || !EXTENSIONS.iter().any(|e| ends_with_ignore_case(name, e))
             || found.len() >= 2 * cards::MAX_DECKS
         {
             return;
         }
+        let (Ok(name), Ok(())) = (copy(name), lines::reserve(&mut found, 1)) else {
+            refused = true;
+            return;
+        };
         found.push(Found {
-            name: name.to_string(),
+            name,
             size: entry.size,
             modified: entry.modified,
         });
     });
-    found.sort_by_key(|f| f.name.to_lowercase());
-    (listed.is_ok(), found)
+    if refused {
+        return Err(StorageError::TooLarge);
+    }
+    paperpaw_sdk::sort::sort_by(&mut found, |a, b| {
+        lines::folded(&a.name)
+            .cmp(lines::folded(&b.name))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok((listed.is_ok(), found))
 }
 
 /// What was merged of a file last.
@@ -192,71 +234,128 @@ impl Ledger {
     }
 }
 
+/// One line of the ledger as a source: `None` where it is none.
+fn parse_source(line: &str) -> Result<Option<Source>, StorageError> {
+    let mut f = line.split('\t');
+    let parsed = (|| {
+        Some((
+            f.next()?,
+            f.next()?.parse().ok()?,
+            f.next()?.parse().ok()?,
+            f.next()?.parse().ok()?,
+            u64::from_str_radix(f.next()?, 16).ok()?,
+            f.next() == Some("1"),
+            f.next().and_then(|n| n.parse().ok()).unwrap_or(0),
+        ))
+    })();
+    let Some((name, deck, size, modified, hash, mirror, left_out)) = parsed else {
+        return Ok(None);
+    };
+    if name.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Source {
+        name: copy(name)?,
+        deck,
+        size,
+        modified,
+        hash,
+        mirror,
+        left_out,
+    }))
+}
+
 /// The ledger: none is no sources. One that cannot be read (a card
-/// error, a file too big, one of another version) is an error, so that no
-/// link is forgotten for it.
+/// error, a file too big, one of another version, a refused allocation) is
+/// an error, so that no link is forgotten for it.
 pub(crate) fn sources(storage: &dyn Storage) -> Result<Ledger, StorageError> {
     let mut ledger = Ledger::default();
-    if !storage.exists(&ledger_path()) {
+    if !storage.exists(LEDGER) {
         return Ok(ledger);
     }
-    let bytes = paperpaw_sdk::read_file(storage, &ledger_path(), LEDGER_MAX)?;
-    let text = String::from_utf8_lossy(&bytes);
-    let mut lines = text.lines();
-    match lines.next() {
-        Some(LEDGER_HEADER) | None => {}
-        Some(_) => return Err(StorageError::Io),
+    // Too big to be the ledger: unreadable, like one of another version (a
+    // refused allocation is `TooLarge`, told apart).
+    if storage.size(LEDGER)? > LEDGER_MAX as u64 {
+        return Err(StorageError::Io);
     }
-    for line in lines {
-        let mut f = line.split('\t');
-        let parsed = (|| {
-            Some(Source {
-                name: f.next()?.to_string(),
-                deck: f.next()?.parse().ok()?,
-                size: f.next()?.parse().ok()?,
-                modified: f.next()?.parse().ok()?,
-                hash: u64::from_str_radix(f.next()?, 16).ok()?,
-                mirror: f.next() == Some("1"),
-                left_out: f.next().and_then(|n| n.parse().ok()).unwrap_or(0),
-            })
+    let mut first = true;
+    let mut failure = None;
+    lines::each_line(storage, LEDGER, |_, line| {
+        let step = (|| -> Result<(), StorageError> {
+            if core::mem::take(&mut first) {
+                return if line == LEDGER_HEADER {
+                    Ok(())
+                } else {
+                    Err(StorageError::Io)
+                };
+            }
+            match parse_source(line)? {
+                Some(source) => {
+                    lines::reserve(&mut ledger.sources, 1)?;
+                    ledger.sources.push(source);
+                }
+                None if line.trim().is_empty() => {}
+                None => {
+                    lines::reserve(&mut ledger.other, 1)?;
+                    ledger.other.push(copy(line)?);
+                }
+            }
+            Ok(())
         })();
-        match parsed {
-            Some(source) if !source.name.is_empty() => ledger.sources.push(source),
-            _ if line.trim().is_empty() => {}
-            _ => ledger.other.push(line.to_string()),
+        match step {
+            Ok(()) => ControlFlow::Continue(()),
+            Err(e) => {
+                failure = Some(e);
+                ControlFlow::Break(())
+            }
         }
+    })?;
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(ledger),
     }
-    Ok(ledger)
 }
 
 pub(crate) fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageError> {
-    let mut text = alloc::format!("{LEDGER_HEADER}\n");
-    for s in &ledger.sources {
-        // A tab or a line break in a name cannot be (the card's names
-        // have none that matter): written as spaces.
-        let name: String = s
-            .name
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        text.push_str(&alloc::format!(
-            "{name}\t{}\t{}\t{}\t{:x}\t{}\t{}\n",
-            s.deck,
-            s.size,
-            s.modified,
-            s.hash,
-            u8::from(s.mirror),
-            s.left_out
-        ));
+    let part = part_of(LEDGER)?;
+    {
+        let mut sink = lines::Sink::new(storage, &part)?;
+        sink.put(LEDGER_HEADER)?;
+        sink.put("\n")?;
+        for s in &ledger.sources {
+            // A tab or a line break in a name cannot be (the card's names
+            // have none that matter): written as spaces.
+            let mut buf = [0u8; 4];
+            for c in s.name.chars() {
+                sink.put(if c.is_control() {
+                    " "
+                } else {
+                    c.encode_utf8(&mut buf)
+                })?;
+            }
+            sink.put("\t")?;
+            sink.put_number(s.deck)?;
+            sink.put("\t")?;
+            sink.put_number(s.size)?;
+            sink.put("\t")?;
+            sink.put_signed(s.modified)?;
+            sink.put("\t")?;
+            sink.put_hex(s.hash)?;
+            sink.put("\t")?;
+            sink.put(if s.mirror { "1" } else { "0" })?;
+            sink.put("\t")?;
+            sink.put_number(s.left_out as u64)?;
+            sink.put("\n")?;
+        }
+        for line in &ledger.other {
+            sink.put(line)?;
+            sink.put("\n")?;
+        }
+        sink.finish()?;
     }
-    for line in &ledger.other {
-        text.push_str(line);
-        text.push('\n');
-    }
-    storage.create_dir(&cards::path("")).ok();
-    let part = paperpaw_sdk::files::part_path(&ledger_path());
-    storage.write(&part, text.as_bytes())?;
-    paperpaw_sdk::files::put_in_place(storage, &part, &ledger_path())
+    // The folder may be missing (a cut before it was made).
+    storage.create_dir(cards::DIR).ok();
+    put_in_place(storage, &part, LEDGER)
 }
 
 /// The file `deck` is linked to, if one is.
@@ -305,9 +404,14 @@ pub(crate) struct Pending {
 }
 
 /// One listing of the folder against the ledger: no file is read.
-pub(crate) fn pending(storage: &dyn Storage, folder: &str) -> Pending {
-    let (folder_there, found) = files(storage, folder);
-    let known = sources(storage).unwrap_or_default();
+pub(crate) fn pending(storage: &dyn Storage, folder: &str) -> Result<Pending, StorageError> {
+    let (folder_there, found) = files(storage, folder)?;
+    // A ledger that cannot be read is told as no sources (a refused
+    // allocation is an error for the whole look).
+    let known = match sources(storage) {
+        Err(StorageError::TooLarge) => return Err(StorageError::TooLarge),
+        other => other.unwrap_or_default(),
+    };
     let (mut todo, mut failed) = (0, 0);
     for f in &found {
         match known.find(&f.name) {
@@ -315,21 +419,28 @@ pub(crate) fn pending(storage: &dyn Storage, folder: &str) -> Pending {
             _ => todo += 1,
         }
     }
-    Pending {
+    Ok(Pending {
         folder: folder_there,
         files: found.len(),
         todo,
         failed,
-    }
+    })
 }
 
 /// Makes the folder, and a note in it of how files are to be made.
-pub(crate) fn make_folder(storage: &dyn Storage, folder: &str, readme: &str) {
-    let _ = storage.create_dir(folder);
-    let note = alloc::format!("{folder}/_Read me.txt");
+pub(crate) fn make_folder(
+    storage: &dyn Storage,
+    folder: &str,
+    readme: &str,
+) -> Result<(), StorageError> {
+    storage.create_dir(folder).ok();
+    let mut note = String::new();
+    push(&mut note, folder)?;
+    push(&mut note, "/_Read me.txt")?;
     if !storage.exists(&note) {
-        let _ = storage.write(&note, readme.as_bytes());
+        storage.write(&note, readme.as_bytes())?;
     }
+    Ok(())
 }
 
 // ---- Keys --------------------------------------------------------------
@@ -371,7 +482,7 @@ pub(crate) fn front_key(front: &str) -> u64 {
 fn texts_hash(parts: &[&str]) -> u32 {
     let mut hash = 0x811c_9dc5u32;
     for part in parts {
-        for byte in clean(part, MAX_TEXT).bytes().chain([0]) {
+        for byte in trimmed_cut(part, MAX_TEXT).bytes().chain([0]) {
             hash = (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193);
         }
     }
@@ -383,8 +494,13 @@ fn texts_hash(parts: &[&str]) -> u32 {
 struct Bits(Vec<u8>);
 
 impl Bits {
-    fn new(count: usize) -> Self {
-        Self(alloc::vec![0; count.div_ceil(8)])
+    fn new(count: usize) -> Result<Self, StorageError> {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(count.div_ceil(8))
+            .map_err(|_| StorageError::TooLarge)?;
+        bytes.resize(count.div_ceil(8), 0);
+        Ok(Self(bytes))
     }
 
     fn get(&self, at: usize) -> bool {
@@ -466,11 +582,12 @@ pub(crate) struct FileReport {
 }
 
 impl FileReport {
-    fn new(file: &str, outcome: Outcome) -> Self {
+    /// A report of nothing, made without allocating.
+    const fn empty() -> Self {
         Self {
-            file: file.to_string(),
-            deck: deck_name(file),
-            outcome,
+            file: String::new(),
+            deck: String::new(),
+            outcome: Outcome::Merged,
             added: 0,
             changed: 0,
             removed: 0,
@@ -480,6 +597,22 @@ impl FileReport {
             no_room: 0,
             problems: Vec::new(),
         }
+    }
+
+    fn new(file: &str, outcome: Outcome) -> Result<Self, StorageError> {
+        Ok(Self {
+            file: copy(file)?,
+            deck: deck_name(file)?,
+            outcome,
+            added: 0,
+            changed: 0,
+            removed: 0,
+            removal_held: false,
+            same: 0,
+            skipped: 0,
+            no_room: 0,
+            problems: Vec::new(),
+        })
     }
 }
 
@@ -494,7 +627,8 @@ pub(crate) struct Question {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Step {
     Working,
-    Ask(Question),
+    /// A question is waiting ([`Job::question`]) for [`Job::answer`].
+    Ask,
     Done,
 }
 
@@ -590,43 +724,78 @@ pub(crate) struct Job {
     work: Option<Work>,
     question: Option<Question>,
     pub(crate) reports: Vec<FileReport>,
+    /// A refused allocation ended the job before its last file or dropped
+    /// a report.
+    refused: bool,
 }
 
 impl Job {
-    /// The job for the files of `folder` that `mode` takes.
-    pub(crate) fn new(storage: &dyn Storage, folder: &str, mode: Mode) -> Self {
+    /// The job for the files of `folder` that `mode` takes. A refused
+    /// allocation is an error: no job is made of part of the files.
+    pub(crate) fn new(
+        storage: &dyn Storage,
+        folder: &str,
+        mode: Mode,
+    ) -> Result<Self, StorageError> {
         // What a deck left in the plugin's folder when the power went.
         apkg::tidy(storage);
-        let (_, found) = files(storage, folder);
+        let (_, found) = files(storage, folder)?;
         // A ledger that cannot be read: every file is taken, and fails,
         // so that nothing is written over it.
         let known = sources(storage);
-        let listed = found.iter().map(|f| f.name.clone()).collect();
-        let todo = found
-            .into_iter()
-            .filter(|f| match (&known, mode) {
+        if matches!(known, Err(StorageError::TooLarge)) {
+            return Err(StorageError::TooLarge);
+        }
+        let mut listed: Vec<String> = Vec::new();
+        lines::reserve(&mut listed, found.len())?;
+        for f in &found {
+            listed.push(copy(&f.name)?);
+        }
+        let mut todo: Vec<Found> = Vec::new();
+        lines::reserve(&mut todo, found.len())?;
+        for f in found {
+            let take = match (&known, mode) {
                 (Err(_), _) | (_, Mode::All) => true,
                 (Ok(known), _) => known
                     .find(&f.name)
-                    .is_none_or(|s| !unchanged(f, s) || (s.failed() && mode == Mode::Manual)),
-            })
-            .collect();
-        Self {
-            folder: folder.to_string(),
+                    .is_none_or(|s| !unchanged(&f, s) || (s.failed() && mode == Mode::Manual)),
+            };
+            if take {
+                todo.push(f);
+            }
+        }
+        Ok(Self {
+            folder: copy(folder)?,
             todo,
             listed,
             at: 0,
             work: None,
             question: None,
             reports: Vec::new(),
-        }
+            refused: false,
+        })
     }
 
     /// The job for one file of `folder`, if it is new or changed.
-    pub(crate) fn for_file(storage: &dyn Storage, folder: &str, file: &str) -> Self {
-        let mut job = Self::new(storage, folder, Mode::Manual);
+    pub(crate) fn for_file(
+        storage: &dyn Storage,
+        folder: &str,
+        file: &str,
+    ) -> Result<Self, StorageError> {
+        let mut job = Self::new(storage, folder, Mode::Manual)?;
         job.todo.retain(|f| f.name == file);
-        job
+        Ok(job)
+    }
+
+    /// Whether a refused allocation cut the job short or dropped a report.
+    #[cfg_attr(not(test), allow(dead_code, reason = "the shell tells it"))]
+    pub(crate) fn refused(&self) -> bool {
+        self.refused
+    }
+
+    /// The question the job waits for the answer to.
+    pub(crate) fn question(&self) -> Option<&Question> {
+        self.question.as_ref()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -663,23 +832,21 @@ impl Job {
     /// that has the file's name, `false` to make a new deck.
     pub(crate) fn answer(&mut self, storage: &dyn Storage, link: bool) {
         self.question = None;
-        let Some(work) = self.work.as_mut() else {
+        let Some(work) = self.work.as_ref() else {
             return;
         };
-        let name = deck_name_among(&work.found.name, &self.listed);
-        let deck = if link {
-            cards::deck_named(storage, &name)
-        } else {
-            let other = alloc::format!("{} (2)", clean(&name, MAX_NAME - 4));
-            cards::add_deck(storage, &other)
-        };
-        match deck {
-            Ok(deck) => {
-                work.deck = deck;
-                work.stage = Stage::Merge;
+        let outcome = match deck_for_answer(storage, &work.found.name, &self.listed, link) {
+            Ok(Ok(deck)) => {
+                if let Some(work) = self.work.as_mut() {
+                    work.deck = deck;
+                    work.stage = Stage::Merge;
+                }
+                return;
             }
-            Err(_) => self.finish_with(storage, Outcome::TooManyDecks),
-        }
+            Ok(Err(_)) => Outcome::TooManyDecks,
+            Err(_) => Outcome::Unreadable,
+        };
+        self.finish_with(storage, outcome);
     }
 
     fn finish_with(&mut self, storage: &dyn Storage, outcome: Outcome) {
@@ -691,55 +858,87 @@ impl Job {
                 note_failed(storage, &work.found);
             }
             work.report.outcome = outcome;
-            self.reports.push(work.report);
+            self.keep(work.report);
         }
         self.at += 1;
     }
 
+    /// A report kept for telling; dropped (and `refused` set) where the
+    /// heap refuses room for it.
+    fn keep(&mut self, report: FileReport) {
+        if lines::reserve(&mut self.reports, 1).is_ok() {
+            self.reports.push(report);
+        } else {
+            self.refused = true;
+        }
+    }
+
+    /// The work for the file the job is at.
+    fn begin(&self, found: &Found) -> Result<Work, StorageError> {
+        let found = Found {
+            name: copy(&found.name)?,
+            size: found.size,
+            modified: found.modified,
+        };
+        let mut path = String::new();
+        push(&mut path, &self.folder)?;
+        push(&mut path, "/")?;
+        push(&mut path, &found.name)?;
+        let deck = apkg::is_apkg(&found.name);
+        Ok(Work {
+            report: FileReport::new(&found.name, Outcome::Merged)?,
+            text_size: found.size,
+            found,
+            path,
+            layout: Layout {
+                separator: b'\t',
+                columns: table::Columns {
+                    front: 0,
+                    back: None,
+                    example: None,
+                    id: None,
+                },
+                html: false,
+                paperpaw: None,
+                utf16: false,
+                latin1: false,
+                start: 0,
+                line: 1,
+            },
+            stage: if deck { Stage::Convert } else { Stage::Hash },
+            deck: 0,
+            hash: FNV64,
+            hashed: 0,
+            resume: table::Resume { at: 0, line: 0 },
+            lines: 0,
+            with_ids: false,
+            mirror: false,
+            cards: 0,
+            slices: 1,
+            matched_lines: Bits::default(),
+            matched_cards: Bits::default(),
+        })
+    }
+
     /// Does one step: the next piece of the work.
     pub(crate) fn step(&mut self, storage: &dyn Storage) -> Step {
-        if let Some(question) = &self.question {
-            return Step::Ask(question.clone());
+        if self.question.is_some() {
+            return Step::Ask;
         }
         if self.work.is_none() {
-            let Some(found) = self.todo.get(self.at).cloned() else {
+            let Some(found) = self.todo.get(self.at) else {
                 return Step::Done;
             };
-            let path = alloc::format!("{}/{}", self.folder, found.name);
-            let deck = apkg::is_apkg(&found.name);
-            self.work = Some(Work {
-                report: FileReport::new(&found.name, Outcome::Merged),
-                text_size: found.size,
-                found,
-                path,
-                layout: Layout {
-                    separator: b'\t',
-                    columns: table::Columns {
-                        front: 0,
-                        back: None,
-                        example: None,
-                        id: None,
-                    },
-                    html: false,
-                    paperpaw: None,
-                    utf16: false,
-                    latin1: false,
-                    start: 0,
-                    line: 1,
-                },
-                stage: if deck { Stage::Convert } else { Stage::Hash },
-                deck: 0,
-                hash: FNV64,
-                hashed: 0,
-                resume: table::Resume { at: 0, line: 0 },
-                lines: 0,
-                with_ids: false,
-                mirror: false,
-                cards: 0,
-                slices: 1,
-                matched_lines: Bits::default(),
-                matched_cards: Bits::default(),
-            });
+            match self.begin(found) {
+                Ok(work) => self.work = Some(work),
+                Err(_) => {
+                    // No room even to begin the file: the job ends here, and
+                    // says so, instead of skipping files one by one.
+                    self.refused = true;
+                    self.at = self.todo.len();
+                    return Step::Done;
+                }
+            }
             return Step::Working;
         }
         let stage = self.work.as_ref().map_or(Stage::Finish, |w| w.stage);
@@ -761,9 +960,10 @@ impl Job {
             Err(Failure::Outcome(outcome)) => self.finish_with(storage, outcome),
             Err(Failure::Storage) => self.finish_with(storage, Outcome::Unreadable),
         }
-        match &self.question {
-            Some(question) => Step::Ask(question.clone()),
-            None => Step::Working,
+        if self.question.is_some() {
+            Step::Ask
+        } else {
+            Step::Working
         }
     }
 
@@ -791,7 +991,7 @@ impl Job {
         // Notes left out as too long count as lines left out: the cards
         // they may have made are not removed for lacking.
         work.report.skipped += notes.skipped;
-        work.path = apkg::text_path();
+        work.path = copy(apkg::text_path())?;
         work.text_size = storage.size(&work.path)?;
         work.stage = Stage::Hash;
         Ok(())
@@ -830,7 +1030,7 @@ impl Job {
             && source.hash == work.hash
             && cards::decks(storage)?.iter().any(|d| d.id == source.deck)
         {
-            let mut kept = known.clone();
+            let mut kept = known;
             for s in &mut kept.sources {
                 if s.name == work.found.name {
                     s.size = work.found.size;
@@ -860,7 +1060,8 @@ impl Job {
         };
         let layout = work.layout.clone();
         let (mut lines, mut with_ids, mut too_many) = (work.lines, work.with_ids, false);
-        let mut report = core::mem::replace(&mut work.report, FileReport::new("", Outcome::Merged));
+        let mut report = core::mem::replace(&mut work.report, FileReport::empty());
+        let mut refused = false;
         let next = table::scan(
             storage,
             &work.path,
@@ -880,6 +1081,10 @@ impl Job {
                     Item::Skipped { line, fault } => {
                         report.skipped += 1;
                         if report.problems.len() < MOST_PROBLEMS {
+                            if lines::reserve(&mut report.problems, 1).is_err() {
+                                refused = true;
+                                return ControlFlow::Break(());
+                            }
                             report.problems.push((line, fault));
                         }
                     }
@@ -889,6 +1094,9 @@ impl Job {
         );
         work.report = report;
         let next = next?;
+        if refused {
+            return Err(Failure::Storage);
+        }
         if too_many {
             return Err(Failure::Outcome(Outcome::TooLarge));
         }
@@ -914,9 +1122,9 @@ impl Job {
             return Ok(());
         };
         let decks = cards::decks(storage)?;
-        let known = sources(storage)?;
+        let mut known = sources(storage)?;
         let exists = |id: u32| decks.iter().any(|d| d.id == id);
-        let name = deck_name_among(&work.found.name, &self.listed);
+        let name = deck_name_among(&work.found.name, &self.listed)?;
         if let Some(source) = known.find(&work.found.name).filter(|s| exists(s.deck)) {
             work.deck = source.deck;
             work.mirror = source.mirror;
@@ -925,35 +1133,41 @@ impl Job {
         }
         // A file that was there and is not now, with this content: this
         // one, renamed. Its deck follows the name where it had the old one.
-        let renamed = known.sources.iter().find(|s| {
+        let renamed = known.sources.iter().position(|s| {
             !s.failed() && s.hash == work.hash && !self.listed.contains(&s.name) && exists(s.deck)
         });
-        if let Some(source) = renamed {
-            let old = deck_name(&source.name);
-            let current = decks.iter().find(|d| d.id == source.deck);
-            if current.is_some_and(|d| d.name.to_lowercase() == old.to_lowercase()) {
-                let _ = cards::rename_deck(storage, source.deck, &name);
+        if let Some(at) = renamed {
+            let (deck, mirror) = known
+                .sources
+                .get(at)
+                .map(|s| (s.deck, s.mirror))
+                .ok_or(Failure::Storage)?;
+            let old = known.sources.get(at).map(|s| deck_name(&s.name));
+            if let Some(old) = old {
+                let old = old?;
+                let current = decks.iter().find(|d| d.id == deck);
+                if current.is_some_and(|d| same_folded(&d.name, &old)) {
+                    // A name that cannot be set stays (the deck is the same).
+                    let _ = cards::rename_deck(storage, deck, &name);
+                }
             }
-            work.deck = source.deck;
-            work.mirror = source.mirror;
-            let gone = source.name.clone();
-            let mut kept = known.clone();
-            kept.sources.retain(|s| s.name != gone);
-            write_sources(storage, &kept)?;
+            work.deck = deck;
+            work.mirror = mirror;
+            known.sources.remove(at);
+            write_sources(storage, &known)?;
             work.stage = Stage::Merge;
             return Ok(());
         }
         // A deck of that name no file is linked to: asked, never taken.
-        let lower = name.to_lowercase();
-        let same_name = decks.iter().any(|d| {
-            d.name.to_lowercase() == lower && !known.sources.iter().any(|s| s.deck == d.id)
-        });
+        let same_name = decks
+            .iter()
+            .any(|d| same_folded(&d.name, &name) && !known.sources.iter().any(|s| s.deck == d.id));
         if same_name {
-            work.stage = Stage::Asked;
             self.question = Some(Question {
-                file: work.found.name.clone(),
+                file: copy(&work.found.name)?,
                 deck: name,
             });
+            work.stage = Stage::Asked;
             return Ok(());
         }
         match cards::add_deck(storage, &name) {
@@ -984,10 +1198,10 @@ impl Job {
         work.cards = count;
         if count == 0 {
             // A deck of no cards: all of the file's, in its order.
-            let (path, layout) = (work.path.clone(), work.layout.clone());
+            let (path, layout) = (&work.path, &work.layout);
             let mut no_room = 0usize;
             let added = cards::add_each(storage, work.deck, |push| {
-                table::each(storage, &path, &layout, None, |item| {
+                table::each(storage, path, layout, None, |item| {
                     let Item::Record(record) = item else {
                         return ControlFlow::Continue(());
                     };
@@ -1010,8 +1224,8 @@ impl Job {
             return Ok(());
         }
         work.slices = work.lines.max(count).div_ceil(SLICE).max(1);
-        work.matched_lines = Bits::new(work.lines);
-        work.matched_cards = Bits::new(count);
+        work.matched_lines = Bits::new(work.lines)?;
+        work.matched_cards = Bits::new(count)?;
         work.stage = Stage::Slice {
             round: if work.with_ids { 1 } else { 2 },
             slice: 0,
@@ -1085,8 +1299,9 @@ impl Job {
         }
         let written = sources(storage).and_then(|mut known| {
             known.sources.retain(|s| s.name != work.found.name);
+            lines::reserve(&mut known.sources, 1)?;
             known.sources.push(Source {
-                name: work.found.name.clone(),
+                name: copy(&work.found.name)?,
                 deck: work.deck,
                 size: work.found.size,
                 modified: work.found.modified.unwrap_or(0),
@@ -1094,7 +1309,9 @@ impl Job {
                 mirror: work.mirror,
                 left_out: work.report.skipped + work.report.no_room,
             });
-            tidy(storage, &mut known, &self.listed);
+            tidy(storage, &mut known, |name| {
+                self.listed.iter().any(|l| l == name)
+            });
             write_sources(storage, &known)
         });
         let mut report = work.report;
@@ -1104,266 +1321,19 @@ impl Job {
         if let Ok(decks) = cards::decks(storage)
             && let Some(deck) = decks.iter().find(|d| d.id == work.deck)
         {
-            report.deck.clone_from(&deck.name);
+            // The name as the deck has it; the file's stays where the heap refuses.
+            if let Ok(name) = copy(&deck.name) {
+                report.deck = name;
+            }
         }
-        self.reports.push(report);
+        self.keep(report);
         self.at += 1;
         Ok(())
     }
 }
 
-/// Room for `count` of a kind in one allocation, or `Crowded`: a failed
-/// allocation is a failure to tell, not the end of the program.
-fn room<T>(count: usize) -> Result<Vec<T>, Failure> {
-    let mut vec = Vec::new();
-    vec.try_reserve_exact(count)
-        .map_err(|_| Failure::Outcome(Outcome::Crowded))?;
-    Ok(vec)
-}
-
-/// The deck's cards of the slice that no line has yet, by key. At most
-/// [`CROWD`] of them: a deck whose cards share a front fills a slice.
-fn deck_entries(
-    storage: &dyn Storage,
-    work: &Work,
-    by_front: bool,
-    in_slice: &dyn Fn(u64) -> bool,
-) -> Result<Vec<Entry>, Failure> {
-    let most = CROWD.min(work.cards);
-    let mut entries: Vec<Entry> = room(most)?;
-    let mut order = 0usize;
-    let mut crowded = false;
-    cards::each_card(storage, work.deck, |_, card| {
-        let this = order;
-        order += 1;
-        if work.matched_cards.get(this) {
-            return ControlFlow::Continue(());
-        }
-        let key = if by_front {
-            front_key(&card.front)
-        } else {
-            u64::from(card.state.id)
-        };
-        if !in_slice(key) {
-            return ControlFlow::Continue(());
-        }
-        if entries.len() >= most {
-            crowded = true;
-            return ControlFlow::Break(());
-        }
-        let text = if by_front {
-            texts_hash(&[&card.back, &card.example])
-        } else {
-            texts_hash(&[&card.front, &card.back, &card.example])
-        };
-        entries.push(Entry {
-            key,
-            id: card.state.id,
-            order: this as u32,
-            text,
-        });
-        ControlFlow::Continue(())
-    })?;
-    if crowded {
-        return Err(Failure::Outcome(Outcome::Crowded));
-    }
-    entries.sort_unstable_by_key(|e| (e.key, e.order));
-    Ok(entries)
-}
-
-/// The file's lines of the slice: matched with a card of `entries`, or new.
-/// What is to be written, and how many lines were the same as their card.
-fn match_lines(
-    storage: &dyn Storage,
-    work: &mut Work,
-    entries: Vec<Entry>,
-    by_front: bool,
-    in_slice: &dyn Fn(u64) -> bool,
-) -> Result<(Vec<Edit>, usize), Failure> {
-    let mut used = alloc::vec![false; entries.len()];
-    let most = CROWD.min(work.lines);
-    let mut edits: Vec<Edit> = room(most)?;
-    let (mut same, mut crowded, mut index) = (0usize, false, 0usize);
-    table::each(storage, &work.path, &work.layout, None, |item| {
-        let Item::Record(record) = item else {
-            return ControlFlow::Continue(());
-        };
-        let this = index;
-        index += 1;
-        if work.matched_lines.get(this) {
-            return ControlFlow::Continue(());
-        }
-        // The key is made of the text the card will have.
-        let key = if by_front {
-            Some(front_key(&clean(&record.front, MAX_TEXT)))
-        } else {
-            record.id.map(u64::from)
-        };
-        let Some(key) = key.filter(|k| in_slice(*k)) else {
-            return ControlFlow::Continue(());
-        };
-        let offset = u32::try_from(record.offset).unwrap_or(u32::MAX);
-        let start = entries.partition_point(|e| e.key < key);
-        let hit = (start..entries.len())
-            .take_while(|&i| entries[i].key == key)
-            .find(|&i| !used[i]);
-        if let Some(i) = hit {
-            used[i] = true;
-            work.matched_lines.set(this);
-            work.matched_cards.set(entries[i].order as usize);
-            let text = if by_front {
-                texts_hash(&[&record.back, &record.example])
-            } else {
-                texts_hash(&[&record.front, &record.back, &record.example])
-            };
-            if text == entries[i].text {
-                same += 1;
-            } else if edits.len() < most {
-                edits.push(Edit {
-                    id: entries[i].id,
-                    offset,
-                    add: false,
-                });
-            } else {
-                crowded = true;
-                return ControlFlow::Break(());
-            }
-        } else if by_front {
-            work.matched_lines.set(this);
-            if edits.len() >= most {
-                crowded = true;
-                return ControlFlow::Break(());
-            }
-            edits.push(Edit {
-                id: 0,
-                offset,
-                add: true,
-            });
-        }
-        ControlFlow::Continue(())
-    })?;
-    if crowded {
-        return Err(Failure::Outcome(Outcome::Crowded));
-    }
-    Ok((edits, same))
-}
-
-/// The changes and the new cards of a slice written, the deck anew beside
-/// itself.
-fn write_slice(
-    storage: &dyn Storage,
-    work: &mut Work,
-    by_front: bool,
-    mut edits: Vec<Edit>,
-) -> Result<(), Failure> {
-    // The changes by card number, then the new lines in the file's order.
-    edits.sort_unstable_by_key(|e| (e.add, e.id, e.offset));
-    let split = edits.partition_point(|e| !e.add);
-    let (changes, adds) = edits.split_at(split);
-    let (path, layout) = (work.path.clone(), work.layout.clone());
-    let read = |offset: u32| table::record_at(storage, &path, &layout, u64::from(offset));
-    let mut changed = 0usize;
-    let mut pending = adds.iter();
-    let added = cards::rewrite_with(
-        storage,
-        work.deck,
-        |card| {
-            if let Ok(i) = changes.binary_search_by_key(&card.state.id, |c| c.id)
-                && let Some(record) = read(changes[i].offset)
-            {
-                if !by_front {
-                    card.front = clean(&record.front, MAX_TEXT);
-                }
-                card.back = clean(&record.back, MAX_TEXT);
-                card.example = clean(&record.example, MAX_TEXT);
-                changed += 1;
-            }
-            true
-        },
-        &mut || loop {
-            let edit = pending.next()?;
-            if let Some(record) = read(edit.offset) {
-                return Some(Texts {
-                    front: record.front,
-                    back: record.back,
-                    example: record.example,
-                });
-            }
-        },
-    )
-    .map_err(|_| Failure::Storage)?;
-    work.report.changed += changed;
-    work.report.added += added;
-    work.report.no_room += adds.len() - added.min(adds.len());
-    Ok(())
-}
-
-/// A file that cannot be a deck as it is, kept in the ledger by its size
-/// and time (hash 0), so that it is told and not tried at every opening. A
-/// file linked to a deck keeps its deck.
-fn note_failed(storage: &dyn Storage, found: &Found) {
-    let Ok(mut ledger) = sources(storage) else {
-        return;
-    };
-    let (deck, mirror, left_out) = ledger
-        .find(&found.name)
-        .map_or((0, false, 0), |s| (s.deck, s.mirror, s.left_out));
-    ledger.sources.retain(|s| s.name != found.name);
-    ledger.sources.push(Source {
-        name: found.name.clone(),
-        deck,
-        size: found.size,
-        modified: found.modified.unwrap_or(0),
-        hash: 0,
-        mirror,
-        left_out,
-    });
-    let _ = write_sources(storage, &ledger);
-}
-
-/// The ledger without what can be of no use: a link to a deck that is gone,
-/// a failed file that is not in the folder any more.
-pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
-    let Ok(decks) = cards::decks(storage) else {
-        return;
-    };
-    ledger.sources.retain(|s| {
-        if s.deck == 0 {
-            listed.contains(&s.name)
-        } else {
-            decks.iter().any(|d| d.id == s.deck)
-        }
-    });
-}
-
-/// What a deck that could not be read comes to.
-fn fault_of(fault: apkg::Fault) -> Failure {
-    match fault {
-        apkg::Fault::NoNotes => Failure::Outcome(Outcome::NoNotes),
-        apkg::Fault::NewerAnki => Failure::Outcome(Outcome::NewerAnki),
-        apkg::Fault::TooLarge | apkg::Fault::Memory => Failure::Outcome(Outcome::DeckTooLarge),
-        apkg::Fault::Storage => Failure::Storage,
-    }
-}
-
-/// Why a step could not go on.
-#[derive(Debug)]
-enum Failure {
-    Outcome(Outcome),
-    Storage,
-}
-
-impl From<StorageError> for Failure {
-    fn from(_: StorageError) -> Self {
-        Failure::Storage
-    }
-}
-
-impl From<Problem> for Failure {
-    fn from(_: Problem) -> Self {
-        Failure::Storage
-    }
-}
+mod merge;
+pub(crate) use self::merge::*;
 
 #[cfg(test)]
 #[path = "sync_tests.rs"]

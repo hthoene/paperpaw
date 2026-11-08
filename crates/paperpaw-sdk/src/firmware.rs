@@ -158,7 +158,9 @@ pub enum InstallFailure {
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
     /// kind. Codes given so far: 1, the device is shared with another
-    /// firmware (`dual-boot`) and nothing is installed here.
+    /// firmware (`dual-boot`) and nothing is installed here; 2, the memory has no
+    /// room for the install's buffers (nothing was written; a later try may
+    /// find room).
     Other(u16),
 }
 

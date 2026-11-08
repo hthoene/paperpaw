@@ -1,6 +1,8 @@
 //! Committed declaration bytes. Submitted addresses are never dereferenced.
 use super::{
-    declaration_index::{NameEntry, key, name_hash, same_name},
+    declaration_index::{
+        NameEntry, composite_hash, key, matches_parts, record_hash, same_record_name,
+    },
     registrations::{REGISTRATION_MAX_RECORDS, Record, RecordBatch},
     staged::{DECLARATIONS_MAX_BYTES, IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES},
 };
@@ -99,14 +101,14 @@ impl RawDeclarations {
         let mut index = [NameEntry::default(); REGISTRATION_MAX_RECORDS];
         let mut len = 0;
         for (record, value) in batch.iter().enumerate() {
-            if let Some((kind, name)) = key(value) {
-                index[len] = NameEntry {
-                    hash: self.hash(kind, name),
-                    batch: u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
-                    record_kind: (u16::from(kind) << 3)
-                        | (u16::from(matches!(value, Record::ResourceFontExtension(_))) << 6)
-                        | u16::try_from(record).map_err(|_| ERR_INVALID)?,
-                };
+            if let Some((kind, _)) = key(value) {
+                index[len] = NameEntry::new(
+                    self.record_hash(value)?,
+                    u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
+                    kind,
+                    record,
+                    matches!(value, Record::ResourceFontExtension(_)),
+                )?;
                 len += 1;
             }
         }
@@ -265,12 +267,19 @@ impl RawDeclarations {
             self.sorted = false;
         }
     }
-    fn hash(&self, kind: u8, name: &str) -> u32 {
+    fn hash(&self, kind: u8, parts: &[&str]) -> u32 {
         #[cfg(test)]
         if let Some(hash) = self.force_hash {
             return hash;
         }
-        name_hash(kind, name)
+        composite_hash(kind, parts)
+    }
+    fn record_hash(&self, record: Record<'_>) -> Result<u32, i32> {
+        #[cfg(test)]
+        if let Some(hash) = self.force_hash {
+            return Ok(hash);
+        }
+        record_hash(record).ok_or(ERR_INVALID)
     }
     pub(crate) fn sort_index(&mut self) {
         super::declaration_index::sort_by_key(&mut self.index, |entry| entry.order());
@@ -288,10 +297,10 @@ impl RawDeclarations {
         let bytes = batch.view(image)?;
         let offset = usize::from(*batch.offsets.get(entry.record()).ok_or(ERR_INVALID)?);
         let (record, _) =
-            super::registrations::record_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
-        let (kind, name) = key(record).ok_or(ERR_INVALID)?;
+            super::registrations::host_decode_prefix(bytes.get(offset..).ok_or(ERR_INVALID)?)?;
+        let (kind, _) = key(record).ok_or(ERR_INVALID)?;
         if kind != entry.kind()
-            || self.hash(kind, name) != entry.hash
+            || self.record_hash(record)? != entry.hash
             || matches!(record, Record::ResourceFontExtension(_)) != entry.is_extension()
         {
             return Err(ERR_INVALID);
@@ -304,17 +313,25 @@ impl RawDeclarations {
         kind: u8,
         name: &str,
     ) -> Result<Option<Record<'a>>, i32> {
+        self.find_parts(image, kind, &[name])
+    }
+    pub(crate) fn find_parts<'a>(
+        &'a self,
+        image: Option<&'a [u8]>,
+        kind: u8,
+        parts: &[&str],
+    ) -> Result<Option<Record<'a>>, i32> {
         if !self.sorted {
             return Err(ERR_INVALID);
         }
-        let wanted = (kind, self.hash(kind, name));
+        let wanted = (kind, self.hash(kind, parts));
         let start = self.index.partition_point(|entry| entry.order() < wanted);
         for entry in self.index[start..]
             .iter()
             .take_while(|entry| entry.order() == wanted)
         {
             let record = self.record(image, *entry)?;
-            if key(record).is_some_and(|(_, actual)| same_name(kind, actual, name)) {
+            if matches_parts(record, kind, parts) {
                 return Ok(Some(record));
             }
         }
@@ -331,9 +348,9 @@ impl RawDeclarations {
                 .rev()
                 .take_while(|earlier| earlier.order() == entry.order())
             {
-                let a = key(self.record(image, *entry)?).ok_or(ERR_INVALID)?;
-                let b = key(self.record(image, *earlier)?).ok_or(ERR_INVALID)?;
-                if same_name(a.0, a.1, b.1) {
+                let a = self.record(image, *entry)?;
+                let b = self.record(image, *earlier)?;
+                if same_record_name(a, b) {
                     return Err(ERR_INVALID);
                 }
             }
@@ -389,6 +406,8 @@ fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usi
         base[i] + (desired[i] - base[i]) * spare / expansion
     }))
 }
+// Only these six kinds have individual count caps. Screen/action entries
+// share the aggregate index_cost budget and use no per-kind raw vectors.
 fn counts(batch: &RecordBatch<'_>) -> [usize; 6] {
     let mut counts = [0; 6];
     for record in batch.iter() {

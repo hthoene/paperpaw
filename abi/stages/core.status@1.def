@@ -1,0 +1,83 @@
+{
+  "key": "core.status",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "status.ask"
+  ],
+  "reply": [
+    "status.value"
+  ],
+  "reply_rows": 8,
+  "records": [
+    {
+      "id": 1,
+      "name": "status.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "items",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1032,
+          "list": {
+            "separator": "\n",
+            "max_items": 8,
+            "item_max_bytes": 128
+          }
+        },
+        {
+          "name": "context",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "status.value",
+      "since": 0,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    }
+  ]
+}

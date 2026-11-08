@@ -88,6 +88,10 @@ class EntrySchemaTests(unittest.TestCase):
         for table in contract['tables']:
             for field in table['fields']:
                 field['since'] = 2
+        # The heap word cannot precede its contract either.
+        with self.assertRaises(ValueError):
+            validate_entry(candidate)
+        contract['heap_word']['since'] = 2
         validate_entry(candidate)
         prior = copy.deepcopy(self.schema)
         del prior['entry_contract']

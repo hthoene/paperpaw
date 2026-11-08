@@ -328,7 +328,11 @@ fn only_suspend_and_stopping_bypass_the_queue() {
             tag == EVENT_SUSPEND_TAG || tag == EVENT_STOPPING_TAG
         );
     }
-    for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX] {
+    // Family 1b (64-74) stays refused until Core wires its producers.
+    for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX]
+        .into_iter()
+        .chain(64..=74)
+    {
         assert!(!events::is_event_tag(tag));
     }
 }
@@ -354,7 +358,12 @@ fn submit_one(tag: u32) -> (i32, bool) {
         status = unsafe { registrations::submit(&slot, bytes.as_ptr(), n) };
     })
     .unwrap();
-    let batch = construction.commit(|_| {});
+    let batch = construction.commit(paperpaw_core::native_host::Teardown {
+        report: |_, _, _| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
+        destroy: |_| {},
+    });
     let dispatched = batch.is_ok_and(|batch| {
         batch.dispatch(0, &DispatchDepth::new(), |_, r| *r)
             == Ok(Registration::Event {
@@ -371,27 +380,43 @@ fn registration_admits_tick_and_every_event_kind_and_refuses_the_rest() {
     for tag in TAGS.into_iter().chain([EVENT_TICK_TAG]) {
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
     }
-    for tag in [0, 4, 5, 31, 38, 63, u32::MAX] {
+    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(64..=74) {
         assert_eq!(submit_one(tag), (ERR_UNSUPPORTED, false), "tag {tag}");
     }
 }
 
 #[test]
 fn a_registration_batch_cannot_carry_an_event_record() {
-    let owner = Box::pin(HostOwner::new(RegistrationScope::<Registration>::new(), ()));
-    let slot = owner.as_ref().context();
-    let mut bytes = [0; 64];
-    let n = records_encode(
-        &[Record::EventStarted(EventStarted { now_ms: 1 })],
-        &mut bytes,
-    )
-    .unwrap();
-    let mut construction = owner.as_ref().begin("weather").unwrap();
-    slot.scope(&mut construction, || {
-        // SAFETY: the array outlives the call.
-        let status = unsafe { registrations::submit(&slot, bytes.as_ptr(), n) };
-        assert_eq!(status, ERR_INVALID);
-    })
-    .unwrap();
-    assert!(construction.commit(|_| {}).is_err());
+    let events = [
+        Record::EventStarted(EventStarted { now_ms: 1 }),
+        Record::EventPluginsChanged(registrations::EventPluginsChanged { now_ms: 1 }),
+        Record::EventSettingChanged(registrations::EventSettingChanged {
+            now_ms: 1,
+            key: "weather.city",
+            old: &[],
+        }),
+    ];
+    for event in events {
+        let owner = Box::pin(HostOwner::new(RegistrationScope::<Registration>::new(), ()));
+        let slot = owner.as_ref().context();
+        let mut bytes = [0; 64];
+        let n = records_encode(&[event], &mut bytes).unwrap();
+        let mut construction = owner.as_ref().begin("weather").unwrap();
+        slot.scope(&mut construction, || {
+            // SAFETY: the array outlives the call.
+            let status = unsafe { registrations::submit(&slot, bytes.as_ptr(), n) };
+            assert_eq!(status, ERR_INVALID);
+        })
+        .unwrap();
+        assert!(
+            construction
+                .commit(paperpaw_core::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| {}
+                })
+                .is_err()
+        );
+    }
 }

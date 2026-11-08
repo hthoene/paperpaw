@@ -6,16 +6,30 @@
 use super::Error;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
-    Command as WireCommand, CommandBatch, commands_decode, commands_encode,
+    Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
 };
 use crate::abi7::settings_wire::SettingValueRef;
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
-    buffers,
+    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK,
+    PpBytes, buffers,
 };
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
+
+#[allow(
+    dead_code,
+    reason = "native screen dispatch installs UI command authority next"
+)]
+#[path = "commands_ui.rs"]
+mod ui;
+
+#[allow(
+    dead_code,
+    reason = "native screen dispatch installs DEV command authority next"
+)]
+#[path = "commands_dev.rs"]
+pub(crate) mod dev;
 
 /// Host-resolved authority for guarded settings, shared with the drain-time filter.
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +50,30 @@ impl crate::Kernel {
     }
 }
 
+/// The most commands one callback may stage (the stage's `limit`): enough for a
+/// profile apply in one callback. Each is submitted in its
+/// own batch (the wire batch cap, `COMMAND_MAX_RECORDS`, is separate and
+/// unchanged); the staged commands live in a fallibly reserved heap `Vec`.
+/// A callback that returns an error drops the whole stage, so a profile apply
+/// stays atomic.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub const CALLBACK_COMMANDS: usize = 64;
+/// The most bytes of copied keys and text one callback may stage.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub const CALLBACK_COMMAND_BYTES: usize = 4096;
+
 /// Host staging for one callback: the submitting plugin's identity, the live
 /// settings registry used for validation, at most `limit` accepted commands,
 /// and at most `byte_limit` bytes of copied keys and text across them.
@@ -50,6 +88,10 @@ pub struct CommandStage<'a> {
     limit: usize,
     byte_limit: usize,
     bytes: usize,
+    ui: Option<ui::UiContext<'a>>,
+    dev: Option<dev::DevStage<'a>>,
+    redraw: Option<u32>,
+    accepted: usize,
 }
 
 impl<'a> CommandStage<'a> {
@@ -75,6 +117,10 @@ impl<'a> CommandStage<'a> {
             limit,
             byte_limit,
             bytes: 0,
+            ui: None,
+            dev: None,
+            redraw: None,
+            accepted: 0,
         }
     }
 
@@ -109,12 +155,49 @@ impl<'a> CommandStage<'a> {
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
     fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
-        if self.staged.len().saturating_add(batch.len()) > self.limit {
+        if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
+        // `answer_plugin` needs the install feature (`uses.install`, DEV,
+        // `docs/abi/device.md` section 1). Until command staging checks
+        // features (DEV host side), it is refused for every plugin, wherever it
+        // sits in the batch.
+        if batch
+            .iter()
+            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
+        {
+            return ERR_DENIED;
+        }
+        if let Err(status) = self.validate_open_budget(batch) {
+            return status;
+        }
+        // Wi-Fi and power commands (`commands_dev.rs`): features, limits,
+        // rules; their copied bytes count against the budget.
+        let dev_bytes = match self.validate_dev(batch) {
+            Ok(bytes) => bytes,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
-        let mut bytes = self.bytes;
-        for WireCommand::SetSetting { key, value } in batch.iter() {
+        let mut bytes = self.bytes.saturating_add(dev_bytes);
+        if bytes > self.byte_limit {
+            return ERR_NO_SPACE;
+        }
+        for command in batch.iter() {
+            let WireCommand::SetSetting { key, value } = command else {
+                let checked = if dev::is_dev(&command) {
+                    Ok(0)
+                } else {
+                    self.validate_ui(command)
+                };
+                match checked {
+                    Ok(extra) => bytes = bytes.saturating_add(extra),
+                    Err(error) => return error,
+                }
+                if bytes > self.byte_limit {
+                    return ERR_NO_SPACE;
+                }
+                continue;
+            };
             let text = match value {
                 SettingValueRef::Text(text) => text.len(),
                 _ => 0,
@@ -136,27 +219,57 @@ impl<'a> CommandStage<'a> {
                 return ERR_INVALID;
             }
         }
-        if self.staged.try_reserve(batch.len()).is_err() {
+        let stored = batch
+            .iter()
+            .filter(|command| {
+                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
+            })
+            .count();
+        if self.staged.try_reserve(stored).is_err() {
             return ERR_NO_MEMORY;
         }
-        let start = self.staged.len();
+        if let Err(error) = self.dev_reserve(batch) {
+            return error;
+        }
+        let (start, dev_start) = (self.staged.len(), self.dev_len());
+        if let Err(error) = self.push_batch(batch, dev_start) {
+            self.staged.truncate(start);
+            self.dev_rollback(dev_start);
+            return error;
+        }
         for command in batch.iter() {
-            match self.owned(command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                Ok(command) => self.staged.push(command),
-                Err(error) => {
-                    self.staged.truncate(start);
-                    return error;
-                }
+            if let WireCommand::Redraw { mode } = command {
+                self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
             }
         }
+        self.accepted += batch.len();
         self.bytes = bytes;
         OK
     }
 
+    /// Keep every command of a validated batch in order (capacity is reserved)
+    /// and reserve the request entries of its DEV commands, last.
+    fn push_batch(&mut self, batch: &CommandBatch<'_>, dev_start: usize) -> Result<(), i32> {
+        for command in batch.iter() {
+            if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
+            if dev::is_dev(&command) {
+                self.dev_push(command)?;
+                continue;
+            }
+            let owned = self.owned(command)?;
+            // Capacity is reserved, so this push cannot reallocate.
+            self.staged.push(owned);
+        }
+        self.dev_commit(dev_start)
+    }
+
     /// Convert one admitted command, copying text fallibly and checking it.
     fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
-        let WireCommand::SetSetting { key, value } = command;
+        let WireCommand::SetSetting { key, value } = command else {
+            return self.owned_ui(command);
+        };
         let spec = self.admitted(key)?;
         let value = match value {
             SettingValueRef::Bool(value) => SettingValue::Bool(value),
@@ -176,9 +289,9 @@ impl<'a> CommandStage<'a> {
         }
         // Keys are at most COMMAND_MAX_KEY_BYTES; a placement key is parsed.
         let id = if key == spec.id.as_str() {
-            spec.id.clone()
+            spec.id.try_clone().ok_or(ERR_NO_MEMORY)?
         } else {
-            Id::parse(key).map_err(|_| ERR_INVALID)?
+            ui::copy_id(key)?
         };
         Ok(Command::SetSetting(id, value))
     }
@@ -296,6 +409,10 @@ impl fmt::Debug for CommandScope {
         f.debug_struct("CommandScope").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "commands_limit_tests.rs"]
+mod limit_tests;
 
 #[cfg(test)]
 mod tests {

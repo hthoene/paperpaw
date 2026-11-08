@@ -64,13 +64,48 @@ pub(super) fn fixture_linked(
     prelude: &str,
     link: &[String],
 ) -> Fixture {
+    let metadata = crate::native_runtime::tests::metadata_bytes();
+    fixture_source(
+        valid,
+        invalid,
+        ignore_invalid,
+        query,
+        prelude,
+        link,
+        &metadata,
+        &tick_bytes(),
+    )
+}
+
+pub(super) fn fixture_service(
+    valid: Vec<u8>,
+    query: &str,
+    metadata: &[u8],
+    event: &[u8],
+) -> Fixture {
+    fixture_source(valid, &[], false, query, "", &[], metadata, event)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "independent input variations for the real library fixture matrix"
+)]
+fn fixture_source(
+    valid: Vec<u8>,
+    invalid: &[u8],
+    ignore_invalid: bool,
+    query: &str,
+    prelude: &str,
+    link: &[String],
+    metadata: &[u8],
+    event: &[u8],
+) -> Fixture {
     let root = crate::private::dir("paperpaw-foreign726").unwrap();
     let path = root.join("fixture.so");
     let abi = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../abi/generated/paperpaw_abi.rs")
         .canonicalize()
         .unwrap();
-    let metadata = crate::native_runtime::tests::metadata_bytes();
     let mut source = include_str!("../fixtures/registration.rs.in").to_owned();
     for (name, value) in [
         ("ABI_PATH", format!("{abi:?}")),
@@ -79,7 +114,7 @@ pub(super) fn fixture_linked(
         ("NEEDS_MINOR", "1".to_owned()),
         ("VALID_BATCH", format!("{valid:?}")),
         ("INVALID_BATCH", format!("{invalid:?}")),
-        ("EXPECTED_EVENT", format!("{:?}", tick_bytes())),
+        ("EXPECTED_EVENT", format!("{event:?}")),
         ("TOKEN", TOKEN.to_string()),
         ("IGNORE_INVALID", ignore_invalid.to_string()),
         ("QUERY_BODY", query.to_owned()),

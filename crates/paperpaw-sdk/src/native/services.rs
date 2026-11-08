@@ -1,8 +1,11 @@
-//! Callback-scoped snapshot services. Blobs expire with their callback; dropping
-//! one releases it early so the next query can use the device's bounded slot.
+//! Snapshot blobs and schema-checked call services. Blobs expire with their
+//! callback; service handles remain live until explicit release or owner teardown.
 use super::{Error, Host, binding::status};
 use core::fmt;
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
+
+mod call;
+pub use call::Service;
 
 mod usage;
 pub use usage::{

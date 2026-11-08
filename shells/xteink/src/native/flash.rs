@@ -298,8 +298,18 @@ impl Flash {
         header: &Header5,
         placement: &Placement,
     ) -> Result<u32, PluginProblem> {
+        // The host heap word (`abi/heap-word.md`): the address of the
+        // firmware's `PpHeap` table, written into the plugin's word while
+        // it is placed. Until the firmware has such a table a plugin that
+        // has a word cannot be given one: not loaded, nothing touched.
+        let table = heap_table();
+        if header.heap_at.is_some() && table.is_none() {
+            warn!("native: {path} has a heap word and this firmware has no heap table: not loaded");
+            return Err(PluginProblem::Unsupported);
+        }
         if placement.present {
             info!("native: {path} lies in flash at {:#x}", placement.at);
+            check_heap_word(path, header, placement, table)?;
             return copy_hot(header.hot_at, header.hot_len, placement);
         }
         let mut piece = Vec::new();
@@ -321,6 +331,12 @@ impl Flash {
             Relocator5::new(header, &src, placement.base).map_err(super::problem)?;
         if placement.hot != 0 {
             relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
+        }
+        // The word is filled in the piece buffer after its piece is
+        // relocated, before the sector is programmed: the same pass as the
+        // rest of the sector, never rewritten in place.
+        if let Some(table) = table {
+            relocator = relocator.heap_word(table);
         }
         // Everything that can refuse the file, on the file as read now and
         // before a sector of the flash is erased: the digest, each word to
@@ -371,6 +387,7 @@ impl Flash {
             placement.at,
             header.image_len.div_ceil(SECTOR)
         );
+        check_heap_word(path, header, placement, table)?;
         copy_hot(header.hot_at, header.hot_len, placement)
     }
 
@@ -447,6 +464,49 @@ impl Flash {
             Err(e) => warn!("native: the index: {e:?}"),
         }
     }
+}
+
+/// The address of the firmware's `PpHeap` table for plugins' heap words
+/// (`abi/heap-word.md`), or `None` while the firmware has none. It is the
+/// same for the whole run and is written into a placed image only while the
+/// image is placed; the index is keyed by the firmware build, so a firmware
+/// with another table re-places every plugin.
+#[cfg(feature = "ppn5")]
+fn heap_table() -> Option<u32> {
+    None
+}
+
+/// Before `make`: the word placed in flash for `header` holds the address of
+/// this firmware's table. A plugin without a word has nothing to check. A
+/// word that differs (a damaged or foreign region: the build-keyed index
+/// already re-placed everything it would) is `Damaged`, and the plugin is
+/// never run.
+#[cfg(feature = "ppn5")]
+fn check_heap_word(
+    path: &str,
+    header: &Header5,
+    placement: &Placement,
+    table: Option<u32>,
+) -> Result<(), PluginProblem> {
+    let Some(at) = header.heap_at else {
+        return Ok(());
+    };
+    let placed = placement
+        .base
+        .checked_add(at)
+        .filter(|_| at.checked_add(4).is_some_and(|end| end <= header.code_at));
+    let (Some(placed), Some(table)) = (placed, table) else {
+        return Err(PluginProblem::Damaged);
+    };
+    // SAFETY: `at` is a 4-aligned word of the image's read-only data
+    // (`Header5::read` checked it), which the MMU maps at `placement.base`
+    // for the whole session; the cache was invalidated after a write.
+    let found = unsafe { core::ptr::read_volatile(placed as *const u32) };
+    if found != table {
+        warn!("native: {path}: the heap word holds {found:#x}, not {table:#x}: not loaded");
+        return Err(PluginProblem::Damaged);
+    }
+    Ok(())
 }
 
 /// Copies the hot code of the image placed as `placement` says, relocated

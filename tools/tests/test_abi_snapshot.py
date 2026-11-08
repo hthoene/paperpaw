@@ -273,15 +273,16 @@ class SnapshotTests(unittest.TestCase):
 
     def test_lock_coverage_and_legacy_formats(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 8)
+        self.assertEqual(trusted['lock_format'], 11)
         self.assertEqual(trusted['emitted_snapshot'], rust_snapshot(self.schema))
-        for version in range(1, 9):
+        for version in range(1, 12):
             legacy = copy.deepcopy(trusted)
             legacy['lock_format'] = version
             for floor, field in [(2, 'emitted_rust'), (3, 'emitted_metadata'),
                                  (4, 'emitted_records'), (5, 'emitted_snapshot'),
                                  (6, 'emitted_color'), (7, 'emitted_commands'),
-                                 (8, 'emitted_streams')]:
+                                 (8, 'emitted_streams'), (9, 'emitted_services'),
+                                 (10, 'emitted_host_decode'), (11, 'emitted_stages')]:
                 if version < floor:
                     del legacy[field]
             ABI.check_lock(legacy, self.schema)
@@ -293,7 +294,8 @@ class SnapshotTests(unittest.TestCase):
     def test_owned_generated_files_and_stale_detection(self):
         source = rust_snapshot(self.schema)
         paths = ['abi/generated/snapshot_wire.rs',
-                 'crates/paperpaw-core/src/abi7/snapshot_wire.rs']
+                 'crates/paperpaw-core/src/abi7/snapshot_wire.rs',
+                 'crates/paperpaw-sdk/src/native/wire/snapshot_wire.rs']
         for path in paths:
             self.assertEqual((ROOT / path).read_text(), source)
         with tempfile.TemporaryDirectory() as directory:

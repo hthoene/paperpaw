@@ -875,12 +875,14 @@ impl Kernel {
     /// it in the list of plugins. What was chosen from it stays chosen
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
-    fn unload_plugin(&mut self, id: &Id) {
+    pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
+        let native_key = self.shared.native_instances.find(id.as_str());
+        let replacement = native_key.and_then(|key| self.begin_native_unload(key, id));
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());
         self.close_ended_runs();
         self.shared.data_folders.retain(|(p, _)| p != id);
-        self.shared.fonts.remove_plugin(id.as_str());
+        self.remove_plugin_fonts(id);
         self.shared.hyphenation.remove_tables(id.as_str());
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
@@ -902,7 +904,8 @@ impl Kernel {
         match self.shared.plugins.get_mut(id.as_str()) {
             Some(info)
                 if info.kind == paperpaw_sdk::PluginKind::Code
-                    && info.state == PluginState::Running =>
+                    && info.state == PluginState::Running
+                    && native_key.is_none() =>
             {
                 info.enabled = false;
             }
@@ -910,6 +913,18 @@ impl Kernel {
                 self.shared.plugins.remove(id.as_str());
             }
         }
+        if let Some(folder) = replacement {
+            self.register_folder(&folder);
+            self.plugins_changed();
+        }
+        self.shared.native_instances.find(id.as_str()).is_none()
+    }
+
+    /// All font removal and replacement paths invalidate named handles here.
+    pub(crate) fn remove_plugin_fonts(&mut self, id: &Id) -> usize {
+        let removed = self.shared.fonts.remove_plugin(id.as_str());
+        self.shared.font_removals.removed(id, removed);
+        removed
     }
 
     /// A font chosen that is no longer offered gives way to the default.
@@ -933,6 +948,10 @@ impl Kernel {
     /// the folder takes the place of every version of it on the storage,
     /// loaded or not, and is loaded at once.
     pub(crate) fn install_plugin(&mut self, id: &Id, folder: &str) {
+        if self.shared.native_instances.replacement_pending(id) {
+            self.warn_runtime("plugin replacement is already pending cleanup");
+            return;
+        }
         let dirs = self.shared.plugin_dirs.clone();
         // Loaded without a folder: built in, not to be replaced.
         let built_in =
@@ -951,7 +970,8 @@ impl Kernel {
         );
         // A code plugin's code runs until the restart: the new version
         // takes over then.
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str())
+        if self.shared.native_instances.find(id.as_str()).is_none()
+            && let Some(info) = self.shared.plugins.get_mut(id.as_str())
             && info.kind == paperpaw_sdk::PluginKind::Code
             && info.state == PluginState::Running
         {
@@ -961,8 +981,21 @@ impl Kernel {
             self.shared.data_folders.push((id.clone(), placed.target));
             return self.plugins_changed();
         }
-        if self.shared.plugins.get(id.as_str()).is_some() {
-            self.unload_plugin(id);
+        if (self.shared.plugins.get(id.as_str()).is_some()
+            || self.shared.native_instances.find(id.as_str()).is_some())
+            && !self.unload_plugin(id)
+        {
+            if let Some(key) = self.shared.native_instances.find(id.as_str())
+                && self
+                    .shared
+                    .native_instances
+                    .defer_replacement(key, placed.target)
+                    .is_err()
+            {
+                self.warn_runtime("plugin replacement could not be queued after cleanup");
+            }
+            self.plugins_changed();
+            return;
         }
         // Changed even where the new one does not load: the old ones are
         // gone.
@@ -1100,6 +1133,7 @@ impl Kernel {
         self.apply_ui_text_curve();
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
     }
 
     /// Releases memory reserved while plugins registered: on small devices

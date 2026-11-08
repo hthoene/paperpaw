@@ -17,6 +17,21 @@
 
 extern crate alloc;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
+mod native_entry;
+#[doc(hidden)]
+pub mod native_model;
+/// The interface-7 Wikipedia lookup (slice 1; see `PORTING-7.md`).
+pub mod native_plugin;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::format;
@@ -548,3 +563,5 @@ mod tests {
 
 #[cfg(test)]
 mod address_tests;
+#[cfg(test)]
+mod native_parity_tests;

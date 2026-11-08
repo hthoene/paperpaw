@@ -25,6 +25,8 @@ mod hot;
 pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
+#[cfg(all(feature = "static-native", feature = "esp32c3"))]
+pub(crate) use ppn5::register_linked_probe;
 #[cfg(feature = "esp32s3")]
 mod psram;
 
@@ -218,11 +220,25 @@ pub type Place = flash::Flash;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
+    /// The nesting budget every interface-7 plugin of this device shares,
+    /// made with the first one (a fallible allocation: `NoRoom`).
+    #[cfg(feature = "ppn5")]
+    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
+    /// The device-wide table of handles the plugins' owners share (made with
+    /// the first plugin; each plugin holds a counted share of it).
+    #[cfg(feature = "ppn5")]
+    resources: Option<paperpaw_core::native_host::HostResources>,
 }
 
 impl Loader {
     pub fn new(place: Place) -> Self {
-        Self { place }
+        Self {
+            place,
+            #[cfg(feature = "ppn5")]
+            depth: None,
+            #[cfg(feature = "ppn5")]
+            resources: None,
+        }
     }
 
     fn load_file(
@@ -239,7 +255,23 @@ impl Loader {
         // Interface 7's files (format 5) are read by their own loader.
         #[cfg(feature = "ppn5")]
         if ppn5::is_format5(&head) {
-            return ppn5::load(&mut self.place, storage, code);
+            // Without the net at the stack's end (`stack::arm_band`) a
+            // frame that overflows is not caught: refused, for this start.
+            if !crate::stack::band_armed() {
+                warn!("native: {path} not run: the stack's band is not armed");
+                return Err(PluginProblem::Unsupported);
+            }
+            let loaded = ppn5::load(
+                &mut self.place,
+                &mut self.depth,
+                &mut self.resources,
+                storage,
+                code,
+            );
+            if loaded.is_ok() {
+                crate::stack::native_loaded();
+            }
+            return loaded;
         }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {

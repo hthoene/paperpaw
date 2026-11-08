@@ -1,9 +1,10 @@
 # Battery: goldens the interface-7 port has to reproduce
 
-These tests pin what the interface-6 Battery plugin does today (ticket #771,
-umbrella #228). The port is accepted when the same goldens pass with the
-interface-7 plugin, or when a difference is decided on purpose and the golden
-is re-blessed in the same change with a note here. Section numbers refer to
+These tests pinned what the interface-6 Battery plugin did (ticket #771,
+umbrella #228). The interface-7 plugin is the only Battery now and passes the
+same goldens; the one difference decided on purpose is listed below, and the
+interface-6 cut-tail golden was deleted with the interface-6 plugin. The tests
+that run them are listed in `tests/PORTING.md`. Section numbers refer to
 `docs/abi/proposals/interface-7-events-storage-services.md` (the proposal);
 everything marked "proposed" there can still change. See also
 `tests/PORTING.md` for the older behavioural contracts these sit next to.
@@ -11,10 +12,10 @@ everything marked "proposed" there can still change. See also
 Re-bless (look at every changed file before committing it):
 
 ```sh
-PAPERPAW_BLESS=1 cargo test -p paperpaw-plugin-battery --test screens --test storage_goldens
+PAPERPAW_BLESS=1 cargo test -p paperpaw-plugin-battery --test native_goldens
 ```
 
-## 1. Screens (`tests/screens.rs`, `testdata/screens/*.png`)
+## 1. Screens (`crates/paperpaw-core/src/native_battery_pixel_tests.rs`, `testdata/screens/*.png`)
 
 16 pictures of the real screen on the 480x800 mono panel, English and German.
 Compared pixel for pixel. The port needs the canvas, text, font and i18n
@@ -29,20 +30,19 @@ formatting contracts to draw them again (proposal 4.2, 4.3; slot 9 canvas).
 | `low` | low battery | slot 4 snapshot |
 | `developer-footer` | developer setting shows where the log is | settings read (slot 5); storage path of plugin root (2.2) |
 
-## 2. Storage format (`tests/storage_goldens.rs`, `testdata/*.v1`)
+## 2. Storage format (`tests/native_goldens.rs`, `testdata/*.v1`)
 
 | Golden / test | What it pins | Needs (proposal) |
 | --- | --- | --- |
 | `log-sequence.csv.v1` | exact bytes of `log.csv`: header, `start`, `sample`, `end` lines, a wall-clock column that is empty when unknown | 2.2 `storage.append`, `storage.size`; 1.2 events; 3 clock |
-| `plugins-sequence-shape.csv.v1` | shape of `plugins.csv` (per-plugin usage rows; numbers masked as `…`) | 3 `services.query` usage; 2.2 append |
+| `plugins-sequence-shape.csv.v1` | shape of `plugins.csv` (the test host lists core, battery, fixture) (per-plugin usage rows; numbers masked as `…`) | 3 `services.query` usage; 2.2 append |
 | rotation tests | at 128 KiB (`MAX_BYTES`) the log becomes `log.old.csv` (replacing the old one) and a new file with a header starts; 128 KiB - 1 does not rotate; same for `plugins.csv` | 2.2 `storage.rename`, `storage.remove` |
 | `nothing_is_written...` | `battery.enabled = off` or an unreadable battery: no files at all | slot 5 settings; 1.2 |
 | `a_tail_cut...` | the view survives a power-cut tail at every byte of the last hour | 2.2 `read_at`, bounded parse |
-| `log-after-cut-tail.interface6.csv.v1` | **interface 6 only** (the bug below): a new line is joined to a cut tail | deleted with the interface-6 plugin |
-| `log-after-cut-tail.interface7.csv.v1` | **what the port must write** (the one intended deviation): the partial line is terminated, the new `start` is its own record. Test is `#[ignore]`d until the port exists | 2.2 `storage.read_at` of the last byte, then `append` |
-| settings test | two Bool specs `battery.enabled`, `battery.by-plugin`, default on, groups `power.group` / developer, titles and help keys | declarative registration (`declarative-registration.md`), settings value codec |
+| `log-after-cut-tail.interface7.csv.v1` | **what the port writes** (the one intended deviation): the partial line is terminated, the new `start` is its own record | 2.2 `storage.read_at` of the last byte, then `append` |
+| `declarations.bin.v1` (checked by `build.rs`) | two Bool specs `battery.enabled`, `battery.by-plugin`, default on, groups `power.group` / developer, titles and help keys | declarative registration (`declarative-registration.md`), settings value codec |
 
-## 3. Events (`tests/events_table.rs`)
+## 3. Events (`tests/native_goldens.rs`)
 
 A table of 12 rows plus one extra test. Each row is a start-up state and a
 sequence of host events; the result is the `kind` and `pages` columns of the log.
@@ -86,7 +86,7 @@ interface-7 port fixes it: before appending, if the log does not end in `\n`
 (one `read_at` of the last byte, proposal 2.2), append `\n` first so the next
 `start` is its own record. The partial line stays as a short unreadable record
 (no rewrite, no delete). `log-after-cut-tail.interface7.csv.v1` pins this; run
-it with `cargo test -p paperpaw-plugin-battery --test storage_goldens -- --ignored`.
+it with `cargo test -p paperpaw-plugin-battery --test native_goldens`.
 Every other golden must pass unchanged. The same check applies to
 `plugins.csv`, which is appended the same way.
 
@@ -100,3 +100,37 @@ keeps them.
 
 `battery.by-plugin`'s effect on the view (see section 4): the port needs a
 deterministic clock/busy fixture to test it.
+
+## Interface-7 preparation (merged contracts only)
+
+`tests/abi7_preparation.rs` compares borrowed literal settings declarations with
+the existing golden without converting a Registrar. Its event fixtures use the
+merged host encoders for records 32–37, including unknown page counters. They
+are input fixtures for the future SDK facade, not a native plugin or live
+dispatch proof. No wire layouts are duplicated in Battery.
+
+Pending production integration points: public event/storage/service wrappers;
+screen/action registration and application; key/touch/action/gesture callbacks;
+open/action/redraw commands; font roles and lifetimes; text and i18n formatting.
+These remain explicit tasks until Kernel's contracts and the SDK APIs land.
+The logging implementation and all acceptance goldens remain unchanged here.
+
+Preparation now builds against the checked #213 facade and #215 static-batch
+sample. Event fixtures decode through the public SDK `native::events` API;
+page locations retain optional counters and borrow their path from callback
+bytes. Production remains unchanged pending row-4 integration and the remaining
+screen/font/command runtime pieces. Use the macro's metadata export (no second
+`PAPERPAW_METADATA` symbol), typed storage `Root::{Data, Files}`, and B4's
+last-row-per-plugin-ID rule across generation changes when implementing the port.
+
+## Activation notes (re-enable when the native Battery runs in the app)
+
+- `shells/desktop/src/stdio/tests.rs` `quitting_gives_plugins_their_moment_to_save_first`
+  (gate V2: quitting gives plugins their `core.suspend` moment before the emulator
+  returns) reads Battery's log on the emulated card. The app no longer carries the
+  interface-6 Battery, so the test is `#[ignore]`d; re-enable it with the native
+  plugin, or point it at another plugin that writes on `core.suspend`.
+- `tools/dev/tests/fixtures/flows/stats.flow` replaces `battery.flow`; the Battery
+  page's flow comes back with the native plugin on the host (H1/H3/H4).
+- The Tools snapshot (`crates/paperpaw-app/tests/snapshots/tools.txt`) has no Battery
+  row until it is registered again.

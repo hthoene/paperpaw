@@ -2,11 +2,12 @@
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::native_host::commands::{
-    COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, WireCommand, commands_encode,
+    COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
+    commands_decode, commands_encode,
 };
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
+    ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
@@ -47,6 +48,148 @@ static FOREIGN: [SettingSpec; 3] = [
     SettingSpec::text("other.secret", "secret", "", builtin::groups::OTHER).with_extra(&SECRET),
 ];
 
+const ANSWER: WireCommand<'static> = WireCommand::AnswerPlugin {
+    request: 1,
+    plugin: "weather",
+    outcome: 0,
+};
+
+const PASSWORD: &str = "hunter2-correct-horse";
+const KEY: [u8; 32] = [7; 32];
+const SIGNATURE: [u8; 64] = [9; 64];
+
+/// One of each DEV command, tags 1564-1592 in tag order (docs/abi/device.md).
+fn device_commands() -> [WireCommand<'static>; 29] {
+    let secret = SecretText::new(PASSWORD);
+    [
+        WireCommand::WifiOn {},
+        WireCommand::WifiOff {},
+        WireCommand::WifiScan {},
+        WireCommand::WifiJoin {
+            request: 1,
+            ssid: "home",
+            password: secret,
+            flags: 0,
+        },
+        WireCommand::WifiLeave {},
+        WireCommand::WifiHost {
+            request: 2,
+            ssid: "reader",
+            password: secret,
+        },
+        WireCommand::NetworkNone {},
+        WireCommand::GoOnline { for_ms: 1000 },
+        WireCommand::Sleep {},
+        WireCommand::PowerOff {},
+        WireCommand::Restart {},
+        WireCommand::Wear {
+            mode: "core.power-mode.saver",
+            flags: 0,
+        },
+        WireCommand::InstallPlugin {
+            request: 3,
+            root: 1,
+            path: "a.ppn",
+            flags: 0,
+        },
+        WireCommand::RemovePlugin {
+            request: 4,
+            plugin: "weather",
+            flags: 0,
+        },
+        WireCommand::InstallFirmware {
+            request: 5,
+            root: 1,
+            path: "f.bin",
+            key: &KEY,
+            flags: 0,
+        },
+        WireCommand::FirmwareRestart {},
+        WireCommand::InstallAuthor {
+            request: 6,
+            author: &KEY,
+            recovery: &KEY,
+        },
+        WireCommand::InstallRotation {
+            request: 7,
+            to: &KEY,
+            signature: &SIGNATURE,
+        },
+        WireCommand::TrustRevoked {
+            plugin: "weather",
+            key: &KEY,
+            signature: &SIGNATURE,
+        },
+        WireCommand::BtScan { lasting_ms: 1000 },
+        WireCommand::BtStopScan {},
+        WireCommand::BtPair { device: 1 },
+        WireCommand::BtConnect { device: 1 },
+        WireCommand::BtDisconnect { device: 1 },
+        WireCommand::BtForget { device: 1 },
+        WireCommand::BtGive {
+            device: 1,
+            plugin: "pager",
+        },
+        WireCommand::BtTakeBack { device: 1 },
+        WireCommand::BtKeys { device: 1, on: 1 },
+        WireCommand::CheckFile {
+            request: 8,
+            root: 1,
+            path: "b.epub",
+            kind: 0,
+        },
+    ]
+}
+
+#[test]
+fn device_commands_cover_every_dev_tag_once() {
+    let mut tags: Vec<u32> = device_commands()
+        .iter()
+        .map(|command| {
+            let bytes = batch(&[*command]);
+            // Batch: count byte, then the record's tag as a LEB128 varint.
+            let mut tag = 0u32;
+            for (shift, byte) in bytes[1..].iter().enumerate() {
+                tag |= u32::from(byte & 0x7f) << (7 * shift);
+                if byte & 0x80 == 0 {
+                    break;
+                }
+            }
+            tag
+        })
+        .collect();
+    tags.sort_unstable();
+    assert_eq!(tags, (1564..=1592).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_secret_field_never_shows_in_debug() {
+    for command in device_commands() {
+        let bytes = batch(&[command]);
+        let decoded = commands_decode(&bytes).unwrap();
+        for shown in [
+            format!("{command:?}"),
+            format!("{decoded:?}"),
+            format!("{command:#?}"),
+        ] {
+            assert!(!shown.contains(PASSWORD), "{shown}");
+            assert!(!shown.contains("hunter2"), "{shown}");
+        }
+        assert_eq!(decoded.iter().next(), Some(command));
+    }
+    let secret = SecretText::new(PASSWORD);
+    assert_eq!(format!("{secret:?}"), "SecretText(..)");
+    assert_eq!(secret.expose(), PASSWORD);
+    // The decoded text is the sent one, for the code that uses it.
+    let bytes = batch(&[device_commands()[3]]);
+    let Some(WireCommand::WifiJoin { password, ssid, .. }) =
+        commands_decode(&bytes).unwrap().iter().next()
+    else {
+        panic!("not a wifi_join");
+    };
+    assert_eq!((password.expose(), ssid), (PASSWORD, "home"));
+}
+
 fn set<'a>(key: &'a str, value: SettingValueRef<'a>) -> WireCommand<'a> {
     WireCommand::SetSetting { key, value }
 }
@@ -80,7 +223,21 @@ fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
 fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
-    let cases: [(Vec<u8>, i32); 12] = [
+    let cases: [(Vec<u8>, i32); 15] = [
+        // Commands 56-59 decode but this host does not run them yet: the
+        // whole batch is refused, the flag before it included.
+        (
+            batch(&[flag, WireCommand::Redraw { mode: 3 }]),
+            ERR_UNSUPPORTED,
+        ),
+        // `answer_plugin` is refused for every plugin until command staging
+        // checks `uses.install` (DEV host side), even behind a command refused
+        // for another reason.
+        (batch(&[flag, ANSWER]), ERR_DENIED),
+        (
+            batch(&[WireCommand::Redraw { mode: 3 }, ANSWER]),
+            ERR_DENIED,
+        ),
         (
             batch(&[flag, set("other.guarded", SettingValueRef::Bool(true))]),
             ERR_INVALID,
@@ -124,6 +281,15 @@ fn refusals(scope: &CommandScope) {
     ];
     for (bytes, error) in cases {
         assert_eq!(submit(scope, &bytes), error, "{bytes:?}");
+    }
+    // No host runs a DEV command yet (docs/abi/device.md): each is refused
+    // whole, the flag before it included.
+    for command in device_commands() {
+        assert_eq!(
+            submit(scope, &batch(&[flag, command])),
+            ERR_UNSUPPORTED,
+            "{command:?}"
+        );
     }
     // SAFETY: a null pointer with nonzero length is refused before any read.
     assert_eq!(unsafe { scope.submit(core::ptr::null(), 1) }, ERR_INVALID);

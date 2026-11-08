@@ -893,4 +893,5 @@ fn hangul_in_jamo_is_set_by_the_syllables_pack() {
     assert_eq!(fonts.missing_letters(), before);
 }
 
+mod ink;
 mod interface;

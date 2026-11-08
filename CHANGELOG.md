@@ -6,12 +6,269 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
+  `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
+  `name.pp-staged`, synced and renamed over the old file, so it is the old file or
+  the new, whole. The suffix `.pp-staged` is reserved: `native::storage::write`,
+  `append`, `rename` and `remove` refuse (`Invalid`) any name ending in it, in any
+  case, so only the staging touches such files.
+
+- Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
+  and ink, nested clipping, exact snapshot views, complete message copies,
+  settings/grant reads, typed callback subscriptions and
+  screen/action/redraw/setting commands.
+
+
+- Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,
+  screen/action declarations and events, catalog formatting and digit conversion,
+  and distinct permission/timeout errors. Callback input has no fixed glue cap.
+
+
 ### Added
 
+- `paperpaw-sqlite` writes, column names and schema reads allocate fallibly (`Error::OutOfMemory`,
+  `try_encode_record`, `columns` returns a `Result`); `Md5::hex_into` and `md5::partial_into`
+  write hex digits without allocating (#228).
+- Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
+  tests are removed, the events table and storage goldens run on the native recorder, and the app
+  and the store-file build no longer register it until Core publishes native plugins (#228).
+- Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
+  through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
+  chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
+  other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
+- Settings 1.0.7: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, restart (asks first, declares `uses.power`), number editing with preview) over the registry service; `paperpaw-ui-kit` item
+- Native SDK library field reads use lossless pages with a separate book-field
+  generation cursor. Typed book-field and badge declarations expose the existing
+  library records to providers (#228).
+
+- Home 1.0.5: the host-free model of the pages for interface 7 (the grid of cells and the pages,
+  with fallible allocation and refusal sweeps); the screens follow (#228).
+- `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
+  plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
+- Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
+  `bt_disconnect`, `bt_forget`, `bt_give`, `bt_take_back`, `bt_keys`) and the typed `event.bluetooth`
+  (`Event::Bluetooth` with typed kind, device kind and reason; unknown values read as `Other`) for the
+  plugin bound to `core.bluetooth` (#228).
+- Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
+  rows gain − and + buttons and show a title that is already translated as it is (#228).
+- Core native callbacks carry authoritative registry owner keys and checked,
+  nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
+- `paperpaw-document`: `OffsetMap::try_checkpoint` (fallible, refuses out-of-order and
+  oversized indices) and `OffsetMap::checkpoints`, the rows of `doc_map` (#228).
+- Native SDK storage roots `Install` (root 2, the plugin's own install folder, read only)
+  and the callback-scoped format roots `Book` (3), `UserCss` (4) and `DocumentCache` (6).
+  Empty paths identify the book/CSS files; the host enforces permissions, lifetime and
+  cache limits (#228).
+- Native SDK `EventKind::Answered` (subscribe to `core.ui` question answers) and
+  `Snapshot::display_gray_levels` / `display_is_colour`. Interface draft 22 (`native::DRAFT`)
+  refuses plugins built for draft 21 (#228).
+- SDK: `native::net` (typed `core.net@1` requests with checked headers, bodies, files and
+  limits, answer and body reads, cancel) and the `HttpDone` and `HttpProgress` events with
+  `EventKind::HttpDone` and `HttpProgress` (#228).
+- Native SDK `native::lookup` (synchronous `core.lookup` asks and provider answers) and
+  `LookupProviderDecl`. Interface draft 23 (`native::DRAFT`) refuses plugins built for draft 22
+  (#228).
+
+- Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
+  `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
+  footers, whole-file storage helpers and a screen registry (#228).
+
+- Buttons and gestures 1.0.8: the interface-7 native plugin (list of inputs, place chooser, action
+  picker) on `paperpaw-ui-kit`'s item lists (#228).
+
+- Menu editor 1.0.8: the interface-7 native plugin (menus, entries, entry options, add), built
+  on `paperpaw-ui-kit`; dragging an entry and the soft focus style wait for host input and
+  display support (#228).
+
+- `paperpaw-ui-kit`: drawing helpers for interface-7 plugin screens (stock UI style,
+  header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
+  messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
+
+- Native SDK typed device commands: Wi-Fi radio, network policy and power
+  (`CommandSender::wifi_join`, `go_online`, `sleep`, `show_then`, `wear` and others) (#228).
+- Native SDK library queries, borrowed book metadata and badges, finished-status
+  updates and plugin-owned field writes (#228).
+- Native SDK typed device inventory and status reads, including firmware, native
+  build, hardware values and memory probes, with validated borrowed reply pages (#228).
+- Native SDK widget and status provider adapters decode generated stage requests
+  and encode complete replies without heap allocation. Widget targets and status
+  values use bounded scratch and refuse oversized replies (#228).
+- Core native screen admission uses a shared declaration entry, fallible factories,
+  retained owners and declared instance policies. Native screen lifecycle events
+  carry nonzero instance ids. Other declaration families remain refused until wired (#228).
+
+- Native SDK screen instance policies, borrowed confirmation button labels and flags,
+  dialog label accessors, and an explicit user-defined menu getter (#228).
+
+- Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
+  `core.status` share bounded payload codecs between the host and SDK (#228).
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
+
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks. Interface draft
+  15 (`native::DRAFT`) refuses plugins built for draft 14 (#228).
+- `paperpaw-document`: `Block::try_transform` runs a filter on a working copy of a
+  block's text, offset map and runs (`TextEdit`: `try_replace`, `try_set_runs`,
+  `try_push_run`, kind, alignment, dropping the picture) under a byte limit checked
+  before every reservation, and puts it back only on success; out of memory, the
+  limit or the filter's own error leave the block unchanged. `Block::replace` shares
+  its code and leaves the block unchanged where memory runs out (#228).
+- Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
+  cursors expose host-stamped style grants; schema-checked service handles survive
+  callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
+  draft 13 are refused (#228).
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
+- Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
+  21 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
+  steps, presets, widgets and status items and lines; rows 1025-1040 and 1059), the registry
+  commands 1536-1546 (reset, preview,
+  book scope, menus, key and slot bindings, plugin switching, plugin requests and answers,
+  presets), events 75-78 (registry and preview changes, plugin requests and answers) and the
+  declarations 21-28 (`setup.step`, `slot.spec`, `slot.offer`, `key.bind`, `setting.default`,
+  `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
+  growth block are generated from their `abi.def` fields into the command codec. Hosts answer
+  `ERR_UNSUPPORTED` until wired. Interface draft 16 (`native::DRAFT`) refuses plugins built for
+  draft 15 (#228).
+- Interface 7, family 2 UIX (`docs/abi/ui.md`): screen instances with lossless hand-overs
+  (`core.ui` ops 16-17), navigation commands 1547-1552 and `screen_policy` 1563, plugin
+  inputs (`input.spec` 29), questions and answers with paged host texts (ops 8-11, event 82),
+  widgets and status items, lines and places (declarations 224-228, events 84-86, input 193),
+  help hints, `screen_ready`, `notify`, speech (1557-1558, 1561-1562, events 87, 89), the
+  clipboard (ops 18-19), and host slot 35 `ui.compose`, which answers `ERR_UNSUPPORTED` until
+  the host wires it. `event.screen_shown` (38) gains the instance it shows. Service ops name
+  their row counts (`ServiceOp::input_rows`, `paged`, `reply_rows`); an input batch above 8
+  records is encoded with `records_encode_counted` and decoded by the host with
+  `host_records_visit` (op 16: 32 params). Typed SDK facades: `native::ui` (navigation,
+  hand-overs, questions and answers with host texts, widgets and status composition, help, speech,
+  clipboard) and `native::registry` (registry declarations, commands, paged queries and events),
+  without public wire records. Interface draft 17 (`native::DRAFT`) refuses plugins built for draft
+  16 (#228).
+- Interface 7, family 4 DOC and LIB (`docs/abi/document.md`, `docs/abi/library.md`): the
+  `core.document` service (21 ops: open with book options, metadata, sections, lossless block
+  fragments, table of contents, XPointers, links, fonts, cover and images by a stable picture
+  index, formats and readers), format, reader and lookup declarations with the `core.lookup`
+  service, and the `core.library` service behind the new feature `uses.library` (26 ops:
+  catalog pages, books, texts, facets, covers, status, journalled delete, move and import,
+  positions, annotations with staged transactions and paged receipts, fields, provided
+  metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
+  the image commands 1559-1560; `input.pointer` gains the optional `contact` (simultaneous
+  touches told apart, interface 6 `PointerEvent::id`), which the SDK's `Input::Pointer` carries
+  as `contact` (0 when absent); `screen.spec.flags` bits 6-7 give a screen's `instances` policy
+  (one per params, single, many; interface 6 `Instances`), and a confirm dialog's `choices` may
+  name its two button words, with flags for a single button and the focus on yes;
+  `native::SafeModeReason::PowerEscape` names a start in safe mode after the 8 s Power escape.
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 18 (`native::DRAFT`) refuses
+  plugins built for draft 17 (#228).
+- Interface 7, family 3 DEV (`docs/abi/device.md`): the `core.device` service (major 1, 15 read
+  ops: device, hardware values, firmware, built-in plugins, native build, file checks, memory,
+  Wi-Fi, networks, Bluetooth, bonded devices, power, install requests, plugins not installed,
+  keys; rows 1125-1141), one command per action 1564-1592 (Wi-Fi, power, installing and removing
+  plugins with trust evidence, firmware, file checks, Bluetooth), events 92-98 (scan, join and
+  install outcomes, network wanted or idle, firmware progress, Bluetooth) and the features
+  `uses.wifi`, `uses.power`, `uses.install`, `uses.firmware` and `uses.bluetooth`. Hosts answer
+  `ERR_UNSUPPORTED` until wired. Interface draft 19 (`native::DRAFT`) refuses plugins built for
+  draft 18 (#228).
+- Interface 7, families FS, NET, SEC, ASY and SOCK (`docs/abi/files.md`, `network.md`,
+  `secrets.md`, `work.md`, `sockets.md`): the services `core.files`, `core.net`, `core.secrets`,
+  `core.work` and `core.sockets` (major 1, rows 1142-1181), events 99-107 (requests, serving,
+  works, sockets) and 108 `event.document_closed`, the features `uses.storage`, `uses.network`
+  and `uses.secrets`, an optional `cursor` on `service.end`, and the stage schemas `core.format`
+  and `core.lookup` that mirror their service rows. Secret-bearing record fields print redacted.
+  `paperpaw_sdk::document` re-exports `TextEdit` and `EditError`; `TextEdit::try_set_text` sets a
+  whole text mapped from the block's own source range.
+  `service.dev_check` gains the optional `sha256` digest `device.md` already named.
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
+  plugins built for draft 19 (#228).
+- Interface 7, `core.library` op 22 `fields` is paged: it takes `lib_ref` and the new
+  `service.lib_field_page` (1182: `cursor`, `generation`), as `docs/abi/library.md` section 4
+  says. Interface draft 21 (`native::DRAFT`) refuses plugins built for draft 20 (#228).
+- Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
+  `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
+  position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
+  `event.plugins_changed`, 71 `event.wifi_changed`, 72 `event.power_changed` (power mode), 73
+  `event.status_changed` and 74 `event.charge_changed` in the generated records codec. Only the
+  host raises them (book moves and deletions from its own operations, reading events from its
+  reading session); paths are never cut. Hosts admit their registrations once a producer is
+  wired; until then `ERR_UNSUPPORTED` (#228).
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
+- Native host text ink probes the shaped raster path with the target frame's
+  coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
+- Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
+  `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
+  position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
+  `event.plugins_changed`, 71 `event.wifi_changed`, 72 `event.power_changed` (power mode), 73
+  `event.status_changed` and 74 `event.charge_changed` in the generated records codec. Only the
+  host raises them (book moves and deletions from its own operations, reading events from its
+  reading session); paths are never cut. Hosts admit their registrations once a producer is
+  wired; until then `ERR_UNSUPPORTED` (#228).
+
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+- Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
+  `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
+  `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
+  service schemas in `abi/services/<key>@<major>.def`, validated by `tools/abi-gen.py`, which
+  writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
+  new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
+  declarations until they wire them (#228).
+- Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
+  linked into the program that hosts them (firmware built-ins): the same entry and metadata under
+  a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
+  several link into one program; the host reads the entry with `Linked::entry` (`kernel`) and
+  admits it as a loaded plugin (`abi/entry.md`, linked built-ins) (#228).
+- Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
+  what menus show of its own actions and settings (label and badge as catalog keys with arguments,
+  hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;
+  with `keep` the host restores it at boot without starting the plugin. Hosts answer
+  `ERR_UNSUPPORTED` until their menus take it (#228).
+- Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
+  (pixels at or above the frame's ink threshold, `Framebuffer::ink_threshold`, unclipped), and
+  `InkBounds`; host-only `FontHandle::ink_drawn`
+  measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
+  `text.ink` (#228).
+
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
-
+- `Id::try_parse` and `IdError`: a parse that tells an invalid id (`IdError::Invalid`) from a full
+  heap (`IdError::NoMemory`) instead of aborting, so the X4's plugin admission can make new ids
+  from declarations and answer `ERR_NO_MEMORY` (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
+- Interface 7: the heap word (`abi/heap-word.md`). A plugin's optional read-only word
+  `PAPERPAW_HEAP`, which the loader fills before `make`, points at the host's context-free
+  `PpHeap` table (alloc, dealloc, realloc, abort). `native_plugin!` emits the word, a global
+  allocator over it and a panic handler that reports to the host without allocating, or traps
+  where there is no usable word; `heap = none` leaves all three out. The generated C header has
+  `PP_DEFINE_HEAP_WORD()` and the checked `pp_heap()`; the X4 linker script keeps the section.
+  Hosts and loaders take the word in follow-up work (Core, Firmware) (#228).
+- Interface 7: declaration records 13 `menu.entry` (any action or setting, also another plugin's
+  or a core setting, into a menu, by order or beside another entry), 14 `icon.spec` (an icon for
+  any item, so icon themes work), 15 `menu.need` (offered only on devices with touch, speech,
+  Wi-Fi and the like), 16 `menu.section` (a heading), 17 `menu.hide` (takes an entry out, also
+  another plugin's) and 18 `menu.describe` (a line under an entry), in the generated records
+  codec: interface 6's menu calls as declarations. An unknown place or need is accepted (the entry
+  is not shown), so plugins for a later host still load. Hosts check them and answer
+  `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
+  `i18n/<language>.ini` files of its folder (#228).
+- Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
+  line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
+  screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
+  `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
+  settings, colour and command codecs (#228).
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
@@ -95,6 +352,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
+  (the old file kept); it copies through one 4 KiB page and syncs before the move (#228).
 - *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
   do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
   instead of only opening the store's page of the plugin. A plugin's page opened without a connection says

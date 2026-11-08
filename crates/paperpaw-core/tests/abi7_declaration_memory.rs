@@ -135,7 +135,12 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
     let decoded = construction.declarations().bytes();
     let resident = LIVE.get();
     // Both validation and the activation gate release all retained data.
-    let committed = construction.commit(|_| {});
+    let committed = construction.commit(paperpaw_core::native_host::Teardown {
+        report: |_, _, _| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
+        destroy: |_| {},
+    });
     let unavailable = matches!(
         committed,
         Err(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
@@ -206,7 +211,12 @@ fn every_construction_allocation_refusal_poisons_and_rolls_back_retained_data() 
             })
             .unwrap();
         FAIL_AFTER.set(None);
-        let committed = construction.commit(|_| {});
+        let committed = construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {},
+        });
         let success = matches!(
             committed,
             Err(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)

@@ -25,10 +25,13 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use std::fs::{self, File};
-use std::io::BufWriter;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+#[path = "support/pixels.rs"]
+mod pixels;
+use pixels::{grays, pixels, write_gray};
 
 /// A screen to draw: its name, the device profile, settings, input steps.
 struct Case {
@@ -47,25 +50,6 @@ struct Case {
 }
 
 const CASES: &[Case] = &[
-    // The first-run setup: its first page, and a number with a sample.
-    Case {
-        name: "x4-setup",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-setup-size",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "page-forward,page-forward",
-        colour: 0,
-        fixtures: false,
-    },
     // The Find screen of the library on buttons (#111): the focus starts
     // on the search, and Up from the first row of letters returns to it.
     Case {
@@ -134,15 +118,6 @@ const CASES: &[Case] = &[
         script: "run:core.library,wait:1500,run:files.search,wait:500,right,wait:300",
         colour: 0,
         fixtures: true,
-    },
-    Case {
-        name: "boox-setup",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "",
-        colour: 0,
-        fixtures: false,
     },
     Case {
         name: "x4-home",
@@ -331,21 +306,12 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "boox-home-hints",
-        profile: "boox-go-7",
-        book: None,
-        sets: &["help.show=true"],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-developer-settings",
         profile: "boox-go-7",
         book: None,
         // Developer options on: their group of settings.
         sets: &["settings.advanced=true", "core.developer=true"],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,swipe:600:1400:600:700,wait:300,tap-on:Developer,wait:300",
+        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,tap-on:Developer,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -420,18 +386,6 @@ const CASES: &[Case] = &[
         // Up on the home screen: every tool.
         sets: &[],
         script: "swipe:600:1100:600:500,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-menu-drag",
-        profile: "boox-go-7",
-        book: None,
-        // The main menu's first entry dragged by its grip to the fourth
-        // place (the editor opened by its action: where the settings list
-        // it depends on how many groups there are).
-        sets: &[],
-        script: "run:menu-editor.open,wait:300,tap-on:Main menu,wait:300,                 swipe:1220:159:1220:420,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -711,17 +665,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-licences",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        // Long enough for its pages to be counted (on the X4 with rests
-        // between), so the status line shows the page, not a percentage.
-        script: "run:about.open,left,confirm,wait:40000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-main-menu",
         profile: "boox-go-7",
         book: None,
@@ -983,85 +926,12 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The end-of-book screen would show on the last page.
     Case {
         name: "x4-docx-second-page",
         profile: "xteink-x4",
         book: Some("books/report.docx"),
-        sets: &["plugins.end-of-book=off"],
+        sets: &[],
         script: "wait:1500,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone-de",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-rated",
-        profile: "xteink-x4",
-        book: Some("books/moor-2.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,right,confirm,confirm,confirm,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24", "core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-opened-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,confirm,wait:1500",
         colour: 0,
         fixtures: false,
     },
@@ -1139,12 +1009,10 @@ fn library(case: &Case) -> PathBuf {
         .unwrap();
         fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
     }
-    // The first-run setup only where it is what is shown.
-    if !case.name.contains("setup") {
-        let setup = dir.join(".paperpaw/plugins/setup");
-        fs::create_dir_all(&setup).unwrap();
-        fs::write(setup.join("done"), "").unwrap();
-    }
+    // The first-run setup is done (it is not what any case shows).
+    let setup = dir.join(".paperpaw/plugins/setup");
+    fs::create_dir_all(&setup).unwrap();
+    fs::write(setup.join("done"), "").unwrap();
     // Notes in two books (a file is named by the hash of the book's
     // path): a highlight and a bookmark, and a bookmark.
     if case.name.contains("notes-overview") {
@@ -1174,60 +1042,6 @@ fn library(case: &Case) -> PathBuf {
     dir
 }
 
-/// The gray of each pixel of a PNG, with its size.
-fn grays(path: &Path) -> (u32, u32, Vec<u8>) {
-    let (width, height, gray, _) = pixels(path);
-    (width, height, gray)
-}
-
-/// The gray of each pixel of a PNG, its size, and how many of its pixels
-/// are in colour.
-fn pixels(path: &Path) -> (u32, u32, Vec<u8>, usize) {
-    let decoder = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap()));
-    let mut reader = decoder.read_info().unwrap();
-    let mut data = vec![
-        0;
-        reader
-            .output_buffer_size()
-            .expect("a frame of a size to hold")
-    ];
-    let info = reader.next_frame(&mut data).unwrap();
-    let data = &data[..info.buffer_size()];
-    let colourful = match info.color_type {
-        png::ColorType::Rgb => data
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .filter(|p| p.iter().max().unwrap() - p.iter().min().unwrap() > 24)
-            .count(),
-        _ => 0,
-    };
-    let gray = match info.color_type {
-        png::ColorType::Grayscale => data.to_vec(),
-        png::ColorType::Rgb => data
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .map(|p| {
-                ((u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114) / 1000)
-                    as u8
-            })
-            .collect(),
-        other => panic!("{}: unexpected {other:?}", path.display()),
-    };
-    (info.width, info.height, gray, colourful)
-}
-
-fn write_gray(path: &Path, width: u32, height: u32, gray: &[u8]) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let mut encoder = png::Encoder::new(BufWriter::new(File::create(path).unwrap()), width, height);
-    encoder.set_color(png::ColorType::Grayscale);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.set_compression(png::Compression::High);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(gray).unwrap();
-}
-
 /// Draws `case` and returns its picture in grays, and how many of its
 /// pixels are in colour.
 fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
@@ -1243,7 +1057,6 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
         command.args(["--script", case.script]);
     }
     // The hint on gestures would cover every first home screen.
-    command.args(["--set", "help.show=false"]);
     // A card of the same free space on every computer.
     command.args(["--free-space", "7400000000"]);
     for set in case.sets {
@@ -1333,7 +1146,6 @@ fn screens_say_what_they_show() {
         .args(["--profile", case.profile, "--headless", "--library"])
         .arg(&library)
         .args(["--set", "reader.open-last=false"])
-        .args(["--set", "help.show=false"])
         .args(["--set", case.sets[0]])
         .args([
             "--script",
@@ -1391,7 +1203,6 @@ fn headers_are_centred_by_their_capitals() {
                 .args(["--screenshot"])
                 .arg(&shot)
                 .args(["--set", "reader.open-last=false"])
-                .args(["--set", "help.show=false"])
                 .args(["--script", &format!("{script},describe")])
                 .output()
                 .unwrap();

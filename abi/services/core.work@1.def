@@ -1,0 +1,54 @@
+{
+  "key": "core.work",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "ops": [
+    {
+      "id": 1,
+      "name": "declare",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.work_spec"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "cancel",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.work_key"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 3,
+      "name": "state",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [],
+      "reply": [
+        "service.work_row",
+        "service.end"
+      ],
+      "paged": false,
+      "reply_rows": 32,
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    }
+  ]
+}

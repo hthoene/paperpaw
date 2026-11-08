@@ -15,7 +15,15 @@
 
 extern crate alloc;
 
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 pub mod pictures;
+
+#[cfg(any(test, feature = "reader-filter"))]
+pub mod reader_filter;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -113,7 +121,7 @@ fn bold_beginnings(block: &mut Block) {
             .any(|r| r.start < run.end && run.start < r.end)
     });
     block.runs.extend(runs);
-    block.runs.sort_by_key(|run| run.start);
+    paperpaw_sdk::sort::sort_by_key(&mut block.runs, |run| run.start);
 }
 
 /// The reading aids plugin.

@@ -173,4 +173,64 @@ pub unsafe fn read_plugin_drop(
     drop.ok_or(ERR_INVALID)
 }
 '''
-    return prefix + '\n' + '\n'.join(_reader(name, signature) for name, signature in callbacks)
+    readers = prefix + '\n' + '\n'.join(_reader(name, signature) for name, signature in callbacks)
+    return readers + _heap_readers(schema)
+
+
+# The heap table's entries (`abi/heap-word.md` section 3): name, Rust type.
+_HEAP_ENTRIES = (
+    ('alloc', 'unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void'),
+    ('dealloc', 'unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)'),
+    ('realloc', 'unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, usize) '
+                '-> *mut core::ffi::c_void'),
+    ('abort', 'unsafe extern "C" fn(i32, *const u8, usize) -> !'),
+)
+
+
+def _heap_readers(schema):
+    """Checked readers of the heap word's table, or nothing without a heap word.
+
+    The plugin never sees how many bytes the host table has beyond its own
+    `size` word, so each reader checks alignment, the major and `size` before
+    it reads an entry; any mismatch is "no heap" (`None`), never a read past
+    `size`.
+    """
+    contract = schema['entry_contract']
+    if 'heap_word' not in contract:
+        return ''
+    names = [field['name'] for field in contract['tables'][2]['fields']]
+    entries = [(name, kind) for name, kind in _HEAP_ENTRIES if name in names]
+    text = [f'''
+// Check the heap table's alignment, major and size word before any entry.
+unsafe fn heap_entry_end(table: *const PpHeap, end: usize) -> bool {{
+    if table.is_null() || !table.addr().is_multiple_of(core::mem::align_of::<PpHeap>()) {{
+        return false;
+    }}
+    // SAFETY: a heap table begins with its size and major (`abi/heap-word.md`).
+    let (size, major) = unsafe {{
+        (
+            table.cast::<u8>().add(core::mem::offset_of!(PpHeap, size)).cast::<u32>().read(),
+            table.cast::<u8>().add(core::mem::offset_of!(PpHeap, major)).cast::<u16>().read(),
+        )
+    }};
+    major == MAJOR && usize::try_from(size).is_ok_and(|size| size >= end)
+}}''']
+    for name, kind in entries:
+        text.append(f'''/// The heap table's `{name}` entry, or `None` where the table is null,
+/// misaligned, of another major, too short for it, or the entry is null.
+///
+/// # Safety
+/// `table` is null or the heap word's value: an aligned host table whose first
+/// `size` bytes stay readable and unchanged while the plugin runs.
+pub unsafe fn read_heap_{name}(table: *const PpHeap) -> Option<{kind}> {{
+    let offset = core::mem::offset_of!(PpHeap, {name});
+    let end = offset + core::mem::size_of::<Option<{kind}>>();
+    // SAFETY: as documented; the entry is read only inside the checked size.
+    unsafe {{
+        if !heap_entry_end(table, end) {{
+            return None;
+        }}
+        table.cast::<u8>().add(offset).cast::<Option<{kind}>>().read()
+    }}
+}}''')
+    return '\n'.join(text) + '\n'

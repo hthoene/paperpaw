@@ -27,6 +27,12 @@ extern crate alloc;
 #[cfg(all(feature = "textprobe", not(feature = "x4")))]
 compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
 
+#[cfg(all(feature = "static-native", not(feature = "flash-gate-measure")))]
+compile_error!(
+    "static-native is measurement only and not flashable: it drops the interface-6 plugins it \
+     links natively and nothing hosts them yet; set `flash-gate-measure` too (tools/flash-gate.sh)"
+);
+
 #[cfg(all(feature = "bluetooth", not(feature = "x4-pro")))]
 compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
@@ -337,6 +343,7 @@ fn now() -> Instant {
 #[main]
 fn main() -> ! {
     stack::paint();
+    stack::arm_band();
     start().run()
 }
 
@@ -434,6 +441,7 @@ fn prepare() -> Ready {
     // Plugins choose internal RAM or PSRAM for their data (ADR 0030).
     paperpaw_sdk::memory::set_placer(native::api::alloc_in);
     esp_println::logger::init_logger_from_env();
+    stack::report_band();
     // What hot code in internal RAM gains on this chip (test builds).
     #[cfg(feature = "remote")]
     bench::run();
@@ -912,6 +920,16 @@ fn kernel(
         paperpaw_app::StorePlugins::Left,
     )
     .plugin(device::X4);
+    // Linked and kept for the image's measure, never activated here: the stack
+    // gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
+    #[cfg(feature = "static-native")]
+    log::info!(
+        "native: {} interface-7 plugins linked, none activated",
+        core::hint::black_box(&paperpaw_app::NATIVE_PLUGINS)
+            .iter()
+            .filter(|(_, linked)| linked.entry().make.is_some())
+            .count()
+    );
     #[cfg(feature = "frame-test")]
     let builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
     // Its warnings are logged as the main loop starts: taken here, the
