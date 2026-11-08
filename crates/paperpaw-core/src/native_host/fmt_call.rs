@@ -391,6 +391,10 @@ impl<'a> Reader<'a> {
         Self { bytes, at: 0 }
     }
 
+    /// A varint of at most 5 bytes. Lenient on purpose: a non-minimal
+    /// encoding is accepted, as the generated decoder accepts it, since this
+    /// only walks frames `local::reply_decode` has already checked whole; a
+    /// value over `u32` or a sixth byte is `ERR_INVALID`.
     fn varint(&mut self) -> Result<u32, i32> {
         let mut value = 0_u32;
         for shift in (0..35).step_by(7) {

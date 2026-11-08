@@ -90,6 +90,17 @@ fn go(
     sibling: &str,
     call: &FormatCall<'_>,
 ) -> (Result<usize, i32>, Vec<u8>, Harness) {
+    go_sized(behavior, images, sibling, call, 4096)
+}
+
+/// As [`go`] with an answer buffer of `size` bytes.
+fn go_sized(
+    behavior: Behavior,
+    images: &dyn ImageMap,
+    sibling: &str,
+    call: &FormatCall<'_>,
+    size: usize,
+) -> (Result<usize, i32>, Vec<u8>, Harness) {
     let mut h = Harness::new();
     let plugin = h.add("format-test", behavior);
     let k = kernel();
@@ -99,7 +110,7 @@ fn go(
         env: &env,
         images,
     };
-    let mut out = vec![0_u8; 4096];
+    let mut out = vec![0_u8; size];
     let who = Opener { owner: 5, sibling };
     let r = stage.call(who, Target { plugin, token: 7 }, call, &mut out);
     (r, out, h)
@@ -415,5 +426,87 @@ fn sniff_says_yes_or_not_mine_and_close_never_fails() {
         stage.close(Target { plugin, token: 7 }, 9, &mut out);
         let seen = h.seen.borrow();
         assert_eq!(seen.len(), 2);
+    }
+}
+
+/// The fullest reply a format can send for `links`: 63 links of the longest
+/// href that still fits 3,840 bytes, then the end row (64 records, each
+/// growing by one byte in service tags). Returns the batch and its href size.
+fn fullest_links() -> (&'static [u8], usize) {
+    let hrefs: Vec<std::string::String> = (0..63)
+        .map(|i| std::format!("{i:02}{}", "h".repeat(120)))
+        .collect();
+    for cut in 0..=120 {
+        let mut records: Vec<L<'_>> = Vec::new();
+        for (i, href) in hrefs.iter().enumerate() {
+            let href = &href[..href.len() - cut];
+            records.push(L::FmtLink(local::FmtLink::new(i as u32, 1, 0, href)));
+        }
+        records.push(L::FmtEnd(local::FmtEnd::new(0, 63, 0, 0, None)));
+        let mut bytes = vec![0_u8; 3840];
+        if let Ok(n) = local::reply_encode(&records, &mut bytes) {
+            bytes.truncate(n);
+            return (std::boxed::Box::leak(bytes.into_boxed_slice()), 122 - cut);
+        }
+    }
+    panic!("no fullest reply")
+}
+
+#[test]
+fn the_fullest_reply_is_rewritten_in_place_to_the_byte() {
+    let (batch, href) = fullest_links();
+    assert!(batch.len() > 3500, "not the worst case: {}", batch.len());
+    let rows = 64;
+    // One byte of room per record is all the rewrite needs.
+    let (r, out, _) = go_sized(
+        Behavior::Raw(batch),
+        &images(Ok(None)),
+        "",
+        &call(fmt::LINKS),
+        batch.len() + rows,
+    );
+    let got = records(&out[..r.unwrap()]);
+    assert_eq!(got.len(), rows);
+    let Record::ServiceDocLink(first) = &got[0] else {
+        panic!("first row")
+    };
+    assert_eq!(first.href.len(), href);
+    assert!(first.href.starts_with("00h"));
+    let Record::ServiceDocLink(last) = &got[62] else {
+        panic!("last link")
+    };
+    assert!(last.href.starts_with("62h") && last.href.len() == href);
+    assert!(matches!(&got[63], Record::ServiceEnd(e) if e.total == 63));
+    // One byte less is refused, nothing is cut.
+    let (r, _, _) = go_sized(
+        Behavior::Raw(batch),
+        &images(Ok(None)),
+        "",
+        &call(fmt::LINKS),
+        batch.len() + rows - 1,
+    );
+    assert_eq!(r, Err(ERR_NO_SPACE));
+}
+
+#[test]
+fn a_malformed_reply_is_invalid_and_never_translated() {
+    let cases: [&'static [u8]; 4] = [
+        // One record of tag 5 claiming 127 bytes with two present.
+        &[1, 5, 127, 1, 2],
+        // A tag no op answers with.
+        &[1, 99, 1, 0],
+        // A count with nothing behind it.
+        &[3],
+        // Trailing garbage after the counted records.
+        &[0, 1, 2, 3],
+    ];
+    for (i, bytes) in cases.into_iter().enumerate() {
+        let (r, _, _) = go(
+            Behavior::Raw(bytes),
+            &images(Ok(None)),
+            "",
+            &call(fmt::LINKS),
+        );
+        assert!(r.is_err(), "case {i}: {r:?}");
     }
 }
