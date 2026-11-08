@@ -8,9 +8,11 @@
 //! with titles, authors and links, the next page and where to search.
 //! Everything kept has a limit, so a feed made to fill the memory cannot.
 //!
-//! The XML tokenizer decodes entities and attributes into owned text where
-//! one occurs (`Cow`): that allocation has no refusal path and is bounded by
-//! the tokenizer's own limits on a token (`PORTING-7.md`).
+//! The XML tokenizer decodes entities and attributes into owned text where one
+//! occurs (`Cow`): that allocation has no refusal path. It is bounded (a text
+//! token is at most 1,024 bytes, a start tag at most 4 KiB, and decoding never
+//! makes text longer) and is a named gate for the browse slice
+//! (`PORTING-7.md`, GATE-ENTITY).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     document::is_external,
@@ -32,6 +34,15 @@ pub const MAX_BOOKS: usize = 16;
 pub const MAX_AUTHORS: usize = 10;
 /// Feeds are read in pieces of this size.
 pub const CHUNK: usize = 2048;
+/// A link longer than this many bytes is not kept (the entry goes on
+/// without it).
+pub const MAX_URL: usize = 1024;
+/// A file whose content type is longer than this is not kept.
+pub const MAX_MIME: usize = 100;
+/// What the entries of one page may hold together, in bytes of text. An entry
+/// that would pass it ends the reading, the feed marked `memory`: 100 entries
+/// of 16 files each cannot reach megabytes.
+pub const MAX_PAGE: usize = 64 * 1024;
 
 /// A feed's kept parts.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -41,8 +52,8 @@ pub struct Feed {
     /// The next page of the list.
     pub next: Option<String>,
     pub search: Option<Search>,
-    /// The heap had no room to read all of it: what is here is the part
-    /// before.
+    /// The heap had no room, or the page held more than [`MAX_PAGE`], to read
+    /// all of it: what is here is the part before.
     pub memory: bool,
 }
 
@@ -133,6 +144,22 @@ fn by_type(mime: &str) -> Option<&'static str> {
 }
 
 impl Entry {
+    /// Bytes of text it holds.
+    fn weight(&self) -> usize {
+        let books: usize = self
+            .books
+            .iter()
+            .map(|b| b.mime.len() + b.url.len() + b.title.len())
+            .sum();
+        self.id.len()
+            + self.title.len()
+            + self.authors.len()
+            + self.summary.len()
+            + self.feed.as_ref().map_or(0, String::len)
+            + self.thumbnail.as_ref().map_or(0, String::len)
+            + books
+    }
+
     /// What to show below its title: its authors, else its summary.
     #[must_use]
     pub fn note(&self) -> &str {
@@ -178,8 +205,10 @@ struct Reader {
     authors: Vec<String>,
     /// In an entry past [`MAX_ENTRIES`]: read over, nothing kept.
     skipping: bool,
-    /// An allocation was refused: nothing more is kept.
+    /// An allocation was refused or the page is full: nothing more is kept.
     failed: bool,
+    /// Bytes of text held by the entries kept so far.
+    kept: usize,
 }
 
 /// `text` joined to `out` if the heap allows.
@@ -305,7 +334,15 @@ impl Reader {
                     entry.summary = core::mem::take(&mut self.content);
                     let useful = entry.feed.is_some() || !entry.books.is_empty();
                     if useful && self.feed.entries.len() < MAX_ENTRIES {
+                        let kept = self.kept.saturating_add(entry.weight());
+                        if kept > MAX_PAGE {
+                            // The page is full: this and the rest are not kept.
+                            self.failed = true;
+                            self.feed.memory = true;
+                            return Ok(());
+                        }
                         push(&mut self.feed.entries, entry)?;
+                        self.kept = kept;
                     }
                 }
             }
@@ -321,10 +358,13 @@ impl Reader {
         href: &str,
         title: &str,
     ) -> Result<(), Error> {
-        if href.is_empty() || href.starts_with("data:") {
+        if href.is_empty() || href.len() > MAX_URL || href.starts_with("data:") {
             return Ok(());
         }
         let url = join_url(&self.base, href)?;
+        if url.len() > MAX_URL {
+            return Ok(());
+        }
         let atom = kind.contains("atom+xml");
         let Some(entry) = self.entry.as_mut() else {
             match rel {
@@ -354,7 +394,7 @@ impl Reader {
         if rel == "http://opds-spec.org/acquisition"
             || rel == "http://opds-spec.org/acquisition/open-access"
         {
-            if entry.books.len() >= MAX_BOOKS {
+            if entry.books.len() >= MAX_BOOKS || kind.len() > MAX_MIME {
                 return Ok(());
             }
             let book = Book {
@@ -491,7 +531,9 @@ fn normalize(target: &str) -> Result<String, Error> {
 /// feed marked `memory`.
 ///
 /// # Errors
-/// `NoMemory` when not even the reader can be made.
+/// `NoMemory` when not even the reader can be made; the source's error when
+/// it cannot be read (what was read before is not passed off as the whole
+/// feed).
 pub fn read(source: &mut impl Source, base: &str) -> Result<Feed, Error> {
     let mut reader = Reader {
         base: copy(base)?,
@@ -500,11 +542,12 @@ pub fn read(source: &mut impl Source, base: &str) -> Result<Feed, Error> {
     let mut tokenizer = Tokenizer::new();
     let mut buf = [0u8; CHUNK];
     let mut offset = 0;
-    while let Ok(n) = source.read_at(offset, &mut buf) {
+    loop {
+        let n = source.read_at(offset, &mut buf)?;
         if n == 0 {
             break;
         }
-        let Some(piece) = buf.get(..n) else { break };
+        let piece = buf.get(..n).ok_or(Error::Invalid)?;
         if tokenizer
             .try_feed(piece, &mut |token| reader.token(token))
             .is_err()

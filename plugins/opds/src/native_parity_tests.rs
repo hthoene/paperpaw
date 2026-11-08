@@ -322,3 +322,105 @@ fn the_interface_6_settings_are_declared_with_the_same_fields() {
         );
     }
 }
+
+fn acquisition(url: &str, mime: &str) -> String {
+    format!(
+        "<link rel=\"http://opds-spec.org/acquisition\" type=\"{mime}\" href=\"{url}\" title=\"T\"/>"
+    )
+}
+
+#[test]
+fn a_long_address_or_type_is_not_kept() {
+    let long_url = format!("/{}.epub", "a".repeat(native::MAX_URL));
+    let long_mime = format!("application/{}", "x".repeat(native::MAX_MIME));
+    let feed = format!(
+        "<feed><entry><title>T</title>{}{}{}{}</entry></feed>",
+        acquisition(&long_url, "application/epub+zip"),
+        acquisition("/b.epub", &long_mime),
+        acquisition("/c.epub", "application/epub+zip"),
+        format_args!("<link rel=\"next\" href=\"{long_url}\"/>"),
+    );
+    let read = native::read(&mut Bytes(feed.as_bytes()), BASE).unwrap();
+    let urls: Vec<&str> = read.entries[0]
+        .books
+        .iter()
+        .map(|b| b.url.as_str())
+        .collect();
+    assert_eq!(urls, ["https://cat.example/c.epub"]);
+    assert_eq!(read.next, None);
+}
+
+#[test]
+fn a_page_of_full_entries_is_cut_at_the_page_budget() {
+    // 100 entries of 16 files, each file with the longest address and type.
+    let url = format!("/{}", "u".repeat(native::MAX_URL - 60));
+    let mime = format!("application/{}", "m".repeat(native::MAX_MIME - 16));
+    let mut feed = String::from("<feed>");
+    for n in 0..native::MAX_ENTRIES {
+        feed.push_str(&format!("<entry><title>{n}</title>"));
+        for f in 0..native::MAX_BOOKS {
+            feed.push_str(&acquisition(&format!("{url}{f}"), &mime));
+        }
+        feed.push_str("</entry>");
+    }
+    feed.push_str("</feed>");
+    let read = native::read(&mut Bytes(feed.as_bytes()), BASE).unwrap();
+    assert!(read.memory, "the cut is said");
+    assert!(!read.entries.is_empty() && read.entries.len() < native::MAX_ENTRIES);
+    let held: usize = read
+        .entries
+        .iter()
+        .flat_map(|e| &e.books)
+        .map(|b| b.mime.len() + b.url.len() + b.title.len())
+        .sum();
+    assert!(held <= native::MAX_PAGE, "{held} bytes");
+}
+
+/// A source that fails after `good` bytes.
+struct Failing<'a> {
+    data: &'a [u8],
+    good: usize,
+}
+impl Source for Failing<'_> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        let from = usize::try_from(offset).unwrap_or(usize::MAX);
+        if from >= self.good {
+            return Err(Error::Io);
+        }
+        let end = (from + buf.len()).min(self.good).min(self.data.len());
+        let n = end.saturating_sub(from);
+        buf[..n].copy_from_slice(&self.data[from..from + n]);
+        Ok(n)
+    }
+}
+
+#[test]
+fn a_failed_read_is_an_error_not_a_short_feed() {
+    let feed = format!(
+        "<feed><title>Cat</title><entry><title>A</title>{}</entry></feed>",
+        acquisition("/a.epub", "application/epub+zip")
+    );
+    for good in [0, 10, native::CHUNK, feed.len() - 1] {
+        let good = good.min(feed.len() - 1);
+        let mut source = Failing {
+            data: feed.as_bytes(),
+            good,
+        };
+        // Past `good` bytes the source fails; it does not give 0 (the end).
+        assert_eq!(
+            native::read(&mut source, BASE),
+            Err(Error::Io),
+            "failing after {good}"
+        );
+    }
+}
+
+proptest! {
+    /// The text the XML decoder makes of a token is never longer than the
+    /// token (the bound `PORTING-7.md` relies on for its infallible
+    /// allocation), and the tokenizer's tokens are bounded.
+    #[test]
+    fn decoding_an_entity_never_grows_the_text(text in "[a-z&#;0-9xX]{0,200}") {
+        prop_assert!(paperpaw_sdk::xml::decode(&text).len() <= text.len());
+    }
+}

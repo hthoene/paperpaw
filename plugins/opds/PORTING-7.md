@@ -19,9 +19,19 @@ the PR that finishes the port.
   `web::join_url`, clean random text, and compare each native setting with interface 6's field by
   field (name, title, group, help, kind, default, flags, section, step).
   `tests/native_alloc_refusal.rs` refuses each allocation of the reader and the joining.
-- The XML tokenizer decodes an entity or an attribute into owned text where one occurs; that
-  allocation has no refusal path. It is bounded by the tokenizer's own limits on a token (the sweep
-  uses a feed without entities). Kernel's fallible JSON (#414) is for the OPDS 2 reader, not here.
+- Limits: a link over 1,024 bytes (`MAX_URL`) or a file type over 100 (`MAX_MIME`) is not kept
+  (the entry goes on without it); the entries of a page hold at most 64 KiB of text together
+  (`MAX_PAGE`): the entry that would pass it ends the reading, the feed marked `memory` (100
+  entries of 16 files cannot reach megabytes). Tested. A source that fails is an error from
+  `read` (the host's refusal), never a shorter feed passed off as complete. Tested.
+- **GATE-ENTITY (before the browse slice):** the XML decoder (`paperpaw_xml::decode`, also behind
+  `Attrs::get`) makes owned text where an entity or an escape occurs, and has no refusal path, so
+  the refusal sweep (`tests/native_alloc_refusal.rs`) cannot include a feed with entities and the
+  feed with them is not swept. The allocation is bounded (a text token is at most 1,024 bytes, a
+  start tag at most 4 KiB, decoding never makes text longer: tested for the latter) and transient,
+  but the browse slice must not go on without a fallible decode (`try_decode`, `Attrs::try_get`)
+  in the XML crate (Kernel), then the sweep gets an entity feed. Kernel's fallible JSON (#414) is
+  for the OPDS 2 reader, not here.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 

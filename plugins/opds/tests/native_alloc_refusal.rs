@@ -1,9 +1,10 @@
 //! Every allocation of the feed reader that this crate makes may be refused:
 //! the reading ends with what was read (the feed marked `memory`) or succeeds,
-//! never aborts. (The XML tokenizer's decoding of an entity or an attribute
-//! into owned text has no refusal path: it is bounded by the tokenizer, and a
-//! feed without entities or escapes in links exercises only this crate's own
-//! allocations.)
+//! never aborts. (The XML decoder's owned text for an entity or an escape in
+//! an attribute has no refusal path, so a refusal sweep cannot include a feed
+//! with entities or escapes in links: GATE-ENTITY in `PORTING-7.md`. Its
+//! bound and the reader's reading of such feeds are tested without refusals,
+//! in `src/native_parity_tests.rs`.)
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
