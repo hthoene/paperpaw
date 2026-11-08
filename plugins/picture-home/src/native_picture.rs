@@ -16,6 +16,9 @@ use crate::settings;
 pub const LARGEST: u32 = 2400;
 /// Pictures listed at most: a longer folder is cut, not slowed down.
 pub const MOST: usize = 300;
+/// The bytes of names kept at most (the heap is small): a folder whose
+/// names are longer is cut sooner, at the first name that does not fit.
+pub const NAMES: usize = 24 * 1024;
 
 /// A text that grows by fallible allocation only.
 struct Out(String);
@@ -528,18 +531,30 @@ pub fn is_picture(name: &str, is_dir: bool) -> bool {
 }
 
 /// The names of the pictures of a folder, from its `entries` (name, folder
-/// or not) in the order the card lists them: the first [`MOST`] pictures,
-/// then sorted by name without regard to case.
+/// or not) in the order the card lists them: the first [`MOST`] pictures, as
+/// far as their names fit in [`NAMES`] bytes, then sorted by name without
+/// regard to case.
+///
+/// Sorting compares the names' characters lowercased one by one
+/// (`char::to_lowercase`), which allocates nothing; the interface-6 screen
+/// lowercases each whole name (`str::to_lowercase`), which differs only where
+/// a Greek capital sigma ends a word (`ς` there, `σ` here): such names may
+/// sort differently from each other, never from names of other scripts.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn pictures<'a>(entries: impl Iterator<Item = (&'a str, bool)>) -> Result<Vec<String>, Error> {
     let mut found: Vec<String> = Vec::new();
+    let mut bytes = 0usize;
     for (name, is_dir) in entries {
         if found.len() >= MOST {
             break;
         }
         if is_picture(name, is_dir) {
+            bytes = bytes.saturating_add(name.len());
+            if bytes > NAMES {
+                break;
+            }
             found.try_reserve(1).map_err(|_| Error::NoMemory)?;
             found.push(copy(name)?);
         }
@@ -661,26 +676,30 @@ pub struct Area {
 
 /// Where the bar's plate is, its strip being `strip` (the whole width of the
 /// screen, at the top or the bottom) and `margin` the room to keep at the
-/// sides.
+/// sides. Sums are made in `u32` and kept to what a `u16` holds, so that no
+/// strip can wrap.
 #[must_use]
 pub fn plate_area(placing: Placing, strip: Area, margin: u16) -> Area {
-    let full = Area {
-        x: strip.x.saturating_add(margin),
+    let clamp = |value: u32| u16::try_from(value).unwrap_or(u16::MAX);
+    let full_x = u32::from(strip.x) + u32::from(margin);
+    let full_width = u32::from(strip.width).saturating_sub(2 * u32::from(margin));
+    let (x, width) = if placing.compact {
+        let width = full_width * 55 / 100;
+        let x = match placing.align {
+            0 => full_x,
+            1 => full_x + (full_width - width) / 2,
+            _ => full_x + full_width - width,
+        };
+        (x, width)
+    } else {
+        (full_x, full_width)
+    };
+    Area {
+        x: clamp(x),
         y: strip.y,
-        width: strip.width.saturating_sub(margin.saturating_mul(2)),
+        width: clamp(width),
         height: strip.height,
-    };
-    if !placing.compact {
-        return full;
     }
-    let width = (u32::from(full.width) * 55 / 100) as u16;
-    let width = width.min(full.width);
-    let x = match placing.align {
-        0 => full.x,
-        1 => full.x + (full.width - width) / 2,
-        _ => full.x + full.width - width,
-    };
-    Area { x, width, ..full }
 }
 
 #[cfg(test)]

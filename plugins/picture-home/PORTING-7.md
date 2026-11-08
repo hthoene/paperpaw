@@ -19,7 +19,10 @@ activates native plugins (then it goes together, no shim).
   note (`key`), the plan (size and offset on the screen), the crop of the decoded picture that the
   screen shows (`visible`, with `Turn` and `Crop`), the tone curve, ordered dither and paleness, a
   JPEG's size and EXIF turn read through `ReadAt` (offsets, no file name), which files of the
-  folder are pictures and the first 300 of them sorted without regard to case (`pictures`), and the
+  folder are pictures and the first 300 of them, as far as their names fit in 24 KiB (the heap
+  is small; interface 6 kept 300 names of any length), sorted without regard to case
+  (`pictures`; a Greek capital sigma ending a name is lowercased `σ`, not `ς` as `str::to_lowercase`
+  does, so only names that differ by that sigma can sort differently), and the
   status bar: when it shows, its look and plate, its place (`Placing`, `plate_area`; 55 percent
   wide as a pill, in `u32` so that a wide screen cannot wrap) and the ink over a picture. Every
   function is compared with the interface-6 one on the same inputs (`src/native_picture/tests.rs`),

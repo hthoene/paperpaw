@@ -5,7 +5,7 @@ use crate::fail_alloc::sweep;
 use crate::{bar, orient, picture};
 use alloc::format;
 use alloc::string::ToString;
-use paperpaw_sdk::MemoryStorage;
+use paperpaw_sdk::{MemoryStorage, Storage};
 
 const FITS: [Fitting; 5] = [
     Fitting::Fill,
@@ -479,4 +479,137 @@ fn refused_allocations_are_errors_and_change_nothing() {
         assert_eq!(found.len(), 2);
         Ok(())
     });
+}
+
+#[test]
+fn a_strip_that_does_not_fit_in_sixteen_bits_does_not_wrap() {
+    let near = Area {
+        x: 65_000,
+        y: 0,
+        width: 1_000,
+        height: 40,
+    };
+    let compact = Placing {
+        bottom: false,
+        compact: true,
+        align: 2,
+    };
+    for align in 0..=2 {
+        let a = plate_area(Placing { align, ..compact }, near, 10);
+        // Kept to what 16 bits hold, never wrapped to a small number.
+        assert!(a.x >= 65_000, "{a:?}");
+        assert_eq!(a.width, 539);
+    }
+    let full = plate_area(
+        Placing {
+            compact: false,
+            ..compact
+        },
+        near,
+        10,
+    );
+    assert_eq!((full.x, full.width), (65_010, 980));
+    let past = Area { x: 65_535, ..near };
+    assert_eq!(plate_area(compact, past, 10).x, u16::MAX);
+    assert_eq!(
+        plate_area(
+            Placing {
+                compact: false,
+                ..compact
+            },
+            past,
+            10
+        )
+        .x,
+        u16::MAX
+    );
+    // The widest strip, the widest margin.
+    let widest = Area {
+        x: u16::MAX,
+        y: u16::MAX,
+        width: u16::MAX,
+        height: u16::MAX,
+    };
+    let a = plate_area(compact, widest, u16::MAX);
+    assert_eq!((a.x, a.width), (u16::MAX, 0));
+}
+
+fn card(names: &[&str]) -> MemoryStorage {
+    names.iter().fold(MemoryStorage::new(), |card, name| {
+        card.with(&format!("pictures/{name}"), &[1u8][..])
+    })
+}
+
+fn listed(card: &MemoryStorage) -> Vec<String> {
+    let mut entries = Vec::new();
+    // A folder that is not there lists nothing, as on interface 6.
+    let _ = card.list("pictures", &mut |entry| {
+        entries.push((entry.name.to_string(), entry.is_dir));
+    });
+    pictures(entries.iter().map(|(name, dir)| (name.as_str(), *dir))).unwrap()
+}
+
+#[test]
+fn the_folder_is_listed_as_on_interface_6() {
+    let folders = [
+        card(&[
+            "b.jpg",
+            "A.png",
+            "notes.txt",
+            "a.gif",
+            "Ä.jpg",
+            "ä.JPEG",
+            "Zebra.PNG",
+            ".hidden.jpg",
+            "z.bmp",
+            "ß.png",
+            "Éa.jpg",
+            "éa.jpg",
+        ]),
+        card(&[]),
+        card(&["only.txt"]),
+        // More than the most: the first the card lists are kept, as before.
+        card(
+            &(0..400)
+                .map(|n| format!("p{n:03}.jpg"))
+                .collect::<Vec<_>>()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ),
+    ];
+    for card in &folders {
+        assert_eq!(listed(card), crate::pick::pictures_in(card, "pictures"));
+    }
+    assert_eq!(listed(&folders[3]).len(), MOST);
+}
+
+#[test]
+fn a_greek_final_sigma_is_the_one_difference_in_the_order() {
+    // `str::to_lowercase` writes a capital sigma ending a word as `ς`,
+    // `char::to_lowercase` as `σ`; a name ending in a sigma and one that
+    // continues it are the only ones whose order could differ. These agree.
+    let card = card(&["ΑΣ.jpg", "ΑΣΑ.jpg", "ΑΑ.jpg"]);
+    assert_eq!(listed(&card), crate::pick::pictures_in(&card, "pictures"));
+}
+
+#[test]
+fn names_are_kept_within_their_budget() {
+    // 300 names of 100 bytes: 24 KiB hold 245 of them, then the list ends.
+    let names: Vec<String> = (0..300)
+        .map(|n| format!("{n:03}{}.jpg", "x".repeat(93)))
+        .collect();
+    let found = pictures(names.iter().map(|n| (n.as_str(), false))).unwrap();
+    assert_eq!(names[0].len(), 100);
+    assert_eq!(found.len(), NAMES / 100);
+    assert!(found.iter().map(String::len).sum::<usize>() <= NAMES);
+    assert_eq!(found[0], names[0]);
+    // Short names are not touched by it.
+    let short: Vec<String> = (0..MOST).map(|n| format!("{n:03}.jpg")).collect();
+    assert_eq!(
+        pictures(short.iter().map(|n| (n.as_str(), false)))
+            .unwrap()
+            .len(),
+        MOST
+    );
 }
