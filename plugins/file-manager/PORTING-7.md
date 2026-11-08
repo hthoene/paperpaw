@@ -1,9 +1,73 @@
 # File manager on interface 7 (partly ported)
 
-Status: **not complete.** The interface-6 plugin (`lib.rs`: `Plugin`, `Browser` screen,
-`folder.rs`) is still in place, because the host services and the native shell it needs are
-not there. It is removed in the PR that finishes the port; `folder.rs` and the SDK `files`
+Status: **not complete.** The native shell is in (below); the interface-6 plugin (`lib.rs`:
+`Plugin`, `Browser` screen, `folder.rs`) is still in place, because the library bookkeeping
+(books opened, books told of a move) and the host admission of menu entries and icons are not
+there. It is removed in the PR that finishes the port; `folder.rs` and the SDK `files`
 helpers it uses are then dead.
+
+## Ported: the native shell (browse, rename, move, copy, delete, new folder)
+
+- `src/native_plugin.rs` (`NativeFileManager`), built-in descriptor `NATIVE_ENTRY` (feature
+  `linked`), declarations in `declarations.rs` built into the image by `build.rs`, metadata in
+  `native/` (regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+  native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
+  likewise `metadata.host.*`). Declares `uses.storage` and the services `core.files`, `core.ui`.
+  Version 1.0.4.
+- Declared as interface 6 registered it (`tests/parity.rs`, field by field): the setting
+  `file-manager.hidden` (advanced, bool, off, in `core.library`), the screen `browser`, the
+  action `open`, the Tools menu entry (order 45) and the `folder` icon. The menu entry and the
+  icon wait for the host's admission like every plugin of this port (`tests/declarations.rs`).
+- `src/card.rs`: the card as `Storage` over `core.files` (folders a page at a time, information,
+  `make_dir`, `remove_tree`, `move_entry` never with replace: a taken name, file or folder, is refused
+  and both stay; `exists` is false only on "not found", a read error counts as taken) and the card root of the storage calls
+  (reads and appends in pieces of 4 KiB). The host calls are behind a trait so that the
+  translation (pages put together, errors told as storage errors, a move that makes the folder it
+  goes into, a folder that has no size) is tested without a host. A whole write of more than one
+  piece is refused (`TooLarge`): the model never makes one. The service buffers (1.5 and 4 KiB)
+  are taken once per callback on the heap, fallibly.
+- `src/browser.rs`: the folder on show (a page held, the focus on the list or the bar, the
+  picked entry, the line that says what happened) and the changes, over `Storage`, tested with
+  the memory storage and the fake card. `src/native_draw.rs`: layout and drawing with the kit
+  (header with the back arrow and pages, rows of name and size, the line, the bar).
+- Behaviour kept: folders first then names, hidden files only with the setting, tap or confirm
+  opens a folder or offers *Rename, Move, Copy, Delete* for a file (hold or the menu button for
+  any entry), *Paste here* puts the picked entry under a free name (`name (2)`), moving into
+  itself is refused, deleting asks first and starts on the safe answer, PaperPaw's own folder is
+  never moved, renamed or deleted, names that FAT or Windows would not take are refused, Back goes
+  up a folder before it leaves.
+
+### Gap: the library is not told (on purpose, and nothing is lost)
+
+Interface 6 told the library of every book moved, renamed or deleted (`library::tell_moved`,
+`books_in`, `BOOK_REMOVED`), so that the reading place, bookmarks, notes and statistics kept by a
+book's path went along. The services for that (`core.library` op 15 and ops 19 to 21, Services/
+Host work) are not there. Meanwhile:
+
+- A move, a rename and a copy only touch the files of the user: a copy is whole or not there
+  (`.part` beside it, put in place whole), a move is a rename or a copy then a delete, never a
+  delete first; a folder is never moved into itself; nothing is replaced (a taken name gets a
+  free one). What the plugins keep by a book's path is **not** deleted or changed: it stays where
+  it is, under the old name, and is found again when the book is moved back.
+- After a move or a rename the line above the bar says so (`file-manager.not-told`: the book's
+  place and notes stay under its old name for now). Deleting does not remove the data kept for a
+  book either (it stays, unused, until the storage is cleaned up), and the question says only
+  what is deleted.
+- Not in this slice: *Open*, *Open with*, *Reading app* in the options (the readers service and
+  `core.format`, `tests/acceptance_pending.rs`), the refusal of a folder with more than 2,000 books
+  (it was a limit of telling) and `moved-many`/`too-many-books` texts (kept in the catalogue for
+  the interface-6 plugin, which stays).
+
+### Other differences and open points
+
+- Deleting a folder removes it with `core.files` `remove_tree` in a loop, not cancellable and
+  without progress (Kernel's ruling for `remove_tree`); a very large tree blocks the callback.
+  `remove_step` across ticks would give progress and cancel: the work service is not used yet.
+- The rows have no folder or file icon (the kit draws none); folders end in `›`.
+- `Back` first goes up; at the top it closes the screen. The screen cannot be opened with a
+  folder as hand-over yet (interface 6 took `params::PATH`).
+- Peak memory and the time of a page of a 1,000-file folder on the X4 are not measured: device
+  gate open. The `.ppn` size is not measured either (no X4 build in this slice).
 
 ## Ported (host-free, over `Storage`): `src/model/`
 
@@ -50,9 +114,12 @@ still not an error (the storage's rule).
   keyboard and confirmation replies (`Question::choice`/`Ui::ask`), the registration (action,
   Tools menu entry order 45, icon `folder`, the `file-manager.hidden` setting) as in
   `plugins/power/PORTING-7.md`.
-- The `core.files` adapter over `Storage` for the card (root 1, `uses.storage`): copy has no
-  host op (`files.md`: the plugin copies with `read_at` and `append`), `move_entry` replaces
-  a file; the model's `rename` call needs rename to replace and to work across folders.
+- Out of memory: a host out-of-memory in a card call (`card::Watch` notes it) reaches the
+  reader as "not enough memory" (`Browser::lacked_memory`), though `StorageError` has no word
+  for it. Sweeps (every allocation refused in turn, files intact) run at model, card and
+  browser level over the memory storage and the fake card. Not covered: the allocations of
+  `HostCard::open` and the `core.ui` glue (they need a host); `take_buffers` (a nested call is
+  `Busy`) is tested on its own.
 - The reading-app bookkeeping (`library::books_in`, `formats().supports_file`, own data
   folders): `core.library` (op 15 / Services) and `core.format`.
 - Reading `size` for the row text (`ops::shown_size`, from the SDK) and the page-turn
