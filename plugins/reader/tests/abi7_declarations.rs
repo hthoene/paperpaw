@@ -65,6 +65,31 @@ fn the_decoded_batches_say_what_the_registration_says() {
     // The screens are fixed ones: the slot offers carry the same screens.
     assert_eq!(native.screens, old.screens);
     assert_eq!(native.screens.len(), 6);
+    // The instance policy, decoded: one for each set of parameters (flags 0),
+    // as every fixed screen of interface 6 is.
+    for contribution in legacy() {
+        if let Contribution::FixedScreens(list) = contribution {
+            assert_eq!(list.len(), 6);
+            assert!(
+                list.iter()
+                    .all(|s| s.how_many() == paperpaw_sdk::Instances::PER_PARAMS)
+            );
+        }
+    }
+    let flags: Vec<u32> = batches(|d| declarations::screens(d).unwrap())
+        .iter()
+        .flat_map(|batch| {
+            records_decode(batch)
+                .unwrap()
+                .iter()
+                .filter_map(|r| match r {
+                    Record::ScreenSpec(s) => Some(s.flags),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(flags, [0; 6]);
     assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions, old.actions);

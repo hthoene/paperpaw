@@ -229,7 +229,9 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
 }
 
 /// What the interface-6 registration of `plugin` says, in the same lines:
-/// the group `group` (a full id) and the settings in it.
+/// the group `group` (a full id) and the settings in it. An empty `group` is
+/// for plugins whose settings sit in the kernel's groups (the reader): it
+/// takes the settings of every group and no group record.
 pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Lines {
     let prefix = format!("{plugin}.");
     let relative = |id: &str| id.strip_prefix(&prefix).unwrap_or(id).to_string();

@@ -7,7 +7,7 @@
 //! is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, KeyBindingDecl, Kind,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
     MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
 };
 
@@ -128,7 +128,9 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         ("footnote", "reader.title", FOOTNOTE),
         ("search-results", "reader.search", SEARCH),
     ] {
-        d.screen(ScreenDecl::new(name, title, token))?;
+        // One instance for each set of parameters (the book, the section), as in
+        // interface 6.
+        d.screen(ScreenDecl::new(name, title, token).instances(Instances::PerParams))?;
     }
     d.submit()
 }
