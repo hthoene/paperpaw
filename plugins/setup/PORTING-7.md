@@ -68,3 +68,12 @@ golden exists yet.
 - The interface-6 plugin is removed: `Setup`, `guide.rs`, the kernel tests, the app's
   `.plugin(Setup)` wiring and dependency, the three goldens. No first-run guide runs in the app until
   the host activates native plugins.
+
+## Goldens to re-bless at activation
+
+While the native plugins are not registered in the app, the settings list has no
+*Set up PaperPaw* row (the interface-6 `Setup` registered it; the native plugin declares
+`setup.open` as a menu entry the host lists once it runs native plugins). The desktop golden
+`boox-settings.png` was re-blessed for that (the list is the one of #422 without the row, the
+rows after it moved up; checked by eye). When the host activates native plugins it must be
+restored (the row comes back after *Updates*) and compared against Beta 3.
