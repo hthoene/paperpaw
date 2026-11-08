@@ -25,7 +25,9 @@ const CASES: [Case; 5] = [
         blocked_by: &["EVT-wifi-radio"],
     },
     // The setup with a phone: the device's own network and a page it serves
-    // at port 80 (`core.net` `serve` / `respond`).
+    // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
+    // `native_phone` (compared with the old screen); serving them, the codes
+    // and the screen are what waits.
     Case {
         name: "wifi-phone",
         golden: None,

@@ -60,6 +60,42 @@ events) is still in place. It is removed in the PR that finishes the port.
   only a failing card opens). Where the card cannot rename at all the books are written in place
   as before.
 
+## Ported: the rows of the books and book screens (`texts.rs`, `book_list.rs`, `book_rows.rs`)
+
+- Host-free: rows are made over `Words` (catalog texts, fallible; `HostWords` is the host's
+  `Messages`) and shown by the shell in an `ItemList` (kit). Tests in `screens_tests.rs`
+  cover both languages, local days, ordering and refusals of the heap.
+- Local days come from a `day_of: impl Fn(u32) -> i32` the caller gives (as `store::days`
+  takes it), so summer time and the zone plug in. Reading the zone the user chose
+  (`core.time-zone`, `core.time-zone-rule`) is the shell's and not built yet. The system
+  zone is not in the snapshot (draft 25 adds `utc_offset_minutes`, per Port A).
+- A book's last open (Unix seconds, `i64`) is cut to a `u32` for its day, as in interface 6;
+  a time past 2106 wraps.
+- **For the shell:** the host's `Messages::format` with `Arg::Count` must choose the same
+  plural form as the catalog's `plural()` (the tests use `plural()`): check it with the host
+  catalog in both languages before activation.
+- Later, with the shell: an `inert` flag on `RowItem` (not selectable, normal ink) for the
+  book screen's rows, with Port C; not `disabled`.
+- Differences from interface 6: the rows of the book screen can take focus (an `ItemList`
+  has no unselectable value rows); the books are ordered by last open, then id (the
+  interface-6 sort was stable over the same order).
+- The overview (`overview_rows.rs`: tiles, the 14-day chart's values and names, the totals line,
+  the ways on, `distinct_pages`) and the calendar (`calendar_model.rs`: month math, the first
+  day shown for a week start, shades, the chosen day's date, time, pages and books, how keys
+  move it, the title and streak note) are host-free too, with the same tests and sweeps. The
+  shell passes `week_start` (a setting of the host) and `day_of`. Kept from interface 6:
+  `store::scan_recent`/`scan_range` still swallow a read error (what could be read counts).
+  The calendar keeps at most 3 books per day (what the screen shows).
+- **For the shell:** where `overview_rows::tiles` and `chart` return `None` (no clock) it shows
+  `stats.no-clock`, and keeps the old chart title (`stats.last-days`) for the chart it does draw.
+  The key, swipe and tap mapping of the calendar is `calendar_model::{key_step, swipe_step,
+  tap_day}` (tested against interface 6).
+- Not built here: the layout and drawing (tiles side by side or stacked, the bars, the grid),
+  the shell (`Plugin` impl, declarations, screens opened with the book id as
+  a hand-over param, `Screens`), the chart of a book's last days. `totals::seconds_per_book`
+  is still infallible (`vec!`) and `of_book` takes a closure for local days; the shell needs
+  `seconds_per_book` fallible.
+
 ## Ported: the native shell and the recording (slice 1)
 
 - `src/native_plugin.rs` (`NativeStats`), built-in descriptor `NATIVE_ENTRY` (feature `linked`),

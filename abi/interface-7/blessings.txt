@@ -54,3 +54,4 @@
 24 additive: paperpaw_json::stream fallible parsing (OutOfMemory, Parser::try_feed, Parser::try_finish, try_read_file): a memory shortage is OutOfMemory, never a parse error (#228)
 24 additive: paperpaw_xml::try_decode and Attrs::try_get: entity decoding with fallible allocation (TryReserveError) (#228)
 24 additive: paperpaw_digest Drop for Md5, Sha1 and Sha256: hasher state is wiped when dropped (#228)
+24 additive: records_wire::record_tag_known (whether a tag names a record of the codec, from a sorted tag table, without linking a decoder) (#228)
