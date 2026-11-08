@@ -569,10 +569,23 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `text`. Only running out of providers (a `cursor` past the last) is `ERR_NOT_FOUND` to the asker.
 - [D] **`flags` bit 0 (more) is the host's:** the host sets it on every entry that later providers
   follow and clears whatever the provider set; the provider's own paging stays inside its page.
-- [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
-  ASY's async stage reply by request id (ASY family); the asker gets ASY's completion event and asks
-  again with the cursor. Until ASY lands, network providers answer `ERR_UNSUPPORTED` and only local
-  ones (stardict dictionaries) answer. No provider sees another's answer; the asker sees all.
+- [D] **A provider that must fetch** (wikipedia, translate) never blocks the asker: its stage call
+  answers at once with its `lookup_entry` flagged bit 1 `pending` (empty `text`), starts its own
+  request (`core.net`, as itself) and keeps the result in its own data. The host then records one
+  **pending ask** (the asker, the provider, a hash of `text` and `language`, a deadline 60 s on), in
+  a fixed table without allocation: at most 4 per asker and 16 device-wide on the X4 (32
+  elsewhere). With no room, the provider's page is answered as an empty entry (the empty-answer
+  rule above) and the host logs it, so a full table never blocks or fails the lookup.
+- [D] When its result is kept, the provider stages `command.lookup_ready` (1593: `text: str 1024`,
+  `language: str 35`, the ask it answered). The host matches it against the pending asks naming
+  that provider, removes them and sends each asker `event.lookup_ready` (110: `now_ms`, `provider:
+  str 64`; the asker subscribes to it like any event). The asker calls `lookup` again with the same
+  `text` and `language` (from 0 or at that provider's cursor) and the provider answers from what it
+  kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing (logged).
+- [D] A pending ask ends without an event when its deadline passes, the asker stops or the
+  provider stops; an asker that wants the answer later asks again. The host never starts a
+  stopped plugin for a lookup and never holds a provider's answer itself. No provider sees
+  another's answer; the asker sees all.
 
 ## 8. Sizes and memory
 
