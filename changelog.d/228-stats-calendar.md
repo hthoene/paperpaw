@@ -1,0 +1,1 @@
+- Stats: the overview, the books, a book's numbers and the calendar are ported to interface 7; the calendar chooses days by tap or key and turns the month by arrow, swipe or page key (#228)

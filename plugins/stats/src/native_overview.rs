@@ -25,10 +25,10 @@ use crate::overview_rows::{self, Chart, Facts, Tile, Way};
 use crate::store;
 use crate::texts::{HostWords, Words};
 
-/// Whether a way's screen is on interface 7; the others (the calendar and the
-/// sync) are left out until they are.
+/// Whether a way's screen is on interface 7; the other (the sync) is left out
+/// until it is.
 fn shown(way: &Way) -> bool {
-    matches!(way, Way::ThisBook(_) | Way::Books)
+    matches!(way, Way::ThisBook(_) | Way::Calendar | Way::Books)
 }
 
 /// The overview's contents and what was last drawn of it.
@@ -422,8 +422,12 @@ fn open_way(host: &Host<'_>, ui: &Ui, way: Way) -> Result<(), Error> {
             let mut scratch = [0; 256];
             CommandSender::new(host, &mut scratch).open(Open::screen("stats.books")?)
         }
-        // Their screens are not on interface 7 yet; their rows are not shown.
-        Way::Calendar | Way::Sync => Ok(()),
+        Way::Calendar => {
+            let mut scratch = [0; 256];
+            CommandSender::new(host, &mut scratch).open(Open::screen("stats.calendar")?)
+        }
+        // Its screen is not on interface 7 yet; its row is not shown.
+        Way::Sync => Ok(()),
     }
 }
 
@@ -500,7 +504,7 @@ fn value_size(
 
 /// `words` at `size`, a little smaller where they do not fit whole (down to
 /// `least`), only then shortened.
-fn fit_line(
+pub(crate) fn fit_line(
     font: &Font<'_>,
     size: f32,
     least: f32,

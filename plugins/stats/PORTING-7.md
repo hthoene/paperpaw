@@ -158,16 +158,32 @@ events) is still in place. It is removed in the PR that finishes the port.
   `ItemList` above the ways, the totals as its footer note.
 - **Differences from interface 6** (on purpose): in one column the chart is left out (the kit's list
   has no custom rows; interface 6 kept the chart as a row there, with hardly any room at that size);
-  the calendar and sync rows are not shown until their screens are on interface 7 (the rows
-  and screens come back with those slices); no pixel goldens yet (a kernel-backed harness is needed,
+  the sync row is not shown until its screen is on interface 7; no pixel goldens yet (a kernel-backed harness is needed,
   see slice 2); the focus is always drawn (interface 6 drew it on button devices only).
 - The menu entries and the icon of the action wait for the host (`tests/declarations.rs` pins the list
   of declarations that are refused).
-- Not yet: the calendar, sync.
+- Not yet: sync.
+
+## Ported: the calendar (slice 4)
+
+- `src/native_calendar.rs`: `stats.calendar` (token 23), reached from the overview's calendar row. The
+  contents are `calendar_model.rs`'s (month, shading, chosen day, books); this lays out and draws:
+  the month with arrows, weekday names, the days shaded by minutes (and a bar, an hour at most),
+  today framed, the chosen day boxed, and below it its date, time, pages and up to three books.
+  Taps choose a day or turn the month; left/right/previous/next move a day, up/down a week, the page
+  keys and swipes a month, as in interface 6. Choosing reads the day's pages from the log again
+  (fallible, the chosen day is kept where that fails).
+- The first day of the week is `core.week-start` (`core.week.sunday`/`monday`), else the language's
+  `core.week-start-day`.
+- **Differences from interface 6** (on purpose): no "close" layout for the largest text on a small
+  screen (the days are as large as the room holds, the books of the chosen day fewer, down to its
+  date and time); the month's name is one line (smaller, then shortened), never two; the streak note
+  is drawn at the right end of the header where there is room (the kit's header has no note);
+  the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
+  slice 2); days are UTC days until draft 25.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- Screens (overview, calendar, books, book) on `core.ui`.
 - Widgets (today, week, ring, streak, calendar, year) and the status item (`left.rs`) on the
   widget and status stages (host call, Core todo 76).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets

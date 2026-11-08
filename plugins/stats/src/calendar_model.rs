@@ -125,6 +125,22 @@ pub(crate) fn shade(minutes: u32) -> Option<u8> {
     }
 }
 
+/// The first day of the week the setting `core.week-start` names: 0 (Sunday)
+/// or 1 (Monday); none where it is left to the language's habit.
+pub(crate) fn week_start_set(setting: &str) -> Option<u8> {
+    match setting {
+        "core.week.sunday" => Some(0),
+        "core.week.monday" => Some(1),
+        _ => None,
+    }
+}
+
+/// The first day of the week the translation `core.week-start-day` (`0` for
+/// Sunday, `1` for Monday) says.
+pub(crate) fn week_start_habit(habit: &str) -> u8 {
+    u8::from(habit != "0")
+}
+
 /// A month's name shortened to its first three letters and a dot; one of
 /// four letters or fewer as it is.
 pub(crate) fn short_month(name: &str) -> Result<String, Error> {

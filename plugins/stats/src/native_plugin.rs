@@ -17,6 +17,7 @@ use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
 use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
+use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
@@ -39,6 +40,7 @@ enum View {
     Overview(OverviewView),
     Books(BooksView),
     Book(BookView),
+    Calendar(CalendarView),
 }
 
 /// Stats' interface-7 entry state.
@@ -169,6 +171,7 @@ impl Plugin for NativeStats {
             View::Overview(view) => view.draw(host, &mut frame),
             View::Books(view) => view.draw(host, &mut frame),
             View::Book(view) => view.draw(host, &mut frame),
+            View::Calendar(view) => view.draw(host, &mut frame),
         }
     }
 
@@ -187,6 +190,7 @@ impl Plugin for NativeStats {
                 view.input(host, ui, &input)
             }
             View::Book(view) => view.input(host, &input),
+            View::Calendar(view) => view.input(host, &input),
         }
     }
 }
@@ -233,12 +237,10 @@ impl NativeStats {
                     Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
                     None => None,
                 };
-                let today = capture_snapshot(host)?
-                    .unix_seconds()
-                    .and_then(|unix| u32::try_from(unix).ok())
-                    .map(native_screens::utc_day);
+                let today = today_of(host)?;
                 View::Overview(OverviewView::new(host, &data, today, current)?)
             }
+            "stats.calendar" => View::Calendar(CalendarView::new(host, &data, today_of(host)?)?),
             "stats.books" => View::Books(BooksView::new(host, &data)?),
             "stats.book" => {
                 let id = match handover {
@@ -251,6 +253,14 @@ impl NativeStats {
         };
         self.screens.open(instance, view)
     }
+}
+
+/// The local day (UTC until draft 25), none until the device knows the time.
+fn today_of(host: &Host<'_>) -> Result<Option<i32>, Error> {
+    Ok(capture_snapshot(host)?
+        .unix_seconds()
+        .and_then(|unix| u32::try_from(unix).ok())
+        .map(native_screens::utc_day))
 }
 
 /// What the recorder has to say: the card could not be written to, once.

@@ -30,6 +30,7 @@ extern crate std;
     reason = "the build script and the declaration test also use the builders"
 )]
 mod declarations;
+mod native_calendar;
 mod native_chart;
 mod native_entry;
 mod native_overview;
