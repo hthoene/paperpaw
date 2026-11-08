@@ -11,7 +11,7 @@
 )]
 
 use paperpaw_plugin_format_epub::{HtmlDocument, html_provider};
-use paperpaw_sdk::document::{Document, Locator};
+use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
 use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
@@ -138,6 +138,36 @@ fn block(
     }
 }
 
+/// The header row of a block's first fragment: kind, level, flags, align,
+/// indent, space, size, margins, line height, direction, writing mode, drop cap.
+fn header(
+    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    io: &dyn Storage,
+    offset: u32,
+) -> [i64; 13] {
+    let reply = run(p, io, &call(8, |c| c.offset = offset)).unwrap();
+    for row in rows(&reply) {
+        if let stage::Record::FmtBlock(b) = row {
+            return [
+                b.kind.into(),
+                b.level.into(),
+                b.flags.into(),
+                b.align.into(),
+                b.indent.into(),
+                b.space.into(),
+                b.size.into(),
+                b.margin_start.into(),
+                b.margin_end.into(),
+                b.line_height.into(),
+                b.dir.into(),
+                b.writing_mode.into(),
+                b.drop_cap.into(),
+            ];
+        }
+    }
+    panic!("no block row");
+}
+
 #[test]
 fn an_html_file_reads_like_interface_6_block_by_block() {
     let io = Roots::new("notes.html", BOOK.as_bytes());
@@ -162,6 +192,22 @@ fn an_html_file_reads_like_interface_6_block_by_block() {
             .collect();
         assert_eq!(runs, want);
         assert_eq!(maps, expected.map.checkpoints().collect::<Vec<_>>());
+        let h = header(&mut p, &io, at.offset);
+        assert_eq!(
+            h[1],
+            i64::from(matches!(expected.kind, BlockKind::Heading(_)) as u8)
+                * i64::from(match expected.kind {
+                    BlockKind::Heading(l) => l,
+                    _ => 0,
+                })
+        );
+        assert_eq!(h[3], i64::from(expected.align.bits()), "align {count}");
+        assert_eq!(h[4], expected.indent.map_or(i64::from(i32::MIN), i64::from));
+        assert_eq!(h[5], expected.space.map_or(i64::from(u32::MAX), i64::from));
+        assert_eq!(h[6], expected.size.map_or(i64::from(u32::MAX), i64::from));
+        assert_eq!(h[7], i64::from(expected.margins.0));
+        assert_eq!(h[8], i64::from(expected.margins.1));
+        assert_eq!(h[12], i64::from(expected.drop_cap));
         at = Locator::new(0, expected.end);
         count += 1;
     }
@@ -179,8 +225,39 @@ fn an_html_file_reads_like_interface_6_block_by_block() {
         }
         other => panic!("not meta: {other:?}"),
     }
+    // The contents, row by row.
     let reply = run(&mut p, &io, &call(9, |_| {})).unwrap();
-    assert_eq!(rows(&reply).len() as u32, old.toc_len(&old_io) + 1);
+    let toc: Vec<_> = rows(&reply)
+        .into_iter()
+        .filter_map(|r| match r {
+            stage::Record::FmtToc(t) => Some((t.level, t.title.to_string())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(toc.len() as u32, old.toc_len(&old_io));
+    for (i, (level, title)) in toc.iter().enumerate() {
+        let e = old.toc_entry(&old_io, i as u32).unwrap();
+        assert_eq!(
+            (*level, title.as_str()),
+            (u32::from(e.level), e.title.as_str())
+        );
+    }
+    // The links of the whole section, row by row.
+    let reply = run(&mut p, &io, &call(14, |c| c.index = u32::MAX)).unwrap();
+    let links: Vec<_> = rows(&reply)
+        .into_iter()
+        .filter_map(|r| match r {
+            stage::Record::FmtLink(l) => Some((l.start, l.end, l.href.to_string())),
+            _ => None,
+        })
+        .collect();
+    let want: Vec<_> = old
+        .links(&old_io, 0, 0, u32::MAX)
+        .into_iter()
+        .map(|l| (l.start, l.end, l.href))
+        .collect();
+    assert_eq!(links, want);
+    assert!(!links.is_empty());
 }
 
 #[test]

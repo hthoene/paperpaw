@@ -3,12 +3,11 @@
 //! out, over any parser that is a [`Document`]. A format is an [`Opener`]: how
 //! to open its book from the storage of a callback ([`NativeIo`](crate::NativeIo)).
 //!
-//! Gaps until Kernel's draft 29 (marked `GAP`): block `dir`, `writing_mode`
-//! and `lang` and the inline languages are not sent (0 / empty); embedded
-//! fonts are not listed (the host's way to read a face is unspecified); ruby
-//! kinds beyond the three named are sent as plain ruby. Opening converts at
-//! once (`prepare` has nothing to do): the first chapter of an EPUB takes a
-//! while on the first open, as in interface 6.
+//! Gaps (marked `GAP`): every ruby is sent as plain ruby until
+//! `AnnotationKind` is in the SDK (draft 29); the inline languages and embedded
+//! faces are not sent; pictures are numbered by their block's start. A
+//! document is converted when it is opened (`prepare` has nothing to do): the
+//! first chapter of an EPUB takes a while on the first open, as in interface 6.
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -409,7 +408,16 @@ impl FormatProvider {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
                 Self::picture(image, cache, u32::MAX, out)
             }
-            op::IMAGE => Err(Error::NotFound),
+            op::IMAGE => {
+                // The picture of the block that starts at `index` (the
+                // number of a picture until the parsers number them).
+                let block = document
+                    .block_at(io, Locator::new(call.section, call.index))
+                    .map_err(|e| document_error(&e))?
+                    .filter(|b| b.start == call.index)
+                    .ok_or(Error::NotFound)?;
+                Self::picture(block.image, cache, call.index, out)
+            }
             op::PROGRESS => {
                 let ppm = document.progress(at) * 1_000_000.0;
                 // 0 to 1,000,000 by construction (progress is clamped).
@@ -450,11 +458,10 @@ impl FormatProvider {
         let title = m.title.as_deref().unwrap_or_default();
         let short = prefix(title, 512);
         let series = prefix(m.series.as_deref().unwrap_or_default(), 512);
-        let index = m.series_index.as_deref().unwrap_or_default();
-        let language = m.language.as_deref().unwrap_or_default();
-        if index.len() > 32 || language.len() > 35 {
-            return Err(Error::Invalid);
-        }
+        // A longer value is cut, never refused: a book with a 40 byte language
+        // opened in interface 6.
+        let index = prefix(m.series_index.as_deref().unwrap_or_default(), 32);
+        let language = prefix(m.language.as_deref().unwrap_or_default(), 35);
         let count = |n: usize| u32::try_from(n).map_err(|_| Error::Invalid);
         one(
             Record::FmtMeta(stage::FmtMeta::new(
