@@ -270,6 +270,17 @@ impl Storage for Swappable {
         self.with(IO, |s| s.remove_dir_all(path))
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.with(Err(StorageError::Io), |s| {
+            s.remove_tree_step(root, keep_root, place)
+        })
+    }
+
     fn ignores_case(&self) -> bool {
         self.with(true, |s| s.ignores_case())
     }
@@ -293,6 +304,19 @@ impl Storage for Swappable {
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
         self.with(Err(StorageError::Io), |s| s.list_from(dir, from, visit))
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.with(Err(StorageError::Io), |s| s.list_bounded(dir, from, visit))
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.with(IO, |s| s.remove_listed(dir, place))
     }
 }
 

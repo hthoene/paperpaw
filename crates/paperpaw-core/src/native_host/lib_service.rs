@@ -23,7 +23,7 @@ mod args;
     dead_code,
     reason = "the card and catalog implementation of MoveHost wires it (move-following PR)"
 )]
-mod moves;
+pub(super) mod moves;
 mod query;
 mod write;
 #[allow(unused_imports, reason = "the query and write halves name it")]
