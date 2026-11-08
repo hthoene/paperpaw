@@ -62,7 +62,24 @@
 //! one by one; a range or a blob is never allowed whole.
 //!
 //! A root or table that matches nothing fails, so a rename cannot make the
-//! check pass by matching nothing.
+//! check pass by matching nothing. A word of a table that points into the code
+//! but not at a function's start fails too.
+//!
+//! **Every instruction form must be classified** (default deny, as the
+//! packer's): a function with a form `wide_class` or `narrow_class` of
+//! `frames_xtensa` does not know (`l32e`, `rotw`, the MAC16 forms, the S3's
+//! `ee.*`) fails, as does an `entry` of a register other than `a1`. A `jx` is
+//! counted with the indirect calls.
+//!
+//! **Assumption: literals lie outside the functions.** A function's bytes are
+//! decoded from its symbol's start for its size; the linker script puts the
+//! `.literal` sections between the functions (not inside one), and an `l32r`
+//! reads them there. Data inside a function would be decoded as code (and
+//! refused by the default deny, or misread). The check on the real firmware
+//! (with the S3 wiring, `ci.yml`) is to run this scan on it with no function
+//! failing for a form, and to confirm that no function's symbol range holds
+//! a word an `l32r` of its own reads (the packer's `uncovered` reads the
+//! same layout for plugins).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -117,6 +134,13 @@ impl Budget {
                     budget.limit = bytes
                         .parse()
                         .map_err(|_| format!("line {at}: `limit <bytes>`"))?;
+                    if budget.limit == 0 || budget.limit > crate::frames_xtensa::LIMIT {
+                        return Err(format!(
+                            "line {at}: the limit is at most {} (the band's bound), not {}",
+                            crate::frames_xtensa::LIMIT,
+                            budget.limit
+                        ));
+                    }
                 }
                 ["root", family] => budget.roots.push((*family).to_string()),
                 ["table", symbol] => budget.tables.push((*symbol).to_string()),
@@ -184,14 +208,24 @@ struct Reads {
     indirect: u32,
     /// An instruction that writes `a1`, not `entry`.
     writes_sp: Option<u32>,
-    /// An instruction this scan does not know how long it is, or a form it
-    /// does not know.
+    /// An instruction this scan does not know how long it is.
     unreadable: Option<u32>,
+    /// An instruction of a form this scan does not classify (default deny, as
+    /// the packer's): `l32e`, `rotw`, MAC16, the S3's `ee.*` and the rest.
+    unknown: Option<u32>,
+    /// An `entry` of a register other than `a1`.
+    entry_other: Option<u32>,
 }
 
 fn sext18(w: u32) -> i64 {
     let v = i64::from((w >> 6) & 0x3_FFFF);
     if v & 0x2_0000 != 0 { v - 0x4_0000 } else { v }
+}
+
+/// Whether `w` is a `jx` (RST0, `snm0` with `r` = 0, `t` = 10): a jump through
+/// a register, which this scan cannot follow.
+fn is_jx(w: u32) -> bool {
+    w & 0xF == 0 && (w >> 4) & 0xF == 0xA && (w >> 12) & 0xFFF == 0
 }
 
 /// `t` (bits 7:4) if `w` is a `callx0`, `callx4`, `callx8` or `callx12`: RST0,
@@ -219,6 +253,10 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
             let w =
                 u32::from(code[at]) | u32::from(code[at + 1]) << 8 | u32::from(code[at + 2]) << 16;
             if let Some(size) = entry_frame(w) {
+                // The frame is taken from the stack pointer only by `entry a1`.
+                if (w >> 8) & 0xF != 1 {
+                    reads.entry_other.get_or_insert(pc);
+                }
                 reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
             } else if w & 0xF == 5 {
                 // CALLn: n in bits 5:4, the target a word offset from the next word.
@@ -234,6 +272,9 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
                 if target < start_addr || target >= start_addr.wrapping_add(code.len() as u32) {
                     reads.edges.push(target);
                 }
+            } else if is_jx(w) {
+                // A jump through a register: not followed, counted as a call.
+                reads.indirect += 1;
             } else if let Some(t) = callx_t(w) {
                 match t {
                     0xC => reads.narrow_call = reads.narrow_call.or(Some((pc, "callx0"))),
@@ -247,13 +288,21 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
                     Class::Writes => {
                         reads.writes_sp.get_or_insert(pc);
                     }
-                    Class::Unknown => {}
+                    Class::Unknown => {
+                        reads.unknown.get_or_insert(pc);
+                    }
                 }
             }
         } else {
             let w = u32::from(code[at]) | u32::from(code[at + 1]) << 8;
-            if narrow_class(w) == Class::Writes {
-                reads.writes_sp.get_or_insert(pc);
+            match narrow_class(w) {
+                Class::Safe => {}
+                Class::Writes => {
+                    reads.writes_sp.get_or_insert(pc);
+                }
+                Class::Unknown => {
+                    reads.unknown.get_or_insert(pc);
+                }
             }
         }
         at += len;
@@ -337,8 +386,9 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
 }
 
 /// The words of the static `symbol` that are the start of a function.
-fn table_roots(image: &Image<'_>, symbol: &str) -> Option<Vec<usize>> {
+fn table_roots(image: &Image<'_>, symbol: &str) -> Option<(Vec<usize>, Vec<u32>)> {
     let mut roots = Vec::new();
+    let mut strays = Vec::new();
     let mut matched = false;
     for (name, address, size) in &image.objects {
         if !(name == symbol || name.ends_with(&format!("::{symbol}"))) {
@@ -359,10 +409,14 @@ fn table_roots(image: &Image<'_>, symbol: &str) -> Option<Vec<usize>> {
             let w = u32::from_le_bytes(*word);
             if let Ok(n) = image.funcs.binary_search_by_key(&w, |f| f.start) {
                 roots.push(n);
+            } else if image.in_image(w) {
+                // A word that points into the code but not at a function's
+                // start: a slot the scan would otherwise skip unseen.
+                strays.push(w);
             }
         }
     }
-    matched.then_some(roots)
+    matched.then_some((roots, strays))
 }
 
 /// The result of reading a firmware.
@@ -465,10 +519,15 @@ fn seed(
             None => report.problems.push(format!(
                 "the table `{table}` matches no static in the firmware"
             )),
-            Some(words) if words.is_empty() => report
+            Some((words, _)) if words.is_empty() => report
                 .problems
                 .push(format!("the table `{table}` holds no function pointer")),
-            Some(words) => {
+            Some((words, strays)) => {
+                for w in strays {
+                    report.problems.push(format!(
+                        "the table `{table}` holds {w:#x}, inside the code but not at the start of a function: its slot is not scanned"
+                    ));
+                }
                 for i in words {
                     if seen.insert(i) {
                         report.roots.1 += 1;
@@ -490,6 +549,58 @@ fn allowed(budget: &Budget, used: &mut [bool], wanted: &dyn Fn(&Allow) -> bool) 
         }
     }
     any
+}
+
+/// What the function's own code says against the budget: frame, stack pointer,
+/// call width, `entry` and forms the scan does not classify.
+fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report: &mut Report) {
+    if let Some(frame) = reads.frame {
+        if report.largest.as_ref().is_none_or(|(b, _)| frame > *b) {
+            report.largest = Some((frame, f.path.clone()));
+        }
+        if frame >= budget.limit {
+            report.problems.push(format!(
+                "`{}` takes a frame of {frame} bytes (limit {})",
+                f.path, budget.limit
+            ));
+        }
+    }
+    if let Some(pc) = reads.writes_sp
+        && !allowed(
+            budget,
+            used,
+            &|a| matches!(a, Allow::Sp { caller: c } if *c == f.path),
+        )
+    {
+        report.problems.push(format!(
+            "`{}` changes the stack pointer other than by `entry` ({pc:#x}): its frame cannot be bounded",
+            f.path
+        ));
+    }
+    if let Some((pc, what)) = reads.narrow_call {
+        report.problems.push(format!(
+            "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
+            f.path
+        ));
+    }
+    if let Some(pc) = reads.entry_other {
+        report.problems.push(format!(
+            "`{}` has an `entry` of a register other than a1 ({pc:#x}): its frame cannot be bounded",
+            f.path
+        ));
+    }
+    if let Some(pc) = reads.unknown {
+        report.problems.push(format!(
+            "`{}` has an instruction of a form this scan does not classify ({pc:#x}): not known to leave a1 alone",
+            f.path
+        ));
+    }
+    if let Some(pc) = reads.unreadable {
+        report.problems.push(format!(
+            "`{}` has code this scan cannot read ({pc:#x})",
+            f.path
+        ));
+    }
 }
 
 /// Reads `elf` and checks the set the budget's roots and tables reach.
@@ -526,42 +637,8 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let data = image.exec[k].1;
         let to = (from + f.size as usize).min(data.len());
         let reads = read_function(&data[from..to], f.start);
-        if let Some(frame) = reads.frame {
-            if report.largest.as_ref().is_none_or(|(b, _)| frame > *b) {
-                report.largest = Some((frame, f.path.clone()));
-            }
-            if frame >= budget.limit {
-                report.problems.push(format!(
-                    "`{}` takes a frame of {frame} bytes (limit {})",
-                    f.path, budget.limit
-                ));
-            }
-        }
         let caller = f.path.clone();
-        if let Some(pc) = reads.writes_sp
-            && !allowed(
-                budget,
-                &mut used,
-                &|a| matches!(a, Allow::Sp { caller: c } if *c == caller),
-            )
-        {
-            report.problems.push(format!(
-                "`{}` changes the stack pointer other than by `entry` ({pc:#x}): its frame cannot be bounded",
-                f.path
-            ));
-        }
-        if let Some((pc, what)) = reads.narrow_call {
-            report.problems.push(format!(
-                "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
-                f.path
-            ));
-        }
-        if let Some(pc) = reads.unreadable {
-            report.problems.push(format!(
-                "`{}` has code this scan cannot read ({pc:#x})",
-                f.path
-            ));
-        }
+        judge(f, &reads, budget, &mut used, &mut report);
         report.indirect += reads.indirect;
         if reads.indirect > 0 {
             let count = reads.indirect;

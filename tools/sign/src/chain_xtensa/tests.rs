@@ -328,3 +328,111 @@ fn the_budget_is_read_strictly() {
     );
     assert_eq!(Budget::parse("root a # c\n").unwrap().limit, 2048);
 }
+
+#[test]
+fn a_form_the_scan_does_not_classify_fails_wide_or_narrow() {
+    // A MAC16 word (op0 = 4) and an unassigned ST3 narrow form (op0 = 13,
+    // r = 1): refused; a length the scan does not know (op0 = 14) too.
+    let wide = f(&[&entry(32), &[0x04, 0x00, 0x00], &RETW_N]);
+    let report = run(&[("root", wide)], &["root"], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("does not classify"));
+    let narrow = f(&[&entry(32), &[0x0d, 0x10], &RETW_N]);
+    let report = run(&[("root", narrow)], &["root"], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("does not classify"));
+    // `rotw`, `l32e` (RST0, op1 = 0, op2 = 4 `rotw`; RST0 `l32e` is op1 = 9).
+    let rotw = f(&[&entry(32), &[0x20, 0x80, 0x40], &RETW_N]);
+    let report = run(&[("root", rotw)], &["root"], "");
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("does not classify")),
+        "{:?}",
+        report.problems
+    );
+    // The ordinary forms still pass: `nop.n`, `mov.n a2, a3`, `l32i.n`.
+    let plain = f(&[
+        &entry(32),
+        &[0x3d, 0xf0],
+        &[0x2d, 0x03],
+        &[0x38, 0x02],
+        &RETW_N,
+    ]);
+    assert!(run(&[("root", plain)], &["root"], "").problems.is_empty());
+}
+
+#[test]
+fn an_entry_of_another_register_fails_and_a_jx_counts_as_indirect() {
+    // `entry a2, 32`.
+    let w = 0x36u32 | 2 << 8 | (32 / 8) << 12;
+    let other = f(&[&[w as u8, (w >> 8) as u8, (w >> 16) as u8], &RETW_N]);
+    let report = run(&[("root", other)], &["root"], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("register other than a1"));
+    // `jx a2`: not followed, counted; listed or it fails.
+    let jx = f(&[&entry(32), &[0xa0, 0x02, 0x00]]);
+    let bare = run(&[("root", jx.clone())], &["root"], "");
+    assert_eq!(bare.indirect, 1);
+    assert!(bare.problems[0].contains("through a register"));
+    let listed = run(
+        &[("root", jx)],
+        &["root"],
+        "allow indirect root 1 jump table\n",
+    );
+    assert!(listed.problems.is_empty(), "{:?}", listed.problems);
+}
+
+#[test]
+fn the_limit_is_at_most_the_bands_bound() {
+    assert!(Budget::parse("root a\nlimit 2048\n").is_ok());
+    assert!(Budget::parse("root a\nlimit 2049\n").is_err());
+    assert!(Budget::parse("root a\nlimit 4096\n").is_err());
+    assert!(Budget::parse("root a\nlimit 0\n").is_err());
+}
+
+#[test]
+fn a_table_word_inside_the_code_but_not_at_a_function_start_fails() {
+    let a = BASE;
+    let slot = f(&[&entry(16), &RETW_N]);
+    let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+    let text = b.section(".text", 0x6, a, &slot, 16);
+    b.function("slot", a, slot.len() as u32, text as u16, false);
+    let mut words = Vec::new();
+    // A slot at the start, and one in the middle of the function.
+    for w in [a, a + 2] {
+        words.extend_from_slice(&w.to_le_bytes());
+    }
+    let rodata = b.section(".rodata", 0x2, 0x3c00_0000, &words, 4);
+    b.object("HOST", 0x3c00_0000, words.len() as u32, rodata as u16);
+    let bytes = b.build();
+    let elf = Elf::parse(&bytes).unwrap();
+    let report = check(&elf, &Budget::parse("table HOST\n").unwrap()).unwrap();
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("not at the start of a function"));
+}
+
+#[test]
+fn a_truncated_or_damaged_firmware_is_an_error_not_a_panic() {
+    let a = BASE;
+    let root = f(&[&entry(32), &call(8, a + 3, a + 16), &RETW_N]);
+    let helper = f(&[&entry(16), &RETW_N]);
+    let (bytes, _) = firmware(&[("root", root), ("helper", helper)]);
+    let budget = Budget::parse("root root\n").unwrap();
+    // Every prefix of the file, and each byte of it flipped in turn.
+    for len in 0..bytes.len() {
+        if let Ok(elf) = Elf::parse(&bytes[..len]) {
+            let _ = check(&elf, &budget);
+        }
+    }
+    for at in 0..bytes.len() {
+        let mut damaged = bytes.clone();
+        damaged[at] ^= 0xff;
+        if let Ok(elf) = Elf::parse(&damaged) {
+            let _ = check(&elf, &budget);
+        }
+    }
+    assert!(Elf::parse(&[]).is_err());
+    assert!(Elf::parse(b"not an elf file at all, no").is_err());
+}
