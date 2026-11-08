@@ -2364,14 +2364,16 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-opds"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
