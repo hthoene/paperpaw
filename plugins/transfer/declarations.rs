@@ -17,7 +17,9 @@ pub const CABLE: u32 = 12;
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("phone", "transfer.phone.title", PHONE))?;
+    d.screen(
+        ScreenDecl::new("phone", "transfer.phone.title", PHONE).instances(Instances::PerParams),
+    )?;
     d.screen(ScreenDecl::new("screen", "transfer.title", SCREEN).instances(Instances::Single))?;
     d.screen(ScreenDecl::new("cable", "transfer.cable.title", CABLE).instances(Instances::Single))?;
     d.submit()?;

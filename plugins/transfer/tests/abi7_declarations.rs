@@ -7,6 +7,7 @@
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
+use paperpaw_core::native_host::registrations::{Record, records_decode};
 use paperpaw_plugin_transfer::Transfer;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
@@ -66,28 +67,44 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
 
-/// The transfer and the cable open one at a time, as before; the phone's
-/// keyboard screen is kept per parameters.
+/// The instance policy of each screen, as the decoded `screen.spec` flags
+/// say it (bits 6 and 7: 0 per parameters, 1 single, 2 many), is what the
+/// interface-6 registration says: the transfer and the cable open one at a
+/// time, the phone's keyboard screen is kept per parameters (stated, not
+/// left to the default).
 #[test]
 fn the_instances_are_those_of_the_registration() {
-    let mut instances = Vec::new();
+    let mut old = Vec::new();
     for contribution in legacy() {
         if let Contribution::FixedScreens(list) = contribution {
             for s in list.iter() {
-                instances.push((
-                    s.id().as_str().to_string(),
-                    s.how_many() == paperpaw_sdk::Instances::SINGLE,
-                ));
+                let policy = match s.how_many() {
+                    i if i == paperpaw_sdk::Instances::PER_PARAMS => 0,
+                    i if i == paperpaw_sdk::Instances::SINGLE => 1,
+                    i if i == paperpaw_sdk::Instances::MANY => 2,
+                    other => panic!("{other:?}"),
+                };
+                old.push((s.id().as_str().to_string(), policy));
             }
         }
     }
-    instances.sort();
+    old.sort();
+    let mut new = Vec::new();
+    for batch in batches(|d| declarations::screens(d).unwrap()) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::ScreenSpec(s) = record {
+                new.push((format!("transfer.{}", s.name), (s.flags >> 6) & 3));
+            }
+        }
+    }
+    new.sort();
+    assert_eq!(new, old);
     assert_eq!(
-        instances,
+        new,
         [
-            ("transfer.cable".to_string(), true),
-            ("transfer.phone".to_string(), false),
-            ("transfer.screen".to_string(), true),
+            ("transfer.cable".to_string(), 1),
+            ("transfer.phone".to_string(), 0),
+            ("transfer.screen".to_string(), 1),
         ]
     );
 }
