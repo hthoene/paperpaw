@@ -281,9 +281,11 @@ pub(crate) fn detail(
     if refused {
         return Err(Error::NoMemory);
     }
-    pages.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pages);
     pages.dedup();
-    per_book.sort_unstable_by_key(|(_, s, seen)| (core::cmp::Reverse(*s), *seen));
+    paperpaw_sdk::sort::sort_by_key(&mut per_book, |(_, s, seen)| {
+        (core::cmp::Reverse(*s), *seen)
+    });
     let mut listed = Vec::new();
     listed
         .try_reserve_exact(per_book.len().min(DAY_BOOKS))

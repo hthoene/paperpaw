@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
     // network, typing its password and forgetting one work.
     Case {
@@ -34,11 +34,22 @@ const CASES: [Case; 5] = [
         blocked_by: &["NET-serve"],
     },
     // Networks and passwords kept and forgotten through `core.secrets`, and a
-    // `wifi.ini` on the card read once at a start.
+    // `wifi.ini` on the card read once at a start. The secrets facade is on
+    // integration (PR 367): what the plugin keeps and asks for is
+    // `native_known`; the calls that use the service are not run without a
+    // native entry to load in a scripted host.
     Case {
         name: "wifi-passwords",
         golden: None,
-        blocked_by: &["SEC", "FS"],
+        blocked_by: &["native-entry", "FS"],
+    },
+    // The own network opened for the phone: its name and drawn password, the
+    // token of its page, the join code (`native_own`), with the bytes from
+    // `core.secrets` `random`.
+    Case {
+        name: "wifi-own-network",
+        golden: None,
+        blocked_by: &["native-entry", "NET-serve"],
     },
     // The status item shows the sign while the device is in a network.
     Case {
@@ -77,13 +88,19 @@ fn wifi_phone() {
 }
 
 #[test]
-#[ignore = "BLOCKED SEC/FS: secrets facade (PR 367) and core.files are not on integration"]
+#[ignore = "BLOCKED native-entry/FS: no native entry to run the secrets calls in a scripted host, core.files is not on integration"]
 fn wifi_passwords() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
+#[ignore = "BLOCKED native-entry, NET-serve: the own network needs the native screen and the served page"]
+fn wifi_own_network() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn wifi_status_item() {
-    CASES[4].refuse().unwrap();
+    CASES[5].refuse().unwrap();
 }

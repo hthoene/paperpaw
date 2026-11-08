@@ -105,9 +105,8 @@ pub fn settle(storage: &dyn Storage, id: &str, folder: &str) -> bool {
         return false;
     };
     let text = String::from_utf8_lossy(&bytes);
-    let bytes32 = |hex: &str| -> Option<[u8; 32]> {
-        paperpaw_digest::hex::decode(hex.trim())?.try_into().ok()
-    };
+    let bytes32 =
+        |hex: &str| -> Option<[u8; 32]> { paperpaw_digest::hex::decode_array(hex.trim()) };
     // Pinned with the author's key, where that is the first one.
     let recovery = text
         .lines()

@@ -390,9 +390,10 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.groups, old.groups);
     assert_eq!(native.specs.len(), 28);
     assert_eq!(native.specs, old.specs);
-    // The bar's items have no editor yet: the interface-6 picker is the
-    // host's screen; Kernel's ruling (todo 121) gives them one of the
-    // plugin's own, built on the kit's `status_items`.
+    // The bar's items are picked on the host's screen in interface 6
+    // (`core.status-items`); Kernel's ruling (todo 121) gives them one of the
+    // plugin's own, built on the kit's `status_items`, named as a screen of the
+    // plugin. Those three extras and that screen are the only differences.
     let (items, others): (Vec<_>, Vec<_>) = old
         .extras
         .iter()
@@ -400,8 +401,24 @@ fn the_decoded_batches_say_what_the_registration_says() {
         .partition(|e| e.contains("-items|"));
     assert_eq!(items.len(), 3, "{items:?}");
     assert!(items.iter().all(|e| e.contains("|1:core.status-items|")));
-    assert_eq!(native.extras, others);
-    assert_eq!(native.screens, old.screens);
+    let (own, native_others): (Vec<_>, Vec<_>) = native
+        .extras
+        .iter()
+        .cloned()
+        .partition(|e| e.contains("-items|"));
+    assert_eq!(own.len(), 3, "{own:?}");
+    assert!(own.iter().all(|e| e.contains("|1:status-items|")));
+    for (own, old) in own.iter().zip(&items) {
+        assert_eq!(own.replace("1:status-items", "1:core.status-items"), *old);
+    }
+    assert_eq!(native_others, others);
+    let (screen, screens): (Vec<_>, Vec<_>) = native
+        .screens
+        .iter()
+        .cloned()
+        .partition(|s| s.starts_with("status-items|"));
+    assert_eq!(screen, ["status-items|picture-home.setting.bar"]);
+    assert_eq!(screens, old.screens);
     // The navigation records, decoded: the offer at the replacing priority, the
     // pages as a place of widgets (their settings, the layout), the bar's place
     // of status items, the icon and the need.

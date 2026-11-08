@@ -4,7 +4,7 @@ use paperpaw_sdk::native::callbacks::{DrawFrame, Input};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
-    events::{Event, ReadingView},
+    events::{Event, Incoming, ReadingView, kinds},
     formatting::copy_message,
     registrations,
     reply::Reply,
@@ -21,6 +21,20 @@ use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+
+/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
+macro_rules! read_event {
+    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
+        let incoming = &$incoming;
+        let mut found = ::core::option::Option::None;
+        $(
+            if found.is_none() {
+                found = incoming.decode_as::<$kind>()?;
+            }
+        )+
+        found
+    }};
+}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -78,9 +92,13 @@ impl Plugin for NativeStats {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        else {
+            return Ok(());
+        };
         if let Event::StageCall {
             stage: READ_TODAY, ..
         } = event

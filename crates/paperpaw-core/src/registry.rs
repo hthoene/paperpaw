@@ -451,7 +451,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
             .iter()
             .filter(|c| c.slot.as_str() == slot && self.screens.contains_key(c.screen.as_str()))
             .collect();
-        candidates.sort_by_key(|c| core::cmp::Reverse(c.priority));
+        paperpaw_sort::sort_by_key(&mut candidates, |c| core::cmp::Reverse(c.priority));
         let mut screens: Vec<&Id> = Vec::new();
         for candidate in candidates {
             if !screens.contains(&&candidate.screen) {
@@ -589,6 +589,16 @@ impl Staging {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         push_native(&mut self.native_screens, screen)
+    }
+
+    /// How many actions, settings and setting groups are staged: what a
+    /// native publication must make room for before it merges.
+    pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
+        (
+            self.actions.len(),
+            self.settings.len(),
+            self.setting_groups.len(),
+        )
     }
 
     /// Stage already decoded native contributions without infallible growth.
