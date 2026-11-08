@@ -1,7 +1,7 @@
 //! The socket table of `core.sockets`: ids, owners, the pool charge, the send
 //! queue, one read at a time, the idle time and the routing of the event 106.
 use super::super::host_services::Caller;
-use super::super::net_pool::{DEMAND_SOCK, NetPool};
+use super::super::net_pool::{DEMAND_SOCK, NetPool, TlsHolder};
 use super::super::net_service::gate;
 use super::{
     Connect, IDLE_DEFAULT_MS, IDLE_MAX_MS, NO_NETWORK_MS, PIECE, PLUGIN_ENTRIES, PLUGIN_SOCKETS,
@@ -10,7 +10,10 @@ use super::{
 };
 mod cast;
 mod file;
+mod tls;
 pub(crate) use cast::answered;
+pub(in crate::native_host::sock_service) use tls::{peer, start_tls};
+pub(crate) use tls::{secured, tls_failed, untrusted};
 
 use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
@@ -37,6 +40,9 @@ enum State {
     Connecting,
     /// Connected: sends and reads work.
     Open,
+    /// Switching to TLS: waiting for the session or in the handshake. Sends
+    /// and reads are `ERR_STATE`.
+    Securing,
     /// Over; its remaining events are not yet told.
     Ended,
 }
@@ -89,6 +95,8 @@ struct Sock {
     end: Option<(Slot, u32, u32)>,
     /// The read to a file under way.
     file: Option<file::File>,
+    /// What the socket keeps for TLS.
+    tls: tls::Row,
 }
 
 impl Sock {
@@ -101,6 +109,7 @@ impl Sock {
             || self.received.is_some()
             || self.sent.is_some()
             || self.saved.is_some()
+            || self.tls.secured.is_some()
             || self.end.is_some()
     }
 }
@@ -123,6 +132,9 @@ pub(crate) struct SockTable {
     pool: Rc<NetPool>,
     /// Answers dropped as malformed since the last [`Self::take_dropped`].
     dropped: core::cell::Cell<u32>,
+    /// TLS reports for an unknown or ended socket since the last
+    /// [`Self::take_ignored`].
+    ignored: core::cell::Cell<u32>,
 }
 
 impl SockTable {
@@ -132,7 +144,14 @@ impl SockTable {
             inner: RefCell::new(Inner::default()),
             pool,
             dropped: core::cell::Cell::new(0),
+            ignored: core::cell::Cell::new(0),
         }
+    }
+
+    /// How many TLS reports of the shell named a socket that is unknown, ended
+    /// or not in its handshake since the last call: the kernel logs them.
+    pub(crate) fn take_ignored(&self) -> u32 {
+        self.ignored.replace(0)
     }
 
     /// How many broadcast answers the transport sent that core dropped (over
@@ -165,6 +184,10 @@ impl Drop for SockTable {
     fn drop(&mut self) {
         let held = core::mem::take(&mut self.inner.get_mut().ledger);
         self.pool.release(held);
+        // A TLS socket that goes with the table gives the session back.
+        for s in self.inner.get_mut().socks.iter().filter(|s| s.tls.wanted) {
+            self.pool.tls_drop(TlsHolder::Sock(s.id));
+        }
     }
 }
 
@@ -267,7 +290,14 @@ impl Inner {
         if !self.socks[index].live() {
             return;
         }
-        if abort && matches!(self.socks[index].state, State::Connecting | State::Open) {
+        // The shell's session, then the lease, then the event.
+        self.release_tls(host, index);
+        if abort
+            && matches!(
+                self.socks[index].state,
+                State::Connecting | State::Open | State::Securing
+            )
+        {
             host.transport().close(self.socks[index].id);
         }
         self.drop_file(host, index);
@@ -294,6 +324,10 @@ impl Inner {
         let now = host.now_ms();
         let up = host.network_up();
         for index in 0..self.socks.len() {
+            if self.socks[index].state == State::Securing && !self.socks[index].tls.begun {
+                self.pump_session(host, index, now);
+                continue;
+            }
             if self.socks[index].state != State::Waiting {
                 continue;
             }
@@ -306,6 +340,10 @@ impl Inner {
                 if now.saturating_sub(self.socks[index].waiting_since) >= NO_NETWORK_MS {
                     self.end(host, index, kind::FAILED, reason::NO_NETWORK, false);
                 }
+                continue;
+            }
+            // A TLS socket waits for a free session before it resolves anything.
+            if self.socks[index].tls.wanted && !self.take_session(host, index, now) {
                 continue;
             }
             let s = &self.socks[index];
@@ -408,8 +446,14 @@ impl Inner {
         let now = host.now_ms();
         for index in 0..self.socks.len() {
             let s = &self.socks[index];
+            if self.session_needed(host, index, now) {
+                self.end(host, index, kind::FAILED, reason::SESSION_NEEDED, true);
+                continue;
+            }
             let over = match s.state {
                 State::Connecting => now >= s.deadline,
+                // Waiting for the session has no deadline yet: `busy` is the pump's.
+                State::Securing => s.tls.lease && now >= s.deadline,
                 State::Open => now.saturating_sub(s.last_move) >= u64::from(s.idle_ms),
                 _ => false,
             };
@@ -460,15 +504,13 @@ fn buffer(capacity: u32) -> Result<Vec<u8>, i32> {
 /// first change.
 pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Result<u32, i32> {
     let mut head = None;
-    let mut pins = 0_usize;
-    wire::host_records_visit(input, 1 + PINS_MAX, &mut |record| {
+    let mut pins = tls::Pins::default();
+    let mut bad_pin = false;
+    // One record more than allowed, so a fifth pin is `ERR_INVALID`, not a bounds error.
+    wire::host_records_visit(input, 2 + PINS_MAX, &mut |record| {
         match record {
             Record::ServiceSockConnect(c) if head.is_none() => head = Some(c),
-            Record::ServiceSockPin(p)
-                if head.is_some() && pins < PINS_MAX && p.kind <= 1 && p.hash.len() == 32 =>
-            {
-                pins += 1;
-            }
+            Record::ServiceSockPin(p) if head.is_some() => bad_pin |= !pins.push(p.kind, p.hash),
             _ => return Err(ERR_INVALID),
         }
         Ok(())
@@ -477,17 +519,22 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     if c.flags & !FLAG_TLS != 0
         || c.port == 0
         || c.port > 65_535
+        || bad_pin
         || !host_ok(c.host)
         || c.timeout_ms > TIMEOUT_MAX_MS
         || c.idle_ms > IDLE_MAX_MS
         // Pins and `server_name` mean something only with `tls` (2.1).
-        || (c.flags & FLAG_TLS == 0 && (pins != 0 || !c.server_name.is_empty()))
+        || (c.flags & FLAG_TLS == 0 && (pins.len() != 0 || !c.server_name.is_empty()))
     {
         return Err(ERR_INVALID);
     }
-    if c.flags & FLAG_TLS != 0 {
-        // TLS needs the shell's session and trust store: a later slice.
+    let secure = c.flags & FLAG_TLS != 0;
+    if secure && host.tls().is_none() {
+        // A shell without TLS: the flag is a feature it does not have.
         return Err(ERR_UNSUPPORTED);
+    }
+    if secure && !c.server_name.is_empty() && !host_ok(c.server_name) {
+        return Err(ERR_INVALID);
     }
     if !host.subscribed(who.owner, wire::EVENT_SOCKET_TAG) {
         return Err(ERR_STATE);
@@ -500,6 +547,11 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     let target = owned(c.host)?;
     let queue = buffer(profile.queue)?;
     let inbox = buffer(profile.read)?;
+    let tls = if secure {
+        tls::Row::new(tls::name_of(c.server_name, c.host)?, pins)?
+    } else {
+        tls::Row::default()
+    };
     gate()?;
     inner.socks.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
     let id = inner.next_id.checked_add(1).ok_or(ERR_FULL)?;
@@ -546,6 +598,7 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         saved: None,
         end: None,
         file: None,
+        tls,
     });
     inner.sync_demand(host);
     inner.pump(host);
@@ -679,7 +732,11 @@ pub(crate) fn connected(host: &dyn SockHost, id: u32) -> Result<(), i32> {
     let Some(index) = inner.index(id) else {
         return Ok(());
     };
-    if inner.socks[index].state == State::Connecting {
+    if inner.socks[index].state == State::Connecting && inner.socks[index].tls.wanted {
+        // The connection is up: the TLS handshake follows, `connected` is not told.
+        inner.begin_tls(host, index);
+        inner.sync_demand(host);
+    } else if inner.socks[index].state == State::Connecting {
         let slot = inner.slot(host);
         let s = &mut inner.socks[index];
         s.state = State::Open;
@@ -835,6 +892,7 @@ pub(crate) fn work_ended(host: &dyn SockHost, owner: u64, run: u64) -> Result<()
 #[derive(Clone, Copy)]
 enum Pick {
     Connected,
+    Secured,
     Received,
     Sent,
     Saved,
@@ -863,6 +921,7 @@ pub(crate) fn next_event(
     {
         let slots = [
             (s.connected.map(|e| e.stamp), Pick::Connected),
+            (s.tls.secured.map(|e| e.stamp), Pick::Secured),
             (s.received.map(|(e, _)| e.stamp), Pick::Received),
             (s.sent.map(|e| e.stamp), Pick::Sent),
             (s.saved.map(|e| e.stamp), Pick::Saved),
@@ -891,6 +950,7 @@ pub(crate) fn next_event(
     let s = &inner.socks[index];
     let (at, what, why, len) = match pick {
         Pick::Connected => (s.connected.map_or(0, |e| e.at), kind::CONNECTED, 0, 0),
+        Pick::Secured => (s.tls.secured.map_or(0, |e| e.at), kind::SECURED, 0, 0),
         Pick::Received => s.received.map_or((0, kind::RECEIVED, 0, 0), |(e, len)| {
             (e.at, kind::RECEIVED, 0, len)
         }),
@@ -915,13 +975,21 @@ pub(crate) fn next_event(
     let s = &mut inner.socks[index];
     match pick {
         Pick::Connected => s.connected = None,
+        Pick::Secured => {
+            s.tls.secured = None;
+            s.tls.peer_open = true;
+        }
         Pick::Received => {
             s.received = None;
             s.held = true;
         }
         Pick::Sent => s.sent = None,
         Pick::Saved => s.saved = None,
-        Pick::End => s.end = None,
+        Pick::End => {
+            // `peer` answers during the callback of an `untrusted`.
+            s.tls.peer_open = s.end.is_some_and(|(_, k, _)| k == kind::UNTRUSTED);
+            s.end = None;
+        }
     }
     Ok(Some(used))
 }
@@ -935,6 +1003,9 @@ pub(crate) fn next_event(
 pub(crate) fn event_delivered(host: &dyn SockHost, owner: u64) -> Result<(), i32> {
     let mut inner = table(host)?;
     for index in 0..inner.socks.len() {
+        if inner.socks[index].owner == owner {
+            inner.socks[index].tls.peer_open = false;
+        }
         if inner.socks[index].owner != owner || !inner.socks[index].held {
             continue;
         }
@@ -977,8 +1048,9 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
             continue;
         }
         inner.drop_file(host, index);
+        inner.release_tls(host, index);
         let s = &inner.socks[index];
-        if matches!(s.state, State::Connecting | State::Open) {
+        if matches!(s.state, State::Connecting | State::Open | State::Securing) {
             host.transport().close(s.id);
         }
         freed = freed

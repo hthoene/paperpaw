@@ -6,7 +6,9 @@ extern crate std;
 use super::table::close;
 use super::*;
 use crate::native_host::{
-    admitted_features::AdmittedFeatures, host_services::HostServices, net_pool::NetPool,
+    admitted_features::AdmittedFeatures,
+    host_services::HostServices,
+    net_pool::{NetPool, TlsHolder},
     net_service::fail_nth,
 };
 use alloc::vec::Vec;
@@ -55,6 +57,13 @@ struct Fake {
     free: Cell<u64>,
     write_fails: Cell<Option<i32>>,
     commit_fails: Cell<Option<i32>>,
+    /// The fake TLS backend: absent until a test turns it on.
+    tls_on: Cell<bool>,
+    begins: RefCell<Vec<(u32, String, Vec<TlsPin>)>>,
+    tls_ends: RefCell<Vec<u32>>,
+    begin_fails: Cell<Option<i32>>,
+    /// What the lease and the shell's session looked like at each `end`.
+    order: RefCell<Vec<&'static str>>,
 }
 
 impl Fake {
@@ -89,6 +98,11 @@ impl Fake {
             free: Cell::new(u64::MAX),
             write_fails: Cell::new(None),
             commit_fails: Cell::new(None),
+            tls_on: Cell::new(false),
+            begins: RefCell::new(Vec::new()),
+            tls_ends: RefCell::new(Vec::new()),
+            begin_fails: Cell::new(None),
+            order: RefCell::new(Vec::new()),
         }
     }
     fn x4() -> Self {
@@ -140,9 +154,34 @@ impl SockTransport for Fake {
     }
 }
 
+impl SockTls for Fake {
+    fn begin(&self, id: u32, to: &TlsOpen<'_>) -> Result<(), i32> {
+        if let Some(error) = self.begin_fails.get() {
+            return Err(error);
+        }
+        self.begins
+            .borrow_mut()
+            .push((id, to.server_name.to_string(), to.pins.to_vec()));
+        Ok(())
+    }
+    fn end(&self, id: u32) {
+        // The session goes before the lease does.
+        let leased = self.table.pool().tls_holder() == Some(TlsHolder::Sock(id));
+        self.order.borrow_mut().push(if leased {
+            "end, lease held"
+        } else {
+            "end, lease free"
+        });
+        self.tls_ends.borrow_mut().push(id);
+    }
+}
+
 impl SockHost for Fake {
     fn table(&self) -> &SockTable {
         &self.table
+    }
+    fn tls(&self) -> Option<&dyn SockTls> {
+        self.tls_on.get().then_some(self)
     }
     fn transport(&self) -> &dyn SockTransport {
         self
@@ -582,6 +621,8 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
 mod cast;
 #[path = "tests/file.rs"]
 mod file;
+#[path = "tests/tls.rs"]
+mod tls;
 
 // ---- sending ----
 
