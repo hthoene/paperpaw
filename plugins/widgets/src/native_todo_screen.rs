@@ -94,6 +94,23 @@ fn with_ui<R>(host: &Host<'_>, f: impl FnOnce(&Ui) -> Result<R, Error>) -> Resul
 }
 
 impl TodoView {
+    /// Rebuilds the rows from the list. When that is refused the rows are
+    /// dropped: the list has changed, and rows that no longer match it would
+    /// let a tap act on another item than the one shown (the screen shows the
+    /// *empty* message until it is opened again, which reads the card).
+    fn rebuild_or_drop(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let rebuilt = self.rebuild(host);
+        if rebuilt.is_err() {
+            self.drop_rows();
+        }
+        rebuilt
+    }
+
+    /// No row to tap.
+    fn drop_rows(&mut self) {
+        self.rows.replace(Vec::new());
+    }
+
     fn rebuild(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut messages = Messages::new()?;
         let mut rows = Vec::new();
@@ -342,13 +359,16 @@ impl NativeWidgets {
         if save(host, &view.list).is_err() {
             Self::notify(host, "widgets.todo.not-saved")?;
         }
-        view.rebuild(host)?;
-        if let Some(focus) = focus {
-            view.rows.set_focus(focus);
-        } else {
-            let last = view.list.items.len();
-            view.rows.set_focus(view.rows.focus().min(last));
+        let rebuilt = view.rebuild_or_drop(host);
+        if rebuilt.is_ok() {
+            if let Some(focus) = focus {
+                view.rows.set_focus(focus);
+            } else {
+                let last = view.list.items.len();
+                view.rows.set_focus(view.rows.focus().min(last));
+            }
         }
+        // The widgets and the screen are told whatever became of the rows.
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in self
@@ -358,7 +378,8 @@ impl NativeWidgets {
         {
             commands.widget_changed(item.instance)?;
         }
-        Self::redraw(host)
+        Self::redraw(host)?;
+        rebuilt
     }
 
     fn tick_item(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
@@ -444,7 +465,23 @@ impl NativeWidgets {
 
 #[cfg(test)]
 mod tests {
-    use super::Options;
+    use super::{Options, TodoView};
+    use alloc::vec;
+    use paperpaw_ui_kit::Item;
+
+    #[test]
+    #[allow(clippy::unwrap_used, reason = "fixtures")]
+    fn a_refused_rebuild_leaves_no_row_to_tap() {
+        let mut view = TodoView::default();
+        view.rows.replace(vec![
+            Item::row("Add", "+").unwrap(),
+            Item::row("milk", "").unwrap(),
+            Item::row("bread", "").unwrap(),
+        ]);
+        assert_eq!(view.rows.items().len(), 3);
+        view.drop_rows();
+        assert!(view.rows.items().is_empty());
+    }
 
     #[test]
     fn the_options_follow_the_place_and_state_of_the_item() {

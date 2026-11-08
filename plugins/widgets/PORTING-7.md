@@ -141,6 +141,16 @@ reading and by the kit's own sweeps.
   the widget open it (action `widgets.todo.open`, icon `list-check`). One
   question is open at a time. The widgets showing the list are told when it
   changes. Ignored case `widgets-todo-screen-adds-ticks-and-moves` (H1/H2/H4).
+  Two differences from interface 6, both without a visible effect: the screen is
+  declared `Single` (interface 6: `PER_PARAMS`; the action opens it without
+  parameters, so one list is open either way), and the options of an item at the
+  top or the bottom of the list leave out *up* or *down* (interface 6 offered them
+  as no-ops). `tests/todo_declarations.rs` compares the screen, the action and the
+  icon with interface 6's.
+  If the rows cannot be rebuilt after a change (memory refused), they are dropped
+  and the screen shows the *empty* message until it is opened again, which reads
+  the card (where the change was saved): a tap can then never act on another
+  item than the one shown.
 - Metadata now lists the `storage.*` host calls the quote and the to-do list use.
 - Pure model (`native_todo_list`) is tested with the interface-6 properties (round
   trip, any bytes, huge years, version 1 file); drawing and file calls need a host
