@@ -6,16 +6,30 @@ use super::SettingValue;
 use super::{SettingError, SettingKind, Settings};
 use crate::Id;
 
-/// A default one plugin set on another's setting, with the default it
-/// replaced, which comes back when that plugin goes.
+/// What plugins set as the default of a setting that is not theirs: the
+/// default before the first of them, and each plugin's value in the order they
+/// came (the last one is in force). When a plugin goes, its layer goes and the
+/// one below takes over; the default before all of them comes back when the
+/// last goes.
 #[derive(Debug)]
 pub(super) struct DefaultBy {
-    pub(super) by: Id,
     #[cfg_attr(
         not(any(test, feature = "kernel")),
         allow(dead_code, reason = "only the kernel changes defaults")
     )]
     pub(super) was: SettingValue,
+    pub(super) layers: alloc::vec::Vec<Layer>,
+}
+
+/// One plugin's default for another's setting.
+#[derive(Debug)]
+pub(super) struct Layer {
+    pub(super) by: Id,
+    #[cfg_attr(
+        not(any(test, feature = "kernel")),
+        allow(dead_code, reason = "only the kernel changes defaults")
+    )]
+    pub(super) value: SettingValue,
 }
 
 #[cfg(any(test, feature = "kernel"))]
@@ -43,20 +57,36 @@ impl Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn remove_plugin(&mut self, plugin: &str) {
         // The defaults the plugin set on the settings of others go back to
-        // what they were (those of its own settings go with them).
+        // what the plugins below it set, or to what they were (those of its
+        // own settings go with them).
         for (setting, set) in self.defaults_by.iter() {
-            if set.by.namespace() == plugin
-                && setting.namespace() != plugin
-                && let Ok(spec) = self.specs.get_mut(setting.as_str())
-                && spec.kind.accepts(&set.was)
+            if setting.namespace() == plugin
+                || !set.layers.iter().any(|l| l.by.namespace() == plugin)
             {
-                spec.default = set.was.clone();
+                continue;
+            }
+            let Ok(spec) = self.specs.get_mut(setting.as_str()) else {
+                continue;
+            };
+            let below = set
+                .layers
+                .iter()
+                .rev()
+                .filter(|layer| layer.by.namespace() != plugin)
+                .map(|layer| &layer.value)
+                .find(|value| spec.kind.accepts(value))
+                .unwrap_or(&set.was);
+            if spec.kind.accepts(below) {
+                spec.default = below.clone();
             }
         }
         self.specs.remove_plugin(plugin);
         self.groups.retain(|group| group.id.namespace() != plugin);
+        for set in self.defaults_by.values_mut() {
+            set.layers.retain(|layer| layer.by.namespace() != plugin);
+        }
         self.defaults_by
-            .retain(|setting, set| setting.namespace() != plugin && set.by.namespace() != plugin);
+            .retain(|setting, set| setting.namespace() != plugin && !set.layers.is_empty());
     }
 
     /// Whether `specs` more settings still find a place (a made setting
@@ -83,16 +113,40 @@ impl Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_by(&mut self, id: &str, text: &str, by: Id) -> Result<(), SettingError> {
         let was = self.specs.get(id).map(|spec| spec.default.clone());
+        // Room for the layer first: a refusal changes nothing.
+        let foreign = self
+            .specs
+            .get(id)
+            .is_some_and(|spec| spec.id.namespace() != by.as_str());
+        if foreign {
+            let layers = self.defaults_by.get_mut(id).map(|set| &mut set.layers);
+            if let Some(layers) = layers {
+                layers.try_reserve(1).map_err(|_| SettingError::Full)?;
+            }
+        }
+        let value = self
+            .specs
+            .get(id)
+            .and_then(|spec| spec.parse(text))
+            .ok_or(SettingError::InvalidValue)?;
         self.set_default_from_text(id, text)?;
         let setting = self.specs.get_mut(id)?.id.clone();
         if setting.namespace() == by.as_str() {
             // A plugin's own settings: their own default, nothing to tell.
             self.defaults_by.remove(&setting);
         } else if let Some(set) = self.defaults_by.get_mut(&setting) {
-            // The default before the first of them is what comes back.
-            set.by = by;
+            // The same plugin again: its layer moves to the top.
+            set.layers.retain(|layer| layer.by != by);
+            set.layers.push(Layer { by, value });
         } else if let Some(was) = was {
-            self.defaults_by.insert(setting, DefaultBy { by, was });
+            let mut layers = alloc::vec::Vec::new();
+            if layers.try_reserve(1).is_err() {
+                // Put the default back: nothing changed.
+                self.specs.get_mut(id)?.default = was;
+                return Err(SettingError::Full);
+            }
+            layers.push(Layer { by, value });
+            self.defaults_by.insert(setting, DefaultBy { was, layers });
         }
         Ok(())
     }
