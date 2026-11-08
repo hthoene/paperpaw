@@ -10,8 +10,14 @@
 # profile yet, target 9). The files are <out-dir>/<id>-<version>-<device>.ppn,
 # <version> the plugin's own (its crate's). With --only, one plugin alone.
 # Run from anywhere; paperpaw-sign is built from this repository. A plugin that
-# does not build or pack is named on standard error and the exit status is 1,
-# after the others were tried.
+# does not build or pack is named on standard error, after the others were
+# tried. Exit status: 0 all built; 1 the packer refused some (a plugin that is
+# not ready to be a file: writable data, a frame of 2,048 B or more; the others
+# are built); 3 a plugin or the signer did not BUILD, or a file is not for the
+# X4 (a broken build, never to be waved through); 2 usage.
+# `complete.txt` lists the plugins whose port is complete (one id a line); each
+# must have a file, and its PORTING-7.md must not say "Status: **not complete".
+# The flash gate counts a file as interface 7 only for those.
 #
 # Needs: the X4's Rust from rust-toolchain.toml. Never set RUSTFLAGS: it would
 # replace .cargo/config.toml's flags, which link the plugins.
@@ -67,29 +73,50 @@ if [[ $remappable = 1 ]]; then
         *) export "$flags_var=${!flags_var:+${!flags_var} }$remap" ;;
     esac
 fi
+# The signer is built first: a build failure of it is a broken build (3), not a refusal.
+(cd "$root" && cargo build -q --release -p paperpaw-sign) || { echo "paperpaw-sign did not build" >&2; exit 3; }
 sign() { (cd "$root" && cargo run -q --release -p paperpaw-sign -- "$@"); }
-sign --help >/dev/null 2>&1 || true
 
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
-failed=()
+refused=() broken=()
 for id in $ids; do
     file="$out/$id-$(version_of "$id")-$device.ppn"
-    if ! (cd "$here" && env -u RUSTFLAGS cargo x4 --locked -q --bin "$id") ||
-        ! sign pack "$target_dir/$target/release/$id" "$file" "${key[@]}"; then
-        failed+=("$id")
-        echo "FAILED $id" >&2
+    if ! (cd "$here" && env -u RUSTFLAGS cargo x4 --locked -q --bin "$id"); then
+        broken+=("$id")
+        echo "BUILD FAILED $id" >&2
         continue
     fi
-    shown="$(sign plugin "$file")" || { failed+=("$id"); echo "FAILED $id (check)" >&2; continue; }
+    if ! sign pack "$target_dir/$target/release/$id" "$file" "${key[@]}"; then
+        refused+=("$id")
+        echo "REFUSED $id (the packer)" >&2
+        continue
+    fi
+    shown="$(sign plugin "$file")" || { broken+=("$id"); echo "BUILD FAILED $id (the file does not check)" >&2; continue; }
     if ! grep -Eq "^chip: .*\(5\)\$" <<< "$shown"; then
-        failed+=("$id")
-        echo "FAILED $id: not for chip 5" >&2
+        broken+=("$id")
+        echo "BUILD FAILED $id: not for chip 5" >&2
         continue
     fi
     echo "$id: $(wc -c < "$file") bytes"
 done
-if ((${#failed[@]})); then
-    echo "not built: ${failed[*]}" >&2
+# The plugins whose port is complete (complete.txt) must all be files, and say so.
+if [[ -z "$only" ]]; then
+    for id in $(sed -e 's/#.*//' "$here/complete.txt" | awk 'NF { print $1 }'); do
+        if grep -qE '^Status: \*\*not complete' "$root/plugins/$id/PORTING-7.md" 2>/dev/null; then
+            echo "$id is in complete.txt but its PORTING-7.md says not complete" >&2
+            broken+=("$id")
+        elif [[ ! -e "$out/$id-$(version_of "$id")-$device.ppn" ]]; then
+            echo "$id is in complete.txt but has no file" >&2
+            broken+=("$id")
+        fi
+    done
+fi
+if ((${#broken[@]})); then
+    echo "broken: ${broken[*]}" >&2
+    exit 3
+fi
+if ((${#refused[@]})); then
+    echo "not packed (refused): ${refused[*]}" >&2
     exit 1
 fi

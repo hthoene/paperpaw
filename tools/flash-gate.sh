@@ -140,8 +140,11 @@ build() { # name rev sha features
             env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn7-target-$name" \
                 CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$ours/ppn7-target-$name=/target --remap-path-prefix=$cargo_home=/cargo" \
                 "$ours/tree/tools/plugin-files7/build.sh" x4 "$ours/ppn7-$name" >&2 || rc=$?
-            [ "$rc" -le 1 ] || { echo "interface-7 plugin files failed: $name" >&2; exit 2; }
+            # 1 is the packer refusing a plugin (named on stderr; it stays on its
+            # current file); 3 is a broken build and anything else a failure: the gate ends.
+            [ "$rc" -le 1 ] || { echo "interface-7 plugin files failed ($rc): $name" >&2; exit 2; }
             rm -rf "$ours/ppn7-target-$name"
+            cp "$ours/tree/tools/plugin-files7/complete.txt" "$ours/complete-$name.txt" 2>/dev/null || : > "$ours/complete-$name.txt"
         fi
     fi
 }
@@ -153,7 +156,7 @@ b=$(flash_bytes "$ours/base.elf")
 h=$(flash_bytes "$ours/head.elf")
 image_delta=$((h - b))
 delta=$image_delta
-pb=0 ph=0
+pb=0 ph=0 ph_all=0
 if [ "$image_only" = 0 ]; then
     # The table of plugins and the two sums (python3: parsing, nm, sums).
     python3 -I - "$ours" "$target" <<'PY' || die "the plugin table failed"
@@ -177,19 +180,26 @@ bf, hf, bb, hb = files("base"), files("head"), builtin("base"), builtin("head")
 # The interface-7 files of the head (format 5). One counts only for a plugin that
 # ships as a file today (a Beta 3 file or a current head file) and is not linked
 # into the head's image: a linked built-in has a file here too, which is not shipped.
-hf7 = {k: v for k, v in files("head", "ppn7-").items() if (k in bf or k in hf) and k not in hb}
+# Only a plugin whose port is complete (tools/plugin-files7/complete.txt) counts as
+# interface 7: a partial port's file is a native stub beside the interface-6 plugin, not
+# the plugin, and must not be set against a full Beta 3 file. The partial files are
+# counted separately (the informational figure).
+complete = {l.split("#")[0].strip() for l in open(os.path.join(ours, "complete-head.txt")) if l.split("#")[0].strip()} \
+    if os.path.exists(os.path.join(ours, "complete-head.txt")) else set()
+all7 = {k: v for k, v in files("head", "ppn7-").items() if (k in bf or k in hf) and k not in hb}
+hf7 = {k: v for k, v in all7.items() if k in complete}
+nofile = sorted(complete - set(hf7))
+if nofile:
+    print("MISSING: complete.txt lists " + ", ".join(nofile) + ", which have no interface-7 file", file=sys.stderr)
+    sys.exit(1)
 eff = {**hf, **hf7}
-if not bb: sys.exit("no built-in plugin symbols in base.elf: Beta 3 has some, so the symbols are missing")
-ids = sorted(set(bf) | set(hf) | bb | hb)
-pb = sum(bf.values())
-# A plugin with a Beta 3 file but no head file is not shipped as a file on head
-# yet (waiting for its interface-7 build). It is counted at its Beta 3 size, as
-# the rule for plugins that are not ported says; dropping it would flatter the head.
+eff_all = {**hf, **all7}
 pending = {k: v for k, v in bf.items() if k not in eff and k not in hb}
 ph = sum(v for k, v in eff.items() if k in bf or k in bb) + sum(pending.values())
 rows = []
 for i in ids:
     if i in bf and i in hf7: st = "file in both (interface 7)"
+    elif i in bf and i in hf and i in all7: st = "file in both (current build; interface-7 file is a partial port, not counted)"
     elif i in bf and i in hf: st = "file in both (current build, not interface 7)"
     elif i in bb and i in hf: st = "ported (image -> file)"
     elif i in bb and i in hb and i not in hf: st = "NOT PORTED (in the image, counted there)"
@@ -214,16 +224,18 @@ if missing:
           "no file, not pending): " + ", ".join(missing), file=sys.stderr)
     sys.exit(1)
 cur = sorted(i for i in eff if i in bf and i not in hf7)
+ph_all = sum(v for k, v in eff_all.items() if k in bf or k in bb) + sum({k: v for k, v in bf.items() if k not in eff_all and k not in hb}.values())
 print(f"head files built for interface 7 (format 5): {len(hf7)}"
       + (f"; still on the current build (counted as that file): {', '.join(cur)}" if cur else ""))
 if pending:
     print("not built yet, counted at the Beta 3 file size: " + ", ".join(sorted(pending)))
-open(os.path.join(ours, "ppn-sums"), "w").write(f"{pb} {ph}\n")
+open(os.path.join(ours, "ppn-sums"), "w").write(f"{pb} {ph} {ph_all}\n")
 PY
-    read -r pb ph < "$ours/ppn-sums"
+    read -r pb ph ph_all < "$ours/ppn-sums"
     delta=$(( (h + ph) - (b + pb) ))
 fi
 echo
+echo "work dir $work: sizes (the Beta 3 total too) move by up to 12 KB with the path, so compare only runs with the same --work"
 echo "base  $base ($base_sha) features $base_features toolchain $(cat "$ours/base.tool"): $b B"
 echo "head  $head ($head_sha) features $head_features toolchain $(cat "$ours/head.tool"): $h B"
 if [ "$(cat "$ours/base.tool")" != "$(cat "$ours/head.tool")" ]; then
@@ -241,6 +253,8 @@ done
 if [ "$image_only" = 0 ]; then
     echo "image delta $image_delta B; plugin files: Beta 3 $pb B, head $ph B (same feature set)"
     echo "total Beta 3 $((b + pb)) B, head $((h + ph)) B"
+    # Informational: every interface-7 file counted, partial ports' stubs too.
+    echo "INFO (not the gate): with the partial ports' interface-7 files counted too: delta $(( (h + ph_all) - (b + pb) )) B"
 fi
 echo "delta $delta B against the gate of $limit B (image: .text, .rodata, .data load, .rwtext, .trap$( [ "$image_only" = 0 ] && echo '; plus the plugin files' ))"
 [ -n "$label" ] && echo "RESULT (${label}): $delta B"
