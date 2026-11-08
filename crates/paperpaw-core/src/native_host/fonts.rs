@@ -295,3 +295,40 @@ pub(crate) unsafe fn draw(
 #[cfg(test)]
 #[path = "fonts_tests.rs"]
 mod tests;
+
+/// The longest text slot 39 reads (`screens-input.md` section 4).
+const COVERS_MAX: usize = 1024;
+
+/// The byte length of the longest start of `text` whose characters `font`
+/// draws, its fallbacks included (`FontHandle::has_char`).
+fn covered(font: &FontHandle<'_>, text: &str) -> usize {
+    text.char_indices()
+        .find(|(_, ch)| !font.has_char(*ch))
+        .map_or(text.len(), |(at, _)| at)
+}
+
+/// Slot 39: how much of `text` the font draws. The result is the length
+/// itself (at most 1,024); `ERR_INVALID` above that, `ERR_UTF8` when it is no
+/// text, `ERR_STATE` for a stale handle, 0 where no font is bound to the role
+/// (the icon font). Case is not folded and nothing is written or allocated.
+///
+/// # Safety
+/// `text` is readable and stable for the call.
+pub(crate) unsafe fn covers(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    text: PpBytes,
+) -> i32 {
+    // SAFETY: the caller provides live readable input.
+    let text = match unsafe { buffers::text_in(text, COVERS_MAX) } {
+        Ok(text) => text,
+        Err(error) => return error,
+    };
+    match with_font(scope, owner, handle, |font| Ok(covered(font, text))) {
+        // At most 1,024 by the bound above.
+        Ok(length) => i32::try_from(length).unwrap_or(ERR_INVALID),
+        Err(ERR_NOT_FOUND) => 0,
+        Err(error) => error,
+    }
+}
