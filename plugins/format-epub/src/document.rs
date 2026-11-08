@@ -112,7 +112,9 @@ struct Styled {
 impl Styled {
     fn new(storage: &dyn Storage, cache: &str, styles: bool, user_css: String) -> Self {
         let chapters = chapters_cache(cache, styles, &user_css);
-        if chapters.contains("/css-") && !storage.exists(&paths(&chapters, 0).end) {
+        if chapters.contains("/css-")
+            && paths(&chapters, 0).is_ok_and(|paths| !storage.exists(&paths.end))
+        {
             // Stylesheets of one's own changed: the chapters converted
             // with those before go.
             remove_other_css(storage, cache, &chapters);
@@ -144,8 +146,8 @@ struct SectionPages {
 /// Printed pages resolved in a section at most.
 const MAX_SECTION_PAGES: usize = 2048;
 
-fn paths(cache: &str, section: u32) -> CachePaths {
-    CachePaths::new(cache, &alloc::format!("{section}"))
+fn paths(cache: &str, section: u32) -> Result<CachePaths, DocumentError> {
+    CachePaths::new(cache, &crate::fallible::try_format!("{section}")?)
 }
 
 /// What an XPointer points at: the section, the element path below
@@ -388,7 +390,7 @@ impl EpubDocument {
         let styles = options.publisher_styles;
         let user_css = styles_css(storage, path, styles, &options.css);
         let chapters = chapters_cache(&book_cache(path), styles, &user_css);
-        let prepared = storage.exists(&paths(&chapters, 0).end);
+        let prepared = paths(&chapters, 0).is_ok_and(|paths| storage.exists(&paths.end));
         *kept.0.borrow_mut() = prepared.then(|| KeptCss {
             path: String::from(path),
             styles,
@@ -523,7 +525,7 @@ impl EpubDocument {
         })
     }
 
-    fn paths(&self, storage: &dyn Storage, section: u32) -> CachePaths {
+    fn paths(&self, storage: &dyn Storage, section: u32) -> Result<CachePaths, DocumentError> {
         paths(&self.styled(storage).chapters, section)
     }
 
@@ -546,7 +548,7 @@ impl EpubDocument {
             return Err(DocumentError::Malformed(Cow::Borrowed("no such chapter")));
         };
         self.built(storage)?;
-        let paths = self.paths(storage, section);
+        let paths = self.paths(storage, section)?;
         let length = match cached::converted_length(storage, &paths) {
             Some(length) => length,
             None if slot.get() == FAILED => {

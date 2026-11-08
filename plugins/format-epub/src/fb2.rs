@@ -532,7 +532,7 @@ impl Fb2Document {
         if !styles {
             cache.push_str("/plain");
         }
-        let paths = CachePaths::new(&cache, "0");
+        let paths = CachePaths::new(&cache, "0")?;
         // Read again when the file or the way it is read changed, and then
         // nothing made of it before stays (its pictures).
         let stamp = format!("{}.{FB2_VERSION} {book}\n", crate::package::CACHE_VERSION);

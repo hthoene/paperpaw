@@ -5,7 +5,7 @@
 //!
 //! A book's pictures are decoded when a page shows them
 //! (`Document::prepare_image`), not when their chapter is converted: then
-//! they are noted ([`note_all`]) in `images.txt` of the book's cache, a line
+//! they are noted ([`try_note_all`]) in `images.txt` of the book's cache, a line
 //! each with the cache name, the size they are decoded to and their path
 //! in the archive, for pages to be laid out meanwhile.
 
@@ -20,6 +20,11 @@ use paperpaw_sdk::image::ImageFile;
 /// The cache file of picture `base` in colour or gray.
 pub(crate) fn file(base: &str, color: bool) -> String {
     format!("{base}.{}", if color { "rgb" } else { "gray" })
+}
+
+/// [`file`] where a copy that finds no room is `OutOfMemory`.
+pub(crate) fn try_file(base: &str, color: bool) -> Result<String, DocumentError> {
+    crate::fallible::try_format!("{base}.{}", if color { "rgb" } else { "gray" })
 }
 
 /// The decoded picture `base`, the kind wanted first, else the other; a
@@ -70,45 +75,53 @@ pub(crate) struct Note {
     pub source: String,
 }
 
-/// Notes pictures to be decoded when a page shows them, those of one
-/// cache folder each, and empties `notes`. The list is read once for all
-/// of them, to leave out those noted before.
-pub(crate) fn note_all(storage: &dyn Storage, notes: &mut Vec<Note>) {
+/// Notes pictures to be decoded when a page shows them, those of one cache
+/// folder each, and empties `notes`; a copy that finds no room is
+/// `OutOfMemory`. The list is read once for all of them, to leave out those
+/// noted before.
+pub(crate) fn try_note_all(
+    storage: &dyn Storage,
+    notes: &mut Vec<Note>,
+) -> Result<(), DocumentError> {
+    use crate::fallible;
     let Some(dir) = notes
         .first()
         .and_then(|n| n.base.rsplit_once('/'))
         .map(|(d, _)| d)
     else {
-        return;
+        return Ok(());
     };
-    let path = list(dir);
-    let names: Vec<&str> = notes
-        .iter()
-        .map(|note| note.base.rsplit_once('/').map_or("", |(_, name)| name))
-        .collect();
+    let path = fallible::try_format!("{dir}/images.txt")?;
+    let mut fresh: Vec<bool> = Vec::new();
+    fallible::reserve(&mut fresh, notes.len())?;
     // A picture of no size is never noted: it could not be laid out.
-    let mut fresh: Vec<bool> = notes
-        .iter()
-        .map(|note| note.size.0 > 0 && note.size.1 > 0)
-        .collect();
+    fresh.extend(notes.iter().map(|note| note.size.0 > 0 && note.size.1 > 0));
+    fn name(note: &Note) -> &str {
+        note.base.rsplit_once('/').map_or("", |(_, name)| name)
+    }
     crate::cached::lines(storage, &path, |line| {
         let noted = line.split('\t').next().unwrap_or_default();
-        for (name, fresh) in names.iter().zip(fresh.iter_mut()) {
-            *fresh &= *name != noted;
+        for (note, fresh) in notes.iter().zip(fresh.iter_mut()) {
+            *fresh &= name(note) != noted;
         }
         fresh.contains(&true)
     });
     let mut lines = String::new();
-    for ((note, name), _) in notes.iter().zip(&names).zip(&fresh).filter(|(_, f)| **f) {
+    for (note, _) in notes.iter().zip(&fresh).filter(|(_, f)| **f) {
         let (width, height) = note.size;
-        lines.push_str(&format!("{name}\t{width}\t{height}\t{}\n", note.source));
+        fallible::try_write!(
+            &mut lines,
+            "{}\t{width}\t{height}\t{}\n",
+            name(note),
+            note.source
+        )?;
     }
-    drop(names);
     let _ = storage.append(&path, lines.as_bytes());
     notes.clear();
+    Ok(())
 }
 
-/// Picture `base` as noted ([`note_all`]): the size it is decoded to and
+/// Picture `base` as noted ([`try_note_all`]): the size it is decoded to and
 /// its path in the archive. The list is read a little at a time.
 pub(crate) fn noted(storage: &dyn Storage, base: &str) -> Option<((u32, u32), String)> {
     let (dir, name) = base.rsplit_once('/')?;
