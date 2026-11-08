@@ -1,5 +1,6 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 #[cfg(test)]
 use alloc::rc::Rc;
 use paperpaw_graphics::Canvas;
@@ -190,7 +191,7 @@ impl<D: Dispatch> NativeScreen<D> {
             instance: self.key.map(ScreenKey::serial),
         });
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, false)
         });
@@ -224,7 +225,7 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn event(&self, record: Record<'_>, env: &Env<'_>) {
         let mut bytes = [0; 384];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, false)
         });
@@ -248,7 +249,7 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn input(&self, record: Record<'_>, env: &Env<'_>) -> Handled {
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, true)
         });
