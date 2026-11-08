@@ -2890,10 +2890,10 @@ struct paperpaw_sdk::native::declare::uix::WidgetDecl<'a>(0: paperpaw_sdk::nativ
 struct paperpaw_sdk::native::declare::uix::WidgetPlaceDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::WidgetPlace<'a>)
 struct paperpaw_sdk::native::device::Device { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::device::DeviceCursor { offset: u32, generation: u32 }
-struct paperpaw_sdk::native::device::DevicePage<'a, T> { bytes: &'a [u8], len: usize, end: paperpaw_sdk::native::device::DevicePageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::device::DevicePage<'a, T> { bytes: &'a [u8], len: usize, end: paperpaw_sdk::native::device::DevicePageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
 struct paperpaw_sdk::native::device::DevicePageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::device::DeviceCursor> }
 struct paperpaw_sdk::native::device::DeviceRequest(0: core::num::nonzero::NonZeroU32)
-struct paperpaw_sdk::native::device::DeviceRows<'a, T> { bytes: &'a [u8], remaining: usize, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error>, _row: core::marker::PhantomData<T> }
+struct paperpaw_sdk::native::device::DeviceRows<'a, T> { bytes: &'a [u8], remaining: usize, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error>, _row: core::marker::PhantomData<T> }
 struct paperpaw_sdk::native::device::rows::BluetoothInfo { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBluetooth }
 struct paperpaw_sdk::native::device::rows::BondedDevice<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBonded<'a> }
 struct paperpaw_sdk::native::device::rows::BuiltinPlugin<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceDevBuiltin<'a> }
@@ -2933,7 +2933,7 @@ struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::nati
 struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)
 struct paperpaw_sdk::native::library::rows::CatalogState(0: paperpaw_sdk::native::declare::records_wire::ServiceLibState)
 struct paperpaw_sdk::native::library::rows::Entry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibEntry<'a>)
-struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::Record<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
+struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
 struct paperpaw_sdk::native::library::rows::LibraryPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::query::CatalogCursor> }
 struct paperpaw_sdk::native::lookup::Ask<'a>(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>)
 struct paperpaw_sdk::native::lookup::Entry<'a> { title: &'a str, text: &'a str, flags: u32 }
