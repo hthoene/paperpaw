@@ -33,10 +33,10 @@ impl Facet {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FacetRow<'a>(wire::ServiceLibFacet<'a>);
 impl<'a> FacetRow<'a> {
-    fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceLibFacet(row) = record else {
-            return Err(Error::Invalid);
-        };
+    fn decode(record: RawRecord<'a>) -> Result<Self, Error> {
+        let row = record
+            .decode::<wire::ServiceLibFacet<'a>>()
+            .map_err(|_| Error::Invalid)?;
         Ok(Self(row))
     }
     /// The value, whole (at most 256 UTF-8 bytes).
@@ -99,7 +99,7 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<FacetPage<'a>, Error> {
         let record = query.facet_record(facet.code());
-        let n = self.call(host, schema::OP_FACETS, &[record], input, out)?;
+        let n = self.call(host, schema::OP_FACETS, &[&record], input, out)?;
         rows::page(
             &out[..n],
             Some(query.cursor),

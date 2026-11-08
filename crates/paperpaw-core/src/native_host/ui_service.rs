@@ -95,11 +95,20 @@ fn stamp(ui: &UiServices, who: &Caller<'_>) -> Result<Stamp, i32> {
     Stamp::new(who.owner, ui.host.callback_epoch())
 }
 
-/// Op 8: records a question for the caller and returns its request id; the
-/// dialog opens after the caller's callback returns.
-fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
-    let stamp = stamp(ui, who)?;
+/// The form of an `ask` (ui.md 3.1) before any admission: the slot, then
+/// the kind, flags and choices (`Question::check`). Gives whether the
+/// question goes to the phone keyboard. The one check of the host, which
+/// hosts that stand in for it (the scripted host) call instead of copying.
+///
+/// # Errors
+/// `ERR_INVALID` for a slot, kind, flags or choices that do not fit,
+/// `ERR_NO_SPACE` for a choice or list over its limit.
+pub fn check_ask(ask: &wire::ServiceUiAsk<'_>) -> Result<bool, i32> {
+    question_of(ask).map(|question| question.remote)
+}
+
+/// The checked question `ask` brings.
+fn question_of<'a>(ask: &wire::ServiceUiAsk<'a>) -> Result<Question<'a>, i32> {
     let remote = match ask.slot {
         "" => false,
         ui_guard::REMOTE_KEYBOARD if ask.kind == 0 => true,
@@ -114,6 +123,15 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
         choices: ask.choices,
     };
     question.check()?;
+    Ok(question)
+}
+
+/// Op 8: records a question for the caller and returns its request id; the
+/// dialog opens after the caller's callback returns.
+fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
+    let stamp = stamp(ui, who)?;
+    let question = question_of(&ask)?;
     let instance = ui.host.calling_instance(who.owner);
     // A dialog of an open request asks under it (the phone keyboard).
     let parent = instance.and_then(|dialog| ui.store.dialog_of(dialog));

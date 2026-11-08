@@ -27,7 +27,7 @@ impl MenuGraph {
             }
         }
         // The registry index preserves the old stable ordering for equal names.
-        roots.sort_unstable_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        paperpaw_sdk::sort::sort_by(&mut roots, |a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
         let mut out = Vec::new();
         out.try_reserve(count).map_err(|_| Error::NoMemory)?;
         let mut seen = Vec::new();

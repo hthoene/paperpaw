@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::{BookKind, Event},
+        events::{Event, Incoming, kinds},
         formatting::Arg,
         library::{BookRef, Library, Query},
         registrations,
@@ -93,33 +93,41 @@ impl Plugin for NativeEndOfBook {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        match event {
-            Event::Book {
-                kind: BookKind::Finished,
-                reading,
-                ..
-            } if token == EVENTS => self.finished(host, reading.path()),
-            Event::Book {
-                kind: BookKind::Closed,
-                reading,
-                ..
-            } if token == EVENTS => self.closed(host, reading.path()),
-            Event::ScreenOpened {
+        // Only the kinds this plugin handles are read, so only their decoders are linked.
+        if token == EVENTS {
+            if let Some(Event::Book { reading, .. }) =
+                incoming.decode_as::<kinds::BookFinished>()?
+            {
+                return self.finished(host, reading.path());
+            }
+            if let Some(Event::Book { reading, .. }) = incoming.decode_as::<kinds::BookClosed>()? {
+                return self.closed(host, reading.path());
+            }
+        }
+        if token == SCREEN {
+            if let Some(Event::ScreenOpened {
                 instance, handover, ..
-            } if token == SCREEN => self.opened(host, instance, handover),
-            Event::ScreenShown {
+            }) = incoming.decode_as::<kinds::ScreenOpened>()?
+            {
+                return self.opened(host, instance, handover);
+            }
+            if let Some(Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } if token == SCREEN => self.screens.shown(SCREEN, instance),
-            Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
-                Ok(())
+            }) = incoming.decode_as::<kinds::ScreenShown>()?
+            {
+                return self.screens.shown(SCREEN, instance);
             }
-            _ => Ok(()),
         }
+        if let Some(Event::ScreenClosed { instance, .. }) =
+            incoming.decode_as::<kinds::ScreenClosed>()?
+        {
+            self.screens.close(instance);
+        }
+        Ok(())
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {

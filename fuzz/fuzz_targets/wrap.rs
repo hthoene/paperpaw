@@ -32,7 +32,10 @@ fuzz_target!(|data: &[u8]| {
     let budget = Cell::new(200 * text.len() + 10_000);
     let advance = |_: usize, c: char| {
         let left = budget.get();
-        assert!(left > 0, "the wrapper does not move forward: {text:?} {options:#x}");
+        assert!(
+            left > 0,
+            "the wrapper does not move forward: {text:?} {options:#x}"
+        );
         budget.set(left - 1);
         match c {
             ' ' => 4.0,
@@ -44,6 +47,14 @@ fuzz_target!(|data: &[u8]| {
     let lines = wrap_lines_kerned_opts(text, width, advance, |_, _, _| 0.0, None, options);
     check(&lines, text);
     let width = |_: usize| rest;
-    let lines = wrap_lines_balanced_opts(text, width, advance, |_, _, _| 0.0, None, |_, _| 0.0, options);
+    let lines = wrap_lines_balanced_opts(
+        text,
+        width,
+        advance,
+        |_, _, _| 0.0,
+        None,
+        |_, _| 0.0,
+        options,
+    );
     check(&lines, text);
 });

@@ -6,7 +6,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::Event,
+        events::{Event, Incoming, kinds},
         registrations,
         reply::Reply,
     },
@@ -35,25 +35,33 @@ impl Plugin for NativeBattery {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        match event {
-            Event::ScreenShown {
-                screen: "battery.screen",
-                ..
-            } if token == 10 => {
-                self.view = Some(NativeView::new(host, self.recorder.reading(host)?)?);
+        // Only the kinds this plugin handles are read, so only their decoders are linked.
+        match token {
+            10 => {
+                if let Some(Event::ScreenShown {
+                    screen: "battery.screen",
+                    ..
+                }) = incoming.decode_as::<kinds::ScreenShown>()?
+                {
+                    self.view = Some(NativeView::new(host, self.recorder.reading(host)?)?);
+                }
                 Ok(())
             }
-            Event::ActionRun {
-                action: "battery.open",
-                ..
-            } if token == 11 => {
-                let mut scratch = [0; 256];
-                CommandSender::new(host, &mut scratch).open_screen("battery.screen")
+            11 => {
+                if let Some(Event::ActionRun {
+                    action: "battery.open",
+                    ..
+                }) = incoming.decode_as::<kinds::ActionRun>()?
+                {
+                    let mut scratch = [0; 256];
+                    return CommandSender::new(host, &mut scratch).open_screen("battery.screen");
+                }
+                Ok(())
             }
-            _ if token == 1 => self.recorder.event(host, event),
+            1 => self.recorder.event(host, incoming),
             _ => Ok(()),
         }
     }

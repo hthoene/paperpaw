@@ -288,6 +288,8 @@ impl TestScreen {
     ///
     /// # Errors
     /// The snapshot's refusal.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn new(host: &Host<'_>, width: u16, height: u16) -> Result<Self, Error> {
         let snapshot = capture_snapshot(host)?;
         let metrics = Metrics(snapshot.display_dpi());
@@ -326,6 +328,8 @@ impl TestScreen {
     ///
     /// # Errors
     /// The host's refusal of the redraw.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     pub fn reset(&mut self, host: &Host<'_>) -> Result<Handled, Error> {
         self.state = State::start();
         Self::redraw(host, RedrawMode::Full)

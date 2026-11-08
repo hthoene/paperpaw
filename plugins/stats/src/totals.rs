@@ -1,6 +1,5 @@
 //! Sums over the log, as KOReader's statistics compute them.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::{Storage, StorageError};
@@ -120,18 +119,28 @@ pub(crate) fn of_book(
 
 /// Reading time of each of `books` (sorted by id), for lists; where the
 /// log cannot be read to the end, that of what could be.
-pub(crate) fn seconds_per_book(storage: &dyn Storage, books: &[Book]) -> Vec<u64> {
-    let mut seconds = vec![0u64; books.len()];
+/// A refused allocation is an error (`TooLarge`).
+pub(crate) fn seconds_per_book(
+    storage: &dyn Storage,
+    books: &[Book],
+) -> Result<Vec<u64>, StorageError> {
+    let mut seconds = Vec::new();
+    seconds
+        .try_reserve_exact(books.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    seconds.resize(books.len(), 0u64);
     #[expect(
         clippy::let_underscore_must_use,
         reason = "a log that cannot be read to the end counts what could be, as said above"
     )]
     let _ = store::scan(storage, |stat| {
-        if let Ok(i) = books.binary_search_by_key(&stat.book, |b| b.id) {
-            seconds[i] += u64::from(stat.duration);
+        if let Ok(i) = books.binary_search_by_key(&stat.book, |b| b.id)
+            && let Some(total) = seconds.get_mut(i)
+        {
+            *total += u64::from(stat.duration);
         }
     });
-    seconds
+    Ok(seconds)
 }
 
 /// The days in a row up to `today` (or yesterday, while today has no
@@ -237,7 +246,10 @@ mod tests {
         assert_eq!(totals.seconds, 90);
         assert_eq!(totals.pages_read, 2);
         assert_eq!(totals.days, [(0, 70), (2, 20)]);
-        assert_eq!(seconds_per_book(&storage, &[book(1), book(2)]), [90, 50]);
+        assert_eq!(
+            seconds_per_book(&storage, &[book(1), book(2)]).unwrap(),
+            [90, 50]
+        );
     }
 
     #[test]

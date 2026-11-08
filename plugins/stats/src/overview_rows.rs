@@ -56,7 +56,6 @@ pub(crate) struct Facts<'a> {
     pub days: &'a [Day],
     pub books: usize,
     pub today_pages: u32,
-    pub current_book: Option<u16>,
 }
 
 /// The tiles; none without the time.
@@ -206,7 +205,7 @@ pub(crate) fn distinct_pages(
     if refused {
         return Err(Error::NoMemory);
     }
-    pages.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pages);
     pages.dedup();
     Ok(pages.len() as u32)
 }

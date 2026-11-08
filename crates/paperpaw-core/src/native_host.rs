@@ -44,6 +44,7 @@ pub mod host_slot;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
+pub use ui_service::check_ask;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -138,11 +139,18 @@ pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
 mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
@@ -251,12 +259,21 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_menus.rs"]
+#[allow(
+    dead_code,
+    reason = "core.registry op 11 (Core) reads the declared menus through it"
+)]
+pub(crate) mod native_menus;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+mod native_resources;
 
+#[path = "native_host/native_action.rs"]
+pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
 
@@ -294,6 +311,8 @@ pub(crate) mod native_instances;
 )]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
 
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
