@@ -1,0 +1,19 @@
+[package]
+name = "paperpaw-scripted-host"
+description = "Test support for native plugins: a scripted host that loads a plugin entry, runs its callbacks, scripts service answers, injects refusals and shows the staged commands (not shipped)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+paperpaw-core.workspace = true
+paperpaw-native.workspace = true
+paperpaw-sdk.workspace = true
+
+[lints]
+workspace = true

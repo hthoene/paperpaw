@@ -30,6 +30,7 @@ pub mod focus;
 pub mod geometry;
 pub mod header;
 pub mod items;
+pub mod json;
 pub mod list;
 pub mod mem;
 pub mod messages;

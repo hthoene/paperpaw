@@ -12,6 +12,7 @@ use paperpaw_sdk::native::declare::{
 pub const DASHBOARD: u32 = 10;
 pub const ADD: u32 = 11;
 pub const PICK: u32 = 12;
+pub const STATUS_ITEMS: u32 = 13;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 4;
@@ -356,8 +357,8 @@ fn bars<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<(
     hints.advanced = true;
     declare_choice(d, &hints)?;
     // The status items on the bar's left, centre and right. Each part is
-    // picked on the host's status items screen, which no setting can name
-    // as its editor yet (an ignored acceptance case).
+    // picked on the plugin's own screen, built on the kit's status items
+    // editor (`paperpaw_ui_kit::status_items`); the host has none.
     for (name, title, default) in [
         (
             "bar.left-items",
@@ -374,6 +375,9 @@ fn bars<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<(
         let mut spec = SpecDecl::new(name, Kind::List(default), GROUP, title);
         spec.help = "picture-home.setting.items.help";
         d.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.editor = Some(EditorDecl::Screen("status-items"));
+        d.extra(extra)?;
     }
     Ok(())
 }
@@ -432,7 +436,8 @@ fn pages<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<
     Ok(())
 }
 
-/// The dashboard, adding to a page and choosing the picture.
+/// The dashboard, adding to a page, choosing the picture and the bar items'
+/// editor.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -446,6 +451,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         "pick",
         "picture-home.setting.picture",
         PICK,
+    ))?;
+    d.screen(ScreenDecl::new(
+        "status-items",
+        "picture-home.setting.bar",
+        STATUS_ITEMS,
     ))?;
     d.submit()
 }

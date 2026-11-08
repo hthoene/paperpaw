@@ -13,7 +13,7 @@ use paperpaw_sdk::{
 use crate::settings;
 
 /// Pictures listed at most: a longer folder is cut, not slowed down.
-const MOST: usize = 300;
+pub(crate) const MOST: usize = 300;
 
 /// The names of the pictures in the pictures folder, in order.
 pub(crate) fn pictures(env: &Env<'_>) -> Vec<String> {
@@ -22,8 +22,13 @@ pub(crate) fn pictures(env: &Env<'_>) -> Vec<String> {
         .text(settings::FOLDER.as_str())
         .trim_matches('/')
         .to_string();
+    pictures_in(env.storage(), &folder)
+}
+
+/// The names of the pictures in `folder` of `storage`, in order.
+pub(crate) fn pictures_in(storage: &dyn paperpaw_sdk::Storage, folder: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    let _ = env.storage().list(&folder, &mut |entry| {
+    let _ = storage.list(folder, &mut |entry| {
         let name = entry.name.to_lowercase();
         if !entry.is_dir
             && !entry.name.starts_with('.')

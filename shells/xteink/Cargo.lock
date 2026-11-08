@@ -2488,9 +2488,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2511,9 +2512,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2542,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
@@ -2565,9 +2567,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2718,7 +2721,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
- "paperpaw-sort",
 ]
 
 [[package]]
