@@ -70,15 +70,23 @@ impl Record {
             .map_err(out_of_memory)?;
         for piece in [&self.title, &self.author, &self.series] {
             push_lower(&mut text, piece)?;
-            text.push(' ');
+            push_str(&mut text, " ")?;
         }
         for tag in self.tags.split(SEPARATOR) {
             push_lower(&mut text, tag)?;
-            text.push(' ');
+            push_str(&mut text, " ")?;
         }
         push_lower(&mut text, crate::files::name(&self.path))?;
         Ok(words.iter().all(|word| text.contains(word.as_str())))
     }
+}
+
+/// `tail` appended to `out`, reserved first: the lowercase before it may
+/// have used what was reserved (a char can grow when lowercased).
+fn push_str(out: &mut String, tail: &str) -> Result<(), Error> {
+    out.try_reserve(tail.len()).map_err(out_of_memory)?;
+    out.push_str(tail);
+    Ok(())
 }
 
 /// A lowercase copy of `text`.
@@ -111,8 +119,8 @@ impl Query {
             text.try_reserve_exact(first.len() + 1 + tail.len())
                 .map_err(out_of_memory)?;
             push_lower(&mut text, first)?;
-            text.push('\u{1}');
-            text.push_str(tail);
+            push_str(&mut text, "\u{1}")?;
+            push_str(&mut text, tail)?;
             Ok(text)
         };
         let (first, text) = match self.sort {

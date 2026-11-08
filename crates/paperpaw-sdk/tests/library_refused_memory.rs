@@ -689,6 +689,43 @@ fn a_query_refused_memory_at_any_allocation_is_an_error_never_an_abort() {
     assert!(number > 6, "{number}");
 }
 
+#[test]
+fn a_key_and_a_word_match_that_grow_when_lowercased_refuse_never_abort() {
+    // `İ` is two bytes and lowercases to three: what was reserved for the
+    // text is used up before the separator and the tail are pushed. One
+    // book on the card, so that nothing but the library allocates.
+    let long = "İ".repeat(16);
+    let line = format!(
+        "b/i.epub\t{long}\t{long}\t{}\t\t\t\t\t\t\t1\n",
+        "İ".repeat(8)
+    );
+    let card = on_card(line.into_bytes());
+    let queries = [
+        catalog::Query::new().sort(catalog::Sort::Author),
+        catalog::Query::new().sort(catalog::Sort::Series),
+        catalog::Query::new().words("i\u{307}i\u{307}"),
+        catalog::Query::new().words("zzz"),
+    ];
+    for query in &queries {
+        let whole = catalog::try_query(&card, query, None, 2);
+        let mut number = 1;
+        loop {
+            let (result, refused) =
+                with_refusal(number, || catalog::try_query(&card, query, None, 2));
+            if !refused {
+                assert_eq!(result, whole, "after the last allocation");
+                break;
+            }
+            assert_eq!(
+                result,
+                Err(Error::OutOfMemory),
+                "refusal {number}, {query:?}"
+            );
+            number += 1;
+        }
+    }
+}
+
 /// A card that cannot be read past its first chunk.
 struct Faulty(Files);
 impl Storage for Faulty {
