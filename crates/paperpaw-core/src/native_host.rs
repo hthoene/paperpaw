@@ -1107,3 +1107,7 @@ mod declaration_reg_index_tests;
 #[cfg(test)]
 #[path = "native_host/native_ui_cleanup_tests.rs"]
 mod native_ui_cleanup_tests;
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+#[path = "native_host/native_image_declarations_tests.rs"]
+mod native_image_declarations_tests;
