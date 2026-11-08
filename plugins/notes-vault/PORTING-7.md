@@ -32,9 +32,15 @@ one. It is removed in the PR that finishes the port.
 - `tests/native_alloc_refusal.rs` refuses each allocation of all of the above in turn (the
   storages' own allocations are out of the count); it found an infallible allocation in the tag
   reader during the work.
-- One known difference from interface 6: names are put in order, and searched, with each character
-  lower-cased on its own (`ui_kit::text::cmp_lowercase`), not with `str::to_lowercase`; they differ
-  for the Greek final sigma only.
+- Two known differences from interface 6, both about the Greek final sigma. Names are put in order
+  with each character lower-cased on its own (`ui_kit::text::cmp_lowercase`), not with
+  `str::to_lowercase`: `ς` and `σ` sort apart. The search folds `ς` to `σ` on both sides, so
+  `ΟΔΟΣ`, `οδος` and `οδοσ` are one word (interface 6 missed `οδοσ`); every query it found, the
+  native search finds (`the_search_finds_greek_titles_as_interface_6_does`).
+- `tests/native_declarations.rs` compares the group, the setting and its extras with what the
+  interface-6 plugin registered, field by field. The one deliberate difference is the folder
+  chooser: interface 6 named the screen `core.folder-editor`, the native setting names the slot
+  `core.choose-folder` that screen fills (a plugin taking the slot's place edits the setting too).
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 

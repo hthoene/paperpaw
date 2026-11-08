@@ -1,7 +1,7 @@
 //! The native model gives the same answers as the interface-6 code it was
-//! made from, on fixed cases and on generated text and vaults. (The one known
-//! difference: names are put in order character by character in lower case,
-//! so a Greek final sigma sorts as a plain one.)
+//! made from, on fixed cases and on generated text and vaults. (Known
+//! differences, both about the Greek final sigma: names are put in order
+//! character by character in lower case, and the search takes `ς` for `σ`.)
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
 use alloc::format;
@@ -533,4 +533,68 @@ fn the_state_is_the_same() {
     let data = data.with("index.txt", b"".to_vec());
     assert!(new::index::kept(&data, "v w").unwrap().is_some());
     assert!(new::index::kept(&data, "other").unwrap().is_none());
+}
+
+/// The search finds the same notes, Greek final sigma included: `ΟΔΟΣ`,
+/// `οδος` and `ΣΟΦΟΣ` against words in either case and either sigma.
+#[test]
+fn the_search_finds_greek_titles_as_interface_6_does() {
+    let titles = ["ΟΔΟΣ", "οδος", "ΣΟΦΟΣ", "σοφος", "Σίσυφος", "Plain"];
+    let index: String = titles
+        .iter()
+        .enumerate()
+        .map(|(n, t)| format!("{n}\tv/{t}.md\n"))
+        .collect();
+    let old_storage = MemoryStorage::new().with(&index::index_path(), index.clone());
+    let data = MemoryStorage::new().with("index.txt", index);
+    let vault = MemoryStorage::new();
+    let found = |query: &str| -> (Vec<String>, Vec<String>) {
+        let mut a = Vec::new();
+        source::Source::Notes {
+            folder: String::new(),
+            query: query.into(),
+        }
+        .feed(&old_storage, &mut |r| a.push(r.title));
+        let mut b = Vec::new();
+        new::source::Source::Notes {
+            folder: String::new(),
+            query: query.into(),
+        }
+        .feed(&vault, &data, &mut |r| {
+            b.push(r.title.to_string());
+            Ok(())
+        })
+        .unwrap();
+        (a, b)
+    };
+    for query in [
+        "οδος",
+        "ΟΔΟΣ",
+        "ΟΔ",
+        "οδ",
+        "σο",
+        "ΣΟ",
+        "σοφος",
+        "ΣΟΦΟΣ",
+        "σι",
+        "plain",
+        "PLAIN",
+        "",
+    ] {
+        let (old, now) = found(query);
+        assert_eq!(old, now, "{query}");
+    }
+    let (old, now) = found("οδος");
+    assert_eq!(old, ["ΟΔΟΣ", "οδος"]);
+    assert_eq!(now, old);
+    // What interface 6 missed: a query with the plain sigma at its end finds
+    // the title with the final one (and the other way round).
+    let (old, now) = found("οδοσ");
+    assert!(old.is_empty(), "{old:?}");
+    assert_eq!(now, ["ΟΔΟΣ", "οδος"]);
+    assert_eq!(found("ΣΟΦΟς").1.len(), 2);
+    // The same for a plain sigma in the middle written as a capital at the end.
+    let (old, now) = found("ΣΊΣ");
+    assert!(old.is_empty(), "{old:?}");
+    assert_eq!(now, ["Σίσυφος"]);
 }

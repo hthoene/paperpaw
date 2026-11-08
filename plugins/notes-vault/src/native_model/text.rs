@@ -108,11 +108,19 @@ pub(crate) fn buffer(len: usize) -> Result<Vec<u8>, Error> {
     paperpaw_ui_kit::mem::buffer(len)
 }
 
+/// A character as it is searched: lower case, the Greek final sigma `ς` as
+/// the plain `σ` (so that `ΟΔΟΣ` and `οδος` and `οδοσ` are one word).
+fn folded(c: char) -> core::iter::Map<core::char::ToLowercase, fn(char) -> char> {
+    fn plain(c: char) -> char {
+        if c == 'ς' { 'σ' } else { c }
+    }
+    c.to_lowercase().map(plain as fn(char) -> char)
+}
+
 /// Whether `haystack` has `needle` in it, without regard to case (each
-/// character lower-cased on its own, which differs from `to_lowercase` in the
-/// Greek final sigma only).
+/// character folded on its own, see `folded`).
 pub(crate) fn contains_lowercase(haystack: &str, needle: &str) -> bool {
-    let mut needle_chars = needle.chars().flat_map(char::to_lowercase);
+    let mut needle_chars = needle.chars().flat_map(folded);
     let Some(first) = needle_chars.next() else {
         return true;
     };
@@ -120,7 +128,7 @@ pub(crate) fn contains_lowercase(haystack: &str, needle: &str) -> bool {
         let Some(rest) = haystack.get(at..) else {
             return false;
         };
-        let mut hay = rest.chars().flat_map(char::to_lowercase);
+        let mut hay = rest.chars().flat_map(folded);
         hay.next() == Some(first) && needle_chars.clone().all(|n| hay.next() == Some(n))
     })
 }
