@@ -28,7 +28,35 @@
     },
     {
       "kind": "host",
+      "name": "font.acquire"
+    },
+    {
+      "kind": "host",
       "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_rect"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_line"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_round"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.stroke_round"
+    },
+    {
+      "kind": "host",
+      "name": "text.measure"
+    },
+    {
+      "kind": "host",
+      "name": "text.draw"
     },
     {
       "kind": "host",
@@ -67,12 +95,40 @@
       "name": "storage.sync"
     },
     {
+      "kind": "host",
+      "name": "i18n.format"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "text.metrics"
+    },
+    {
+      "kind": "host",
+      "name": "text.ink"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.clip"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
     {
       "kind": "callback",
       "name": "dispatch_event"
+    },
+    {
+      "kind": "callback",
+      "name": "draw"
+    },
+    {
+      "kind": "callback",
+      "name": "input"
     }
   ],
   "services": [],

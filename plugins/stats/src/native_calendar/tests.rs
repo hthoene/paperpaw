@@ -212,3 +212,47 @@ fn a_tap_finds_its_square_and_squares_beyond_the_weeks_are_none() {
     };
     assert_eq!(none.at(Point::new(5, 5)), None);
 }
+
+#[test]
+fn days_far_out_never_overflow_the_day_math() {
+    use crate::calendar_model::{self as model, MAX_DAY, Step};
+    let steps = [
+        Step::DayBack,
+        Step::DayForward,
+        Step::WeekBack,
+        Step::WeekForward,
+        Step::MonthBack,
+        Step::MonthForward,
+    ];
+    for day in [
+        i32::MIN,
+        -1,
+        0,
+        1,
+        MAX_DAY - 1,
+        MAX_DAY,
+        MAX_DAY + 1,
+        i32::MAX,
+    ] {
+        for step in steps {
+            assert!((0..=MAX_DAY).contains(&model::step(day, step)));
+        }
+        let first = model::first_shown(day, 1);
+        assert!(first <= MAX_DAY);
+        let _ = model::month_of(day);
+        let _ = model::tap_day(day, first.saturating_add(41));
+    }
+    assert_eq!(model::step(0, Step::DayBack), 0);
+    assert_eq!(model::step(MAX_DAY, Step::WeekForward), MAX_DAY);
+    // The last month can be shown and read.
+    let data = card();
+    let mut view = CalendarView::build(&mut words("en"), &data, Some(i32::MAX), 1).unwrap();
+    assert_eq!(view.day, MAX_DAY);
+    view.show(
+        &mut words("en"),
+        &data,
+        model::step(MAX_DAY, Step::MonthForward),
+    )
+    .unwrap();
+    assert_eq!(view.title[0], "December 9999");
+}
