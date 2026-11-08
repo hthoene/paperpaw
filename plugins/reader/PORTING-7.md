@@ -32,18 +32,15 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   *progress* and *empty*, the items title, chapter, page and progress, and their settings:
   `status.size`, `status.edge`, the lines and parts, `battery-percent`), the sample widget above the
   reading settings (`previews(groups::READING)`), the reading app (`readers::ReaderSpec`), the screen
-  hints (*on press*) and the first-run help, and the setup step *text size*. The setup step's title
-  is empty in interface 6; the native record needs a title, so a text is to be decided (not invented
-  here). Each is a gap in the declaration set for Kernel; the declaration test counts the status
-  settings so they cannot be forgotten.
-- **Owner ask #241 (the reading plugin extensible through plugins).** The native declarations must
-  offer: the reader's stages (`stage.spec`: inserted blocks between lines with the insert ordinal in
-  the locator, text style with the grant of the user's settings, an input filter), declared by the
-  reader with the schemas of `paperpaw-reader-api` (PR #224, not on integration); the layout key
-  with the subscribers' signatures; page numbers from the source text. Those wait for #224 and the
-  stage host (`stage.run`). The key bindings above are the reader's layer as records; a plugin adds
-  its own to `core.reader` with `key_binding`. I found no "logical-key table" in the docs, the
-  attachments of #241 or the abi files; **to settle** with Manager/Kernel what it should contain.
+  hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
+  Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
+  is a gap in the declaration set; the declaration test counts the status settings so they cannot be
+  forgotten.
+- **Owner ask #241 (the reading plugin extensible through plugins).** The reader's stages
+  (`stage.spec`: inserted blocks between lines, text style, an input filter, with the layout key
+  and page numbers from the source text) wait for #224 (`paperpaw-reader-api`) and the stage host
+  (`stage.run`). The key bindings above are the reader's layer as records; a plugin adds its own to
+  `core.reader` with `key_binding`. No other contract is declared.
 - `font_step` (larger/smaller text) rounds to the next size that looks different on this device
   (`ui::shown_step`, setting specs): it needs the settings host and comes with the actions.
 
