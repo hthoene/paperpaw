@@ -31,11 +31,24 @@ pub type Draw<'a> = dyn FnMut(&mut [u8]) -> Result<bool, Error> + 'a;
 /// A drawn text, with whether the source was fully random for all of it.
 #[derive(PartialEq, Eq)]
 pub struct Drawn {
-    pub text: Password,
-    pub strong: bool,
+    text: Password,
+    strong: bool,
 }
 
 impl Drawn {
+    /// Whether the source was fully random for all of it. The text itself is
+    /// taken only through [`Drawn::into_strong`].
+    #[must_use]
+    pub fn is_strong(&self) -> bool {
+        self.strong
+    }
+
+    /// The text, whatever its draw (to compare in tests only).
+    #[cfg(test)]
+    pub(crate) fn text(&self) -> &Password {
+        &self.text
+    }
+
     /// The text, only where the whole draw was fully random: a weak draw is
     /// dropped (wiped) and gives `None`. The own network's password and the
     /// page's token are taken only through this.
@@ -215,5 +228,70 @@ pub fn ssid(name: &str) -> Result<String, Error> {
     match name[..end].trim() {
         "" => text::copy(FALLBACK),
         ssid => text::copy(ssid),
+    }
+}
+
+/// Letters of the password of the own network.
+const PASSWORD_CHARS: usize = 15;
+/// Characters of the token that guards the page.
+const TOKEN_CHARS: usize = 13;
+
+/// The device's own network for a phone: its name, the password drawn for it
+/// and the token of its page. Only fully random draws make one.
+pub struct Own {
+    ssid: String,
+    password: Password,
+    token: Password,
+}
+
+impl core::fmt::Debug for Own {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Own")
+            .field("ssid", &self.ssid)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Own {
+    /// The network for a device called `name`: the password and the token
+    /// are taken only through [`Drawn::into_strong`], so a weak draw (or too
+    /// few usable bytes) gives `None` and no network, never a weaker
+    /// password. What was drawn is wiped on the way out.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`]; what `draw` says.
+    pub fn draw(name: &str, draw: &mut Draw<'_>) -> Result<Option<Self>, Error> {
+        let Some(drawn) = readable(PASSWORD_CHARS, draw)? else {
+            return Ok(None);
+        };
+        let Some(password) = drawn.into_strong() else {
+            return Ok(None);
+        };
+        let Some(token) = token(TOKEN_CHARS, draw)?.into_strong() else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            ssid: ssid(name)?,
+            password,
+            token,
+        }))
+    }
+
+    /// The name of the network.
+    #[must_use]
+    pub fn ssid(&self) -> &str {
+        &self.ssid
+    }
+
+    /// The password of the network.
+    #[must_use]
+    pub fn password(&self) -> &Password {
+        &self.password
+    }
+
+    /// The token of the page.
+    #[must_use]
+    pub fn token(&self) -> &Password {
+        &self.token
     }
 }
