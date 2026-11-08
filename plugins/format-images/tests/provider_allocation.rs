@@ -228,3 +228,41 @@ fn every_allocation_of_a_read_may_be_refused() {
     }
     assert!(refused > 5, "{refused} refusals reached");
 }
+
+/// More names than the stable sort keeps on the stack (128): its scratch
+/// room would be an allocation nobody can refuse.
+#[test]
+fn a_long_folder_may_be_refused_at_every_allocation_too() {
+    let names: Vec<String> = (0..200).map(|n| format!("{n:03}.png")).collect();
+    let files: Vec<(&str, &[u8])> = names
+        .iter()
+        .map(|n| (n.as_str(), &b"no picture"[..]))
+        .collect();
+    let open_and_list = |io: &Roots, p: &mut ImagesProvider, n: usize| -> Result<(), Error> {
+        let mut out = vec![0u8; 3840];
+        for input in [call(2, 1, |c| c.text = "000.png"), call(7, 1, |_| {})] {
+            FAIL_AT.set(n);
+            let result = p.call(io, &input, &mut out);
+            FAIL_AT.set(usize::MAX);
+            result?;
+        }
+        Ok(())
+    };
+    open_and_list(&Roots::new(&files), &mut ImagesProvider::new(), usize::MAX).unwrap();
+    let mut refused = 0;
+    for n in 0..1000 {
+        let io = Roots::new(&files);
+        let mut p = ImagesProvider::new();
+        match open_and_list(&io, &mut p, n) {
+            Ok(()) => {}
+            Err(Error::NoMemory) => {
+                refused += 1;
+                let _ = p.call(&io, &call(4, 1, |_| {}), &mut [0u8; 64]);
+                open_and_list(&io, &mut p, usize::MAX)
+                    .unwrap_or_else(|e| panic!("refusal {n}: then {e:?}"));
+            }
+            Err(other) => panic!("allocation {n} refused: {other:?}"),
+        }
+    }
+    assert!(refused > 5, "{refused} refusals reached");
+}

@@ -81,12 +81,11 @@ pub(crate) fn pages_from(
     first: &Page,
 ) -> Result<Vec<Page>, DocumentError> {
     let mut pages: Vec<Page> = Vec::new();
-    pages
-        .try_reserve_exact(2 * MAX_PAGES + 2)
-        .map_err(|_| DocumentError::OutOfMemory)?;
     let mut short = false;
     let keep = |pages: &mut Vec<Page>| {
-        pages.sort_by(|a, b| order(&a.0, &b.0));
+        // Unstable: the order is total, and the stable sort takes scratch room
+        // (about 19 KB above 128 names) that a refusal would abort.
+        pages.sort_unstable_by(|a, b| order(&a.0, &b.0));
         pages.truncate(MAX_PAGES);
     };
     let listed = storage.list(dir, &mut |entry| {
@@ -99,9 +98,11 @@ pub(crate) fn pages_from(
         {
             return;
         }
-        match copy(entry.name) {
-            Ok(name) => pages.push((name, entry.size)),
-            Err(_) => {
+        // Room for this one name, as the list grows: a folder of three
+        // pictures takes three entries, not the most there can be.
+        match (pages.try_reserve(1), copy(entry.name)) {
+            (Ok(()), Ok(name)) => pages.push((name, entry.size)),
+            _ => {
                 short = true;
                 return;
             }
@@ -116,6 +117,9 @@ pub(crate) fn pages_from(
     if listed.is_err() {
         pages.clear();
     }
+    pages
+        .try_reserve(1)
+        .map_err(|_| DocumentError::OutOfMemory)?;
     pages.push((copy(&first.0)?, first.1));
     keep(&mut pages);
     Ok(pages)

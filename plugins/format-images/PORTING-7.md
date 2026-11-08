@@ -25,6 +25,10 @@ A refused allocation is `NoMemory` end to end and an open that hits it leaves no
 
 `tests/provider_allocation.rs` refuses every allocation of open, meta, sections and block (of pages that are no pictures) in turn: each refusal is `NoMemory`, and the same provider reads on afterwards. **Gap:** decoding a picture (block, cover, image) reaches `paperpaw-image`'s `GrayWriter::start`, whose 12-byte header `Vec::with_capacity` is not fallible (Kernel: write the header from a stack array), so that path is not swept yet. A failure of memory or the card while a picture is decoded is now passed on by `block_at` (not turned into a named page); only a damaged picture is named. A name in the folder with a `:` is refused at open.
 
+## Memory on the X4
+
+The page list takes one entry (a name and a size, about 32 bytes plus the name) per picture of the folder, grown as the listing goes (no up-front room for the most there can be, which was about 19 KB per open), at most 2 x 300 names while listing and 300 after the cut. The listing sorts in place (`sort_unstable_by`: the order is total), so there is no scratch room that a refusal would abort. The refusal sweep includes a folder of 200 names. Peak heap on the device is not measured.
+
 ## Left in place (intermediate)
 
 The interface-6 `ImagesFormat` registration and `ImagesDocument::open` stay until the host activates native
