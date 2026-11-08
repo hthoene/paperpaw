@@ -3,6 +3,7 @@
 extern crate std;
 use super::{
     HostResources,
+    shared::Shared,
     ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };

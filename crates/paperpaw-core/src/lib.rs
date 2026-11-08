@@ -424,8 +424,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
-        // Replace anything the shell showed before startup, even where
-        // the home screen only draws an overlay.
+        // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
         self.output.commands.push(events::STARTED.emit(()));
@@ -464,8 +463,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
-        // Not counted while a screen guards the device: the count would
-        // tell how long a code typed into it is.
+        // Not counted while a screen guards the device: it would tell a typed code's length.
         if self.guard().is_none() {
             self.shared.usage.inputs = self.shared.usage.inputs.saturating_add(1);
         }
@@ -699,8 +697,7 @@ impl Kernel {
     /// the focus before, if that is still spoken; not while a plugin
     /// reads aloud.
     fn speak_focus(&mut self) {
-        // Never while a PIN or a password is entered, or the device
-        // guarded: the keys pressed would be told.
+        // Never while a PIN or password is entered or the device guarded: keys would be told.
         let secret = self.is_secret();
         let listened = !secret
             && self

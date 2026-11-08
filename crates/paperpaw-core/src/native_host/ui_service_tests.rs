@@ -8,7 +8,7 @@ use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
 use crate::native_host::ui_guard::{Row, UiStackView};
 use crate::native_host::ui_store::Limits;
-use alloc::string::String;
+use alloc::{rc::Rc, string::String};
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};

@@ -8,6 +8,7 @@ use crate::native_host::{
     admitted_features::AdmittedFeatures,
     call_services::validate_reply,
     host_services::HostServices,
+    shared::Shared,
     ui_guard::{Row, Rows, UiStackView},
     ui_service::{self, UiDirectory},
     ui_store::{Limits, UiStore},

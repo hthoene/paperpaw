@@ -5,8 +5,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::{
-    shared::Shared,
     HostResources,
+    shared::Shared,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
