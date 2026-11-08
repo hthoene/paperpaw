@@ -173,9 +173,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
-            .wire_ui(UiServices {
-                store: store.clone(),
-            })
+            .wire_ui(UiServices::new(store.clone(), false))
             .unwrap();
     }
     f(&View {
@@ -198,7 +196,7 @@ fn an_unwired_family_and_the_ops_not_yet_here_are_unsupported() {
     });
     view(|v| {
         let schema = services_wire::service_schema("core.ui", 1).unwrap();
-        for op in [1, 3, 4, 5, 6, 7, 12, 13, 14, 15] {
+        for op in [1, 3, 6, 7, 12, 13] {
             let op = schema.op(op).unwrap();
             assert_eq!(
                 v.call_raw(1, op, &[0]).err(),

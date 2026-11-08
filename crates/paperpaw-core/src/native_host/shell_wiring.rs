@@ -150,9 +150,7 @@ impl HostResources {
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
-            hosts.wire_ui(UiServices {
-                store: Rc::new(UiStore::new(limits)),
-            })?;
+            hosts.wire_ui(UiServices::new(Rc::new(UiStore::new(limits)), x4))?;
         }
         Ok(wired)
     }

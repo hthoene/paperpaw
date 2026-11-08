@@ -75,6 +75,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_ops.rs"]
+pub(crate) mod ui_widget_ops;
+
 #[path = "native_host/ui_compose_host.rs"]
 #[allow(
     dead_code,
