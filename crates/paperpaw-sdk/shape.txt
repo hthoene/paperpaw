@@ -2605,6 +2605,7 @@ struct paperpaw_sdk::native::declare::FontFaceDecl<'a> { name: &'a str, path: &'
 struct paperpaw_sdk::native::declare::GroupDecl<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
 struct paperpaw_sdk::native::declare::ScreenDecl<'a> { name: &'a str, title: &'a str, token: u32, full_refresh_on_open: bool, policy_flags: u32 }
 struct paperpaw_sdk::native::declare::SpecDecl<'a> { name: &'a str, kind: paperpaw_sdk::native::declare::Kind<'a>, group: &'a str, title: &'a str, help: &'a str, scoped: bool, guarded: bool, kept_on_reset: bool, secret: bool, advanced: bool }
+struct paperpaw_sdk::native::declare::format::FormatDecl<'a> { name: &'a str, title: &'a str, extensions: &'a str, priority: i32, token: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::library::BookFieldDecl<'a>(0: paperpaw_sdk::native::declare::records_wire::BookFieldSpec<'a>)
 struct paperpaw_sdk::native::declare::lookup::LookupProviderDecl<'a> { name: &'a str, title: &'a str, languages: &'a str, network: bool, token: u32 }
 struct paperpaw_sdk::native::declare::menus::MenuEntryDecl<'a> { menu: &'a str, item: &'a str, order: i16, place: paperpaw_sdk::native::declare::menus::EntryPlacement<'a> }

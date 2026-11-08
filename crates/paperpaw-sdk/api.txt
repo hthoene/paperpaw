@@ -3317,6 +3317,8 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_entry(&mut self, pap
 pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_need(&mut self, &str, paperpaw_sdk::MenuNeed) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_section(&mut self, paperpaw_sdk::native::declare::MenuSectionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::format(&mut self, paperpaw_sdk::native::declare::FormatDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::help_hint(&mut self, paperpaw_sdk::native::declare::HelpHintDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::input(&mut self, paperpaw_sdk::native::declare::InputDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::status_item(&mut self, paperpaw_sdk::native::declare::StatusItemDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -3374,6 +3376,20 @@ pub paperpaw_sdk::native::declare::FontFaceDecl::style: u32
 pub paperpaw_sdk::native::declare::FontFaceDecl::weight: u32
 impl<'a> paperpaw_sdk::native::declare::FontFaceDecl<'a>
 pub fn paperpaw_sdk::native::declare::FontFaceDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::FormatDecl<'a>
+pub paperpaw_sdk::native::declare::FormatDecl::extensions: &'a str
+pub paperpaw_sdk::native::declare::FormatDecl::name: &'a str
+pub paperpaw_sdk::native::declare::FormatDecl::priority: i32
+pub paperpaw_sdk::native::declare::FormatDecl::title: &'a str
+pub paperpaw_sdk::native::declare::FormatDecl::token: u32
+impl<'a> paperpaw_sdk::native::declare::FormatDecl<'a>
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::folder(self) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::new(&'a str, &'a str, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::prepared(self) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::priority(self, i32) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::siblings(self) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::sniffs(self) -> Self
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::whole_pages(self) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::GroupDecl<'a>
 pub paperpaw_sdk::native::declare::GroupDecl::name: &'a str
 pub paperpaw_sdk::native::declare::GroupDecl::order: i32
