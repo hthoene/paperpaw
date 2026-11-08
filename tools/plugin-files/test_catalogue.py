@@ -258,6 +258,19 @@ class Format5(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 catalogue.ppn(path)
 
+    def test_a_file_cut_short_is_refused_cleanly_not_with_a_struct_error(self):
+        # 12 to 15 bytes of a format-4 file have the format but not the
+        # fingerprint (bytes 8..16); every length below a header is refused.
+        with tempfile.NamedTemporaryFile() as f:
+            path = pathlib.Path(f.name)
+            for full in (signed(0x85073A61323717FF), signed5()):
+                for length in range(0, 96):
+                    path.write_bytes(full[:length])
+                    err = io.StringIO()
+                    with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                        catalogue.ppn(path)
+                    self.assertIn("catalogue.py:", err.getvalue(), length)
+
     def test_the_entry_of_a_format_5_build_says_its_abi_and_where_it_is_built(self):
         with tempfile.TemporaryDirectory() as dist:
             dist = pathlib.Path(dist)

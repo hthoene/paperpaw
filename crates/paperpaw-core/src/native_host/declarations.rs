@@ -185,7 +185,9 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventWorkAllowed(_)
         | Record::EventSocket(_)
         | Record::EventBroadcast(_)
-        | Record::EventDocumentClosed(_) => Err(ERR_INVALID),
+        | Record::EventDocumentClosed(_)
+        | Record::EventTextTyped(_)
+        | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
