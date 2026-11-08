@@ -591,6 +591,16 @@ impl Staging {
         push_native(&mut self.native_screens, screen)
     }
 
+    /// How many actions, settings and setting groups are staged: what a
+    /// native publication must make room for before it merges.
+    pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
+        (
+            self.actions.len(),
+            self.settings.len(),
+            self.setting_groups.len(),
+        )
+    }
+
     /// Stage already decoded native contributions without infallible growth.
     /// The caller publishes only after every record has mapped successfully.
     #[allow(
