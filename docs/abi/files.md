@@ -279,11 +279,11 @@ above. A refused call changes nothing.
 | Re-entry into `core.files` from its own call | `ERR_BUSY` |
 
 - [D] **Paths in use.** The host keeps a small table of paths it holds open or writes (the reader's
-  book, DEV's staged copies, NET's save files and `.part` files, NET's request bodies while they
-  arrive). A change to such a path, to a folder holding one, or a move onto one answers `ERR_BUSY`
-  and changes nothing; the plugin tries again later. This holds for the `core.files` ops and for
-  the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a path
-  in use are `ERR_BUSY`, so no plugin frees clusters the host still reads or writes. Reading
+  book, DEV's staged copies, NET's save files and `.pp-staged` files, NET's request bodies while
+  they arrive). A change to such a path, to a folder holding one, or a move onto one answers
+  `ERR_BUSY` and changes nothing; the plugin tries again later. This holds for the `core.files` ops
+  and for the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a
+  path in use are `ERR_BUSY`, so no plugin frees clusters the host still reads or writes. Reading
   (`size`, `read_at`, `list`, `stat`) is never busy.
 
 - [D] **No card.** Every root-0, root-1 and root-2 call answers `ERR_IO` while the card is away
