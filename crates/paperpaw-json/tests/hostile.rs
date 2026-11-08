@@ -672,3 +672,36 @@ proptest! {
         prop_assert_eq!(events_of(&data, chunk), whole);
     }
 }
+
+/// Keys after a long value: every path segment is as long as its key, so
+/// nested keys never keep the (up to `MAX_STRING`) text buffer.
+#[test]
+fn path_keys_keep_only_their_own_length() {
+    let long = "x".repeat(MAX_STRING - 8);
+    let mut json = String::new();
+    for depth in 0..MAX_DEPTH / 2 {
+        json.push_str(&format!("{{\"v\":\"{long}\",\"k{depth}\":"));
+    }
+    json.push('1');
+    for _ in 0..MAX_DEPTH / 2 {
+        json.push('}');
+    }
+    let mut parser = Parser::default();
+    let mut deepest = 0;
+    let mut check = |event: Event<'_>| {
+        let path = match event {
+            Event::Open(path) | Event::Close(path) | Event::Value(path, _) => path,
+        };
+        deepest = deepest.max(path.len());
+        for segment in path {
+            assert!(
+                segment.capacity() <= 8,
+                "segment {segment:?} keeps {} bytes",
+                segment.capacity()
+            );
+        }
+    };
+    parser.try_feed(json.as_bytes(), &mut check).unwrap();
+    parser.try_finish(&mut check).unwrap();
+    assert_eq!(deepest, MAX_DEPTH / 2);
+}

@@ -77,10 +77,18 @@ fn owned(text: &str) -> Result<String, OutOfMemory> {
 /// reusing their buffer where they are valid and allocating fallibly where
 /// not.
 fn lossy(bytes: Vec<u8>) -> Result<String, OutOfMemory> {
-    let bytes = match String::from_utf8(bytes) {
-        Ok(text) => return Ok(text),
-        Err(e) => e.into_bytes(),
-    };
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(text),
+        Err(e) => lossy_copy(e.as_bytes()),
+    }
+}
+
+/// `bytes` as text in a new string of exactly their length, invalid UTF-8
+/// replaced (as `String::from_utf8_lossy`), allocated fallibly.
+fn lossy_copy(bytes: &[u8]) -> Result<String, OutOfMemory> {
+    if let Ok(text) = core::str::from_utf8(bytes) {
+        return owned(text);
+    }
     let replacement = char::REPLACEMENT_CHARACTER.len_utf8();
     let len = bytes
         .utf8_chunks()
@@ -321,8 +329,10 @@ impl Parser {
         if self.skipped == 0 {
             if key {
                 self.bytes.truncate(MAX_KEY);
-                // The key keeps the buffer; the next text gets another.
-                self.key = Some(lossy(core::mem::take(&mut self.bytes))?);
+                // An exact copy: the path keeps every key, so a key must
+                // not keep the (up to `MAX_STRING`) text buffer.
+                self.key = Some(lossy_copy(&self.bytes)?);
+                self.bytes.clear();
                 return Ok(());
             }
             self.emit_text(emit)?;
