@@ -15,6 +15,11 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Extension,
     Kind::Screen,
     Kind::Action,
+    Kind::Widget,
+    Kind::WidgetPlace,
+    Kind::StatusItem,
+    Kind::StatusLine,
+    Kind::StatusPlace,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -25,6 +30,9 @@ struct Image {
     denied: Cell<usize>,
 }
 impl ImageOwner for Image {
+    fn plugin_id(&self) -> &str {
+        "fixture"
+    }
     fn generation(&self) -> u32 {
         self.generation.get()
     }
@@ -1010,3 +1018,122 @@ fn check_busy_cleanup(fallback: bool) {
 
 #[path = "declaration_screen_action_tests.rs"]
 mod screen_action;
+
+// A mixed batch retains this unnamed record without giving it a Kind index.
+// REG admission remains separately gated until the catalog producer is wired.
+fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
+    let source = image();
+    let records = [
+        Record::SettingGroup(SettingGroup {
+            name: "group",
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        }),
+        Record::Registration(Registration::Draw { token: 17 }),
+    ];
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    let offset = super::super::raw_declarations::offsets(&bytes, records.len()).unwrap()[1];
+    *source.bytes.borrow_mut() = bytes;
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    store
+        .prepare(
+            pending(&source, owned, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let key = DeclKey {
+        record: offset,
+        ..keys(&store)[0]
+    };
+    (source, store, key)
+}
+
+#[test]
+fn unnamed_record_visit_uses_both_backings_and_holds_the_owner_guard() {
+    for owned in [false, true] {
+        let (source, store, key) = unnamed_fixture(owned);
+        assert!(!store.with_record(key, &mut |_| panic!("unnamed indexed record")));
+        assert!(store.visit_record(key, &mut |record| {
+            assert!(matches!(
+                record,
+                Record::Registration(Registration::Draw { token: 17 })
+            ));
+            assert!(source.active.get());
+            assert!(source.bytes.try_borrow_mut().is_err());
+        }));
+    }
+}
+
+#[test]
+fn unnamed_visit_rejects_stale_missing_and_reused_owner_keys() {
+    for owned in [false, true] {
+        let (source, mut store, key) = unnamed_fixture(owned);
+        let refused: &mut dyn for<'a> FnMut(Record<'a>) =
+            &mut |_| panic!("invalid record reached reader");
+        source.generation.set(2);
+        assert!(!store.visit_record(key, refused));
+        source.generation.set(1);
+        source.live.set(false);
+        assert!(!store.visit_record(key, refused));
+        source.live.set(true);
+        assert!(!store.visit_record(
+            DeclKey {
+                owner: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                generation: 2,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                batch: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                record: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        assert!(!store.visit_record(key, refused));
+        let replacement = image();
+        let mut allocations = Allocations::default();
+        store
+            .prepare(
+                pending(&replacement, owned, &mut allocations).unwrap(),
+                &mut allocations,
+            )
+            .unwrap()
+            .commit();
+        assert!(!store.visit_record(key, refused));
+    }
+}
+
+#[test]
+fn unnamed_visit_revalidates_image_bytes_instead_of_caching_the_record() {
+    let (source, store, key) = unnamed_fixture(false);
+    let offset = usize::from(key.record);
+    let byte = source.bytes.borrow()[offset];
+    source.bytes.borrow_mut()[offset] = 0xff;
+    assert!(!store.visit_record(key, &mut |_| panic!("corrupt record")));
+    source.bytes.borrow_mut().truncate(offset);
+    assert!(!store.visit_record(key, &mut |_| panic!("truncated record")));
+    source.bytes.borrow_mut().resize(offset + 1, byte);
+    assert!(!store.visit_record(key, &mut |_| panic!("short record")));
+}
