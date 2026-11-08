@@ -16,6 +16,7 @@ use super::{
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::{rc::Rc, vec::Vec};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
@@ -97,9 +98,7 @@ fn stamp(ui: &UiServices, who: &Caller<'_>) -> Result<Stamp, i32> {
 /// Op 8: records a question for the caller and returns its request id; the
 /// dialog opens after the caller's callback returns.
 fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
     let stamp = stamp(ui, who)?;
     let remote = match ask.slot {
         "" => false,
@@ -154,7 +153,7 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
     if let Some(dialog) = cancelled.and_then(|c| c.dialog) {
         ui.host.close_dialog(dialog);
     }
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiRequest(wire::ServiceUiRequest { request: id }),
         out,
     )
@@ -162,9 +161,7 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
 
 /// Op 2: the question, for the request's dialog instance only.
 fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiRequest(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiRequest = codec::single(input)?;
     let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     ui.store.question(dialog, ask.request, |shown| {
         let record = Record::ServiceUiQuestion(wire::ServiceUiQuestion {
@@ -175,15 +172,13 @@ fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
             text: shown.text,
             choices: shown.choices,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     })?
 }
 
 /// Op 11: the dialog's answer.
 fn answer(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiAnswer(answer) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let answer: wire::ServiceUiAnswer = codec::single(input)?;
     let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     ui.store
         .answer(dialog, answer.request, answer.outcome, answer.choice)
@@ -209,7 +204,7 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
         Ok(())
     })?;
     let id = ui.store.handover_make(stamp, &staged)?;
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiHandle(wire::ServiceUiHandle { handle: id }),
         out,
     )
@@ -217,9 +212,7 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
 
 /// Op 17: the params of the calling instance's hand-over, then `end`.
 fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiHandle(handle) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let handle: wire::ServiceUiHandle = codec::single(input)?;
     let instance = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
     let info = ui.store.info(instance).ok_or(ERR_STATE)?;
     if info.handover != handle.handle {
@@ -232,18 +225,16 @@ fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Re
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let room = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let used = ui.store.params(instance, handle.handle, &mut out[..room])?;
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 
 /// Op 9: a part of a hand-over's text, by its maker in the callback that made it.
 fn text_write(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiText(part) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let part: wire::ServiceUiText<'_> = codec::single(input)?;
     if part.flags & !LAST != 0 || part.data.len() > PART_MAX {
         return Err(ERR_INVALID);
     }
@@ -271,9 +262,7 @@ fn text_read(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiTextAt(at) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let at: wire::ServiceUiTextAt = codec::single(input)?;
     let instance = ui.host.calling_instance(who.owner);
     let offset = usize::try_from(at.offset).map_err(|_| ERR_INVALID)?;
     let mut part = Vec::new();
@@ -298,7 +287,7 @@ fn text_read(
             flags: u32::from(last),
             data,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     });
     part.fill(0);
     core::hint::black_box(&mut part);
