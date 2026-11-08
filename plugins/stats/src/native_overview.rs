@@ -70,7 +70,7 @@ impl OverviewView {
         current: Option<u16>,
     ) -> Result<Self, Error> {
         let days = store::days(data, utc_day).map_err(failed)?;
-        let books = store::load_books(data).map_err(failed)?.len();
+        let books = store::count_books(data).map_err(failed)?;
         let today_pages = match today {
             Some(day) => overview_rows::distinct_pages(data, day, utc_day)?,
             None => 0,

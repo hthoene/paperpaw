@@ -34,6 +34,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
@@ -132,7 +133,7 @@ impl Day {
 // storage (root 0) is that folder, so its adapter takes the folder off again.
 const PAGES: &str = ".paperpaw/plugins/stats/pages.bin";
 const PAGES_NEW: &str = ".paperpaw/plugins/stats/pages.new";
-const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
+pub(crate) const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
 const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
 /// Present from the moment the new log and the new `books.ini` are both whole
 /// beside the old ones until both are in place: a cut between the two renames
@@ -160,19 +161,20 @@ const LINE: usize = 16 * 1024;
 /// Calls `visit` with each line of the file at `path` (without its line
 /// break) as it streams from the storage; a missing file has none. Invalid
 /// UTF-8 and overlong lines are errors ([`StorageError::InvalidData`]),
-/// not left out, so that nothing unread is written back.
+/// not left out, so that nothing unread is written back. `visit` may stop the
+/// reading (`Break`): what follows is then not read, and not checked.
 fn each_line(
     storage: &dyn Storage,
     path: &str,
-    mut visit: impl FnMut(&str) -> Result<(), StorageError>,
+    mut visit: impl FnMut(&str) -> Result<ControlFlow<()>, StorageError>,
 ) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
-    let mut emit = |line: &mut Vec<u8>| -> Result<(), StorageError> {
+    let mut emit = |line: &mut Vec<u8>| -> Result<ControlFlow<()>, StorageError> {
         let text = core::str::from_utf8(line).map_err(|_| StorageError::InvalidData)?;
-        visit(text.strip_suffix('\r').unwrap_or(text))?;
+        let flow = visit(text.strip_suffix('\r').unwrap_or(text))?;
         line.clear();
-        Ok(())
+        Ok(flow)
     };
     let mut at = 0u64;
     loop {
@@ -196,30 +198,75 @@ fn each_line(
             line.try_reserve(text.len())
                 .map_err(|_| StorageError::TooLarge)?;
             line.extend_from_slice(text);
-            if ends {
-                emit(&mut line)?;
+            if ends && emit(&mut line)?.is_break() {
+                return Ok(());
             }
         }
     }
-    if !line.is_empty() {
-        emit(&mut line)?;
+    // The last line has nothing after it to stop.
+    if !line.is_empty() && emit(&mut line)?.is_break() {
+        return Ok(());
     }
     Ok(())
 }
 
-/// The books, by id; none while there is no `books.ini`. An error where
-/// it cannot be read whole (a read error, invalid UTF-8, a line that is
-/// no entry): then it must not be saved over.
-pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
-    // Sorted by id as they are read; the first section of an id wins.
-    let mut books: Vec<Book> = Vec::new();
+/// A set of book ids: 65,536 bits (8 KiB), whatever the number of books.
+pub(crate) struct IdSet(Vec<u64>);
+
+impl IdSet {
+    /// An empty set.
+    pub(crate) fn new() -> Result<Self, StorageError> {
+        let mut words = Vec::new();
+        words
+            .try_reserve_exact(1024)
+            .map_err(|_| StorageError::TooLarge)?;
+        words.resize(1024, 0);
+        Ok(Self(words))
+    }
+
+    pub(crate) fn has(&self, id: u16) -> bool {
+        self.0
+            .get(usize::from(id / 64))
+            .is_some_and(|w| w & (1 << (id % 64)) != 0)
+    }
+
+    pub(crate) fn insert(&mut self, id: u16) {
+        if let Some(w) = self.0.get_mut(usize::from(id / 64)) {
+            *w |= 1 << (id % 64);
+        }
+    }
+}
+
+/// Calls `visit` with each book of `books.ini` in file order, one at a time:
+/// only the book being read is held (and the [`IdSet`] of those already made),
+/// however many there are. What [`load_books`] reads, by the same rules: a
+/// section of an id read before (and not the book just made) is ignored, so the
+/// first book of an id is the book; sections of one book in a row merge. An
+/// error where the file cannot be read whole, as there; books `visit` was
+/// given before it are of a file that is then not to be trusted.
+pub(crate) fn each_book(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<(), StorageError>,
+) -> Result<(), StorageError> {
+    each_book_until(storage, |book| visit(book).map(ControlFlow::Continue))
+}
+
+/// As [`each_book`], and `visit` may stop with `Break`: the rest of the file
+/// is then not read, so a damaged line after the last book wanted is not
+/// noticed (a reader that only shows books does not need it to be).
+pub(crate) fn each_book_until(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<ControlFlow<()>, StorageError>,
+) -> Result<(), StorageError> {
+    let mut stopped = false;
+    let mut seen = IdSet::new()?;
     // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
-    // The id of the book made last: a section of it goes on filling that book
-    // (sections in a row, empty ones between, merge); one of an id read before
-    // that is ignored, so the first book of an id is the book.
-    let mut last: Option<u16> = None;
+    // The book being made, and its id: a section of it goes on filling it
+    // (sections in a row, empty ones between, merge).
+    let mut current: Option<Book> = None;
     let mut skip = false;
+    let go = ControlFlow::Continue(());
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
             let name = header.strip_suffix(']').ok_or(StorageError::InvalidData)?;
@@ -228,41 +275,39 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
                 .strip_prefix("book.")
                 .and_then(|id| id.parse::<u16>().ok());
             skip = false;
-            return Ok(());
+            return Ok(go);
         }
         // Nothing for an empty line or a comment.
         let Some(entry) = paperpaw_sdk::config::parse(line).next() else {
-            return Ok(());
+            return Ok(go);
         };
         let entry = entry.map_err(|_| StorageError::InvalidData)?;
         let Some(id) = section else {
-            return Ok(());
+            return Ok(go);
         };
         if skip {
-            return Ok(());
+            return Ok(go);
         }
-        let at = match books.binary_search_by_key(&id, |b| b.id) {
-            Ok(at) if last == Some(id) => at,
+        if current.as_ref().is_none_or(|book| book.id != id) {
             // Another section of this id came before: the first one is the book.
-            Ok(_) => {
+            if seen.has(id) {
                 skip = true;
-                return Ok(());
+                return Ok(go);
             }
-            Err(at) => {
-                books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
-                books.insert(
-                    at,
-                    Book {
-                        id,
-                        ..Book::default()
-                    },
-                );
-                last = Some(id);
-                at
+            seen.insert(id);
+            if let Some(done) = current.take()
+                && visit(done)?.is_break()
+            {
+                stopped = true;
+                return Ok(ControlFlow::Break(()));
             }
-        };
-        let Some(book) = books.get_mut(at) else {
-            return Ok(());
+            current = Some(Book {
+                id,
+                ..Book::default()
+            });
+        }
+        let Some(book) = current.as_mut() else {
+            return Ok(go);
         };
         let value = entry
             .value
@@ -280,9 +325,139 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
             "finished" => book.finished = value.parse().unwrap_or(0),
             _ => {}
         }
+        Ok(go)
+    })?;
+    match current {
+        Some(done) if !stopped => visit(done).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
+/// The books, by id; none while there is no `books.ini`. An error where
+/// it cannot be read whole (a read error, invalid UTF-8, a line that is
+/// no entry): then it must not be saved over.
+pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
+    let mut books: Vec<Book> = Vec::new();
+    each_book(storage, |book| {
+        books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+        books.push(book);
         Ok(())
     })?;
+    // Ids are unique: the order is the same whatever the sort.
+    paperpaw_sdk::sort::sort_by_key(&mut books, |b| b.id);
     Ok(books)
+}
+
+/// How many books there are, none held.
+pub(crate) fn count_books(storage: &dyn Storage) -> Result<usize, StorageError> {
+    let mut count = 0usize;
+    each_book(storage, |_| {
+        count += 1;
+        Ok(())
+    })?;
+    Ok(count)
+}
+
+/// Book `id`, if there is one: the only one held.
+pub(crate) fn find_book(storage: &dyn Storage, id: u16) -> Result<Option<Book>, StorageError> {
+    let mut found = None;
+    each_book(storage, |book| {
+        if book.id == id {
+            found = Some(book);
+        }
+        Ok(())
+    })?;
+    Ok(found)
+}
+
+/// The ids of the books with reading time in the log (as much of it as can
+/// be read, as the totals count).
+pub(crate) fn ids_read(storage: &dyn Storage) -> Result<IdSet, StorageError> {
+    let mut ids = IdSet::new()?;
+    scan(storage, |stat| {
+        if stat.duration > 0 {
+            ids.insert(stat.book);
+        }
+    })
+    .ok();
+    Ok(ids)
+}
+
+/// The books to list: of those with reading time, the `most` opened last (ties
+/// by id, the smaller first), by id, each as `keep` makes it from the book read.
+/// The file is read one book at a time and at most `most` are held, so the
+/// memory is the same for a library of ten books and of ten thousand.
+pub(crate) fn most_recent<T>(
+    storage: &dyn Storage,
+    most: usize,
+    mut keep: impl FnMut(Book) -> Result<T, StorageError>,
+    // The id and the last open of what was kept.
+    of: impl Fn(&T) -> (u16, i64),
+) -> Result<Vec<T>, StorageError> {
+    let read = ids_read(storage)?;
+    // Newer is smaller: the worst of those held is the largest.
+    let key = |b: &T| {
+        let (id, last_open) = of(b);
+        (core::cmp::Reverse(last_open), id)
+    };
+    let mut held: Vec<T> = Vec::new();
+    each_book(storage, |book| {
+        if !read.has(book.id) || most == 0 {
+            return Ok(());
+        }
+        if held.len() < most {
+            held.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+            held.push(keep(book)?);
+            return Ok(());
+        }
+        let worst = (0..held.len()).max_by_key(|&at| held.get(at).map(key));
+        if let Some(at) = worst
+            && held
+                .get(at)
+                .is_some_and(|w| (core::cmp::Reverse(book.last_open), book.id) < key(w))
+        {
+            let kept = keep(book)?;
+            if let Some(slot) = held.get_mut(at) {
+                *slot = kept;
+            }
+        }
+        Ok(())
+    })?;
+    paperpaw_sdk::sort::sort_by_key(&mut held, |b| of(b).0);
+    Ok(held)
+}
+
+/// The titles of the books `ids` name, each as `keep` makes it (`None` for an
+/// id with no book): only those titles are held, and the file is read no
+/// further than the last of them.
+pub(crate) fn titles(
+    storage: &dyn Storage,
+    ids: &[u16],
+    mut keep: impl FnMut(&str) -> Result<String, StorageError>,
+) -> Result<Vec<Option<String>>, StorageError> {
+    let mut out: Vec<Option<String>> = Vec::new();
+    out.try_reserve_exact(ids.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    out.resize(ids.len(), None);
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    each_book_until(storage, |book| {
+        for (at, id) in ids.iter().enumerate() {
+            if *id == book.id
+                && let Some(slot) = out.get_mut(at)
+            {
+                *slot = Some(keep(&book.title)?);
+            }
+        }
+        // Every one found: the books after are not needed.
+        Ok(if out.iter().all(Option::is_some) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        })
+    })?;
+    Ok(out)
 }
 
 /// An owned copy of `text`, made with fallible allocation.

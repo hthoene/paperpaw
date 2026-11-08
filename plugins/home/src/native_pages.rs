@@ -355,7 +355,7 @@ pub fn store(
 /// [`Error::NoMemory`] and the host's refusals.
 pub fn store_all(src: &impl Source, pages: &[Page], wide: bool) -> Result<Vec<Write>, Error> {
     if !wide {
-        return write_all(pages, false);
+        return write_all(src, pages, false);
     }
     if pages.len() > MAX_PAGES {
         let mut one = Vec::new();
@@ -394,11 +394,12 @@ pub fn store_all(src: &impl Source, pages: &[Page], wide: bool) -> Result<Vec<Wr
         last.items
             .extend(hidden_upright.into_iter().map(|item| Item::new(item.what)));
     }
-    write_all(&with, true)
+    write_all(src, &with, true)
 }
 
-/// [`store_all`] for the pages as they are.
-fn write_all(pages: &[Page], wide: bool) -> Result<Vec<Write>, Error> {
+/// [`store_all`] for the pages as they are: only the settings whose text
+/// changes are written (the budget of a callback's commands is small).
+fn write_all(src: &impl Source, pages: &[Page], wide: bool) -> Result<Vec<Write>, Error> {
     let mut writes = Vec::new();
     writes
         .try_reserve_exact(MAX_PAGES)
@@ -408,7 +409,9 @@ fn write_all(pages: &[Page], wide: bool) -> Result<Vec<Write>, Error> {
             Some(page) => page_text(slot, &page.items)?,
             None => String::new(),
         };
-        writes.push(set(slot, wide, text)?);
+        if src.text(&setting(slot, wide)?)? != text {
+            writes.push(set(slot, wide, text)?);
+        }
     }
     Ok(writes)
 }
@@ -476,18 +479,20 @@ pub fn add_to_other(
     }
 }
 
-/// What empties the layout for a screen on its side: the derived one shows
-/// again.
+/// What empties the layout for a screen on its side (the settings that hold
+/// something): the derived one shows again.
 ///
 /// # Errors
-/// [`Error::NoMemory`].
-pub fn reset_wide() -> Result<Vec<Write>, Error> {
+/// [`Error::NoMemory`] and the host's refusals.
+pub fn reset_wide(src: &impl Source) -> Result<Vec<Write>, Error> {
     let mut writes = Vec::new();
     writes
         .try_reserve_exact(MAX_PAGES)
         .map_err(|_| Error::NoMemory)?;
     for slot in 0..MAX_PAGES {
-        writes.push(set(slot, true, String::new())?);
+        if !src.text(&setting(slot, true)?)?.is_empty() {
+            writes.push(set(slot, true, String::new())?);
+        }
     }
     Ok(writes)
 }

@@ -96,3 +96,76 @@ fn reading_a_plugin_survives_refused_allocations() {
         Ok(())
     });
 }
+
+#[test]
+fn a_list_and_a_page_survive_refused_allocations() {
+    use paperpaw_plugin_store::native_item::Device;
+    use paperpaw_plugin_store::native_list::{Hooks, ListReader, PageReader};
+    use paperpaw_sdk::native::{Fingerprint, INTERFACE};
+    let fingerprint = Fingerprint::of(INTERFACE, 0x4567_89ab_cdef);
+    let abi = format!("{:016x}", fingerprint.0);
+    let sha = "0123456789abcdef".repeat(4);
+    let plugin = format!(
+        r#"{{"id": "airy", "name": "{}", "summary": "s", "group": "look", "kind": "code",
+ "author": "A", "licence": "MIT", "author_key": "{}", "official": true,
+ "rotations": [{{"to": "{}", "signature": "{}"}}],
+ "screenshots": [{{"url": "s/1.png", "width": 9, "height": 9, "size": 5}}],
+ "latest": {{"version": "1.0.0", "sdk": "0.4", "formats": 1, "size": 9,
+  "files": [{{"path": "plugin.ini", "url": "f/p", "size": 9, "sha256": "{sha}"}}],
+  "builds": [{{"device": "x4", "abi": "{abi}", "url": "/b", "size": 5, "sha256": "{sha}",
+   "families": [1,1,1,1,1,1,1,1]}}]}}}}"#,
+        "é".repeat(100),
+        "ab".repeat(32),
+        "cd".repeat(32),
+        "ef".repeat(64),
+    );
+    let list = format!(
+        r#"{{"format": 2, "sections": {{"new": ["airy"]}}, "plugins": [{plugin}],
+ "revoked_keys": [{{"plugin": "airy", "key": "{}", "signature": "{}"}}]}}"#,
+        "01".repeat(32),
+        "02".repeat(64),
+    );
+    let page = format!(r#"{{"format": 2, "plugin": {plugin}}}"#);
+    let device = || Device {
+        name: "x4",
+        fingerprint: Some(fingerprint),
+        code_file: "code.ppn",
+        have: None,
+        sdk: paperpaw_sdk::SDK_VERSION,
+        official: true,
+        provides: None,
+    };
+    fn author(_: &str) -> Option<[u8; 32]> {
+        Some([1; 32])
+    }
+    fn none() -> Vec<String> {
+        Vec::new()
+    }
+    fail_alloc::sweep(|| {
+        let hooks = Hooks {
+            author_of: &author,
+            stopped: &none,
+        };
+        let mut reader = ListReader::new(device(), hooks);
+        let mut found = 0;
+        for piece in list.as_bytes().chunks(97) {
+            reader.feed(piece, &mut |_| {
+                found += 1;
+                Ok(())
+            })?;
+        }
+        let read = reader.finish(&mut |_| {
+            found += 1;
+            Ok(())
+        })?;
+        // The revocation is handed over in a copy that is made fallibly too.
+        assert_eq!(read.as_ref().map(|l| l.revoked.len()), Some(1));
+        assert_eq!(found, 1);
+        let mut reader = PageReader::new(device());
+        for piece in page.as_bytes().chunks(97) {
+            reader.feed(piece)?;
+        }
+        assert!(reader.finish()?.is_some());
+        Ok(())
+    });
+}

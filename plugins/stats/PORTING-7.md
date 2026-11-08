@@ -170,11 +170,24 @@ events) is still in place. It is removed in the PR that finishes the port.
   calls behind it (`services.query`, `blob.read`, `blob.release`). The books screen keeps at most
   the 200 books read last (`book_list::MAX_ROWS`, most recent first; interface 6 listed every
   book), each title and author line cut to 80 bytes with `…` (`book_list::cut`, at a character).
-  The calendar keeps only each book's id and cut title (`calendar_model::Named`), not authors, paths
-  or hashes; `detail` takes any `Titled` list so the interface-6 calendar still passes its own.
+  The calendar holds no list of books at all.
   A book older than the 200th is not listed (a difference from interface 6, on purpose: the list
   lives as long as the screen is open on a 256 KiB heap). `book_list.rs` tests the cut, the cap and
   the order.
+- **`books.ini` is streamed (follow-up of #470).** `store::each_book` makes one `Book` at a time
+  (with an 8 KiB `IdSet` of the ids made, for the "first section of an id wins" rule), by the rules
+  `load_books` has, which now collects from it. The books screen reads the log once for the ids with
+  reading time, then the file once, holding only the 200 most recently opened of them cut to a row's
+  texts (`store::most_recent`, `book_list::recent`); a book's screen keeps the one book
+  (`find_book`), the overview only counts (`count_books`), and the calendar looks up the titles of the
+  at most 3 books of the chosen day as the file streams (`store::titles`). The peak no longer grows
+  with the library: `book_list.rs` measures it for 300 and 3,000 books (`testing::heap::peak`).
+  The merge and the recorder still load the whole list (they change it and write it back).
+  Follow-up: the books screen keeps a slim `book_list::Row` (id, last open, the cut title and authors)
+  instead of a `Book` (peak of reading the list 80 KB → 58 KB; `BooksView::build` 91 KB, the same for
+  300 and 3,000 books, tested). The calendar's `titles` stops reading `books.ini` once the books of
+  the day are found, so **a damaged line after them is not noticed there** (the books and book
+  screens read it all and show the same error as before); a title not in the file is read to the end.
 
 ## Ported: the overview and the action that opens it (slice 3)
 

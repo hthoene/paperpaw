@@ -62,8 +62,9 @@ impl BooksView {
 
     /// As [`Self::new`], with the texts given.
     pub(crate) fn build(words: &mut impl Words, data: &dyn Storage) -> Result<Self, Error> {
-        let books = store::load_books(data).map_err(failed)?;
-        let seconds = totals::seconds_per_book(data, &books).map_err(failed)?;
+        let books = crate::book_list::recent(data).map_err(failed)?;
+        let seconds = totals::seconds_by_id(data, books.len(), |at| books.get(at).map(|r| r.id))
+            .map_err(failed)?;
         let places = crate::book_list::order(&books, &seconds)?;
         let items = crate::book_list::items(words, &books, &seconds, &places, utc_day)?;
         let mut ids = Vec::new();
@@ -174,8 +175,11 @@ impl BookView {
         id: Option<u16>,
     ) -> Result<Self, Error> {
         let none = words.copy("stats.no-books")?;
-        let books = store::load_books(data).map_err(failed)?;
-        let Some(book) = id.and_then(|id| books.iter().find(|b| b.id == id)) else {
+        let book = match id {
+            Some(id) => store::find_book(data, id).map_err(failed)?,
+            None => None,
+        };
+        let Some(book) = book.as_ref() else {
             return Ok(Self {
                 title: String::new(),
                 rows: None,
