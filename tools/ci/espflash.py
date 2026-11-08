@@ -188,15 +188,17 @@ def install(version, destination):
     archives = os.environ.get("ESPFLASH_ARCHIVE_DIR")
     data = cached_archive(archives, name, checksum)
     if data is None:
-        built = cached_build(archives, version, destination)
-        if built:
-            return built
         try:
             data = download(f"https://github.com/esp-rs/espflash/releases/download/v{version}/{name}", checksum)
         except Unavailable as unavailable:
             print(f"{unavailable}; building espflash {version} from crates.io instead", file=sys.stderr)
             if os.environ.get("ESPFLASH_NO_BUILD_FALLBACK"):
                 raise ValueError(str(unavailable)) from unavailable
+            # Only now, the pinned release being out of reach, the build an
+            # earlier run made from crates.io.
+            built = cached_build(archives, version, destination)
+            if built:
+                return built
             try:
                 return build_from_crates(version, destination, archives)
             except ValueError as failed:
