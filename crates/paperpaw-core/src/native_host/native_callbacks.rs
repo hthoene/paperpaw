@@ -77,7 +77,11 @@ impl CallbackRuntime {
     pub(crate) fn enter(&self) -> Result<NativeCallbackEpoch, i32> {
         let state = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         let epoch = state.enter(true)?;
-        Ok(NativeCallbackEpoch { state, epoch })
+        Ok(NativeCallbackEpoch {
+            state,
+            epoch,
+            ending: None,
+        })
     }
 }
 
@@ -85,15 +89,36 @@ impl CallbackRuntime {
 pub(crate) struct NativeCallbackEpoch {
     state: Shared<State>,
     epoch: u64,
+    /// The pool and plugin whose status handles end with this callback.
+    ending: Option<(super::resources::OwnerResourceView, u64)>,
 }
 impl NativeCallbackEpoch {
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
+
+    /// When this callback returns, `plugin`'s status handles of it end
+    /// (`core.ui` ops 14 and 15, valid inside the callback only).
+    pub(crate) fn ending_status_handles(
+        mut self,
+        pool: super::resources::OwnerResourceView,
+        plugin: u64,
+    ) -> Self {
+        self.ending = Some((pool, plugin));
+        self
+    }
 }
 impl Drop for NativeCallbackEpoch {
     fn drop(&mut self) {
         self.state.leave();
+        if let Some((pool, plugin)) = self.ending.take()
+            && let Some(ui) = pool.ui()
+        {
+            // A refusal (the table busy) leaves the handles to the plugin's
+            // next grant, which drops its earlier callbacks', and to its
+            // stop; none outlives its callback in a lookup (epoch check).
+            ui.callback_ended(plugin, self.epoch).ok();
+        }
     }
 }
 

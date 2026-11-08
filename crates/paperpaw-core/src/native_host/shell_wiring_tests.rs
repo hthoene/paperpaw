@@ -96,3 +96,20 @@ fn the_plugin_with_the_greater_id_wins_a_tag_without_regard_to_case() {
         .unwrap();
     assert!(tables.card().find("de").is_some());
 }
+
+#[test]
+fn core_ui_is_wired_once_with_the_store_sized_for_the_device() {
+    let resources = HostResources::try_new().unwrap();
+    assert!(resources.hosts().ui().is_none());
+    resources.wire(HostWiring::new().ui("xteink-x4")).unwrap();
+    let ui = resources.hosts().ui().unwrap();
+    // The X4's small limits: three request rows kept (sixteen elsewhere).
+    assert_eq!(ui.store.limits.requests_kept, 3);
+    // Twice is refused and a family named beside it is not wired either.
+    let again = resources.wire(HostWiring::new().ui("desktop").device(Rc::new(Nothing)));
+    assert_eq!(again.err(), Some(ERR_STATE));
+    assert!(resources.hosts().device().is_none());
+    let other = HostResources::try_new().unwrap();
+    other.wire(HostWiring::new().ui("desktop")).unwrap();
+    assert_eq!(other.hosts().ui().unwrap().store.limits.requests_kept, 16);
+}

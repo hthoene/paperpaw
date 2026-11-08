@@ -833,6 +833,10 @@ impl Kernel {
         self.hide_hints();
         self.escape(now);
         self.count_awake();
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            // A refusal leaves the cached values to the next change or tick.
+            ui.minute_tick(now.millis()).ok();
+        }
         if self.sleep_due().is_some_and(|at| at <= now) {
             // Busy: reading aloud, downloading, serving, the library being
             // walked. Else asleep.
@@ -1283,6 +1287,7 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,

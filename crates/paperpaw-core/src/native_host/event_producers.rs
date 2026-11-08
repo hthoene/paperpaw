@@ -192,7 +192,18 @@ impl crate::Kernel {
             sink.setting(self.now.millis(), key, old.bytes());
         }
     }
+    /// Ends the cached status values of `core.ui` op 14 (event 73). A refusal
+    /// (the cache borrowed) leaves them until the next change or minute.
+    pub(crate) fn status_values_changed(&self) {
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            ui.status_changed().ok();
+        }
+    }
     pub(crate) fn native_hint(&self, tag: u32) {
+        // Event 73 also ends the cached status values of `core.ui` op 14.
+        if tag == super::registrations::EVENT_STATUS_CHANGED_TAG {
+            self.status_values_changed();
+        }
         if let Some(sink) = self.native_event_sink() {
             sink.hint(tag);
         }

@@ -1,6 +1,5 @@
 //! One native declaration entry, with owned mapping before binding and publication.
 use super::{
-    FlatHost,
     flat::FlatDepth,
     native_dispatch::NativeDispatch,
     native_instances::NativeLease,
@@ -10,7 +9,7 @@ use super::{
     retained::Retained,
     shell,
 };
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
 use paperpaw_sdk::{Id, IdError, RegisterError};
 
@@ -19,12 +18,17 @@ enum Owned {
     Screen(Callback),
 }
 
-fn map_record(owner: &str, record: Record<'_>) -> Result<Owned, i32> {
+fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
     match record {
         Record::ScreenSpec(_) => match native_values::from_record(owner, record)? {
-            Value::Screen(callback) => Ok(Owned::Screen(callback)),
+            Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
             _ => Err(ERR_INVALID),
         },
+        Record::WidgetSpec(_)
+        | Record::WidgetPlace(_)
+        | Record::StatusItem(_)
+        | Record::StatusLine(_)
+        | Record::StatusPlace(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -51,8 +55,16 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
+        if self.shared.registry.native_declarations.is_none() {
+            self.shared.registry.native_declarations = Some(
+                super::shared::Shared::try_new(
+                    super::native_declarations::NativeDeclarations::default(),
+                )
+                .map_err(|_| shell::Error::Allocation)?,
+            );
+        }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
-        let (retained, (owner, owned)) = Retained::make_native(host, map_declarations)?;
+        let (retained, (owner, owned), raw) = Retained::make_native_stored(host, map_declarations)?;
         // Callback registrations need their own mapping arm. Never accept an
         // owner while silently leaving any committed contribution unrouted.
         if !retained.batch().map_err(shell::Error::from)?.is_empty() {
@@ -73,7 +85,7 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, owned, &owner, report);
+        let result = self.bind_native(key, retained, depth, (owned, raw), &owner, report);
         if result.is_err() {
             self.shared
                 .native_instances
@@ -93,7 +105,18 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        self.native_owner_stopped(key);
+        if let Some(declarations) = &self.shared.registry.native_declarations {
+            let Ok(mut store) = declarations.store.try_borrow_mut() else {
+                return None;
+            };
+            store.remove_host_owner(key);
+            if declarations.catalog.prune(&store).is_err() {
+                return None;
+            }
+        }
+        if self.native_owner_stopped(key).is_err() {
+            return None;
+        }
         self.remove_retired_native_screens(owner);
         self.shared
             .registry
@@ -115,13 +138,44 @@ impl crate::Kernel {
         }
     }
 
-    fn native_owner_stopped(&self, _owner: u64) {
-        // TODO(#228 H2): call the one UiStore::owner_stopped before its
-        // instances close. Input owns that store; no second store lives here.
+    fn queue_native_dialog_close(&self, dialog: u32) {
+        if let Err(status) = self
+            .shared
+            .stack_rows
+            .defer_close(dialog, self.shared.stack_rows.generation())
+        {
+            self.shared.stack_rows.note_close_error(status);
+        }
     }
 
-    pub(crate) fn native_instance_closed(&self, _instance: u32) {
-        // TODO(#228 H2): call the same UiStore::instance_closed.
+    fn native_owner_stopped(&self, owner: u64) -> Result<(), i32> {
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            store.owner_dialogs(owner, &mut |dialog| self.queue_native_dialog_close(dialog))?;
+            store.owner_stopped(owner)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn native_instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut result = Ok(());
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            result = (|| {
+                store.dialog_closed(instance)?;
+                store.asker_instance_closed(instance, &mut |cancelled| {
+                    if let Some(dialog) = cancelled.dialog {
+                        self.queue_native_dialog_close(dialog);
+                    }
+                })?;
+                store.instance_closed(instance)
+            })();
+        }
+        // The widget instances the screen made go too, whatever the store
+        // steps said (a retry repeats every step; each is idempotent).
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            let widgets = ui.screen_closed(instance).map(|_| ());
+            result = result.and(widgets);
+        }
+        result
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
@@ -157,6 +211,9 @@ impl crate::Kernel {
     }
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
+        if self.shared.stack_rows.closes_pending() {
+            return Some(self.now);
+        }
         self.shared
             .native_instances
             .retirement_due(self.now.millis())
@@ -168,14 +225,19 @@ impl crate::Kernel {
         key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
-        owned: Vec<Owned>,
+        mapped: (Vec<Owned>, super::raw_declarations::RawDeclarations),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let flat_host = FlatHost {
-            meter: Rc::clone(&self.shared.meter),
-            font_removals: Rc::clone(&self.shared.font_removals),
-        };
+        let (owned, raw) = mapped;
+        let mut flat_host = self.flat_host();
+        flat_host.directory = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+            .transpose()?;
         let instance = NativeLease::try_new(NativeDispatch::new(
             retained,
             depth,
@@ -205,11 +267,30 @@ impl crate::Kernel {
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
             .map_err(shell::Error::Status)?;
-        // Only screen factories are supported here. Publish through the reserved
-        // staging transaction without the legacy merge's allocating action sweep.
+        let declarations = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(shell::Error::Allocation)?;
+        let mut allocations = super::declaration_store::Allocations::default();
+        let pending = super::native_declarations::pending(
+            owner,
+            key,
+            instance.try_clone().map_err(shell::Error::Status)?,
+            raw,
+            &mut allocations,
+        )
+        .map_err(shell::Error::Status)?;
+        let publication = declarations
+            .stage(pending, key, &mut allocations)
+            .map_err(shell::Error::Status)?;
         staging
             .merge_into(&mut self.shared.registry, &mut self.shared.actions)
-            .map_err(|error| shell::Error::Status(merge_status(&error)))
+            .map_err(|error| shell::Error::Status(merge_status(&error)))?;
+        publication.commit();
+        Ok(())
     }
 }
 
@@ -219,20 +300,23 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    let mut any = false;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
             return;
         }
         result = (|| {
-            let value = map_record(view.plugin, record)?;
-            owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-            owned.push(value);
+            if let Some(value) = map_record(view.plugin, record)? {
+                owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                owned.push(value);
+            }
+            any = true;
             Ok(())
         })();
     })?;
     result?;
-    if owned.is_empty() {
+    if !any {
         return Err(ERR_UNSUPPORTED);
     }
     Ok((owner, owned))

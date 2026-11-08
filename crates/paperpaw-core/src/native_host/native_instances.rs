@@ -14,6 +14,12 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    fn callback_depth(&self) -> u8 {
+        0
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(None);
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -142,6 +148,15 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.pool.as_ref()?.ui_store()
+    }
+
+    /// The `core.ui` service of the device pool (widget and status tables).
+    pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
+        self.pool.as_ref()?.ui()
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -276,6 +291,9 @@ impl NativeInstances {
         Ok(NativeIdentity {
             owner,
             callbacks: self.callbacks.runtime()?,
+            // No allocation: a refused share just leaves the handles to the
+            // next grant or the plugin's stop (see `NativeCallbackEpoch`).
+            pool: self.pool.as_ref().and_then(OwnerResourceView::try_clone),
         })
     }
 
@@ -444,13 +462,21 @@ impl NativeInstances {
 pub(crate) struct NativeIdentity {
     owner: u64,
     callbacks: CallbackRuntime,
+    /// The device pool, to end the callback's status handles with it.
+    pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
-        self.callbacks.enter()
+        let epoch = self.callbacks.enter()?;
+        Ok(
+            match self.pool.as_ref().and_then(OwnerResourceView::try_clone) {
+                Some(pool) => epoch.ending_status_handles(pool, self.owner),
+                None => epoch,
+            },
+        )
     }
 }
 
