@@ -1,6 +1,6 @@
 # Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
 
-Version 1.0.8. Partial: what the plugin decides and what it declares, without the host. No native
+Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
 set-up screen and no `NATIVE_ENTRY` yet; the interface-6 `Wallabag` and everything of it stays until
 the host activates native plugins (then it goes together, no shim).
 
@@ -16,7 +16,9 @@ the host activates native plugins (then it goes together, no shim).
   is a number, `None` for a list that never ends) and an article's archived flag (`Archived`). Both
   read `paperpaw_sdk::json::stream::Parser` with `try_feed`/`try_finish`, so a refused allocation
   of the parser's path or text ends in `NoMemory` and nothing is returned in part; what the plugin
-  keeps (items, ids, titles) is allocated with `try_reserve`. The caller feeds the file in pieces as
+  keeps (items, ids, titles) is allocated with `try_reserve`. A title is kept as the book's name
+  (`clean_name(title, NAME_UNITS)`, 80 UTF-16 units, the only use the plugin has for it; cleaning is
+  idempotent, so the same book comes of it): 30 titles of 4 KiB do not stay in memory. The caller feeds the file in pieces as
   it reads it (`feed`, then `finish`); a list of any length is read in the parser's bounded memory,
   and only the first 30 items with an id are kept. `src/native_fetch_tests.rs` compares each with
   the interface-6 `unread` and `is_archived` at piece sizes from one byte to 2 KiB and sweeps

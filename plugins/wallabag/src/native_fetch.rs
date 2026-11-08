@@ -10,11 +10,12 @@
 //! The caller gives the file in pieces as it reads it (`feed`), then asks
 //! for the result (`finish`); [`Unread::read`] and [`Archived::read`] do both
 //! for a text already in memory.
-use crate::native_wallabag::{MAX_ARTICLES, is_id};
+use crate::native_wallabag::{MAX_ARTICLES, NAME_UNITS, is_id};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::json::stream::{Event, Parser};
 use paperpaw_sdk::native::Error;
+use paperpaw_sdk::web;
 
 /// Pieces a text is fed in by [`Unread::read`] and [`Archived::read`] (as a
 /// file is read).
@@ -87,6 +88,16 @@ fn copy(text: &str) -> Result<String, Error> {
     Ok(out)
 }
 
+/// The title as the book's name will be made of it: the plugin only uses a
+/// title for that (`clean_name(title, NAME_UNITS)`), and cleaning is
+/// idempotent, so the same name comes of this as of the whole title, and
+/// 30 titles of 4 KiB do not stay in memory. Empty where nothing is left (the
+/// article's id is the name then, as before).
+fn name_of(title: &str) -> Result<String, Error> {
+    let name = web::try_clean_name(title, NAME_UNITS).map_err(|_| Error::NoMemory)?;
+    copy(name.as_deref().unwrap_or_default())
+}
+
 const LIST: [&str; 2] = ["_embedded", "items"];
 const ITEM: [&str; 3] = ["_embedded", "items", "[]"];
 
@@ -123,7 +134,7 @@ impl UnreadSink {
                 if let Some(last) = self.items.last_mut() {
                     match path[3].as_str() {
                         "id" => last.id = copy(value)?,
-                        "title" => last.title = copy(value)?,
+                        "title" => last.title = name_of(value)?,
                         _ => {}
                     }
                 }

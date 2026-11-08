@@ -11,6 +11,8 @@ use paperpaw_sdk::native::Error;
 
 /// Unread articles fetched at most.
 pub const MAX_ARTICLES: usize = 30;
+/// The most UTF-16 units of a book's name made of an article's title.
+pub const NAME_UNITS: usize = 80;
 /// The most `articles.txt` is read to change, as in interface 6 (64 KiB).
 pub const ARTICLES_CAP: usize = 64 * 1024;
 /// The most `finished.txt` is read to change, as in interface 6 (16 KiB).

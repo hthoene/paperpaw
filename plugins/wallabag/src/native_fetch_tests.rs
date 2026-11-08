@@ -29,7 +29,16 @@ fn entries(items: &[(&str, &str)]) -> String {
 
 fn old_unread(text: &str) -> Option<Vec<(String, String)>> {
     let storage = MemoryStorage::new().with(&data("entries.json"), text);
-    unread(&storage)
+    // The title of interface 6 is only ever used as the name of a book; the
+    // native reading keeps it as that (see the test below).
+    unread(&storage).map(|list| {
+        list.into_iter()
+            .map(|(id, title)| {
+                let name = paperpaw_sdk::web::clean_name(&title, native::NAME_UNITS);
+                (id, name.unwrap_or_default())
+            })
+            .collect()
+    })
 }
 
 fn new_unread(text: &str) -> Option<Vec<(String, String)>> {
@@ -181,4 +190,38 @@ fn refused_allocations_end_in_no_memory() {
     });
     let entry = r#"{"id":7,"is_archived":1,"title":"A title","tags":[{"id":1}]}"#;
     sweep(|| Archived::read("7", entry.as_bytes()));
+}
+
+#[test]
+fn a_title_is_kept_as_the_name_of_its_book_and_makes_the_same_book() {
+    // Long, with characters the cleaning drops, a name Windows keeps, wide
+    // characters: the book's name is the same made of the kept title as of
+    // the whole one, and 30 long titles stay small.
+    let long = "x".repeat(4000);
+    let blanks = format!("a{}b{}", "/".repeat(90), "c".repeat(200));
+    let wide = "\u{1F600}".repeat(300);
+    let titles = [
+        long.as_str(),
+        blanks.as_str(),
+        wide.as_str(),
+        "CON.txt",
+        "  ..hidden. ",
+        "?*",
+        "Ordinary title",
+    ];
+    for title in titles {
+        let text = entries(&[("5", title)]);
+        let list = Unread::read(text.as_bytes()).unwrap().unwrap();
+        let kept = &list[0].title;
+        assert!(kept.len() <= 4 * native::NAME_UNITS, "{} bytes", kept.len());
+        let name = |title: &str| paperpaw_sdk::web::clean_name(title, native::NAME_UNITS);
+        assert_eq!(name(kept), name(title), "{title:.30}");
+    }
+    let many: Vec<(String, String)> = (1..=40)
+        .map(|n| (format!("{n}"), "y".repeat(4000)))
+        .collect();
+    let pairs: Vec<(&str, &str)> = many.iter().map(|(i, t)| (i.as_str(), t.as_str())).collect();
+    let list = Unread::read(entries(&pairs).as_bytes()).unwrap().unwrap();
+    assert_eq!(list.len(), native::MAX_ARTICLES);
+    assert!(list.iter().map(|e| e.title.len()).sum::<usize>() <= 30 * native::NAME_UNITS);
 }
