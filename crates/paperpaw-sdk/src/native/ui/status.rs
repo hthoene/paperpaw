@@ -1,7 +1,7 @@
 //! Status values and draw handles are valid only in the current callback.
 use super::{
-    Error, Host, Instance, Param, StatusHandle, StatusLineHandle, Ui, UiPage, one, params, schema,
-    wire,
+    Error, Host, Instance, Param, StatusHandle, StatusLineHandle, Ui, UiPage, expect, one, params,
+    schema, wire,
 };
 use core::{marker::PhantomData, num::NonZeroU32};
 
@@ -39,10 +39,8 @@ impl<'a> StatusValue<'a> {
     pub const fn draw_handle(self) -> Option<StatusHandle<'a>> {
         self.handle
     }
-    fn decode(record: wire::Record<'a>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiStatusValue(row) = record else {
-            return Err(Error::State);
-        };
+    fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceUiStatusValue<'_> = expect(record)?;
         let suppressed = row.flags & 6 != 0;
         if suppressed && (!row.text.is_empty() || row.handle != 0) {
             return Err(Error::Invalid);
@@ -100,10 +98,7 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_STATUS_VALUES,
-            &[wire::Record::ServiceUiStatusAsk(wire::ServiceUiStatusAsk {
-                items,
-                context,
-            })],
+            &[&wire::ServiceUiStatusAsk { items, context }],
             input,
             out,
         )?;
@@ -152,16 +147,14 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_STATUS_LINE,
-            &[wire::Record::ServiceUiStatusAsk(wire::ServiceUiStatusAsk {
+            &[&wire::ServiceUiStatusAsk {
                 items: line,
                 context,
-            })],
+            }],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiInstance(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiInstance = expect(one(&out[..count])?)?;
         if row.flags & 1 != 0 {
             if row.instance != 0 {
                 return Err(Error::Invalid);
@@ -196,11 +189,11 @@ fn context_bytes<'a>(values: &[Param<'_>], out: &'a mut [u8]) -> Result<&'a [u8]
     let mut used = 0;
     for value in values {
         let record = value.record();
-        let length = wire::record_framed_len(&record).map_err(Error::from_status)?;
+        let length = wire::record_framed_len_of(&record).map_err(Error::from_status)?;
         if used + length > wire::SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES {
             return Err(Error::NoSpace);
         }
-        used += wire::record_encode_one(&record, out.get_mut(used..).ok_or(Error::NoSpace)?)
+        used += wire::record_encode_of(&record, out.get_mut(used..).ok_or(Error::NoSpace)?)
             .map_err(Error::from_status)?;
     }
     Ok(&out[..used])

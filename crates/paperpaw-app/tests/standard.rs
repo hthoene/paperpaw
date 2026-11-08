@@ -117,7 +117,7 @@ impl App {
             .with(".paperpaw/plugins/setup/done", "");
         let builder = Kernel::builder(DEVICE)
             .storage(storage)
-            .user_config("[help]\nshow = false\n[core]\nlanguage = en\n");
+            .user_config("[core]\nlanguage = en\n");
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Probe)
             .build()

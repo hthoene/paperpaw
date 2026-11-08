@@ -150,3 +150,17 @@ fn what_was_told_is_written_when_no_book_is_open_or_it_closes_or_sleeps() {
     assert!(kept.must_flush());
     assert!(kept.read_today(2, 240));
 }
+
+#[test]
+fn the_stage_payload_is_exactly_a_day_and_the_seconds() {
+    let mut bytes = [0u8; 8];
+    bytes[..4].copy_from_slice(&20_000i32.to_le_bytes());
+    bytes[4..].copy_from_slice(&750u32.to_le_bytes());
+    assert_eq!(parse_stage(&bytes), Some((20_000, 750)));
+    bytes[..4].copy_from_slice(&(-1i32).to_le_bytes());
+    bytes[4..].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(parse_stage(&bytes), Some((-1, u32::MAX)));
+    for len in [0, 1, 4, 7, 9, 16] {
+        assert_eq!(parse_stage(&[1u8; 16][..len]), None, "{len}");
+    }
+}

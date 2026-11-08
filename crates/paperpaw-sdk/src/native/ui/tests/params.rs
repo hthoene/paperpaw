@@ -53,7 +53,10 @@ fn thirty_two_params_and_exact_content_cap_round_trip_without_registration_limit
         Err(Error::NoSpace)
     ));
     assert_eq!(state.calls.get(), calls);
-    let mut rows: Vec<_> = values.iter().map(|p| p.record()).collect();
+    let mut rows: Vec<_> = values
+        .iter()
+        .map(|p| wire::Record::ServiceUiParam(p.record()))
+        .collect();
     rows.push(wire::Record::ServiceEnd(wire::ServiceEnd {
         flags: 0,
         total: 32,
@@ -90,11 +93,11 @@ fn param_syntax_and_caps_are_checked_without_truncation() {
 #[test]
 fn dialog_parameters_decode_only_canonical_host_values() {
     fn host_param<'a>(key: &'a str, value: &'a str) -> Param<'a> {
-        Param::decode(wire::Record::ServiceUiParam(wire::ServiceUiParam {
-            key,
-            value,
-        }))
-        .unwrap()
+        // The row as the host frames it; the decoded param borrows those bytes.
+        let bytes = alloc::boxed::Box::leak(alloc::vec![0; 2200].into_boxed_slice());
+        let row = wire::ServiceUiParam { key, value };
+        let n = wire::record_encode_of(&row, bytes).unwrap();
+        Param::decode(wire::RawRecord::one(&bytes[..n]).unwrap()).unwrap()
     }
     for raw in [1, u32::MAX] {
         let text = alloc::format!("{raw}");

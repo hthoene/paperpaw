@@ -128,9 +128,11 @@ pub(crate) trait Frame {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 
-    /// The host view a service family keeps behind its key (`core.document`,
-    /// `core.library`, `core.lookup`), downcast by that family's backend; a
-    /// frame without one answers the family `ERR_UNSUPPORTED`.
+    /// A host view kept behind a service key, as `dyn Any`. **Not used by the
+    /// families any more**: `core.device`, `core.document`, `core.library` and
+    /// `core.lookup` reach theirs through the caller's `hosts`
+    /// (`Caller::hosts`, wired once per device by `HostServices::wire_*`), and
+    /// a family without one answers `ERR_UNSUPPORTED`. No frame overrides this.
     fn host_service(&self, _key: &str) -> Option<&dyn core::any::Any> {
         None
     }

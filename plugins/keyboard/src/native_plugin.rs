@@ -30,7 +30,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, Style, geometry,
-    mem::{SERVICE_BUFFER, buffer, push},
+    mem::{SERVICE_BUFFER, buffer, push, wipe_text},
     paint,
     style::setting_text,
     text::copy,
@@ -83,21 +83,9 @@ impl Dialog {
     fn wipe(&mut self) {
         let text = core::mem::take(&mut self.board.text);
         if self.board.asked.secret {
-            let mut bytes = text.into_bytes();
-            wipe_bytes(&mut bytes);
+            wipe_text(text);
         }
     }
-}
-
-/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead
-/// store before the memory is freed.
-fn wipe_bytes(bytes: &mut [u8]) {
-    for byte in bytes.iter_mut() {
-        // SAFETY: each byte is live and exclusively borrowed; the volatile
-        // store keeps the wipe when the allocation is freed right after.
-        unsafe { core::ptr::write_volatile(byte, 0) };
-    }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Choosing the layouts.
