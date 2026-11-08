@@ -2,7 +2,8 @@
 use super::registrations::Record;
 
 /// Shared declaration categories. Slots 8..=15 belong to REG, 16..=22 to UIX.
-/// Services adds its entries here; every category fits the five-bit packed field.
+/// Services adds its entries here; every category fits the seven-bit field of `NameEntry` (bits 3-9 of
+/// `record_kind`, host-internal, so widening it changes no ABI).
 pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("setting.group", 0),
     ("setting.spec", 1),
@@ -36,8 +37,8 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
-const KIND_MASK: u16 = 0x1f;
-const EXTENSION: u16 = 1 << 8;
+const KIND_MASK: u16 = 0x7f;
+const EXTENSION: u16 = 1 << 15;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct NameEntry {
@@ -60,7 +61,7 @@ impl NameEntry {
             hash,
             batch,
             record_kind: (u16::from(kind) << 3)
-                | (u16::from(extension) << 8)
+                | (u16::from(extension) << 15)
                 | u16::try_from(record).map_err(|_| paperpaw_native::host_glue::ERR_INVALID)?,
         })
     }
@@ -220,11 +221,13 @@ pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
 const _: () = {
     let mut index = 0;
     while index < KIND_TABLE.len() {
-        assert!(KIND_TABLE[index].1 < 32);
+        assert!(KIND_TABLE[index].1 as u16 <= KIND_MASK);
         index += 1;
     }
 };
 const _: () = assert!(core::mem::size_of::<NameEntry>() == 8);
+// The kind (bits 3-9), the record index (bits 0-2) and the extension flag (bit 15) do not overlap.
+const _: () = assert!((KIND_MASK << 3) & EXTENSION == 0 && (KIND_MASK << 3) & 7 == 0);
 
 // The low three bits of record_kind hold the record index.
 const _: () = assert!(super::registrations::REGISTRATION_MAX_RECORDS <= 8);
@@ -342,5 +345,29 @@ mod packed_tests {
         for (index, (_, kind)) in KIND_TABLE.iter().enumerate() {
             assert_eq!(usize::from(*kind), index);
         }
+    }
+}
+
+#[cfg(test)]
+mod pack_tests {
+    #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
+    use super::NameEntry;
+
+    #[test]
+    fn kind_record_and_extension_round_trip_for_every_field_edge() {
+        for kind in [0_u8, 1, 28, 31, 32, 64, 127] {
+            for record in 0..super::super::registrations::REGISTRATION_MAX_RECORDS {
+                for extension in [false, true] {
+                    let entry = NameEntry::new(7, 3, kind, record, extension).unwrap();
+                    assert_eq!(entry.kind(), kind);
+                    assert_eq!(entry.record(), record);
+                    assert_eq!(entry.is_extension(), extension);
+                    assert_eq!((entry.hash, entry.batch), (7, 3));
+                }
+            }
+        }
+        // 128 does not fit the seven bits; a ninth record does not fit three.
+        assert!(NameEntry::new(0, 0, 128, 0, false).is_err());
+        assert!(NameEntry::new(0, 0, 0, 8, false).is_err());
     }
 }
