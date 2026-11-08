@@ -170,6 +170,33 @@ impl Source for HostSource<'_, '_> {
     }
 }
 
+/// What to do after a part of a text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// The text is whole, or the limit was reached.
+    Done,
+    /// Read on at this offset.
+    On(u32),
+}
+
+/// Adds the part `text` that was read at `offset` to `to`, up to
+/// [`TEXT_LIMIT`] bytes, and says whether to go on. A part that does not
+/// advance (empty with a next offset, or a next offset that is not past
+/// `offset`) is [`Error::Invalid`]: the read never loops on a host that does
+/// not end.
+fn add_part(to: &mut String, offset: u32, text: &str, next: Option<u32>) -> Result<Step, Error> {
+    if next.is_some_and(|next| text.is_empty() || next <= offset) {
+        return Err(Error::Invalid);
+    }
+    let piece = model::cut(text, TEXT_LIMIT.saturating_sub(to.len()));
+    to.try_reserve(piece.len()).map_err(|_| Error::NoMemory)?;
+    to.push_str(piece);
+    if piece.len() < text.len() {
+        return Ok(Step::Done);
+    }
+    Ok(next.map_or(Step::Done, Step::On))
+}
+
 /// Reads the whole string `kind` of the annotation `id` into `to`, up to
 /// [`TEXT_LIMIT`] bytes.
 fn whole(
@@ -185,15 +212,9 @@ fn whole(
     loop {
         let query = AnnotationTextQuery::new(id, kind).from(offset);
         let part = library.annotation_text(host, book, query, input, out)?;
-        let piece = model::cut(part.text(), TEXT_LIMIT.saturating_sub(to.len()));
-        to.try_reserve(piece.len()).map_err(|_| Error::NoMemory)?;
-        to.push_str(piece);
-        if piece.len() < part.text().len() {
-            return Ok(());
-        }
-        match part.next_offset() {
-            Some(next) => offset = next,
-            None => return Ok(()),
+        match add_part(to, offset, part.text(), part.next_offset())? {
+            Step::Done => return Ok(()),
+            Step::On(next) => offset = next,
         }
     }
 }
@@ -280,5 +301,45 @@ impl Texts for HostSource<'_, '_> {
             next: end.next(),
             total: end.total(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Step, TEXT_LIMIT, add_part};
+    use alloc::string::String;
+    use paperpaw_sdk::native::Error;
+
+    #[test]
+    fn parts_add_up_until_the_text_is_whole() {
+        let mut to = String::new();
+        assert_eq!(add_part(&mut to, 0, "abc", Some(3)), Ok(Step::On(3)));
+        assert_eq!(add_part(&mut to, 3, "def", None), Ok(Step::Done));
+        assert_eq!(to, "abcdef");
+    }
+
+    #[test]
+    fn a_part_that_does_not_advance_is_invalid() {
+        let mut to = String::new();
+        // Empty, and a next offset: it would never end.
+        assert_eq!(add_part(&mut to, 0, "", Some(5)), Err(Error::Invalid));
+        // A next offset that is not past the one asked.
+        assert_eq!(add_part(&mut to, 4, "x", Some(4)), Err(Error::Invalid));
+        assert_eq!(add_part(&mut to, 4, "x", Some(2)), Err(Error::Invalid));
+        assert!(to.is_empty(), "nothing is kept from a part that is refused");
+        // An empty last part is fine: the text is whole.
+        assert_eq!(add_part(&mut to, 0, "", None), Ok(Step::Done));
+    }
+
+    #[test]
+    fn the_limit_ends_the_read_at_a_character() {
+        let mut to = String::new();
+        let long = "\u{e4}".repeat(TEXT_LIMIT);
+        assert_eq!(add_part(&mut to, 0, &long, Some(9)), Ok(Step::Done));
+        assert_eq!(to.len(), TEXT_LIMIT);
+        assert!(to.chars().all(|c| c == '\u{e4}'));
+        // At the limit no further part is taken.
+        assert_eq!(add_part(&mut to, 9, "more", Some(20)), Ok(Step::Done));
+        assert_eq!(to.len(), TEXT_LIMIT);
     }
 }
