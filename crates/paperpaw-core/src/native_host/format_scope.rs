@@ -9,12 +9,13 @@
 //! ([`BookKind`]) and, for a `siblings` format, the opened file's name; the
 //! path join and the containment check are the file service's.
 //!
-//! Entries live exactly as long as their guard. Entering reserves the room
-//! and the path fallibly before the format is entered, so neither the call
-//! nor the guard's drop allocates. Nested calls are bounded by [`MAX_NESTING`].
+//! Entries live exactly as long as their guard, also when it is dropped while
+//! unwinding: ending a call clears a plain flag and never needs a borrow, so a
+//! stale "inside a call" can never be seen. Entering reserves the copies
+//! fallibly before the format is entered; the drop never allocates. Calls in
+//! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
 use alloc::string::String;
-use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
@@ -81,43 +82,71 @@ impl FormatBook<'_> {
 }
 
 struct Entry {
-    owner: u64,
     path: String,
     opened: String,
     kind: BookKind,
     document: u32,
 }
 
-/// The `core.format` calls under way, innermost last.
-#[derive(Default)]
+/// One place for a call under way. Whether it is in use and whose it is are
+/// plain cells, so ending a call never needs a borrow and can never leave a
+/// stale entry: `live` is cleared first and `current` looks at nothing else.
+struct Slot {
+    live: Cell<bool>,
+    owner: Cell<u64>,
+    entry: RefCell<Option<Entry>>,
+}
+
+impl Slot {
+    const fn new() -> Self {
+        Self {
+            live: Cell::new(false),
+            owner: Cell::new(0),
+            entry: RefCell::new(None),
+        }
+    }
+}
+
+/// The `core.format` calls under way, one place each, [`MAX_NESTING`] at most.
+///
+/// A plugin is never inside two of its own format calls: a format that calls
+/// into the opener's service and is called again is the same instance's
+/// re-entry, `ERR_BUSY` in `format_call::call`. So an owner has at most one
+/// entry, which is the call its running callback is for; `enter` refuses a
+/// second one (`ERR_BUSY`) instead of guessing between them, and `current`
+/// answers for exactly that call or for none.
 pub(crate) struct FormatScope {
-    calls: RefCell<Vec<Entry>>,
+    slots: [Slot; MAX_NESTING],
+}
+
+impl Default for FormatScope {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl core::fmt::Debug for FormatScope {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FormatScope")
-            .field(
-                "calls",
-                &self.calls.try_borrow().map_or(0, |calls| calls.len()),
-            )
+            .field("calls", &self.slots.iter().filter(|s| s.live.get()).count())
             .finish()
     }
 }
 
-/// Ends the call's scope when dropped.
+/// Ends the call's scope when dropped, also while unwinding.
 #[must_use = "the scope ends when the guard is dropped"]
 pub(crate) struct Guard<'a> {
-    scope: &'a FormatScope,
+    slot: &'a Slot,
 }
 
 impl Drop for Guard<'_> {
     fn drop(&mut self) {
-        // Never borrowed across a call, so it is free here; if not, there is
-        // nothing safe to do but leave the entry (its owner's retirement
-        // clears nothing), which `enter`'s bound still limits.
-        if let Ok(mut calls) = self.scope.calls.try_borrow_mut() {
-            calls.pop();
+        // First, so that nothing can see the call again whatever follows.
+        self.slot.live.set(false);
+        // The copies are freed now if nobody is looking at them; else the
+        // next call to use the place frees them.
+        if let Ok(mut entry) = self.slot.entry.try_borrow_mut() {
+            *entry = None;
         }
     }
 }
@@ -133,7 +162,7 @@ fn text(source: &str) -> Result<String, i32> {
 impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
-            calls: RefCell::new(Vec::new()),
+            slots: [const { Slot::new() }; MAX_NESTING],
         }
     }
 
@@ -141,34 +170,45 @@ impl FormatScope {
     /// document begins; it ends when the guard is dropped.
     ///
     /// # Errors
-    /// `ERR_FULL` when [`MAX_NESTING`] calls are under way, `ERR_NO_MEMORY`
-    /// when the room or the copies cannot be had, `ERR_BUSY` when the scope is
-    /// in use.
+    /// `ERR_BUSY` when `owner` has a call under way already, `ERR_FULL` when
+    /// [`MAX_NESTING`] calls are, `ERR_NO_MEMORY` when the copies cannot be had.
     pub(crate) fn enter(&self, owner: u64, book: &FormatBook<'_>) -> Result<Guard<'_>, i32> {
+        if self
+            .slots
+            .iter()
+            .any(|s| s.live.get() && s.owner.get() == owner)
+        {
+            return Err(ERR_BUSY);
+        }
+        let slot = self.slots.iter().find(|s| !s.live.get()).ok_or(ERR_FULL)?;
         let entry = Entry {
-            owner,
             path: text(book.path)?,
             opened: text(book.opened)?,
             kind: book.kind,
             document: book.document,
         };
-        let mut calls = self.calls.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        if calls.len() >= MAX_NESTING {
-            return Err(ERR_FULL);
-        }
-        calls.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        calls.push(entry);
-        Ok(Guard { scope: self })
+        // A place that is not live is not looked at (`current` goes by `live`).
+        *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
+        slot.owner.set(owner);
+        slot.live.set(true);
+        Ok(Guard { slot })
     }
 
-    /// Whether `owner` is inside a format call (its innermost one wins); if
-    /// so `visit` is called once with what the call is for. Nothing is
-    /// allocated, and `visit` must not enter a scope.
+    /// Whether `owner` is inside a format call; if so `visit` is called once
+    /// with what that call is for. Nothing is allocated. A call that cannot be
+    /// looked at is none: it fails closed.
     pub(crate) fn current(&self, owner: u64, visit: &mut dyn FnMut(&FormatBook<'_>)) -> bool {
-        let Ok(calls) = self.calls.try_borrow() else {
+        let Some(slot) = self
+            .slots
+            .iter()
+            .find(|s| s.live.get() && s.owner.get() == owner)
+        else {
             return false;
         };
-        let Some(entry) = calls.iter().rev().find(|entry| entry.owner == owner) else {
+        let Ok(entry) = slot.entry.try_borrow() else {
+            return false;
+        };
+        let Some(entry) = entry.as_ref() else {
             return false;
         };
         visit(&FormatBook {

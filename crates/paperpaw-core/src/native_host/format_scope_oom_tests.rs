@@ -15,8 +15,8 @@ fn entering_a_format_call_refuses_cleanly_for_every_allocation() {
         opened: "p1.png",
         document: 3,
     };
-    // The path, the opened name, the room for the entry.
-    for nth in 1..=3 {
+    // The path and the opened name.
+    for nth in 1..=2 {
         arm_failure(nth);
         let result = scope.enter(5, &book);
         arm_failure(0);

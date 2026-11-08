@@ -57,7 +57,7 @@ fn a_caller_is_inside_a_call_only_while_its_guard_lives() {
 }
 
 #[test]
-fn the_innermost_call_of_an_owner_wins_and_ends_first() {
+fn calls_of_different_owners_nest_and_end_in_any_order() {
     let scope = FormatScope::new();
     let outer = scope
         .enter(5, &book("a.epub", BookKind::File, "", 1))
@@ -65,16 +65,35 @@ fn the_innermost_call_of_an_owner_wins_and_ends_first() {
     let other = scope
         .enter(6, &book("b.cbz", BookKind::File, "", 2))
         .unwrap();
-    let inner = scope
-        .enter(5, &book("c.epub", BookKind::File, "", 4))
-        .unwrap();
-    assert_eq!(seen(&scope, 5).unwrap().3, 4);
-    assert_eq!(seen(&scope, 6).unwrap().3, 2);
-    drop(inner);
     assert_eq!(seen(&scope, 5).unwrap().3, 1);
-    drop(other);
+    assert_eq!(seen(&scope, 6).unwrap().3, 2);
+    // The outer call ends first; the other one is untouched.
     drop(outer);
     assert_eq!(seen(&scope, 5), None);
+    assert_eq!(seen(&scope, 6).unwrap().3, 2);
+    drop(other);
+    assert_eq!(seen(&scope, 6), None);
+}
+
+#[test]
+fn an_owner_has_one_call_at_a_time() {
+    let scope = FormatScope::new();
+    let first = scope
+        .enter(5, &book("a.epub", BookKind::File, "", 1))
+        .unwrap();
+    // A second call of the same plugin is its own re-entry: refused, and the
+    // call under way is still the one that is answered.
+    assert_eq!(
+        scope.enter(5, &book("c.epub", BookKind::File, "", 4)).err(),
+        Some(ERR_BUSY)
+    );
+    assert_eq!(seen(&scope, 5).unwrap().3, 1);
+    drop(first);
+    assert!(
+        scope
+            .enter(5, &book("c.epub", BookKind::File, "", 4))
+            .is_ok()
+    );
 }
 
 #[test]
@@ -83,27 +102,56 @@ fn nesting_is_bounded() {
     let guards: std::vec::Vec<_> = (0..MAX_NESTING)
         .map(|n| {
             scope
-                .enter(1, &book("a", BookKind::File, "", n as u32))
+                .enter(n as u64 + 1, &book("a", BookKind::File, "", n as u32))
                 .unwrap()
         })
         .collect();
     assert_eq!(
-        scope.enter(1, &book("a", BookKind::File, "", 99)).err(),
+        scope.enter(99, &book("a", BookKind::File, "", 99)).err(),
         Some(ERR_FULL)
     );
     drop(guards);
-    assert!(scope.enter(1, &book("a", BookKind::File, "", 1)).is_ok());
+    assert!(scope.enter(99, &book("a", BookKind::File, "", 1)).is_ok());
 }
 
 #[test]
-fn a_scope_in_use_is_busy_and_a_visitor_may_not_enter() {
+fn a_visitor_may_enter_another_call_and_ending_never_needs_a_borrow() {
     let scope = FormatScope::new();
     let _guard = scope.enter(1, &book("a", BookKind::File, "", 1)).unwrap();
-    let mut busy = None;
+    let mut inner = None;
     scope.current(1, &mut |_| {
-        busy = scope.enter(1, &book("b", BookKind::File, "", 2)).err();
+        inner = scope.enter(2, &book("b", BookKind::File, "", 2)).ok();
     });
-    assert_eq!(busy, Some(ERR_BUSY));
+    assert_eq!(seen(&scope, 2).unwrap().3, 2);
+    // Ended while the entry is being looked at: gone for everyone at once.
+    let mut guard = inner.take();
+    let mut during = None;
+    scope.current(2, &mut |_| {
+        drop(guard.take());
+        during = Some(seen(&scope, 2));
+    });
+    assert_eq!(during, Some(None));
+    assert_eq!(seen(&scope, 2), None);
+}
+
+#[test]
+fn a_call_that_unwinds_leaves_no_entry() {
+    let scope = FormatScope::new();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = scope
+            .enter(7, &book("a.epub", BookKind::File, "", 1))
+            .unwrap();
+        assert!(scope.current(7, &mut |_| ()));
+        panic!("the format panics");
+    }));
+    assert!(result.is_err());
+    assert_eq!(seen(&scope, 7), None);
+    // And the place is free again.
+    assert!(
+        scope
+            .enter(7, &book("a.epub", BookKind::File, "", 2))
+            .is_ok()
+    );
 }
 
 #[test]
