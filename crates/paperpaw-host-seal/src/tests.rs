@@ -226,3 +226,61 @@ fn os_random_is_strong_and_fills() {
     assert_eq!(OsRandom.fill(&mut b), Ok(true));
     assert_ne!(a, b);
 }
+
+#[test]
+fn a_second_creator_never_replaces_the_first_key() {
+    let dir = Dir::new("exclusive");
+    let s = FileSealer::new(dir.key_file());
+    let first = [1u8; KEY];
+    let second = [2u8; KEY];
+    s.write(&first, false).unwrap();
+    // The file is there: the second write leaves it alone and is no error.
+    s.write(&second, false).unwrap();
+    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
+}
+
+#[test]
+fn creators_at_once_end_with_one_key_that_all_use() {
+    let dir = Dir::new("race");
+    let path = dir.key_file();
+    let sealed: Vec<Vec<u8>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                scope.spawn(move || seal(&FileSealer::new(path), AAD, b"v").unwrap())
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let s = FileSealer::new(&path);
+    for one in &sealed {
+        assert_eq!(open(&s, AAD, one).unwrap(), b"v");
+    }
+}
+
+#[test]
+fn nothing_but_the_key_file_is_left_in_the_folder() {
+    let dir = Dir::new("leftover");
+    let s = FileSealer::new(dir.key_file());
+    seal(&s, AAD, b"v").unwrap();
+    // Also after a replaced damaged file.
+    fs::write(dir.key_file(), b"junk").unwrap();
+    seal(&s, AAD, b"v").unwrap();
+    let names: Vec<_> = fs::read_dir(&dir.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["device.key"]);
+}
+
+#[test]
+fn the_temporary_file_is_private_from_the_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Dir::new("tempmode");
+    let s = FileSealer::new(dir.key_file());
+    // Widest umask-free check: the key file made by hard link shares the
+    // temporary file's inode, so its mode is the one the temporary file had.
+    s.write(&[3u8; KEY], false).unwrap();
+    let mode = fs::metadata(dir.key_file()).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+}

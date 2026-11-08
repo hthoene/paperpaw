@@ -15,7 +15,10 @@
 //!   only at a seal.
 //! - Statuses: `ERR_STATE` means only "the random numbers are weak now" (the host
 //!   then asks to turn Wi-Fi on); a failing cipher or flash is `ERR_IO`, a flash that
-//!   somebody else holds is `ERR_BUSY`.
+//!   somebody else holds is `ERR_BUSY`. A partition table with no place for the key
+//!   (an X4 Classic still on CrossPoint's table) is `ERR_UNSUPPORTED`, never
+//!   `ERR_NOT_FOUND` (which means "no such value") nor `ERR_STATE`: the host and its
+//!   screens can tell it apart and say that this device cannot keep passwords yet.
 //! - Fallible throughout: the GCM context is made with `try_reserve`, a
 //!   panic is never the answer to a value that does not open.
 
@@ -36,6 +39,7 @@ use mbedtls_rs::sys::{
 use paperpaw_core::native_host::{ShellRandom, ShellSealer};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_x4::device_key::{self as dk, KEY, NONCE, Sector, TAG};
 
@@ -127,7 +131,8 @@ impl DeviceSealer {
     /// of the `nvs` partition on the X4, X3 and X4 Pro; on the X4 Classic the
     /// last sector of the flash, which no partition of the table may cover (its
     /// factory `nvs` is never written). A table that does not allow the place
-    /// is `ERR_NOT_FOUND`: nothing is sealed, nothing is written.
+    /// is `ERR_UNSUPPORTED` (a table that cannot be read is `ERR_IO`): nothing is
+    /// sealed, nothing is written.
     fn sector(&self) -> Result<u32, i32> {
         if let Some(at) = self.at.get() {
             return Ok(at);
@@ -138,21 +143,19 @@ impl DeviceSealer {
             .try_reserve_exact(PARTITION_TABLE_MAX_LEN)
             .map_err(|_| ERR_NO_MEMORY)?;
         table.resize(PARTITION_TABLE_MAX_LEN, 0u8);
-        let at = partitions::read_partition_table(&mut flash, &mut table[..])
+        let pt =
+            partitions::read_partition_table(&mut flash, &mut table[..]).map_err(|_| ERR_IO)?;
+        let nvs = pt
+            .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
             .ok()
-            .and_then(|pt| {
-                let nvs = pt
-                    .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
-                    .ok()
-                    .flatten()
-                    .map(|p| (p.offset(), p.len()));
-                dk::locate(
-                    dk::place(cfg!(feature = "x4-classic")),
-                    nvs,
-                    pt.iter().map(|p| (p.offset(), p.len())),
-                )
-            })
-            .ok_or(ERR_NOT_FOUND)?;
+            .flatten()
+            .map(|p| (p.offset(), p.len()));
+        let at = dk::locate(
+            dk::place(cfg!(feature = "x4-classic")),
+            nvs,
+            pt.iter().map(|p| (p.offset(), p.len())),
+        )
+        .ok_or(ERR_UNSUPPORTED)?;
         self.at.set(Some(at));
         Ok(at)
     }

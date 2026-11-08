@@ -15,14 +15,19 @@
 //! - A key that reads is never replaced. A file that cannot be read is not
 //!   replaced either (`ERR_IO`). A missing, erased or damaged file gets a new key
 //!   only at a seal, from the system's random numbers; opening answers "absent".
-//! - The file is made private (mode 0600 on Unix), written beside itself and
-//!   renamed into place, then read back.
+//! - The file is made private (mode 0600 on Unix, from its first byte),
+//!   written beside itself and put in place without replacing a file that is
+//!   there (the first creator wins, the others use its key), the folder is
+//!   synced, and the key is read back. Only a file that is not a key record is
+//!   replaced.
 //! - A device that cannot make a key refuses the seal (`ERR_IO` or `ERR_STATE`)
 //!   and the host writes nothing; there is no weaker fallback.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce, Tag};
@@ -56,6 +61,9 @@ impl ShellRandom for OsRandom {
 pub struct FileSealer {
     path: PathBuf,
 }
+
+/// Key creators in this process, one at a time.
+static MAKING: Mutex<()> = Mutex::new(());
 
 /// What the key file holds.
 enum Found {
@@ -96,31 +104,56 @@ impl FileSealer {
         if !make {
             return Err(ERR_NOT_FOUND);
         }
+        // One creator at a time in this process; another process is handled
+        // by the exclusive publish below.
+        let _making = MAKING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut key = Zeroizing::new([0u8; KEY]);
         if !OsRandom.fill(&mut key[..])? {
             return Err(ERR_STATE);
         }
-        // Read again before a key is replaced: one bad read must not destroy
-        // a key that is there.
+        // Read again before a key is made: one bad read must not destroy a key
+        // that is there, and a creator that was first has won.
         if let Found::Key(there) = self.read()? {
             return Ok(there);
         }
-        self.write(&key)?;
-        // It counts once it reads back as written.
+        // A key is published without replacing anything (hard link: fails when
+        // the file exists). Whoever publishes first wins; the others read the
+        // winner's key.
+        self.write(&key, false)?;
+        if let Found::Key(won) = self.read()? {
+            return Ok(won);
+        }
+        // The file is there but is not a key record (damaged, erased): no key
+        // is lost by replacing it.
+        self.write(&key, true)?;
         match self.read()? {
-            Found::Key(back) if *back == *key => Ok(key),
-            _ => Err(ERR_IO),
+            Found::Key(back) => Ok(back),
+            Found::None => Err(ERR_IO),
         }
     }
 
-    fn write(&self, key: &[u8; KEY]) -> Result<(), i32> {
+    /// Writes the record to a temporary file made private from the start,
+    /// then puts it in place: without `replace` only where no file is (an
+    /// existing one is left alone and is not an error), with `replace` over
+    /// whatever is there. The folder is synced, so a power cut cannot lose the
+    /// key (and with it every saved password).
+    fn write(&self, key: &[u8; KEY], replace: bool) -> Result<(), i32> {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let mut record = Zeroizing::new(record(key));
         let mut temp = self.path.clone().into_os_string();
-        temp.push(".new");
+        temp.push(format!(
+            ".new-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         let temp = PathBuf::from(temp);
         let result = (|| -> std::io::Result<()> {
+            // `create_new`: never a file that was there (a leftover, a link),
+            // and mode 0600 from the first byte.
             let mut options = fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true);
+            options.write(true).create_new(true);
             #[cfg(unix)]
             {
                 use std::os::unix::fs::OpenOptionsExt;
@@ -129,13 +162,41 @@ impl FileSealer {
             let mut file = options.open(&temp)?;
             file.write_all(&record[..])?;
             file.sync_all()?;
-            fs::rename(&temp, &self.path)
+            drop(file);
+            if replace {
+                fs::rename(&temp, &self.path)?;
+            } else {
+                match fs::hard_link(&temp, &self.path) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            sync_dir(&self.path)
         })();
         record.zeroize();
-        if result.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
+        // Whatever the outcome, the temporary name goes (after a rename it
+        // is already gone).
+        let _ = fs::remove_file(&temp);
         result.map_err(|_| ERR_IO)
+    }
+}
+
+/// Makes the folder entry of `path` durable (Unix; elsewhere the file system
+/// has no such call and the file's own sync is all there is).
+fn sync_dir(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let dir = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        fs::File::open(dir)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
     }
 }
 
