@@ -43,6 +43,7 @@ impl SleepCard {
         let per_day = env.settings().read(&NEW_PER_DAY).clamp(0, 1000) as u32;
         let new = cards::new_left(env.storage(), day, per_day);
         let next = cards::due(env.storage(), day.end, new, 1, None)
+            .unwrap_or_default()
             .into_iter()
             .next()
             .and_then(|due| Some((due, cards::card_at(env.storage(), due.deck, due.offset)?)));

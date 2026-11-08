@@ -3,13 +3,13 @@ use crate::store::PageStat;
 use crate::testing::Faulty;
 use paperpaw_sdk::MemoryStorage;
 
-const DIR: &str = ".paperpaw/plugins/stats";
+pub(super) const DIR: &str = ".paperpaw/plugins/stats";
 
-fn md5(n: u8) -> String {
+pub(super) fn md5(n: u8) -> String {
     format!("{n:032x}")
 }
 
-fn book(id: u16, md5: &str) -> Book {
+pub(super) fn book(id: u16, md5: &str) -> Book {
     Book {
         id,
         title: format!("Ours {id}"),
@@ -24,7 +24,7 @@ fn book(id: u16, md5: &str) -> Book {
     }
 }
 
-fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
+pub(super) fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
     PageStat {
         book,
         page,
@@ -34,7 +34,7 @@ fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
     }
 }
 
-fn log(storage: &dyn Storage) -> Vec<(u16, u32, u32, u16)> {
+pub(super) fn log(storage: &dyn Storage) -> Vec<(u16, u32, u32, u16)> {
     let mut out = Vec::new();
     store::scan(storage, |s| out.push((s.book, s.page, s.start, s.duration))).unwrap();
     out
@@ -73,7 +73,7 @@ fn other_device(
 }
 
 /// Two books here and three stays.
-fn this_device(storage: &dyn Storage) {
+pub(super) fn this_device(storage: &dyn Storage) {
     store::save_books(storage, &[book(1, &md5(0xa)), book(2, &md5(0xb))]).unwrap();
     store::append(storage, stay(1, 5, 1000, 30)).unwrap();
     store::append(storage, stay(1, 6, 1040, 20)).unwrap();
@@ -81,12 +81,12 @@ fn this_device(storage: &dyn Storage) {
 }
 
 /// The files of the statistics here, to see they did not change.
-fn files(storage: &MemoryStorage) -> [Option<Vec<u8>>; 2] {
+pub(super) fn files(storage: &MemoryStorage) -> [Option<Vec<u8>>; 2] {
     ["books.ini", "pages.bin"].map(|name| storage.get(&format!("{DIR}/{name}")))
 }
 
 /// What is in the statistics' folder.
-fn folder(storage: &dyn Storage) -> Vec<String> {
+pub(super) fn folder(storage: &dyn Storage) -> Vec<String> {
     let mut names = Vec::new();
     storage
         .list(DIR, &mut |entry| names.push(entry.name.to_string()))
