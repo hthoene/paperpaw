@@ -9,9 +9,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::plugins::FONT_SIZES;
-use paperpaw_sdk::Command;
-use paperpaw_sdk::FontError;
+use core::mem;
+
 use paperpaw_sdk::builtin::settings as core_settings;
+use paperpaw_sdk::{Command, FontError, IdError};
 
 use super::*;
 
@@ -48,10 +49,16 @@ impl Kernel {
     /// A warning of the runtime made of `parts`; none where the heap has no
     /// room for it.
     pub(crate) fn try_warn_runtime(&mut self, parts: &[&str]) {
+        self.try_warn(WarningSource::Runtime, parts);
+    }
+
+    /// A warning from `source` made of `parts`; none where the heap has no
+    /// room for it.
+    pub(crate) fn try_warn(&mut self, source: WarningSource, parts: &[&str]) {
         if let Some(message) = fallible_string(parts)
             && self.warnings.try_reserve(1).is_ok()
         {
-            self.warn(WarningSource::Runtime, None, message);
+            self.warn(source, None, message);
         }
     }
 
@@ -202,5 +209,168 @@ impl Kernel {
                 ]),
             }
         }
+    }
+
+    /// The values plugins offer among other plugins' choices
+    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
+    /// A value that cannot be added for lack of memory is kept, with those
+    /// after it, for the next refresh.
+    pub(crate) fn add_plugin_choices(&mut self) {
+        let mut pending = mem::take(&mut self.plugin_choices);
+        pending.reverse();
+        while let Some((plugin, id, value)) = pending.pop() {
+            if let Err((plugin, id, value)) = self.add_plugin_choice(plugin, id, value) {
+                pending.push((plugin, id, value));
+                self.try_warn_runtime(&[
+                    "not enough memory to add the choices plugins offer; they are added at the next refresh",
+                ]);
+                break;
+            }
+        }
+        pending.reverse();
+        // Nothing was added to the list meanwhile.
+        pending.append(&mut self.plugin_choices);
+        self.plugin_choices = pending;
+    }
+
+    /// Adds one value; gives it back where the heap has no room.
+    #[allow(
+        clippy::type_complexity,
+        reason = "the entry of `plugin_choices`, given back whole"
+    )]
+    fn add_plugin_choice(
+        &mut self,
+        plugin: Id,
+        id: Id,
+        value: Cow<'static, str>,
+    ) -> Result<(), (Id, Id, Cow<'static, str>)> {
+        let refused = match self.shared.settings.spec(id.as_str()) {
+            None => Some("no such setting"),
+            Some(spec) if spec.guarded => Some("it keeps the device safe"),
+            Some(spec) => match &spec.kind {
+                paperpaw_sdk::SettingKind::Choice(choices) if choices.contains(&value) => {
+                    Some("it has that choice already")
+                }
+                paperpaw_sdk::SettingKind::Choice(_) => match Id::try_parse(&value) {
+                    Ok(v) if v.namespace() == plugin.as_str() => None,
+                    Ok(_) | Err(IdError::Invalid) => {
+                        Some("the value is not in the plugin's namespace")
+                    }
+                    Err(_) => return Err((plugin, id, value)),
+                },
+                _ => Some("it is no choice"),
+            },
+        };
+        if let Some(why) = refused {
+            // Told where there is room to tell it.
+            if let Some(source) = plugin.try_clone() {
+                self.try_warn(
+                    WarningSource::Plugin(source),
+                    &[
+                        "choice `",
+                        &value,
+                        "` for `",
+                        id.as_str(),
+                        "`: ",
+                        why,
+                        "; not added",
+                    ],
+                );
+            }
+            return Ok(());
+        }
+        let Some(paperpaw_sdk::SettingKind::Choice(choices)) =
+            self.shared.settings.spec(id.as_str()).map(|s| &s.kind)
+        else {
+            return Ok(());
+        };
+        let list = choice_list(&[], choices.iter().chain(core::iter::once(&*value)));
+        match list {
+            Some(values) => {
+                self.shared.settings.set_choices(id.as_str(), values);
+                Ok(())
+            }
+            None => Err((plugin, id, value)),
+        }
+    }
+
+    /// The reading apps to choose: the default one, and one for each
+    /// format (a setting each, in the reading settings' part for them),
+    /// each offering the readers that read its books. Where only one
+    /// does, there is nothing to choose and the setting is not listed.
+    /// Where the heap has no room what was offered stays.
+    pub(crate) fn offer_reading_apps(&mut self) {
+        if self.try_offer_reading_apps().is_err() {
+            self.try_warn_runtime(&[
+                "not enough memory to update the reading apps; they stay as they were",
+            ]);
+        }
+    }
+
+    fn try_offer_reading_apps(&mut self) -> Result<(), ()> {
+        let Shared {
+            readers,
+            formats,
+            settings,
+            ..
+        } = &mut self.shared;
+        let default = [core_settings::READING_APP_DEFAULT];
+        let several = readers.len() > 1;
+        let all = choice_list(
+            &default,
+            readers.iter().map(|r| r.id.as_str()).filter(|_| several),
+        )
+        .ok_or(())?;
+        settings.set_choices(core_settings::READING_APP.as_str(), all);
+        for format in formats.iter() {
+            let several = readers.reading(Some(&format.id)).nth(1).is_some();
+            let choices = choice_list(
+                &default,
+                readers
+                    .reading(Some(&format.id))
+                    .map(|r| r.id.as_str())
+                    .filter(|_| several),
+            )
+            .ok_or(())?;
+            let id =
+                fallible_string(&[core_settings::READING_APP.as_str(), ".", format.id.as_str()])
+                    .ok_or(())?;
+            if settings.spec(&id).is_some() {
+                settings.set_choices(&id, choices);
+                continue;
+            }
+            // Nothing to choose where one reader reads it: no setting
+            // (memory on small devices), until another comes.
+            if !several {
+                continue;
+            }
+            let setting = match Id::try_parse(&id) {
+                Ok(setting) => setting,
+                Err(IdError::Invalid) => continue,
+                Err(_) => return Err(()),
+            };
+            // The room first, so that defining it cannot fail for lack of it.
+            settings.try_reserve(1, 0).map_err(|_| ())?;
+            /// The reading apps' part, keeping apps not installed now.
+            static READING_APPS: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
+                .section("core.section.reading-apps")
+                .keeps_unknown();
+            let title = match &format.title {
+                Cow::Borrowed(title) => Cow::Borrowed(*title),
+                Cow::Owned(title) => Cow::Owned(fallible_string(&[title]).ok_or(())?),
+            };
+            let mut spec = paperpaw_sdk::SettingSpec::new(
+                setting,
+                "",
+                paperpaw_sdk::SettingKind::Choice(choices.into()),
+                paperpaw_sdk::SettingValue::Text(Cow::Borrowed(core_settings::READING_APP_DEFAULT)),
+                paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
+            )
+            .description("core.setting.reading-app.format.help")
+            .with_extra(&READING_APPS);
+            spec.title = paperpaw_sdk::Str::new(title);
+            let _ = settings.define(spec);
+        }
+        Ok(())
     }
 }

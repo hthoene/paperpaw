@@ -110,15 +110,71 @@ impl Fonts {
         Ok(wanted)
     }
 
-    /// [`Fonts::load`] where the heap may be short. Where the heap is short the fonts open now stay as they are (what is
-    /// wanted is opened before anything is freed) and the call fails: it
-    /// can be made again later, as the kernel does at its next refresh.
-    /// (A font that cannot be read is no shortage: it is in the list.)
+    /// [`Fonts::load`] where the heap may be short. A shortage fails the
+    /// call after the glyph cache was let go and the files tried once more;
+    /// the fonts are then as they were (what is wanted is opened before
+    /// anything is freed, and what this call opened is closed again), so
+    /// that it can be made again later, as the kernel does at its next
+    /// refresh. A font that cannot be read is no shortage: it is in the list.
     ///
     /// # Errors
     /// [`FontError::OutOfMemory`].
     pub fn try_load(&mut self, storage: &Rc<dyn Storage>) -> Result<Vec<String>, FontError> {
+        match self.load_once(storage) {
+            Err(FontError::OutOfMemory) if self.cache_bytes() > 0 => {
+                // The glyphs are drawn again; the pack that will not open is
+                // dearer.
+                self.cache.borrow_mut().clear();
+                self.load_once(storage)
+            }
+            done => done,
+        }
+    }
+
+    fn load_once(&mut self, storage: &Rc<dyn Storage>) -> Result<Vec<String>, FontError> {
         let wanted = self.wanted_entries()?;
+        let mut opened: Vec<usize> = Vec::new();
+        let missing = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(index, entry)| {
+                entry.file.is_some()
+                    && entry.font.is_none()
+                    && (entry.extends.is_some() || wanted.contains(index))
+            })
+            .count();
+        opened
+            .try_reserve_exact(missing)
+            .map_err(|_| FontError::OutOfMemory)?;
+        match self.open_missing(storage, &wanted, &mut opened) {
+            Ok(failed) => {
+                // Freed last, so that a failure above leaves the fonts as
+                // they were.
+                for (index, entry) in self.entries.iter_mut().enumerate() {
+                    if entry.file.is_some() && entry.extends.is_none() && !wanted.contains(&index) {
+                        entry.font = None;
+                    }
+                }
+                Ok(failed)
+            }
+            Err(error) => {
+                for index in opened {
+                    self.entries[index].font = None;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Opens the files of `wanted` (and of the extensions) that are not
+    /// open, noting each in `opened`, which has room for them all.
+    fn open_missing(
+        &mut self,
+        storage: &Rc<dyn Storage>,
+        wanted: &[usize],
+        opened: &mut Vec<usize>,
+    ) -> Result<Vec<String>, FontError> {
         let mut failed: Vec<String> = Vec::new();
         for index in 0..self.entries.len() {
             let entry = &self.entries[index];
@@ -154,18 +210,16 @@ impl Fonts {
                 read_font(storage.as_ref(), path, weight)?
             };
             match font {
-                Some(font) => self.entries[index].font = Some(font),
+                Some(font) => {
+                    self.entries[index].font = Some(font);
+                    // Room was made for every one that can open.
+                    opened.push(index);
+                }
                 None => {
                     let path = try_string(self.entries[index].file.as_deref().unwrap_or(""))?;
                     failed.try_reserve(1).map_err(|_| FontError::OutOfMemory)?;
                     failed.push(path);
                 }
-            }
-        }
-        // Freed last, so that a failure above leaves the fonts as they were.
-        for (index, entry) in self.entries.iter_mut().enumerate() {
-            if entry.file.is_some() && entry.extends.is_none() && !wanted.contains(&index) {
-                entry.font = None;
             }
         }
         Ok(failed)

@@ -307,57 +307,185 @@ fn every_allocation_of_an_install_with_resources_refuses_whole() {
     );
 }
 
-/// The choices of setting `id`.
-fn offered(kernel: &crate::Kernel, id: &str) -> Vec<String> {
-    match &kernel.shared.settings.spec(id).unwrap().kind {
-        paperpaw_sdk::SettingKind::Choice(choices) => choices.iter().map(String::from).collect(),
-        other => panic!("{other:?}"),
+/// A reader of every format, and the format `t.txt` they read.
+fn two_readers_of_a_format(kernel: &mut crate::Kernel) {
+    use alloc::borrow::Cow;
+    use paperpaw_sdk::FormatSpec;
+    use paperpaw_sdk::readers::ReaderSpec;
+    let format = FormatSpec::new(
+        Id::new_static("t.txt"),
+        "TXT",
+        vec![Cow::Borrowed("txt")],
+        Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
+    );
+    kernel.shared.formats.add(format).unwrap();
+    for reader in ["t.a", "t.b"] {
+        let screen = Id::new_static("t.screen");
+        kernel
+            .shared
+            .readers
+            .add(ReaderSpec::new(Id::new_static(reader), screen));
     }
 }
 
 #[test]
-fn every_allocation_of_the_font_refresh_keeps_what_was_or_makes_what_is_new() {
-    const SETTINGS: [&str; 2] = ["core.reading-font", "core.status-font"];
-    // The user's choice is made before the refresh, which is what fails.
-    let choose = |kernel: &mut crate::Kernel| {
-        for id in SETTINGS {
-            let value = paperpaw_sdk::SettingValue::Text("Serif".into());
+fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new() {
+    use alloc::borrow::Cow;
+    use alloc::string::ToString;
+    use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
+    const SETTINGS: [&str; 5] = [
+        "core.reading-font",
+        "core.status-font",
+        "core.reading-app",
+        "t.mode",
+        "core.reading-app.t.txt",
+    ];
+    // Offered by a plugin: `t.b`, among the choices of its own setting.
+    static MODES: [&str; 1] = ["t.a"];
+    let prepare = |kernel: &mut crate::Kernel| {
+        admit_resources(kernel, 1, FOLDER).unwrap();
+        two_readers_of_a_format(kernel);
+        let mode = SettingSpec::new(
+            Id::new_static("t.mode"),
+            "t.mode",
+            SettingKind::Choice((&MODES[..]).into()),
+            SettingValue::Text("t.a".into()),
+            paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
+        );
+        kernel.shared.settings.define(mode).unwrap();
+        kernel.plugin_choices.push((
+            Id::new_static("t"),
+            Id::new_static("t.mode"),
+            Cow::Borrowed("t.b"),
+        ));
+        // The user's choice is made before the refresh, which is what fails.
+        for id in &SETTINGS[..2] {
+            let value = SettingValue::Text("Serif".into());
             let _ = kernel.shared.settings.set(id, value);
         }
     };
     let refresh = |kernel: &mut crate::Kernel| {
-        kernel.offer_font_choices();
+        kernel.offer_choices();
         kernel.apply_reading_font();
         kernel.apply_status_font();
     };
+    let state = |kernel: &crate::Kernel| -> Vec<Option<Vec<String>>> {
+        SETTINGS
+            .iter()
+            .map(|id| match &kernel.shared.settings.spec(id)?.kind {
+                SettingKind::Choice(choices) => Some(choices.iter().map(String::from).collect()),
+                _ => None,
+            })
+            .collect()
+    };
     // What the refresh makes where every allocation is granted.
     let mut twin = fresh();
-    admit_resources(&mut twin, 1, FOLDER).unwrap();
-    choose(&mut twin);
+    prepare(&mut twin);
     refresh(&mut twin);
-    let made: Vec<_> = SETTINGS.map(|id| offered(&twin, id)).into();
-    assert!(made[0].iter().any(|family| family == "Serif"), "{made:?}");
+    let made = state(&twin);
+    assert!(made[0].as_ref().unwrap().iter().any(|f| f == "Serif"));
+    assert_eq!(
+        made[3].as_deref(),
+        Some(&["t.a".to_string(), "t.b".to_string()][..])
+    );
+    assert!(made[4].is_some(), "the setting for the format is made");
+    assert!(twin.plugin_choices.is_empty());
     let (mut kept, mut done) = (0, 0);
-    for allocation in 1..400 {
+    for allocation in 1..600 {
         let mut kernel = fresh();
-        admit_resources(&mut kernel, 1, FOLDER).unwrap();
-        let before: Vec<_> = SETTINGS.map(|id| offered(&kernel, id)).into();
-        choose(&mut kernel);
+        prepare(&mut kernel);
+        let before = state(&kernel);
         arm_failure(allocation);
         refresh(&mut kernel);
         arm_failure(0);
+        let after = state(&kernel);
         for (at, id) in SETTINGS.into_iter().enumerate() {
-            let after = offered(&kernel, id);
             assert!(
-                after == before[at] || after == made[at],
-                "{id} at {allocation}: {after:?}"
+                after[at] == before[at] || after[at] == made[at],
+                "{id} at {allocation}: {:?}",
+                after[at]
             );
-            kept += usize::from(after == before[at]);
-            done += usize::from(after == made[at]);
         }
+        // A choice not added is still waiting for the next refresh.
+        assert_eq!(
+            kernel.plugin_choices.len(),
+            usize::from(after[3] == before[3]),
+            "at {allocation}"
+        );
         // The family in use is the one before or the one chosen, whole.
         assert!(matches!(kernel.shared.fonts.family(), None | Some("Serif")));
+        kept += usize::from(after != made);
+        done += usize::from(after == made);
+        if after == made && allocation > 300 {
+            break;
+        }
     }
     assert!(kept > 0, "a refusal was reached");
     assert!(done > 0, "a refresh was made");
+}
+
+/// A font pack of a few letters.
+fn pack_bytes() -> Vec<u8> {
+    use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
+    let mut builder = PackBuilder::new();
+    let glyphs = "ab".chars().map(|c| (c, Glyph::empty(5.0))).collect();
+    builder.add_strike(10.0, LineMetrics::new(8.0, 2.0, 12.0), glyphs);
+    builder.build()
+}
+
+/// A kernel whose card has a regular and a bold pack of `t`, the bold one
+/// of `bold_family`, and which has chosen the family `Serif`.
+fn kernel_with_packs(bold_family: &'static str) -> crate::Kernel {
+    let mut kernel = fresh();
+    let storage = paperpaw_sdk::MemoryStorage::new()
+        .with("t/regular.ppfp", pack_bytes())
+        .with("t/bold.ppfp", pack_bytes());
+    kernel.shared.storage = alloc::rc::Rc::new(storage);
+    let face = |id, path, family, bold| {
+        paperpaw_sdk::FontFace::new(Id::new_static(id), path, family, bold, false)
+    };
+    let fonts = &mut kernel.shared.fonts;
+    fonts
+        .add_face(face("t.regular", "t/regular.ppfp", "Serif", false))
+        .unwrap();
+    fonts
+        .add_face(face("t.bold", "t/bold.ppfp", bold_family, true))
+        .unwrap();
+    fonts.try_set_family(Some("Serif")).unwrap();
+    kernel
+}
+
+#[test]
+fn a_pack_that_cannot_be_opened_closes_the_packs_the_call_opened() {
+    // Both packs open where every allocation is granted.
+    let mut clean = kernel_with_packs("Serif");
+    let storage = clean.shared.storage.clone();
+    assert_eq!(clean.shared.fonts.try_load(&storage), Ok(Vec::new()));
+    assert!(clean.shared.fonts.get("t.regular").is_some());
+    assert!(clean.shared.fonts.get("t.bold").is_some());
+    // How many allocations the call makes up to the end of the regular
+    // pack: the bold one is of another family, so it is not opened.
+    let mut twin = kernel_with_packs("Sans");
+    let storage = twin.shared.storage.clone();
+    FAIL_NTH.with(|left| left.set(1_000_000));
+    let loaded = twin.shared.fonts.try_load(&storage);
+    let used = 1_000_000 - FAIL_NTH.with(Cell::get);
+    arm_failure(0);
+    assert_eq!(loaded, Ok(Vec::new()));
+    assert!(twin.shared.fonts.get("t.regular").is_some());
+    assert!(twin.shared.fonts.get("t.bold").is_none());
+    // The next one, the bold pack's, is refused: the regular pack, opened
+    // by this call, is closed again.
+    let mut kernel = kernel_with_packs("Serif");
+    let storage = kernel.shared.storage.clone();
+    arm_failure(used + 1);
+    let result = kernel.shared.fonts.try_load(&storage);
+    arm_failure(0);
+    assert_eq!(result, Err(paperpaw_sdk::FontError::OutOfMemory));
+    assert!(kernel.shared.fonts.get("t.regular").is_none());
+    assert!(kernel.shared.fonts.get("t.bold").is_none());
+    // And it opens at the next call.
+    assert_eq!(kernel.shared.fonts.try_load(&storage), Ok(Vec::new()));
+    assert!(kernel.shared.fonts.get("t.regular").is_some());
+    assert!(kernel.shared.fonts.get("t.bold").is_some());
 }
