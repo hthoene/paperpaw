@@ -79,6 +79,9 @@ fn the_settings_match_the_interface_6_registration() {
     assert_eq!(kind_and_payload(&specs[1]), (3, Vec::new()));
     // Pictures: a choice, `show`, basic, with the three values in order.
     assert_eq!((specs[2].kind, specs[2].flags), (2, 0));
-    assert_eq!(kind_and_payload(&specs[2]), (3, b"aids.pictures.show".to_vec()));
+    assert_eq!(
+        kind_and_payload(&specs[2]),
+        (3, b"aids.pictures.show".to_vec())
+    );
     assert_eq!(specs[2].choices, pictures::CHOICES.join("\n"));
 }
