@@ -35,6 +35,13 @@ const CASES: [Case; 4] = [
 ];
 
 #[test]
+fn every_case_still_has_its_reference() {
+    for case in &CASES {
+        assert!(case.golden_exists(), "{}", case.name);
+    }
+}
+
+#[test]
 #[ignore = "BLOCKED: core.files facade (#384), StarDict on native files, the host's lookup broker"]
 fn the_provider_reads_dictionaries() {
     CASES[0].refuse().unwrap();
