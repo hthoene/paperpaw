@@ -1,4 +1,8 @@
-//! Bounded, allocation-free catalog copy, interpolation and digit conversion.
+//! Bounded, allocation-free catalog copy (slot 6, `i18n.copy`), interpolation
+//! (slot 27, `i18n.format`) and digit conversion (slot 28, `i18n.digits`).
+//! The shell answers them from its dispatch frame's translator, a scripted
+//! host from a translator of its own ([`copy_with`], [`format_with`],
+//! [`digits_with`]).
 
 use super::{environment::EnvironmentScope, registrations as wire};
 use core::mem::MaybeUninit;

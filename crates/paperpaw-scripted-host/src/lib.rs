@@ -191,7 +191,9 @@ impl ScriptedHost {
     }
 
     /// Adds every `*.ini` of `folder` (a plugin's `i18n` folder, by file name
-    /// order), as the kernel reads a plugin's catalogs.
+    /// order), as the kernel reads a plugin's catalogs. A directory entry that
+    /// cannot be read is skipped (the files that can be read are added), and
+    /// so is anything that is not a `*.ini` file.
     ///
     /// # Errors
     /// The folder or a file cannot be read, or a catalog does not parse (the
