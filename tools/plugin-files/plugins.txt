@@ -1,7 +1,9 @@
 # The plugins the store offers as files, built here for every release: a
 # line each, its id (a binary of this workspace, a folder of plugins/)
 # and its group in the plugin library (ADR 0023). The firmware leaves them
-# out (crates/paperpaw-app, feature `store-plugins`); keep both in step.
+# out (crates/paperpaw-app, feature `store-plugins`). The two are no longer
+# kept in step, by design: a plugin that became a data plugin (data.toml)
+# leaves this list and stays in `store-plugins` until its code is removed.
 aids reading
 # battery system  (no file until the store build moves to interface 7, #228)
 browser news
