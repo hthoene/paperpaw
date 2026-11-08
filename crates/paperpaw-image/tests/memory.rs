@@ -212,12 +212,11 @@ fn large_gif_screens_take_what_a_row_needs() {
 }
 
 #[test]
-fn interlaced_gif_pictures_take_what_the_screen_shows() {
+fn interlaced_gif_pictures_larger_than_their_screen_ask_for_nothing() {
     // A picture of 65535 × 65535 on a screen of 16 × 16, a few bytes of
-    // file: gif.rs gathers the interlaced picture in a buffer of
-    // `w * h` (4 GiB) before it looks at the screen, which shows 256
-    // pixels of it. A small device fails with OutOfMemory; a phone or a
-    // computer fills gigabytes.
+    // file: it would be gathered in a buffer of `w * h` (4 GiB), interlaced.
+    // The decoder refuses a picture larger than its screen before it asks
+    // for anything.
     let mut gif = Gif::new(2, 2, 4, 0);
     gif.width = 16;
     gif.height = 16;

@@ -435,12 +435,12 @@ fn the_size_read_from_the_first_bytes_is_the_screen() {
 proptest! {
     #![proptest_config(config(128))]
 
-    /// Any picture on any screen: the screen as it should be, at any
+    /// Any picture on a screen at least as large: the screen as it should be, at any
     /// size inside the box `Fit` gives; interlaced or not the same.
     #[test]
     fn any_gif_shows_its_picture(
         (w, h) in (1u16..30, 1u16..30),
-        (sw, sh) in (1u16..40, 1u16..40),
+        (extra_w, extra_h) in (0u16..20, 0u16..20),
         (left, top) in (0u16..45, 0u16..45),
         colors in prop_oneof![Just(2usize), Just(4), Just(16), Just(256)],
         seed in any::<u64>(),
@@ -448,6 +448,8 @@ proptest! {
         transparent in proptest::option::of(any::<u8>()),
         side in 1u32..50,
     ) {
+        // The screen is never smaller than the picture.
+        let (sw, sh) = (w + extra_w, h + extra_h);
         let mut gif = Gif::new(w, h, colors, seed);
         gif.width = sw;
         gif.height = sh;
