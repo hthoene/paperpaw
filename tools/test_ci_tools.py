@@ -5,6 +5,7 @@ import hashlib
 import io
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -188,6 +189,24 @@ class Espflash(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no reviewed"):
             espflash.install("4.7.0", self.destination)
         self.fetch.assert_not_called()
+
+
+class ActionsArePinned(unittest.TestCase):
+    """Every third-party action is named by a full commit SHA, with the version as a comment."""
+
+    USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<action>[^\s#]+)(?P<comment>\s*#.*)?$")
+
+    def test_no_action_is_named_by_a_tag_or_branch(self):
+        problems = []
+        for path in sorted((HERE.parent / ".github").rglob("*.yml")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                found = self.USES.match(line)
+                if not found or found["action"].startswith("./"):
+                    continue
+                name, _, ref = found["action"].partition("@")
+                if not re.fullmatch(r"[0-9a-f]{40}", ref) or not found["comment"]:
+                    problems.append(f"{path.relative_to(HERE.parent)}:{number}: {found['action']}")
+        self.assertEqual(problems, [], "pin third-party actions by full SHA with a '# vX.Y.Z' comment")
 
 
 class BuildPrerequisites(unittest.TestCase):

@@ -6,7 +6,9 @@ extern crate std;
 use super::table::close;
 use super::*;
 use crate::native_host::{
-    admitted_features::AdmittedFeatures, host_services::HostServices, net_pool::NetPool,
+    admitted_features::AdmittedFeatures,
+    host_services::HostServices,
+    net_pool::{NetPool, TlsHolder},
     net_service::fail_nth,
 };
 use alloc::vec::Vec;
@@ -18,6 +20,9 @@ use std::{
     collections::BTreeMap,
     string::{String, ToString},
 };
+
+/// A broadcast the transport was asked for: id, datagram, ports.
+type CastCall = (u32, Vec<u8>, Vec<u16>);
 
 const OWNER: u64 = 7;
 const OTHER: u64 = 8;
@@ -33,6 +38,8 @@ struct Fake {
     run: Cell<Option<u64>>,
     connects: RefCell<Vec<(u32, String, u32)>>,
     connect_fails: Cell<Option<i32>>,
+    cast_fails: Cell<Option<i32>>,
+    casts: RefCell<Vec<CastCall>>,
     wire: RefCell<Vec<u8>>,
     /// How many more bytes the connection takes (`usize::MAX`: any).
     room: Cell<usize>,
@@ -50,6 +57,13 @@ struct Fake {
     free: Cell<u64>,
     write_fails: Cell<Option<i32>>,
     commit_fails: Cell<Option<i32>>,
+    /// The fake TLS backend: absent until a test turns it on.
+    tls_on: Cell<bool>,
+    begins: RefCell<Vec<(u32, String, Vec<TlsPin>)>>,
+    tls_ends: RefCell<Vec<u32>>,
+    begin_fails: Cell<Option<i32>>,
+    /// What the lease and the shell's session looked like at each `end`.
+    order: RefCell<Vec<&'static str>>,
 }
 
 impl Fake {
@@ -68,6 +82,8 @@ impl Fake {
             run: Cell::new(None),
             connects: RefCell::new(Vec::new()),
             connect_fails: Cell::new(None),
+            cast_fails: Cell::new(None),
+            casts: RefCell::new(Vec::new()),
             wire: RefCell::new(Vec::new()),
             room: Cell::new(usize::MAX),
             send_fails: Cell::new(false),
@@ -82,6 +98,11 @@ impl Fake {
             free: Cell::new(u64::MAX),
             write_fails: Cell::new(None),
             commit_fails: Cell::new(None),
+            tls_on: Cell::new(false),
+            begins: RefCell::new(Vec::new()),
+            tls_ends: RefCell::new(Vec::new()),
+            begin_fails: Cell::new(None),
+            order: RefCell::new(Vec::new()),
         }
     }
     fn x4() -> Self {
@@ -119,14 +140,48 @@ impl SockTransport for Fake {
     fn read(&self, id: u32, max: u32) {
         self.reads.borrow_mut().push((id, max));
     }
+    fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32> {
+        if let Some(error) = self.cast_fails.get() {
+            return Err(error);
+        }
+        self.casts
+            .borrow_mut()
+            .push((id, data.to_vec(), ports.to_vec()));
+        Ok(())
+    }
     fn close(&self, id: u32) {
         self.closes.borrow_mut().push(id);
+    }
+}
+
+impl SockTls for Fake {
+    fn begin(&self, id: u32, to: &TlsOpen<'_>) -> Result<(), i32> {
+        if let Some(error) = self.begin_fails.get() {
+            return Err(error);
+        }
+        self.begins
+            .borrow_mut()
+            .push((id, to.server_name.to_string(), to.pins.to_vec()));
+        Ok(())
+    }
+    fn end(&self, id: u32) {
+        // The session goes before the lease does.
+        let leased = self.table.pool().tls_holder() == Some(TlsHolder::Sock(id));
+        self.order.borrow_mut().push(if leased {
+            "end, lease held"
+        } else {
+            "end, lease free"
+        });
+        self.tls_ends.borrow_mut().push(id);
     }
 }
 
 impl SockHost for Fake {
     fn table(&self) -> &SockTable {
         &self.table
+    }
+    fn tls(&self) -> Option<&dyn SockTls> {
+        self.tls_on.get().then_some(self)
     }
     fn transport(&self) -> &dyn SockTransport {
         self
@@ -138,7 +193,7 @@ impl SockHost for Fake {
         self.clock.get()
     }
     fn subscribed(&self, _: u64, tag: u32) -> bool {
-        tag == wire::EVENT_SOCKET_TAG && self.subscribed.get()
+        (tag == wire::EVENT_SOCKET_TAG || tag == wire::EVENT_BROADCAST_TAG) && self.subscribed.get()
     }
     fn power_end(&self, _: u64, _: bool) -> Option<PowerEnd> {
         self.power.get()
@@ -234,7 +289,7 @@ fn caller<'a>(owner: u64, hosts: &'a HostServices) -> Caller<'a> {
 
 fn batch(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = std::vec![0; 4096];
-    let used = wire::records_encode_counted(records, 5, 4096, &mut out).unwrap();
+    let used = wire::records_encode_counted(records, 20, 4096, &mut out).unwrap();
     out.truncate(used);
     out
 }
@@ -562,8 +617,12 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
     assert_eq!(pool.used(), 49_152 - 8_192, "the table gave back its own");
 }
 
+#[path = "tests/cast.rs"]
+mod cast;
 #[path = "tests/file.rs"]
 mod file;
+#[path = "tests/tls.rs"]
+mod tls;
 
 // ---- sending ----
 

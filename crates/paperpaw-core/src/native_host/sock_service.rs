@@ -9,12 +9,16 @@
 //! services behind [`SockHost`]; a shell wires both once, the tests wire
 //! fakes.
 //!
-//! # Not in this slice
-//! Each of these answers `ERR_UNSUPPORTED` (`sockets.md` 5: a host without it)
-//! until it lands, and none of them changes a wire record:
-//! * TLS: `connect` with the `tls` flag or with pins, `start_tls`, `peer`
-//!   (they need the shell's TLS session and trust store, section 2.4);
-//! * `broadcast` and `event.broadcast`.
+//! # TLS
+//! `connect` with the `tls` flag, `start_tls` and `peer` (`sockets.md` 2.4)
+//! need the shell's TLS session and trust store, behind [`SockTls`]. A shell
+//! without it leaves all three `ERR_UNSUPPORTED`. The service owns the rest:
+//! the one session is a lease in the shared `NetPool` (so `core.net` and
+//! sockets are served first come, first served, one holder at a time), the
+//! `busy` and `session_needed` rules, the state of the socket and the
+//! cleanup on every end. The shell does the handshake, the trust and name
+//! checks and the dates, and reports the outcome from its loop through
+//! [`secured`], [`untrusted`] and [`tls_failed`].
 //!
 //! # Reads to a file
 //! `read` mode 1 writes exactly `len` bytes to the staged file of `path` (`<path>.pp-staged`) and renames it
@@ -65,6 +69,8 @@ pub(crate) use table::SockTable;
 /// `event.socket.kind` (`sockets.md` 4).
 pub(crate) mod kind {
     pub(crate) const CONNECTED: u32 = 0;
+    pub(crate) const SECURED: u32 = 1;
+    pub(crate) const UNTRUSTED: u32 = 2;
     pub(crate) const RECEIVED: u32 = 3;
     pub(crate) const SAVED: u32 = 4;
     pub(crate) const SENT: u32 = 5;
@@ -76,6 +82,7 @@ pub(crate) mod kind {
 pub(crate) mod reason {
     pub(crate) const NONE: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
+    pub(crate) const TLS: u32 = 3;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const IO: u32 = 9;
@@ -83,7 +90,11 @@ pub(crate) mod reason {
     pub(crate) const OFFLINE: u32 = 11;
     pub(crate) const SAVING: u32 = 12;
     pub(crate) const NETWORK_OFF: u32 = 13;
+    pub(crate) const BUSY: u32 = 20;
+    pub(crate) const SESSION_NEEDED: u32 = 21;
     pub(crate) const LOST: u32 = 22;
+    pub(crate) const NAME: u32 = 23;
+    pub(crate) const EXPIRED: u32 = 24;
     pub(crate) const CLOSED_EARLY: u32 = 25;
     pub(crate) const SCREEN_CLOSED: u32 = 26;
     pub(crate) const WORK_ENDED: u32 = 27;
@@ -164,14 +175,84 @@ pub(crate) trait SockTransport {
     /// Allow the transport to report up to `max` more bytes through
     /// [`received`] (and nothing beyond: nothing arrives unasked).
     fn read(&self, id: u32, max: u32);
-    /// Close the connection of `id` without any report.
+    /// Close the connection of `id` (a socket or a broadcast) without any
+    /// report.
     fn close(&self, id: u32);
+    /// Send `data` from a port of its own to the network's broadcast address
+    /// on each of `ports` and report the answers through [`answered`]. `Err`
+    /// means it could not begin.
+    fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32>;
+}
+
+/// A pinned hash (`sockets.md` 2.4): `kind` 0 the SHA-256 of the leaf
+/// certificate, 1 that of its SubjectPublicKeyInfo.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TlsPin {
+    pub(crate) kind: u32,
+    pub(crate) hash: [u8; 32],
+}
+
+/// What a socket gives the shell's TLS when its handshake begins.
+pub(crate) struct TlsOpen<'a> {
+    /// The name the certificate must match.
+    pub(crate) server_name: &'a str,
+    /// At most 4 pins; with pins only the leaf is checked, against them.
+    pub(crate) pins: &'a [TlsPin],
+}
+
+/// What the handshake learned about the peer (`sock_peer`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PeerInfo {
+    /// SHA-256 of the leaf certificate's DER.
+    pub(crate) certificate: [u8; 32],
+    /// SHA-256 of its SubjectPublicKeyInfo DER.
+    pub(crate) key: [u8; 32],
+    /// The dates were checked against network time.
+    pub(crate) time_checked: bool,
+}
+
+/// What the codes the shell reports mean (anything else is `failed` `tls`).
+pub(crate) mod tls_code {
+    /// `untrusted`: no root of the store vouches for the chain.
+    pub(crate) const UNKNOWN_ISSUER: u32 = 0;
+    /// `untrusted`: no pin matched the leaf.
+    pub(crate) const NOT_PINNED: u32 = 1;
+    /// `tls_failed`: the name does not match.
+    pub(crate) const NAME: u32 = 2;
+    /// `tls_failed`: the certificate has expired (or is not yet valid).
+    pub(crate) const EXPIRED: u32 = 3;
+    /// `tls_failed`: any other TLS failure.
+    pub(crate) const TLS: u32 = 4;
+    /// `tls_failed`: the shell has no memory for the session.
+    pub(crate) const NO_MEMORY: u32 = 5;
+}
+
+/// The TLS of a shell: the handshake over a socket's connection. Once a
+/// socket is secured the transport's `send`, `read` and `close` carry the
+/// encrypted bytes; the service never sees them in clear on the wire.
+///
+/// The shell never reports from inside these methods, only from its loop.
+pub(crate) trait SockTls {
+    /// Begin the handshake on the open connection of socket `id`, which
+    /// holds the device's one session now. `Err(ERR_NO_MEMORY)` ends the
+    /// socket `failed` `no_memory`; `Err(ERR_STATE)` says bytes from the
+    /// peer arrived in clear before the switch (a STARTTLS injection) and
+    /// ends it `failed` `tls`; any other `Err` ends it `failed` `tls`.
+    fn begin(&self, id: u32, to: &TlsOpen<'_>) -> Result<(), i32>;
+    /// Drop the session of `id`, whatever its state, without any report.
+    /// Idempotent.
+    fn end(&self, id: u32);
 }
 
 /// What the device provides around the service.
 pub(crate) trait SockHost {
     fn table(&self) -> &SockTable;
     fn transport(&self) -> &dyn SockTransport;
+    /// The shell's TLS; `None` on a shell without it (the TLS ops are then
+    /// `ERR_UNSUPPORTED`).
+    fn tls(&self) -> Option<&dyn SockTls> {
+        None
+    }
     fn profile(&self) -> SockProfile;
     fn now_ms(&self) -> u64;
     /// Whether the plugin subscribed to the event `tag`.
@@ -264,8 +345,18 @@ pub(crate) fn backend(
             let r: wire::ServiceSockRef = codec::single(input)?;
             table::close(host, who.owner, r.socket).map(|()| 0)
         }
-        // Later slices: TLS, `peer`, UDP broadcast.
-        op::START_TLS | op::PEER | op::BROADCAST => Err(ERR_UNSUPPORTED),
+        op::BROADCAST => {
+            let id = table::broadcast(host, who, input)?;
+            codec::encode_one(
+                &Record::ServiceSockStarted(wire::ServiceSockStarted { socket: id }),
+                out,
+            )
+        }
+        op::START_TLS => table::start_tls(host, who, input).map(|()| 0),
+        op::PEER => {
+            let r: wire::ServiceSockRef = codec::single(input)?;
+            table::peer(host, who.owner, &r, out)
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -275,8 +366,8 @@ pub(crate) fn backend(
     reason = "the shell's hooks into the table; tests use them"
 )]
 pub(crate) use table::{
-    connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
-    screen_closed, tick, work_ended, writable,
+    answered, connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
+    screen_closed, secured, tick, tls_failed, untrusted, work_ended, writable,
 };
 
 /// The plugin stopped (its callbacks are revoked): its sockets close without
