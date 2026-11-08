@@ -1925,7 +1925,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -1933,6 +1933,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
  "paperpaw-stardict",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
