@@ -99,11 +99,8 @@ pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The panel's offer for the slot `core.translate`. Built into the image but
-/// not submitted: the host checks a slot offer and refuses it
-/// (`ERR_UNSUPPORTED`) until it admits registry declarations, and a `make`
-/// that fails keeps the whole plugin from being admitted
-/// (`tests/native_declarations.rs` pins the refusal).
+/// The panel's offer for the slot `core.translate`, submitted after the screen
+/// it names (the host admits slot offers since #522).
 pub fn offer<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
