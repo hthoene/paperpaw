@@ -230,7 +230,8 @@ impl Loaded {
     /// for the plugin `id`, known to the host: never one the library gives.
     #[cfg(test)]
     pub(super) fn from_bytes(id: &str, bytes: &[u8]) -> Result<Self, Refusal> {
-        let resources = HostResources::try_new().map_err(|_| Refusal::Allocation)?;
+        let resources =
+            crate::native_runtime::device_resources().map_err(|_| Refusal::Allocation)?;
         Self::from_bytes_with_resources(id, bytes, resources)
     }
 
@@ -500,7 +501,7 @@ impl FlatInstance for Loaded {
 /// (`Refusal::Declared`) rather than losing it.
 #[cfg(test)]
 pub(crate) fn load_flat(id: &str, bytes: &[u8]) -> Result<Box<dyn FlatInstance>, Refusal> {
-    let resources = HostResources::try_new().map_err(|_| Refusal::Allocation)?;
+    let resources = crate::native_runtime::device_resources().map_err(|_| Refusal::Allocation)?;
     load_flat_with_resources(id, bytes, resources)
 }
 
@@ -600,7 +601,7 @@ impl DevPlugins {
         };
         let mut folders: Vec<_> = folders.flatten().collect();
         folders.sort_by_key(|folder| folder.file_name());
-        let resources = HostResources::try_new();
+        let resources = crate::native_runtime::device_resources();
         for folder in folders {
             let file = folder.path().join(crate::native::file_name());
             if !file.is_file() {

@@ -174,10 +174,8 @@ impl HostLoader {
             .and_then(FlatDepth::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
         if self.resources.is_none() {
-            self.resources = Some(
-                paperpaw_core::native_host::HostResources::try_new()
-                    .map_err(|_| PluginProblem::NoRoom)?,
-            );
+            self.resources =
+                Some(crate::native_runtime::device_resources().map_err(|_| PluginProblem::NoRoom)?);
         }
         let resources = self
             .resources

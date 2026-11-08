@@ -234,6 +234,11 @@ impl ImageTable {
         self.scratch_max.set(bytes);
     }
 
+    /// The most heap one draw may take on this device.
+    pub(crate) fn scratch_max(&self) -> usize {
+        self.scratch_max.get()
+    }
+
     fn lock(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
         self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)
     }

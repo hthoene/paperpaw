@@ -341,6 +341,20 @@ mod plugin_output;
 mod owned;
 
 pub(crate) use owned::dev::load_flat_with_resources;
+
+/// The device-wide host resources of the desktop and the emulator: a device
+/// with memory to spare, so one image draw may take 1 MiB of heap instead of
+/// the X4's 32 KiB (`HostResources::use_large_image_scratch`). Every place
+/// that makes the table for plugins goes through here.
+///
+/// # Errors
+/// `FlatError::Allocation` when the table cannot be allocated.
+pub(crate) fn device_resources() -> Result<native_host::HostResources, native_host::flat::FlatError>
+{
+    let resources = native_host::HostResources::try_new()?;
+    resources.use_large_image_scratch();
+    Ok(resources)
+}
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};

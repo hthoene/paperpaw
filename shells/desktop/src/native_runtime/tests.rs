@@ -508,3 +508,19 @@ fn desktop_feature_copy_outlives_metadata_and_never_grants_omitted_requests() {
         );
     }
 }
+
+/// The desktop and the emulator have memory to spare: an image draw may take
+/// 1 MiB, not the X4's 32 KiB, in every table the shell makes for plugins.
+#[test]
+fn device_resources_take_the_large_image_scratch() {
+    let resources = device_resources().unwrap();
+    assert_eq!(resources.image_scratch_max(), 1 << 20);
+    assert_eq!(resources.try_clone().unwrap().image_scratch_max(), 1 << 20);
+    // The table the core makes without a shell's word is the X4's.
+    assert_eq!(
+        native_host::HostResources::try_new()
+            .unwrap()
+            .image_scratch_max(),
+        32 * 1024
+    );
+}
