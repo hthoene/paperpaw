@@ -9,13 +9,22 @@ list) is still in place beside the native one. It is removed in the PR that fini
   lookup provider (`core.lookup`, offline, every language). `build.rs` and `native/metadata*` are
   generated with `tools/abi-metadata.py`. En/de texts are the existing ones.
 - Model (host-free): finding `.ifo` files below a folder (three folders deep, hidden names left
-  out, sorted, at most 64), the entry a lookup page asks for among the definitions of all ready
+  out, sorted, the first 64 in that order), the entry a lookup page asks for among the definitions of all ready
   dictionaries (a dictionary that cannot be read is skipped, `NoMemory` is not), and cutting an
   entry to the contract's limits (title 256, text 2,048 bytes, at a character boundary).
   Everything allocates fallibly; `tests/native_alloc_refusal.rs` refuses each allocation.
 - The provider reads a stage call (`Ask`), picks the page by its cursor and answers one entry with
   `more` set when another follows. It has no dictionary to read from yet, so every ask is
   answered `NotFound` (no entry): the provider is declared but silent until the files slice.
+
+## Notes for the files slice
+
+- The caller trims the folder setting's leading and trailing `/` before `find_dictionaries`
+  (interface 6 did: `folder.trim_matches('/')`).
+- The `Source` bounds a definition's size when it reads from the dictionary (`definitions` allocates
+  what the file holds); the model cuts only at the entry's limits.
+- "No entry" is `NotFound` from the stage call; whether the host reads that as no row is Kernel's
+  to confirm (document.md section 7).
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 

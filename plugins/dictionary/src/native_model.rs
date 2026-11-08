@@ -43,17 +43,32 @@ pub fn is_ifo(name: &str) -> bool {
             .is_some_and(|tail| tail.eq_ignore_ascii_case(".ifo"))
 }
 
+/// Keeps `path` among the `MAX_DICTIONARIES` smallest paths found so far,
+/// sorted: the first 64 in sorted order, not the first 64 met.
+fn keep_sorted(found: &mut Vec<String>, path: String) -> Result<(), Error> {
+    if found.len() >= MAX_DICTIONARIES && found.last().is_some_and(|last| path >= *last) {
+        return Ok(());
+    }
+    let at = found.partition_point(|have| *have < path);
+    if found.len() >= MAX_DICTIONARIES {
+        found.pop();
+    }
+    found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    found.insert(at, path);
+    Ok(())
+}
+
 /// The `.ifo` files below `folder` (at most [`MAX_DEPTH`] folders deep, hidden
-/// names left out), sorted. An error where `folder` itself cannot be listed;
-/// a folder below that cannot be is skipped.
+/// names left out), sorted, the first [`MAX_DICTIONARIES`] of them in that
+/// order. An error where `folder` itself cannot be listed; a folder below
+/// that cannot be is skipped, except for `NoMemory`.
 ///
 /// # Errors
-/// The listing's refusal for `folder`, `NoMemory`.
+/// The listing's refusal for `folder`, `NoMemory` anywhere.
 pub fn find_dictionaries(listing: &mut impl Listing, folder: &str) -> Result<Vec<String>, Error> {
     let mut found: Vec<String> = Vec::new();
     let mut folders: Vec<(String, usize)> = Vec::new();
     push(&mut folders, (copy(folder)?, 0))?;
-    let mut full = false;
     while let Some((dir, depth)) = folders.pop() {
         let mut failed: Option<Error> = None;
         let listed = listing.list(&dir, &mut |item| {
@@ -69,12 +84,7 @@ pub fn find_dictionaries(listing: &mut impl Listing, folder: &str) -> Result<Vec
                 if item.is_dir && depth < MAX_DEPTH {
                     push(&mut folders, (path, depth + 1))
                 } else if !item.is_dir && is_ifo(item.name) {
-                    if found.len() >= MAX_DICTIONARIES {
-                        full = true;
-                        Ok(())
-                    } else {
-                        push(&mut found, path)
-                    }
+                    keep_sorted(&mut found, path)
                 } else {
                     Ok(())
                 }
@@ -88,14 +98,10 @@ pub fn find_dictionaries(listing: &mut impl Listing, folder: &str) -> Result<Vec
         }
         match listed {
             Ok(()) => {}
-            Err(error) if depth == 0 => return Err(error),
+            Err(error) if depth == 0 || error == Error::NoMemory => return Err(error),
             Err(_) => {}
         }
-        if full {
-            break;
-        }
     }
-    found.sort_unstable();
     Ok(found)
 }
 
@@ -268,7 +274,10 @@ mod tests {
 
     #[test]
     fn dictionaries_found_are_bounded() {
-        let names: Vec<(String, bool)> = (0..80).map(|n| (format!("{n:03}.ifo"), false)).collect();
+        let names: Vec<(String, bool)> = (0..80)
+            .rev()
+            .map(|n| (format!("{n:03}.ifo"), false))
+            .collect();
         struct Many(Vec<(String, bool)>);
         impl Listing for Many {
             fn list(&mut self, _: &str, each: &mut dyn FnMut(Item<'_>)) -> Result<(), Error> {
@@ -283,6 +292,31 @@ mod tests {
         }
         let found = find_dictionaries(&mut Many(names), "d").unwrap();
         assert_eq!(found.len(), MAX_DICTIONARIES);
+        // The first 64 in sorted order, however the folder lists them.
+        let expected: Vec<String> = (0..64).map(|n| format!("d/{n:03}.ifo")).collect();
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn a_refused_allocation_below_the_top_is_not_skipped() {
+        struct Refusing;
+        impl Listing for Refusing {
+            fn list(&mut self, dir: &str, each: &mut dyn FnMut(Item<'_>)) -> Result<(), Error> {
+                if dir == "d" {
+                    each(Item {
+                        name: "sub",
+                        is_dir: true,
+                    });
+                    Ok(())
+                } else {
+                    Err(Error::NoMemory)
+                }
+            }
+        }
+        assert_eq!(
+            find_dictionaries(&mut Refusing, "d").err(),
+            Some(Error::NoMemory)
+        );
     }
 
     /// Dictionaries with their definitions of any word.
