@@ -9,3 +9,10 @@
   downloads now use `.pp-staged` names, so a user's own `.part` file is never
   overwritten. `EventKind::Answered` is gone: answers to a plugin's own
   questions arrive without subscribing.
+- Interface 7 host slots 36 `image.info` and 37 `canvas.draw_image`
+  (`docs/abi/document.md` section 5) and `doc_open` root 5, a file handed over by
+  the plugin that opened the reader (section 2.1). Hosts answer `ERR_UNSUPPORTED`
+  until wired (#228).
+- Interface 7 host slot 38 `text.hyphenate` (`docs/abi/document.md` section 6.1):
+  the host hyphenates a word from the card tables of `[hyphenation]` data
+  plugins; the reader holds no table (#228).
