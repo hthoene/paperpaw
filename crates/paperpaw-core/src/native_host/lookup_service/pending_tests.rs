@@ -4,8 +4,8 @@ use super::*;
 use alloc::vec::Vec;
 
 fn drain(table: &mut PendingAsks, provider: u64, hash: u64, now: u64) -> Vec<u64> {
-    let mut got = Vec::new();
-    table.ready(provider, hash, now, &mut |asker| got.push(asker));
+    let (askers, count) = table.take(provider, hash, now);
+    let mut got = Vec::from(&askers[..count]);
     got.sort_unstable();
     got
 }

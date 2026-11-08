@@ -99,17 +99,26 @@ impl LookupServices {
     ) {
         let now = self.host.now_ms();
         let hash = pending::ask_hash(language, text);
-        let Ok(mut table) = self.pending.try_borrow_mut() else {
-            return;
+        // Take the askers out and let go of the table before delivering, so
+        // delivery may stop a plugin or record a new ask.
+        let (askers, count, log_due) = {
+            let Ok(mut table) = self.pending.try_borrow_mut() else {
+                return;
+            };
+            let (askers, count) = table.take(provider, hash, now);
+            (askers, count, count == 0 && table.log_due(now))
         };
-        if table.ready(provider, hash, now, deliver) == 0 && table.log_due(now) {
-            drop(table);
+        if log_due {
             self.host.log("lookup_ready matched no pending ask");
+        }
+        for asker in askers.iter().take(count) {
+            deliver(*asker);
         }
     }
 
     /// The plugin `owner` stopped: the asks it made and the asks to it end,
-    /// without an event.
+    /// without an event. The production host must call this on every plugin
+    /// stop, or a stopped plugin's asks stay until their deadline.
     pub(crate) fn stopped(&self, owner: u64) {
         if let Ok(mut table) = self.pending.try_borrow_mut() {
             table.stopped(owner);

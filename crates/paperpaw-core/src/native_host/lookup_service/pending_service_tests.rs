@@ -244,3 +244,21 @@ fn the_event_record_carries_the_time_and_the_provider() {
     assert_eq!((event.now_ms, event.provider), (123_456, "wiki"));
     assert_eq!(wire::EVENT_LOOKUP_READY_TAG, 110);
 }
+
+#[test]
+fn delivery_runs_outside_the_table_so_it_may_stop_a_plugin_or_ask_again() {
+    let rig = rig(&[7, 8]);
+    rig.ask(7, "tree", 0);
+    rig.ask(8, "tree", 0);
+    rig.ask(8, "leaf", 0);
+    let mut told = Vec::new();
+    rig.service().ready(WIKI, "en", "tree", &mut |asker| {
+        told.push(asker);
+        // Stopping the asker 8 while it is told must take effect now.
+        rig.service().stopped(8);
+    });
+    told.sort_unstable();
+    assert_eq!(told, [7, 8]);
+    // The other ask of 8 ended with the stop; nothing is left.
+    assert_eq!(rig.service().pending_len(), 0);
+}

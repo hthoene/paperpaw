@@ -128,17 +128,11 @@ impl PendingAsks {
         Ok(())
     }
 
-    /// Removes the live asks of `provider` for `hash` and gives each asker to
-    /// `deliver` (after they are all removed, so `deliver` cannot see the
-    /// table half way). Returns how many there were; with none, the counter
-    /// of unmatched ready commands goes up.
-    pub(super) fn ready(
-        &mut self,
-        provider: u64,
-        hash: u64,
-        now: u64,
-        deliver: &mut dyn FnMut(u64),
-    ) -> usize {
+    /// Removes the live asks of `provider` for `hash` and returns their
+    /// askers (the first `count` of the array). The caller delivers after it
+    /// let go of the table, so delivery may stop or ask again. With none, the
+    /// counter of unmatched ready commands goes up.
+    pub(super) fn take(&mut self, provider: u64, hash: u64, now: u64) -> ([u64; CAPACITY], usize) {
         self.expire(now);
         let mut askers = [0_u64; CAPACITY];
         let mut count = 0;
@@ -152,10 +146,7 @@ impl PendingAsks {
         if count == 0 {
             self.unmatched = self.unmatched.saturating_add(1);
         }
-        for asker in &askers[..count] {
-            deliver(*asker);
-        }
-        count
+        (askers, count)
     }
 
     /// The asks of or to `owner` end: it stopped.
