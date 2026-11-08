@@ -180,14 +180,16 @@ fn after_label(inner: Rect, g: &Geometry) -> Rect {
 }
 
 /// The width of the labels: as wide as the longest needs, at most half the
-/// row. Numbers and choices carry labels; switches do not.
+/// row. Numbers and choices carry labels; switches do not. Labels are set in
+/// the text font: `text` measures with it (buttons and segments are measured
+/// with the small font, as `lines` does).
 #[must_use]
-pub fn label_width(entries: &[Entry<'_>], measure: &dyn Measure, g: &Geometry) -> u16 {
+pub fn label_width(entries: &[Entry<'_>], text: &dyn Measure, g: &Geometry) -> u16 {
     let longest = entries
         .iter()
-        .filter(|e| e.row.kind != Kind::Section)
+        .filter(|e| listed(e))
         .filter(|e| e.info.is_some_and(|i| i.kind != SettingKind::Bool))
-        .map(|e| measure.width(&e.row.title))
+        .map(|e| text.width(&e.row.title))
         .fold(0.0, f32::max);
     let half = g.width.saturating_sub(2 * g.margin) / 2;
     (longest as u16)
@@ -202,6 +204,12 @@ fn fits_segments(options: &[String], area: Rect, gap: u16, measure: &dyn Measure
     }
     let cell = f32::from(area.width) / options.len() as f32 - 2.0 * f32::from(gap);
     options.iter().all(|o| measure.width(o) <= cell)
+}
+
+/// Whether the panel lists the entry: not a heading, and a setting only
+/// while its `shown_if` holds and it has a choice to make.
+fn listed(entry: &Entry<'_>) -> bool {
+    entry.row.kind != Kind::Section && entry.info.is_none_or(SettingInfo::listed)
 }
 
 /// The control of a row that is a button or a switch, else none.
@@ -232,7 +240,7 @@ fn flush(
         .try_reserve_exact(group.len())
         .map_err(|_| Error::NoMemory)?;
     for control in group.iter() {
-        let row = entries[control.row()].row;
+        let row = entries.get(control.row()).ok_or(Error::State)?.row;
         texts.push(match control {
             Control::Toggle(_) => toggle_text(row)?,
             _ => button_text(row)?,
@@ -261,7 +269,11 @@ fn flush(
 /// What the panel shows of `entries`, row by row: switches and buttons
 /// several to a row (as many as stay readable; switches and buttons not
 /// mixed), numbers with their `−` and `+`, choices with few options as
-/// segments, anything else to open. Headings are left out.
+/// segments, anything else to open. Headings and settings that are not
+/// shown now (`SettingInfo::listed`) are left out.
+///
+/// `measure` is the small font's; the labels' width ([`label_width`]) is
+/// the caller's, set in `g.label`.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -274,7 +286,7 @@ pub fn lines(
     let mut lines = Vec::new();
     let mut group: Vec<Control> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
-        if entry.row.kind == Kind::Section {
+        if !listed(entry) {
             continue;
         }
         if let Some(control) = control_of(index, entry) {
@@ -434,7 +446,12 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
     }
     let pager = paged.then(|| {
         let bottom = if g.top { g.border } else { 0 };
-        Rect::new(0, region.y + region.height - bar - bottom, g.width, bar)
+        let y = region
+            .y
+            .saturating_add(region.height)
+            .saturating_sub(bar)
+            .saturating_sub(bottom);
+        Rect::new(0, y, g.width, bar)
     });
     Ok(Layout {
         rows,

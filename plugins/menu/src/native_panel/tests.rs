@@ -173,6 +173,42 @@ fn settings_become_the_control_that_suits_them() {
 }
 
 #[test]
+fn settings_that_are_not_shown_now_are_left_out() {
+    let mut hidden = info(SettingKind::Int, 0);
+    hidden.flags = 0;
+    let lonely = info(SettingKind::Choice, 1);
+    let shown = info(SettingKind::Int, 0);
+    let rows = [
+        row("a.hidden", Kind::Setting, "Hidden"),
+        row("a.lonely", Kind::Setting, "Lonely"),
+        row("a.shown", Kind::Setting, "Shown"),
+    ];
+    let entries = [
+        entry(&rows[0], Some(&hidden), &[]),
+        entry(&rows[1], Some(&lonely), &[]),
+        entry(&rows[2], Some(&shown), &[]),
+    ];
+    assert_eq!(
+        lines(&entries, &Eight, &geometry()).unwrap(),
+        [Line::Stepper(2)]
+    );
+    // Nor do they give the labels their width.
+    assert_eq!(label_width(&entries, &Eight, &geometry()), 5 * 8 + 20);
+}
+
+#[test]
+fn the_pager_of_a_tiny_screen_does_not_underflow() {
+    let tiny = Geometry {
+        height: 100,
+        ..geometry()
+    };
+    let lines: Vec<Line> = (0..5).map(Line::Open).collect();
+    let layout = layout(&lines, &tiny).unwrap();
+    assert!(layout.pager.is_some());
+    assert!(layout.region.height <= 100);
+}
+
+#[test]
 fn options_that_do_not_fit_open_a_list() {
     let two = info(SettingKind::Choice, 2);
     let r = row("a.align", Kind::Setting, "Align");
