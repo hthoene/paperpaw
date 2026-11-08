@@ -2268,7 +2268,6 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-plugin-about",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
@@ -2409,14 +2408,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-platform"
 version = "0.6.0-beta.3"
-
-[[package]]
-name = "paperpaw-plugin-about"
-version = "1.0.2"
-dependencies = [
- "miniz_oxide",
- "paperpaw-sdk",
-]
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
