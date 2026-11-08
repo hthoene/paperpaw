@@ -36,16 +36,14 @@ pub const GOALS: [&str; 12] = [
     "stats.goal.300",
 ];
 
-/// The group, and the four settings: recording on or off, the daily goal, and the
+/// The group, and the four settings: the daily goal (first, as the widgets
+/// registered it), recording on or off, and the
 /// shortest and longest stay on a page that count (KOReader's rule).
 pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     let mut group = GroupDecl::new("group", "stats.group");
     group.order = 25;
     declarations.group(group)?;
-    let mut enabled = SpecDecl::new("enabled", Kind::Bool(true), GROUP, "stats.setting.enabled");
-    enabled.help = "stats.setting.enabled.help";
-    declarations.spec(enabled)?;
     // The daily goal the widgets, the overview and Reading goal go by: minutes,
     // or none. 20 minutes at first (interface 6: Reading goal set that default
     // where it is installed).
@@ -60,6 +58,9 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
     );
     goal.help = "stats.setting.goal.help";
     declarations.spec(goal)?;
+    let mut enabled = SpecDecl::new("enabled", Kind::Bool(true), GROUP, "stats.setting.enabled");
+    enabled.help = "stats.setting.enabled.help";
+    declarations.spec(enabled)?;
     for (name, default, min, max, step, title) in [
         ("min-seconds", 5, 1, 60, 1, "stats.setting.min"),
         ("max-seconds", 120, 30, 600, 10, "stats.setting.max"),

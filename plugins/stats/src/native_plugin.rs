@@ -83,18 +83,16 @@ impl Plugin for NativeStats {
     ) -> Result<(), Error> {
         if let Event::StageCall {
             stage: ASKED,
-            schema: 1,
+            schema,
             payload,
         } = event
             && token == crate::declarations::ASKED_TOKEN
         {
             // From memory: no card read and no write inside this callback.
-            let answer = with_cx(host, 0, |cx| self.recorder.asked(cx, payload));
-            return match answer {
-                Ok(bytes) => reply.write(&bytes),
-                Err(Asked::Unknown) => Err(Error::NotFound),
-                Err(Asked::Invalid) => Err(Error::Invalid),
-            };
+            return answer_stage(schema, || {
+                with_cx(host, 0, |cx| self.recorder.asked(cx, payload))
+            })
+            .and_then(|bytes| reply.write(&bytes));
         }
         match event {
             Event::ActionRun {
@@ -399,5 +397,41 @@ impl Storage for FilesRead<'_, '_> {
     }
     fn remove(&self, _: &str) -> Result<(), StorageError> {
         Err(StorageError::Unsupported)
+    }
+}
+
+/// The answer to a call of the stage `reading-goal.read-today`: the 8 bytes of
+/// `ask` for schema 1, `NotFound` for a day not known and `Invalid` for a
+/// malformed question. Another schema is refused (`Unsupported`), never
+/// answered with nothing.
+fn answer_stage(
+    schema: u32,
+    ask: impl FnOnce() -> Result<[u8; 8], Asked>,
+) -> Result<[u8; 8], Error> {
+    if schema != 1 {
+        return Err(Error::Unsupported);
+    }
+    ask().map_err(|asked| match asked {
+        Asked::Unknown => Error::NotFound,
+        Asked::Invalid => Error::Invalid,
+    })
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn only_schema_1_is_answered_and_the_rest_is_an_error() {
+        let answer = || Ok([1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(answer_stage(1, answer), Ok([1, 2, 3, 4, 5, 6, 7, 8]));
+        for schema in [0, 2, 3, u32::MAX] {
+            assert_eq!(answer_stage(schema, answer), Err(Error::Unsupported));
+        }
+        assert_eq!(
+            answer_stage(1, || Err(Asked::Unknown)),
+            Err(Error::NotFound)
+        );
+        assert_eq!(answer_stage(1, || Err(Asked::Invalid)), Err(Error::Invalid));
     }
 }
