@@ -12,6 +12,19 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+pub mod native_catalog;
+pub mod native_plan;
+
 mod catalog;
 mod font;
 mod install;

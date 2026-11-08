@@ -60,6 +60,11 @@ pub(crate) struct Options<'a> {
 }
 impl<'a> Options<'a> {
     pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
+    /// The options of a counted batch of `doc_option` rows (tests).
+    #[cfg(test)]
+    pub(crate) const fn from_batch(batch: &'a [u8]) -> Self {
+        Options { batch }
+    }
     /// Each option in order, `key` a full setting id. The host forwards the
     /// ones of the format's own plugin whole; none is cut, none is dropped.
     pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
@@ -432,7 +437,7 @@ fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
 /// id until closed, a callback that fails has none.
 fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let parsed = args::parse_open(input)?;
-    let request = parsed.open;
+    let mut request = parsed.open;
     let long_side = host.screen_long_side();
     args::check_open(&request, long_side)?;
     host.root_access(request.root)?;
@@ -441,7 +446,9 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     }
     let format = host.select_format(request.root, request.path, request.format)?;
     let options = Options { batch: input };
-    let conversion = host.conversion_key(&request, format, options)?;
+    // The host resolves the sides, a format never asks the screen and never
+    // sees 0; before the conversion key, so an open with 0 and an explicit
+    // open of the same size share one cache (`document.md` 3).
     let image_side = match request.image_side {
         0 => args::IMAGE_FIT,
         side => side,
@@ -450,6 +457,9 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         0 => args::default_cover_side(long_side).min(long_side),
         side => side,
     };
+    request.image_side = image_side;
+    request.cover_side = cover_side;
+    let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
     let id = table.open(host.owner(), format, PREPARING, request.flags)?;
@@ -613,6 +623,7 @@ fn prepare<'a>(
         (op::COVER, Record::ServiceDocRef(_)) => {
             call.op = fmt::COVER;
             call.cover_side = document.cover_side;
+            call.image_side = document.image_side;
             Check::Image
         }
         (op::META_TEXT, Record::ServiceDocTextAt(r)) => {
@@ -686,10 +697,12 @@ fn prepare<'a>(
                 // size, larger when asked.
                 call.op = fmt::COVER;
                 call.cover_side = args::image_side(r.side, document.cover_side)?;
+                call.image_side = document.image_side;
             } else {
                 call.op = fmt::IMAGE;
                 call.index = r.index;
                 call.image_side = args::image_side(r.side, document.image_side)?;
+                call.cover_side = document.cover_side;
             }
             Check::Image
         }

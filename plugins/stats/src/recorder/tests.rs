@@ -190,6 +190,35 @@ fn reading_before_the_time_is_known_waits_for_it() {
 }
 
 #[test]
+fn books_opened_before_the_time_is_known_do_not_pile_up_names() {
+    let cx = Fake::new();
+    cx.wall.set(None);
+    let mut recorder = Recorder::default();
+    // A stay of 10 s on each of 500 books: only the last UNDATED wait.
+    for n in 0..500 {
+        let path = std::format!("books/{n}.epub");
+        cx.files.write(&path, path.as_bytes()).unwrap();
+        recorder.book_opened(&cx, &reading(&path, 1));
+        cx.after(10);
+        recorder.page_turned(&cx, &reading(&path, 2));
+        assert!(
+            recorder.names.len() <= crate::recorder::UNDATED + 1,
+            "{} names after {n} books",
+            recorder.names.len()
+        );
+    }
+    // What waits is dated to the right books once the time is known.
+    cx.wall.set(Some(WALL));
+    recorder.clock_changed(&cx);
+    let seconds = cx.seconds_read();
+    assert!(
+        (10..=10 * (crate::recorder::UNDATED as u32 + 1)).contains(&seconds),
+        "{seconds} s"
+    );
+    assert!(store::books(&cx.data).len() <= crate::recorder::UNDATED + 1);
+}
+
+#[test]
 fn sleeping_pauses_reading_and_waking_goes_on() {
     let cx = Fake::new();
     let mut recorder = Recorder::default();

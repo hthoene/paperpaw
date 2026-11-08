@@ -1,6 +1,5 @@
 //! Handover requests use the generated service-op row cap, not registration caps.
-use super::{Error, HandoverId, Host, Param, Ui, UiPage, one, params, schema, wire};
-use alloc::vec::Vec;
+use super::{Error, HandoverId, Host, Param, Ui, UiPage, expect, one, params, schema, wire};
 
 impl Ui {
     /// Make a handover with at most 32 unique params and 1,024 content bytes.
@@ -19,21 +18,17 @@ impl Ui {
     ) -> Result<HandoverId, Error> {
         let op = self.operation(schema::OP_HANDOVER)?;
         params::validate(values, usize::from(op.input_rows))?;
-        let count = {
-            let mut records = Vec::new();
-            records
-                .try_reserve_exact(values.len())
-                .map_err(|_| Error::NoMemory)?;
-            records.extend(values.iter().map(|value| value.record()));
-            wire::records_encode_counted(&records, usize::from(op.input_rows), op.max_input, input)
-                .map_err(Error::from_status)?
-        };
+        let count = wire::records_encode_counted_of(
+            values.iter().map(|value| value.record()),
+            usize::from(op.input_rows),
+            op.max_input,
+            input,
+        )
+        .map_err(Error::from_status)?;
         let count = self
             .service
             .call(host, schema::OP_HANDOVER, &input[..count], out)?;
-        let wire::Record::ServiceUiHandle(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiHandle = expect(one(&out[..count])?)?;
         HandoverId::new(row.handle).ok_or(Error::Invalid)
     }
 
@@ -52,9 +47,9 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_PARAMS,
-            &[wire::Record::ServiceUiHandle(wire::ServiceUiHandle {
+            &[&wire::ServiceUiHandle {
                 handle: handover.get(),
-            })],
+            }],
             input,
             out,
         )?;

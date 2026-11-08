@@ -20,6 +20,9 @@ pub(crate) struct Faulty {
     rename_drops_target: Cell<bool>,
     /// Reads return at most this many bytes.
     short_reads: Cell<Option<usize>>,
+    /// Renames that still succeed; `None`: all of them. The next fails, as a
+    /// power cut between two renames would end the run.
+    renames: Cell<Option<u32>>,
 }
 
 impl Faulty {
@@ -43,6 +46,17 @@ impl Faulty {
     /// Renames from now on remove the file they replace, then fail.
     pub(crate) fn drop_target_on_rename(&self) {
         self.rename_drops_target.set(true);
+    }
+
+    /// Takes `renames` more renames, then every rename fails.
+    pub(crate) fn cut_after_renames(&self, renames: u32) {
+        self.renames.set(Some(renames));
+    }
+
+    /// Renames work again, as after a restart.
+    pub(crate) fn heal_renames(&self) {
+        self.renames.set(None);
+        self.rename_drops_target.set(false);
     }
 
     /// Reads from now on return at most `bytes` bytes.
@@ -97,6 +111,21 @@ impl Storage for Faulty {
         self.inner.exists(path)
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        match self.renames.get() {
+            Some(0) => {
+                // The failing rename may have taken the file it replaces away.
+                if self.rename_drops_target.get() {
+                    self.inner.remove(to).ok();
+                }
+                return Err(StorageError::Io);
+            }
+            Some(n) => {
+                // Within the budget a rename works.
+                self.renames.set(Some(n - 1));
+                return self.inner.rename(from, to);
+            }
+            None => {}
+        }
         if self.rename_drops_target.get() {
             match self.inner.remove(to) {
                 Ok(()) | Err(StorageError::NotFound) => {}

@@ -33,9 +33,11 @@ pub mod mem;
 pub mod messages;
 pub mod paint;
 pub mod screens;
+pub mod sheet;
 pub mod style;
 pub mod text;
 pub mod uitext;
+pub mod widget;
 
 pub use focus::{ListFocus, ListInput, Step};
 pub use items::{Footer, Item, ItemList, ItemStep, RowItem};
