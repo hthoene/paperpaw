@@ -396,13 +396,12 @@ impl Dashboard {
             ring(&mut above, target.rect, &style)?;
         }
         paint::replay(frame, font, below.iter())?;
-        for cell in &laid.cells {
-            if let Some(widget) = cell.widget.filter(|w| !w.is_own()) {
-                // One widget the host cannot compose is left out: the rest of
-                // the home still shows (as on interface 6).
-                let _ = Ui::compose(host, Compose::Widget(widget), paint::frame_rect(cell.rect));
-            }
-        }
+        compose_each(
+            laid.cells
+                .iter()
+                .filter_map(|cell| Some((cell.widget.filter(|w| !w.is_own())?, cell.rect))),
+            |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
+        );
         paint::replay(frame, font, above.iter())
     }
 
@@ -575,6 +574,22 @@ fn touch_of(kind: InputGestureKind) -> Touch {
     }
 }
 
+/// Composes each widget into its cell. One the host cannot compose is left
+/// out: the rest of the page still shows (as on interface 6). Returns how many
+/// were composed.
+fn compose_each<T>(
+    widgets: impl Iterator<Item = (T, Rect)>,
+    mut compose: impl FnMut(T, Rect) -> Result<(), Error>,
+) -> usize {
+    let mut composed = 0;
+    for (widget, rect) in widgets {
+        if compose(widget, rect).is_ok() {
+            composed += 1;
+        }
+    }
+    composed
+}
+
 /// Lets a widget go; a refusal is of no matter (the host drops them when the
 /// screen closes).
 fn drop_widget(host: &Host<'_>, ui: &Ui, widget: WidgetHandle) {
@@ -731,6 +746,29 @@ mod tests {
     fn a_long_press_is_taken_and_runs_nothing() {
         assert_eq!(touch_of(InputGestureKind::LongPress), Touch::Held);
         assert_eq!(touch_of(InputGestureKind::Tap), Touch::Tap);
+    }
+
+    #[test]
+    fn a_widget_that_fails_to_compose_leaves_the_rest_of_the_page_drawn() {
+        let cell = |n: u16| Rect::new(n * 10, 0, 10, 10);
+        let mut seen = Vec::new();
+        let composed = compose_each(
+            [(1_u32, cell(0)), (2, cell(1)), (3, cell(2))].into_iter(),
+            |id, rect| {
+                seen.push((id, rect.x));
+                if id == 2 { Err(Error::Denied) } else { Ok(()) }
+            },
+        );
+        // All three were tried, in order; the failing one alone is missing.
+        assert_eq!(seen, [(1, 0), (2, 10), (3, 20)]);
+        assert_eq!(composed, 2);
+        // A host that refuses every one: none composed, no error.
+        assert_eq!(
+            compose_each([(1_u32, cell(0)), (2, cell(1))].into_iter(), |_, _| Err(
+                Error::NoMemory
+            )),
+            0
+        );
     }
 
     #[test]

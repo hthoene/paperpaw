@@ -253,6 +253,33 @@ mod tests {
     }
 
     #[test]
+    fn up_and_down_go_round_at_the_page_edges_only_where_the_arrows_stay_on_it() {
+        let t = targets();
+        for (stays, top, bottom) in [
+            (true, Step::Moved(4), Step::Moved(1)),
+            (false, Step::Held, Step::Held),
+        ] {
+            // From the top row, up.
+            let mut focus = Focus::default();
+            focus.show(true);
+            assert_eq!(focus.press(Press::Up, &t, stays), top, "up, stays {stays}");
+            // From the bottom (the pencil), down.
+            let mut focus = Focus::default();
+            focus.show(true);
+            focus.at = 4;
+            assert_eq!(
+                focus.press(Press::Down, &t, stays),
+                bottom,
+                "down, stays {stays}"
+            );
+            if !stays {
+                // It did not move: the page buttons turn the page, not these.
+                assert_eq!(focus.at(), 4);
+            }
+        }
+    }
+
+    #[test]
     fn confirm_runs_the_target_the_focus_stands_on() {
         let t = targets();
         let mut focus = Focus::default();
