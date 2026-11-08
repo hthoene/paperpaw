@@ -43,7 +43,7 @@ the port.
 - Lines are read by `lines::each_line_limited` (the 8 KiB limit of the cards is a parameter);
   `put_in_place`/`part_of` in `files.rs` replace the SDK's interface-6 `files` helpers (rename
   only: no copy-and-delete fallback; root 0 and the card both rename).
-- `clean_or_empty` and `path` stay only for `sync`, `export`, `phone`, `apkg` until they are ported.
+- `clean_or_empty` stays only for `phone` until it is ported; `cards::path` is for the tests.
 - `alloc_refusal_tests.rs` sweeps decks, sizes, due, due_count, card_at, visit_page, next_due,
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
@@ -68,9 +68,7 @@ the port.
   and UTF-8 fields are decoded into reserved strings, and slicing of read chunks is `get(..n)`.
 - `plain` (HTML to text) is one pass with one reservation (the text is never longer than the
   HTML): tags out, the six character references turned, white space collapsed. `plain_or_empty`
-  stays for `apkg` (interface 6) until it is ported: where the heap refuses, the text of that
-  Anki note field becomes empty (a note whose front is then empty is skipped as a card without
-  a front), not an abort and not half a text.
+  is gone: `apkg` uses `plain`.
 - `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
   `plain`.
 
@@ -103,8 +101,17 @@ native screens replace these callers.
 - Changes of behaviour: a ledger file that begins with a blank line is unreadable as before; a
   byte order mark before the header is now accepted; the sort of the files is by folded name
   then name (the old stable sort over `to_lowercase` had no tie-break).
-- `apkg::tidy` names its two files by constants and allocates nothing (the rest of `apkg` is
-  next).
+- `apkg`: the plugin's own part allocates fallibly: both files are constants, a note's
+  fields are one reservation each (`note_text`: sounds and `data:` addresses cut out, then
+  `plain`), the collected text is reserved once (3 KiB) and grows fallibly, `quote` reserves
+  its worst case. A refused allocation is `Fault::Memory` (the notes written so far stay
+  until the next job tidies them), never a note with a missing field. The zip and sqlite
+  readers are fallible now (`paperpaw-zip` #394, `paperpaw-sqlite` #383) and the whole-read
+  sweep (`reading_an_anki_deck_refuses_cleanly`) runs with every allocation refused. It found
+  that a refusal while reading the table's columns was told as `NoNotes` ("not an Anki deck,
+  not tried again"); it is `Fault::Memory` now. A `Fault::Memory` is a storage failure of the
+  step (the deck is tried again), never `DeckTooLarge` (the deck's own fault, not tried again);
+  `Crowded` is set only by the limits on cards, not by a refusal.
 - Sweeps (`alloc_refusal_tests::folder`): listing, pending, folder, names, `sources`,
   `write_sources` and a whole job (a changed file and a new one) with each allocation refused.
 - The card folder is still the platform `Storage`'s (`list`, `exists`, `modified`,
@@ -113,7 +120,7 @@ native screens replace these callers.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `export`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
+- `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.
@@ -123,3 +130,24 @@ native screens replace these callers.
 - Marks in books (decorations).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: `core.files` (#339).
+
+## Ported: save to card (`export.rs`, host-free over `Storage`)
+
+- The save (`Saver`) allocates fallibly: names (`file_name_of`, `backup_name`, a free name
+  tried without an allocation per candidate), the part and file paths (made once), the head,
+  each piece of rows (one reservation of 8 KiB, quoting reserves its worst case first), the
+  backup copy (`files::copy_file`: a part beside the copy, one 4 KiB buffer, put in place when
+  whole) and the ledger link. A refusal ends the save as `Failed` ("could not be written",
+  never `TooLarge`, which is the 4 MiB rule): the part is removed, what was in place stays.
+  A refusal while linking after the file is in place is `NotLinked`.
+- `export::update_first` and `Saver::new` return `Result`: a refusal means the save must not
+  go on (it would not have read what changed on a computer). Interface 6 turned it into "no
+  job" and wrote over the file. The screens (`sdcard.rs`, still interface 6) tell it as
+  "save failed".
+- `sync::tidy` takes a predicate (no list of names is built). `report()` moves the strings.
+- `files::put_in_place` (and so `copy_file`, the ledger and the save) moves a part into place with
+  a plain `rename`, no copy-and-delete fallback: the `core.files` adapter the shell builds over the
+  card folder must offer rename (`move_entry`, with replace), or the plugin must switch to the
+  SDK's `move_to` fallback.
+- Not done: `sdcard.rs` and `sdmenu.rs` (screens, with the native shell); the card folder is
+  still the platform `Storage` (the adapter over `core.files` belongs to the shell).

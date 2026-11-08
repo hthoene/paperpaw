@@ -233,30 +233,38 @@ fn a_fresh_index_without_room_fails_and_finish_tells_it() {
 }
 
 #[test]
-fn a_finish_without_room_to_copy_keeps_the_file_there() {
-    let (storage, old) = existing();
-    let mut writer = Writer::new(&storage, "db");
-    let root = writer.table([(1, encode_record(&[Value::Int(2), text("new")]))]);
-    assert_eq!(root, Ok(2));
-    let index = writer.index([encode_record(&[Value::Int(2), Value::Int(1)])]);
-    assert_eq!(index, Ok(3));
+fn every_allocation_of_finish_refused_keeps_the_file_there() {
     let schema = [
         table_entry("t", &["a", "b"], 2),
         index_entry("i", "t", &["a"], 3),
     ];
-    // Page 1 can be had, the copy buffer (eight pages) cannot.
-    assert_eq!(
-        armed(16 * 1024, || writer.finish(&schema, 0)),
-        Err(Error::OutOfMemory)
-    );
-    left_as_it_was(&storage, &old);
+    // The pages built with room; then each allocation of `finish` refused
+    // in turn, the last (the copy buffer) included.
+    for left in 0.. {
+        assert!(left < 1000, "finish never ends");
+        let (storage, old) = existing();
+        let mut writer = Writer::new(&storage, "db");
+        let root = writer.table([(1, encode_record(&[Value::Int(2), text("new")]))]);
+        assert_eq!(root, Ok(2));
+        let index = writer.index([encode_record(&[Value::Int(2), Value::Int(1)])]);
+        assert_eq!(index, Ok(3));
+        let (finished, refused) = armed_after(left, || writer.finish(&schema, 0));
+        if refused == 0 {
+            assert!(left > 3, "finish allocates names, page 1 and its buffer");
+            assert_eq!(finished, Ok(()));
+            assert_eq!(storage.0.paths(), ["db"]);
+            break;
+        }
+        assert_eq!(finished, Err(Error::OutOfMemory), "allocation {left}");
+        left_as_it_was(&storage, &old);
+    }
 }
 
-/// Rows over several leaves and a level above, the last one with
-/// overflow pages; index entries over several leaves and a level above.
 /// A table's rows: id and record.
 type Rows = Vec<(i64, Vec<u8>)>;
 
+/// Rows over several leaves and a level above, the last one with
+/// overflow pages; index entries over several leaves and a level above.
 fn sample() -> (Rows, Vec<Vec<u8>>) {
     let mut rows: Rows = (1..=1200)
         .map(|i| {

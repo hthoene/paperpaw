@@ -202,7 +202,7 @@ fn every_declaration_kind_matches_the_raw_index_category() {
     let source = image();
     let bytes = source.bytes.borrow();
     let batch = records_decode(&bytes).unwrap();
-    let mut seen = [false; KIND_COUNT];
+    let mut seen = [false; Kind::Action as usize + 1];
     for record in batch.iter().chain(pair()) {
         let kind = Kind::of(&record).unwrap();
         assert_eq!(
