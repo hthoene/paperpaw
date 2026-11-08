@@ -415,6 +415,7 @@ version = "1.1.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
 ]
 

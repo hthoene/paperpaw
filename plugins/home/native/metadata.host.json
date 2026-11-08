@@ -87,6 +87,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "ui.compose"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
