@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 to 3a: the pages' model, the declarations, the native entry)
+# Interface-7 port (slices 1 to 3b: the pages' model, the declarations, the native entry, the dashboard)
 
 Version 1.0.6. Partial: the host-free model of the home screen's pages, its declarations, and (slice
 3a) the native entry with the footer items' editor. The dashboard, *Add* and the drawer are still
@@ -90,9 +90,8 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
 - *All tools* opens the screen `home.drawer`; *Edit home screen* opens the slot `core.home` with the
   parameter `mode` = `edit` (a handover). As on interface 6, the dashboard turns to editing when it
   is shown; that is the dashboard's slice.
-- The dashboard, `add-widget` and `drawer` answer `Unsupported` when opened: they are declared (the
-  declaration parity test pins that) and nothing opens them while the app has the interface-6 home
-  screen.
+- `add-widget` and `drawer` answer `Unsupported` when opened: they are declared (the declaration
+  parity test pins that) and nothing opens them while the app has the interface-6 home screen.
 
 ### Gaps (each an ignored acceptance case in `tests/acceptance_pending.rs`)
 
@@ -116,3 +115,52 @@ suites and the app wiring) in the last slice.
 The editor holds at most 128 entries (the kit's `MAX_ENTRIES`, about 100 bytes each plus the rows,
 under 40 KiB with the 4 KiB read buffers released before drawing); one editor is open at a time. Not
 measured on the device.
+
+## Slice 3b: the dashboard, viewing
+
+`src/native_dashboard.rs` (the screen: reads, draws, hands inputs on through the host), over four
+parts without the host:
+
+- `native_source.rs` (`HostSource`): what the layout reads, once per layout and with fallible
+  allocation: the sixteen page settings, the grid's columns and rows, the status bar, the pencil,
+  dots, tool labels and *focus at once* switches, the widgets and tools (the registry's menus
+  `home.actions`, `core.tools`, `core.apps` as interface 6 listed them, the settings last), the
+  footer's actions. It is the `Source` and `Sizes` of `native_pages`; a refusal ends the whole read
+  (nothing made up), as the notes above ask.
+- `native_dash.rs`: the places of the status line, grid and footer (the same arithmetic as the
+  interface-6 `frame`, with the widget gap from `core.widgets.gap`), the footer's buttons (actions
+  from the right, as many as leave the dots their middle), the dots, the page that shows and how
+  pages turn.
+- `native_focus.rs`: the buttons' focus over the page's targets (tools, what each widget answers with
+  `widget_targets`, the footer's actions): the first press only shows the focus, left/right and
+  next/previous go round, up/down go to the nearest target (round where the arrows stay on the page),
+  confirm runs the target.
+
+What it does: the page's items are fitted to the grid (`native_grid::fit`); each tool shows its name
+in its cell (`home.tool-labels`), each widget is made (`widget_make` at the place `home.pages`),
+placed and composed into its cell (`ui.compose`, after the tools and the footer, the focus ring
+over it). *Next page* / *Previous page* turn the page (a swipe is the host's key map turning it to
+those actions), a tap runs the tool, the footer's action, or is forwarded to the widget
+(`widget_input`, a long press too; a press of *Confirm* on a widget's target is a tap in its
+middle). A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
+not ported) is not drawn.
+
+### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
+
+- Editing (the pencil is left out, so is *Add* and the grip drag): `home-edit`. The page opened to
+  edit (`mode` = `edit`) shows as it is.
+- The status line above the grid is made room for but not drawn (`home-status-line`).
+- Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
+  admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
+  apart yet.
+- The widgets' updates (the minute tick, `widget_changed`) and a screen that turned are not
+  subscribed to: the page is laid out when it shows and when the page turns (`home-widget-updates`).
+  A widget that pages itself (a list, a calendar) is not told the page buttons.
+- The built-in widgets of the home screen (status, date, clock, continue, recent) are not declared:
+  `home-builtin-widgets`.
+- *Add* and the drawer: `home-add`, `home-drawer`.
+- Nothing here is drawn or taken through a host yet (H1/H4): `home-dashboard`.
+
+Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and tools of a few
+dozen bytes) and one page of cells with their names; one dashboard open at a time. Not measured on
+the device.

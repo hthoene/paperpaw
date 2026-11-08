@@ -33,6 +33,15 @@ const SETTINGS: &str = "core.settings";
 /// The settings the pages are laid out by.
 const STATUS_BAR: &str = "home.status-bar";
 const COLUMNS: &str = "home.columns";
+const ROWS: &str = "home.rows";
+const PENCIL: &str = "home.footer.pencil";
+const DOTS: &str = "home.footer.dots";
+const TOOL_LABELS: &str = "home.tool-labels";
+const FOCUS_AT_ONCE: &str = "home.focus-at-once";
+/// The menu of the footer's actions.
+const FOOTER: &str = "home.footer";
+/// The registry's menu row flag: chosen now (else faint).
+const ENABLED: u32 = 1 << 1;
 /// The widest a widget is on a screen on its side, in millimetres.
 pub const WIDEST_MM: u32 = 110;
 /// Most widgets and tools kept.
@@ -46,8 +55,17 @@ pub struct HostSource {
     texts: Vec<(String, String)>,
     status_bar: bool,
     columns: i64,
+    /// What the dashboard shows besides the pages.
+    pub rows: i64,
+    pub pencil: bool,
+    pub dots: bool,
+    pub tool_labels: bool,
+    pub focus_at_once: bool,
     widgets: Vec<String>,
-    tools: Vec<String>,
+    /// The tools' actions and their names.
+    tools: Vec<(String, String)>,
+    /// The footer's actions: the action, its name, whether it is chosen now.
+    pub footer: Vec<(String, String, bool)>,
     widest: u32,
     /// What widgets measured at the grid's width: id, rows, fewest rows.
     measured: Vec<(String, u8, u8)>,
@@ -81,23 +99,57 @@ impl HostSource {
             SettingValue::Int(columns) => columns,
             _ => 4,
         };
+        let rows = match settings::read_setting(host, ROWS, &mut scratch)? {
+            SettingValue::Int(rows) => rows,
+            _ => 0,
+        };
+        let mut on = |key: &str, default: bool| -> Result<bool, Error> {
+            Ok(match settings::read_setting(host, key, &mut scratch)? {
+                SettingValue::Bool(on) => on,
+                _ => default,
+            })
+        };
+        let pencil = on(PENCIL, true)?;
+        let dots = on(DOTS, true)?;
+        let tool_labels = on(TOOL_LABELS, true)?;
+        let focus_at_once = on(FOCUS_AT_ONCE, false)?;
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);
-        let (widgets, tools) = found?;
+        let (widgets, tools, footer) = found?;
         released?;
         Ok(Self {
             texts,
             status_bar,
             columns,
+            rows,
+            pencil,
+            dots,
+            tool_labels,
+            focus_at_once,
             widgets,
             tools,
+            footer,
             widest: mm(dpi, WIDEST_MM),
             measured: Vec::new(),
         })
     }
 
-    fn registry(host: &Host<'_>, registry: &Registry) -> Result<(Vec<String>, Vec<String>), Error> {
+    #[allow(
+        clippy::type_complexity,
+        reason = "what one read of the registry returns"
+    )]
+    fn registry(
+        host: &Host<'_>,
+        registry: &Registry,
+    ) -> Result<
+        (
+            Vec<String>,
+            Vec<(String, String)>,
+            Vec<(String, String, bool)>,
+        ),
+        Error,
+    > {
         let mut input = buffer(512)?;
         let mut out = buffer(SERVICE_BUFFER)?;
         let mut widgets = Vec::new();
@@ -108,25 +160,47 @@ impl HostSource {
                 Ok(())
             }
         })?;
-        let mut tools: Vec<String> = Vec::new();
+        let mut tools: Vec<(String, String)> = Vec::new();
         for menu in TOOL_MENUS {
             rows!(cursor => registry.menu(host, menu, MenuQuery::Current, cursor, &mut input, &mut out), |r| {
                 let here_useless = menu == "core.tools" && r.item() == SCREENSHOT;
                 let wanted = r.kind() == RegistryMenuKind::Action
                     && !here_useless
                     && tools.len() < MOST
-                    && !tools.iter().any(|t| t == r.item());
+                    && !tools.iter().any(|(t, _)| t == r.item());
                 if wanted {
-                    push(&mut tools, copy(r.item())?)
+                    push(&mut tools, (copy(r.item())?, copy(r.title())?))
                 } else {
                     Ok(())
                 }
             })?;
         }
-        if !tools.iter().any(|t| t == SETTINGS) {
-            push(&mut tools, copy(SETTINGS)?)?;
+        if !tools.iter().any(|(t, _)| t == SETTINGS) {
+            // Named as the core names it; the catalog key stands for the word.
+            push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
         }
-        Ok((widgets, tools))
+        let mut footer = Vec::new();
+        rows!(cursor => registry.menu(host, FOOTER, MenuQuery::Current, cursor, &mut input, &mut out), |r| {
+            if r.kind() == RegistryMenuKind::Action && footer.len() < MOST {
+                push(
+                    &mut footer,
+                    (copy(r.item())?, copy(r.title())?, r.flags() & ENABLED != 0),
+                )
+            } else {
+                Ok(())
+            }
+        })?;
+        Ok((widgets, tools, footer))
+    }
+
+    /// The name of a tool, as the user reads it (the action's id where the
+    /// menu names none).
+    #[must_use]
+    pub fn tool_name<'a>(&'a self, action: &'a str) -> &'a str {
+        self.tools
+            .iter()
+            .find(|(id, _)| id == action)
+            .map_or(action, |(_, title)| title.as_str())
     }
 
     /// A widget measured at the grid's width: its rows and its fewest rows.
@@ -192,7 +266,7 @@ impl Source for HostSource {
 
     fn tools(&self) -> Result<Vec<String>, Error> {
         let mut found = Vec::new();
-        for tool in &self.tools {
+        for (tool, _) in &self.tools {
             push(&mut found, copy(tool)?)?;
         }
         Ok(found)
@@ -222,9 +296,9 @@ mod tests {
                 .iter()
                 .map(|s| (*s).into())
                 .collect(),
-            tools: ["core.library", "core.settings"]
+            tools: [("core.library", "Library"), ("core.settings", "Settings")]
                 .iter()
-                .map(|s| (*s).into())
+                .map(|(id, title)| ((*id).into(), (*title).into()))
                 .collect(),
             ..HostSource::default()
         }
@@ -236,6 +310,13 @@ mod tests {
         assert!(src.has_widget("home.clock"));
         assert!(src.has_widget("home.clock@2"));
         assert!(!src.has_widget("home.weather"));
+    }
+
+    #[test]
+    fn a_tool_is_named_by_its_menu_row() {
+        let src = source();
+        assert_eq!(src.tool_name("core.library"), "Library");
+        assert_eq!(src.tool_name("other.tool"), "other.tool");
     }
 
     #[test]
