@@ -60,10 +60,6 @@ mod recorder;
 mod room;
 mod store;
 mod sync;
-#[allow(
-    dead_code,
-    reason = "the overview and the calendar, in the next slices, use the rest"
-)]
 mod texts;
 mod totals;
 mod widget;

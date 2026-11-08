@@ -58,6 +58,10 @@ fn the_settings_keep_their_keys_ranges_defaults_and_units() {
     for needle in [
         "enabled",
         "stats.setting.enabled.help",
+        "goal",
+        "stats.setting.goal",
+        "stats.setting.goal.help",
+        "stats.goal.20",
         "min-seconds",
         "stats.setting.min",
         "max-seconds",
@@ -94,14 +98,15 @@ fn the_events_are_the_ones_reading_is_recorded_from() {
 }
 
 #[test]
-fn the_stage_tells_today_with_a_day_and_the_seconds() {
+fn the_stage_reading_goal_asks_is_subscribed_to() {
     let mut all = String::new();
     for batch in batches(|sink| declarations::stages(sink)) {
         for record in records_decode(&batch).unwrap().iter() {
             all.push_str(&format!("{record:?}\n"));
         }
     }
-    assert!(all.contains("read-today"), "{all}");
+    assert!(all.contains("reading-goal.read-today"), "{all}");
+    assert!(all.contains("RegistrationStage"), "{all}");
 }
 
 /// Every record is well formed for the host. The host does not admit icons and stages yet
@@ -133,7 +138,7 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
         }
     }
     // Icons, the menu entries of the action that opens the overview, and the
-    // stage wait for the host to admit them; screens, the action and the
+    // stage subscription wait for the host to admit them; screens, the action and the
     // settings are valid now.
     assert_eq!(
         waiting,
@@ -142,7 +147,7 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             "ui: MenuEntry",
             "ui: MenuEntry",
             "ui: IconSpec",
-            "stages: StageSpec"
+            "stages: RegistrationStage"
         ]
     );
 }

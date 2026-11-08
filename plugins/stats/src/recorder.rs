@@ -64,6 +64,15 @@ pub(crate) struct Reading<'a> {
     pub at: (u32, u32, u32),
 }
 
+/// Why a question about a day is not answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// Not a day (a wrong number of bytes).
+    Invalid,
+    /// A day not known: not today, or the date unknown, or not counted yet.
+    Unknown,
+}
+
 /// What the recorder says after an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Told {
@@ -246,6 +255,26 @@ impl Recorder {
         let seconds = days.iter().find(|d| d.day == day).map_or(0, |d| d.seconds);
         self.today = Some((day, seconds));
         self.today
+    }
+
+    /// The answer to the stage `reading-goal.read-today`: the day (as asked:
+    /// `input` is empty for today, else a day as an `i32`, little-endian) and the
+    /// seconds read on it, from what is held in memory: nothing is read from the
+    /// card here. A day that is not the one held (today, since the last event
+    /// that told) is not known.
+    pub(crate) fn asked(&self, cx: &dyn Surroundings, input: &[u8]) -> Result<[u8; 8], Asked> {
+        let day = match input {
+            [] => today(cx).ok_or(Asked::Unknown)?,
+            _ => i32::from_le_bytes(input.try_into().map_err(|_| Asked::Invalid)?),
+        };
+        let (_, seconds) = self
+            .today
+            .filter(|(held, _)| *held == day)
+            .ok_or(Asked::Unknown)?;
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(&day.to_le_bytes());
+        bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+        Ok(bytes)
     }
 
     /// Ends the stay on the current page now: recorded, or kept until the

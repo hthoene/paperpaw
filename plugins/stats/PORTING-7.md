@@ -113,9 +113,28 @@ events) is still in place. It is removed in the PR that finishes the port.
   limits). Stays are timed on the event time and dated from a snapshot (`unix_at`); read before the
   device knows the time they wait (128 at most) and are recorded when `StatusChanged` says it does.
   A write that fails is told once (`stats.not-saved` as an announced notice).
-- The stage `stats.read-today` (schema 1, reply: day `i32` and seconds `u32`, little-endian, none
-  where the date is unknown) is declared for reading-goal; it replaces the event
-  `core.read-today` that interface 6 sent when the figure changed (the asker pulls).
+- Today's reading is asked for by Reading goal through the stage `reading-goal.read-today` (schema 1;
+  Reading goal owns and runs it, Kernel's ruling: the asker owns the stage). Stats subscribes
+  (token 40) and answers from memory (`Recorder::asked`): input the day as `i32` little-endian (empty:
+  today), reply the day `i32` and the seconds `u32` little-endian; `ERR_NOT_FOUND` for a day it does
+  not hold (not today, the date unknown, or nothing counted since the start: the figure is held
+  after the first event that sees the date), `ERR_INVALID` for input that is not a day. It reads no
+  card and writes nothing in the callback. It replaces the event `core.read-today` that interface 6
+  sent when the figure changed (the asker pulls; stats does not push on page turns).
+- The setting `stats.goal` (choice: none, 10 to 300 minutes; default 20 minutes, as interface 6 had it
+  where Reading goal was installed; alone it was *none*) is declared with the other settings; the
+  widgets and Reading goal read it. It is declared first in the group, as the widgets registered it
+  before the other settings (`tests/settings_parity.rs`, field by field and in order; only the default
+  differs).
+- The ring widget's offer to put *Read today* on the home screen at the first goal change (interface 6
+  `widget::offer_widget`, kept once in `goal-widget-offered`) belongs to the widgets port, not to this
+  setting: nothing here reacts to a change of the goal.
+- The stage answers only schema 1; another schema is `ERR_UNSUPPORTED` (`answer_stage`).
+- **Gap:** interface 6 had Reading goal change the default of `stats.goal` to 20 minutes only where it
+  is installed (`set_setting_default` on another plugin's setting); the declarations have no such
+  override, so stats declares 20 minutes itself and the goal is 20 minutes also without Reading goal
+  (interface 6: none). A later host that lets a plugin set another's default would restore it
+  (ignored case `a_goal_is_none_until_reading_goal_is_installed` in `tests/acceptance_pending.rs`).
 - Everything the recorder takes is fallible: names of the books are noted once in a vector
   (`Rc<str>` cannot be made fallibly; the sweep found it), the book added to `books.ini` is made
   with `room::string`, a refusal leaves the book out (no half book, no stay twice).
@@ -131,14 +150,14 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Days are UTC days until the system time zone comes with the snapshot (draft 25); interface 6 used
   the device's zone. The seconds read are unaffected; a stay near local midnight may fall on the
   neighbouring day until then.
-- `core.read-today` is a stage the asker pulls (above), not an event. Its day is the **UTC day**
+- `core.read-today` is a stage Reading goal runs (above), not an event. Its day is the **UTC day**
   until draft 25 brings the system time zone, so near local midnight it can differ from the
   user's calendar day by up to the zone's offset: the stage may answer yesterday's (or
   tomorrow's) day for a few hours. **reading-goal must tolerate that mismatch**: it compares the
   day in the reply with its own day and shows no figure (or zero) for a day that is not its today,
   never a neighbouring day's seconds as today's.
-- `make` submits the icon and the stage; the host refuses them (`ERR_UNSUPPORTED`) until it admits
-  them (`tests/declarations.rs` pins that these are the only declarations that wait). The stage is
+- `make` submits the icon and the stage subscription; the host refuses them (`ERR_UNSUPPORTED`) until it admits
+  them (`tests/declarations.rs` pins that these are the only declarations that wait). The subscription is
   the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin
   of this port until the host admits icons.
 

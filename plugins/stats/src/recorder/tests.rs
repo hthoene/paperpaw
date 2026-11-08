@@ -355,3 +355,49 @@ fn a_moment_on_the_monotonic_clock_is_dated_from_a_snapshot() {
     assert_eq!(unix_at(1_000_000, 50_000, 61_000), Some(1_000_011));
     assert_eq!(unix_at(i64::MAX, 0, 5_000), None);
 }
+
+#[test]
+fn the_figure_is_answered_from_memory_for_the_day_held() {
+    let cx = Fake::new();
+    let mut recorder = Recorder::default();
+    let day = (WALL / 86_400) as i32;
+    let figure = |seconds: u32| {
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(&day.to_le_bytes());
+        bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+        bytes
+    };
+    // Nothing counted yet: not known (the card is not read for it).
+    assert_eq!(recorder.asked(&cx, &[]), Err(Asked::Unknown));
+    recorder.book_opened(&cx, &reading(BOOK, 1));
+    cx.after(30);
+    recorder.book_closed(&cx, BOOK);
+    assert_eq!(recorder.asked(&cx, &[]), Ok(figure(30)));
+    // Asked by day: today's, but not another.
+    assert_eq!(recorder.asked(&cx, &day.to_le_bytes()), Ok(figure(30)));
+    assert_eq!(
+        recorder.asked(&cx, &(day - 1).to_le_bytes()),
+        Err(Asked::Unknown)
+    );
+    // Not a day.
+    for input in [&[1u8][..], &[0; 3], &[0; 5], &[0; 8]] {
+        assert_eq!(recorder.asked(&cx, input), Err(Asked::Invalid), "{input:?}");
+    }
+    // The date unknown: today is not known.
+    cx.wall.set(None);
+    assert_eq!(recorder.asked(&cx, &[]), Err(Asked::Unknown));
+}
+
+#[test]
+fn asking_does_not_read_the_card() {
+    let cx = Fake::new();
+    let mut recorder = Recorder::default();
+    recorder.book_opened(&cx, &reading(BOOK, 1));
+    cx.after(30);
+    recorder.book_closed(&cx, BOOK);
+    // Every read of the records fails from the first byte: the answer comes
+    // from memory.
+    cx.data.break_at(".paperpaw/plugins/stats/pages.bin", 0);
+    cx.data.break_at("pages.bin", 0);
+    assert!(recorder.asked(&cx, &[]).is_ok());
+}

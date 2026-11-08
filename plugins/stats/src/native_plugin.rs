@@ -20,7 +20,7 @@ use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
-use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+use crate::recorder::{Asked, Limits, Reading, Recorder, Surroundings, Told};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -28,8 +28,8 @@ mod image {
 
 /// The plugin's callback tokens (see `declarations.rs`).
 const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
-/// The stage that tells today's reading.
-const READ_TODAY: &str = "stats.read-today";
+/// The stage Reading goal runs to ask for today's reading.
+const ASKED: &str = "reading-goal.read-today";
 
 /// An open screen's view.
 #[allow(
@@ -82,17 +82,17 @@ impl Plugin for NativeStats {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         if let Event::StageCall {
-            stage: READ_TODAY, ..
+            stage: ASKED,
+            schema,
+            payload,
         } = event
+            && token == crate::declarations::ASKED_TOKEN
         {
-            let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-            if let Some((day, seconds)) = today {
-                let mut bytes = [0u8; 8];
-                bytes[..4].copy_from_slice(&day.to_le_bytes());
-                bytes[4..].copy_from_slice(&seconds.to_le_bytes());
-                reply.write(&bytes)?;
-            }
-            return Ok(());
+            // From memory: no card read and no write inside this callback.
+            return answer_stage(schema, || {
+                with_cx(host, 0, |cx| self.recorder.asked(cx, payload))
+            })
+            .and_then(|bytes| reply.write(&bytes));
         }
         match event {
             Event::ActionRun {
@@ -397,5 +397,41 @@ impl Storage for FilesRead<'_, '_> {
     }
     fn remove(&self, _: &str) -> Result<(), StorageError> {
         Err(StorageError::Unsupported)
+    }
+}
+
+/// The answer to a call of the stage `reading-goal.read-today`: the 8 bytes of
+/// `ask` for schema 1, `NotFound` for a day not known and `Invalid` for a
+/// malformed question. Another schema is refused (`Unsupported`), never
+/// answered with nothing.
+fn answer_stage(
+    schema: u32,
+    ask: impl FnOnce() -> Result<[u8; 8], Asked>,
+) -> Result<[u8; 8], Error> {
+    if schema != 1 {
+        return Err(Error::Unsupported);
+    }
+    ask().map_err(|asked| match asked {
+        Asked::Unknown => Error::NotFound,
+        Asked::Invalid => Error::Invalid,
+    })
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn only_schema_1_is_answered_and_the_rest_is_an_error() {
+        let answer = || Ok([1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(answer_stage(1, answer), Ok([1, 2, 3, 4, 5, 6, 7, 8]));
+        for schema in [0, 2, 3, u32::MAX] {
+            assert_eq!(answer_stage(schema, answer), Err(Error::Unsupported));
+        }
+        assert_eq!(
+            answer_stage(1, || Err(Asked::Unknown)),
+            Err(Error::NotFound)
+        );
+        assert_eq!(answer_stage(1, || Err(Asked::Invalid)), Err(Error::Invalid));
     }
 }

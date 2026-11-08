@@ -23,13 +23,23 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
 }
 
 #[test]
-#[ignore = "needs a host that admits stage declarations, and a native reading-goal that asks stats.read-today"]
+#[ignore = "needs a host that admits stage subscriptions, and a native reading-goal that runs reading-goal.read-today (PR #450)"]
 fn reading_goal_is_told_todays_seconds() {
-    unreachable!("the stage answers day and seconds as the stay is recorded");
+    unreachable!(
+        "the stage answers day and seconds from memory (Recorder::asked), ERR_NOT_FOUND for a day it does not know"
+    );
 }
 
 #[test]
 #[ignore = "needs core.net (#351), secrets (Services todo 79) and core.files listing (#339)"]
 fn webdav_sync_merges_and_uploads_with_an_etag() {
     unreachable!("download, merge_as, conditional upload, working-file sweep");
+}
+
+#[test]
+#[ignore = "needs a way for a plugin to set another plugin's default (interface 6: set_setting_default); stats declares 20 minutes itself"]
+fn a_goal_is_none_until_reading_goal_is_installed() {
+    unreachable!(
+        "stats.goal defaults to none alone and to 20 minutes where reading-goal is installed"
+    );
 }
