@@ -183,6 +183,11 @@ events) is still in place. It is removed in the PR that finishes the port.
   at most 3 books of the chosen day as the file streams (`store::titles`). The peak no longer grows
   with the library: `book_list.rs` measures it for 300 and 3,000 books (`testing::heap::peak`).
   The merge and the recorder still load the whole list (they change it and write it back).
+  Follow-up: the books screen keeps a slim `book_list::Row` (id, last open, the cut title and authors)
+  instead of a `Book` (peak of reading the list 80 KB → 58 KB; `BooksView::build` 91 KB, the same for
+  300 and 3,000 books, tested). The calendar's `titles` stops reading `books.ini` once the books of
+  the day are found, so **a damaged line after them is not noticed there** (the books and book
+  screens read it all and show the same error as before); a title not in the file is read to the end.
 
 ## Ported: the overview and the action that opens it (slice 3)
 
