@@ -88,11 +88,14 @@ keep installing card and store plugins in 1.0.
   target triple decides.
 - **Stack:** plugin frames run on the shell's main stack, as on the X4. The
   windowed ABI spills register windows into the callers' frames (the 16-byte
-  base save area below each stack pointer), so the frame gate counts them;
-  its byte limit for the S3 is the shell's (`abi/heap-word.md` §6), measured
-  as on the X4. The packer keeps the 2,048-byte frame gate (`FRAME_LIMIT`)
-  for Xtensa too, reading each function's frame from its `entry` operand and
-  counting the 16-byte base save area.
+  base save area below each stack pointer), so the frame gate counts them.
+  The packer keeps the 2,048-byte frame gate (`FRAME_LIMIT`) for Xtensa too,
+  reading each function's frame from its `entry` operand and counting the
+  16-byte base save area. The band at the stack's end is the debug
+  assistant's region monitor, with a reserve for six windowed frames below
+  it, and the packer refuses `call0`/`call4`, writes to `a1` but `entry`'s and
+  the instructions that change the interrupt level or window state
+  (`abi/heap-word.md` §6, "The ESP32-S3's band").
 - **Build:** the S3 plugin build sets `-Z crate-attr=feature(asm_experimental_arch)`
   (the esp compiler is a nightly), so the SDK's heap word stays `global_asm!`
   (a plain static could be folded to its zero or land in writable data), and the
