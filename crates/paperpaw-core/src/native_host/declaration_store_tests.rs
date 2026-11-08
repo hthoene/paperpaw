@@ -20,6 +20,12 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::StatusItem,
     Kind::StatusLine,
     Kind::StatusPlace,
+    Kind::MenuEntry,
+    Kind::Icon,
+    Kind::MenuNeed,
+    Kind::MenuSection,
+    Kind::MenuHide,
+    Kind::MenuDescribe,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,

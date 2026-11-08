@@ -27,6 +27,12 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("status.item", 20),
     ("status.line", 21),
     ("status.place", 22),
+    ("menu.entry", 23),
+    ("icon.spec", 24),
+    ("menu.need", 25),
+    ("menu.section", 26),
+    ("menu.hide", 27),
+    ("menu.describe", 28),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
@@ -98,6 +104,14 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::StatusItem(r) => (KIND_TABLE[20].1, r.name),
         Record::StatusLine(r) => (KIND_TABLE[21].1, r.name),
         Record::StatusPlace(r) => (KIND_TABLE[22].1, r.name),
+        // Menus and icons (`screens-input.md` section 1): an entry and a hide
+        // are keyed by (menu, item), the others by their item or name.
+        Record::MenuEntry(r) => (KIND_TABLE[23].1, r.menu),
+        Record::IconSpec(r) => (KIND_TABLE[24].1, r.item),
+        Record::MenuNeed(r) => (KIND_TABLE[25].1, r.item),
+        Record::MenuSection(r) => (KIND_TABLE[26].1, r.name),
+        Record::MenuHide(r) => (KIND_TABLE[27].1, r.menu),
+        Record::MenuDescribe(r) => (KIND_TABLE[28].1, r.item),
         _ => return None,
     })
 }
@@ -122,6 +136,14 @@ fn name_parts(record: Record<'_>) -> Option<(u8, [&str; 4], usize)> {
         }
         Record::PresetValue(r) => {
             parts[1] = r.key;
+            2
+        }
+        Record::MenuEntry(r) => {
+            parts[1] = r.item;
+            2
+        }
+        Record::MenuHide(r) => {
+            parts[1] = r.item;
             2
         }
         _ => 1,

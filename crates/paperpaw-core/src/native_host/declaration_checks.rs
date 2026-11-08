@@ -146,6 +146,13 @@ impl<'a> View<'a> {
                 Record::SettingSpec(spec) => self.require_group(spec.group),
                 Record::SettingGroup(group) => self.ancestry(group.parent, groups),
                 Record::SettingExtra(extra) => self.follow_kind(&extra),
+                // An item of the plugin's own must exist; another plugin's may
+                // come later (`screens-input.md` section 1).
+                Record::MenuEntry(entry) => self.require_item(entry.item),
+                Record::IconSpec(icon) => self.require_item(icon.item),
+                Record::MenuNeed(need) => self.require_item(need.item),
+                Record::MenuHide(hide) => self.require_item(hide.item),
+                Record::MenuDescribe(describe) => self.require_own(describe.item),
                 _ => Ok(()),
             };
         })?;
@@ -172,6 +179,27 @@ impl<'a> View<'a> {
         )
     }
 
+    /// A screen, action, setting or setting group of this plugin, by its
+    /// relative name.
+    fn own_item(&self, name: &str) -> Result<bool, i32> {
+        Ok(self.raw.find(self.image, 5, name)?.is_some()
+            || self.raw.find(self.image, 6, name)?.is_some()
+            || self.spec(name)?.is_some()
+            || self.group(name)?.is_some())
+    }
+    fn require_item(&self, id: &str) -> Result<(), i32> {
+        match own_name(self.plugin, id) {
+            Some(name) if !self.own_item(name)? => Err(ERR_INVALID),
+            _ => Ok(()),
+        }
+    }
+    fn require_own(&self, name: &str) -> Result<(), i32> {
+        if self.own_item(name)? {
+            Ok(())
+        } else {
+            Err(ERR_INVALID)
+        }
+    }
     fn require_group(&self, id: &str) -> Result<(), i32> {
         if let Some(name) = own_name(self.plugin, id)
             && self.group(name)?.is_none()
