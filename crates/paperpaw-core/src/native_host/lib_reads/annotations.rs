@@ -28,6 +28,8 @@ const NOTED: u32 = 1;
 const TEXT_CUT: u32 = 1 << 1;
 const NOTE_CUT: u32 = 1 << 2;
 const HAS_CONVERSION: u32 = 1 << 3;
+/// *May have XPointers* (length-only: op 15 does not read their text); op 16
+/// is authoritative.
 const HAS_XPOINTERS: u32 = 1 << 4;
 
 /// The kind on the wire: 0 bookmark, 1 highlight, 2 + the letter of another.

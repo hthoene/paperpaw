@@ -98,7 +98,10 @@ impl super::Catalog {
     /// otherwise (a walk over a whole catalog, catching up and sorting are
     /// state 2). The share is rough: a library's size is known only at the
     /// end, so the view leads with the books so far and this is only a bar.
-    /// A first walk cut short that no job has taken up again yet says 0.
+    /// A first walk cut short that no job has taken up again yet says 0, and
+    /// so does one whose job is borrowed at the moment (never a panic). The
+    /// share can fall back to 0 after a restart of the walk (a walk begun
+    /// again counts its folders anew); the books so far are what grows.
     #[cfg_attr(
         not(test),
         expect(
@@ -110,7 +113,9 @@ impl super::Catalog {
         if !library::catalog::is_growing(storage) {
             return None;
         }
-        let job = self.job.borrow();
+        let Ok(job) = self.job.try_borrow() else {
+            return Some(0);
+        };
         Some(job.as_ref().and_then(CatalogJob::progress_ppm).unwrap_or(0))
     }
 }
@@ -266,6 +271,10 @@ mod tests {
         // A first walk cut short, no job yet: 0, not "ready".
         *catalog.job.borrow_mut() = None;
         assert_eq!(catalog.walking(&growing()), Some(0));
+        // A job being stepped (borrowed) answers 0, never panics.
+        let busy = catalog.job.borrow_mut();
+        assert_eq!(catalog.walking(&growing()), Some(0));
+        drop(busy);
         // Another job under way does not change what the card says.
         *catalog.job.borrow_mut() = Some(CatalogJob::Split(library::split::Split::new()));
         assert_eq!(catalog.walking(&growing()), Some(0));
