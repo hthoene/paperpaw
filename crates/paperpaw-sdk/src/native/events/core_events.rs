@@ -74,15 +74,7 @@ pub(super) fn decode(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
                 path: r.path,
             }
         }
-        wire::EVENT_LIBRARY_CHANGED_TAG => {
-            let r: wire::EventLibraryChanged<'_> = raw.decode().map_err(Error::from_status)?;
-            Event::LibraryChanged {
-                now_ms: r.now_ms,
-                what: LibraryChanges::from_bits(r.what),
-                generation: r.generation,
-                path: r.path,
-            }
-        }
+        wire::EVENT_LIBRARY_CHANGED_TAG => library_changed(raw)?,
         wire::EVENT_PLUGINS_CHANGED_TAG => {
             let r: wire::EventPluginsChanged = raw.decode().map_err(Error::from_status)?;
             Event::PluginsChanged { now_ms: r.now_ms }
@@ -155,4 +147,14 @@ fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
         settings::SettingValueRef::Int(value) => SettingValue::Int(value),
         settings::SettingValueRef::Text(value) => SettingValue::Text(value),
     }))
+}
+
+fn library_changed(raw: wire::RawRecord<'_>) -> Result<Event<'_>, Error> {
+    let r: wire::EventLibraryChanged<'_> = raw.decode().map_err(Error::from_status)?;
+    Ok(Event::LibraryChanged {
+        now_ms: r.now_ms,
+        what: LibraryChanges::from_bits(r.what),
+        generation: r.generation,
+        path: r.path,
+    })
 }
