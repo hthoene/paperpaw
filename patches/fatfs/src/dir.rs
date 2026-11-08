@@ -503,6 +503,27 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         Ok(())
     }
 
+    // Modified for PaperPaw: added.
+
+    /// [`remove_found`](Self::remove_found) for a directory the caller knows to be empty (it
+    /// removed every entry in it itself): not read through again, which for a directory that had
+    /// thousands of entries is all of its clusters. Entries still in it are lost with it, their
+    /// data's clusters left taken.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn remove_found_emptied(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        self.remove_entries(e)?;
+        if let Some(n) = e.first_cluster() {
+            if e.is_dir() {
+                self.fs.drop_dir_note(n);
+            }
+            self.fs.free_cluster_chain(n)?;
+        }
+        Ok(())
+    }
+
     // Modified for PaperPaw: `remove_entries`, `unlink`, `replace` and `free_short_name` added.
 
     /// Marks the long and short name entries of `e` deleted, leaving its data.

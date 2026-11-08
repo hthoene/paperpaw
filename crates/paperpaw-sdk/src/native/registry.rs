@@ -2,11 +2,7 @@
 //! Pages borrow caller-owned output. An entire page is checked before rows are
 //! exposed. A stale generation returns State; restart explicitly at zero.
 use super::wire::services_wire::core_registry_v1 as schema;
-use super::{
-    Error, Host,
-    declare::records_wire::{self as wire, Record},
-    services::Service,
-};
+use super::{Error, Host, declare::records_wire as wire, services::Service};
 use core::{fmt, marker::PhantomData};
 
 mod rows;
@@ -116,7 +112,7 @@ impl RegistryPageEnd {
     }
 }
 
-type Decode<'a, T> = fn(Record<'a>) -> Result<T, Error>;
+type Decode<'a, T> = fn(wire::RawRecord<'a>) -> Result<T, Error>;
 
 /// A validated page borrowing the output buffer. Rows contain no owned strings.
 pub struct RegistryPage<'a, T> {
@@ -182,7 +178,7 @@ impl<'a, T> Iterator for RegistryRows<'a, T> {
             return None;
         }
         // Construction validated these immutable bytes with the same decoder.
-        let (record, length) = wire::record_decode_prefix(self.bytes).ok()?;
+        let (record, length) = wire::RawRecord::prefix(self.bytes).ok()?;
         let row = (self.decode)(record).ok()?;
         self.bytes = self.bytes.get(length..)?;
         self.count -= 1;
@@ -222,14 +218,14 @@ impl Registry {
         &self,
         host: &Host<'_>,
         op: u32,
-        record: Record<'_>,
+        record: &dyn wire::WireEncode,
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<&'a [u8], Error> {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
         let capacity = input.len().min(operation.max_input);
-        let length =
-            wire::records_encode(&[record], &mut input[..capacity]).map_err(Error::from_status)?;
+        let length = wire::records_encode_of(&[record], &mut input[..capacity])
+            .map_err(Error::from_status)?;
         let length = self.service.call(host, op, &input[..length], out)?;
         out.get(..length).ok_or(Error::Invalid)
     }
@@ -242,15 +238,20 @@ impl Registry {
         out: &'a mut [u8],
         decode: Decode<'a, T>,
     ) -> Result<RegistryPage<'a, T>, Error> {
-        let record = Record::ServiceRegQuery(wire::ServiceRegQuery {
+        let record = wire::ServiceRegQuery {
             scope: query.scope,
             cursor: query.cursor.offset,
             generation: query.cursor.generation,
             flags: query.flags,
-        });
-        let bytes = self.call(host, query.op, record, input, out)?;
+        };
+        let bytes = self.call(host, query.op, &record, input, out)?;
         validate_page(bytes, query.cursor, decode)
     }
+}
+
+/// A reply row as `R`; another record or a malformed one is Invalid.
+fn expect<'a, R: wire::WireRecord<'a>>(raw: wire::RawRecord<'a>) -> Result<R, Error> {
+    raw.decode().map_err(|_| Error::Invalid)
 }
 
 struct ListQuery<'a> {
@@ -277,17 +278,17 @@ impl<'a> ReplyRecords<'a> {
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, end: None }
     }
-    fn next(&mut self) -> Result<Option<Record<'a>>, Error> {
+    fn next(&mut self) -> Result<Option<wire::RawRecord<'a>>, Error> {
         if self.end.is_some() {
             return Ok(None);
         }
         if self.bytes.is_empty() {
             return Err(Error::Invalid);
         }
-        let (record, length) =
-            wire::record_decode_prefix(self.bytes).map_err(|_| Error::Invalid)?;
+        let (record, length) = wire::RawRecord::prefix(self.bytes).map_err(|_| Error::Invalid)?;
         self.bytes = self.bytes.get(length..).ok_or(Error::Invalid)?;
-        if let Record::ServiceEnd(end) = record {
+        if record.tag() == wire::SERVICE_END_TAG {
+            let end = expect(record)?;
             if !self.bytes.is_empty() {
                 return Err(Error::Invalid);
             }

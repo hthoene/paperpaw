@@ -21,10 +21,36 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 
 mod book;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_list;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_rows;
 mod books;
 mod calendar;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod calendar_model;
 mod chart;
 mod extsort;
 mod files;
@@ -33,11 +59,19 @@ mod koreader;
 mod left;
 mod merge;
 mod overview;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod overview_rows;
+mod recorder;
+mod room;
 mod store;
 mod sync;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod texts;
 mod totals;
 mod widget;
 
+#[cfg(test)]
+mod screens_tests;
 #[cfg(test)]
 mod testing;
 
@@ -368,13 +402,17 @@ impl State {
 /// where `books.ini` cannot be read or written: it then stays as it was,
 /// and nothing is recorded for the book.
 fn register_book(env: &Env<'_>, path: &str, now: i64, pages: u32) -> Option<u16> {
-    let md5 = md5::partial(env.storage(), path)?;
+    let mut digits = [0u8; 32];
+    let md5 = md5::partial_into(env.storage(), path, &mut digits)?;
     let mut id = None;
     store::update_books(env.storage(), |books| {
         let at = match books.iter().position(|b| b.md5 == md5) {
             Some(at) => at,
             None => {
                 let Ok(new) = store::new_id(env.storage(), books) else {
+                    return false;
+                };
+                let Ok(md5) = room::string(&[md5]) else {
                     return false;
                 };
                 let document = env.formats().open(env.storage(), path).ok();
