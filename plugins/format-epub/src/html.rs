@@ -342,7 +342,13 @@ impl HtmlDocument {
                     convert::IMAGE_FIT,
                     convert::BookText::default(),
                 );
-                converted.inspect_err(|_| self.length.set(FAILED))?
+                // Short of memory, it is tried again: with more free, it may
+                // convert.
+                converted.inspect_err(|e| {
+                    if !matches!(e, DocumentError::OutOfMemory) {
+                        self.length.set(FAILED);
+                    }
+                })?
             }
         };
         self.length.set(length);

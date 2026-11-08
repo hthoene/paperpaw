@@ -620,7 +620,13 @@ impl Fb2Document {
                     self.image_fit,
                     convert::BookText::of(self.metadata.language.as_deref()),
                 );
-                converted.inspect_err(|_| self.length.set(FAILED))?
+                // Short of memory, it is tried again: with more free, it may
+                // convert.
+                converted.inspect_err(|e| {
+                    if !matches!(e, DocumentError::OutOfMemory) {
+                        self.length.set(FAILED);
+                    }
+                })?
             }
         };
         self.length.set(length);

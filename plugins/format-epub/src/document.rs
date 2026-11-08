@@ -566,6 +566,9 @@ impl EpubDocument {
             }
             None => {
                 self.anchors.reset();
+                // What this book once converted is not matched against the
+                // files of a conversion begun now (and refused midway).
+                slot.set(UNKNOWN);
                 let entry = self
                     .archive
                     .entry_by_record(storage, chapter.record)
