@@ -282,6 +282,35 @@ fn menu_ids_come_once_each_with_the_users_flag_and_the_users_own_menus() {
 }
 
 #[test]
+fn a_refused_seen_list_allocation_fails_the_whole_menu_answer() {
+    let mut kernel = fresh();
+    install_with(&mut kernel, 4).unwrap();
+    let declarations = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let mut reached_success = false;
+    // The 1st allocation is the seen-list, the 2nd the copy of the first id.
+    for allocation in 1..8 {
+        let mut visited = 0_usize;
+        arm_failure(allocation);
+        let result =
+            declarations.menu_ids(&mut ["user.menu"].into_iter(), &|_| false, &mut |_, _| {
+                visited += 1
+            });
+        arm_failure(0);
+        match result {
+            Ok(()) => {
+                // Every allocation the answer needs went through: both menus.
+                assert_eq!(visited, 2, "allocation {allocation}");
+                reached_success = true;
+                break;
+            }
+            // The caller (op 11) must treat this as failure of the whole answer.
+            Err(status) => assert_eq!(status, host_glue::ERR_NO_MEMORY, "allocation {allocation}"),
+        }
+    }
+    assert!(reached_success, "the walk reached a complete answer");
+}
+
+#[test]
 fn another_plugins_items_unknown_places_and_unknown_needs_are_accepted() {
     let mut kernel = fresh();
     install_with(&mut kernel, 5).unwrap();
@@ -294,7 +323,10 @@ fn a_bad_menu_batch_refuses_the_whole_owner_and_publishes_nothing() {
         let mut kernel = fresh();
         let screens = kernel.shared.registry.screens.list().iter().count();
         let result = install_with(&mut kernel, mode);
-        assert!(result.is_err(), "mode {mode}");
+        assert!(
+            matches!(result, Err(Error::Status(host_glue::ERR_INVALID))),
+            "mode {mode}: {result:?}"
+        );
         assert_eq!(
             kernel.shared.registry.screens.list().iter().count(),
             screens,
