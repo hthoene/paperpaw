@@ -148,6 +148,25 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
     install_with(builder, fonts, store)
 }
 
+/// The first-party plugins that are interface-7 native plugins already,
+/// linked into the program (`native_plugin!(…, linked = NATIVE_ENTRY)`), with
+/// their ids: the list is what Beta 3 built in, so a plugin joins it when its
+/// port lands and its interface-6 form leaves [`install_with`]. A shell
+/// registers each through the kernel (`Kernel::register_native`); until a
+/// device activates them it only keeps them linked.
+#[cfg(feature = "native-linked")]
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 9] = [
+    ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
+    ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
+    ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
+    ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
+    ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
+    ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
+    ("plugin-manager", &paperpaw_plugin_plugin_manager::NATIVE_ENTRY),
+    ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
+    ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
+];
+
 /// The network settings of every networked first-party plugin, kept in
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
@@ -217,9 +236,14 @@ pub fn install_with(
         .plugin(paperpaw_plugin_hyphenation::Hyphenation)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader)
-        .plugin(paperpaw_plugin_files::Files)
-        .plugin(paperpaw_plugin_home::Home)
-        .plugin(paperpaw_plugin_menu::Menu);
+        .plugin(paperpaw_plugin_home::Home);
+    // These are native plugins, linked (`NATIVE_PLUGINS`), where the feature says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b
+            .plugin(paperpaw_plugin_files::Files)
+            .plugin(paperpaw_plugin_menu::Menu);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_menu_editor::MenuEditor);
@@ -240,8 +264,11 @@ pub fn install_with(
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_bluetooth::Bluetooth)
         .plugin(paperpaw_plugin_file_manager::FileManager)
-        .plugin(paperpaw_plugin_transfer::Transfer)
-        .plugin(paperpaw_plugin_opds::Opds);
+        .plugin(paperpaw_plugin_transfer::Transfer);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_opds::Opds);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
@@ -269,8 +296,9 @@ pub fn install_with(
         b = offer_shipped_off(b, store);
     }
     // A theme of the app's own, off as it ships, on every device.
-    let builder = b
-        .plugin_off(Pebble)
+    let builder = b.plugin_off(Pebble);
+    #[cfg(not(feature = "native-linked"))]
+    let builder = builder
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
     builder

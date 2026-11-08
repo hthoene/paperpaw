@@ -39,6 +39,11 @@ asleep-light = []
 # the shipped firmware reads format-4 files only, and no interface-7 plugin is
 # activated on the X4 until the stack gate (`abi/heap-word.md` section 6) is met.
 ppn5 = ["paperpaw-native/kernel"]
+# The built-in plugins that are interface-7 native plugins already, linked
+# statically (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of
+# their interface-6 forms. For measuring the image: they are linked and kept,
+# not activated; no interface-7 plugin runs on the X4 until the stack gate.
+static-native = ["ppn5", "paperpaw-app/native-linked"]
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [

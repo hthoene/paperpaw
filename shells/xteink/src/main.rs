@@ -914,6 +914,16 @@ fn kernel(
         paperpaw_app::StorePlugins::Left,
     )
     .plugin(device::X4);
+    // Linked and kept for the image's measure, never activated here: the stack
+    // gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
+    #[cfg(feature = "static-native")]
+    log::info!(
+        "native: {} interface-7 plugins linked, none activated",
+        core::hint::black_box(&paperpaw_app::NATIVE_PLUGINS)
+            .iter()
+            .filter(|(_, linked)| linked.entry().make.is_some())
+            .count()
+    );
     #[cfg(feature = "frame-test")]
     let builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
     // Its warnings are logged as the main loop starts: taken here, the
