@@ -59,7 +59,10 @@ mod marks;
 )]
 mod native_decks;
 mod native_entry;
-#[allow(dead_code, reason = "used by the native screens, which wait (PORTING-7.md)")]
+#[allow(
+    dead_code,
+    reason = "used by the native screens, which wait (PORTING-7.md)"
+)]
 mod native_words;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

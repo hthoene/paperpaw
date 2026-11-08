@@ -143,10 +143,7 @@ fn the_files_row_says_what_there_is_to_do() {
         ..Pending::default()
     };
     assert!(say(same, "en").starts_with("Up to date."));
-    let failed = Pending {
-        failed: 1,
-        ..same
-    };
+    let failed = Pending { failed: 1, ..same };
     assert!(say(failed, "en").starts_with("1 file in Cards could not be made into a deck"));
     assert!(say(failed, "de").starts_with("1 Datei in Cards konnte nicht"));
     // New or changed files come before the ones that failed.
@@ -235,7 +232,11 @@ fn when_the_heap_refuses_the_numbers_come_back_as_an_error() {
             Numbers::read(&storage, 1, "Cards", Pending::default())
         });
         if let Err(error) = result {
-            assert_eq!(error, paperpaw_sdk::StorageError::TooLarge, "refusing allocation {at}");
+            assert_eq!(
+                error,
+                paperpaw_sdk::StorageError::TooLarge,
+                "refusing allocation {at}"
+            );
         }
     }
 }

@@ -244,7 +244,8 @@ pub(crate) fn open(host: &Host<'_>, ui: &Ui, target: Target) -> Result<(), Error
     if let Some(deck) = deck {
         let mut digits = [0u8; 20];
         let id = text::decimal(deck as usize, &mut digits);
-        open = open.handover(ui.handover(host, &[Param::new(DECK, id)?], &mut input, &mut output)?);
+        open =
+            open.handover(ui.handover(host, &[Param::new(DECK, id)?], &mut input, &mut output)?);
     }
     CommandSender::new(host, &mut input).open(open)
 }
