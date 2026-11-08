@@ -388,6 +388,12 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
+    /// Work of this plugin came due (`core.work`): opens a run.
+    WorkDue(super::work::WorkDue<'a>),
+    /// Work was taken out for good (the user turned the network off).
+    WorkRefused(super::work::WorkRefused<'a>),
+    /// What held work back no longer does: try again what was held.
+    WorkAllowed { now_ms: u64 },
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.

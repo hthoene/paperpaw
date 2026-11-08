@@ -8,6 +8,7 @@ use crate::{
         declare::settings_value as settings,
         net::{HttpDone, HttpProgress},
         settings::SettingValue,
+        work::{WorkDue, WorkRefused},
     },
     power::PowerLevel,
 };
@@ -120,6 +121,18 @@ event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
 
 event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
+});
+
+event_fn!(work_due, wire::EventWorkDue<'_>, |r| Event::WorkDue(
+    WorkDue::decode(r)
+));
+
+event_fn!(work_refused, wire::EventWorkRefused<'_>, |r| {
+    Event::WorkRefused(WorkRefused::decode(r))
+});
+
+event_fn!(work_allowed, wire::EventWorkAllowed, |r| {
+    Event::WorkAllowed { now_ms: r.now_ms }
 });
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
