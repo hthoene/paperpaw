@@ -1,7 +1,7 @@
 //! The native declarations name what the interface-6 registration names:
-//! screens (ids, titles), the advanced switch and the slots it fills. The
-//! passwords-and-keys screens wait for the secrets service (see
-//! `acceptance_pending.rs`).
+//! screens (ids, titles) including the passwords and keys, the advanced
+//! switch, the slots it fills, and the action, menu entry and icon of the
+//! passwords and keys.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(
@@ -41,10 +41,6 @@ fn screen_ids_and_titles_match_the_interface_6_registration() {
         if let Contribution::FixedScreens(screens) = contribution {
             for screen in screens {
                 let name = screen.id().as_str().strip_prefix("settings.").unwrap();
-                // Passwords and keys wait for the secrets service.
-                if name.starts_with("secret") {
-                    continue;
-                }
                 expected.push((name.to_string(), screen.title().to_string()));
             }
         }
@@ -56,6 +52,8 @@ fn screen_ids_and_titles_match_the_interface_6_registration() {
         ("themes", "settings.theme", declarations::THEMES),
         ("choose", "settings.title", declarations::CHOOSE),
         ("search", "settings.search", declarations::SEARCH),
+        ("secrets", "settings.secrets", declarations::SECRETS),
+        ("secret", "settings.secrets", declarations::SECRET),
     ];
     assert_eq!(expected.len(), native.len());
     for (name, title, _) in native {
@@ -116,7 +114,10 @@ fn the_plugin_and_the_declarations_share_their_tokens() {
             plugin::CHOOSE,
             plugin::THEMES,
             plugin::SEARCH,
-            plugin::EVENTS
+            plugin::SECRETS,
+            plugin::SECRET,
+            plugin::EVENTS,
+            plugin::OPEN_SECRETS
         ],
         [
             declarations::LIST,
@@ -124,7 +125,62 @@ fn the_plugin_and_the_declarations_share_their_tokens() {
             declarations::CHOOSE,
             declarations::THEMES,
             declarations::SEARCH,
-            declarations::EVENTS
+            declarations::SECRETS,
+            declarations::SECRET,
+            declarations::EVENTS,
+            declarations::OPEN_SECRETS
         ]
+    );
+}
+
+#[test]
+fn the_action_the_menu_entry_and_the_icon_of_the_passwords_and_keys_match() {
+    let (mut actions, mut entries, mut icons) = (Vec::new(), Vec::new(), Vec::new());
+    for contribution in legacy() {
+        match contribution {
+            Contribution::FixedActions(list) => {
+                for a in list.iter() {
+                    let a = paperpaw_sdk::Action::Fixed(a);
+                    actions.push((a.id().as_str().to_string(), a.title().to_string()));
+                }
+            }
+            Contribution::FixedMenuEntries(list) => {
+                for e in list.iter() {
+                    entries.push((
+                        e.menu.as_str().to_string(),
+                        e.item.as_str().to_string(),
+                        e.order,
+                    ));
+                }
+            }
+            Contribution::FixedIcons(list) => {
+                for (item, icon) in list.iter() {
+                    icons.push((item.as_str().to_string(), (*icon).to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        actions,
+        [(
+            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
+            "settings.secrets".to_string()
+        )]
+    );
+    assert_eq!(
+        entries,
+        [(
+            "core.settings-pages".to_string(),
+            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
+            declarations::SECRETS_ORDER
+        )]
+    );
+    assert_eq!(
+        icons,
+        [(
+            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
+            "key".to_string()
+        )]
     );
 }

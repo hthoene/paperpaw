@@ -44,7 +44,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     pub fn book_field(&mut self, field: BookFieldDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.accept_record(Ok(field.0))
     }
-    /// Declare a badge callback token. The host owns the `core.book_badge` stage;
+    /// Declare a badge callback token. The host owns the `core.book-badge` stage;
     /// this declaration does not subscribe to a plugin-defined stage.
     ///
     /// # Errors

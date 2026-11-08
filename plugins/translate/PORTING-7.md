@@ -1,12 +1,14 @@
-# Translation on interface 7 (slices 1 and 2, partly ported)
+# Translation on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`Translate`, the panel, the request and the
-answer in `lib.rs`) is still in place beside the native one. It is removed in the PR that finishes
-the port.
+answer in `lib.rs`) is still in place beside the native one: it is what registers the language
+setting and the slot `core.translate` until the native plugin can (draft 29 and #522, see "What is
+still missing"). Everything else of the plugin is ported; the interface-6 code goes in the PR that
+registers those two, and `PORTING-7.md` then says *complete*.
 
 Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
 `declarations.rs` built into the image by `build.rs`, the host-free parts in
-`src/native_model.rs`, asking DeepL and the key in `src/native_ask.rs`, metadata in `native/` (regenerate with
+`src/native_model.rs`, asking DeepL and the key in `src/native_ask.rs`, the panel in `src/native_panel.rs`, metadata in `native/` (regenerate with
 `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
 native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
 
@@ -14,14 +16,10 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 
 1. **Slice 1 (done):** the panel's screen declared and submitted, the model (target language,
    request, answer) fallible and compared with interface 6, the tests, the pending acceptance.
-2. **Slice 2 (this one):** the request and the key (see below). Asking DeepL and keeping the key are
+2. **Slice 2 (done):** the request and the key (see below). Asking DeepL and keeping the key are
    written and run against scripted `core.net` and `core.secrets` services.
-3. **Slice 3:** the panel on `core.ui`: the original in one line in the header, the translation
-   wrapped and scrolled by the page buttons or taps, *Select* or a tap at the end closes it, a tap
-   asks for the key while there is none, the offer to go online in offline mode, the messages
-   (`translate.loading`, `needs-key`, `bad-key`, `quota`, `no-network`, `unreachable`, `failed`).
-   Then the interface-6 code goes, `PORTING-7.md` says *complete*, the language setting and the
-   slot offer are in the image.
+3. **Slice 3 (this one):** the panel on `core.ui` (see below). What is left (the language setting,
+   the reader's side of the slot offer) waits for the hosts and the contract, then the interface-6 code goes.
 
 ## Ported in slice 1
 
@@ -81,27 +79,83 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   abort, an error status). `tests/native_asking.rs` drives the real plugin: an end that nothing
   waits for changes nothing and asks no service; a body that is no record is an error status.
 
-## What the slice loses (each returns in a later slice or with its host piece)
+## Ported in slice 3
+
+- `src/native_panel.rs` (`Panel`): the overlay over the lower 11 twentieths of the page (as
+  interface 6 drew in a `region`): a bar along its top, the original in one line at the left of the
+  header (the first 512 bytes, whitespace made single, fitted to the room the service's name
+  leaves) and `translate.source` at the right, then the body: a message, the translation or the
+  offer to go online. Drawn from prepared `Paint` operations in the draw callback (font and
+  `Style` of `paperpaw-ui-kit`). Wrapping is a paragraph at a time with fallible allocation, at most
+  400 lines (the last ends in "…"; 3,000 characters of any script come to fewer): **a difference
+  from interface 6, which had no limit**.
+- Keys and taps as in interface 6 (`Panel::action`, `Panel::tap`, tested without a host): the page
+  buttons and arrows scroll, *Select* closes (or asks for the key while there is none or it was
+  refused), a tap in the left third goes back, in the rest forward, and forward at the end closes;
+  a tap while a key is needed asks for it. The seven messages are the existing texts
+  (`translate.loading`, `needs-key`, `bad-key`, `quota`, `no-network`, `unreachable`, `failed`).
+  The interface-6 *hint* (the button hint "Close" under *Select*) is not ported: the native input
+  has no hint call yet.
+- `src/native_plugin.rs`: the selected text is the hand-over's host text (`ScreenOpened` names the
+  hand-over; read whole with `uitext::read_all`, at most 24,576 bytes: nothing, or text that is too
+  long, is an empty text). The request is sent when the panel is first shown (interface 6:
+  `on_show`), with the key read from the secrets; no network at all (`core.net` or the feature
+  refused) says `no-network`, no key (or no secrets) `needs-key`. `http_done` shows the
+  translation or the message of the outcome (`Asker::done`).
+- **The key**: *Select* or a tap while it is needed asks for it on the keyboard slot as a **masked**
+  text question (`Question::text(...).secret()`, titled `translate.key`); the answer (read whole in
+  buffers that are wiped, trimmed, over 1,024 bytes is `bad-key`) is kept with the secrets and
+  used **at once**, as in interface 6. Where the host answers `ERR_UNSUPPORTED` to keeping it (the
+  device cannot save passwords, owner decision 141) the reader gets the shared notice
+  **`core.secrets-unsupported`** and the key is used for this time only; any other failure to keep
+  it is silent and the key is used all the same.
+- **Offline power mode**: a request that ends with reason `offline` (`Outcome::Offline`) shows the
+  offer once per panel (*Offline mode. This needs the network. Go online for it?* with the shared
+  `core.offline.*` texts: two buttons, *Go online* first, keys move the focus, a tap chooses).
+  *Go online* asks the host for the network for 10 minutes (`go_online`, the most the ABI allows;
+  interface 6 held it until the screen closed, so the reader presses *Translate* again after the 10
+  minutes) and sends the text again; *Not now* says `no-network`. A second
+  `offline` on the same panel says `no-network` (not offered again).
+- A refused redraw, close or `go_online` is not an error of the event or input that asked (the
+  panel may not be on top any more); a failed ask or request shows `translate.failed` or
+  `no-network`, never aborts. Closing the screen cancels the request and frees the panel.
+- Metadata: services `core.net`, `core.secrets`, `core.ui` (plus the host calls behind them:
+  `services.query`, `blob.read`, `blob.release`).
+- `tests/native_panel_flow.rs` drives the real plugin through scripted `core.ui`, `core.net` and
+  `core.secrets` services: the text read from the hand-over, nothing sent before the panel is
+  shown and once only, the request as given to the host, a body read in pieces, no key (nothing
+  sent, a masked question asked, the answer kept and used, an answer to another question or a
+  cancelled one ignored), a host that cannot keep the key, the offer once and *Go online* sending
+  again, *Not now*, a device without the network service, and a refusal of every service call and
+  opening in turn (no abort). **The scripted host stages no screen commands**, so a redraw, a close
+  and `go_online` are not seen in it (the panel's tests cover what each key means), and it
+  answers no `i18n.copy`: the title of the key's question then falls back to its key.
+  `src/native_panel/tests.rs` tests the panel's state and wrapping without a host;
+  `tests/native_translations.rs` checks every text the code asks for, the plugin's and the shared
+  ones (`core.offline.*`, `core.secrets-unsupported`), in both languages.
+- The subscription to `http_done` (`image::EVENTS`) is submitted with the screen, as Battery and
+  Wi-Fi submit theirs: the scripted host admits it; the kernel's own host (`Hosted`, as
+  `plugins/help/tests/hosted_construction.rs` shows) refuses every event batch (and a screen
+  without its views) until its declaration wiring (#944) lands, for every port alike.
+
+## What is still missing (each returns with its host piece)
 
 - **The language setting `translate.to`** is built (`declarations::settings`: a choice of the reader's
   own language and the 32 DeepL ones, default PaperPaw's, advanced, in the reading group, under
   the section `translate.section`) but **not in the image**: a `setting.spec` takes at most 32 choice
-  values and this one has 33. Kernel raises the limit to 64 in draft 29 (to be blessed on
-  2026-11-09); a follow-up emits it, submits it and compares it with the interface-6 setting.
+  values and this one has 33. Draft 29 (Kernel, to be blessed 2026-11-09, not on integration
+  yet) raises the limit to 64; a follow-up emits it, submits it and compares it with the
+  interface-6 setting. Until then the plugin reads `translate.to` if some plugin has registered it
+  (interface 6 does, while it stays) and translates into PaperPaw's language otherwise.
   `tests/native_declarations.rs` pins the refusal and fails when the limit is raised.
-- **The slot offer** for `core.translate` is built and in the image but **not submitted**: the host
-  checks a slot offer and refuses it (`ERR_UNSUPPORTED`) until it admits registry declarations, and
-  a `make` that fails would keep the whole plugin from being admitted. The test pins the refusal.
-  Until then the reader's *Translate* does not find the panel.
-- **The subscription to `http_done`** (`declarations::events`, `image::EVENTS`) is built but **not
-  submitted**: the kernel's host refuses event declarations until #944, and a `make` that fails
-  keeps the plugin out. Without it `core.net` refuses a request as `State`, so the real plugin
-  does not ask DeepL yet (nothing starts a request until the panel in slice 3); `native_asking`
-  pins that it is not submitted.
-- **Not run against the real hosts:** the staging of a form over 2,048 bytes (the scripted host has
-  no storage: the test pins that the request is then refused whole, never sent cut), and
-  allocation refusal inside `Asker` (the linked plugin allocates from the test's allocator, not
-  the host's heap slot); every allocation there is fallible by construction.
-- The panel's drawing, scrolling and input, the offer to go online and the messages: slice 3. Each
-  is an ignored case in `tests/acceptance_pending.rs`, naming what blocks it.
+- **The slot offer** for `core.translate` is in the image and **submitted** in `make`, after the screen it
+  names (the host admits slot offers since #522; `tests/native_declarations.rs` validates it,
+  `tests/native_asking.rs` pins the order). What is still open is the reader's side: its *Translate*
+  finds the native panel only when the reader's slot host reads native offers (an ignored case in
+  `tests/acceptance_pending.rs`); the interface-6 plugin still binds the slot until it goes.
+- **Not run against the real hosts:** the panel's drawing (it needs the font and the style: a
+  pixel harness backed by the kernel, as Battery's), the staging of a form over 2,048 bytes (the
+  scripted host has no storage), allocation refusal inside the linked plugin (it allocates from the
+  test's allocator, not the host's heap slot; every allocation is fallible by construction).
+  Each is an ignored case in `tests/acceptance_pending.rs`.
 - `tests/panel.rs` (the interface-6 test, driving a kernel) stays as the reference.

@@ -34,6 +34,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
@@ -132,7 +133,7 @@ impl Day {
 // storage (root 0) is that folder, so its adapter takes the folder off again.
 const PAGES: &str = ".paperpaw/plugins/stats/pages.bin";
 const PAGES_NEW: &str = ".paperpaw/plugins/stats/pages.new";
-const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
+pub(crate) const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
 const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
 /// Present from the moment the new log and the new `books.ini` are both whole
 /// beside the old ones until both are in place: a cut between the two renames
@@ -160,19 +161,20 @@ const LINE: usize = 16 * 1024;
 /// Calls `visit` with each line of the file at `path` (without its line
 /// break) as it streams from the storage; a missing file has none. Invalid
 /// UTF-8 and overlong lines are errors ([`StorageError::InvalidData`]),
-/// not left out, so that nothing unread is written back.
+/// not left out, so that nothing unread is written back. `visit` may stop the
+/// reading (`Break`): what follows is then not read, and not checked.
 fn each_line(
     storage: &dyn Storage,
     path: &str,
-    mut visit: impl FnMut(&str) -> Result<(), StorageError>,
+    mut visit: impl FnMut(&str) -> Result<ControlFlow<()>, StorageError>,
 ) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
-    let mut emit = |line: &mut Vec<u8>| -> Result<(), StorageError> {
+    let mut emit = |line: &mut Vec<u8>| -> Result<ControlFlow<()>, StorageError> {
         let text = core::str::from_utf8(line).map_err(|_| StorageError::InvalidData)?;
-        visit(text.strip_suffix('\r').unwrap_or(text))?;
+        let flow = visit(text.strip_suffix('\r').unwrap_or(text))?;
         line.clear();
-        Ok(())
+        Ok(flow)
     };
     let mut at = 0u64;
     loop {
@@ -196,13 +198,14 @@ fn each_line(
             line.try_reserve(text.len())
                 .map_err(|_| StorageError::TooLarge)?;
             line.extend_from_slice(text);
-            if ends {
-                emit(&mut line)?;
+            if ends && emit(&mut line)?.is_break() {
+                return Ok(());
             }
         }
     }
-    if !line.is_empty() {
-        emit(&mut line)?;
+    // The last line has nothing after it to stop.
+    if !line.is_empty() && emit(&mut line)?.is_break() {
+        return Ok(());
     }
     Ok(())
 }
@@ -245,6 +248,17 @@ pub(crate) fn each_book(
     storage: &dyn Storage,
     mut visit: impl FnMut(Book) -> Result<(), StorageError>,
 ) -> Result<(), StorageError> {
+    each_book_until(storage, |book| visit(book).map(ControlFlow::Continue))
+}
+
+/// As [`each_book`], and `visit` may stop with `Break`: the rest of the file
+/// is then not read, so a damaged line after the last book wanted is not
+/// noticed (a reader that only shows books does not need it to be).
+pub(crate) fn each_book_until(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<ControlFlow<()>, StorageError>,
+) -> Result<(), StorageError> {
+    let mut stopped = false;
     let mut seen = IdSet::new()?;
     // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
@@ -252,6 +266,7 @@ pub(crate) fn each_book(
     // (sections in a row, empty ones between, merge).
     let mut current: Option<Book> = None;
     let mut skip = false;
+    let go = ControlFlow::Continue(());
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
             let name = header.strip_suffix(']').ok_or(StorageError::InvalidData)?;
@@ -260,28 +275,31 @@ pub(crate) fn each_book(
                 .strip_prefix("book.")
                 .and_then(|id| id.parse::<u16>().ok());
             skip = false;
-            return Ok(());
+            return Ok(go);
         }
         // Nothing for an empty line or a comment.
         let Some(entry) = paperpaw_sdk::config::parse(line).next() else {
-            return Ok(());
+            return Ok(go);
         };
         let entry = entry.map_err(|_| StorageError::InvalidData)?;
         let Some(id) = section else {
-            return Ok(());
+            return Ok(go);
         };
         if skip {
-            return Ok(());
+            return Ok(go);
         }
         if current.as_ref().is_none_or(|book| book.id != id) {
             // Another section of this id came before: the first one is the book.
             if seen.has(id) {
                 skip = true;
-                return Ok(());
+                return Ok(go);
             }
             seen.insert(id);
-            if let Some(done) = current.take() {
-                visit(done)?;
+            if let Some(done) = current.take()
+                && visit(done)?.is_break()
+            {
+                stopped = true;
+                return Ok(ControlFlow::Break(()));
             }
             current = Some(Book {
                 id,
@@ -289,7 +307,7 @@ pub(crate) fn each_book(
             });
         }
         let Some(book) = current.as_mut() else {
-            return Ok(());
+            return Ok(go);
         };
         let value = entry
             .value
@@ -307,11 +325,11 @@ pub(crate) fn each_book(
             "finished" => book.finished = value.parse().unwrap_or(0),
             _ => {}
         }
-        Ok(())
+        Ok(go)
     })?;
     match current {
-        Some(done) => visit(done),
-        None => Ok(()),
+        Some(done) if !stopped => visit(done).map(|_| ()),
+        _ => Ok(()),
     }
 }
 
@@ -369,15 +387,20 @@ pub(crate) fn ids_read(storage: &dyn Storage) -> Result<IdSet, StorageError> {
 /// by id, the smaller first), by id, each as `keep` makes it from the book read.
 /// The file is read one book at a time and at most `most` are held, so the
 /// memory is the same for a library of ten books and of ten thousand.
-pub(crate) fn most_recent(
+pub(crate) fn most_recent<T>(
     storage: &dyn Storage,
     most: usize,
-    mut keep: impl FnMut(Book) -> Result<Book, StorageError>,
-) -> Result<Vec<Book>, StorageError> {
+    mut keep: impl FnMut(Book) -> Result<T, StorageError>,
+    // The id and the last open of what was kept.
+    of: impl Fn(&T) -> (u16, i64),
+) -> Result<Vec<T>, StorageError> {
     let read = ids_read(storage)?;
     // Newer is smaller: the worst of those held is the largest.
-    let key = |b: &Book| (core::cmp::Reverse(b.last_open), b.id);
-    let mut held: Vec<Book> = Vec::new();
+    let key = |b: &T| {
+        let (id, last_open) = of(b);
+        (core::cmp::Reverse(last_open), id)
+    };
+    let mut held: Vec<T> = Vec::new();
     each_book(storage, |book| {
         if !read.has(book.id) || most == 0 {
             return Ok(());
@@ -389,7 +412,9 @@ pub(crate) fn most_recent(
         }
         let worst = (0..held.len()).max_by_key(|&at| held.get(at).map(key));
         if let Some(at) = worst
-            && held.get(at).is_some_and(|w| key(&book) < key(w))
+            && held
+                .get(at)
+                .is_some_and(|w| (core::cmp::Reverse(book.last_open), book.id) < key(w))
         {
             let kept = keep(book)?;
             if let Some(slot) = held.get_mut(at) {
@@ -398,12 +423,13 @@ pub(crate) fn most_recent(
         }
         Ok(())
     })?;
-    paperpaw_sdk::sort::sort_by_key(&mut held, |b| b.id);
+    paperpaw_sdk::sort::sort_by_key(&mut held, |b| of(b).0);
     Ok(held)
 }
 
 /// The titles of the books `ids` name, each as `keep` makes it (`None` for an
-/// id with no book): only those titles are held.
+/// id with no book): only those titles are held, and the file is read no
+/// further than the last of them.
 pub(crate) fn titles(
     storage: &dyn Storage,
     ids: &[u16],
@@ -413,7 +439,10 @@ pub(crate) fn titles(
     out.try_reserve_exact(ids.len())
         .map_err(|_| StorageError::TooLarge)?;
     out.resize(ids.len(), None);
-    each_book(storage, |book| {
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    each_book_until(storage, |book| {
         for (at, id) in ids.iter().enumerate() {
             if *id == book.id
                 && let Some(slot) = out.get_mut(at)
@@ -421,7 +450,12 @@ pub(crate) fn titles(
                 *slot = Some(keep(&book.title)?);
             }
         }
-        Ok(())
+        // Every one found: the books after are not needed.
+        Ok(if out.iter().all(Option::is_some) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        })
     })?;
     Ok(out)
 }

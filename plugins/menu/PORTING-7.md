@@ -33,6 +33,24 @@ together (no shim).
 - The menu follows `SettingChanged`, `PluginsChanged` and `RegistryChanged`: the top one is made
   anew (aside; a refusal leaves the old rows), the covered ones when they show.
 
+## Slice 2a: the quick panel's model (`src/native_panel.rs`)
+
+The panel without the host, not yet a screen (the slot `core.panel` stays unbound until slice 2b).
+`lines` turns a menu's rows (with the registry's setting facts and a choice's translated options)
+into rows of controls as interface 6 did: switches and buttons several to a row (at most 3, as many
+as stay readable, shared out evenly, never switches with buttons), a number as `−` / `+`, a choice
+of 2 to 4 options that fit as segments, everything else (a setting with its own editor, more
+options, text, lists) opens. A setting the registry does not know is a button, as in interface 6.
+`layout` places them at the bottom (80 % of the screen at most) or hanging from the top (95 %, from
+the very edge), in pages with a pager bar when they need more. Controls name their menu row by
+index. Everything allocates fallibly; text widths come from a `Measure` the screen will give.
+Tests: grouping, per-row shrink, segments and their fit, label width, bottom and top layout, pages,
+right-to-left columns, allocation-refusal sweeps.
+
+Differences from interface 6, named: no slider rows (the kit has none; a marked number is a
+`−` / `+` stepper on touch screens too, until the kit has a slider: SLIDER); the pager height and
+button size come from the screen's style when the screen (2b) is made.
+
 ## Moved to the host
 
 - The notice (`menu.notice`, slot `core.notice`): notices are `command.notify` drawn by the host

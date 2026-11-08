@@ -113,17 +113,18 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::SetupStep(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
         }
-        // Screen, widget and status declarations (`docs/abi/ui.md`): refused
-        // until the host admits them (UIX hand-off).
+        // Input and help declarations (`docs/abi/ui.md`): refused until the
+        // host admits them (UIX hand-off).
         Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
+        // Widget and status declarations: checked in `declarations_uix`.
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
-        // `library.md`): refused until the host admits them (DOC/LIB hand-off).
-        // Checked, then refused until the host admits them (the format index).
+        // `library.md`): checked, then refused until the host admits them
+        // (DOC/LIB hand-off).
         Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
         Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
         Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
@@ -188,7 +189,9 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventWorkAllowed(_)
         | Record::EventSocket(_)
         | Record::EventBroadcast(_)
-        | Record::EventDocumentClosed(_) => Err(ERR_INVALID),
+        | Record::EventDocumentClosed(_)
+        | Record::EventTextTyped(_)
+        | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)

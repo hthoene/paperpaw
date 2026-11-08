@@ -6,26 +6,21 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 4] = [
+const CASES: [Case; 3] = [
     Case {
-        name: "the-panel-asks-deepl-and-shows-the-translation-scrolls-and-closes",
+        name: "the-panel-is-drawn-over-the-lower-part-of-the-page",
         golden: None,
-        blocked_by: &["slice-3-panel-screen"],
+        blocked_by: &["kernel-backed-pixel-harness"],
     },
     Case {
-        name: "without-a-key-the-panel-asks-for-it-and-keeps-it-with-the-secrets",
+        name: "the-language-setting-is-in-the-reading-settings",
         golden: None,
-        blocked_by: &["keyboard-slot-ask-text"],
-    },
-    Case {
-        name: "offline-mode-offers-to-go-online-first",
-        golden: None,
-        blocked_by: &["slice-3-panel-screen", "offline-offer-widget"],
+        blocked_by: &["draft-29-choice-limit-64"],
     },
     Case {
         name: "the-readers-translate-action-opens-the-panel-with-the-selected-text",
         golden: None,
-        blocked_by: &["slice-3-panel-screen", "reader-translate-slot-host"],
+        blocked_by: &["reader-translate-slot-host"],
     },
 ];
 
@@ -37,25 +32,19 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: slice 3 (the panel screen); the asking is run by tests/native_asker.rs"]
-fn the_panel_translates() {
+#[ignore = "BLOCKED: a pixel harness backed by the kernel (as Battery's), for the panel's drawing"]
+fn the_panel_is_drawn() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: the keyboard slot (the key is kept by tests/native_asker.rs)"]
-fn the_key_is_asked_for_and_kept() {
+#[ignore = "BLOCKED: draft 29 raises a choice to 64 values; the setting is built and tested to be refused until then"]
+fn the_language_setting_is_there() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: slice 3 panel screen, offline offer"]
-fn offline_mode_asks_first() {
-    CASES[2].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED: slice 3 panel screen, the reader's translate slot"]
+#[ignore = "BLOCKED: the reader's slot host (the offer is submitted since #522; nothing yet reads it from the reader's side)"]
 fn the_reader_opens_the_panel() {
-    CASES[3].refuse().unwrap();
+    CASES[2].refuse().unwrap();
 }

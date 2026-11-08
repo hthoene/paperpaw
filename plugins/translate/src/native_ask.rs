@@ -273,6 +273,7 @@ impl Asker {
         let status = match done.reason() {
             Reason::Ok => u16::try_from(done.status()).unwrap_or(u16::MAX),
             Reason::Cancelled | Reason::Replaced => return Ok(None),
+            Reason::Offline => return Ok(Some(Outcome::Offline)),
             // Anything else is no answer (interface 6: status 0).
             _ => 0,
         };

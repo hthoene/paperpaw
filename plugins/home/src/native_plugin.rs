@@ -33,14 +33,17 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ALL_TOOLS, EDIT_PAGES, STATUS_ITEMS};
+use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, EDIT_PAGES, STATUS_ITEMS};
+use crate::native_add_screen::{self as add_screen, AddScreen};
+use crate::native_dashboard::Dashboard;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
 /// The screen the editor is declared as.
 const ITEMS_SCREEN: &str = "home.status-items";
 /// The screens whose slices come later.
-const LATER_SCREENS: [&str; 3] = ["home.dashboard", "home.add-widget", "home.drawer"];
+const LATER_SCREENS: [&str; 1] = ["home.drawer"];
+const DASHBOARD_SCREEN: &str = "home.dashboard";
 /// Space for the two commands that open a screen.
 const COMMANDS: usize = 512;
 
@@ -55,7 +58,19 @@ struct Editor {
 #[derive(Debug, Default)]
 pub struct NativeHome {
     ui: Option<Ui>,
-    screens: Screens<Editor>,
+    screens: Screens<Slot>,
+}
+
+/// What an open screen of this plugin is.
+#[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "kept unboxed: a box would allocate infallibly in a callback; the list grows fallibly"
+)]
+enum Slot {
+    Items(Editor),
+    Dashboard(Dashboard),
+    Add(AddScreen),
 }
 
 impl Plugin for NativeHome {
@@ -100,6 +115,20 @@ impl Plugin for NativeHome {
                 instance: Some(instance),
                 ..
             } if token == STATUS_ITEMS => self.screens.shown(STATUS_ITEMS, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == ADD => self.screens.shown(ADD, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == DASHBOARD => {
+                self.screens.shown(DASHBOARD, instance)?;
+                if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
+                    dashboard.shown();
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -114,13 +143,21 @@ impl Plugin for NativeHome {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
-        let editor = self.screens.top(token).ok_or(Error::State)?;
-        editor.view.draw(host, &mut frame)
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        match self.screens.top(token).ok_or(Error::State)? {
+            Slot::Items(editor) => editor.view.draw(host, &mut frame),
+            Slot::Dashboard(dashboard) => dashboard.draw(host, ui, &mut frame),
+            Slot::Add(add) => add.draw(host, &mut frame),
+        }
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ensure_ui(host)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
         match self.screens.top(token) {
-            Some(editor) => editor.view.input(host, &editor.setting, &input),
+            Some(Slot::Items(editor)) => editor.view.input(host, &editor.setting, &input),
+            Some(Slot::Dashboard(dashboard)) => dashboard.input(host, ui, &input),
+            Some(Slot::Add(add)) => add.input(host, ui, &input),
             None => Ok(Handled::No),
         }
     }
@@ -161,11 +198,56 @@ impl NativeHome {
         if LATER_SCREENS.contains(&screen) {
             return Err(Error::Unsupported);
         }
+        // Opened to edit (`mode` = `edit`) starts editing.
+        if screen == DASHBOARD_SCREEN {
+            let edit = self.edits(host, handover)?;
+            return open_dashboard(&mut self.screens, instance, edit);
+        }
+        if screen == add_screen::SCREEN {
+            let add = self.add_screen(host, handover)?;
+            return self.screens.open(instance, Slot::Add(add));
+        }
         if screen != ITEMS_SCREEN {
             return Err(Error::Invalid);
         }
         let editor = self.items_editor(host, handover)?;
-        self.screens.open(instance, editor)
+        self.screens.open(instance, Slot::Items(editor))
+    }
+
+    /// Whether the handover asks to edit (`mode` = `edit`).
+    fn edits(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<bool, Error> {
+        let Some(handover) = handover else {
+            return Ok(false);
+        };
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        edit_mode(
+            self.ui()?
+                .params(host, handover, &mut input, &mut output)?
+                .map(|param| param.map(|param| (param.key(), param.value()))),
+        )
+    }
+
+    /// The *Add* screen for the page and kind the handover names; opened with
+    /// none it adds to the first page.
+    fn add_screen(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<AddScreen, Error> {
+        let (page, kind) = match handover {
+            Some(handover) => {
+                let mut input = buffer(SERVICE_BUFFER)?;
+                let mut output = buffer(SERVICE_BUFFER)?;
+                add_screen::params(
+                    self.ui()?
+                        .params(host, handover, &mut input, &mut output)?
+                        .map(|param| param.map(|param| (param.key(), param.value()))),
+                )?
+            }
+            None => (0, None),
+        };
+        AddScreen::new(host, page, kind)
     }
 
     /// The editor for the setting the handover names (`id`): the items there
@@ -192,6 +274,39 @@ impl NativeHome {
         let view = StatusItemsView::new(entries, &held, title, texts)?;
         Ok(Editor { setting, view })
     }
+}
+
+/// Opens the dashboard of `instance`, starting in editing where `edit`. One
+/// opened again keeps its view (its page, its widgets): replacing it would
+/// drop the widgets it made without letting them go.
+fn open_dashboard(
+    screens: &mut Screens<Slot>,
+    instance: Instance,
+    edit: bool,
+) -> Result<(), Error> {
+    if let Some(Slot::Dashboard(dashboard)) = screens.get(instance) {
+        dashboard.reopened(edit);
+        return Ok(());
+    }
+    let mut dashboard = Dashboard::new();
+    if edit {
+        dashboard.start_editing();
+    }
+    screens.open(instance, Slot::Dashboard(dashboard))
+}
+
+/// Whether the params ask to edit: `mode` = `edit`.
+fn edit_mode<'a>(
+    params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
+) -> Result<bool, Error> {
+    let mut edits = false;
+    for param in params {
+        let (key, value) = param?;
+        if key == "mode" {
+            edits = value == "edit";
+        }
+    }
+    Ok(edits)
 }
 
 /// The setting a handover names (`id`): the only one this screen is declared as
@@ -232,6 +347,17 @@ mod tests {
     fn the_footer_items_setting_is_the_one_named() {
         let named = [("mode", "edit"), ("id", FOOTER_ITEMS)];
         assert_eq!(editor_setting(pairs(&named)).unwrap(), FOOTER_ITEMS);
+    }
+
+    #[test]
+    fn the_dashboard_edits_when_asked_to() {
+        let edit = [("mode", "edit")];
+        assert!(edit_mode(pairs(&edit)).unwrap());
+        let other = [("mode", "view"), ("page", "1")];
+        assert!(!edit_mode(pairs(&other)).unwrap());
+        assert!(!edit_mode(pairs(&[])).unwrap());
+        let refused = [Err(Error::Busy)];
+        assert_eq!(edit_mode(refused.into_iter()), Err(Error::Busy));
     }
 
     #[test]
