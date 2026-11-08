@@ -34,7 +34,7 @@ fn card(language: &str, view: &str) -> Shared {
         b"[meta]\nlanguage = ar\nname = Arabic\nplural = arabic\ndirection = rtl\nscript = Arab\n",
     ));
     Shared::memory(
-        &format!("[core]\nlanguage = {language}\n[help]\nshow = false\n[files]\nview = {view}\n"),
+        &format!("[core]\nlanguage = {language}\n[files]\nview = {view}\n"),
         &all,
     )
 }

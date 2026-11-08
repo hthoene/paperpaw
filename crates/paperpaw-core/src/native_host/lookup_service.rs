@@ -20,6 +20,8 @@ use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
+mod broker;
+
 /// `lookup_entry.flags`: bit 0 more pages follow, bit 1 pending (the provider
 /// answers later).
 const ENTRY_FLAGS: u32 = 0b11;
@@ -28,7 +30,10 @@ const ENTRY_FLAGS: u32 = 0b11;
 pub(crate) trait LookupHost {
     /// The entry of the `cursor`th provider page for this ask, in the user's
     /// order, written into `out` as one `lookup_entry`; `ERR_NOT_FOUND` past the
-    /// last provider. A provider that fails answers its own status.
+    /// last provider. A provider that fails answers its own status, but **a
+    /// provider's own `ERR_NOT_FOUND` never reaches the asker**: it would end
+    /// the asker's loop, so the broker turns it into an empty entry
+    /// ([`broker`]).
     fn ask(
         &self,
         owner: u64,
