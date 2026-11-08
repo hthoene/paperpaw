@@ -5,6 +5,9 @@
 //! `IMAGE_INDEX_MAX_BYTES` (8 KiB); loaded without an image they would be
 //! owned copies, bounded by `SPECS_MAX` (128) and `DECLARATIONS_MAX_BYTES`
 //! (32 KiB), which is only for loads without an image (tests, `(null, 0)`).
+//!
+//! Linux x86_64 only: the image is the read-only mapping of the test binary,
+//! found through `/proc/self/maps` (the module is gated in `native_host.rs`).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -160,22 +163,23 @@ fn the_widget_pack_is_borrowed_from_its_image_within_the_image_limits() {
 #[test]
 fn without_an_image_the_pack_is_staged_as_owned_copies_under_the_smaller_limits() {
     let (counts, ..) = construct(Some(image())).expect("image path");
-    let owned = construct(None);
-    if counts.specs > SPECS_MAX {
-        // Owned copies hold SPECS_MAX settings; the pack is only for loads
-        // with an image.
-        assert!(
-            matches!(owned, Err(shell::Error::Factory(ERR_NO_SPACE))),
-            "{owned:?} for {counts:?}"
-        );
-    } else {
-        let (same, entries, index_bytes, backed) = owned.expect("fits as owned copies");
-        assert_eq!(same, counts);
-        assert_eq!(
-            (entries, index_bytes, backed),
-            (0, 0, false),
-            "nothing is borrowed"
-        );
+    let over = counts.specs > SPECS_MAX;
+    // Pinned both ways: refused with NoSpace exactly when the pack declares
+    // more than SPECS_MAX settings (the pack of #372 does: 131), accepted as
+    // owned copies, borrowing nothing, otherwise.
+    match construct(None) {
+        Err(error) => {
+            assert!(over, "refused although {counts:?} fits SPECS_MAX");
+            assert!(
+                matches!(error, shell::Error::Factory(ERR_NO_SPACE)),
+                "{error:?}"
+            );
+        }
+        Ok((same, entries, index_bytes, backed)) => {
+            assert!(!over, "accepted although {counts:?} exceeds SPECS_MAX");
+            assert_eq!(same, counts);
+            assert_eq!((entries, index_bytes, backed), (0, 0, false));
+        }
     }
 }
 
