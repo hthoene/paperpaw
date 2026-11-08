@@ -1,6 +1,9 @@
 //! Delete, move and import (`library.md` 2.3).
 use super::{
-    super::{Caller, args, wire::Record},
+    super::{
+        Caller, args,
+        wire::{self, Record},
+    },
     need_storage, require, result_row,
 };
 use paperpaw_native::host_glue::{
@@ -56,9 +59,7 @@ pub(super) fn paths(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibPaths(list) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let list: wire::ServiceLibPaths<'_> = args::single(input)?;
     // Bit 0 `with_notes` belongs to `delete`.
     require(list.flags & !u32::from(delete) == 0)?;
     if delete {
@@ -124,9 +125,7 @@ pub(super) fn move_book(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibMove(request) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let request: wire::ServiceLibMove<'_> = args::single(input)?;
     require(
         request.flags & !1 == 0
             && args::root1_path(host, request.from)
@@ -151,9 +150,7 @@ pub(super) fn import(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibImport(request) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let request: wire::ServiceLibImport<'_> = args::single(input)?;
     // Bit 0 replace, bit 1 take a free name; both is a contradiction.
     require(request.flags & !0b11 == 0 && request.flags != 0b11)?;
     // The source is the caller's own root 0: its grammar only. The protected

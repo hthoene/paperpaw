@@ -2,6 +2,7 @@
 //! release on a stopped or failed owner, the guard and X4 rules, and the
 //! broker as the runner.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
+use super::super::registrations as wire;
 use super::*;
 use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
