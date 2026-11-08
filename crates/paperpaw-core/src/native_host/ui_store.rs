@@ -137,6 +137,36 @@ pub(crate) struct Info {
     pub(crate) text_bytes: u32,
 }
 
+/// Whether `ok` holds for every param of the framed block `block`.
+fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            return false;
+        };
+        if !ok(param.key, param.value) {
+            return false;
+        }
+        rest = &rest[used..];
+    }
+    true
+}
+
+/// The value of param `key` in the framed block, if it has one.
+fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
+            return None;
+        };
+        if param.key == key {
+            return Some(param.value);
+        }
+        rest = &rest[used..];
+    }
+    None
+}
+
 impl Info {
     /// No hand-over: what the event says of an instance opened without one.
     pub(crate) const NONE: Self = Self {
@@ -721,7 +751,7 @@ impl UiStore {
         let Ok(inner) = self.inner.try_borrow() else {
             return false;
         };
-        let framed = |id: Option<u32>, owned: bool| -> &[u8] {
+        let framed = |id: Option<u32>, owned: bool| -> (&[u8], u32) {
             inner
                 .entries
                 .iter()
@@ -732,9 +762,11 @@ impl UiStore {
                             && matches!(entry.state, State::Owned { instance: i } if i == instance)
                     }
                 })
-                .map_or(&[][..], |entry| &entry.params.0[..])
+                .map_or((&[][..], 0), |entry| (&entry.params.0[..], entry.count))
         };
-        framed(made, false) == framed(None, true)
+        let ((new, new_count), (old, old_count)) = (framed(made, false), framed(None, true));
+        // The same keys with the same values, in any order (keys are unique).
+        new_count == old_count && params_in(new, |key, value| value_of(old, key) == Some(value))
     }
 
     /// What the opened event says about `instance`'s hand-over, if it has one.

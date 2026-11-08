@@ -282,8 +282,8 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             let owned = self.owned(command)?;
-            if let WireCommand::Open { handover, .. } = command {
-                self.record_open(self.staged.len(), handover);
+            if let WireCommand::Open { mode, handover, .. } = command {
+                self.record_open(self.staged.len(), mode, handover);
             }
             // Capacity is reserved, so this push cannot reallocate.
             self.staged.push(owned);

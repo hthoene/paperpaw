@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_sdk::{Command, Id, Params};
+use paperpaw_sdk::{Command, Id, Params, ScreenKey};
 
 /// The hand-over store and the host stamp of the callback the stage serves.
 #[derive(Clone, Copy)]
@@ -17,13 +17,24 @@ pub(super) struct Handovers<'a> {
     pub(super) stamp: Stamp,
 }
 
-/// What the drain needs of the staged opens: for each, the index of its
-/// command and the hand-over it names (none: 0), and the claims to roll back
-/// if the stage is dropped instead.
+/// One staged open, for the drain.
+pub(crate) struct StagedOpen {
+    /// Its command's index among the staged commands.
+    pub(crate) index: usize,
+    /// The hand-over it names (none: 0).
+    pub(crate) handover: Option<u32>,
+    /// Mode 2: the submitter's own top screen it replaces. The drain applies
+    /// it only if that screen is still on top then; whatever else is, is not
+    /// the submitter's to close.
+    pub(crate) replaces: Option<ScreenKey>,
+}
+
+/// What the drain needs of the staged opens, and the claims to roll back
+/// once it is done (or if the stage is dropped instead).
 #[derive(Default)]
 pub(crate) struct Opens {
-    pub(crate) at: Vec<(usize, Option<u32>)>,
-    claims: Vec<Claims>,
+    pub(crate) at: Vec<StagedOpen>,
+    pub(crate) claims: Vec<Claims>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -49,8 +60,19 @@ impl<'a> CommandStage<'a> {
             reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
         )
     )]
-    pub(crate) fn take_opens(&mut self) -> Opens {
+    pub(super) fn take_opens(&mut self) -> Opens {
         core::mem::take(&mut self.opens)
+    }
+
+    /// As `into_ui_output`, with the opens the drain needs (hand-overs and
+    /// the screens they replace). Without them the claims are rolled back
+    /// when the stage is dropped.
+    pub(crate) fn into_ui_output_with_opens(
+        mut self,
+    ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
+        let opens = self.take_opens();
+        let (commands, redraw, hop) = self.into_ui_output();
+        (commands, redraw, hop, opens)
     }
 
     /// One open of a batch: modes, slot, the target's existence.
@@ -92,7 +114,11 @@ impl<'a> CommandStage<'a> {
         let ids = &ids[..count];
         for (index, id) in ids.iter().enumerate() {
             let named_before = ids[..index].contains(id)
-                || self.opens.at.iter().any(|(_, before)| *before == Some(*id));
+                || self
+                    .opens
+                    .at
+                    .iter()
+                    .any(|before| before.handover == Some(*id));
             let Some(named) = self.handovers.filter(|_| !named_before) else {
                 return Err(ERR_INVALID);
             };
@@ -158,10 +184,13 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Records an open staged at `index`.
-    pub(super) fn record_open(&mut self, index: usize, handover: u32) {
-        self.opens
-            .at
-            .push((index, (handover != 0).then_some(handover)));
+    pub(super) fn record_open(&mut self, index: usize, mode: u32, handover: u32) {
+        let replaces = if mode == 2 { self.own_top().ok() } else { None };
+        self.opens.at.push(StagedOpen {
+            index,
+            handover: (handover != 0).then_some(handover),
+            replaces,
+        });
     }
 }
 

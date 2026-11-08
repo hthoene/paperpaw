@@ -12,6 +12,11 @@ use paperpaw_sdk::{Cx, Env, Gesture, GestureKind, Handled, Id, Screen, ScreenKey
 /// The owner/runtime supplies admission and the callback-scoped host views.
 /// Implementations keep no input, frame, canvas or environment borrow.
 pub(crate) trait Dispatch {
+    /// What the `screen_opened` now sent says of the hand-over its open
+    /// named, if the kernel set it (none for an open without one).
+    fn take_open_info(&self) -> Option<Info> {
+        None
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn draw(
@@ -62,6 +67,9 @@ pub(crate) trait Dispatch {
 
 #[cfg(test)]
 impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -106,6 +114,9 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
 }
 
 impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -346,8 +357,8 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
         };
-        // The open's hand-over, if it named one, comes carried by the kernel.
-        let info = params.carried::<Info>().copied().unwrap_or(Info {
+        // The open's hand-over, if it named one, comes from the kernel.
+        let info = self.dispatch.take_open_info().unwrap_or(Info {
             params: count,
             ..Info::NONE
         });

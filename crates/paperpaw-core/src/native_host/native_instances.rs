@@ -57,6 +57,9 @@ impl NativeLease {
 }
 
 impl Dispatch for NativeLease {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.live().ok()?.take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
         self.live()?.event(token, bytes, env)
     }
@@ -165,6 +168,11 @@ impl NativeInstances {
     /// reaches keeps it, no other.
     pub(crate) fn take_pending_handover(&self) -> Option<Option<u32>> {
         self.pending_handover.take()
+    }
+
+    /// What the next native `on_reopen` reports of the hand-over just attached.
+    pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
+        self.callbacks.set_open_info(info);
     }
 
     /// Whether a staged `open` is being applied (it names a hand-over or none).
@@ -503,6 +511,9 @@ impl NativeIdentity {
     }
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
         self.callbacks.enter()
+    }
+    pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.callbacks.take_open_info()
     }
 }
 

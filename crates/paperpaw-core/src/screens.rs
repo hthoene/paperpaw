@@ -232,20 +232,10 @@ impl Kernel {
     }
 
     fn native_screen_opened(&mut self, index: usize, params: &Params) {
-        let native = self
-            .stack
-            .get(index)
-            .and_then(|active| self.shared.registry.screens.get(&active.id))
-            .is_some_and(|maker| maker.is_native());
-        if native {
+        if self.is_native_at(index) {
             // The private wrapper uses this hook to announce an instance before
             // it is shown, including instances hidden below a guarding screen.
-            let carried = self.attach_pending_handover(index);
-            let params = carried.as_ref().unwrap_or(params);
-            self.with_screen(index, |screen, cx| {
-                screen.on_reopen(params, cx);
-                Handled::Yes
-            });
+            self.on_reopen_with_handover(index, params);
         }
     }
 
@@ -296,30 +286,43 @@ impl Kernel {
     /// ([`Screen::on_reopen`]), and the hand-over that open names.
     pub(crate) fn reopen(&mut self, index: usize, params: &Params) {
         self.stack[index].params = params.clone();
-        let carried = self.attach_pending_handover(index);
-        let params = carried.as_ref().unwrap_or(params);
+        self.on_reopen_with_handover(index, params);
+    }
+
+    /// Whether the screen at `index` is a native one.
+    pub(crate) fn is_native_at(&self, index: usize) -> bool {
+        self.stack
+            .get(index)
+            .and_then(|active| self.shared.registry.screens.get(&active.id))
+            .is_some_and(|maker| maker.is_native())
+    }
+
+    /// `Screen::on_reopen` of instance `index`, after the hand-over the
+    /// applied `open` names went to it (docs/abi/ui.md 1.1 step 5; an open of
+    /// none clears its params and text). A screen that is not native keeps
+    /// what it has and leaves the hand-over to the drain.
+    fn on_reopen_with_handover(&mut self, index: usize, params: &Params) {
+        let info = self.attach_pending_handover(index);
+        self.shared.native_instances.set_open_info(info);
         self.with_screen(index, |screen, cx| {
             screen.on_reopen(params, cx);
             Handled::Yes
         });
+        // Whatever `on_reopen` left: never for another screen's.
+        self.shared.native_instances.set_open_info(None);
     }
 
-    /// The hand-over the applied `open` names goes to instance `index`, a
-    /// native one (docs/abi/ui.md 1.1 step 5; an open of none clears its
-    /// params and text): what its `screen_opened` says of it comes back
-    /// carried in params. A screen that is not native leaves it to the drain.
-    fn attach_pending_handover(&mut self, index: usize) -> Option<Params> {
-        let active = self.stack.get(index)?;
-        let native = self
-            .shared
-            .registry
-            .screens
-            .get(&active.id)
-            .is_some_and(|maker| maker.is_native());
-        let serial = active.serial;
-        if !native {
+    /// The hand-over the applied `open` names goes to native instance
+    /// `index`: what its `screen_opened` says of it comes back (none for no
+    /// staged open).
+    fn attach_pending_handover(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::native_host::ui_store::Info> {
+        if !self.is_native_at(index) {
             return None;
         }
+        let serial = self.stack.get(index)?.serial;
         let pending = self.shared.native_instances.take_pending_handover()?;
         let store = self.shared.native_instances.ui_store()?;
         let attached = store.attach(pending, serial);
@@ -330,7 +333,7 @@ impl Kernel {
             }
             self.warn_runtime("a screen's hand-over could not be attached; it opens without");
         }
-        Some(Params::new().carrying(info.unwrap_or(crate::native_host::ui_store::Info::NONE)))
+        Some(info.unwrap_or(crate::native_host::ui_store::Info::NONE))
     }
 
     /// Whether `active` has the params an open brings: where a staged open
@@ -344,6 +347,20 @@ impl Kernel {
         ) {
             (Some(pending), Some(store)) => same && store.same_params(pending, active.serial),
             _ => same,
+        }
+    }
+
+    /// Whether the screen open for a slot at `index` already has the params an
+    /// open brings (docs/abi/ui.md 1.1: modes 1 and 3 compare them): where a
+    /// staged open names a hand-over (or none), its params are compared, as
+    /// its text is not.
+    pub(crate) fn slot_open_same(&self, index: usize, params: &Params) -> bool {
+        match (
+            self.shared.native_instances.pending_handover(),
+            self.shared.native_instances.ui_store(),
+        ) {
+            (Some(pending), Some(store)) => store.same_params(pending, self.stack[index].serial),
+            _ => params.is_empty() || self.stack[index].params == *params,
         }
     }
 

@@ -77,8 +77,7 @@ fn submit(kernel: &mut crate::Kernel, store: &UiStore, commands: &[WireCommand<'
                 unsafe { scope.submit(bytes.as_ptr(), len) }
             })
             .unwrap();
-        let opens = stage.take_opens();
-        let (staged, redraw, _) = stage.into_ui_output();
+        let (staged, redraw, _, opens) = stage.into_ui_output_with_opens();
         (status, staged, redraw, opens)
     };
     kernel.drain_native_opens(&owner, staged, redraw, opens);
@@ -194,16 +193,30 @@ fn a_second_open_of_the_open_slot_passes_the_new_hand_over_and_frees_the_old() {
     );
     assert_eq!(read(&store, instance, second), "two words");
     assert_eq!(store.len(), 1);
-    // An open of none clears its params and text, and says so.
+    // An open of none has other params than the instance has (it compares
+    // them): opened anew in place of it, and its hand-over goes with it.
     assert_eq!(
         submit(&mut kernel, &store, &[open("core.translate", 1, "", 0)]),
         0
     );
+    let fresh = kernel.stack.last().unwrap().serial;
+    assert_ne!(fresh, instance);
     assert_eq!(
         OPENED.with(|opened| opened.borrow().last().copied()),
-        Some((instance, 0, 0, 0))
+        Some((fresh, 0, 0, 0))
     );
     assert_eq!(store.len(), 0);
+    // Another of none is the same params: the same instance, told again.
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", 0)]),
+        0
+    );
+    assert_eq!(kernel.stack.last().unwrap().serial, fresh);
+    assert_eq!(
+        OPENED.with(|opened| opened.borrow().last().copied()),
+        Some((fresh, 0, 0, 0))
+    );
+    assert_eq!(OPENED.with(|opened| opened.borrow().len()), 4);
 }
 
 #[test]
@@ -330,4 +343,219 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
     }
     // The callback returned an error: its stage is dropped, the claim rolled back.
     assert_eq!(store.len(), 0);
+}
+
+/// A plugin of the program offering `core.translate` first, with a screen of
+/// its own that is not native.
+struct Legacy;
+impl paperpaw_sdk::Plugin for Legacy {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("legacy"),
+            "Legacy",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        struct Empty;
+        impl paperpaw_sdk::Screen for Empty {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+            fn on_action(
+                &mut self,
+                _: &Id,
+                _: &mut paperpaw_sdk::Cx<'_, '_>,
+            ) -> paperpaw_sdk::Handled {
+                paperpaw_sdk::Handled::No
+            }
+        }
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("legacy.screen"),
+            "legacy.title",
+            Box::new(|_, _| Box::new(Empty)),
+        ))?;
+        r.bind_slot(
+            Id::new_static("core.translate"),
+            Id::new_static("legacy.screen"),
+            paperpaw_sdk::Priority(100),
+        )
+    }
+}
+
+#[test]
+fn a_screen_that_is_not_native_keeps_its_params_when_a_native_open_shows_its_slot() {
+    let (_, store) = wired();
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Legacy)
+        .build()
+        .unwrap();
+    install_resources(&mut kernel, 8, None).unwrap();
+    // The slot is the legacy screen's (priority 100): below it a base.
+    kernel.apply(Command::OpenScreen(
+        Id::new_static("factory.screen"),
+        Params::new(),
+    ));
+    kernel.apply(Command::OpenSlot(
+        Id::new_static("core.translate"),
+        Params::new().with("page", "1"),
+    ));
+    assert_eq!(kernel.stack.last().unwrap().id.as_str(), "legacy.screen");
+    let id = made(&store, &[], b"");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
+        0
+    );
+    // Its params stay; no hand-over was given to it and none is left claimed.
+    assert_eq!(kernel.stack.last().unwrap().params.get("page"), Some("1"));
+    assert_eq!(store.len(), 0);
+}
+
+#[test]
+fn a_replace_applies_only_to_the_screen_that_was_on_top_when_it_was_submitted() {
+    let (mut kernel, store) = wired();
+    let base = made(&store, &[("page", "1")], b"");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("factory.screen", 0, "", base)]),
+        0
+    );
+    let first = made(&store, &[("page", "2")], b"");
+    let second = made(&store, &[("page", "3")], b"");
+    // The second open replaces "the top", which is the first one's by then.
+    assert_eq!(
+        submit(
+            &mut kernel,
+            &store,
+            &[
+                open("factory.screen", 0, "", first),
+                open("factory.screen", 2, "", second)
+            ]
+        ),
+        0
+    );
+    assert_eq!(kernel.stack.len(), 2);
+    let top = kernel.stack.last().unwrap().serial;
+    assert_eq!(
+        OPENED
+            .with(|opened| opened.borrow().last().copied())
+            .map(|row| row.1),
+        Some(first)
+    );
+    assert_eq!(
+        read_params_of(&store, top, first),
+        [("page".to_owned(), "2".to_owned())]
+    );
+    // Its hand-over was freed: only the two screens' are left.
+    assert_eq!(store.len(), 2);
+}
+
+fn read_params_of(store: &UiStore, instance: u32, handover: u32) -> Vec<(String, String)> {
+    let mut params = [0; 128];
+    let used = store.params(instance, handover, &mut params).unwrap();
+    let mut seen = Vec::new();
+    let mut rest = &params[..used];
+    while !rest.is_empty() {
+        let (record, len) = crate::native_host::registrations::record_decode_prefix(rest).unwrap();
+        let crate::native_host::registrations::Record::ServiceUiParam(param) = record else {
+            panic!("a param record");
+        };
+        seen.push((param.key.to_owned(), param.value.to_owned()));
+        rest = &rest[len..];
+    }
+    seen
+}
+
+#[test]
+fn modes_one_and_three_compare_the_params_in_any_order() {
+    let (mut kernel, store) = wired();
+    let base = made(&store, &[("page", "1")], b"");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("factory.screen", 0, "", base)]),
+        0
+    );
+    let one = made(&store, &[("a", "1"), ("b", "2")], b"first");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", one)]),
+        0
+    );
+    let instance = kernel.stack.last().unwrap().serial;
+    // The same params in another order, another text: the same instance.
+    let same = made(&store, &[("b", "2"), ("a", "1")], b"second text");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", same)]),
+        0
+    );
+    assert_eq!(kernel.stack.last().unwrap().serial, instance);
+    assert_eq!(kernel.stack.len(), 2);
+    assert_eq!(read(&store, instance, same), "second text");
+    // Another value: opened anew in place of the old screen.
+    let other = made(&store, &[("a", "1"), ("b", "3")], b"");
+    assert_eq!(
+        submit(&mut kernel, &store, &[open("core.translate", 1, "", other)]),
+        0
+    );
+    assert_eq!(kernel.stack.len(), 2);
+    assert_ne!(kernel.stack.last().unwrap().serial, instance);
+    // The same keys, in mode 3.
+    let again = made(&store, &[("b", "3"), ("a", "1")], b"");
+    let now = kernel.stack.last().unwrap().serial;
+    assert_eq!(
+        submit(
+            &mut kernel,
+            &store,
+            &[open("factory.screen", 3, "core.translate", again)]
+        ),
+        0
+    );
+    assert_eq!(kernel.stack.last().unwrap().serial, now);
+}
+
+#[test]
+fn claims_a_drain_leaves_are_rolled_back() {
+    let (mut kernel, store) = wired();
+    let id = made(&store, &[], b"text");
+    let claims = store.claim(stamp(), &[id]).unwrap();
+    let opens = crate::native_host::commands::Opens {
+        at: Vec::new(),
+        claims: alloc::vec![claims],
+    };
+    kernel.drain_native_opens(&Id::new_static("factory"), Vec::new(), None, opens);
+    assert_eq!(store.len(), 0);
+}
+
+#[test]
+fn every_allocation_of_a_submit_with_a_hand_over_leaves_nothing_claimed() {
+    let mut reached_success = false;
+    for nth in 1..200 {
+        let (kernel, store) = wired();
+        let id = made(&store, &[("page", "1")], b"text");
+        let owner = Id::new_static("factory");
+        let env = kernel.shared.env(Instant(0));
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
+            .with_ui(&env, None, 0, 8)
+            .with_handovers(&store, stamp());
+        let scope = core::pin::pin!(CommandScope::new());
+        let mut bytes = [0; 256];
+        let len = commands_encode(&[open("core.translate", 1, "", id)], &mut bytes).unwrap();
+        arm_failure(nth);
+        let status = scope
+            .as_ref()
+            // SAFETY: the initialized input outlives the synchronous call.
+            .scope(&mut stage, || unsafe { scope.submit(bytes.as_ptr(), len) })
+            .unwrap();
+        arm_failure(0);
+        if status != 0 {
+            assert!(stage.staged().is_empty(), "{nth}");
+        }
+        drop(stage);
+        // Refused, or staged and the stage dropped: nothing stays claimed, and
+        // the callback's end frees what no open claimed.
+        store.end_callback(stamp()).unwrap();
+        assert_eq!(store.len(), 0, "{nth}: status {status}");
+        if status == 0 {
+            reached_success = true;
+            break;
+        }
+    }
+    assert!(reached_success);
 }

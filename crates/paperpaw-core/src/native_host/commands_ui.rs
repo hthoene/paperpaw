@@ -181,21 +181,44 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
+        let super::Opens { at, claims } = opens;
         for (index, command) in commands.into_iter().enumerate() {
-            let named = opens
-                .at
-                .iter()
-                .find(|(at, _)| *at == index)
-                .map(|(_, handover)| *handover);
-            self.shared.native_instances.set_pending_handover(named);
-            self.drain_native_command(owner, command);
-            if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
-                && let Some(store) = self.shared.native_instances.ui_store()
-            {
-                let _ = store.release(id);
+            let staged = at.iter().find(|open| open.index == index);
+            // A replace is the submitter's own top screen's, nobody else's: if
+            // another is on top by now (an earlier open of the same batch), it
+            // does not apply and its hand-over is freed.
+            let displaced = staged.and_then(|open| open.replaces).is_some_and(|key| {
+                self.stack
+                    .last()
+                    .is_none_or(|top| ScreenKey::new(top.serial) != key)
+            });
+            if displaced {
+                self.warn_runtime("native replace dropped: its screen is no longer on top");
+            } else {
+                self.shared
+                    .native_instances
+                    .set_pending_handover(staged.map(|open| open.handover));
+                self.drain_native_command(owner, command);
+            }
+            // The open that did not apply (a guard refused, a stale target):
+            // its claim is freed and the instance's old hand-over stays.
+            self.release_pending_handover();
+        }
+        // Nothing stays claimed once the batch is applied.
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            for claims in claims {
+                let _ = store.rollback(claims);
             }
         }
         self.finish_native_redraw(owner, redraw);
+    }
+
+    fn release_pending_handover(&mut self) {
+        if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
+            && let Some(store) = self.shared.native_instances.ui_store()
+        {
+            let _ = store.release(id);
+        }
     }
 
     /// Apply one staged command of `owner`; a close of a screen that is gone
