@@ -90,14 +90,26 @@ cmp -s "$here/paperpaw-plugin7.x" "$root/crates/paperpaw-native/paperpaw-plugin7
     { echo "tools/plugin-files7/complete.txt is missing: the gate could not tell which ports are complete" >&2; exit 3; }
 
 # The paths of the build are remapped, as tools/plugin-files/build.sh does
-# (a variable split at spaces: with a space in a path the remap is left out).
+# (a variable split at spaces): with a space in a path the remap cannot be made
+# and the files would depend on where they were built, so the build refuses,
+# unless PAPERPAW_ALLOW_UNREMAPPED=1 (a trial build; ignored with --key: a
+# signed build is never one).
 target_dir="${CARGO_TARGET_DIR:-$here/target}"
 remappable=1
+spaced=
 for dir in "$root" "$target_dir" "${CARGO_HOME:-$HOME/.cargo}"; do
     case "$dir" in
-        *[[:space:]]*) remappable=0; echo "warning: $dir has a space or tab in it; the paths are not remapped" >&2 ;;
+        *[[:space:]]*) remappable=0; spaced=$dir ;;
     esac
 done
+if [[ $remappable = 0 ]]; then
+    if [[ ${PAPERPAW_ALLOW_UNREMAPPED:-} = 1 && ${#key[@]} = 0 ]]; then
+        echo "warning: $spaced has a space or tab in it; the paths are not remapped, so the plugin files depend on where they are built (PAPERPAW_ALLOW_UNREMAPPED=1)" >&2
+    else
+        echo "error: $spaced has a space or tab in it, so the paths cannot be remapped and the plugin files would depend on where they are built. Use a path without one. (PAPERPAW_ALLOW_UNREMAPPED=1 allows a trial build, but never one with --key.)" >&2
+        exit 3
+    fi
+fi
 if [[ $remappable = 1 ]]; then
     flags_var="CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<< "$target")_RUSTFLAGS"
     remap="--remap-path-prefix=$root=/build --remap-path-prefix=$target_dir=/target --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
