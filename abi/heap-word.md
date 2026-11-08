@@ -238,3 +238,31 @@ back **one narrower word**, `PAPERPAW_HEAP`, that points at a context-free heap 
 - **Section 2 "Heap"** keeps its rule that nothing allocated by one side is freed by the other; with
   this amendment the plugin's global allocator calls the host's heap through the word, as section 2
   already assumed.
+
+## 9. Statically linked built-ins: the host's part per plugin (todo 144, Senior on #496)
+
+A built-in linked into the firmware (`native_plugin!(…, linked = NAME)`, `Kernel::register_linked`)
+costs the X4 heap twice: the plugin's own state, which its `make` allocates and its frame owner pays
+(section 4), and the host's part, which the kernel keeps for as long as the plugin is registered.
+This section budgets the host's part.
+
+- **One host table for all plugins.** The host table is a static per services type
+  (`shell::SharedTable`, evaluated at compile time, in read-only data). Every hosted plugin's
+  context holds a reference to it; none holds a copy. This saves 152 bytes per plugin on the X4
+  (1,368 bytes for 9 built-ins).
+- **Measured on riscv32** (compile-time pins in `native_host/shell.rs`): the host table is 152
+  bytes, a plugin's context 168 bytes and its boxed owner 200 bytes (348 bytes with the copied
+  table). `OWNER_BUDGET` is 224 bytes; a field that grows the owner past it fails the X4 build.
+- **The rest of the host's part** is the plugin's id, its owner resources, its row in the native
+  instance table and its declarations (screens, widgets, settings). The unit test
+  `hosted_owners_share_one_host_table_and_cost_a_bounded_heap` measures the whole part for a test
+  plugin with one screen and one action on the build host: 1,906 bytes per plugin on x86_64 (2,194
+  with the copied table), bounded at 2,048 so that growth shows in review. The X4's pointers are
+  half as wide; scaled by the riscv32 sizes above, that is roughly 1 KB per built-in there.
+- **Budget:** all built-ins together keep at most 4,096 bytes of host heap on the X4 while
+  registered, before their own state. At roughly 1 KB each, that holds about 4 built-ins kept
+  made, not 9, so **built-ins start lazily**: a built-in is registered from its declarations
+  without being kept made, and `make` runs on its first callback (a screen opened, an event it
+  subscribed to, a service called). A built-in nobody uses then keeps only its declarations and its
+  row. That is Core's work; until it lands, the X4 shell activates no more built-ins than this
+  budget holds, and the number is measured on the device before activation.
