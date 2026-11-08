@@ -26,6 +26,7 @@ pub mod native_ask;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_model;
+pub mod native_panel;
 /// The interface-7 translation plugin (slice 1; see `PORTING-7.md`).
 pub mod native_plugin;
 
