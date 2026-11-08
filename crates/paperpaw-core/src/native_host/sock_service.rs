@@ -16,7 +16,7 @@
 //!   (they need the shell's TLS session and trust store, section 2.4);
 //!
 //! # Reads to a file
-//! `read` mode 1 writes exactly `len` bytes to the staged file of `path` (`.pp-staged`) and renames it
+//! `read` mode 1 writes exactly `len` bytes to the staged file of `path` (`<path>.part`) and renames it
 //! over `path` when whole, then tells `saved` (`sockets.md` 2.3). The card is
 //! behind [`SockHost`] (the roots and path rules of `files.md`, the paths in
 //! use, the free-space reserve, the staged file); the service owns the
@@ -198,12 +198,13 @@ pub(crate) trait SockHost {
     /// Whether `extra` more bytes can be written and the storage's free-space
     /// reserve (D2.6) is kept.
     fn room_for(&self, extra: u64) -> bool;
-    /// Put the target and its staged file in the paths-in-use table:
-    /// `ERR_BUSY` when another writer or the reader holds either.
+    /// Put the target and its `.part` file in the paths-in-use table:
+    /// `ERR_BUSY` when anyone holds either, the same plugin's own NET request
+    /// included. Unlike NET's counted claims, this one is exclusive.
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// Remove the staged file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
-    /// Append `data` to the staged file of `path` (`.pp-staged`); `first` creates it empty first (an
+    /// Append `data` to the staged file of `path` (`<path>.part`); `first` creates it empty first (an
     /// older staged file goes). Whole or an error.
     fn staged_write(
         &self,
@@ -213,7 +214,7 @@ pub(crate) trait SockHost {
         data: &[u8],
         first: bool,
     ) -> Result<(), i32>;
-    /// Rename the staged file of `path` (`.pp-staged`) over `path`.
+    /// Rename the staged file of `path` (`<path>.part`) over `path`.
     fn staged_commit(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// The screen instance whose callback is running if it is showing.
     fn showing_screen(&self, owner: u64) -> Option<u64>;

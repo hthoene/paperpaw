@@ -175,7 +175,13 @@ impl SockHost for Fake {
         extra <= self.free.get()
     }
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32> {
-        if self.in_use.borrow().contains(&(root, path.to_string())) {
+        if self.in_use.borrow().contains(&(root, path.to_string()))
+            || self
+                .claims
+                .borrow()
+                .iter()
+                .any(|c| (c.1, &c.2) == (root, &path.to_string()))
+        {
             return Err(ERR_BUSY);
         }
         self.claims
@@ -537,6 +543,16 @@ fn limits_per_plugin_and_per_device_and_the_pool_hold() {
     }
     assert_eq!(connect(&g, 5, 0), Err(ERR_BUSY));
     assert_eq!(g.used(), 0, "a device without a pool counts nothing");
+}
+
+#[test]
+fn a_server_name_without_tls_is_ignored_not_refused() {
+    let f = Fake::x4();
+    let c = wire::ServiceSockConnect {
+        server_name: "other.example.org",
+        ..head(1)
+    };
+    assert!(connect_with(&f, OWNER, c).is_ok());
 }
 
 #[test]
