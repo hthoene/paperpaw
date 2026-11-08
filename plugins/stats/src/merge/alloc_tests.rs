@@ -13,41 +13,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{Storage, StorageError};
 use paperpaw_sqlite::Database;
 
 use super::tests::{DIR, book, folder, log, md5, other_device, stay, this_device};
 use super::*;
+use crate::testing::Quiet;
 use crate::testing::heap::{armed, fixture};
-
-/// A storage whose own allocations are not the plugin's: nothing is refused
-/// or counted while it works.
-#[derive(Default)]
-struct Quiet(MemoryStorage);
-
-impl Storage for Quiet {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        fixture(|| self.0.read_at(path, offset, buf))
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        fixture(|| self.0.size(path))
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        fixture(|| self.0.write(path, data))
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        fixture(|| self.0.append(path, data))
-    }
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        fixture(|| self.0.list(dir, visit))
-    }
-    fn remove(&self, path: &str) -> Result<(), StorageError> {
-        fixture(|| self.0.remove(path))
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        fixture(|| self.0.rename(from, to))
-    }
-}
 
 /// The names of the files in `dir` (and the given `extra` paths that exist).
 fn names(storage: &Quiet, dir: &str) -> Vec<String> {
