@@ -888,7 +888,10 @@ and every device of that profile (the X3 too), not the model.
   bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
   listed for its owner until `event.widget_dropped` (85) is delivered at the widget's token, so
   live instances and drops not yet delivered share the cap: op 4 answers `ERR_FULL` while the
-  waiting drops fill it (#599), and makes again once they are delivered.
+  waiting drops fill it (#599), and makes again once they are delivered. The entry ends at the
+  first delivery attempt, whatever its outcome (the callback returned, failed or trapped), and at
+  once when delivery cannot happen: the owner stopped (`owner_stopped`), unloaded or switched off,
+  or the start went without code plugins (safe mode). A dead owner never pins the cap.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
 - Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4
