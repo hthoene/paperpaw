@@ -1,6 +1,6 @@
-# Interface-7 port (slices 1 and 2: the radio policy, the declarations and the phone setup)
+# Interface-7 port (slices 1 to 3: the radio policy, the declarations, the phone setup, the own network and the kept networks)
 
-Version 1.0.4. Partial: the decisions of the plugin and what it declares, without the host. No
+Version 1.0.5. Partial: the decisions of the plugin and what it declares, without the host. No
 native screen and no `NATIVE_ENTRY` yet; the interface-6 `Wifi` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
 
@@ -37,6 +37,29 @@ host activates native plugins (then it goes together, no shim).
   settings (hidden where PaperPaw does not manage the radio) and the first-run step (applies only
   with `Wifi`). `tests/abi7_declarations.rs` compares each with the interface-6 registration.
 
+- `src/native_own.rs` (slice 3): the device's own network for the phone: the readable password
+  (`readable`: 15 letters of the 18, each as likely, bytes that would favour one are drawn again), the
+  page's token (`token`: 5 bits a letter), the groups of five shown (`grouped`), the QR text that
+  joins it (`join_code`, the signs `\ ; , : "` escaped) and the name it opens (`ssid`, 32 bytes, `PaperPaw`
+  where none is left). Same rules and answers as the SDK's `Random`, `wifi::join_code` and
+  `device_name::ssid` (compared on the same byte streams and at random). The bytes come from a `draw`
+  the screen backs with `core.secrets` `random` (up to 256 bytes a call, `strong` when the source was
+  fully random; **no weaker draw is substituted**: the caller decides what a weak one is worth, the
+  own network's password is best drawn once the radio is on, `secrets.md`); the bytes and the
+  intermediate text are wiped, the result is a `Password` (wiped when dropped, never printed).
+- `src/native_known.rs` (slice 3): the networks joined before as secrets of the plugin's own: one for
+  each, named by the network's name (interface 6: `wifi.<name>`; the own name has no prefix,
+  `secrets.md` 7, and `SecretName` takes tabs and line breaks), labelled `Wi-Fi <name>`, the value the
+  password (empty for an open network), changeable in the list of passwords and keys.
+  `Remember::new` checks what a network can be (name 1 to 32 bytes, password up to 63) before anything
+  is sent; `ssids_of` and `known_with` make the policy's list from the names and a password asked for
+  each (a secret gone since the list is skipped); `remember`, `forget`, `password_of` and `names` are
+  the calls on the facade with caller-owned buffers (`INPUT` 1,280, `REPLY` 4,096), wiped after every
+  call, at most 64 networks. **Moving the interface-6 `wifi.<name>` secrets to the plugin's own names is
+  the secret store's job at the first start (decision 138), not the plugin's.**
+  The calls that use the service are not run in a test (no native entry to load in a scripted
+  host yet); the parts around them are compared and swept.
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
 - The screens (H1, H2, H4), the status item's value, and the first-run row's badge.
@@ -46,7 +69,8 @@ host activates native plugins (then it goes together, no shim).
   family; the policy takes the clock as an argument.
 - The phone setup serves a page on port 80 of the device's own network: the SDK has no `serve` or
   `respond` yet (`NET-serve`); the decisions and pages are ported (`native_phone`).
-- Passwords and the `wifi.ini` on the card need `core.secrets` (PR 367) and `core.files`.
+- The `wifi.ini` on the card (read once at a start) needs `core.files`; the secrets facade is on
+  integration and used by `native_known`, to be run once the plugin has a native entry.
 
 ## Review fixes
 
