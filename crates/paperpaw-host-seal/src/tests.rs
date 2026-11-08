@@ -285,44 +285,68 @@ fn the_temporary_file_is_private_from_the_start() {
     assert_eq!(mode & 0o777, 0o600);
 }
 
-#[test]
-fn a_folder_with_no_hard_links_gets_a_key_and_a_second_creator_leaves_it() {
-    let dir = Dir::new("nolinks");
-    let s = FileSealer::new(dir.key_file()).without_hard_links();
-    let first = [1u8; KEY];
-    s.write(&first, false).unwrap();
-    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
-    // The file is there: the second write leaves it alone and is no error.
-    s.write(&[2u8; KEY], false).unwrap();
-    assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
-    // A seal and an open work over it, and nothing is left beside the key.
-    let sealed = seal(&s, AAD, b"v").unwrap();
-    assert_eq!(open(&s, AAD, &sealed).unwrap(), b"v");
-    let names: Vec<_> = fs::read_dir(&dir.0)
-        .unwrap()
-        .map(|e| e.unwrap().file_name())
-        .collect();
-    assert_eq!(names, ["device.key"]);
+/// Each way a key is published where no hard link is: the rename that never
+/// replaces, and (where the system has none) the lock file.
+fn no_link_sealers(path: &Path) -> [FileSealer; 2] {
+    [
+        FileSealer::new(path).without_hard_links(),
+        FileSealer::new(path)
+            .without_hard_links()
+            .without_rename_new(),
+    ]
 }
 
 #[test]
-fn creators_at_once_with_no_hard_links_end_with_one_key_that_all_use() {
-    let dir = Dir::new("nolinks-race");
-    let path = dir.key_file();
-    let sealed: Vec<Vec<u8>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
+fn a_folder_with_no_hard_links_gets_a_key_and_a_second_creator_leaves_it() {
+    for mode in 0..2 {
+        let dir = Dir::new(&format!("nolinks{mode}"));
+        let [a, b] = no_link_sealers(&dir.key_file());
+        let s = if mode == 0 { &a } else { &b };
+        let first = [1u8; KEY];
+        s.write(&first, false).unwrap();
+        assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
+        // The file is there: the second write leaves it alone and is no error.
+        s.write(&[2u8; KEY], false).unwrap();
+        assert_eq!(fs::read(dir.key_file()).unwrap(), record(&first));
+        // A seal and an open work over it, and nothing is left beside the key.
+        let sealed = seal(s, AAD, b"v").unwrap();
+        assert_eq!(open(s, AAD, &sealed).unwrap(), b"v");
+        let names: Vec<_> = fs::read_dir(&dir.0)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["device.key"], "mode {mode}");
+    }
+}
+
+/// Eight threads publish their own key at once, straight through `write` (not
+/// through `key`, whose process-wide lock would make them one at a time): one
+/// wins whole, the others leave it, nothing else is left behind.
+#[test]
+fn publishers_at_once_with_no_hard_links_leave_the_first_key_whole() {
+    for mode in 0..2 {
+        let dir = Dir::new(&format!("nolinks-race{mode}"));
+        let path = dir.key_file();
+        std::thread::scope(|scope| {
+            for n in 0..8u8 {
                 let path = path.clone();
                 scope.spawn(move || {
-                    seal(&FileSealer::new(path).without_hard_links(), AAD, b"v").unwrap()
-                })
-            })
+                    let [a, b] = no_link_sealers(&path);
+                    let s = if mode == 0 { a } else { b };
+                    s.write(&[n + 1; KEY], false).unwrap();
+                });
+            }
+        });
+        let found = fs::read(&path).unwrap();
+        assert!(
+            (1..=8u8).any(|n| found == record(&[n; KEY])),
+            "one whole record, mode {mode}"
+        );
+        let names: Vec<_> = fs::read_dir(&dir.0)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
             .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
-    let s = FileSealer::new(&path).without_hard_links();
-    for one in &sealed {
-        assert_eq!(open(&s, AAD, one).unwrap(), b"v");
+        assert_eq!(names, ["device.key"], "mode {mode}");
     }
 }
 
@@ -337,7 +361,9 @@ fn a_leftover_lock_is_taken_away_and_a_fresh_one_is_waited_for() {
     file.set_modified(std::time::SystemTime::now() - 2 * STALE)
         .unwrap();
     drop(file);
-    let s = FileSealer::new(dir.key_file()).without_hard_links();
+    let s = FileSealer::new(dir.key_file())
+        .without_hard_links()
+        .without_rename_new();
     s.write(&[5u8; KEY], false).unwrap();
     assert_eq!(fs::read(dir.key_file()).unwrap(), record(&[5u8; KEY]));
     assert!(!lock.exists(), "the lock is gone with its holder");
@@ -348,4 +374,50 @@ fn a_leftover_lock_is_taken_away_and_a_fresh_one_is_waited_for() {
     assert!(s.write(&[6u8; KEY], false).is_err());
     assert!(started.elapsed() >= WAIT_STEP * (WAIT_STEPS - 1));
     assert!(!dir.key_file().exists(), "no key is made without the lock");
+}
+
+/// A lock that cannot be taken away (a folder of that name) ends the wait with
+/// an error, old or fresh: it never loops for ever.
+#[test]
+fn a_lock_that_cannot_be_removed_ends_with_an_error() {
+    let dir = Dir::new("nolinks-lockdir");
+    let mut lock = dir.key_file().into_os_string();
+    lock.push(".lock");
+    let lock = PathBuf::from(lock);
+    fs::create_dir(&lock).unwrap();
+    let s = FileSealer::new(dir.key_file())
+        .without_hard_links()
+        .without_rename_new();
+    // Fresh: waited for, then refused.
+    assert!(s.write(&[7u8; KEY], false).is_err());
+    // Old: its removal is refused at once, and that is the error.
+    fs::File::open(&lock)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - 2 * STALE)
+        .unwrap();
+    let started = std::time::Instant::now();
+    assert!(s.write(&[7u8; KEY], false).is_err());
+    assert!(
+        started.elapsed() < STALE,
+        "ended by the refusal, not by waiting"
+    );
+    assert!(!dir.key_file().exists());
+}
+
+/// A rename that never replaces does not replace: the key that is there stays,
+/// also when the lock of the last resort was broken under its holder.
+#[test]
+#[cfg(target_os = "linux")]
+fn the_rename_that_never_replaces_leaves_a_file_that_is_there() {
+    let dir = Dir::new("noreplace");
+    let (from, to) = (dir.0.join("from"), dir.key_file());
+    fs::write(&from, b"new").unwrap();
+    fs::write(&to, b"old").unwrap();
+    let e = rename_new(&from, &to).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read(&to).unwrap(), b"old");
+    fs::remove_file(&to).unwrap();
+    rename_new(&from, &to).unwrap();
+    assert_eq!(fs::read(&to).unwrap(), b"new");
+    assert!(!from.exists());
 }

@@ -20,8 +20,12 @@
 //!   there (the first creator wins, the others use its key), the folder is
 //!   synced, and the key is read back. Only a file that is not a key record is
 //!   replaced. Where the folder has no hard links (a FAT folder), the same
-//!   comes from a lock file made exclusively around the check and a rename; a
-//!   lock that stood for ten seconds is a leftover and is taken away.
+//!   comes from a rename that never replaces (`renameat2` with
+//!   `RENAME_NOREPLACE` on Linux, `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`);
+//!   only where the system has no such rename, from a lock file made
+//!   exclusively around the check and a plain rename (a lock that stood for ten
+//!   seconds is a leftover and is taken away, and that is the one case two
+//!   creators can still both pass).
 //! - A device that cannot make a key refuses the seal (`ERR_IO` or `ERR_STATE`)
 //!   and the host writes nothing; there is no weaker fallback.
 
@@ -65,6 +69,9 @@ pub struct FileSealer {
     /// Whether the folder takes hard links (tests turn it off to stand for a
     /// FAT folder, which has none).
     links: bool,
+    /// Whether the rename that never replaces is tried (tests turn it off to
+    /// reach the lock file, which is only for where it is unsupported).
+    rename_new: bool,
 }
 
 /// Key creators in this process, one at a time.
@@ -85,6 +92,7 @@ impl FileSealer {
         Self {
             path: path.into(),
             links: true,
+            rename_new: true,
         }
     }
 
@@ -92,6 +100,14 @@ impl FileSealer {
     #[cfg(test)]
     fn without_hard_links(mut self) -> Self {
         self.links = false;
+        self
+    }
+
+    /// A sealer whose system has no rename that never replaces (the lock file
+    /// is then the last resort).
+    #[cfg(test)]
+    fn without_rename_new(mut self) -> Self {
+        self.rename_new = false;
         self
     }
 
@@ -210,8 +226,11 @@ impl Drop for Lock {
 
 impl FileSealer {
     /// Puts `temp` at the key file's path where no file is, leaving one that is
-    /// there alone (no error). A hard link does it in one step; a folder with no
-    /// hard links (a FAT folder) gets the same by a lock file and a rename.
+    /// there alone (no error). A hard link does it in one step; where the
+    /// folder has none (a FAT folder) a rename that never replaces does it
+    /// (`renameat2` with `RENAME_NOREPLACE`, `MoveFileExW` without
+    /// `MOVEFILE_REPLACE_EXISTING`: both are atomic and both work on FAT); only
+    /// where the system has neither is a lock file the last resort.
     fn publish_new(&self, temp: &Path) -> std::io::Result<()> {
         let linked = if self.links {
             fs::hard_link(temp, &self.path)
@@ -219,15 +238,26 @@ impl FileSealer {
             Err(std::io::ErrorKind::Unsupported.into())
         };
         match linked {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-            // Not "it is there": the folder cannot link. The same guarantee
-            // from an exclusive lock file (`create_new`) held across the check
-            // and the rename: only one creator is between them.
-            Err(_) => self.publish_locked(temp),
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(_) => {}
         }
+        if self.rename_new {
+            match rename_new(temp, &self.path) {
+                Ok(()) => return Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {}
+                Err(e) => return Err(e),
+            }
+        }
+        self.publish_locked(temp)
     }
 
+    /// The last resort: an exclusive lock file (`create_new`) held across "is a
+    /// file there?" and the rename. A lock that stood for [`STALE`] is the
+    /// leftover of a creator that was cut off and is taken away; two who do it
+    /// at once (or a clock that jumps) can break a live lock, which is why this
+    /// is only for a system with no rename that never replaces.
     fn publish_locked(&self, temp: &Path) -> std::io::Result<()> {
         let mut name = self.path.clone().into_os_string();
         name.push(".lock");
@@ -244,22 +274,27 @@ impl FileSealer {
             match options.open(&lock_path) {
                 Ok(_) => break Lock(lock_path.clone()),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // A lock that stood for long is the leftover of a creator
-                    // that was cut off: it goes, and the creator tries again.
-                    let old = fs::metadata(&lock_path)
+                    // Every round counts, so that no lock can hold this for
+                    // ever: a lock that cannot be taken away (a folder, a
+                    // refused removal) ends it with that error.
+                    tries += 1;
+                    if tries >= WAIT_STEPS {
+                        return Err(std::io::ErrorKind::WouldBlock.into());
+                    }
+                    let old = fs::symlink_metadata(&lock_path)
                         .and_then(|m| m.modified())
                         .ok()
                         .and_then(|t| t.elapsed().ok())
                         .is_some_and(|age| age > STALE);
                     if old {
-                        let _ = fs::remove_file(&lock_path);
-                        continue;
+                        match fs::remove_file(&lock_path) {
+                            Ok(()) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        std::thread::sleep(WAIT_STEP);
                     }
-                    tries += 1;
-                    if tries >= WAIT_STEPS {
-                        return Err(std::io::ErrorKind::WouldBlock.into());
-                    }
-                    std::thread::sleep(WAIT_STEP);
                 }
                 Err(e) => return Err(e),
             }
@@ -270,6 +305,72 @@ impl FileSealer {
         }
         fs::rename(temp, &self.path)
     }
+}
+
+/// Moves `from` to `to` only where `to` is not: `Ok`, `AlreadyExists` (it
+/// was there, nothing is changed) or `Unsupported` (this system or file system
+/// has no such rename).
+#[cfg(target_os = "linux")]
+fn rename_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    /// `RENAME_NOREPLACE` of `renameat2` (linux/fs.h).
+    const RENAME_NOREPLACE: libc::c_uint = 1;
+    let c = |p: &Path| {
+        CString::new(p.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))
+    };
+    let (from, to) = (c(from)?, c(to)?);
+    // SAFETY: both are NUL-terminated strings that live through the call; the
+    // call writes nothing through them. `syscall` rather than the libc
+    // wrapper, which old Androids and libcs lack.
+    let r = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    };
+    if r == 0 {
+        return Ok(());
+    }
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() {
+        Some(libc::EEXIST) => Err(std::io::ErrorKind::AlreadyExists.into()),
+        // The kernel or the file system does not know the flag.
+        Some(libc::EINVAL | libc::ENOSYS | libc::ENOTSUP | libc::EPERM) => {
+            Err(std::io::ErrorKind::Unsupported.into())
+        }
+        _ => Err(e),
+    }
+}
+
+#[cfg(windows)]
+fn rename_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain([0]).collect() };
+    let (from, to) = (wide(from), wide(to));
+    // SAFETY: both are NUL-terminated wide strings that live through the call.
+    // Flags 0: no `MOVEFILE_REPLACE_EXISTING`, so an existing file is an error
+    // (ERROR_ALREADY_EXISTS or ERROR_FILE_EXISTS, which std maps to
+    // `AlreadyExists`).
+    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+// Android too: its apps' seccomp filter may kill the process on `renameat2`
+// (older releases), and an app-private folder has hard links anyway.
+#[cfg(not(any(target_os = "linux", windows)))]
+fn rename_new(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// Makes the folder entry of `path` durable (Unix; elsewhere the file system
