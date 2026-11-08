@@ -256,19 +256,43 @@ fn unknown_blocks_and_missing_pictures_fail_cleanly() {
 }
 
 #[test]
-fn screens_over_64_megapixels_are_refused() {
+fn screens_over_8_megapixels_are_refused() {
     let mut gif = Gif::new(2, 2, 2, 0);
     gif.width = 65535;
     gif.height = 65535;
     let (result, sink) = gif_result(&gif.encode(), Fit::screen(480, 800), false);
     assert_eq!(result, Err(ImageError::Unsupported("GIF this large")));
     assert!(!sink.started);
-    // 64 megapixels exactly: taken, the screen white around the picture.
-    gif.width = 8192;
-    gif.height = 8192;
+    // One pixel over 8 megapixels: refused the same.
+    gif.width = 2000;
+    gif.height = 4001;
+    let (result, sink) = gif_result(&gif.encode(), Fit::screen(480, 800), false);
+    assert_eq!(result, Err(ImageError::Unsupported("GIF this large")));
+    assert!(!sink.started);
+    // 8 megapixels exactly: taken, the screen white around the picture.
+    gif.width = 2500;
+    gif.height = 3200;
     let image = decoded(&gif.encode(), Fit::side(64), false);
-    assert_eq!((image.width, image.height), (64, 64));
+    assert_eq!((image.width, image.height), (50, 64));
     assert!(image.pixels[1..].iter().all(|&p| p == 255));
+}
+
+#[test]
+fn pictures_larger_than_their_screen_are_refused_before_anything_is_decoded() {
+    // Wider, higher, or both; at any offset.
+    for (frame_width, frame_height) in [(21, 5), (6, 13), (21, 13)] {
+        let mut gif = Gif::new(6, 5, 4, 0);
+        gif.width = 20;
+        gif.height = 12;
+        gif.frame_width = frame_width;
+        gif.frame_height = frame_height;
+        let (result, sink) = gif_result(&gif.encode(), Fit::side(100), false);
+        assert_eq!(
+            result,
+            Err(ImageError::Invalid("GIF picture larger than its screen"))
+        );
+        assert!(!sink.started);
+    }
 }
 
 #[test]

@@ -19,13 +19,16 @@ use crate::{Downscaler, Fit, ImageError, ImageSink, Reader, luma, zeroed};
 const MAX_CODES: usize = 4096;
 /// White, for the screen around the picture and transparent pixels.
 const WHITE: u8 = 255;
-/// Larger screens and pictures are refused (64 megapixels): no book
-/// needs them, and a damaged size would take long to fill.
-const MAX_PIXELS: u64 = 1 << 26;
+/// Larger screens (and so pictures) are refused (8 megapixels, as the host
+/// refuses a source picture): no book needs them, and a damaged size would
+/// take long to fill.
+const MAX_PIXELS: u64 = 8_000_000;
 
-/// The colours of a colour table of `entries` colours.
-fn palette(reader: &mut Reader<'_>, entries: usize) -> Result<[[u8; 3]; 256], ImageError> {
-    let mut colors = [[0u8; 3]; 256];
+/// The colours of a colour table of `entries` colours, all 256 places (the
+/// ones after the table black). On the heap: 768 bytes are too many for the
+/// X4's stack frames.
+fn palette(reader: &mut Reader<'_>, entries: usize) -> Result<Vec<[u8; 3]>, ImageError> {
+    let mut colors: Vec<[u8; 3]> = zeroed(256)?;
     for slot in colors.iter_mut().take(entries) {
         reader.fill(slot)?;
     }
@@ -262,7 +265,7 @@ fn picture(
     reader: &mut Reader<'_>,
     width: u32,
     height: u32,
-    global: Option<[[u8; 3]; 256]>,
+    global: Option<Vec<[u8; 3]>>,
     transparent: Option<u8>,
     fit: Fit,
     sink: &mut dyn ImageSink,
@@ -275,8 +278,12 @@ fn picture(
     if w == 0 || h == 0 {
         return Err(ImageError::Invalid("GIF picture size"));
     }
-    if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return Err(ImageError::Unsupported("GIF this large"));
+    // A picture larger than its screen is no GIF this reads (the host
+    // refuses it the same way before it decodes), which also keeps it within
+    // the screen's limit; one that starts inside and reaches past the edge
+    // is cut there.
+    if w > width || h > height {
+        return Err(ImageError::Invalid("GIF picture larger than its screen"));
     }
     let interlaced = packed & 0x40 != 0;
     let mut colors = if packed & 0x80 != 0 {
@@ -298,7 +305,10 @@ fn picture(
     } else {
         1
     };
-    let grays = colors.map(|[r, g, b]| luma(u32::from(r), u32::from(g), u32::from(b)));
+    let mut grays: Vec<u8> = zeroed(colors.len())?;
+    for (gray, &[r, g, b]) in grays.iter_mut().zip(&colors) {
+        *gray = luma(u32::from(r), u32::from(g), u32::from(b));
+    }
     // Pixel `x` of a row in colour `index`.
     let paint = |row: &mut [u8], x: usize, index: u8| {
         if alpha {
