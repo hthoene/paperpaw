@@ -594,9 +594,8 @@ impl NativeWifi {
     /// Keeps the password typed for the network `ssid` the device is in now.
     /// Where the device cannot keep it (no secrets service, or `Unsupported`
     /// from the one that is there: owner decision 141, the X4 Classic's
-    /// table has no room for passwords), the user is told with a text of
-    /// Wi-Fi's own (`wifi.password.not-saved`, to be replaced by the shared
-    /// text of todo 183) and asked again next time.
+    /// table has no room for passwords), the user is told with
+    /// the shared `core.secrets-unsupported` and asked again next time.
     fn keep_joined(&mut self, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
         let Some((pending, password)) = self.policy.pending.take() else {
             return Ok(());
@@ -618,7 +617,7 @@ impl NativeWifi {
             Err(Error::NoMemory) => Err(Error::NoMemory),
             // Not saved: said, best effort.
             Err(_) => {
-                native_model::best_effort(Self::tell(host, "wifi.password.not-saved", ssid));
+                native_model::best_effort(Self::notice(host, "core.secrets-unsupported"));
                 Ok(())
             }
         }
@@ -909,6 +908,13 @@ impl NativeWifi {
         }
         native_model::best_effort(Self::tell(host, "wifi.forgotten", &ssid));
         self.reread(host)
+    }
+
+    /// A notice of one text.
+    fn notice(host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
 
     /// A notice with the network's `ssid`.

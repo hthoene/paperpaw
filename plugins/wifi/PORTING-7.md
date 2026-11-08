@@ -75,8 +75,7 @@ until the host activates native plugins (then it goes together, no shim).
   old page kept it after `wifi_done` (a wrong password is not kept: the join fails and nothing is
   online). **`core.secrets` may refuse to save with `ERR_UNSUPPORTED` (owner decision 141: the X4
   Classic's table has no room for passwords), or the service may be absent: the network is joined all
-  the same and the user is told with `wifi.password.not-saved`, a text of Wi-Fi's own in en and de.
-  Replace it by the shared text of todo 183 when Plugin Engineer adds it.**
+  the same and the user is told with the shared `core.secrets-unsupported` (core catalogue, en and de).**
   **Todo 179:** the own network's password and the page's token are taken only through
   `Drawn::into_strong` (`Own::draw`); the fields of `Drawn` are private. Where the draw is weak (or
   too few usable bytes came), the setup screen shows the existing `wifi.phone.no-random` and
