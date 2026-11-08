@@ -1,4 +1,8 @@
-//! Bounded, allocation-free catalog copy, interpolation and digit conversion.
+//! Bounded, allocation-free catalog copy (slot 6, `i18n.copy`), interpolation
+//! (slot 27, `i18n.format`) and digit conversion (slot 28, `i18n.digits`).
+//! The shell answers them from its dispatch frame's translator, a scripted
+//! host from a translator of its own ([`copy_with`], [`format_with`],
+//! [`digits_with`]).
 
 use super::{environment::EnvironmentScope, registrations as wire};
 use core::mem::MaybeUninit;
@@ -6,6 +10,25 @@ use paperpaw_i18n::{Arg, Translator};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED, PpBuffer, PpBytes, buffers,
 };
+
+/// Where the catalogs come from: the dispatch frame's translator (the
+/// shell), or a translator itself (a scripted host).
+enum Source<'a> {
+    Scope(&'a EnvironmentScope),
+    Translator(&'a Translator),
+}
+
+impl Source<'_> {
+    /// Runs `call` with the translator; the status of a scope without a frame.
+    fn with(&self, call: impl FnOnce(&Translator) -> i32) -> i32 {
+        match self {
+            Source::Scope(scope) => scope
+                .with_frame(|frame| call(frame.translator()))
+                .unwrap_or_else(|error| error),
+            Source::Translator(translator) => call(translator),
+        }
+    }
+}
 
 /// Copy one translated message, preserving the output if the key is absent.
 ///
@@ -16,6 +39,22 @@ use paperpaw_native::host_glue::{
 /// No pointer is retained.
 #[must_use]
 pub unsafe fn copy(scope: &EnvironmentScope, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { copy_from(&Source::Scope(scope), key, out) }
+}
+
+/// [`copy`] from `translator` itself, for a host that is not the kernel's
+/// shell (the scripted test host answers the slot with the same code).
+///
+/// # Safety
+/// As [`copy`].
+#[must_use]
+pub unsafe fn copy_with(translator: &Translator, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { copy_from(&Source::Translator(translator), key, out) }
+}
+
+unsafe fn copy_from(source: &Source<'_>, key: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: the caller provides valid, disjoint input and output regions.
     let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {
         Ok(key) => key,
@@ -26,16 +65,11 @@ pub unsafe fn copy(scope: &EnvironmentScope, key: PpBytes, out: PpBuffer) -> i32
         Ok(out) => out,
         Err(error) => return error,
     };
-    scope
-        .with_frame(|frame| {
-            frame
-                .translator()
-                .get(key)
-                .map_or(ERR_NOT_FOUND, |message| {
-                    buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)
-                })
+    source.with(|translator| {
+        translator.get(key).map_or(ERR_NOT_FOUND, |message| {
+            buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)
         })
-        .unwrap_or_else(|error| error)
+    })
 }
 
 /// Format a translated message using the generated argument record codec.
@@ -49,6 +83,26 @@ pub unsafe fn copy(scope: &EnvironmentScope, key: PpBytes, out: PpBuffer) -> i32
 /// that output is disjoint from both key and argument input regions.
 #[must_use]
 pub unsafe fn format(scope: &EnvironmentScope, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { format_from(&Source::Scope(scope), key, args, out) }
+}
+
+/// [`format`] from `translator` itself (see [`copy_with`]).
+///
+/// # Safety
+/// As [`format`].
+#[must_use]
+pub unsafe fn format_with(
+    translator: &Translator,
+    key: PpBytes,
+    args: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { format_from(&Source::Translator(translator), key, args, out) }
+}
+
+unsafe fn format_from(source: &Source<'_>, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: all pairs satisfy the documented lifetime and exclusion contract.
     let key = match unsafe { buffers::text_in(key, wire::I18N_FORMAT_MAX_KEY_BYTES) } {
         Ok(key) => key,
@@ -68,9 +122,7 @@ pub unsafe fn format(scope: &EnvironmentScope, key: PpBytes, args: PpBytes, out:
         Ok(args) => args,
         Err(error) => return error,
     };
-    scope
-        .with_frame(|frame| format_message(frame.translator(), key, &args, out))
-        .unwrap_or_else(|error| error)
+    source.with(|translator| format_message(translator, key, &args, out))
 }
 
 /// Convert ASCII digits using the current UI language's digit characters.
@@ -80,6 +132,21 @@ pub unsafe fn format(scope: &EnvironmentScope, key: PpBytes, args: PpBytes, out:
 /// Same pointer validity and exclusion requirements as [`copy`].
 #[must_use]
 pub unsafe fn digits(scope: &EnvironmentScope, text: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { digits_from(&Source::Scope(scope), text, out) }
+}
+
+/// [`digits`] from `translator` itself (see [`copy_with`]).
+///
+/// # Safety
+/// As [`digits`].
+#[must_use]
+pub unsafe fn digits_with(translator: &Translator, text: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller's contract, forwarded.
+    unsafe { digits_from(&Source::Translator(translator), text, out) }
+}
+
+unsafe fn digits_from(source: &Source<'_>, text: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: the input is readable and stable for the call.
     let text = match unsafe { buffers::text_in(text, wire::I18N_DIGITS_MAX_BYTES) } {
         Ok(text) => text,
@@ -90,22 +157,20 @@ pub unsafe fn digits(scope: &EnvironmentScope, text: PpBytes, out: PpBuffer) -> 
         Ok(out) => out,
         Err(error) => return error,
     };
-    scope
-        .with_frame(|frame| {
-            let digits = frame.translator().digits();
-            render(out, |sink| {
-                for character in text.chars() {
-                    let character = if character.is_ascii_digit() {
-                        digits[character as usize - '0' as usize]
-                    } else {
-                        character
-                    };
-                    sink.character(character)?;
-                }
-                Ok(())
-            })
+    source.with(|translator| {
+        let digits = translator.digits();
+        render(out, |sink| {
+            for character in text.chars() {
+                let character = if character.is_ascii_digit() {
+                    digits[character as usize - '0' as usize]
+                } else {
+                    character
+                };
+                sink.character(character)?;
+            }
+            Ok(())
         })
-        .unwrap_or_else(|error| error)
+    })
 }
 
 struct Arguments<'a> {

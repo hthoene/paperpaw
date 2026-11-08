@@ -14,14 +14,13 @@ use super::*;
 /// one list below names every field of the table: a new entry fails the
 /// count until added.
 /// The entries the core host table leaves to `host_glue`'s stubs (slots
-/// 36-40, wired by their own PRs). Named, not found by comparing function
+/// 36-38 and 40, wired by their own PRs). Named, not found by comparing function
 /// pointers: the compiler may give one small function a copy per codegen
 /// unit, so the same stub can have two addresses.
 const UNWIRED: &[&str] = &[
     "image_info",
     "canvas_draw_image",
     "text_hyphenate",
-    "text_covers",
     "icon_glyph",
 ];
 

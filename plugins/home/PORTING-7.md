@@ -143,16 +143,56 @@ placed and composed into its cell (`ui.compose`, after the tools and the footer,
 over it). *Next page* / *Previous page* turn the page (a swipe is the host's key map turning it to
 those actions; at the first or last page the press is taken, nothing turns), a tap runs the tool,
 the footer's action, or is forwarded to the widget (`widget_input`; a press of *Confirm* on a widget's
-target is a tap in its middle). A long press is taken and runs nothing (on interface 6 it edits; it
-waits for editing, `home-edit`). A widget the host cannot compose is left out of the draw, the rest
+target is a tap in its middle). A long press starts editing (see below). A widget the host cannot compose is left out of the draw, the rest
 of the page shows; widgets made when a layout fails are let go. At every show the focus is drawn
 only if `home.focus-at-once` is on. A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
 not ported) is not drawn.
 
+### Editing and *Add* (slice 3c)
+
+The pencil (a long press anywhere too) starts editing: the pencil becomes *Done* (*Back* ends it
+too), *Add* shows at the left and the footer's actions go. The page opened to edit (`mode` = `edit`,
+from *Edit home screen*) starts in it. While editing what is tapped runs nothing. *Add* opens the
+screen `home.add-widget` for the page that shows (`native_add_screen.rs`, the rules in `native_add.rs`
+without the host): the kinds (the widgets' registry kind, the tools last) with how many there are,
+*Add a page* (under 8 pages), *Remove this page* (more than one), *Reset landscape layout* (where
+one is kept); a kind lists its things (the widgets, the tools not on the page). A widget goes into
+the first free cells as a placement of its own (`id@n`: no page of either layout holds it and the
+registry has no values for it), as wide as the page and as high as it measures at the grid's width
+(`ui.widget_measure` on a widget made for it, `native_measure.rs`, the interface-6 arithmetic; one
+row where the host cannot measure it); a tool one cell; it is added to the other layout too. Only the pages whose text changes are written. All of a choice's writes (the
+settings, the placements a removed page's widgets set reset with `reset_setting`, the message) are
+staged in one callback, and an error return drops them all (`screens-input.md` 2.1), so a choice is
+all or nothing. No room, a landscape layout too full, and a choice whose keys and texts exceed the host's 4,096 B budget for one callback (a full home of 8 pages that shifts every page) say so ("This change is too big to save at once."), stage nothing and keep the screen. The kinds are in the kernel's order, then plugins' own, the tools last. A dashboard opened again keeps its view.
+
+### Arranging (slice 3d)
+
+While editing each item is one target and a tap (or *Confirm*) on it opens its options, a dialog
+over the page (the kit's dialog: *Move*, *Change the size*, *Remove*, *Cancel*, the core's words).
+*Move* and *Change the size* pick the item up: left/right and up/down (the page buttons too, as on
+interface 6) move it a cell or make it a cell wider/narrower or taller/lower; where another item is in
+the way the core's message says so; *Select* or *Back* sets it down and writes the page
+(`native_pages::store`, for a screen on its side the whole derived layout, as *Add* does).
+*Remove* takes it off the page and resets what its placement (`id@n`) set. A widget is kept at
+least as high as `widget_measure` gives as its least height at the grid's width (measured when the
+page is laid out), and one cell wide. Where the host refuses to place a moved widget again, the page
+is laid out anew from the settings. A change too big for one callback says so
+and leaves the old layout (see *Add*). The page is laid out anew from the settings after a write.
+
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
 
-- Editing (the pencil is left out, so is *Add* and the grip drag): `home-edit`. The page opened to
-  edit (`mode` = `edit`) shows as it is.
+- **Named blocker `KERNEL-cell-hints` (draft 29):** a widget's least *width* and its square hint
+  (`CellSpan::min_w`, `square`; interface 6 `CellSpan::keep`) have no field in `widget_measure`'s
+  reply, so a widget may be made narrower than it wants or any shape when it is sized (or, when
+  added, gets the grid's width): `home-edit-arrange`, `home-add`. The TODO is in `native_measure.rs`.
+
+- Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4); the options' *Settings* entry (the widget's settings, with a placement of its own) is not ported: `home-edit-arrange`.
+- *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made
+  layouts and the rows' icons: `home-add` (#517). The things are listed by name.
+- The kind rows are named by the catalog key the registry gives; a kind without a translation shows
+  the key.
+- At a show the focus is drawn only if `home.focus-at-once` is on; interface 6 also asks whether the
+  last input was by keys (`ui::focus_shown`), which waits for the input mode (H4): `home-dashboard`.
 - The status line above the grid is made room for but not drawn (`home-status-line`).
 - Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
   admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
@@ -162,7 +202,7 @@ not ported) is not drawn.
   A widget that pages itself (a list, a calendar) is not told the page buttons.
 - The built-in widgets of the home screen (status, date, clock, continue, recent) are not declared:
   `home-builtin-widgets`.
-- *Add* and the drawer: `home-add`, `home-drawer`.
+- The drawer: `home-drawer`.
 - Nothing here is drawn or taken through a host yet (H1/H4): `home-dashboard`.
 
 Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and tools of a few

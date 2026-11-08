@@ -42,8 +42,40 @@ struct ScreenState {
     context: *mut c_void,
 }
 
-/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2).
+/// A screen, a stage and a subscription (to its own stage when `STAGES` is 2);
+/// with `STAGES` 3, a screen and two setup steps (4: one named like the screen).
 fn stage_fixture() -> [wire::Record<'static>; 3] {
+    let step = |name| {
+        wire::Record::SetupStep(wire::SetupStep {
+            name,
+            title: "factory.step",
+            help: "",
+            order: 0,
+            page_kind: 1,
+            page: "factory.screen",
+            applies_key: "",
+            applies_value: "",
+            need: 0,
+            capability: 0,
+            flags: 1,
+        })
+    };
+    if STAGES.with(Cell::get) >= 3 {
+        return [
+            wire::Record::ScreenSpec(wire::ScreenSpec {
+                name: "screen",
+                title: "factory.title",
+                token: 91,
+                flags: FLAGS.with(Cell::get),
+            }),
+            step(if STAGES.with(Cell::get) == 4 {
+                "screen"
+            } else {
+                "setup"
+            }),
+            step("second"),
+        ];
+    }
     [
         wire::Record::ScreenSpec(wire::ScreenSpec {
             name: "screen",
@@ -1390,65 +1422,8 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
 
 #[path = "native_resources_tests.rs"]
 mod resources;
-
-#[test]
-fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {
-    reset(NORMAL);
-    STAGES.with(|value| value.set(1));
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .build()
-        .unwrap();
-    let result = install(&mut kernel, 0);
-    STAGES.with(|value| value.set(0));
-    result.unwrap();
-    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
-    let store = directory.store.borrow();
-    let stage = store
-        .stage("factory.insert")
-        .expect("the stage is declared");
-    assert_eq!(
-        (stage.max_input, stage.max_reply, stage.max_records),
-        (16, 16, 1)
-    );
-    // Its subscription to another plugin's stage is kept, and inert.
-    let kept = store.stage_subscribers("other.insert").unwrap();
-    assert_eq!(kept.len(), 1);
-    assert_eq!(
-        (kept[0].plugin, kept[0].token, kept[0].owner),
-        ("factory", 91, stage.owner)
-    );
-    drop(kept);
-    drop(store);
-    // The owner leaves: stage and subscription with it.
-    kernel.unload_plugin(&Id::new_static("factory"));
-    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
-    let store = directory.store.borrow();
-    assert!(store.stage("factory.insert").is_none());
-    assert!(store.stage_subscribers("other.insert").unwrap().is_empty());
-}
-
-#[test]
-fn a_subscription_to_the_plugins_own_stage_refuses_the_install_and_publishes_nothing() {
-    reset(NORMAL);
-    DESTROYED.with(|value| value.set(0));
-    STAGES.with(|value| value.set(2));
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .build()
-        .unwrap();
-    let before = kernel.shared.registry.screens.list().iter().count();
-    let result = install(&mut kernel, 0);
-    STAGES.with(|value| value.set(0));
-    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
-    assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
-    assert_eq!(DESTROYED.with(Cell::get), 1);
-    let stage = kernel
-        .shared
-        .registry
-        .native_declarations
-        .as_ref()
-        .map(|directory| directory.store.borrow().stage("factory.insert"));
-    assert!(stage.flatten().is_none());
-}
+#[path = "native_slot_offers_tests.rs"]
+mod slot_offers;
 
 #[test]
 fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
@@ -1480,3 +1455,6 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
+
+#[path = "native_stage_install_tests.rs"]
+mod stage_records;

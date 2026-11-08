@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 28;
+const KIND_COUNT: usize = 29;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -107,8 +107,10 @@ pub(crate) enum Kind {
     Stage,
     /// `registration.stage`: the plugin's token on a stage (any owner's).
     Subscription,
+    /// `setup.step` (category 8).
+    SetupStep,
 }
-const _: () = assert!(Kind::Subscription as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::SetupStep as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -140,6 +142,7 @@ impl Kind {
             Self::PresetValue => 15,
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
+            Self::SetupStep => 8,
         }
     }
 
@@ -173,6 +176,7 @@ impl Kind {
             Record::PresetValue(_) => Self::PresetValue,
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
+            Record::SetupStep(_) => Self::SetupStep,
             _ => return None,
         })
     }
@@ -510,6 +514,8 @@ impl PendingDeclarations {
                 // Stage specs and subscriptions: the plugin's eight
                 // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
+                usize::MAX,
+                // `setup.step` shares the aggregate byte cap.
                 usize::MAX,
             ];
             if self
