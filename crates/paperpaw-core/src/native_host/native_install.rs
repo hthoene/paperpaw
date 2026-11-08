@@ -36,6 +36,10 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // The extras (section, editor, check) are presentation the settings
         // page reads from the declaration store; the store keeps the record.
         Record::SettingExtra(_) => Ok(None),
+        // A stage and a subscription are read from the declaration store (the
+        // broker is fed by `DeclarationStore::stage` and `stage_subscribers`);
+        // they go with the owner's declarations.
+        Record::StageSpec(_) | Record::RegistrationStage(_) => Ok(None),
         Record::ResourceFontFace(_)
         | Record::ResourceFontExtension(_)
         | Record::ResourceHyphenation(_) => {
@@ -46,6 +50,14 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => Ok(None),
+        // Menus and icons stay in the declaration store (charged there, removed
+        // with their owner); `native_menus` reads them.
+        Record::MenuEntry(_)
+        | Record::IconSpec(_)
+        | Record::MenuNeed(_)
+        | Record::MenuSection(_)
+        | Record::MenuHide(_)
+        | Record::MenuDescribe(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
