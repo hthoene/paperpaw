@@ -12,13 +12,7 @@ const BITS: u8 = 6;
 const REREAD: u8 = 5;
 const ORDER: usize = EDGES + BITS as usize;
 
-/// Supplied by the same host predicate that authorizes the settings-read slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Visibility {
-    Hidden,
-    Redacted,
-    Readable,
-}
+pub(crate) use crate::abi7::settings_visibility::Visibility;
 
 /// One shared byte budget, independent of runtime ownership and retained leases.
 pub(crate) struct EventBudget(Shared<Cell<usize>>);
