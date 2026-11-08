@@ -181,6 +181,15 @@ impl Firmware {
         for warning in self.kernel.take_warnings() {
             warn!("{warning}");
         }
+        // Never taken: the build carries the host code that hosts a linked
+        // plugin, so the measure includes it, but nothing is registered while
+        // the stack gate holds (`abi/heap-word.md` section 6). Not flashable.
+        // Here, on the kernel in its place: a local in `kernel()` or `start()`
+        // would copy it (+4 KB on the frame).
+        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+        if core::hint::black_box(false) {
+            crate::native::register_linked_probe(&mut self.kernel);
+        }
         let effects = self.kernel.start(now());
         self.apply(effects);
         self.finishing_update();

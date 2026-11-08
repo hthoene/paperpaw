@@ -5,7 +5,7 @@ use super::{
     native_instances::NativeLease,
     native_screen_factory::NativeScreenSpec,
     native_values::{self, Callback, Value},
-    registrations::Record,
+    registrations::{self as wire, Record, Registration},
     retained::Retained,
     shell,
 };
@@ -87,12 +87,11 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
-        let (retained, (owner, owned), raw) = Retained::make_native_stored(host, map_declarations)?;
-        // Callback registrations need their own mapping arm. Never accept an
-        // owner while silently leaving any committed contribution unrouted.
-        if !retained.batch().map_err(shell::Error::from)?.is_empty() {
-            return Err(shell::Error::Status(ERR_UNSUPPORTED));
-        }
+        let (retained, (owner, owned, tokens), raw) =
+            Retained::make_native_stored(host, map_declarations)?;
+        // The callback registrations are admitted whole or the owner is not:
+        // none is dropped unrouted.
+        let events = check_registrations(&retained, &depth, &tokens)?;
         let key = self
             .shared
             .native_instances
@@ -108,7 +107,7 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, (owned, raw), &owner, report);
+        let result = self.bind_native(key, retained, depth, (owned, raw, events), &owner, report);
         if result.is_err() {
             self.shared
                 .native_instances
@@ -243,11 +242,15 @@ impl crate::Kernel {
         key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
-        mapped: (Vec<Owned>, super::raw_declarations::RawDeclarations),
+        mapped: (
+            Vec<Owned>,
+            super::raw_declarations::RawDeclarations,
+            super::event_tags::EventTags,
+        ),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let (owned, raw) = mapped;
+        let (owned, raw, events) = mapped;
         let mut flat_host = self.flat_host();
         flat_host.directory = self
             .shared
@@ -256,7 +259,7 @@ impl crate::Kernel {
             .as_ref()
             .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
             .transpose()?;
-        let instance = NativeLease::try_new(NativeDispatch::new(
+        let instance = NativeLease::try_new(NativeDispatch::with_events(
             retained,
             depth,
             flat_host,
@@ -265,6 +268,7 @@ impl crate::Kernel {
                 .native_instances
                 .identity(key)
                 .map_err(shell::Error::Status)?,
+            events,
         ))
         .map_err(shell::Error::Status)?;
         let mut staging = crate::registry::Staging::default();
@@ -376,6 +380,11 @@ impl crate::Kernel {
         let no_room = || RegisterError::Invalid {
             message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
         };
+        // A made setting needs one of the limited places: none is dropped
+        // for lack of one once publication starts.
+        if !self.shared.settings.has_room_for(settings) {
+            return Err(no_room());
+        }
         self.shared
             .actions
             .try_reserve(actions)
@@ -386,17 +395,17 @@ impl crate::Kernel {
             .map_err(|_| no_room())?;
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
-            // Cannot fail: checked above, and the room is made.
-            let _ = match setting {
+            // Checked above (no duplicate, a default that fits, a place
+            // and the room); an error here would be a mistake in those.
+            match setting {
                 crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
                 crate::registry::Staged::Fixed(list, at) => {
                     self.shared.settings.define_fixed(list, at)
                 }
-            };
+            }?;
         }
         for group in staging.setting_groups.drain(..) {
-            // Cannot fail: checked above.
-            let _ = self.shared.settings.add_group(group);
+            self.shared.settings.add_group(group)?;
         }
         Ok(())
     }
@@ -412,12 +421,66 @@ fn duplicate(id: &Id) -> RegisterError {
     )
 }
 
-fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, Vec<Owned>), i32> {
+/// Admits the callback registrations of a committed batch: an event needs a
+/// tag the host encodes (`ERR_UNSUPPORTED` otherwise) and one entry for each
+/// tag, a draw the token of exactly one screen, widget, status item or status line
+/// the plugin declared and one entry for each token (`ERR_INVALID` otherwise). The registrations stay in
+/// the batch, which teardown drops before the owner stops. The admitted event
+/// tags are returned, for the instance to deliver by.
+fn check_registrations<S: Services + 'static, M: 'static>(
+    retained: &Retained<S, M>,
+    depth: &FlatDepth,
+    tokens: &[u32],
+) -> Result<super::event_tags::EventTags, shell::Error> {
+    let mut events = super::event_tags::EventTags::default();
+    let mut drawn: Vec<u32> = Vec::new();
+    let mut verdict = Ok(());
+    retained
+        .registrations(depth.as_depth(), &mut |_, record| {
+            if verdict.is_err() {
+                return;
+            }
+            verdict = match record {
+                Registration::Event { event_tag, .. } => {
+                    if !super::events::is_event_tag(event_tag) {
+                        Err(ERR_UNSUPPORTED)
+                    } else if events.contains(event_tag) {
+                        Err(ERR_INVALID)
+                    } else {
+                        events.insert(event_tag)
+                    }
+                }
+                Registration::Draw { token } => {
+                    // The token of exactly one drawable declaration, named once.
+                    if tokens.iter().filter(|&&other| other == token).count() != 1
+                        || drawn.contains(&token)
+                    {
+                        Err(ERR_INVALID)
+                    } else if drawn.try_reserve(1).is_err() {
+                        Err(ERR_NO_MEMORY)
+                    } else {
+                        drawn.push(token);
+                        Ok(())
+                    }
+                }
+            };
+        })
+        .map_err(shell::Error::from)?;
+    verdict.map_err(shell::Error::Status)?;
+    Ok(events)
+}
+
+fn map_declarations(
+    view: &super::declaration_checks::View<'_>,
+) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    // The tokens of what the plugin draws itself (screens, widgets, status
+    // items and status lines), which draws may name.
+    let mut tokens = Vec::new();
     let mut any = false;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
@@ -425,6 +488,14 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
             return;
         }
         result = (|| {
+            if let Record::ScreenSpec(wire::ScreenSpec { token, .. })
+            | Record::WidgetSpec(wire::WidgetSpec { token, .. })
+            | Record::StatusItem(wire::StatusItem { token, .. })
+            | Record::StatusLine(wire::StatusLine { token, .. }) = record
+            {
+                tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                tokens.push(token);
+            }
             if let Some(value) = map_record(view.plugin, record)? {
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
@@ -437,7 +508,7 @@ fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, V
     if !any {
         return Err(ERR_UNSUPPORTED);
     }
-    Ok((owner, owned))
+    Ok((owner, owned, tokens))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

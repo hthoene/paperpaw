@@ -853,7 +853,7 @@ pub struct Settings {
     presets: crate::presets::Presets,
     /// The plugins whose defaults are in force, by setting (see
     /// [`Settings::default_from`]).
-    defaults_by: VecMap<Id, Id>,
+    defaults_by: VecMap<Id, declared::DefaultBy>,
 }
 
 impl Settings {
@@ -1046,34 +1046,6 @@ impl Settings {
         } else {
             crate::builtin::groups::OTHER
         }
-    }
-
-    /// Makes room for `specs` more settings and `groups` more groups, so that
-    /// defining them cannot fail for lack of memory.
-    ///
-    /// # Errors
-    /// The heap refused the room (some may be kept).
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn try_reserve(
-        &mut self,
-        specs: usize,
-        groups: usize,
-    ) -> Result<(), alloc::collections::TryReserveError> {
-        self.specs.try_reserve(specs)?;
-        self.groups.try_reserve(groups)
-    }
-
-    /// Forgets the settings and groups of `plugin` (ids `<plugin>.…`) and the
-    /// defaults it set, e.g. when a plugin unloads. The values the reader
-    /// chose stay in their store, for the plugin's next load.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn remove_plugin(&mut self, plugin: &str) {
-        self.specs.remove_plugin(plugin);
-        self.groups.retain(|group| group.id.namespace() != plugin);
-        self.defaults_by
-            .retain(|setting, owner| setting.namespace() != plugin && owner.namespace() != plugin);
     }
 
     /// Registers a setting. Its default must be valid.
@@ -1292,7 +1264,7 @@ impl Settings {
     /// the default is the setting's own or the device's. The default only:
     /// the reader's own value may be set over it ([`Settings::is_set`]).
     pub fn default_from(&self, id: &str) -> Option<&Id> {
-        self.defaults_by.get(id)
+        self.defaults_by.get(id).map(|set| &set.by)
     }
 
     paperpaw_table::shared! {

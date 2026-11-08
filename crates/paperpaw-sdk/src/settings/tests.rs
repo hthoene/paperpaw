@@ -408,3 +408,111 @@ fn a_setting_of_a_later_kind_keeps_its_value_as_text() {
     assert!(SLIDER.accepts(&value));
     assert!(!SLIDER.accepts(&SettingValue::Int(35)));
 }
+
+#[test]
+fn a_plugins_settings_and_groups_go_and_the_others_keep_their_places() {
+    static LIST: [SettingSpec; 2] = [
+        SettingSpec::new(
+            Id::new_static("keep.fixed"),
+            "keep.fixed",
+            SettingKind::Bool,
+            SettingValue::Bool(true),
+            crate::builtin::groups::OTHER,
+        ),
+        SettingSpec::new(
+            Id::new_static("gone.fixed"),
+            "gone.fixed",
+            SettingKind::Bool,
+            SettingValue::Bool(true),
+            crate::builtin::groups::OTHER,
+        ),
+    ];
+    let flag = |id: &'static str| {
+        SettingSpec::new(
+            Id::new_static(id),
+            id,
+            SettingKind::Bool,
+            SettingValue::Bool(false),
+            crate::builtin::groups::OTHER,
+        )
+    };
+    let mut s = Settings::new();
+    s.define(flag("keep.first")).unwrap();
+    s.define(flag("gone.one")).unwrap();
+    s.define_fixed(&LIST, 0).unwrap();
+    s.define(flag("keep.second")).unwrap();
+    s.define_fixed(&LIST, 1).unwrap();
+    s.define(flag("gone.two")).unwrap();
+    s.add_group(SettingGroupSpec::new(Id::new_static("gone.group"), "gone"))
+        .unwrap();
+    s.add_group(SettingGroupSpec::new(Id::new_static("keep.group"), "keep"))
+        .unwrap();
+    s.remove_plugin("gone");
+    for id in ["keep.first", "keep.fixed", "keep.second"] {
+        assert!(s.spec(id).is_some(), "{id}");
+    }
+    for id in ["gone.one", "gone.fixed", "gone.two"] {
+        assert!(s.spec(id).is_none(), "{id}");
+    }
+    let order: Vec<&str> = s.specs.iter().map(|spec| spec.id.as_str()).collect();
+    assert_eq!(order, ["keep.first", "keep.fixed", "keep.second"]);
+    let groups: Vec<&str> = s.groups().map(|g| g.id.as_str()).collect();
+    assert_eq!(groups, ["keep.group"]);
+    // The room that is left takes new settings again.
+    s.define(flag("gone.three")).unwrap();
+    assert!(s.spec("gone.three").is_some());
+}
+
+#[test]
+fn a_plugin_that_goes_gives_back_the_defaults_it_changed() {
+    let flag = |id: &'static str| {
+        SettingSpec::new(
+            Id::new_static(id),
+            id,
+            SettingKind::Bool,
+            SettingValue::Bool(false),
+            crate::builtin::groups::OTHER,
+        )
+    };
+    let mut s = Settings::new();
+    s.define(flag("base.flag")).unwrap();
+    s.define(flag("base.other")).unwrap();
+    s.define(flag("mod.own")).unwrap();
+    s.set_default_by("base.flag", "true", Id::new_static("mod"))
+        .unwrap();
+    s.set_default_by("base.other", "true", Id::new_static("mod"))
+        .unwrap();
+    s.set_default_by("mod.own", "true", Id::new_static("mod"))
+        .unwrap();
+    assert_eq!(s.get("base.flag"), Some(&SettingValue::Bool(true)));
+    assert_eq!(s.default_from("base.flag").map(Id::as_str), Some("mod"));
+    // A second plugin over the first: the default before both comes back.
+    s.set_default_by("base.other", "false", Id::new_static("late"))
+        .unwrap();
+    s.remove_plugin("mod");
+    assert_eq!(s.get("base.flag"), Some(&SettingValue::Bool(false)));
+    assert!(s.default_from("base.flag").is_none());
+    assert_eq!(s.default_from("base.other").map(Id::as_str), Some("late"));
+    s.remove_plugin("late");
+    assert_eq!(s.get("base.other"), Some(&SettingValue::Bool(false)));
+    assert!(s.default_from("base.other").is_none());
+    assert!(s.spec("mod.own").is_none());
+}
+
+#[test]
+fn room_for_made_settings_ends_at_the_places_there_are() {
+    let mut s = Settings::new();
+    assert!(s.has_room_for(32_768));
+    assert!(!s.has_room_for(32_769));
+    assert!(!s.has_room_for(usize::MAX));
+    s.define(SettingSpec::new(
+        Id::new_static("a.b"),
+        "a.b",
+        SettingKind::Bool,
+        SettingValue::Bool(false),
+        crate::builtin::groups::OTHER,
+    ))
+    .unwrap();
+    assert!(s.has_room_for(32_767));
+    assert!(!s.has_room_for(32_768));
+}
