@@ -92,12 +92,11 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::MenuDescribe(describe) => {
             describe_check(plugin_id, describe).and(Err(ERR_UNSUPPORTED))
         }
-        // Checked, then refused until the host runs stages
-        // (`docs/abi/stages-services.md` section 1).
-        Record::StageSpec(spec) => stage_spec_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::RegistrationStage(registration) => {
-            stage_registration_check(registration).and(Err(ERR_UNSUPPORTED))
-        }
+        // Stages (`docs/abi/stages-services.md` section 1.1): checked here;
+        // the whole-plugin rules (eight subscriptions, none to its own stage,
+        // one name and one token per stage) are `declaration_checks`.
+        Record::StageSpec(spec) => stage_spec_check(plugin_id, spec),
+        Record::RegistrationStage(registration) => stage_registration_check(registration),
         // Registry declarations (`docs/abi/registry.md` section 6): refused
         // until the host admits them (Core, REG hand-off).
         Record::SetupStep(_)

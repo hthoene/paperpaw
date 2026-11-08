@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 13;
+const KIND_COUNT: usize = 15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -87,8 +87,12 @@ pub(crate) enum Kind {
     StatusItem,
     StatusLine,
     StatusPlace,
+    /// `stage.spec`: a stage the plugin owns.
+    Stage,
+    /// `registration.stage`: the plugin's token on a stage (any owner's).
+    Subscription,
 }
-const _: () = assert!(Kind::StatusPlace as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::Subscription as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -105,6 +109,8 @@ impl Kind {
             Self::StatusItem => 20,
             Self::StatusLine => 21,
             Self::StatusPlace => 22,
+            Self::Stage => super::declaration_index::STAGE_KIND,
+            Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
         }
     }
 
@@ -123,6 +129,8 @@ impl Kind {
             Record::StatusItem(_) => Self::StatusItem,
             Record::StatusLine(_) => Self::StatusLine,
             Record::StatusPlace(_) => Self::StatusPlace,
+            Record::StageSpec(_) => Self::Stage,
+            Record::RegistrationStage(_) => Self::Subscription,
             _ => return None,
         })
     }
@@ -307,8 +315,8 @@ impl PendingDeclarations {
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
             if let Some(kind) = Kind::of(&record) {
-                let (category, name) = super::declaration_index::key(record).ok_or(ERR_INVALID)?;
-                kinds[index] = Some((kind, super::declaration_index::name_hash(category, name)));
+                let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
+                kinds[index] = Some((kind, hash));
                 counts[kind as usize] += 1;
             }
         }
@@ -337,6 +345,11 @@ impl PendingDeclarations {
             });
         }
         let image = reference.is_some();
+        if self.kinds[Kind::Subscription as usize].len() + counts[Kind::Subscription as usize]
+            > super::declaration_checks::STAGE_SUBSCRIPTIONS_MAX
+        {
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
         let (resident, index_bytes, image_entries) = self.charge(counts, image, bytes.len())?;
         let reference = match reference {
             Some(reference) => reference,
@@ -406,6 +419,10 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                // Stage specs and subscriptions: the plugin's eight
+                // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
                 usize::MAX,
             ];
@@ -739,10 +756,10 @@ fn check_indexed_name(
     key: DeclKey,
     record: Record<'_>,
 ) -> Result<(), i32> {
-    use super::declaration_index::{key as name_key, name_hash, same_name};
+    use super::declaration_index::{key as name_key, record_hash, same_record_name};
     let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
-    let (category, name) = name_key(record).ok_or(ERR_INVALID)?;
-    let hash = name_hash(category, name);
+    let (category, _) = name_key(record).ok_or(ERR_INVALID)?;
+    let hash = record_hash(record).ok_or(ERR_INVALID)?;
     let slots = &owner.kinds[kind as usize];
     let from = slots.partition_point(|slot| slot.hash < hash);
     let run = slots[from..].iter().take_while(|slot| slot.hash == hash);
@@ -770,17 +787,21 @@ fn check_indexed_name(
             let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
                 continue;
             };
-            if name_key(other).is_some_and(|(other_kind, other_name)| {
-                other_kind == category
-                    && name_hash(category, other_name) == hash
-                    && same_name(category, name, other_name)
-            }) {
+            if record_hash(other) == Some(hash) && same_record_name(record, other) {
                 return Err(ERR_INVALID);
             }
         }
     }
     Ok(())
 }
+
+#[path = "declaration_stages.rs"]
+mod stages;
+#[allow(
+    unused_imports,
+    reason = "read by the broker's adapter when slot 32 is wired"
+)]
+pub(crate) use stages::{StageLimits, StageSubscriber};
 
 #[cfg(test)]
 #[path = "declaration_store_tests.rs"]

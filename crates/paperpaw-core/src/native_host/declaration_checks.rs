@@ -1,11 +1,14 @@
 //! Allocation-free cross-record checks over image and owned declarations.
 use super::{
-    declaration_index::{key, same_name},
+    declaration_index::{STAGE_KIND, STAGE_SUBSCRIPTION_KIND, key, same_name},
     raw_declarations::RawDeclarations,
     registrations::*,
     staged::Declarations,
 };
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID};
+
+/// Most stage subscriptions one plugin declares.
+pub(crate) const STAGE_SUBSCRIPTIONS_MAX: usize = 8;
 
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
@@ -137,6 +140,17 @@ impl<'a> View<'a> {
             .filter(|entry| entry.kind() == 0)
             .count()
             + self.owned.groups().len();
+        // Stage subscriptions are the plugin's own declarations, so the
+        // plugin can fix a ninth (`stages-services.md` section 1.1).
+        let subscriptions = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == STAGE_SUBSCRIPTION_KIND)
+            .count();
+        if subscriptions > STAGE_SUBSCRIPTIONS_MAX {
+            return Err(ERR_FULL);
+        }
         let mut result = Ok(());
         self.visit(&mut |record| {
             if result.is_err() {
@@ -146,6 +160,7 @@ impl<'a> View<'a> {
                 Record::SettingSpec(spec) => self.require_group(spec.group),
                 Record::SettingGroup(group) => self.ancestry(group.parent, groups),
                 Record::SettingExtra(extra) => self.follow_kind(&extra),
+                Record::RegistrationStage(registration) => self.not_own_stage(&registration),
                 _ => Ok(()),
             };
         })?;
@@ -191,6 +206,16 @@ impl<'a> View<'a> {
         }
         Ok(())
     }
+    /// The owner is inside its own callback whenever its stage runs, so a
+    /// subscription to one of its own stages could only answer `ERR_BUSY`.
+    fn not_own_stage(&self, registration: &RegistrationStage<'_>) -> Result<(), i32> {
+        if let Some(name) = own_name(self.plugin, registration.stage)
+            && self.raw.find(self.image, STAGE_KIND, name)?.is_some()
+        {
+            return Err(ERR_INVALID);
+        }
+        Ok(())
+    }
     fn follow_kind(&self, extra: &SettingExtra<'_>) -> Result<(), i32> {
         if self.spec(extra.name)?.is_none() {
             return Err(ERR_INVALID);
@@ -225,3 +250,7 @@ fn unique_names<'a>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "declaration_stage_checks_tests.rs"]
+mod stage_tests;

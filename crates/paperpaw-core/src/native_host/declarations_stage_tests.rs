@@ -1,5 +1,5 @@
 //! Stage records 19/20 (`stage.spec`, `registration.stage`) and the host's own
-//! 512/513/1024: syntax, forward compatibility, and refusal until wired.
+//! 512/513/1024: syntax, forward compatibility, and admission.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use super::*;
 use crate::native_host::registrations::{
@@ -77,7 +77,7 @@ fn an_unknown_flag_is_unsupported_not_invalid() {
 }
 
 #[test]
-fn well_formed_stage_declarations_are_refused_until_wired_and_host_records_never_pass() {
+fn well_formed_stage_declarations_pass_and_host_records_never_do() {
     let records = [
         Record::StageSpec(spec("insert", 1, 16, 16, 1)),
         Record::RegistrationStage(subscribe("reader.insert", 0)),
@@ -86,7 +86,7 @@ fn well_formed_stage_declarations_are_refused_until_wired_and_host_records_never
         let mut out = [0; 512];
         let len = records_encode(&[record], &mut out).unwrap();
         let batch = records_decode(&out[..len]).unwrap();
-        assert_eq!(validate_batch(PLUGIN, &batch), Err(ERR_UNSUPPORTED));
+        assert_eq!(validate_batch(PLUGIN, &batch), Ok(()));
     }
     let host_records = [
         Record::StageCall(StageCall {
