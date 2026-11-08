@@ -121,6 +121,32 @@ events) is still in place. It is removed in the PR that finishes the port.
   the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin
   of this port until the host admits icons.
 
+## Ported: the books and book screens (slice 2)
+
+- `src/native_screens.rs`: `stats.books` (token 21) and `stats.book` (token 22), declared in
+  `declarations.rs`, kept per instance in the kit's `Screens`. Views are built when the screen
+  opens (`ScreenOpened`) from owned data over the data folder, with the host-free rows of
+  `book_list`/`book_rows`; the draw callback only replays prepared drawing. A failed read (bad
+  UTF-8 in `books.ini`, a refused allocation) is the event's error and the screen stays without
+  a view (`draw` then fails with `State`), as interface 6 showed nothing; the list is never
+  built from a partial read.
+- The books list is the kit's `ItemList` (paging, focus, header with back/pager on touch); an
+  empty list says `stats.no-books` (the title of the kit's empty footer, no second text).
+  Choosing a book makes a hand-over with `id=<book id>` (`core.ui` op 16) and opens
+  `stats.book` with it; the book screen reads the id from its hand-over (op 17).
+- The book screen draws its rows at four fifths of a row (no focus, only back does anything) and
+  below them the last 10 days read as bars, when there is room for 2 rows (`native_chart.rs`:
+  the layout is plain numbers and tested, the painter measures with the font). The bar chart is
+  shared with the overview. A book that is not in `books.ini` shows `stats.no-books`.
+- Days are UTC days until draft 25 (as in the recorder). Dates and plural forms come from the
+  catalog through `Messages` (the host's `Arg::Count` must pick the catalog's plural form; checked
+  for the rows in `screens_tests.rs` with the catalog's own `plural()`).
+- Sweeps refuse each allocation of both builders (`native_screens/tests.rs`). Pixel goldens of
+  these screens need a kernel-backed harness like Battery's (`native_battery_pixel_tests.rs`)
+  and are not made here.
+- Not yet: the overview, the calendar, the action `stats.open` and its menu entries (the books
+  are reachable from the overview), sync.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - Screens (overview, calendar, books, book) on `core.ui`.

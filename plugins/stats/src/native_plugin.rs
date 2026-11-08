@@ -1,5 +1,6 @@
 //! The interface-7 Stats plugin: what the host tells it about reading goes to
 //! the [`Recorder`], over the plugin's data folder and the user's files.
+use paperpaw_sdk::native::callbacks::{DrawFrame, Input};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
@@ -10,11 +11,13 @@ use paperpaw_sdk::native::{
     settings::{self, SettingValue},
     snapshot::{Snapshot, capture_snapshot},
     storage::{self as host_storage, DataStorage, Root},
-    ui::Notify,
+    ui::{Notify, Ui},
 };
-use paperpaw_sdk::{DirEntry, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
+use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
+use crate::native_screens::{self, BookView, BooksView};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
 mod image {
@@ -26,10 +29,25 @@ const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 /// The stage that tells today's reading.
 const READ_TODAY: &str = "stats.read-today";
 
+/// An open screen's view.
+enum View {
+    Books(BooksView),
+    Book(BookView),
+}
+
 /// Stats' interface-7 entry state.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct NativeStats {
     recorder: Recorder,
+    /// `core.ui`, opened by the first callback (opening needs a live frame).
+    ui: Option<Ui>,
+    screens: Screens<View>,
+}
+
+impl core::fmt::Debug for NativeStats {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeStats").finish_non_exhaustive()
+    }
 }
 
 impl Plugin for NativeStats {
@@ -67,6 +85,23 @@ impl Plugin for NativeStats {
                 reply.write(&bytes)?;
             }
             return Ok(());
+        }
+        match event {
+            Event::ScreenOpened {
+                screen,
+                instance,
+                handover,
+                ..
+            } => return self.opened(host, screen, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => return self.screens.shown(token, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                return Ok(());
+            }
+            _ => {}
         }
         if token != EVENTS {
             return Ok(());
@@ -117,6 +152,60 @@ impl Plugin for NativeStats {
             _ => return Ok(()),
         };
         tell(host, told)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        match self.screens.top(token).ok_or(Error::State)? {
+            View::Books(view) => view.draw(host, &mut frame),
+            View::Book(view) => view.draw(host, &mut frame),
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ui(host)?;
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        match view {
+            View::Books(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
+            View::Book(view) => view.input(host, &input),
+        }
+    }
+}
+
+impl NativeStats {
+    fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// Builds the view of an opened screen over the data folder.
+    fn opened(
+        &mut self,
+        host: &Host<'_>,
+        screen: &str,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let data = DataFolder(&storage);
+        let view = match screen {
+            "stats.books" => View::Books(BooksView::new(host, &data)?),
+            "stats.book" => {
+                let id = match handover {
+                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+                    None => None,
+                };
+                View::Book(BookView::new(host, &data, id)?)
+            }
+            _ => return Ok(()),
+        };
+        self.screens.open(instance, view)
     }
 }
 

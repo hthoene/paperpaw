@@ -17,9 +17,9 @@ use crate::totals::BookTotals;
 use crate::{book_list, book_rows};
 
 /// The plugin's catalog in one language, as the host would resolve it.
-struct Catalogued(Translator);
+pub(crate) struct Catalogued(Translator);
 
-fn words(language: &str) -> Catalogued {
+pub(crate) fn words(language: &str) -> Catalogued {
     let source = match language {
         "de" => include_str!("../i18n/de.ini"),
         _ => include_str!("../i18n/en.ini"),
@@ -223,7 +223,7 @@ fn a_book_without_pages_known_has_no_time_left_and_a_single_day_no_last_day() {
 
 /// Refuses each allocation of `run` in turn: it must come back as
 /// `NoMemory` (or be unaffected), never abort.
-fn sweep(run: &dyn Fn() -> Result<usize, Error>) {
+pub(crate) fn sweep(run: &dyn Fn() -> Result<usize, Error>) {
     let (whole, count) = armed(usize::MAX, run);
     assert!(whole.is_ok());
     assert!(count > 0, "allocates nothing: the sweep proves nothing");
@@ -267,7 +267,7 @@ fn a_books_numbers_refuse_cleanly() {
 }
 
 /// The host's catalog allocates on the host's side: nothing of it is refused.
-struct QuietWords<'a>(&'a RefCell<Catalogued>);
+pub(crate) struct QuietWords<'a>(pub(crate) &'a RefCell<Catalogued>);
 
 impl Words for QuietWords<'_> {
     fn copy(&mut self, key: &str) -> Result<String, Error> {

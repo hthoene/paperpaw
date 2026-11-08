@@ -1,11 +1,16 @@
 //! Stats' declarations as borrowed builders, shared by the build script (which
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, SpecDecl, StageDecl,
+    Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, ScreenDecl, SpecDecl,
+    StageDecl,
 };
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
+
+/// The screens' tokens.
+pub const BOOKS_TOKEN: u32 = 21;
+pub const BOOK_TOKEN: u32 = 22;
 
 pub const GROUP: &str = "stats.group";
 
@@ -39,11 +44,13 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
     declarations.submit()
 }
 
-/// The chart icon of the settings group. (The screens, the action that opens the
-/// overview and its menu entries follow with the screens.)
+/// The chart icon of the settings group and the screens (the overview, the
+/// calendar, the action that opens the overview and its menu entries follow).
 pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.icon(GROUP, "chart-bar")?;
+    declarations.screen(ScreenDecl::new("books", "stats.books", BOOKS_TOKEN))?;
+    declarations.screen(ScreenDecl::new("book", "stats.title", BOOK_TOKEN))?;
     declarations.submit()
 }
 

@@ -30,22 +30,16 @@ extern crate std;
     reason = "the build script and the declaration test also use the builders"
 )]
 mod declarations;
+mod native_chart;
 mod native_entry;
+mod native_screens;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
 pub mod native_plugin;
 
 mod book;
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the native screens use it, in the next slice")
-)]
 mod book_list;
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the native screens use it, in the next slice")
-)]
 mod book_rows;
 mod books;
 mod calendar;
@@ -65,7 +59,10 @@ mod recorder;
 mod room;
 mod store;
 mod sync;
-#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+#[allow(
+    dead_code,
+    reason = "the overview and the calendar, in the next slices, use the rest"
+)]
 mod texts;
 mod totals;
 mod widget;
