@@ -260,14 +260,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-xtc"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]

@@ -7,12 +7,12 @@ use paperpaw_native::host_glue::{self as abi, PpHost};
 use std::alloc::{GlobalAlloc, Layout, System};
 
 #[derive(Clone, Copy, Default)]
-struct Counts {
-    enabled: bool,
-    refuse: bool,
-    refused: bool,
-    live: usize,
-    peak: usize,
+pub(crate) struct Counts {
+    pub(crate) enabled: bool,
+    pub(crate) refuse: bool,
+    pub(crate) refused: bool,
+    pub(crate) live: usize,
+    pub(crate) peak: usize,
 }
 std::thread_local! {
     static COUNTS: Cell<Counts> = Cell::new(Counts::default());
@@ -69,7 +69,7 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
+pub(crate) fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {
@@ -195,10 +195,7 @@ unsafe extern "C" fn service_call(
 
 #[test]
 fn menu_and_handover_temporaries_do_not_overlap_in_one_callback() {
-    use crate::native::{
-        declare::records_wire as records,
-        ui::{Param, Ui},
-    };
+    use crate::native::ui::{Param, Ui};
     let mut table = abi::host_table();
     table.commands_submit = submit;
     table.service_open = service_open;
@@ -224,8 +221,8 @@ fn menu_and_handover_temporaries_do_not_overlap_in_one_callback() {
         Ok::<_, Error>(())
     });
     assert_eq!(result, Ok(()));
-    let handover_bytes = 32 * core::mem::size_of::<records::Record<'_>>();
-    assert_eq!(count.peak, handover_bytes.max(2048));
+    // The handover encodes its params as it walks them: no temporary at all.
+    assert_eq!(count.peak, 2048);
     assert_eq!(count.live, 0);
     assert_eq!(calls.get(), 3);
 }

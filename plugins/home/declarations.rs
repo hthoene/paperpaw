@@ -12,6 +12,7 @@ use paperpaw_sdk::native::declare::{
 pub const DASHBOARD: u32 = 10;
 pub const ADD: u32 = 11;
 pub const DRAWER: u32 = 12;
+pub const STATUS_ITEMS: u32 = 13;
 pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
@@ -144,8 +145,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         };
         d.spec(spec)?;
     }
-    // Its picker is the status items' screen, which belongs to the host: no
-    // editor can be named for it yet (an ignored acceptance case).
+    // Its picker is home's own screen, built on the kit's status items editor
+    // (`paperpaw_ui_kit::status_items`): the host has no screen for it.
     let mut items = SpecDecl::new(
         "footer.items",
         Kind::List(""),
@@ -154,16 +155,25 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     items.help = "home.setting.footer-items.help";
     d.spec(items)?;
+    let mut extra = ExtraDecl::new("footer.items");
+    extra.editor = Some(EditorDecl::Screen("status-items"));
+    d.extra(extra)?;
     d.submit()
 }
 
-/// The dashboard, adding to a page, and every tool at once.
+/// The dashboard, adding to a page, every tool at once, and the footer items'
+/// editor.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.screen(ScreenDecl::new("dashboard", "home.title", DASHBOARD))?;
     d.screen(ScreenDecl::new("add-widget", "home.edit.add", ADD))?;
     d.screen(ScreenDecl::new("drawer", "home.drawer", DRAWER))?;
+    d.screen(ScreenDecl::new(
+        "status-items",
+        "home.setting.footer-items",
+        STATUS_ITEMS,
+    ))?;
     d.submit()
 }
 

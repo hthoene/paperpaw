@@ -48,6 +48,14 @@ pub const LINES: &[&str] = &[
 ];
 pub const SHADOWS: &[&str] = &["core.shadow.none", "core.shadow.hard"];
 
+/// The values of a widget's font setting: the menus' font, the book's, the
+/// book's italic.
+pub const FACES: &[&str] = &[
+    "widgets.face.ui",
+    "widgets.face.book",
+    "widgets.face.italic",
+];
+
 /// The values of a date-format setting.
 pub const DATE_FORMATS: &[&str] = &[
     "widgets.date-format.long",
@@ -229,14 +237,14 @@ pub fn declare_option(
 ///
 /// # Errors
 /// What the declaration encoder refuses.
-pub fn declare_all<'a>(
+pub fn declare_all(
     d: &mut Declarations<impl FnMut(&[u8]) -> Result<(), i32>>,
     widget: &str,
     group: &str,
-    options: impl IntoIterator<Item = &'a Opt>,
+    options: impl IntoIterator<Item = Opt>,
 ) -> Result<(), DeclareError> {
     for option in options {
-        declare_option(d, widget, group, *option)?;
+        declare_option(d, widget, group, option)?;
     }
     Ok(())
 }

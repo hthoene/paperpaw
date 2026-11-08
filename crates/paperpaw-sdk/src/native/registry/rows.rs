@@ -1,5 +1,5 @@
 //! Borrowed typed registry rows. Generated wire types stay private.
-use super::{Error, Record, wire};
+use super::{Error, expect, wire};
 use crate::native::{
     settings::SettingValue,
     wire::settings_wire::{SettingValueRef, settings_decode},
@@ -221,10 +221,8 @@ pub struct RegistrySetting<'a> {
     row: wire::ServiceRegSetting<'a>,
 }
 impl<'a> RegistrySetting<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegSetting(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegSetting<'_> = expect(record)?;
         if row.key.is_empty() {
             return Err(Error::Invalid);
         }
@@ -274,10 +272,8 @@ pub struct RegistrySettingExtra<'a> {
     row: wire::ServiceRegSettingExtra<'a>,
 }
 impl<'a> RegistrySettingExtra<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegSettingExtra(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegSettingExtra<'_> = expect(record)?;
         Ok(Self { row })
     }
     /// Smallest numeric value.
@@ -343,10 +339,8 @@ pub struct RegistryChoice<'a> {
     row: wire::ServiceRegChoice<'a>,
 }
 impl<'a> RegistryChoice<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegChoice(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegChoice<'_> = expect(record)?;
         if row.value.is_empty() {
             return Err(Error::Invalid);
         }
@@ -370,10 +364,8 @@ pub struct RegistryGroup<'a> {
     row: wire::ServiceRegGroup<'a>,
 }
 impl<'a> RegistryGroup<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegGroup(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegGroup<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }
@@ -412,10 +404,8 @@ pub struct RegistryPlugin<'a> {
     row: wire::ServiceRegPlugin<'a>,
 }
 impl<'a> RegistryPlugin<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegPlugin(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegPlugin<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }
@@ -474,10 +464,8 @@ pub struct RegistryNeed<'a> {
     row: wire::ServiceRegNeed<'a>,
 }
 impl<'a> RegistryNeed<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegNeed(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegNeed<'_> = expect(record)?;
         if row.key.is_empty() {
             return Err(Error::Invalid);
         }
@@ -518,10 +506,8 @@ impl<'a> RegistryItem<'a> {
         self.row.flags & (1 << 5) != 0
     }
 
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegItem(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegItem<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }
@@ -555,10 +541,8 @@ pub struct RegistrySlot<'a> {
     row: wire::ServiceRegSlot<'a>,
 }
 impl<'a> RegistrySlot<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegSlot(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegSlot<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }
@@ -597,10 +581,8 @@ pub struct RegistryMenuRow<'a> {
     row: wire::ServiceRegMenuRow<'a>,
 }
 impl<'a> RegistryMenuRow<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegMenuRow(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegMenuRow<'_> = expect(record)?;
         if row.item.is_empty() {
             return Err(Error::Invalid);
         }
@@ -659,10 +641,8 @@ pub struct RegistryBinding<'a> {
     row: wire::ServiceRegBinding<'a>,
 }
 impl<'a> RegistryBinding<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegBinding(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegBinding<'_> = expect(record)?;
         if row.layer.is_empty() || row.input.is_empty() {
             return Err(Error::Invalid);
         }
@@ -696,10 +676,8 @@ pub struct RegistrySetupStep<'a> {
     row: wire::ServiceRegSetupStep<'a>,
 }
 impl<'a> RegistrySetupStep<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegSetupStep(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegSetupStep<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }
@@ -743,10 +721,8 @@ pub struct RegistryValue<'a> {
     row: wire::ServiceRegValue<'a>,
 }
 impl<'a> RegistryValue<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegValue(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegValue<'_> = expect(record)?;
         if row.key.is_empty() {
             return Err(Error::Invalid);
         }
@@ -776,10 +752,8 @@ pub struct RegistryWidget<'a> {
     row: wire::ServiceRegWidget<'a>,
 }
 impl<'a> RegistryWidget<'a> {
-    pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceRegWidget(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: wire::RawRecord<'a>) -> Result<Self, Error> {
+        let row: wire::ServiceRegWidget<'_> = expect(record)?;
         if row.id.is_empty() {
             return Err(Error::Invalid);
         }

@@ -14098,6 +14098,7 @@
           "name": "data",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "bytes"
         }
