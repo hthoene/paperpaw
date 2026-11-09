@@ -36,6 +36,10 @@ struct Fake {
     subscribed: Cell<bool>,
     screen: Cell<Option<u64>>,
     run: Cell<Option<u64>>,
+    /// The work run's resources: told open, told closed, refused to open.
+    run_opened: RefCell<Vec<u64>>,
+    run_closed: RefCell<Vec<u64>>,
+    run_open_fails: Cell<Option<i32>>,
     connects: RefCell<Vec<(u32, String, u32)>>,
     connect_fails: Cell<Option<i32>>,
     cast_fails: Cell<Option<i32>>,
@@ -80,6 +84,9 @@ impl Fake {
             subscribed: Cell::new(true),
             screen: Cell::new(Some(5)),
             run: Cell::new(None),
+            run_opened: RefCell::new(Vec::new()),
+            run_closed: RefCell::new(Vec::new()),
+            run_open_fails: Cell::new(None),
             connects: RefCell::new(Vec::new()),
             connect_fails: Cell::new(None),
             cast_fails: Cell::new(None),
@@ -206,6 +213,16 @@ impl SockHost for Fake {
     }
     fn current_run(&self, _: u64) -> Option<u64> {
         self.run.get()
+    }
+    fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        if let Some(error) = self.run_open_fails.get() {
+            return Err(error);
+        }
+        self.run_opened.borrow_mut().push(run);
+        Ok(())
+    }
+    fn resource_closed(&self, run: u64) {
+        self.run_closed.borrow_mut().push(run);
     }
     fn root_access(&self, _: &Caller<'_>, _: u32, _: &str) -> Result<(), i32> {
         self.deny.get().map_or(Ok(()), Err)
@@ -376,7 +393,11 @@ impl Ev {
 fn next(f: &Fake, owner: u64) -> Option<Ev> {
     let mut out = std::vec![0; 256];
     let used = next_event(f, owner, &mut out).unwrap()?;
-    match wire::record_decode_one(&out[..used]).unwrap() {
+    // What the plugin's callback gets: the SDK frames it as a batch of one and
+    // decodes it (the kernel's `service_event` reads its tag the same way).
+    let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
+    assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
         Record::EventSocket(e) => Some(Ev::new(e.socket, e.token, e.kind, e.reason, e.len)),
         other => panic!("not event 106: {other:?}"),
     }
@@ -619,8 +640,12 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
 
 #[path = "tests/cast.rs"]
 mod cast;
+#[path = "tests/deadline.rs"]
+mod deadline;
 #[path = "tests/file.rs"]
 mod file;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/tls.rs"]
 mod tls;
 
@@ -1168,5 +1193,142 @@ fn the_pool_is_exactly_back_after_every_way_a_socket_can_end() {
         drain(&f, OWNER);
         owner_stopped(&f, OWNER).unwrap();
         assert_eq!(pool.used(), 10_000, "way {how}");
+    }
+}
+
+#[test]
+fn turning_a_plugins_network_off_ends_each_socket_it_has_open_at_the_next_pass() {
+    let f = Fake::x4();
+    let open_one = open(&f, OWNER, 1);
+    let connecting = connect(&f, OWNER, 2).unwrap();
+    drain(&f, OWNER);
+    // Offline and saving let what runs go on.
+    f.power.set(Some(PowerEnd {
+        reason: reason::OFFLINE,
+        later: true,
+    }));
+    tick(&f).unwrap();
+    assert_eq!(next(&f, OWNER), None);
+    f.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&f).unwrap();
+    let mut told = drain(&f, OWNER);
+    told.sort_by_key(|e| e.token);
+    assert_eq!(
+        told,
+        std::vec![
+            Ev::new(open_one, 1, kind::FAILED, reason::NETWORK_OFF, 0),
+            Ev::new(connecting, 2, kind::FAILED, reason::NETWORK_OFF, 0),
+        ]
+    );
+    let mut closed = f.closes.borrow().clone();
+    closed.sort_unstable();
+    assert_eq!(
+        closed,
+        [open_one, connecting],
+        "the transport let go of both"
+    );
+    // Nothing more is told.
+    tick(&f).unwrap();
+    assert_eq!(next(&f, OWNER), None);
+}
+
+/// Every socket of work run 7 that was stored told the run it opened, and
+/// told it exactly once that it ended: after the plugin was told of the end
+/// (the events are delivered here), or at once when no event is left to tell.
+fn balanced(f: &Fake, opened: usize) {
+    drain(f, OWNER);
+    assert_eq!(*f.run_opened.borrow(), std::vec![7; opened], "opened");
+    assert_eq!(
+        *f.run_closed.borrow(),
+        std::vec![7; opened],
+        "each closed exactly once"
+    );
+}
+
+#[test]
+fn a_socket_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
+    // Closed by the plugin; again changes nothing.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    let id = open(&f, OWNER, 1);
+    assert!(f.run_closed.borrow().is_empty(), "alive: the run goes on");
+    close(&f, OWNER, id).unwrap();
+    close(&f, OWNER, id).unwrap();
+    // The run counts the socket until the plugin has been told of its end.
+    assert!(f.run_closed.borrow().is_empty(), "ended, not yet told");
+    assert!(next(&f, OWNER).is_some());
+    assert!(f.run_closed.borrow().is_empty(), "told, callback running");
+    event_delivered(&f, OWNER).unwrap();
+    assert_eq!(*f.run_closed.borrow(), [7], "the callback returned");
+    balanced(&f, 1);
+    // The transport lost it.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    let id = open(&f, OWNER, 1);
+    failed(&f, id, reason::LOST).unwrap();
+    failed(&f, id, reason::LOST).unwrap();
+    balanced(&f, 1);
+    // The user turned the plugin's network off while it ran.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    open(&f, OWNER, 1);
+    f.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&f).unwrap();
+    tick(&f).unwrap();
+    balanced(&f, 1);
+    // The run reached its longest time.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    open(&f, OWNER, 1);
+    work_ended(&f, OWNER, 7).unwrap();
+    work_ended(&f, OWNER, 7).unwrap();
+    balanced(&f, 1);
+    // The plugin stopped, with one open and one connecting.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    open(&f, OWNER, 1);
+    connect(&f, OWNER, 2).unwrap();
+    owner_stopped(&f, OWNER).unwrap();
+    owner_stopped(&f, OWNER).unwrap();
+    balanced(&f, 2);
+    // Ended by the power rules before it started.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    f.power.set(Some(PowerEnd {
+        reason: reason::SAVING,
+        later: true,
+    }));
+    connect(&f, OWNER, 1).unwrap();
+    balanced(&f, 1);
+    // A transport that cannot start it, after it was stored.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    f.connect_fails
+        .set(Some(paperpaw_native::host_glue::ERR_IO));
+    connect(&f, OWNER, 1).unwrap();
+    balanced(&f, 1);
+    // No run: nothing is told.
+    let f = Fake::x4();
+    let id = open(&f, OWNER, 1);
+    close(&f, OWNER, id).unwrap();
+    assert!(f.run_opened.borrow().is_empty() && f.run_closed.borrow().is_empty());
+}
+
+#[test]
+fn a_run_that_cannot_be_kept_refuses_the_socket_and_nothing_is_held() {
+    for error in [ERR_BUSY, paperpaw_native::host_glue::ERR_NOT_FOUND] {
+        let f = Fake::x4();
+        f.run.set(Some(7));
+        f.run_open_fails.set(Some(error));
+        assert_eq!(connect(&f, OWNER, 1), Err(error));
+        assert!(f.connects.borrow().is_empty());
+        assert_eq!(f.table.pool().used(), 0, "the charge went back");
+        assert!(f.run_closed.borrow().is_empty(), "nothing was opened");
     }
 }
