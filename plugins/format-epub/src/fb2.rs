@@ -19,21 +19,21 @@
 //! text, so opening a book again does not read the whole file. Zipped
 //! books (`.fb2.zip`) are unpacked into the cache once.
 
-use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Block, Document, DocumentError, ImageRef, Link, Locator, Metadata, TocEntry,
 };
 use paperpaw_sdk::image::Fit;
-use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
-use paperpaw_sdk::{Env, Storage};
+use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
 
 use crate::PLUGIN;
 use crate::cached;
 use crate::convert::{self, CachePaths, INDEX, Source};
+use crate::fallible;
 
 /// Changes whenever books are read differently, so they are read again.
 const FB2_VERSION: u32 = 2;
@@ -57,22 +57,35 @@ pub(crate) enum Encoding {
     Single(&'static [char; 128]),
 }
 
-/// The encoding the XML declaration names (UTF-8 if none).
+/// The encoding the XML declaration names (UTF-8 if none): names and
+/// `encoding=` in any case, compared in place.
 fn detect(head: &[u8]) -> Encoding {
-    let head = String::from_utf8_lossy(&head[..head.len().min(200)]).to_ascii_lowercase();
-    let name = head
-        .split("encoding=")
-        .nth(1)
-        .and_then(|rest| {
-            rest.trim_start_matches(['"', '\''])
-                .split(['"', '\''])
-                .next()
-        })
-        .unwrap_or("utf-8");
-    match name {
-        "windows-1251" | "cp1251" => Encoding::Single(&CP1251),
-        "windows-1252" | "cp1252" | "iso-8859-1" | "latin1" => Encoding::Single(&CP1252),
-        _ => Encoding::Utf8,
+    let head = &head[..head.len().min(200)];
+    let key = b"encoding=";
+    let Some(at) = head
+        .windows(key.len())
+        .position(|w| w.eq_ignore_ascii_case(key))
+    else {
+        return Encoding::Utf8;
+    };
+    let rest = &head[at + key.len()..];
+    let start = rest
+        .iter()
+        .position(|&b| b != b'"' && b != b'\'')
+        .unwrap_or(rest.len());
+    let rest = &rest[start..];
+    let end = rest
+        .iter()
+        .position(|&b| b == b'"' || b == b'\'')
+        .unwrap_or(rest.len());
+    let name = &rest[..end];
+    let is = |wanted: &str| name.eq_ignore_ascii_case(wanted.as_bytes());
+    if is("windows-1251") || is("cp1251") {
+        Encoding::Single(&CP1251)
+    } else if is("windows-1252") || is("cp1252") || is("iso-8859-1") || is("latin1") {
+        Encoding::Single(&CP1252)
+    } else {
+        Encoding::Utf8
     }
 }
 
@@ -121,11 +134,17 @@ pub(crate) fn feed(
 
 /// The value of an attribute by its name without prefix (`l:href`,
 /// `xlink:href`).
-pub(crate) fn attr(attrs: &paperpaw_sdk::xml::Attrs<'_>, name: &str) -> Option<String> {
-    attrs
-        .iter()
-        .find(|(n, _)| local_name(n) == name)
-        .map(|(_, v)| decode(v).into_owned())
+pub(crate) fn attr(
+    attrs: &paperpaw_sdk::xml::Attrs<'_>,
+    name: &str,
+) -> Result<Option<String>, DocumentError> {
+    match attrs.iter().find(|(n, _)| local_name(n) == name) {
+        Some((_, v)) => {
+            let decoded = paperpaw_sdk::xml::try_decode(v).map_err(|_| fallible::OOM)?;
+            Ok(Some(fallible::string(&decoded)?))
+        }
+        None => Ok(None),
+    }
 }
 
 /// What one look at the book finds. Its contents are written to the cache
@@ -178,8 +197,12 @@ struct Scanner<'a> {
 }
 
 impl Scanner<'_> {
-    fn start(&mut self, name: &str, attrs: &paperpaw_sdk::xml::Attrs<'_>) {
-        let tag = scan_name(name);
+    fn start(
+        &mut self,
+        name: &str,
+        attrs: &paperpaw_sdk::xml::Attrs<'_>,
+    ) -> Result<(), DocumentError> {
+        let tag = scan_name(name)?;
         let in_info = self.info.is_some();
         match tag.as_str() {
             "body" => self.notes = attrs.get("name").as_deref() == Some("notes"),
@@ -191,18 +214,23 @@ impl Scanner<'_> {
                 }
             }
             "sequence" if in_info && self.found.metadata.series.is_none() => {
+                let series = match attr(attrs, "name")? {
+                    Some(n) => Some(value(&n)?).filter(|n| !n.is_empty()),
+                    None => None,
+                };
+                let index = match attr(attrs, "number")? {
+                    Some(n) => Some(value(&n)?).filter(|n| !n.is_empty() && n != "0"),
+                    None => None,
+                };
                 let m = &mut self.found.metadata;
-                m.series = attr(attrs, "name")
-                    .map(|n| value(&n))
-                    .filter(|n| !n.is_empty());
-                m.series_index = attr(attrs, "number")
-                    .map(|n| value(&n))
-                    .filter(|n| !n.is_empty() && n != "0");
+                m.series = series;
+                m.series_index = index;
             }
             "image" if in_info && self.stack.last().is_some_and(|t| t == "coverpage") => {
-                self.found.cover = attr(attrs, "href")
-                    .map(|h| value(h.trim_start_matches('#')))
-                    .filter(|h| !h.is_empty());
+                self.found.cover = match attr(attrs, "href")? {
+                    Some(h) => Some(value(h.trim_start_matches('#'))?).filter(|h| !h.is_empty()),
+                    None => None,
+                };
             }
             "annotation" if in_info => self.annotation = Some(String::new()),
             "author" if in_info => {
@@ -215,53 +243,67 @@ impl Scanner<'_> {
             if tag == "title-info" && self.info.is_none() {
                 self.info = Some(self.stack.len());
             }
-            self.stack.push(tag);
+            fallible::push(&mut self.stack, tag)?;
         } else {
             self.overflow += 1;
         }
         self.text.clear();
+        Ok(())
     }
 
-    fn end(&mut self, name: &str) {
-        let tag = scan_name(name);
+    fn end(&mut self, name: &str) -> Result<(), DocumentError> {
+        let tag = scan_name(name)?;
         let in_info = self.info.is_some();
-        let value = value(&self.text);
+        let value = value(&self.text)?;
         let m = &mut self.found.metadata;
         match tag.as_str() {
             "book-title" if in_info => m.title = Some(value),
             "lang" if in_info && !value.is_empty() => m.language = Some(value),
             "keywords" if in_info => {
-                m.subjects = value
+                let mut subjects = Vec::new();
+                for keyword in value
                     .split([',', ';'])
                     .map(str::trim)
                     .filter(|k| !k.is_empty())
                     .take(MAX_SUBJECTS)
-                    .map(String::from)
-                    .collect();
+                {
+                    fallible::push(&mut subjects, fallible::string(keyword)?)?;
+                }
+                m.subjects = subjects;
             }
             "first-name" | "middle-name" | "last-name" if in_info && !value.is_empty() => {
-                self.name_parts.push(value);
+                fallible::push(&mut self.name_parts, value)?;
             }
             "nickname" if in_info => self.nickname = value,
             "author" if in_info && m.authors.len() < MAX_AUTHORS => {
                 let full = if self.name_parts.is_empty() {
                     core::mem::take(&mut self.nickname)
                 } else {
-                    self.name_parts.join(" ")
+                    let mut full = String::new();
+                    for (i, part) in self.name_parts.iter().enumerate() {
+                        if i > 0 {
+                            fallible::push_char(&mut full, ' ')?;
+                        }
+                        fallible::push_str(&mut full, part)?;
+                    }
+                    full
                 };
                 if !full.is_empty() {
-                    m.authors.push(full);
+                    fallible::push(&mut m.authors, full)?;
                 }
             }
             "annotation" if in_info => {
-                m.description = self.annotation.take().map(|a| clean(&a));
+                m.description = match self.annotation.take() {
+                    Some(a) => Some(clean(&a)?),
+                    None => None,
+                };
             }
             "section" => self.depth = self.depth.saturating_sub(1),
             "title" => {
                 if let Some(title) = self.title.take() {
-                    let anchor = format!("{TOC_ANCHOR}{}", self.titles);
+                    let anchor = fallible::try_format!("{TOC_ANCHOR}{}", self.titles)?;
                     self.titles += 1;
-                    let title = clean(&title);
+                    let title = clean(&title)?;
                     // A title without words (a picture) is no entry.
                     if !title.is_empty() && self.found.toc_len < MAX_TOC {
                         let level = (self.depth.saturating_sub(1)).min(5) as u8;
@@ -277,7 +319,7 @@ impl Scanner<'_> {
                     .into_iter()
                     .flatten()
                 {
-                    open.push(' ');
+                    fallible::push_char(open, ' ')?;
                 }
             }
             _ => {}
@@ -291,14 +333,15 @@ impl Scanner<'_> {
             }
         }
         self.text.clear();
+        Ok(())
     }
 
-    fn characters(&mut self, text: &str) {
+    fn characters(&mut self, text: &str) -> Result<(), DocumentError> {
         // Pictures are long and of no use here.
         if self.stack.last().is_some_and(|t| t == "binary") {
-            return;
+            return Ok(());
         }
-        let text = decode(text);
+        let text = paperpaw_sdk::xml::try_decode(text).map_err(|_| fallible::OOM)?;
         for open in [
             Some(&mut self.text),
             self.title.as_mut(),
@@ -308,15 +351,16 @@ impl Scanner<'_> {
         .flatten()
         {
             if open.len() < MAX_SCAN_TEXT {
-                open.push_str(&text);
+                fallible::push_str(open, &text)?;
             }
         }
+        Ok(())
     }
 }
 
 /// An element's name as a look at the book keeps it.
-fn scan_name(name: &str) -> String {
-    String::from(cut(local_name(name), MAX_SCAN_NAME))
+fn scan_name(name: &str) -> Result<String, DocumentError> {
+    fallible::string(cut(local_name(name), MAX_SCAN_NAME))
 }
 
 /// `text` cut to at most `max` bytes, where a character ends.
@@ -330,8 +374,8 @@ fn cut(text: &str, max: usize) -> &str {
 
 /// A value of the metadata: whitespace collapsed, at most [`MAX_VALUE`]
 /// bytes.
-fn value(text: &str) -> String {
-    String::from(cut(&clean(text), MAX_VALUE))
+fn value(text: &str) -> Result<String, DocumentError> {
+    fallible::string(cut(&clean(text)?, MAX_VALUE))
 }
 
 /// Looks at the book once: its metadata, and its contents written to the
@@ -357,31 +401,42 @@ fn scan(
         notes: false,
         annotation: None,
     };
-    let mut handle = |token: Token<'_>| match token {
-        Token::Start {
-            name,
-            attrs,
-            self_closing,
-        } => {
-            scanner.start(name, &attrs);
-            if self_closing {
-                scanner.end(name);
-            }
+    let mut refused = None;
+    let mut handle = |token: Token<'_>| {
+        if refused.is_some() {
+            return;
         }
-        Token::End { name } => scanner.end(name),
-        Token::Text(text) => scanner.characters(&text),
-        Token::CData(_) => {}
+        let done = match token {
+            Token::Start {
+                name,
+                attrs,
+                self_closing,
+            } => scanner.start(name, &attrs).and_then(|()| {
+                if self_closing {
+                    scanner.end(name)
+                } else {
+                    Ok(())
+                }
+            }),
+            Token::End { name } => scanner.end(name),
+            Token::Text(text) => scanner.characters(&text),
+            Token::CData(_) => Ok(()),
+        };
+        refused = done.err();
     };
     let mut tokenizer = Tokenizer::new();
     feed(storage, path, encoding, &mut tokenizer, &mut handle)?;
+    if let Some(e) = refused {
+        return Err(e);
+    }
     let Scanner { mut found, toc, .. } = scanner;
     found.toc_len = toc.finish()?;
     Ok(found)
 }
 
 /// Whitespace collapsed.
-fn clean(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+fn clean(text: &str) -> Result<String, DocumentError> {
+    fallible::words(text)
 }
 
 /// Decodes base64 piece by piece; other characters are skipped.
@@ -392,7 +447,7 @@ struct Base64 {
 }
 
 impl Base64 {
-    fn feed(&mut self, text: &str, out: &mut Vec<u8>) {
+    fn feed(&mut self, text: &str, out: &mut Vec<u8>) -> Result<(), DocumentError> {
         for b in text.bytes() {
             let v = match b {
                 b'A'..=b'Z' => b - b'A',
@@ -406,10 +461,11 @@ impl Base64 {
             self.bits += 6;
             if self.bits >= 8 {
                 self.bits -= 8;
-                out.push((self.acc >> self.bits) as u8);
+                fallible::push(out, (self.acc >> self.bits) as u8)?;
                 self.acc &= (1 << self.bits) - 1;
             }
         }
+        Ok(())
     }
 }
 
@@ -424,19 +480,24 @@ pub(crate) fn decode_binaries(
     dir: &str,
     color: bool,
 ) -> Result<(), DocumentError> {
-    let wanted: Vec<&(String, String, Fit)> = wanted
-        .iter()
-        .filter(|(_, cache, _)| paperpaw_sdk::image::ImageFile::open(storage, cache).is_none())
-        .collect();
+    let mut missing: Vec<&(String, String, Fit)> = Vec::new();
+    fallible::reserve(&mut missing, wanted.len())?;
+    missing.extend(
+        wanted
+            .iter()
+            .filter(|(_, cache, _)| paperpaw_sdk::image::ImageFile::open(storage, cache).is_none()),
+    );
+    let wanted = missing;
     if wanted.is_empty() {
         return Ok(());
     }
-    let temp = format!("{dir}/binary.tmp");
+    let temp = fallible::try_format!("{dir}/binary.tmp")?;
     let mut current: Option<usize> = None;
     let mut base64 = Base64::default();
     let mut bytes = Vec::new();
     let mut done: Vec<usize> = Vec::new();
     let mut failed = None;
+    let mut refused: Option<DocumentError> = None;
     let mut handle = |token: Token<'_>| match token {
         Token::Start { name, attrs, .. } if local_name(name) == "binary" => {
             let id = attrs.get("id").unwrap_or_default();
@@ -453,18 +514,30 @@ pub(crate) fn decode_binaries(
         }
         Token::Text(text) if current.is_some() => {
             bytes.clear();
-            base64.feed(&text, &mut bytes);
-            if failed.is_none() {
+            if let Err(e) = base64.feed(&text, &mut bytes) {
+                refused = Some(e);
+            }
+            if failed.is_none() && refused.is_none() {
                 failed = storage.append(&temp, &bytes).err();
             }
         }
         Token::End { name } if local_name(name) == "binary" => {
             if let Some(at) = current.take() {
                 let (_, cache, fit) = wanted[at];
-                if failed.is_none()
-                    && convert::decode_file(storage, &temp, cache, *fit, color).is_ok()
-                {
-                    done.push(at);
+                if failed.is_none() && refused.is_none() {
+                    match convert::decode_file(storage, &temp, cache, *fit, color) {
+                        Ok(()) => {
+                            if let Err(e) = fallible::push(&mut done, at) {
+                                refused = Some(e);
+                            }
+                        }
+                        // A picture that finds no room is not left out
+                        // for good: the conversion is not complete.
+                        Err(DocumentError::OutOfMemory) => {
+                            refused = Some(DocumentError::OutOfMemory)
+                        }
+                        Err(_) => {}
+                    }
                 }
             }
         }
@@ -473,6 +546,9 @@ pub(crate) fn decode_binaries(
     let mut tokenizer = Tokenizer::new();
     feed(storage, path, encoding, &mut tokenizer, &mut handle)?;
     let _ = storage.remove(&temp);
+    if let Some(e) = refused {
+        return Err(e);
+    }
     match failed {
         Some(e) => Err(DocumentError::Storage(e)),
         None => Ok(()),
@@ -526,43 +602,48 @@ impl Fb2Document {
         let (styles, color) = (options.publisher_styles, options.color);
         let (image_fit, cover_fit) = (options.image_fit, options.cover_fit);
         let size = storage.size(path)?;
-        let book = crate::fingerprint(storage, path)?;
-        let mut cache =
-            paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "fb2-", path);
+        let book = fallible::fingerprint(storage, path)?;
+        let mut cache = fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "fb2-", path)?;
         if !styles {
-            cache.push_str("/plain");
+            fallible::push_str(&mut cache, "/plain")?;
         }
         let paths = CachePaths::new(&cache, "0")?;
         // Read again when the file or the way it is read changed, and then
         // nothing made of it before stays (its pictures).
-        let stamp = format!("{}.{FB2_VERSION} {book}\n", crate::package::CACHE_VERSION);
-        let stamp_path = format!("{cache}/source");
-        let info_path = format!("{cache}/book.txt");
-        let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 256).ok()
-            == Some(stamp.clone().into_bytes());
+        let stamp =
+            fallible::try_format!("{}.{FB2_VERSION} {book}\n", crate::package::CACHE_VERSION)?;
+        let stamp_path = fallible::try_format!("{cache}/source")?;
+        let info_path = fallible::try_format!("{cache}/book.txt")?;
+        let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 256)
+            .ok()
+            .as_deref()
+            == Some(stamp.as_bytes());
         if !fresh {
             let _ = storage.remove_dir_all(&cache);
         }
         // A zipped book is read from its unpacked copy.
-        let zipped = path.to_ascii_lowercase().ends_with(".zip");
+        let zipped = path
+            .as_bytes()
+            .get(path.len().saturating_sub(4)..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b".zip"));
         let file = if zipped {
-            let unpacked = format!("{cache}/book.fb2");
+            let unpacked = fallible::try_format!("{cache}/book.fb2")?;
             if !fresh || storage.size(&unpacked).is_err() {
                 let _ = storage.create_dir(&cache);
                 unpack(storage, path, &unpacked)?;
             }
             unpacked
         } else {
-            path.to_string()
+            fallible::string(path)?
         };
-        let encoding = detect(&crate::head(storage, &file)?);
+        let encoding = detect(&fallible::head(storage, &file)?);
         let found = match fresh.then(|| load_info(storage, &info_path)).flatten() {
             Some(found) => found,
             None => {
                 let _ = storage.remove(&paths.end);
                 let _ = storage.create_dir(&cache);
                 let found = scan(storage, &file, encoding, &cache)?;
-                storage.write(&info_path, save_info(&found).as_bytes())?;
+                storage.write(&info_path, save_info(&found)?.as_bytes())?;
                 storage.write(&stamp_path, stamp.as_bytes())?;
                 found
             }
@@ -570,7 +651,9 @@ impl Fb2Document {
         let mut metadata = found.metadata;
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
+            metadata.title = Some(fallible::string(
+                name.rsplit_once('.').map_or(name, |(s, _)| s),
+            )?);
         }
         Ok(Self {
             path: file,
@@ -679,12 +762,24 @@ fn unpack(storage: &dyn Storage, zip: &str, to: &str) -> Result<(), DocumentErro
 
 /// The cached metadata and the number of entries of the contents:
 /// `key<TAB>value` lines.
-fn save_info(found: &Scan) -> String {
-    let one = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+fn save_info(found: &Scan) -> Result<String, DocumentError> {
     let m = &found.metadata;
-    let mut out = format!("toc\t{}\n", found.toc_len);
-    let mut line = |key: &str, value: &str| {
-        out.push_str(&format!("{key}\t{}\n", one(value)));
+    let mut out = String::new();
+    fallible::try_write!(&mut out, "toc\t{}\n", found.toc_len)?;
+    let mut line = |key: &str, value: &str| -> Result<(), DocumentError> {
+        fallible::push_str(&mut out, key)?;
+        fallible::push_char(&mut out, '\t')?;
+        for c in value.chars() {
+            fallible::push_char(
+                &mut out,
+                if matches!(c, '\t' | '\n' | '\r') {
+                    ' '
+                } else {
+                    c
+                },
+            )?;
+        }
+        fallible::push_char(&mut out, '\n')
     };
     for (key, value) in [
         ("title", &m.title),
@@ -695,16 +790,16 @@ fn save_info(found: &Scan) -> String {
         ("cover", &found.cover),
     ] {
         if let Some(value) = value {
-            line(key, value);
+            line(key, value)?;
         }
     }
     for author in &m.authors {
-        line("author", author);
+        line("author", author)?;
     }
     for subject in &m.subjects {
-        line("subject", subject);
+        line("subject", subject)?;
     }
-    out
+    Ok(out)
 }
 
 /// Longest `book.txt` read: what [`Scan`] keeps is far less.
@@ -716,7 +811,8 @@ fn load_info(storage: &dyn Storage, path: &str) -> Option<Scan> {
     let mut found = Scan::default();
     for line in text.lines() {
         let (key, value) = line.split_once('\t')?;
-        let value = value.to_string();
+        // No room for a copy: not cached, read again.
+        let value = fallible::string(value).ok()?;
         let m = &mut found.metadata;
         match key {
             "title" => m.title = Some(value),
@@ -725,8 +821,8 @@ fn load_info(storage: &dyn Storage, path: &str) -> Option<Scan> {
             "series-index" => m.series_index = Some(value),
             "description" => m.description = Some(value),
             "cover" => found.cover = Some(value),
-            "author" => m.authors.push(value),
-            "subject" => m.subjects.push(value),
+            "author" => fallible::push(&mut m.authors, value).ok()?,
+            "subject" => fallible::push(&mut m.subjects, value).ok()?,
             "toc" => found.toc_len = value.parse().ok()?,
             _ => {}
         }
@@ -794,7 +890,7 @@ impl Document for Fb2Document {
         let Some(id) = &self.cover else {
             return Ok(None);
         };
-        let base = format!("{}/cover-{}", self.paths.dir, self.cover_fit.long);
+        let base = fallible::try_format!("{}/cover-{}", self.paths.dir, self.cover_fit.long)?;
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }
@@ -803,7 +899,7 @@ impl Document for Fb2Document {
             storage,
             &self.path,
             self.encoding,
-            &[(id.clone(), cache, self.cover_fit)],
+            &[(fallible::string(id)?, cache, self.cover_fit)],
             &self.paths.dir,
             self.color,
         )?;
@@ -875,10 +971,10 @@ pub(crate) struct Fb2Dialect {
 
 impl Fb2Dialect {
     /// The HTML element a FictionBook element is read as.
-    fn name(&self, tag: &str) -> String {
+    fn name(&self, tag: &str) -> Result<String, DocumentError> {
         let name = match tag {
             "description" | "binary" | "stylesheet" => "head",
-            "title" => return format!("h{}", (self.depth + 1).min(6)),
+            "title" => return fallible::try_format!("h{}", (self.depth + 1).min(6)),
             "p" if self.in_title => "span",
             "subtitle" => "h5",
             "epigraph" | "cite" => "blockquote",
@@ -891,7 +987,7 @@ impl Fb2Dialect {
             "style" => "span",
             tag => tag,
         };
-        name.to_string()
+        fallible::string(name)
     }
 }
 
@@ -900,7 +996,7 @@ impl crate::convert::Dialect for Fb2Dialect {
         &mut self,
         tag: &str,
         attrs: &paperpaw_sdk::xml::Attrs<'_>,
-    ) -> crate::convert::Entered {
+    ) -> Result<crate::convert::Entered, DocumentError> {
         let mut entered = crate::convert::Entered::default();
         match tag {
             "body" => self.notes = attrs.get("name").as_deref() == Some("notes"),
@@ -909,7 +1005,7 @@ impl crate::convert::Dialect for Fb2Dialect {
                 self.in_title = true;
                 if !self.notes && self.depth > 0 {
                     // Where the contents entry leads.
-                    entered.anchor = Some(format!("{TOC_ANCHOR}{}", self.titles));
+                    entered.anchor = Some(fallible::try_format!("{TOC_ANCHOR}{}", self.titles)?);
                     self.titles += 1;
                 }
             }
@@ -917,22 +1013,22 @@ impl crate::convert::Dialect for Fb2Dialect {
             "p" if self.in_title => entered.line_break = true,
             _ => {}
         }
-        entered.name = self.name(tag);
-        entered
+        entered.name = self.name(tag)?;
+        Ok(entered)
     }
 
-    fn leave(&mut self, tag: &str) -> String {
-        let name = self.name(tag);
+    fn leave(&mut self, tag: &str) -> Result<String, DocumentError> {
+        let name = self.name(tag)?;
         match tag {
             "section" => self.depth = self.depth.saturating_sub(1),
             "title" => self.in_title = false,
             _ => {}
         }
-        name
+        Ok(name)
     }
 
-    fn picture(&self, href: &str) -> Option<String> {
-        Some(href.trim_start_matches('#').to_string())
+    fn picture(&self, href: &str) -> Result<Option<String>, DocumentError> {
+        Ok(Some(fallible::string(href.trim_start_matches('#'))?))
     }
 }
 
@@ -1127,8 +1223,8 @@ mod tests {
     fn base64_is_decoded_in_pieces() {
         let mut out = Vec::new();
         let mut b = Base64::default();
-        b.feed("aGVsb", &mut out);
-        b.feed("G8=\n", &mut out);
+        b.feed("aGVsb", &mut out).unwrap();
+        b.feed("G8=\n", &mut out).unwrap();
         assert_eq!(out, b"hello");
     }
 }
