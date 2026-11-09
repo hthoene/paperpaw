@@ -67,6 +67,9 @@ fn kernel(rows: &[Row]) -> crate::Kernel {
     kernel
 }
 
+/// A row as a test reads it: screen, instance, slot, owner, flags.
+type Listed = (String, u32, String, String, u32);
+
 /// One page of op 1 as plugin `viewer` asks: the rows (screen, instance, slot,
 /// owner, flags) and the end record.
 fn ask(
@@ -74,7 +77,7 @@ fn ask(
     viewer: u64,
     cursor: u32,
     generation: u32,
-) -> Result<(Vec<(String, u32, String, String, u32)>, wire::ServiceEnd), i32> {
+) -> Result<(Vec<Listed>, wire::ServiceEnd), i32> {
     let env = kernel.shared.env(Instant(0));
     let hosts = HostServices::new();
     let caller = Caller {

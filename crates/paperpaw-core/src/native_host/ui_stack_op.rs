@@ -114,18 +114,23 @@ fn page(
         let (Some(row), Some(entry)) = (view.row(index), entries.get(index)) else {
             return Err(ERR_STATE);
         };
-        let flags = u32::from(row.overlay) * OVERLAY
-            | u32::from(row.guards) * GUARDS
-            | u32::from(index + 1 < view.len()) * COVERED
-            | u32::from(ui_guard::is_secret(view, index)) * SECRET;
+        let flags = (u32::from(row.overlay) * OVERLAY)
+            | (u32::from(row.guards) * GUARDS)
+            | (u32::from(index + 1 < view.len()) * COVERED)
+            | (u32::from(ui_guard::is_secret(view, index)) * SECRET);
         let record = Record::ServiceUiScreen(wire::ServiceUiScreen {
-            screen: clip(entry.screen.as_str(), wire::SERVICE_UI_SCREEN_SCREEN_MAX_BYTES),
+            screen: clip(
+                entry.screen.as_str(),
+                wire::SERVICE_UI_SCREEN_SCREEN_MAX_BYTES,
+            ),
             instance: row.instance,
-            slot: entry
-                .slot
-                .as_ref()
-                .map_or("", |slot| clip(slot.as_str(), wire::SERVICE_UI_SCREEN_SLOT_MAX_BYTES)),
-            owner: clip(entry.screen.namespace(), wire::SERVICE_UI_SCREEN_OWNER_MAX_BYTES),
+            slot: entry.slot.as_ref().map_or("", |slot| {
+                clip(slot.as_str(), wire::SERVICE_UI_SCREEN_SLOT_MAX_BYTES)
+            }),
+            owner: clip(
+                entry.screen.namespace(),
+                wire::SERVICE_UI_SCREEN_OWNER_MAX_BYTES,
+            ),
             flags,
         });
         let length = codec::framed_len(&record)?;
@@ -145,7 +150,7 @@ fn page(
 
 fn end_record(total: u32, generation: u32, next: u32, left_out: bool) -> Record<'static> {
     Record::ServiceEnd(wire::ServiceEnd {
-        flags: u32::from(next == total) * END_LAST | u32::from(left_out) * END_LEFT_OUT,
+        flags: (u32::from(next == total) * END_LAST) | (u32::from(left_out) * END_LEFT_OUT),
         total,
         generation,
         next,

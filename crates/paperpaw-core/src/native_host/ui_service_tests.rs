@@ -196,7 +196,7 @@ fn an_unwired_family_and_the_ops_not_yet_here_are_unsupported() {
     });
     view(|v| {
         let schema = services_wire::service_schema("core.ui", 1).unwrap();
-        for op in [1, 3, 6, 7, 12, 13] {
+        for op in [3, 6, 7, 12, 13] {
             let op = schema.op(op).unwrap();
             assert_eq!(
                 v.call_raw(1, op, &[0]).err(),
