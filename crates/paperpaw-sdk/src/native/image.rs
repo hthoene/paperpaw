@@ -299,6 +299,9 @@ pub enum ImageStatus {
     CardFailure,
     /// Not enough memory now; try again later.
     NoMemory,
+    /// No such file at that root and path. This includes root 2 (the install folder) of a plugin
+    /// built into the image.
+    NotFound,
 }
 
 /// A prepare request ended: `event.image_ready`.
@@ -321,6 +324,7 @@ impl ImageReady {
             3 => ImageStatus::TooLarge,
             4 => ImageStatus::CardFailure,
             5 => ImageStatus::NoMemory,
+            6 => ImageStatus::NotFound,
             _ => ImageStatus::Damaged,
         };
         // A ready picture has an id; the id of any other answer is not one.

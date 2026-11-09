@@ -2782,12 +2782,13 @@ The host decodes and draws pictures; a plugin never holds one in memory.
 `CommandSender::image_prepare(&PrepareImage)` asks for a JPEG, PNG (not interlaced) or GIF
 of the plugin's data folder, with `uses.storage` the library, or (`PrepareRoot::Bundle`, no
 feature) the plugin's own install folder, read only: the pictures it ships; a plugin built into
-the image has none there, and the host answers `NOT_FOUND`
+the image has none there, and the host answers `ImageStatus::NotFound`
 (`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)` for the longest side, 0
 being the screen's and a side above 1,600 being clamped, `.colour()`). Subscribe to
 `EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the cookie, an
-`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`;
-an unknown value reads as `Damaged`), and for `Ready` the `ImageId` and the size made. At
+`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`,
+`NotFound`: no such file at that root and path; an unknown value reads as `Damaged`), and for
+`Ready` the `ImageId` and the size made. At
 most 4 requests wait and 8 pictures are kept per plugin; give each back with
 `image_release(id)`. `ImageInfo::read(host, id)` gives the size and whether it is colour
 (`image.info`; `not_decoded()` says the format has not decoded it yet), and

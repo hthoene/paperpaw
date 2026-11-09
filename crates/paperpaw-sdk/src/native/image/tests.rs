@@ -304,7 +304,8 @@ fn image_ready_reads_every_status_and_an_unknown_one_as_damaged() {
         (3, ImageStatus::TooLarge),
         (4, ImageStatus::CardFailure),
         (5, ImageStatus::NoMemory),
-        (6, ImageStatus::Damaged),
+        (6, ImageStatus::NotFound),
+        (7, ImageStatus::Damaged),
         (u32::MAX, ImageStatus::Damaged),
     ] {
         let got = ready(code, 0).unwrap();
