@@ -141,6 +141,12 @@ fn run() -> Result<(), String> {
     }
     let storage =
         device::library(&library).map_err(|e| format!("library {}: {e}", library.display()))?;
+    // English hyphenation is a data plugin: in a library that has none (and
+    // never had), put it there, as the web flasher does on a card.
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        eprintln!("library: English hyphenation: {seeded:?}");
+    }
     if options.record.is_some() && options.headless {
         return Err("--record records the window: not with --headless".into());
     }

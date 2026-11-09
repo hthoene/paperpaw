@@ -123,7 +123,7 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     })?;
     r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
-    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n")?;
+    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
 }
 
@@ -752,10 +752,15 @@ fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
     assert!(global.contains(&"bind global swipe.right demo.save 1".into()));
     let screen = rows_of(&kernel, None, schema::OP_BINDINGS, "demo.main", 0);
     assert_eq!(screen, ["bind demo.main tap.center demo.save 0"]);
-    // No scope: every layer, the global one first, then each screen's.
+    // No scope: every layer with a binding, in the keymap's sorted order,
+    // however its name came about: a screen's, `global`, and one that is
+    // neither a screen nor a slot.
     let all = rows_of(&kernel, None, schema::OP_BINDINGS, "", 0);
-    assert!(all[0].starts_with("bind global "));
+    let layers: Vec<&str> = all.iter().filter_map(|row| row.split(' ').nth(1)).collect();
+    assert!(layers.is_sorted(), "{layers:?}");
+    assert!(all.contains(&"bind demo.custom swipe.up demo.open 0".into()));
     assert!(all.contains(&"bind demo.main tap.center demo.save 0".into()));
+    assert!(all.iter().any(|row| row.starts_with("bind global ")));
     // Each layer is read once.
     assert_eq!(all.iter().filter(|row| **row == screen[0]).count(), 1);
     assert!(all.len() >= global.len() + screen.len());
