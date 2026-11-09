@@ -1407,7 +1407,12 @@ mod tests {
         let device = device(&[]);
         let normal = Power::default();
         assert!(device.sync_power(&normal));
-        let saving = Power::new(PowerLevel::Saving, paperpaw_sdk::power::NORMAL, true, 4);
+        let saving = Power::new(
+            paperpaw_sdk::power::PowerLevel::Saving,
+            paperpaw_sdk::power::NORMAL,
+            true,
+            4,
+        );
         assert!(device.sync_power(&saving));
         let mut seen = None;
         device

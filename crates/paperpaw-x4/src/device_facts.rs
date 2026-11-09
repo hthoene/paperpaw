@@ -232,7 +232,7 @@ pub fn bonded_row(bonded: &paperpaw_sdk::bluetooth::Bonded) -> Bonded<'_> {
         given: bonded
             .given_plugins()
             .first()
-            .map_or("", paperpaw_sdk::id::Id::as_str),
+            .map_or("", |id| id.as_str()),
     }
 }
 
