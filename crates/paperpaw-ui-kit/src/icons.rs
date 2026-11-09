@@ -28,15 +28,22 @@ pub fn glyph(host: &Host<'_>, name: &str) -> Result<Option<IconGlyph>, Error> {
 }
 
 /// The icon font for a draw, or `None` where none is bound.
-#[must_use]
-pub fn font<'a>(host: &'a Host<'a>) -> Option<Font<'a>> {
-    Font::acquire(host, ROLE).ok()
+///
+/// # Errors
+/// [`Error::NoMemory`] only; every other refusal is "no icon font".
+pub fn font<'a>(host: &'a Host<'a>) -> Result<Option<Font<'a>>, Error> {
+    match Font::acquire(host, ROLE) {
+        Ok(font) => Ok(Some(font)),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(None),
+    }
 }
 
 /// How large icons are in a place and where their ink is: every icon in the
 /// same frame (the ink of a circle, which fills the icons' grid), so that names
 /// under icons side by side line up.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Frame {
     /// The size the icons are drawn at.
     pub size: f32,

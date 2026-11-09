@@ -261,13 +261,17 @@ impl HostSource {
     /// How the tool of `action` looks: its icon's name and state. A tool the
     /// menu does not list (it is shown by its id) has no icon, and is enabled.
     #[must_use]
-    pub fn tool_look(&self, action: &str) -> Look {
+    pub fn tool_look(&self, action: &str) -> &Look {
+        const PLAIN: &Look = &Look {
+            icon: String::new(),
+            checked: false,
+            enabled: true,
+        };
         self.tools
             .iter()
             .position(|(id, _)| id == action)
             .and_then(|at| self.looks.get(at))
-            .cloned()
-            .unwrap_or_else(Look::plain)
+            .unwrap_or(PLAIN)
     }
 
     /// The name of a tool, as the user reads it (the action's id where the

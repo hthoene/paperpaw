@@ -101,21 +101,32 @@ pub fn name_lines(
 }
 
 /// The most lines any name takes among the tools of the same row (the cells
-/// at the same top), for each of `lines` (the cells' names' lines, with the
-/// top of each cell): names of tools side by side keep to one line.
-#[must_use]
-pub fn row_lines(cells: &[(u16, usize)]) -> Vec<usize> {
-    cells
-        .iter()
-        .map(|(top, _)| {
-            cells
-                .iter()
-                .filter(|(other, _)| other == top)
-                .map(|(_, lines)| *lines)
-                .max()
-                .unwrap_or(0)
-        })
-        .collect()
+/// at the same top), for each of `cells` (the top of each cell and its name's
+/// lines): names of tools side by side keep to one line. One pass over the
+/// cells and one over the distinct rows, which are few.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn row_lines(cells: &[(u16, usize)]) -> Result<Vec<usize>, Error> {
+    let mut rows: Vec<(u16, usize)> = Vec::new();
+    for (top, lines) in cells {
+        if let Some(row) = rows.iter_mut().find(|(at, _)| at == top) {
+            row.1 = row.1.max(*lines);
+        } else {
+            mem::push(&mut rows, (*top, *lines))?;
+        }
+    }
+    let mut out = Vec::new();
+    out.try_reserve_exact(cells.len())
+        .map_err(|_| Error::NoMemory)?;
+    for (top, _) in cells {
+        let most = rows
+            .iter()
+            .find(|(at, _)| at == top)
+            .map_or(0, |(_, lines)| *lines);
+        out.push(most);
+    }
+    Ok(out)
 }
 
 /// The two fonts a tool is drawn with.
@@ -257,7 +268,7 @@ mod tests {
     fn tools_side_by_side_keep_to_the_most_lines_of_their_row() {
         // Two rows: tops 10 and 90.
         let cells = [(10, 1), (10, 3), (90, 2), (10, 2), (90, 1)];
-        assert_eq!(row_lines(&cells), [3, 3, 2, 3, 2]);
-        assert!(row_lines(&[]).is_empty());
+        assert_eq!(row_lines(&cells).unwrap(), [3, 3, 2, 3, 2]);
+        assert!(row_lines(&[]).unwrap().is_empty());
     }
 }

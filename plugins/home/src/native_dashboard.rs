@@ -590,7 +590,7 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
-        let icon_font = paperpaw_ui_kit::icons::font(host);
+        let icon_font = paperpaw_ui_kit::icons::font(host)?;
         let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
         let fonts = Fonts {
             ui: font,
@@ -598,11 +598,13 @@ impl Dashboard {
             circle: circle.as_ref(),
         };
         let wrapped = self.tool_lines(font, &style, laid)?;
-        let tops: Vec<(u16, usize)> = wrapped
-            .iter()
-            .map(|(top, lines)| (*top, lines.len()))
-            .collect();
-        let row_lines = icons::row_lines(&tops);
+        let mut tops: Vec<(u16, usize)> = Vec::new();
+        tops.try_reserve_exact(wrapped.len())
+            .map_err(|_| Error::NoMemory)?;
+        for (top, lines) in &wrapped {
+            tops.push((*top, lines.len()));
+        }
+        let row_lines = icons::row_lines(&tops)?;
         let mut tool = 0;
         for cell in &laid.cells {
             if self.editing {

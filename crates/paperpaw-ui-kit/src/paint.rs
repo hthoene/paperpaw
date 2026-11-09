@@ -12,6 +12,7 @@ use paperpaw_sdk::{
 /// One drawing operation with owned text and scalar geometry only, so
 /// nothing callback-scoped (fonts, canvas) outlives its callback.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Paint {
     /// A filled rectangle.
     Fill(Rect, Color),
