@@ -214,13 +214,17 @@ fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
 }
 
 fn ask(w: &World, kind: u32, epoch: u64) -> u32 {
+    ask_with(w, kind, 0, if kind == 1 { "one\ntwo,x" } else { "" }, epoch)
+}
+
+fn ask_with(w: &World, kind: u32, flags: u32, choices: &str, epoch: u64) -> u32 {
     let question = Question {
         kind,
-        flags: 0,
+        flags,
         remote: false,
         title: "Title",
         text: "Question",
-        choices: if kind == 1 { "one\ntwo" } else { "" },
+        choices,
     };
     let who = Stamp::new(w.owner, epoch).unwrap();
     w.store
@@ -425,6 +429,86 @@ fn another_plugin_can_neither_answer_cancel_nor_fail_the_request_of_an_asker() {
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
 }
 
+fn act(w: &mut World, at: u64, action: paperpaw_sdk::Id) {
+    w.kernel.run_action(Instant(at), action);
+}
+
+fn answers(w: &World) -> Vec<(u32, u32, u32, u32)> {
+    w.seen
+        .borrow()
+        .iter()
+        .map(|a| (a.kind, a.outcome, a.choice, a.flags & 1))
+        .collect()
+}
+
+/// With no dialog plugin on the slot, the host's own confirm answers the question.
+#[test]
+fn a_confirm_question_is_answered_by_the_host_dialog() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    // `focus_yes` (bit 9): the focus starts on yes.
+    let id = ask_with(&w, 2, 1 << 9, "", 1);
+    w.kernel.native_dialog_pump();
+    assert_eq!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.confirm-dialog")
+    );
+    act(&mut w, 10, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    // Yes is choice 1, outcome 0; the reply event reached nobody else.
+    assert_eq!(answers(&w), [(2, 0, 1, 0)]);
+    assert_eq!(w.seen.borrow()[0].request, id);
+    assert_eq!(w.store.request_count(), 0);
+    assert_ne!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.confirm-dialog")
+    );
+}
+
+#[test]
+fn back_on_a_host_dialog_cancels_the_question() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 0, "", 1);
+    w.kernel.native_dialog_pump();
+    act(&mut w, 10, actions::BACK);
+    w.kernel.native_dialog_pump();
+    // Cancelled (outcome 1) by the close of the dialog, bit 0 `dialog closed`.
+    assert_eq!(answers(&w), [(2, 1, 0, 1)]);
+    assert_eq!(w.store.request_count(), 0);
+}
+
+#[test]
+fn a_choice_question_answers_the_line_chosen_commas_kept() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    // Two lines, the second holds a comma of its own.
+    ask_with(&w, 1, 0, "one\ntwo,x", 1);
+    w.kernel.native_dialog_pump();
+    assert_eq!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.choice-dialog")
+    );
+    // The first step shows the focus, the second moves it to the second line.
+    act(&mut w, 10, actions::DOWN);
+    act(&mut w, 20, actions::DOWN);
+    act(&mut w, 30, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+}
+
+#[test]
+fn a_question_whose_dialog_the_stack_closes_is_cancelled() {
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 0, "", 1);
+    w.kernel.native_dialog_pump();
+    // The stack closes it with no answer (a guard, a shell).
+    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.finish();
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(2, 1, 0, 1)]);
+}
+
 /// The dialog is bound at once, before the commands its open leads to run: one
 /// of them closing it is then a close of an open request (a cancel the asker
 /// hears of), not an instance nobody knows, and what is bound is the instance
@@ -445,4 +529,191 @@ fn the_dialog_is_bound_before_the_commands_it_leads_to_run() {
     assert_eq!(answered[0].flags & 3, 1);
     assert_eq!(w.store.request_count(), 0);
     assert!(w.kernel.stack.iter().all(|s| s.id != KEYBOARD_SCREEN));
+}
+
+/// Two equal lines answer each its own index, and a comma stays in its line.
+#[test]
+fn equal_lines_answer_their_own_index_and_commas_stay() {
+    use paperpaw_sdk::builtin::actions;
+    for (steps, expected) in [(1, 0), (2, 1)] {
+        let mut w = world(Ok(OK));
+        ask_with(&w, 1, 0, "same, line\nsame, line", 1);
+        w.kernel.native_dialog_pump();
+        // The first step shows the focus; each next moves one line.
+        for at in 0..steps {
+            act(&mut w, 10 + at, actions::DOWN);
+        }
+        act(&mut w, 50, actions::CONFIRM);
+        w.kernel.native_dialog_pump();
+        assert_eq!(answers(&w), [(1, 0, expected, 0)], "after {steps} steps");
+    }
+}
+
+/// An index the list does not hold is a cancel, and the log says so.
+#[test]
+fn a_choice_outside_the_list_is_cancelled_and_logged() {
+    let mut w = world(Ok(OK));
+    let id = ask_with(&w, 1, 0, "one\ntwo", 1);
+    w.kernel.native_dialog_pump();
+    let top = w.kernel.stack.last().unwrap().serial;
+    // What the dialog would do with an index past its two lines.
+    let to = crate::native_host::dialogs::Answerer::new(w.store.try_clone().unwrap(), top, id);
+    to.choose(5, 2);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 1, 0, 0)]);
+    assert!(
+        w.kernel
+            .take_warnings()
+            .iter()
+            .any(|warning| warning.message.contains("was not taken"))
+    );
+}
+
+/// A question with a title of its own.
+fn ask_titled(w: &World, kind: u32, title: &str, choices: &str) -> u32 {
+    let question = Question {
+        kind,
+        flags: 0,
+        remote: false,
+        title,
+        text: "Question",
+        choices,
+    };
+    let who = Stamp::new(w.owner, 1).unwrap();
+    w.store
+        .ask(who, None, &question, false, None, false)
+        .unwrap()
+        .0
+}
+
+/// The region of the dialog on top, its row height, gap and pager height.
+fn geometry(w: &World, at: u64) -> (paperpaw_sdk::Rect, i32, i32, i32) {
+    let env = w.kernel.shared.env(Instant(at));
+    let style = paperpaw_sdk::ui::UiStyle::new(&env);
+    let region = w
+        .kernel
+        .stack
+        .last()
+        .unwrap()
+        .screen
+        .region(&env)
+        .expect("a dialog has a region");
+    (
+        region,
+        i32::from(style.row()),
+        i32::from(style.gap()),
+        i32::from(paperpaw_sdk::ui::Pager::height(&style)),
+    )
+}
+
+/// A tap: down, then up, then what changed drawn.
+fn tap_at(w: &mut World, at: u64, x: i32, y: i32) {
+    use paperpaw_platform::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool};
+    let event = |phase| {
+        InputEvent::Pointer(PointerEvent::new(
+            0,
+            phase,
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
+    };
+    w.kernel.handle(Instant(at), event(PointerPhase::Down));
+    w.kernel.handle(Instant(at + 60), event(PointerPhase::Up));
+    w.kernel.render(&mut |_, _| {});
+}
+
+/// A tap on a line answers it. (On the small test screen two lines do not fit
+/// one page; the paged lines are tapped in the pager test.)
+#[test]
+fn a_tap_on_a_line_of_a_host_choice_answers_it() {
+    let mut w = world(Ok(OK));
+    ask_with(&w, 1, 0, "only", 1);
+    w.kernel.native_dialog_pump();
+    let (region, row, gap, _) = geometry(&w, 10);
+    // The last line sits above the gap at the foot of the sheet.
+    let x = i32::from(region.x) + i32::from(region.width) / 2;
+    let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
+    tap_at(&mut w, 100, x, y);
+    w.kernel.native_dialog_pump();
+    // The dialog is gone by then: bit 0 may be set, the answer is the same.
+    let seen: Vec<(u32, u32, u32)> = answers(&w).iter().map(|a| (a.0, a.1, a.2)).collect();
+    assert_eq!(seen, [(1, 0, 0)]);
+}
+
+/// More lines than the screen holds go on pages: the pager turns the page and
+/// a tap on the first line of the second page answers its own index.
+#[test]
+fn a_pager_tap_turns_the_page_of_a_host_choice() {
+    let mut w = world(Ok(OK));
+    let lines: Vec<String> = (0..32).map(|n| std::format!("line {n}")).collect();
+    ask_with(&w, 1, 0, &lines.join("\n"), 1);
+    w.kernel.native_dialog_pump();
+    let (region, row, gap, pager) = geometry(&w, 10);
+    assert!(pager > 0, "the lines do not fit the screen: a pager shows");
+    let (x, rx) = (
+        i32::from(region.x) + i32::from(region.width) / 2,
+        i32::from(region.x) + i32::from(region.width) * 3 / 4,
+    );
+    let foot = i32::from(region.y) + i32::from(region.height) - gap;
+    // Next page: the right half of the pager below the lines.
+    tap_at(&mut w, 100, rx, foot - pager / 2);
+    // The first line of the second page: after the title row.
+    let first = i32::from(region.y) + gap + row + row / 2;
+    tap_at(&mut w, 300, x, first);
+    w.kernel.native_dialog_pump();
+    let seen = answers(&w);
+    assert_eq!(seen.len(), 1, "one answer: {seen:?}");
+    let (kind, outcome, choice, _) = seen[0];
+    assert_eq!((kind, outcome), (1, 0));
+    // The page holds what fits; the first line of the second one follows them.
+    let shown = ((i32::from(w.kernel.shared.env(Instant(0)).device().display.height)
+        - (row + gap * 2)
+        - pager)
+        / row)
+        .max(1);
+    assert_eq!(i64::from(choice), i64::from(shown));
+}
+
+/// A title of many lines is drawn, shortened, and the lines still answer.
+#[test]
+fn a_long_title_does_not_stop_a_host_choice_or_confirm() {
+    use paperpaw_sdk::builtin::actions;
+    let long = "a very long title that goes on and on ".repeat(30);
+    let mut w = world(Ok(OK));
+    ask_titled(&w, 1, &long, "one\ntwo");
+    w.kernel.native_dialog_pump();
+    w.kernel.render(&mut |_, _| {});
+    act(&mut w, 10, actions::DOWN);
+    act(&mut w, 20, actions::DOWN);
+    act(&mut w, 30, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+    ask_titled(&w, 2, &long, "");
+    w.kernel.native_dialog_pump();
+    w.kernel.render(&mut |_, _| {});
+    act(&mut w, 40, actions::BACK);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w).last().copied(), Some((2, 1, 0, 1)));
+}
+
+/// A refused answer that is no fault (the request was answered already) is not
+/// logged; one the store holds no line for is.
+#[test]
+fn a_second_answer_is_not_logged_as_refused() {
+    let mut w = world(Ok(OK));
+    let id = ask_with(&w, 1, 0, "one\ntwo", 1);
+    w.kernel.native_dialog_pump();
+    let top = w.kernel.stack.last().unwrap().serial;
+    let to = crate::native_host::dialogs::Answerer::new(w.store.try_clone().unwrap(), top, id);
+    to.choose(0, 2);
+    // Answered; the second answer finds it done.
+    to.choose(1, 2);
+    w.kernel.native_dialog_pump();
+    assert!(
+        w.kernel
+            .take_warnings()
+            .iter()
+            .all(|warning| !warning.message.contains("was not taken"))
+    );
 }

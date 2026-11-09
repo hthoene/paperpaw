@@ -1310,7 +1310,7 @@ pub(crate) fn uncovered(area: Rect, cover: Rect) -> Option<Rect> {
 
 /// What a screen's place holds between the old screen dropped and the new
 /// one made ([`Kernel::remake_screen`]): never drawn nor asked anything.
-struct Gone;
+pub(crate) struct Gone;
 
 impl Screen for Gone {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}

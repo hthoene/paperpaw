@@ -747,6 +747,45 @@ impl UiStore {
         Ok(())
     }
 
+    /// A host dialog's answer was not taken (a choice outside its list): the
+    /// pump logs it.
+    pub(crate) fn note_refused(&self) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.refused = inner.refused.saturating_add(1);
+        }
+    }
+
+    /// How many answers were refused since the last call.
+    pub(crate) fn take_refused(&self) -> u32 {
+        self.inner
+            .try_borrow_mut()
+            .map_or(0, |mut inner| core::mem::take(&mut inner.refused))
+    }
+
+    /// The question of a request whose dialog the host is about to open: for
+    /// the host's own dialogs, which are made with it.
+    pub(crate) fn starting_question<R>(
+        &self,
+        request: u32,
+        f: impl FnOnce(&Shown<'_>) -> R,
+    ) -> Result<R, i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
+        let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
+        let r = &inner.requests[at];
+        if r.phase != Phase::Starting {
+            return Err(ERR_STATE);
+        }
+        let max = if r.secret { SECRET_TEXT_MAX } else { TEXT_MAX };
+        Ok(f(&Shown {
+            kind: r.kind,
+            flags: r.flags,
+            max_bytes: u32::try_from(max).unwrap_or(u32::MAX),
+            title: as_str(&r.title),
+            text: as_str(&r.question),
+            choices: as_str(&r.choices),
+        }))
+    }
+
     /// Op 10 on a request: the dialog while it is open, the asker in the
     /// callback that delivers the answer.
     pub(crate) fn request_text_read(
