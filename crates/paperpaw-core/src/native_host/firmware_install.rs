@@ -542,15 +542,6 @@ impl FirmwareInstall {
         self.results.retain(|(key, _)| *key != owner);
     }
 
-    /// `owner` stopped: the image it committed no longer waits for a restart
-    /// that only it could ask for. The image stays on the device (the next
-    /// boot decides); the host stops refusing firmware installs with reason 21.
-    pub(crate) fn drop_waiting(&mut self, owner: u64) {
-        if self.waiting.is_some_and(|waiting| waiting.owner == owner) {
-            self.waiting = None;
-        }
-    }
-
     /// A restart forgets everything but the check that is running, which the
     /// caller ends with [`Self::abort`] first.
     pub(crate) fn clear_results(&mut self) {

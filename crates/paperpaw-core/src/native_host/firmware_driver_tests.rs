@@ -314,17 +314,30 @@ fn one_plugin_holds_at_most_two_places_so_others_keep_theirs() {
 }
 
 #[test]
-fn a_stopped_owner_frees_the_image_that_waited_for_its_restart() {
+fn a_stopped_owner_keeps_its_waiting_image_and_may_restart_it_later() {
     let mut d = driver();
     installed(&mut d, 5);
-    // The image waits: another plugin's install ends with reason 21.
+    d.sender_stopped(1);
+    // The image is a fact about the device: another plugin may not restart
+    // it, and its installs end with reason 21 until a reboot.
+    assert_eq!(d.request_restart(2).err(), Some(ERR_DENIED));
     d.submit_install(2, 1, "b.ppu", None, 0).unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == 21));
-    d.take_ready().unwrap();
-    d.sender_stopped(1);
-    assert_eq!(d.request_restart(1), Err(ERR_STATE));
-    d.submit_install(2, 2, "b.ppu", None, 0).unwrap();
-    assert!(matches!(run(&mut d), Event::Ask(_)));
+    // The owner starts again (same plugin id): its restart is accepted.
+    assert!(d.request_restart(1).is_ok());
+}
+
+#[test]
+fn a_request_counts_until_its_outcome_is_told() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(1, 2, "b.ppu").unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    // Ended but not told: still two open requests.
+    assert_eq!(d.submit_check(1, 3, "c.ppu"), Err(ERR_FULL));
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+    d.submit_check(1, 3, "c.ppu").unwrap();
 }
 
 #[test]

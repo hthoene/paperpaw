@@ -34,7 +34,8 @@ use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
 pub(crate) const REQUESTS_MAX: usize = 4;
-/// Most requests one plugin has waiting (the restart's own included), so one
+/// Most open requests one plugin has, waiting or not yet told (a restart
+/// counts too), so one
 /// plugin cannot take every device-wide place.
 pub(crate) const PER_PLUGIN_MAX: usize = 2;
 /// Most outcomes kept for op 13 (one per plugin and kind).
@@ -116,9 +117,10 @@ impl Driver {
         if request == 0 || self.holds(owner, request) {
             return Err(ERR_INVALID);
         }
-        if self.entries.len() >= REQUESTS_MAX
-            || self.entries.iter().filter(|e| e.owner == owner).count() >= PER_PLUGIN_MAX
-        {
+        // A request counts for its plugin until its `install_done` is told.
+        let open = self.entries.iter().filter(|e| e.owner == owner).count()
+            + self.ready.iter().filter(|o| o.owner == owner).count();
+        if self.entries.len() >= REQUESTS_MAX || open >= PER_PLUGIN_MAX {
             return Err(ERR_FULL);
         }
         let has_slot = self
@@ -452,7 +454,6 @@ impl Driver {
                 let _ = machine.abort(&mut *self.host);
             }
             machine.forget(owner);
-            machine.drop_waiting(owner);
         } else {
             self.skipped = self.skipped.saturating_add(1);
         }
