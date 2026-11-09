@@ -73,20 +73,25 @@ fn text_cap(host: &Host<'_>, handles: &mut Handles) -> usize {
     if let Some(cap) = handles.text_cap {
         return cap;
     }
-    let cap = read_cap(host).unwrap_or(MAX_TEXT_SMALL);
+    let cap = cap_of(read_cap(host));
     handles.text_cap = Some(cap);
     cap
 }
 
-fn read_cap(host: &Host<'_>) -> Result<usize, Error> {
+/// The cap for a class: larger only where the device is known to be.
+pub(crate) fn cap_of(class: Result<DeviceClass, Error>) -> usize {
+    match class {
+        Ok(DeviceClass::Medium | DeviceClass::Large) => MAX_TEXT,
+        _ => MAX_TEXT_SMALL,
+    }
+}
+
+fn read_cap(host: &Host<'_>) -> Result<DeviceClass, Error> {
     let device = Device::open(host)?;
     let class = read_class(host, &device);
     // A handle that cannot be released is no reason to lose the class.
     let _ = device.release(host);
-    Ok(match class? {
-        DeviceClass::Medium | DeviceClass::Large => MAX_TEXT,
-        _ => MAX_TEXT_SMALL,
-    })
+    class
 }
 
 fn read_class(host: &Host<'_>, device: &Device) -> Result<DeviceClass, Error> {
@@ -260,6 +265,7 @@ impl NativeNews {
             Ended::Ignored | Ended::Next => Ok(()),
             Ended::Unreadable => notice(host, "news.unreadable"),
             Ended::Memory => notice(host, "news.no-memory"),
+            Ended::NoNetwork { .. } => notice(host, "news.no-network"),
             Ended::Finished { done, failed } => {
                 let mut messages = messages.into_inner();
                 let count = i64::try_from(done).unwrap_or(i64::MAX);
@@ -360,4 +366,18 @@ fn tell(host: &Host<'_>, message: &str) -> Result<(), Error> {
         .notify(Notify::new(message)?)
         .ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cap_follows_the_memory_class_and_is_small_when_unknown() {
+        assert_eq!(cap_of(Ok(DeviceClass::Small)), 8 * 1024);
+        assert_eq!(cap_of(Ok(DeviceClass::Medium)), 64 * 1024);
+        assert_eq!(cap_of(Ok(DeviceClass::Large)), 64 * 1024);
+        assert_eq!(cap_of(Err(Error::NotFound)), 8 * 1024);
+        assert_eq!(cap_of(Err(Error::NoMemory)), 8 * 1024);
+    }
 }

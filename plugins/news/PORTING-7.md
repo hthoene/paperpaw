@@ -85,6 +85,14 @@ host activates native plugins (then it goes together, no shim).
   medium or large device as in interface 6, 8 KiB (`MAX_TEXT_SMALL`) on a small one (the X4: the
   peak is about 4 × `max_text` per article, the converter's field, the paragraphs, the escaped text
   and the page piece; 64 KiB would be ~256 KiB, the whole heap) and wherever the class cannot be read.
+- A user-bound `news.fetch` action (a menu entry, once `navigation` is built into the image) would
+  declare the background work and so wait an hour (`BACKGROUND_AFTER_MS`) before it fetches; the
+  reader's own fetch is the screen's *Fetch the news* (next slice) and starts at once (`start`).
+- A refused next request ends the fetch (`Ended::NoNetwork`, the notice *needs a network*) with the
+  counts kept; the end of the run (`Reason::WorkEnded`, 10 minutes) stops it and asks for no more;
+  a start replaces a fetch under way and ends its request first.
+- Unmeasured: the peak while the list (at most 64 KiB, `FEEDS_CAP`) is alive during `book`, on top of
+  the ~4 × `max_text` of the conversion. To be measured on the X4 with the screen.
 - A feed's name is not yet cleaned for a file name (`web::try_clean_name` is there; the library's
   import names the book, next slice).
 

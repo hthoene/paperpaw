@@ -133,6 +133,9 @@ pub enum Ended {
     Unreadable,
     /// The heap had no room: the fetch is stopped.
     Memory,
+    /// The next request was refused for want of a network (a run's end, the
+    /// Wi-Fi off): the fetch is over, with what it had come to.
+    NoNetwork { done: usize, failed: usize },
 }
 
 /// A request in flight, and the fetch it belongs to.
@@ -198,6 +201,8 @@ impl Fetcher {
         let Some(feed) = list.get(from) else {
             return Ok(Started::None);
         };
+        // A fetch under way is replaced: its request ends, its end is ignored.
+        self.cancel(wire);
         match self.send(wire, feed, (from, all), (0, 0)) {
             Ok(()) => Ok(Started::Fetching),
             Err(Error::Unsupported | Error::Denied) => Ok(Started::NoNetwork),
@@ -238,7 +243,8 @@ impl Fetcher {
     /// keeps and how large an article's text is at most.
     ///
     /// # Errors
-    /// What the services say while the next request is sent; `NoMemory`.
+    /// `NoMemory` while the file name is made; a refused next request is an
+    /// [`Ended`], not an error.
     pub fn ended(
         &mut self,
         wire: &mut dyn Wire,
@@ -257,6 +263,14 @@ impl Fetcher {
             return Ok(Ended::Ignored);
         }
         let file = download(&run.url)?;
+        if done.reason == Reason::WorkEnded {
+            // The run's 10 minutes are over: no request is to follow outside it.
+            wire.volume().remove(&file).ok();
+            return Ok(Ended::Finished {
+                done: run.done,
+                failed: run.failed,
+            });
+        }
         let ended = made(wire, shelf, &mut run, done, (articles, max_text), date_text);
         // The answer is read: its file goes, whatever came of it.
         wire.volume().remove(&file).ok();
@@ -268,8 +282,19 @@ impl Fetcher {
         if run.all
             && let Some(feed) = next
         {
-            self.send(wire, &feed, (run.index, true), (run.done, run.failed))?;
-            return Ok(Ended::Next);
+            return match self.send(wire, &feed, (run.index, true), (run.done, run.failed)) {
+                Ok(()) => Ok(Ended::Next),
+                Err(Error::NoMemory) => Ok(Ended::Memory),
+                // Counts are not lost to a refused request.
+                Err(Error::Unsupported | Error::Denied) => Ok(Ended::NoNetwork {
+                    done: run.done,
+                    failed: run.failed,
+                }),
+                Err(_) => Ok(Ended::Finished {
+                    done: run.done,
+                    failed: run.failed + 1,
+                }),
+            };
         }
         Ok(Ended::Finished {
             done: run.done,

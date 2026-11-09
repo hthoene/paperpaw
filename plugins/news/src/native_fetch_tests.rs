@@ -257,3 +257,51 @@ fn a_shelf_that_refuses_counts_as_a_failed_feed_and_no_memory_stops() {
     assert_eq!(end(&mut f, &mut w, &mut shelf, &done), Ended::Memory);
     assert!(w.volume.get(&download(url).unwrap()).is_none());
 }
+
+#[test]
+fn a_refused_next_request_ends_the_fetch_with_its_counts() {
+    let (a, b) = ("https://a.example/1", "https://b.example/2");
+    let mut f = Fetcher::new();
+    let mut w = World::new(&format!("{a}\n{b}\n"));
+    let mut shelf = Kept::default();
+    f.start(&mut w, 0, true).unwrap();
+    w.answer(a, RSS);
+    let done = ok(&w);
+    w.no_network = true;
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &done),
+        Ended::NoNetwork { done: 1, failed: 0 }
+    );
+    assert!(!f.busy());
+    assert_eq!(shelf.books.len(), 1);
+}
+
+#[test]
+fn the_end_of_the_run_stops_the_fetch_and_asks_for_no_more() {
+    let (a, b) = ("https://a.example/1", "https://b.example/2");
+    let mut f = Fetcher::new();
+    let mut w = World::new(&format!("{a}\n{b}\n"));
+    let mut shelf = Kept::default();
+    f.start(&mut w, 0, true).unwrap();
+    w.answer(a, RSS);
+    let ended = Done::new(w.id(), FEED_REQUEST, Reason::WorkEnded, true);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &ended),
+        Ended::Finished { done: 0, failed: 0 }
+    );
+    assert!(!f.busy());
+    assert_eq!(w.requests.len(), 1);
+    assert!(shelf.books.is_empty());
+    assert!(w.volume.get(&download(a).unwrap()).is_none());
+}
+
+#[test]
+fn a_start_replaces_the_fetch_under_way_and_ends_its_request() {
+    let url = "https://a.example/1";
+    let mut f = Fetcher::new();
+    let mut w = World::new(&format!("{url}\n"));
+    f.start(&mut w, 0, false).unwrap();
+    f.start(&mut w, 0, false).unwrap();
+    assert_eq!(w.cancelled, 1);
+    assert!(f.busy());
+}
