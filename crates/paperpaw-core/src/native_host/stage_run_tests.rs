@@ -192,7 +192,7 @@ impl Fixture {
     }
 
     /// `id` declared as `owner` with `rows`, its callbacks reached by `lease`.
-    pub(super) fn install_lease(
+    fn install_lease(
         &self,
         lease: NativeLease,
         id: &'static str,
@@ -267,7 +267,7 @@ fn with_frame_at<R>(
 }
 
 /// [`with_frame_at`] on a kernel of the caller's.
-pub(super) fn with_kernel_frame<R>(
+fn with_kernel_frame<R>(
     kernel: &crate::Kernel,
     fixture: &Fixture,
     caller: Option<u64>,
@@ -616,7 +616,6 @@ mod native {
     extern crate std;
     use super::super::{Heap, NORMAL, reset};
     use super::*;
-    use crate::abi7::context::Frame;
     use crate::native_host::{
         self, FlatHost, native_dispatch::NativeDispatch, retained::Retained, shell,
     };
