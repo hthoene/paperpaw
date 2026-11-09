@@ -200,6 +200,11 @@ impl CodeLoader for HostLoader {
         if self.resources.is_none() {
             self.resources = new_resources(self.memory);
         }
+        // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
+        // A plugin's `make` that asks for it earlier gets a one-off
+        // `ERR_UNSUPPORTED`; plugins use hyphenation only when laying out text,
+        // and their allowed features come from the host's fixed list, not from
+        // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
         let wired = match self

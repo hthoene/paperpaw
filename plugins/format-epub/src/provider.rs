@@ -3,9 +3,7 @@
 //! out, over any parser that is a [`Document`]. A format is an [`Opener`]: how
 //! to open its book from the storage of a callback ([`NativeIo`](crate::NativeIo)).
 //!
-//! Gaps (marked `GAP`): every ruby is sent as plain ruby until
-//! `AnnotationKind` is in the SDK (draft 29); the inline languages and embedded
-//! faces are not sent; pictures are numbered by their block's start. A
+//! Gaps (marked `GAP`): pictures are numbered by their block's start. A
 //! document is converted when it is opened (`prepare` has nothing to do): the
 //! first chapter of an EPUB takes a while on the first open, as in interface 6.
 use alloc::boxed::Box;
@@ -13,8 +11,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::min;
 use paperpaw_sdk::document::{
-    Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator, PageProgression,
-    VerticalAlign, is_external,
+    AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator,
+    PageProgression, VerticalAlign, is_external,
 };
 use paperpaw_sdk::lang::{Direction, WritingMode};
 use paperpaw_sdk::native::{
@@ -52,6 +50,10 @@ pub const MAX_DOCUMENTS: usize = 8;
 const TEXT: usize = 1024;
 const PART: usize = 3072;
 const ROWS: usize = 64;
+/// The most faces a book lists (document.md section 6).
+const MAX_FACES: usize = 124;
+/// The most the copied faces of one book take together on the card.
+const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 const END_LAST: u32 = 1;
 const END_MORE: u32 = 2;
 const FLAG_WHOLE_PAGES: u32 = 1;
@@ -69,6 +71,9 @@ struct Slot {
     id: u32,
     /// `Err(status)`: the open failed, the id stays until it is closed.
     document: Result<Box<dyn Document>, i32>,
+    /// The faces found unreadable, too large or over the book's cap: not
+    /// inflated again on every `fonts` call.
+    bad_faces: Vec<u32>,
 }
 
 /// The documents of one format.
@@ -121,10 +126,6 @@ fn one(record: Record<'_>, out: &mut [u8]) -> Result<usize, Error> {
 
 fn empty(out: &mut [u8]) -> Result<usize, Error> {
     stage::reply_encode(&[], out).map_err(|_| Error::NoSpace)
-}
-
-fn end_only(out: &mut [u8]) -> Result<usize, Error> {
-    one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out)
 }
 
 fn at_record(document: u32, at: Locator) -> Record<'static> {
@@ -199,6 +200,21 @@ impl FormatProvider {
                         out,
                     ),
                 }
+            }
+            op::FONTS => {
+                let cache = &self.cache;
+                let slot = self
+                    .slots
+                    .iter_mut()
+                    .find(|s| s.id == call.document)
+                    .ok_or(Error::NotFound)?;
+                let Slot {
+                    document,
+                    bad_faces,
+                    ..
+                } = slot;
+                let document = document.as_ref().map_err(|_| Error::State)?;
+                Self::fonts(document.as_ref(), cache, io, &call, bad_faces, out)
             }
             _ => {
                 let document = self.ready(call.document)?;
@@ -290,6 +306,7 @@ impl FormatProvider {
         self.slots.push(Slot {
             id: call.document,
             document,
+            bad_faces: Vec::new(),
         });
         Ok(written)
     }
@@ -401,9 +418,6 @@ impl FormatProvider {
                 let to = document.link_target(io, call.text).ok_or(Error::NotFound)?;
                 one(at_record(call.document, to), out)
             }
-            // GAP: embedded faces are not listed until the host's way to read
-            // their data is decided (Kernel, draft 29).
-            op::FONTS => end_only(out),
             op::COVER => {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
                 Self::picture(image, cache, u32::MAX, out)
@@ -438,6 +452,135 @@ impl FormatProvider {
             }
             _ => Err(Error::Unsupported),
         }
+    }
+
+    /// A page of the faces embedded in the book. Each is written whole to
+    /// the root-6 file `fonts/<index>` (decimal) before it is listed, with the
+    /// file's size as `bytes`; a face that cannot be read is listed with 0
+    /// bytes, which the reader answers with its own font.
+    fn fonts(
+        document: &dyn Document,
+        cache: &str,
+        io: &dyn Storage,
+        call: &stage::FmtCall<'_>,
+        bad_faces: &mut Vec<u32>,
+        out: &mut [u8],
+    ) -> Result<usize, Error> {
+        let faces = document.fonts(io);
+        let total = faces.len().min(MAX_FACES);
+        let from = min(
+            usize::try_from(call.cursor).map_err(|_| Error::Invalid)?,
+            total,
+        );
+        let mut rows: Vec<Record<'_>> = Vec::new();
+        rows.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
+        for (index, face) in faces
+            .iter()
+            .enumerate()
+            .take(total)
+            .skip(from)
+            .take(ROWS - 1)
+        {
+            let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
+            let bytes = if bad_faces.contains(&index) {
+                0
+            } else {
+                let bytes = Self::face_file(document, cache, io, index)?;
+                let kept = Self::within_cap(cache, io, index, bytes)?;
+                if kept == 0 {
+                    // Found faulty (or over the cap): not read again while
+                    // this document is open.
+                    let _ = bad_faces.try_reserve(1);
+                    if bad_faces.len() < bad_faces.capacity() {
+                        bad_faces.push(index);
+                    }
+                }
+                kept
+            };
+            rows.push(Record::FmtFont(stage::FmtFont::new(
+                index,
+                u32::from(face.family),
+                u32::from(face.bold) | u32::from(face.italic) << 1,
+                bytes,
+            )));
+        }
+        page(&rows, from, total, out)
+    }
+
+    /// `bytes` of face `index`, or 0 (its file removed) where the faces
+    /// before it and it together are more than [`MAX_FONT_BYTES`].
+    fn within_cap(cache: &str, io: &dyn Storage, index: u32, bytes: u32) -> Result<u32, Error> {
+        if bytes == 0 {
+            return Ok(0);
+        }
+        let mut total = u64::from(bytes);
+        for before in 0..index {
+            let path = crate::fallible::try_format!("{cache}/fonts/{before}")
+                .map_err(|_| Error::NoMemory)?;
+            total += io.size(&path).unwrap_or(0);
+        }
+        if total <= MAX_FONT_BYTES {
+            return Ok(bytes);
+        }
+        let path =
+            crate::fallible::try_format!("{cache}/fonts/{index}").map_err(|_| Error::NoMemory)?;
+        let _ = io.remove(&path);
+        Ok(0)
+    }
+
+    /// The size of the root-6 file of face `index`, written first when it is
+    /// not there whole (through a temporary name, so one half-written is
+    /// never taken for it); 0 where the face cannot be read.
+    fn face_file(
+        document: &dyn Document,
+        cache: &str,
+        io: &dyn Storage,
+        index: u32,
+    ) -> Result<u32, Error> {
+        let path =
+            crate::fallible::try_format!("{cache}/fonts/{index}").map_err(|_| Error::NoMemory)?;
+        if let Ok(size) = io.size(&path)
+            && size > 0
+        {
+            return Ok(u32::try_from(size).unwrap_or(0));
+        }
+        let dir = crate::fallible::try_format!("{cache}/fonts").map_err(|_| Error::NoMemory)?;
+        let _ = io.create_dir(&dir);
+        // A document that copies its faces in chunks does (no more than a
+        // chunk of the font is held); the others hand the face over whole.
+        let mut params = Vec::new();
+        params
+            .try_reserve_exact(4 + path.len())
+            .map_err(|_| Error::NoMemory)?;
+        params.extend_from_slice(&index.to_le_bytes());
+        params.extend_from_slice(path.as_bytes());
+        match document
+            .extended(io, crate::document::FONT_COPY, &params)
+            .as_deref()
+        {
+            Some([0, a, b, c, d]) => return Ok(u32::from_le_bytes([*a, *b, *c, *d])),
+            Some([2, ..]) => return Err(Error::NoMemory),
+            Some([3, ..]) => return Ok(0),
+            // Not a plain file (a WOFF), or no such copy: whole, below.
+            _ => {}
+        }
+        let data = match document.font_data(io, index as usize) {
+            Ok(data) => data,
+            Err(DocumentError::OutOfMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(0),
+        };
+        let Ok(bytes) = u32::try_from(data.len()) else {
+            return Ok(0);
+        };
+        if bytes == 0 {
+            return Ok(0);
+        }
+        let temp = crate::fallible::try_format!("{path}.tmp").map_err(|_| Error::NoMemory)?;
+        if io.write(&temp, &data).is_err() || io.rename(&temp, &path).is_err() {
+            let _ = io.remove(&temp);
+            return Err(Error::Io);
+        }
+        Ok(bytes)
     }
 
     fn picture(
@@ -572,7 +715,7 @@ impl FormatProvider {
             return Err(Error::State);
         }
         // The table's column weights, as little-endian u16s: a record borrows them.
-        let mut tag = [0u8; 16];
+        let mut tags = [[0u8; 16]; 16];
         let mut weights = Vec::new();
         if let Some(table) = &block.table {
             weights
@@ -588,7 +731,7 @@ impl FormatProvider {
         } else {
             block.start
         };
-        records(&block, cache, &weights, &mut tag, image_index, &mut list)?;
+        records(&block, cache, &weights, &mut tags, image_index, &mut list)?;
         let last = document
             .block_at(io, Locator::new(call.section, block.end))
             .map_err(|e| document_error(&e))?
@@ -646,10 +789,11 @@ fn records<'a>(
     block: &'a Block,
     cache: &'a str,
     weights: &'a [u8],
-    tag: &'a mut [u8; 16],
+    tags: &'a mut [[u8; 16]; 16],
     image_index: u32,
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
+    let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
     let (kind, level) = match block.kind {
         BlockKind::Paragraph => (0, 0),
         BlockKind::Heading(level) => (1, u32::from(level)),
@@ -698,10 +842,18 @@ fn records<'a>(
             WritingMode::SidewaysLr => 4,
             _ => 0,
         },
-        lang_tag(block.lang, tag),
+        lang_tag(block.lang, first),
         u32::from(block.drop_cap),
         u32::try_from(block.text.len()).map_err(|_| Error::Invalid)?,
     )));
+    // The languages the runs name by their `lang_index` (from 1).
+    if let Some(langs) = &block.inline_langs {
+        for (lang, buf) in langs.iter().zip(others.iter_mut()) {
+            list.push(Record::FmtInlineLang(stage::FmtInlineLang::new(lang_tag(
+                *lang, buf,
+            ))));
+        }
+    }
     let mut rest = block.text.as_str();
     while !rest.is_empty() {
         let part = prefix(rest, PART);
@@ -735,19 +887,7 @@ fn records<'a>(
         )));
     }
     table_records(block, weights, list);
-    for note in &block.annotations {
-        // GAP: `AnnotationKind` is not re-exported by `paperpaw_sdk::document`,
-        // so every note is sent as ruby (0). No parser of this crate sets
-        // annotations (the field is reserved), so nothing is lost today.
-        let kind = 0;
-        list.push(Record::FmtRuby(stage::FmtRuby::new(
-            note.start,
-            note.end,
-            kind,
-            u32::from(note.size),
-            prefix(&note.text, 1024),
-        )));
-    }
+    ruby_records(block, list);
     Ok(())
 }
 
@@ -841,5 +981,26 @@ fn table_records<'a>(block: &Block, weights: &'a [u8], list: &mut Vec<Record<'a>
                 width,
             )));
         }
+    }
+}
+
+/// The rubies, phonetics and glosses of a block.
+fn ruby_records<'a>(block: &'a Block, list: &mut Vec<Record<'a>>) {
+    for note in &block.annotations {
+        // 0 ruby, 1 phonetic, 2 gloss, 3 + n for a kind a later build adds.
+        let kind = match note.kind {
+            AnnotationKind::Ruby => 0,
+            AnnotationKind::Phonetic => 1,
+            AnnotationKind::Gloss => 2,
+            AnnotationKind::Other(n) => 3 + u32::from(n),
+            _ => 2,
+        };
+        list.push(Record::FmtRuby(stage::FmtRuby::new(
+            note.start,
+            note.end,
+            kind,
+            u32::from(note.size),
+            prefix(&note.text, 1024),
+        )));
     }
 }

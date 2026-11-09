@@ -1,6 +1,6 @@
-# Interface 7 family DEV: device, power, radios, installing, firmware (draft)
+# Interface 7 family DEV: device, power, radios, installing, firmware
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: Firmware's DEV inventory and draft (#931,
 `/home/agent/shared/dev-family-228.md`, whose sections 1, 2 and 8 are taken as the inventory and
 whose open questions section 9 settles), the plugin needs inventory (#984, DEV section), the
@@ -9,8 +9,8 @@ C-family proposals (#890 2.12), `registry.md` (plugin rows, `set_plugin_enabled`
 confirmations, the guard) and owner decisions 124, 132 and 134. Round 2 folds in Firmware's check
 of the OTA path (`crates/paperpaw-x4/src/updates.rs`, `ota.rs`, `shells/xteink/src/`) and Plugin's
 gap review (`/home/agent/shared/plugin-dev-gaps-1025.md`); round 3 Senior's review (#1030: must-fix
-1-3, should-fix 4-9). Doc-only; records follow once approved.
-Tags are proposed and numbered without gaps at the records step.
+1-3, should-fix 4-9).
+Records: `abi/services/core.device@1.def`.
 
 ## 0. Scope and principles
 

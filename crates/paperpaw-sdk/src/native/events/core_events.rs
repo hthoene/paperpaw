@@ -186,6 +186,7 @@ event_fn!(socket, wire::EventSocket, |r| Event::Socket(
 event_fn!(broadcast, wire::EventBroadcast<'_>, |r| Event::Broadcast(
     BroadcastEvent::decode(r)?
 ));
+
 event_fn!(work_due, wire::EventWorkDue<'_>, |r| Event::WorkDue(
     WorkDue::decode(r)
 ));
@@ -197,6 +198,14 @@ event_fn!(work_refused, wire::EventWorkRefused<'_>, |r| {
 event_fn!(work_allowed, wire::EventWorkAllowed, |r| {
     Event::WorkAllowed { now_ms: r.now_ms }
 });
+
+event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
+    Event::LookupReady {
+        now_ms: r.now_ms,
+        provider: r.provider,
+    }
+});
+
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);

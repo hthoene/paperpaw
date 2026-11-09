@@ -110,7 +110,8 @@ fn actions_menus_and_icons_match() {
 }
 
 #[test]
-fn the_events_are_the_download_and_the_start() {
-    // Interface 6: `install::DOWNLOADED` and `events::STARTED`.
+fn the_events_are_the_download() {
+    // Interface 6: `install::DOWNLOADED` (and `events::STARTED`, which cancels a download
+    // cut off by a restart: it comes back with the download, `PORTING-7.md`).
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
 }

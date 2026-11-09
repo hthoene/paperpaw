@@ -25,6 +25,15 @@ pub const SHARE_BOTTOM: u32 = 80;
 /// room is left to tap to close it.
 pub const SHARE_TOP: u32 = 95;
 
+/// Most rows of a menu the panel reads: each costs a part and, for a setting,
+/// a registry call per read. The rest are left out.
+pub const MAX_ROWS: usize = 64;
+
+/// `rows` cut to [`MAX_ROWS`].
+pub fn cap_rows(rows: &mut Vec<Row>) {
+    rows.truncate(MAX_ROWS);
+}
+
 /// The width of a text in the panel's small font.
 pub trait Measure {
     /// Pixels `text` needs on one line.
@@ -129,8 +138,7 @@ pub struct Placed {
     pub page: usize,
     /// The setting row whose title is the label (a number's or a choice's).
     pub label: Option<usize>,
-    /// The controls and where they are (a stepper's are the whole row until
-    /// its value says where `−` and `+` go).
+    /// The controls and where they are.
     pub controls: Vec<(Control, Rect)>,
 }
 
@@ -156,11 +164,6 @@ pub fn button_text(row: &Row) -> Result<String, Error> {
     } else {
         concat(&[&row.title, " · ", &row.badge])
     }
-}
-
-/// The text a switch shows: its label with a bullet before it.
-fn toggle_text(row: &Row) -> Result<String, Error> {
-    concat(&["• ", &button_text(row)?])
 }
 
 /// `area` without the margins at its sides and a little above and below.
@@ -241,10 +244,7 @@ fn flush(
         .map_err(|_| Error::NoMemory)?;
     for control in group.iter() {
         let row = entries.get(control.row()).ok_or(Error::State)?.row;
-        texts.push(match control {
-            Control::Toggle(_) => toggle_text(row)?,
-            _ => button_text(row)?,
-        });
+        texts.push(button_text(row)?);
     }
     let per_row = (1..=PER_ROW.min(group.len()))
         .rev()
@@ -365,8 +365,17 @@ pub fn place(line: &Line, area: Rect, g: &Geometry) -> Result<Placed, Error> {
         Line::Stepper(row) => {
             label = Some(*row);
             controls.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
-            controls.push((Control::Step(*row, -1), area));
-            controls.push((Control::Step(*row, 1), area));
+            // [−] value [+] after the label; the value is drawn between.
+            let side = rest.height.min(rest.width / 3);
+            let minus = Rect::new(rest.x, rest.y, side, rest.height);
+            let plus = Rect::new(
+                rest.x.saturating_add(rest.width.saturating_sub(side)),
+                rest.y,
+                side,
+                rest.height,
+            );
+            controls.push((Control::Step(*row, -1), minus));
+            controls.push((Control::Step(*row, 1), plus));
         }
         Line::Segments(row, count) => {
             label = Some(*row);
@@ -458,6 +467,82 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
         region,
         pager,
     })
+}
+
+impl Layout {
+    /// How many pages the rows take.
+    #[must_use]
+    pub fn pages(&self) -> usize {
+        self.rows.last().map_or(1, |row| row.page + 1)
+    }
+
+    /// Every control in reading order, with its place and its page.
+    pub fn controls(&self) -> impl Iterator<Item = (&Control, Rect, usize)> {
+        self.rows
+            .iter()
+            .flat_map(|row| row.controls.iter().map(|(c, r)| (c, *r, row.page)))
+    }
+
+    /// How many controls there are.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.rows.iter().map(|row| row.controls.len()).sum()
+    }
+
+    /// The page with control `index` (in reading order); the first page for
+    /// one that is not there.
+    #[must_use]
+    pub fn page_of(&self, index: usize) -> usize {
+        self.controls().nth(index).map_or(0, |(_, _, page)| page)
+    }
+
+    /// The row holding control `index`.
+    #[must_use]
+    pub fn row_of(&self, index: usize) -> Option<Rect> {
+        let mut count = 0;
+        self.rows.iter().find_map(|row| {
+            count += row.controls.len();
+            (index < count).then_some(row.area)
+        })
+    }
+
+    /// The control at `point` on `page`, with its number in reading order.
+    #[must_use]
+    pub fn hit(&self, page: usize, point: paperpaw_sdk::Point) -> Option<(usize, Control)> {
+        self.controls()
+            .enumerate()
+            .find(|(_, (_, rect, on))| *on == page && rect.contains(point))
+            .map(|(index, (control, _, _))| (index, *control))
+    }
+}
+
+/// Where the focus goes from `from` (`None`: nowhere yet) one control forward
+/// (`delta` 1) or back (`-1`), round the ends, past the controls `enabled`
+/// refuses unless none is enabled (then it goes one on all the same).
+/// `None` when there are no controls.
+#[must_use]
+pub fn step_focus(
+    count: usize,
+    from: Option<usize>,
+    delta: isize,
+    enabled: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    // From nowhere: forward the first, back the last (interface 6 went back
+    // to the one before the last).
+    let current = from.map_or(if delta < 0 { count as isize } else { -1 }, |f| f as isize);
+    let step = |at: isize| (at + delta).rem_euclid(count as isize) as usize;
+    let first = step(current);
+    let mut focus = first;
+    for _ in 0..count {
+        if enabled(focus) {
+            return Some(focus);
+        }
+        focus = step(focus as isize);
+    }
+    Some(first)
 }
 
 #[cfg(test)]
