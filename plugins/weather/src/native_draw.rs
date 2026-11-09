@@ -10,13 +10,13 @@ use paperpaw_ui_kit::{
     Paint,
     geometry::{clamp_u16, line_metrics, line_px},
     paint,
-    widget::{Align, Cx, Look, text::Wrapped, text::ink_room},
+    widget::{Align, Cx, Look, settings::text_of, text::Wrapped, text::ink_room},
 };
 
 use crate::declarations::STYLES;
 use crate::native_shown::Waiting;
 use crate::native_symbol::{self, Style};
-use crate::native_weather::Symbol;
+use crate::native_weather::{Symbol, Temperature, Wind};
 
 /// How the widget `cx` draws its symbols (its setting `style`).
 ///
@@ -366,4 +366,37 @@ pub fn clock(cx: &mut Cx<'_>, minutes: u16) -> Result<String, Error> {
     let hour = u8::try_from(minutes / 60 % 24).unwrap_or(0);
     let minute = u8::try_from(minutes % 60).unwrap_or(0);
     cx.clock_of(hour, minute)
+}
+
+/// The unit of temperatures chosen.
+///
+/// # Errors
+/// What the settings say.
+pub fn temperature_unit(cx: &Cx<'_>) -> Result<Temperature, Error> {
+    text_of(cx.host, "weather.temperature", Temperature::of)
+}
+
+/// The unit of wind speeds chosen.
+///
+/// # Errors
+/// What the settings say.
+pub fn wind_unit(cx: &Cx<'_>) -> Result<Wind, Error> {
+    text_of(cx.host, "weather.wind", Wind::of)
+}
+
+/// How old the weather is, where it is old (`age` seconds): in hours, from
+/// two days in days.
+///
+/// # Errors
+/// `NoMemory`, or what the host says.
+pub fn age_text(cx: &mut Cx<'_>, age: Option<i64>) -> Result<Option<String>, Error> {
+    let Some(age) = age else {
+        return Ok(None);
+    };
+    let hours = age / 3600;
+    Ok(Some(if hours < 48 {
+        cx.plural("weather.age.hours", hours, &[])?
+    } else {
+        cx.plural("weather.age.days", hours / 24, &[])?
+    }))
 }

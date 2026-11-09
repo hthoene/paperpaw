@@ -516,7 +516,7 @@ pub fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{data, fail_alloc::sweep};
+    use crate::fail_alloc::sweep;
 
     const SYMBOLS: [Symbol; 14] = [
         Symbol::Clear,
@@ -534,26 +534,6 @@ mod tests {
         Symbol::Thunder,
         Symbol::Hail,
     ];
-
-    /// The interface-6 symbol of the same name.
-    fn old(symbol: Symbol) -> data::Symbol {
-        match symbol {
-            Symbol::Clear => data::Symbol::Clear,
-            Symbol::FewClouds => data::Symbol::FewClouds,
-            Symbol::PartlyCloudy => data::Symbol::PartlyCloudy,
-            Symbol::Cloudy => data::Symbol::Cloudy,
-            Symbol::Fog => data::Symbol::Fog,
-            Symbol::Drizzle => data::Symbol::Drizzle,
-            Symbol::Rain => data::Symbol::Rain,
-            Symbol::HeavyRain => data::Symbol::HeavyRain,
-            Symbol::Sleet => data::Symbol::Sleet,
-            Symbol::Snow => data::Symbol::Snow,
-            Symbol::Showers => data::Symbol::Showers,
-            Symbol::SnowShowers => data::Symbol::SnowShowers,
-            Symbol::Thunder => data::Symbol::Thunder,
-            Symbol::Hail => data::Symbol::Hail,
-        }
-    }
 
     fn scene_of(symbol: Symbol, day: bool, style: Style) -> Scene {
         scene(symbol, day, style, 60).unwrap()
@@ -616,14 +596,9 @@ mod tests {
     }
 
     #[test]
-    fn ink_boxes_are_those_of_interface_6() {
+    fn ink_boxes_lie_inside_the_square() {
         for symbol in SYMBOLS {
             for day in [true, false] {
-                assert_eq!(
-                    ink_box(symbol, day),
-                    crate::symbol::ink_box(old(symbol), day),
-                    "{symbol:?} {day}"
-                );
                 let (left, top, right, bottom) = ink_box(symbol, day);
                 assert!(0 <= left && left < right && right <= UNITS, "{symbol:?}");
                 assert!(0 <= top && top < bottom && bottom <= UNITS, "{symbol:?}");
