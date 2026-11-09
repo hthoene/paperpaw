@@ -107,7 +107,7 @@ mod regs;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR};
+use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE};
 use crate::framelist::in_family;
 use crate::frames::path;
 use crate::frames_xtensa::{Class, entry_frame, length, narrow_class, wide_class};
@@ -438,7 +438,10 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
 
 /// Follows each `callx8`/`callx12` of `sites` back to the `l32r` that loaded
 /// its register: the call is then a direct one to the literal's address.
-/// Sound by narrowness: the walk goes back through straight-line code only,
+/// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
+/// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
+/// register would read other addresses, and the literals this finds would be
+/// wrong. Sound by narrowness: the walk goes back through straight-line code only,
 /// and gives up (the call stays indirect, counted and listed) at an
 /// instruction another path can enter (a branch target, the start of what
 /// follows a `j`/`jx`/`ret`, an address a word of the image points at: a jump
@@ -455,9 +458,23 @@ fn resolve(
         return;
     }
     let end = insns.last().map_or(start_addr, |i| i.next());
+    let starts: BTreeSet<u32> = insns.iter().map(|i| i.pc).collect();
     let mut labels: BTreeSet<u32> = around.pointed.range(start_addr..end).copied().collect();
     for (n, i) in insns.iter().enumerate() {
-        labels.extend(i.targets().into_iter().flatten());
+        // A branch form this reader does not model, or a branch into the
+        // middle of an instruction (code this reader decoded out of step):
+        // the labels are not known, so nothing of the function is resolved.
+        let Some(targets) = i.targets() else {
+            reads.indirect += sites.len() as u32;
+            return;
+        };
+        for target in targets.into_iter().flatten() {
+            if (start_addr..end).contains(&target) && !starts.contains(&target) {
+                reads.indirect += sites.len() as u32;
+                return;
+            }
+            labels.insert(target);
+        }
         if n > 0 && insns[n - 1].ends_flow() {
             labels.insert(i.pc);
         }
@@ -500,6 +517,10 @@ struct Image<'a> {
     funcs: Vec<Function>,
     exec: Vec<(u32, &'a [u8])>,
     data: Vec<(u32, &'a [u8])>,
+    /// Which of `exec` and `data` are writable sections: what the program can
+    /// change is no literal a call can be read from.
+    exec_rw: Vec<bool>,
+    data_rw: Vec<bool>,
     /// Every named address (any symbol that has a value), for naming a callee
     /// out of the image (the ROM's symbols come from the linker script).
     names: BTreeMap<u32, String>,
@@ -510,6 +531,7 @@ struct Image<'a> {
 fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
     let mut exec: Vec<(u32, &[u8])> = Vec::new();
     let mut data: Vec<(u32, &[u8])> = Vec::new();
+    let (mut exec_rw, mut data_rw) = (Vec::new(), Vec::new());
     let mut index_of: BTreeMap<usize, usize> = BTreeMap::new();
     for (i, s) in elf.sections.iter().enumerate() {
         if s.flags & SHF_ALLOC == 0 || s.kind != 1 {
@@ -518,8 +540,10 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         if s.flags & SHF_EXECINSTR != 0 {
             index_of.insert(i, exec.len());
             exec.push((s.addr, elf.data(s)?));
+            exec_rw.push(s.flags & SHF_WRITE != 0);
         } else {
             data.push((s.addr, elf.data(s)?));
+            data_rw.push(s.flags & SHF_WRITE != 0);
         }
     }
     let (_, symbols) = elf
@@ -564,6 +588,8 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         funcs: found.into_values().collect(),
         exec,
         data,
+        exec_rw,
+        data_rw,
         names,
         objects,
     })
@@ -623,16 +649,19 @@ pub struct Report {
 
 impl Image<'_> {
     /// The word of the image at `address` (an `l32r`'s literal: it is in an
-    /// executable section of the S3's linker script, or in a data one).
+    /// executable section of the S3's linker script, or in a data one), from
+    /// the sections the program cannot write only.
     fn word(&self, address: u32) -> Option<u32> {
-        self.exec
-            .iter()
-            .chain(&self.data)
-            .find_map(|(base, bytes)| {
-                let from = address.checked_sub(*base)? as usize;
-                let word = bytes.get(from..from.checked_add(4)?)?;
-                Some(u32::from_le_bytes(word.try_into().ok()?))
-            })
+        let exec = self.exec.iter().zip(&self.exec_rw);
+        let data = self.data.iter().zip(&self.data_rw);
+        exec.chain(data).find_map(|((base, bytes), &writable)| {
+            if writable {
+                return None;
+            }
+            let from = address.checked_sub(*base)? as usize;
+            let word = bytes.get(from..from.checked_add(4)?)?;
+            Some(u32::from_le_bytes(word.try_into().ok()?))
+        })
     }
 
     /// Every address inside a function that a word outside the functions

@@ -625,6 +625,17 @@ fn beqz(reg: u32, pc: u32, target: u32) -> [u8; 3] {
 /// The literal pool at `BASE` (words), the functions from `BASE + 0x40`, and a
 /// data section at `BASE + 0x1_0000` (words).
 fn firmware_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> Vec<u8> {
+    firmware_lit_flags(lits, funcs, data, 0x6)
+}
+
+/// As [`firmware_lit`], with the flags of the text section (0x6: alloc and
+/// exec; 0x7 adds write).
+fn firmware_lit_flags(
+    lits: &[u32],
+    funcs: &[(&str, Vec<u8>)],
+    data: &[u32],
+    text_flags: u32,
+) -> Vec<u8> {
     let mut b = Builder::new(EM_XTENSA, ET_EXEC);
     let mut code: Vec<u8> = lits.iter().flat_map(|w| w.to_le_bytes()).collect();
     code.resize(0x40, 0);
@@ -636,7 +647,7 @@ fn firmware_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> Vec<u8
         layout.push((*name, code.len() as u32, bytes.len() as u32));
         code.extend_from_slice(bytes);
     }
-    let text = b.section(".text", 0x6, BASE, &code, 16);
+    let text = b.section(".text", text_flags, BASE, &code, 16);
     if !data.is_empty() {
         let bytes: Vec<u8> = data.iter().flat_map(|w| w.to_le_bytes()).collect();
         b.section(".rodata", 0x2, BASE + 0x1_0000, &bytes, 4);
@@ -795,7 +806,11 @@ fn the_branch_targets_are_read_as_the_assembler_makes_them() {
         (0x0f, 0x00f2d6), // bgez a2
         (0x19, 0x000146), // j
     ] {
-        assert_eq!(wide(pc, word).targets(), [Some(0x22), None], "{word:#x}");
+        assert_eq!(
+            wide(pc, word).targets(),
+            Some([Some(0x22), None]),
+            "{word:#x}"
+        );
     }
     for (pc, word) in [(0x12, 0xc28c), (0x14, 0xa3cc)] {
         // beqz.n, bnez.n
@@ -804,13 +819,107 @@ fn the_branch_targets_are_read_as_the_assembler_makes_them() {
             word,
             wide: false,
         };
-        assert_eq!(insn.targets(), [Some(0x22), None], "{word:#x}");
+        assert_eq!(insn.targets(), Some([Some(0x22), None]), "{word:#x}");
     }
     // `loop a2`: the body and the end.
-    assert_eq!(wide(0x16, 0x088276).targets(), [Some(0x19), Some(0x22)]);
+    assert_eq!(
+        wide(0x16, 0x088276).targets(),
+        Some([Some(0x19), Some(0x22)])
+    );
     // `ret` and `j` end the flow; `nop` does not.
     assert!(wide(0x22, 0x000080).ends_flow() && wide(0x19, 0x000146).ends_flow());
     assert!(!wide(0x1c, 0x0020f0).ends_flow());
     // `l32r a8, <literal>` of a real image: 0x42239829 reads 0x4221e66c.
     assert_eq!(wide(0x4223_9829, 0x939081).l32r(), Some((8, 0x4221_e66c)));
+}
+
+/// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
+fn bf_bt(r: u32, pc: u32, target: u32) -> [u8; 3] {
+    let imm = (i64::from(target) - i64::from(pc) - 4) as u32 & 0xFF;
+    let w = 0x76 | r << 12 | imm << 16;
+    [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+}
+
+/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, `retw.n`, then
+/// `tail` (at `BASE + 0x40 + 13`), and the helper the literal gives.
+fn root_with_tail(tail: &dyn Fn(u32) -> Vec<u8>) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+    let root_at = BASE + 0x40;
+    let tail = tail(root_at + 13);
+    let root = f(&[
+        &entry(32),
+        &l32r(8, root_at + 3, BASE),
+        &[0xad, 0x03],
+        &callx_reg(8, 8),
+        &RETW_N,
+        &tail,
+    ]);
+    let helper_at = (root_at + root.len() as u32 + 15) & !15;
+    let helper = f(&[&entry(64), &RETW_N]);
+    (vec![helper_at], vec![("root", root), ("helper", helper)])
+}
+
+#[test]
+fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
+    let root_at = BASE + 0x40;
+    // No branch after the call: resolved.
+    let (lits, funcs) = root_with_tail(&|_| vec![0x3d, 0xf0]);
+    let plain = run_lit(&lits, &funcs, &[], "");
+    assert_eq!(
+        (plain.resolved, plain.indirect),
+        (1, 0),
+        "{:?}",
+        plain.problems
+    );
+    // A `bf`/`bt` after the call back to the `mov.n` between the `l32r` and the
+    // call: another path enters there, the call is not proven.
+    for r in [0, 1] {
+        let (lits, funcs) = root_with_tail(&|pc| bf_bt(r, pc, root_at + 6).to_vec());
+        let report = run_lit(&lits, &funcs, &[], "");
+        assert_eq!((report.resolved, report.indirect), (0, 1), "r = {r}");
+    }
+    // `bt` (r = 1) as the assembler makes it: 0xf61176 at 9 goes to 3.
+    assert_eq!(
+        super::regs::Insn {
+            pc: 9,
+            word: 0xf6_1176,
+            wide: true
+        }
+        .targets(),
+        Some([Some(3), None])
+    );
+    // B1 with an `r` that is no `bf`, `bt` or `loop*`: not modelled, so the
+    // function's calls are not resolved at all, wherever the form is.
+    let (lits, funcs) = root_with_tail(&|_| vec![0x76, 0x30, 0x00]);
+    let report = run_lit(&lits, &funcs, &[], "");
+    assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_branch_into_the_middle_of_an_instruction_leaves_the_functions_calls_unresolved() {
+    let root_at = BASE + 0x40;
+    // `beqz a3` to the second byte of the `retw.n`'s neighbour: not an
+    // instruction start.
+    let (lits, funcs) = root_with_tail(&|pc| beqz(3, pc, root_at + 7).to_vec());
+    let report = run_lit(&lits, &funcs, &[], "");
+    assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_write_of_the_window_registers_between_the_l32r_and_the_call_gives_up() {
+    // wsr.windowbase, xsr.windowstart, wsr.ps: the registers are not the ones
+    // the `l32r` loaded.
+    for word in [[0x20, 0x48, 0x13], [0x20, 0x49, 0x61], [0x20, 0xe6, 0x13]] {
+        let (lits, funcs) = root_and_helper(&|_| word.to_vec());
+        let report = run_lit(&lits, &funcs, &[], "");
+        assert_eq!((report.resolved, report.indirect), (0, 1), "{word:?}");
+    }
+}
+
+#[test]
+fn a_literal_in_a_writable_section_is_not_read() {
+    let (lits, funcs) = root_and_helper(&|_| vec![]);
+    let bytes = firmware_lit_flags(&lits, &funcs, &[], 0x7);
+    let elf = Elf::parse(&bytes).unwrap();
+    let report = check(&elf, &Budget::parse("root root\n").unwrap()).unwrap();
+    assert_eq!((report.resolved, report.indirect), (0, 1));
 }
