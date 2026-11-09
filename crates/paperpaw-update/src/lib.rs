@@ -40,8 +40,8 @@ use ed25519_compact::{PublicKey, Signature, VerifyingState};
 mod plugins;
 
 pub use plugins::{
-    PLUGINS_AT, PLUGINS_FORMAT, PLUGINS_HEAD_LEN, PLUGINS_MAGIC, PLUGINS_MAX_LEN, PluginCrate,
-    Plugins,
+    CRATE_PREFIX, ID_MAX, PLUGINS_AT, PLUGINS_FORMAT, PLUGINS_HEAD_LEN, PLUGINS_MAGIC,
+    PLUGINS_MAX_LEN, PluginCrate, Plugins,
 };
 
 /// The trailer's length.

@@ -1,8 +1,8 @@
-//! The native declarations name what the interface-6 registration names: the
-//! three settings (kinds, defaults, flags, titles, help, the set-up screen as
-//! their editor), the screen and its instance policy, the actions, the place
-//! in the tools and the icons; and the host's rules accept or refuse them as
-//! they should.
+//! What the native declarations say: the three settings (kinds, defaults, flags,
+//! titles, help, the set-up screen as their editor), the screen and its
+//! instance policy, the two actions, the place in the tools, the icons and the
+//! events the fetch needs; and the host's rules accept or refuse them as they
+//! should.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -10,15 +10,7 @@ mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
-use paperpaw_plugin_wallabag::Wallabag;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("wallabag"));
-    Wallabag.register(&mut r).unwrap();
-    r.into_contributions()
-}
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
@@ -35,51 +27,48 @@ fn batches(
     out
 }
 
-/// What the batches say, decoded and checked by the host's rules, is what the
-/// interface-6 registration says.
+/// What the batches say, decoded and checked by the host's rules.
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+fn the_decoded_batches_say_what_the_plugin_declares() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::settings(d).unwrap()));
     all.extend(batches(|d| declarations::screens(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::events(d).unwrap()));
     let native = declared::native("wallabag", &all);
-    let old = declared::legacy("wallabag", "core.group.library", legacy());
-    assert!(native.groups.is_empty());
-    assert_eq!(native.specs.len(), 3);
-    assert_eq!(native.specs, old.specs);
-    assert_eq!(native.extras, old.extras);
+    // The three texts, in the library group, kept on reset (the user name and
+    // the client's ID are advanced), edited on the set-up screen.
+    assert_eq!(
+        native.specs,
+        [
+            "server|3|4|core.group.library|wallabag.server|wallabag.server.help|t:|0|0|\"\"",
+            "user|3|20|core.group.library|wallabag.user|wallabag.user.help|t:|0|0|\"\"",
+            "client-id|3|20|core.group.library|wallabag.client-id|wallabag.client-id.help|t:|0|0|\"\"",
+        ]
+    );
     assert_eq!(native.extras.len(), 3);
-    assert!(native.extras.iter().all(|e| e.contains("setup")));
-    assert_eq!(native.screens, old.screens);
-    // `wallabag.fetch` comes with the fetch slice.
-    assert_eq!(native.actions.len(), 1);
-    assert!(native.actions.iter().all(|a| old.actions.contains(a)));
-    assert_eq!(native.menu_entries, old.menu_entries);
+    assert!(native.extras.iter().all(|e| e.contains("1:setup")));
+    assert_eq!(native.screens, ["setup|wallabag.title"]);
+    assert_eq!(
+        native.actions,
+        ["fetch|wallabag.fetch", "open|wallabag.title"]
+    );
     assert_eq!(native.menu_entries, ["core.tools|wallabag.open|48"]);
-    assert_eq!(native.icons.len(), 1);
-    assert!(native.icons.iter().all(|i| old.icons.contains(i)));
+    assert_eq!(
+        native.icons,
+        ["wallabag.fetch|refresh", "wallabag.open|article"]
+    );
+    // The plugin stopping (35), the reader's page turns (37) and the end of a
+    // request (99).
+    assert_eq!(native.events, ["35:5", "37:4", "99:3"]);
+    assert!(native.groups.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
 
 /// The set-up opens one at a time: the decoded `screen.spec` flags (bits 6 and
-/// 7: 0 per parameters, 1 single, 2 many) say what the registration says.
+/// 7: 0 per parameters, 1 single, 2 many).
 #[test]
 fn the_set_up_opens_one_at_a_time() {
-    let mut old = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for s in list.iter() {
-                let policy = match s.how_many() {
-                    i if i == paperpaw_sdk::Instances::PER_PARAMS => 0,
-                    i if i == paperpaw_sdk::Instances::SINGLE => 1,
-                    i if i == paperpaw_sdk::Instances::MANY => 2,
-                    other => panic!("{other:?}"),
-                };
-                old.push((s.id().as_str().to_string(), policy));
-            }
-        }
-    }
     let mut new = Vec::new();
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
@@ -88,6 +77,5 @@ fn the_set_up_opens_one_at_a_time() {
             }
         }
     }
-    assert_eq!(new, old);
     assert_eq!(new, [("wallabag.setup".to_string(), 1)]);
 }

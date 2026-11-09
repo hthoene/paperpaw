@@ -1,0 +1,3 @@
+### Added
+
+- **`core.library` op 24 `provide` is kept on the card** (#228). The catalog's host side keeps what a source (calibre, a catalog) provides for a book in the book's details, where the book's own file names nothing (the file is read anew, as in interface 6): title, author, series, number, and one list of tags that the last provider replaces. A failure of the memory or the card is the answer, never a silent OK. `paperpaw_sdk::library::try_provide` and `ProvidedText` (kernel only) are the fallible form of `library::provide` the adapter uses. The rest of the write half still answers `ERR_UNSUPPORTED` until the adapters are wired.

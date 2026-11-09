@@ -51,6 +51,11 @@ pub(crate) struct HostServices {
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// What the host holds in use, for `core.files` to answer busy about.
+    busy: OnceCell<Rc<super::storage_files::BusySources>>,
+    /// The ids of the plugins linked into the firmware (root 2 of the file
+    /// service has no install folder for them).
+    linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
@@ -116,6 +121,8 @@ impl HostServices {
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            busy: OnceCell::new(),
+            linked: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
             pool: OnceCell::new(),
@@ -325,6 +332,11 @@ impl HostServices {
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
+    /// The linked plugin ids, made on first use.
+    pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
+        self.linked.get_or_init(Default::default)
+    }
+
     /// The device's network pool, if a service has made it.
     pub(crate) fn pool_made(&self) -> Option<&Rc<super::net_pool::NetPool>> {
         self.pool.get()
@@ -353,6 +365,22 @@ impl HostServices {
     /// The paths in use by host writers (shared with `core.files`' busy check).
     pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
         self.in_use.get_or_init(Default::default)
+    }
+
+    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
+    /// source of the busy answers of `core.files`, once for the device.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::Network) {
+            return Ok(());
+        }
+        sources.register(
+            super::storage_files::BusyKind::Network,
+            self.in_use().clone(),
+        )
     }
 
     /// The owner directory, made on first use.
@@ -433,6 +461,10 @@ impl HostServices {
     }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    /// The sources of paths in use, made on first use.
+    pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
+        self.busy.get_or_init(Default::default)
     }
     pub(crate) fn files(&self) -> Option<&FilesServices> {
         self.files.get()

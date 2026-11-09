@@ -6,17 +6,19 @@
 //! `mail.group` (interface 6: `mail`), as every ported plugin names its group.
 //! The home widgets' settings come with the widgets (host call: Core todo 76).
 //! The actions, the Tools entry, the icons and the screens are declared by
-//! [`ui`] and [`screens`] and are not part of the image yet: the screens wait for
-//! the sockets, the secrets and the work services (see `PORTING-7.md`).
+//! [`ui`] and [`screens`], and are in the image. The lists work (slice 7); the
+//! reader and the compose window follow (see `PORTING-7.md`).
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, ExtraDecl, GroupDecl, Instances, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
+    MenuEntryDecl, ScreenDecl, SpecDecl,
 };
 
 /// Callback tokens are stable within this plugin image.
 pub const OPEN_TOKEN: u32 = 10;
 pub const WRITE_TOKEN: u32 = 11;
+/// The token of the socket's events (the connection to a server).
+pub const SOCKET_TOKEN: u32 = 2;
 /// The first token of the screens.
 pub const SCREEN_TOKEN: u32 = 20;
 
@@ -261,4 +263,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         ScreenDecl::new("compose", "mail.write", SCREEN_TOKEN + 3).instances(Instances::Single),
     )?;
     d.submit()
+}
+
+/// What the connection to a server tells: the events of its socket.
+pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut declarations = Declarations::new(sink);
+    declarations.subscribe_event(EventKind::Socket, SOCKET_TOKEN)?;
+    declarations.submit()
 }
