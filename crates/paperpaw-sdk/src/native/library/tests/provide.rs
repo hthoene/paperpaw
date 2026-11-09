@@ -165,7 +165,7 @@ fn every_field_at_its_cap_with_the_longest_path_fits_the_input() {
     let mut state = State::default();
     let (host, lib) = host_and_lib(&table, &mut state);
     let (mut input, mut out) = ([0; 4096], [0; 64]);
-    let path = format!("/{}", "p".repeat(wire::SERVICE_LIB_REF_PATH_MAX_BYTES - 1));
+    let path = alloc::format!("/{}", "p".repeat(wire::SERVICE_LIB_REF_PATH_MAX_BYTES - 1));
     let book = BookRef::path(&path).unwrap();
     let (title, author, series, number) = (
         "t".repeat(512),
