@@ -216,7 +216,14 @@ fn with_row<R>(
         group: group_of(sources, spec),
         kind: kind_number(&spec.kind),
         flags,
-        source: source(sources, spec),
+        // Where a value comes from is as much the caller's business as the
+        // value: a row it cannot read shows the default source, so a hidden
+        // grant or a secret does not tell whether the user set it.
+        source: if flags & HIDDEN == 0 {
+            source(sources, spec)
+        } else {
+            FROM_DEFAULT
+        },
         title: translated(env.i18n(), &spec.title, caps::TITLE),
         value: encoded.as_ref().map_or(&[], Encoded::as_bytes),
     }))

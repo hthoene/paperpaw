@@ -531,6 +531,8 @@ fn secrets_grants_and_values_follow_slot_five() {
         let secret = row(&rows, "cfg.key");
         assert_eq!(flags_of(secret) & (2 | 32 | 64), 2 | 32 | 64, "{plugin}");
         assert!(secret.ends_with("value=-"), "{secret}");
+        // Where it comes from is withheld too: the default, not the user's.
+        assert!(secret.contains("source=0"), "{plugin}: {secret}");
         // A public value is shown to every plugin.
         assert!(row(&rows, "cfg.flag").ends_with("value=Bool(false)"));
         let (rows, _) = page_as(&kernel, plugin, schema::OP_SETTINGS, "core.group.other", 0);
@@ -542,6 +544,7 @@ fn secrets_grants_and_values_follow_slot_five() {
             // Hidden: withheld, and not even that it has one.
             assert!(grant.ends_with("value=-"), "{plugin}: {grant}");
             assert_eq!(flags_of(grant) & (32 | 64), 32, "{plugin}");
+            assert!(grant.contains("source=0"), "{plugin}: {grant}");
         }
     }
     // An unset secret has no value.
