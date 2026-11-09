@@ -383,6 +383,12 @@ pub trait Say {
     /// # Errors
     /// The host's refusal or `NoMemory`.
     fn count(&mut self, key: &str, count: i64) -> Result<String, Error>;
+
+    /// The catalog's text for `key` with `value` for its `{name}`.
+    ///
+    /// # Errors
+    /// The host's refusal or `NoMemory`.
+    fn with(&mut self, key: &str, name: &str, value: &str) -> Result<String, Error>;
 }
 
 /// A book's row: its title, how far it is read (or *Finished*, or *New*)
@@ -465,6 +471,9 @@ mod tests {
         }
         fn count(&mut self, key: &str, _: i64) -> Result<String, Error> {
             copy(key)
+        }
+        fn with(&mut self, key: &str, _: &str, value: &str) -> Result<String, Error> {
+            concat(&[key, ":", value])
         }
     }
 

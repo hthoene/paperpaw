@@ -181,6 +181,11 @@ impl Say for Speaker<'_, '_> {
     fn count(&mut self, key: &str, count: i64) -> Result<String, Error> {
         self.messages.format(self.host, key, &[Arg::Count(count)])
     }
+
+    fn with(&mut self, key: &str, name: &str, value: &str) -> Result<String, Error> {
+        self.messages
+            .format(self.host, key, &[Arg::Text { name, value }])
+    }
 }
 
 /// Asks the host for covers while a page is drawn: one buffer pair for the

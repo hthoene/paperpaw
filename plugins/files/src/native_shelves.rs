@@ -248,6 +248,9 @@ mod tests {
         fn count(&mut self, key: &str, count: i64) -> Result<String, Error> {
             Ok(alloc::format!("{key}:{count}"))
         }
+        fn with(&mut self, key: &str, _: &str, value: &str) -> Result<String, Error> {
+            concat(&[key, value])
+        }
     }
 
     fn name(text: &str, count: u32) -> NameLine {

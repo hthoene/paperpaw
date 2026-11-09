@@ -33,6 +33,8 @@ mod info;
 mod list;
 mod names;
 #[doc(hidden)]
+pub mod native_cells;
+#[doc(hidden)]
 pub mod native_covers;
 mod native_draw;
 mod native_entry;

@@ -1,26 +1,8 @@
 use super::*;
 use crate::{
-    native_list::{Cell, Row as ListRow},
-    native_model::line,
+    native_cells::{self, Facts},
+    native_list::Row as ListRow,
 };
-
-/// Whether the first book of a library's first window is shown as the card:
-/// the library in the order of reading, its first book begun and not finished.
-fn card_first(selection: &Selection, starts: &[CatalogCursor], first: Option<&BookLine>) -> bool {
-    selection.scope == Scope::Library
-        && selection.filter == Filter::All
-        && selection.order == Order::Recent
-        && starts.is_empty()
-        && first.is_some_and(|book| !book.finished && book.progress.is_some_and(|p| p > 0))
-}
-
-/// The bar under a book: how far it is read, shown from 1 to 99 per cent.
-const fn bar(book: &BookLine) -> Option<u8> {
-    match book.progress {
-        Some(percent) if !book.finished && percent > 0 && percent < 100 => Some(percent),
-        _ => None,
-    }
-}
 
 impl NativeFiles {
     /// Whether the books show as a grid of covers (`files.view`).
@@ -174,114 +156,21 @@ impl NativeFiles {
             host,
             messages: Messages::new()?,
         };
-        let library = browser.selection.scope == Scope::Library;
-        let mut cells = Vec::new();
-        if library {
-            let show = say.say("files.list.show")?;
-            let name = say.say(browser.selection.filter.key())?;
-            let count = if browser.selection.filter == Filter::Shelves || condition.counting() {
-                String::new()
-            } else {
-                say.count("files.books", i64::from(browser.window.total))?
-            };
-            let value = if count.is_empty() {
-                name
-            } else {
-                paperpaw_ui_kit::text::concat(&[&name, " · ", &count])?
-            };
-            push(&mut cells, Cell::plain(ListRow::Filter, &show, &value)?)?;
-        }
-        if let (Condition::Scanning { books }, true) = (condition, library) {
-            // The count leads: the books found so far.
-            let note = say.count("files.list.so-far", i64::from(books))?;
-            push(&mut cells, Cell::plain(ListRow::Note, &note, "")?)?;
-        }
-        if !browser.starts.is_empty() {
-            let previous = say.say("files.list.previous")?;
-            push(&mut cells, Cell::plain(ListRow::Previous, &previous, "‹")?)?;
-        }
-        let card = card_first(
-            &browser.selection,
-            &browser.starts,
-            browser.window.books.first(),
-        );
-        for (at, book) in browser.window.books.iter().enumerate() {
-            let line = line(&mut say, book)?;
-            let first = card && at == 0;
-            let value = if first {
-                say.say("files.list.continue-reading")?
-            } else {
-                line.value
-            };
-            push(
-                &mut cells,
-                Cell {
-                    row: ListRow::Book(at),
-                    title: line.title,
-                    value,
-                    note: line.note,
-                    progress: bar(book),
-                    card: first,
-                    chips: native_model::chips(book)?,
-                },
-            )?;
-        }
-        if browser.window.has_more() {
-            let more = say.say("files.list.more")?;
-            push(&mut cells, Cell::plain(ListRow::More, &more, "›")?)?;
-        }
-        self.say_empty(host, &mut say, browser, condition, archived)?;
-        browser.list = BookList::new(cells, Self::grid(host)?);
-        Ok(())
-    }
-
-    /// What an empty list says: the condition's words, or what the filter or
-    /// scope has none of.
-    fn say_empty(
-        &self,
-        host: &Host<'_>,
-        say: &mut Speaker<'_, '_>,
-        browser: &mut Browser,
-        condition: Condition,
-        archived: bool,
-    ) -> Result<(), Error> {
-        browser.empty = String::new();
-        browser.empty_text = String::new();
-        if !browser.window.books.is_empty() || condition.counting() {
-            return Ok(());
-        }
-        if let Some((title, text)) = condition.words() {
-            browser.empty = say.say(title)?;
-            if !text.is_empty() {
-                browser.empty_text = say.say(text)?;
-            }
-            return Ok(());
-        }
-        let library = browser.selection.scope == Scope::Library;
-        match browser.selection.filter.none_key() {
-            Some(key) if library => browser.empty = say.say(key)?,
-            _ if library && archived => browser.empty = say.say("files.list.none.all")?,
-            _ if library => {
-                browser.empty = say.say("files.empty.title")?;
-                let folder = Self::folder(host)?;
-                browser.empty_text = say.messages.format(
-                    host,
-                    "files.empty",
-                    &[Arg::Text {
-                        name: "dir",
-                        value: &folder,
-                    }],
-                )?;
-            }
-            _ if browser.selection.scope == Scope::Next => {
-                browser.empty = say.say("files.list.none.next")?;
-            }
-            _ if browser.selection.scope == Scope::Favourites => {
-                browser.empty = say.say("files.no-favourites.title")?;
-                browser.empty_text = say.say("files.no-favourites")?;
-            }
-            _ => browser.empty = say.say("files.search.none")?,
-        }
+        let folder = Self::folder(host)?;
+        let built = native_cells::build(
+            &mut say,
+            &Facts {
+                selection: &browser.selection,
+                window: &browser.window,
+                starts: &browser.starts,
+                condition,
+                archived,
+                folder: &folder,
+            },
+        )?;
+        browser.empty = built.empty;
+        browser.empty_text = built.empty_text;
+        browser.list = BookList::new(built.cells, Self::grid(host)?);
         Ok(())
     }
 

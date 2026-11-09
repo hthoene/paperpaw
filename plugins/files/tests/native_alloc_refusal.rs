@@ -21,6 +21,9 @@ impl Say for Words {
     fn count(&mut self, key: &str, _: i64) -> Result<String, Error> {
         paperpaw_ui_kit::text::copy(key)
     }
+    fn with(&mut self, key: &str, _: &str, value: &str) -> Result<String, Error> {
+        paperpaw_ui_kit::text::concat(&[key, value])
+    }
 }
 
 /// Two series, each with a next book, read a name at a time.
