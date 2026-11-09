@@ -244,6 +244,45 @@ impl UiServices {
         Ok(())
     }
 
+    /// Whether `owner` may say instance `id` changed (`command.widget_changed`):
+    /// `ERR_NOT_FOUND`, `ERR_DENIED`, `ERR_BUSY` while the table is in use.
+    pub(crate) fn widget_check_changed(&self, owner: u64, id: u32) -> Result<(), i32> {
+        self.widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .check_changed(owner, id)
+    }
+
+    /// The checked `command.widget_changed` of `owner` take effect: each
+    /// instance is marked for its maker, once. `ERR_BUSY` when the table is in
+    /// use (nothing marked).
+    pub(crate) fn widgets_changed(&self, owner: u64, ids: &[u32]) -> Result<(), i32> {
+        let mut handles = self
+            .widgets
+            .handles
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?;
+        for id in ids {
+            handles.mark_changed(owner, *id);
+        }
+        Ok(())
+    }
+
+    /// Whether a change waits for its maker.
+    pub(crate) fn widget_change_waits(&self) -> bool {
+        self.widgets
+            .handles
+            .try_borrow()
+            .is_ok_and(|handles| handles.has_changed())
+    }
+
+    /// The oldest change not yet told, as (the maker, the instance), off the
+    /// list. `None`: nothing waits (or the table is in use).
+    pub(crate) fn take_widget_changed(&self) -> Option<(u64, u32)> {
+        self.widgets.handles.try_borrow_mut().ok()?.take_changed()
+    }
+
     /// The lowest screen above `after` that still has widget instances.
     pub(crate) fn next_widget_screen(&self, after: u32) -> Result<Option<u32>, i32> {
         Ok(self

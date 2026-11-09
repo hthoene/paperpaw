@@ -46,7 +46,7 @@ impl Kernel {
             (commands, redraw, _hop),
             item_states,
             presets,
-            hints,
+            (hints, widgets),
             policies,
         ) = {
             let env = self.shared.env(now);
@@ -96,6 +96,10 @@ impl Kernel {
                 .with_hint_labels(
                     self.shared.stack_rows.labels(),
                     !self.hint.buttons.is_empty(),
+                )
+                .with_widgets(
+                    self.shared.native_instances.ui_services(),
+                    context.owner_key(),
                 );
                 if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
                     stage = stage
@@ -115,6 +119,7 @@ impl Kernel {
                 let presets = stage.take_presets();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
+                let widgets = stage.take_widget_changes();
                 let policies = stage.take_policies();
                 let output = stage.into_ui_output();
                 Ok::<_, Error>((
@@ -125,7 +130,7 @@ impl Kernel {
                     output,
                     item_states,
                     presets,
-                    hints,
+                    (hints, widgets),
                     policies,
                 ))
             })??
@@ -137,6 +142,17 @@ impl Kernel {
         self.apply_item_states(&owner, item_states);
         let authority = self.command_settings_authority(&owner);
         self.apply_native_presets(&owner, authority, presets);
+        self.apply_labels_and_widgets(owner_key, hints, widgets)?;
+        Ok(status)
+    }
+
+    /// The labels the callback set, and the widgets it said changed.
+    fn apply_labels_and_widgets(
+        &mut self,
+        owner_key: u64,
+        hints: alloc::vec::Vec<crate::native_host::hint_labels::HintSet>,
+        widgets: alloc::vec::Vec<u32>,
+    ) -> Result<(), Error> {
         // The labels the callback set; room was taken when they were checked.
         // Nothing holds the table across a callback, so a failed borrow is a
         // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
@@ -146,7 +162,15 @@ impl Kernel {
             };
             labels.apply(hints);
         }
-        Ok(status)
+        // The widgets it said changed: their makers hear of it after the
+        // callback, from the pump (`widget_events`).
+        if !widgets.is_empty()
+            && let Some(ui) = self.shared.native_instances.ui_services()
+            && ui.widgets_changed(owner_key, &widgets).is_err()
+        {
+            return Err(Error::Status(ERR_BUSY));
+        }
+        Ok(())
     }
 
     /// The states the callback pushed, applied in submit order after its

@@ -234,6 +234,11 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         // The same event in two batches; the same draw in two batches.
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
+        // `event.widget_changed`, which a maker registers for (`widget_events`).
+        13 => &[&[wire::Registration::Event {
+            event_tag: wire::EVENT_WIDGET_CHANGED_TAG,
+            token: 91,
+        }]],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
@@ -1482,6 +1487,8 @@ mod menu_records;
 mod input_records;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
+#[path = "native_widget_install_tests.rs"]
+mod widget_registered;
 
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;

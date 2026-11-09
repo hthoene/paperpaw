@@ -18,13 +18,15 @@ use super::registrations::{
     EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG, EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG,
     EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG,
     EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
-    EVENT_TICK_TAG, EVENT_WIFI_CHANGED_TAG, EventBatteryMeasured, EventPageTurned, EventResume,
-    EventStarted, EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
+    EVENT_TICK_TAG, EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG, EventBatteryMeasured,
+    EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
+    REGISTRATION_MAX_RECORDS, Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
-/// `event.setting_changed` (64) and the hints 70-74 (`setting_events`), the
+/// `event.setting_changed` (64) and the hints 70-74 (`setting_events`),
+/// `event.widget_changed` (86, `widget_events`), the
 /// events of the services the kernel pumps: `core.net` 99-102 and
 /// `core.sockets` 106-107 (`service_pump`), and `event.book_opened`,
 /// `event.book_closed` and `event.book_finished` (65-67): registered now,
@@ -59,6 +61,7 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_POWER_CHANGED_TAG
             | EVENT_STATUS_CHANGED_TAG
             | EVENT_CHARGE_CHANGED_TAG
+            | EVENT_WIDGET_CHANGED_TAG
     )
 }
 
