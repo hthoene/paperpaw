@@ -203,11 +203,9 @@ fn with_row<R>(
                 if encoded.is_none() {
                     flags |= LONG;
                 }
-                let previewed = settings.previewing()
-                    && !settings.is_worn(id)
-                    && settings.scoped_value(id).is_none()
-                    && settings.global(id) != Some(value);
-                if previewed {
+                // In the active preview set, whether or not the value shown
+                // differs from the kept one.
+                if settings.is_previewed(id) {
                     flags |= PREVIEW;
                 }
             }
