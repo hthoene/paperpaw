@@ -1,0 +1,157 @@
+//! Ops 5 `plugins` and 6 `plugin`: every plugin the host knows, loaded or
+//! not, and one plugin with its description (`registry.md` 2.2, 3).
+use super::{
+    Row,
+    fixed::{Fixed, caps, clip},
+    sources::Sources,
+};
+use crate::native_host::registrations::{self as wire, Record};
+use core::{fmt::Write, ops::ControlFlow};
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_sdk::{PluginInfo, PluginKind, PluginProblem, PluginState};
+
+/// `reg_plugin.flags`.
+const ENABLED: u32 = 1;
+const RESTART_NEEDED: u32 = 1 << 1;
+const REQUIRED: u32 = 1 << 2;
+const LINKED: u32 = 1 << 3;
+const SAFE_MODE: u32 = 1 << 4;
+
+/// Room for `<id>.plugin.description`: an id (64), a dot and the suffix.
+type Key = Fixed<96>;
+
+/// Interface 6's `PluginProblem` in its order (0 none), and its number.
+fn problem(problem: Option<PluginProblem>) -> (u32, u32) {
+    match problem {
+        None => (0, 0),
+        Some(PluginProblem::OtherBuild) => (1, 0),
+        Some(PluginProblem::Damaged) => (2, 0),
+        Some(PluginProblem::Mismatch) => (3, 0),
+        Some(PluginProblem::NoRoom) => (4, 0),
+        Some(PluginProblem::Unsupported) => (5, 0),
+        Some(PluginProblem::SafeMode) => (6, 0),
+        Some(PluginProblem::Crashed) => (7, 0),
+        Some(PluginProblem::NotInstalled) => (8, 0),
+        Some(PluginProblem::Changed) => (9, 0),
+        Some(PluginProblem::OlderInterface { built_for }) => (10, u32::from(built_for)),
+        Some(PluginProblem::NeedsNewerPaperPaw) => (11, 0),
+        Some(PluginProblem::Revoked) => (12, 0),
+        // A cause a later build adds, by its code.
+        Some(PluginProblem::Other(code)) => (13, u32::from(code)),
+        Some(_) => (13, 0),
+    }
+}
+
+fn flags(info: &PluginInfo) -> u32 {
+    let mut flags = 0;
+    if info.enabled {
+        flags |= ENABLED;
+    }
+    if info.restart_needed() {
+        flags |= RESTART_NEEDED;
+    }
+    // Interim: the slots only this plugin fills; the plugins a plugin
+    // requires are not kept by the host yet (op 20).
+    if !info.required_for.is_empty() {
+        flags |= REQUIRED;
+    }
+    if info.kind == PluginKind::BuiltIn {
+        flags |= LINKED;
+    }
+    if matches!(info.problem, Some(PluginProblem::SafeMode)) {
+        flags |= SAFE_MODE;
+    }
+    flags
+}
+
+/// The row of `info` handed to `visit` (its strings live on this stack).
+fn with_row<R>(
+    sources: &Sources<'_>,
+    info: &PluginInfo,
+    visit: impl FnOnce(&dyn Row) -> R,
+) -> R {
+    let id = info.manifest.id.as_str();
+    let name = Key::of(&[id, ".plugin.name"])
+        .and_then(|key| sources.env.i18n().get(key.as_str()))
+        .unwrap_or(&info.manifest.name);
+    let mut version = Fixed::<32>::new();
+    // A version too long for its field is cut, never refused.
+    let _ = write!(version, "{}", info.manifest.version);
+    let mut update = Fixed::<32>::new();
+    if let Some(next) = &info.update {
+        let _ = write!(update, "{next}");
+    }
+    let (problem, problem_arg) = problem(info.problem);
+    visit(&Record::ServiceRegPlugin(wire::ServiceRegPlugin {
+        id,
+        name: clip(name, caps::PLUGIN_NAME),
+        version: version.as_str(),
+        kind: match info.kind {
+            PluginKind::BuiltIn => 0,
+            PluginKind::Data => 1,
+            // A kind a later build adds reads as code this build cannot run.
+            _ => 2,
+        },
+        state: match info.state {
+            PluginState::Running => 0,
+            PluginState::Off => 1,
+            _ => 2,
+        },
+        flags: flags(info),
+        problem,
+        problem_arg,
+        update: update.as_str(),
+    }))
+}
+
+/// Op 5: the host itself first (`core`, its version), then the others in the
+/// order they were given to the kernel.
+pub(super) fn rows(
+    sources: &Sources<'_>,
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> Result<(), i32> {
+    let plugins = sources.env.plugins();
+    let core = plugins.kernel();
+    if let Some(info) = core {
+        if with_row(sources, info, &mut *visit).is_break() {
+            return Ok(());
+        }
+    }
+    for info in plugins.iter() {
+        if core.is_some_and(|core| core.manifest.id == info.manifest.id) {
+            continue;
+        }
+        if with_row(sources, info, &mut *visit).is_break() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Op 6: the row and, where the plugin has a description, its text.
+pub(super) fn detail(
+    sources: &Sources<'_>,
+    key: &str,
+    visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let info = sources.env.plugins().get(key).ok_or(ERR_NOT_FOUND)?;
+    let mut failure = None;
+    with_row(sources, info, |row| {
+        if let Err(error) = visit(row) {
+            failure = Some(error);
+        }
+    });
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    let id = info.manifest.id.as_str();
+    let translated = Key::of(&[id, ".plugin.description"])
+        .and_then(|key| sources.env.i18n().get(key.as_str()));
+    let description = translated.unwrap_or(&*info.manifest.description);
+    if description.is_empty() {
+        return Ok(());
+    }
+    visit(&Record::ServiceRegText(wire::ServiceRegText {
+        text: clip(description, caps::TEXT),
+    }))
+}

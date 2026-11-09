@@ -1,0 +1,137 @@
+//! Host side of the service `core.registry` (`docs/abi/registry.md` section 2):
+//! the READ side of REG, ops 1-22, built family by family.
+//!
+//! The backend is the generic [`Backend`](super::resources) function and holds
+//! no state: a call decodes its input, asks the frame's [`RegistryView`] for
+//! the rows of the op and frames them. The view is where the host's tables
+//! are read (the environment's registries, the plugin list, the declaration
+//! store); the backend owns the contract, which is the same for every op:
+//!
+//! - a list op takes one `service.reg_query`, answers up to 32 whole rows and
+//!   exactly one `service.end` ([`RegistryPage`]); a stale or unknown
+//!   generation is `ERR_STATE` with `out` untouched;
+//! - a detail op takes one `service.reg_key`, answers the records of its row
+//!   in order and no `end`; an unknown key is `ERR_NOT_FOUND`;
+//! - a scope that names nothing known is an empty page, not an error.
+//!
+//! Memory (X4): a call uses the reply buffer the dispatcher lends and a few
+//! hundred bytes of stack; no state is kept between pages. A page counts the
+//! rows once to give `total` and then walks them again from the cursor, so a
+//! row is built twice per page, never stored.
+use super::{
+    codec,
+    host_services::Caller,
+    registrations::{self as wire, Record},
+    registry_page::RegistryPage,
+};
+use crate::abi7::{
+    context::Frame,
+    services_wire::{ServiceOp, core_registry_v1 as schema},
+};
+use core::ops::ControlFlow;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
+
+pub(crate) mod fixed;
+mod items;
+mod plugins;
+mod sources;
+#[cfg(test)]
+mod tests;
+
+pub(crate) use sources::Sources;
+
+pub(crate) use crate::abi7::context::registry_views::{Asker, RegistryView, Row};
+
+impl Row for Record<'_> {
+    fn framed_len(&self) -> Result<usize, i32> {
+        codec::framed_len(self)
+    }
+    fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+        codec::encode_one(self, out)
+    }
+}
+
+/// The `core.registry` backend.
+pub(crate) fn backend(
+    frame: &dyn Frame,
+    who: &Caller<'_>,
+    op: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let view = frame.registry()?;
+    let asker = Asker {
+        owner: who.owner,
+        plugin: who.plugin,
+    };
+    match op.id {
+        schema::OP_SETTING | schema::OP_PLUGIN | schema::OP_PRESET => {
+            let key: wire::ServiceRegKey<'_> = codec::single(input)?;
+            detail(view, op, key.key, &asker, out)
+        }
+        schema::OP_SETTINGS..=schema::OP_STATUS => {
+            let query: wire::ServiceRegQuery<'_> = codec::single(input)?;
+            list(view, op, &query, &asker, out)
+        }
+        _ => Err(ERR_UNSUPPORTED),
+    }
+}
+
+/// A list op: the page from the cursor, then the one `end`.
+fn list(
+    view: &dyn RegistryView,
+    op: &ServiceOp,
+    query: &wire::ServiceRegQuery<'_>,
+    asker: &Asker<'_>,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let generation = view.generation();
+    let mut total = 0_u32;
+    view.rows(op.id, query.scope, asker, &mut |_| {
+        total = total.saturating_add(1);
+        ControlFlow::Continue(())
+    })?;
+    let room = op.max_reply.min(out.len());
+    let out = out.get_mut(..room).ok_or(ERR_INVALID)?;
+    let mut page = RegistryPage::new(query, generation, total, out)?;
+    let mut index = 0_u32;
+    let mut failure = None;
+    view.rows(op.id, query.scope, asker, &mut |row| {
+        let at = index;
+        index = index.saturating_add(1);
+        if at < query.cursor {
+            return ControlFlow::Continue(());
+        }
+        match page.push(row) {
+            Ok(flow) => flow,
+            Err(error) => {
+                failure = Some(error);
+                ControlFlow::Break(())
+            }
+        }
+    })?;
+    if let Some(error) = failure {
+        // A row past `total` means the tables changed between the two walks.
+        return Err(if error == ERR_INVALID { ERR_STATE } else { error });
+    }
+    page.finish()
+}
+
+/// A detail op: the records of the row, each framed after the last.
+fn detail(
+    view: &dyn RegistryView,
+    op: &ServiceOp,
+    key: &str,
+    asker: &Asker<'_>,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let room = op.max_reply.min(out.len());
+    let out = out.get_mut(..room).ok_or(ERR_INVALID)?;
+    let mut used = 0;
+    view.detail(op.id, key, asker, &mut |row| {
+        let rest = out.get_mut(used..).ok_or(ERR_INVALID)?;
+        used += row.encode(rest)?;
+        Ok(())
+    })?;
+    if used == 0 { Err(ERR_NOT_FOUND) } else { Ok(used) }
+}

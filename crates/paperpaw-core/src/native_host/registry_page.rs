@@ -3,6 +3,7 @@
 //! row stays unconsumed for the next page. Nothing is retained between calls.
 use super::registrations::{self as wire, Record};
 use crate::abi7::services_wire::core_registry_v1;
+use crate::abi7::context::registry_views::Row;
 use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE};
@@ -49,14 +50,14 @@ impl<'a> RegistryPage<'a> {
     }
 
     /// Continue consumes the row; Break leaves it for the next page.
-    pub(crate) fn push(&mut self, record: &Record<'_>) -> Result<ControlFlow<()>, i32> {
+    pub(crate) fn push(&mut self, record: &dyn Row) -> Result<ControlFlow<()>, i32> {
         if self.cursor == self.total {
             return Err(ERR_INVALID);
         }
         if self.rows == core_registry_v1::PAGE_MAX_ROWS {
             return Ok(ControlFlow::Break(()));
         }
-        let length = codec::framed_len(record)?;
+        let length = record.framed_len()?;
         let available = self.out.len() - self.used - self.end_bytes;
         if length > available {
             return if self.rows == 0 {
@@ -65,7 +66,7 @@ impl<'a> RegistryPage<'a> {
                 Ok(ControlFlow::Break(()))
             };
         }
-        let written = codec::encode_one(record, &mut self.out[self.used..])?;
+        let written = record.encode(&mut self.out[self.used..])?;
         self.used += written;
         self.rows += 1;
         self.cursor += 1;

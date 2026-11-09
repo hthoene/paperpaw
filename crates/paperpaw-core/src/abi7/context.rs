@@ -25,6 +25,8 @@ pub(crate) use usage_views::{DeviceUsageView, PluginRow};
 pub(crate) mod ui_guard;
 #[path = "ui_views.rs"]
 pub(crate) mod ui_views;
+#[path = "registry_views.rs"]
+pub(crate) mod registry_views;
 
 /// Table position after a scoped visitor stops; counters are not snapshotted.
 #[allow(dead_code, reason = "row offsets are read by the service encoder")]
@@ -112,6 +114,12 @@ pub(crate) trait Frame {
     }
     fn close_dialog(&self, _instance: u32) -> Result<(), i32> {
         Err(ERR_STATE)
+    }
+
+    /// The tables `core.registry` reads (`registry.md` section 2). A frame
+    /// that has none refuses with `ERR_UNSUPPORTED`.
+    fn registry(&self) -> Result<&dyn registry_views::RegistryView, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 
     fn ui_directory(&self) -> Result<&dyn ui_views::UiDirectory, i32> {

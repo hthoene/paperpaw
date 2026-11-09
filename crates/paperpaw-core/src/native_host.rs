@@ -1139,9 +1139,8 @@ pub mod stages_wire;
 )]
 pub(crate) mod stage_broker;
 
-#[cfg(test)]
-#[path = "native_host/registry_page.rs"]
 mod registry_page;
+pub(crate) mod registry_service;
 
 #[cfg(test)]
 #[path = "native_host/declaration_reg_index_tests.rs"]

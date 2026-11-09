@@ -1,5 +1,6 @@
 //! Core field borrows for usage service callbacks, separate from fixture frames.
 use super::context::{DeviceUsageView, Frame, PluginRow, RowsEnd, usage_views};
+use super::context::registry_views::{Asker, RegistryView, Row};
 use super::snapshot_wire::Snapshot;
 use core::ops::ControlFlow;
 use paperpaw_i18n::Translator;
@@ -97,6 +98,9 @@ impl Frame for CoreFrame<'_> {
         self.directory
             .map(|directory| directory as &dyn crate::native_host::ui_service::UiDirectory)
             .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    fn registry(&self) -> Result<&dyn RegistryView, i32> {
+        Ok(self)
     }
     fn status_ask(
         &self,
@@ -198,6 +202,39 @@ impl Frame for CoreFrame<'_> {
         let note = self.work.note(&info.manifest.id).ok_or(ERR_NOT_FOUND)?;
         visit(note.at.millis(), &note.text);
         Ok(())
+    }
+}
+
+impl RegistryView for CoreFrame<'_> {
+    fn generation(&self) -> u32 {
+        self.sources().generation()
+    }
+    fn rows(
+        &self,
+        op: u32,
+        scope: &str,
+        asker: &Asker<'_>,
+        visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        self.sources().rows(op, scope, asker, visit)
+    }
+    fn detail(
+        &self,
+        op: u32,
+        key: &str,
+        asker: &Asker<'_>,
+        visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        self.sources().detail(op, key, asker, visit)
+    }
+}
+
+impl CoreFrame<'_> {
+    fn sources(&self) -> crate::native_host::registry_service::Sources<'_> {
+        crate::native_host::registry_service::Sources {
+            env: self.env,
+            directory: self.directory,
+        }
     }
 }
 
