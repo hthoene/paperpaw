@@ -38,6 +38,24 @@ fn fake() -> FakeFirmware {
     fake
 }
 
+/// The question of an install's confirmation.
+fn install_q(owner: u64, request: u32) -> Question {
+    Question {
+        owner,
+        request,
+        restart: false,
+    }
+}
+
+/// The question of a restart's confirmation.
+fn restart_q(owner: u64, request: u32) -> Question {
+    Question {
+        owner,
+        request,
+        restart: true,
+    }
+}
+
 fn install(owner: u64, request: u32, flags: u32) -> Job {
     Job::install(owner, request, "update.ppu", None, flags).unwrap()
 }
@@ -59,7 +77,10 @@ fn run(machine: &mut FirmwareInstall, fw: &mut FakeFirmware) -> Event {
 fn installed(machine: &mut FirmwareInstall, fw: &mut FakeFirmware, owner: u64) -> Outcome {
     assert_eq!(machine.start(install(owner, 1, 0), fw), None);
     assert!(matches!(run(machine, fw), Event::Ask(_)));
-    assert_eq!(machine.answer(Answer::Yes, fw), Event::Quiet);
+    assert_eq!(
+        machine.answer(install_q(owner, 1), Answer::Yes, fw),
+        Event::Quiet
+    );
     match run(machine, fw) {
         Event::Ended(outcome) => outcome,
         other => panic!("{other:?}"),
@@ -85,7 +106,10 @@ fn a_whole_install_asks_first_binds_the_digest_and_waits_for_its_restart() {
             .iter()
             .any(|call| matches!(call, Call::BeginWrite { .. }))
     );
-    assert_eq!(machine.answer(Answer::Yes, &mut fw), Event::Quiet);
+    assert_eq!(
+        machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw),
+        Event::Quiet
+    );
     assert_eq!(machine.state(), State::Installing);
     let Event::Ended(outcome) = run(&mut machine, &mut fw) else {
         panic!("not ended");
@@ -118,7 +142,7 @@ fn progress_is_told_at_most_every_250_ms() {
     let mut fw = fake();
     machine.start(install(OWNER, 1, 0), &mut fw);
     run(&mut machine, &mut fw);
-    machine.answer(Answer::Yes, &mut fw);
+    machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw);
     // 3 blocks, a step every 100 ms: the first is due, the next two are not.
     let mut told = std::vec::Vec::new();
     for step in 1..=3 {
@@ -191,7 +215,7 @@ fn a_key_that_is_not_paperpaws_installs_only_when_the_plugin_names_it_and_the_us
         panic!("not asked");
     };
     assert!(ask.other_key, "the confirmation shows the key");
-    machine.answer(Answer::Yes, &mut fw);
+    machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw);
     assert!(fw.log.iter().any(|call| matches!(
         call,
         Call::BeginWrite { key: Some(key), .. } if *key == [1; 32]
@@ -235,7 +259,7 @@ fn a_no_or_a_dismissal_writes_nothing_and_ends_with_reason_2_or_3() {
         let mut fw = fake();
         machine.start(install(OWNER, 1, 0), &mut fw);
         run(&mut machine, &mut fw);
-        let Event::Ended(outcome) = machine.answer(answer, &mut fw) else {
+        let Event::Ended(outcome) = machine.answer(install_q(OWNER, 1), answer, &mut fw) else {
             panic!("not ended");
         };
         assert_eq!(outcome.reason, reason);
@@ -263,7 +287,7 @@ fn a_failure_at_any_stage_ends_the_install_and_leaves_no_state_3() {
             Some(outcome) => outcome,
             None => match run(&mut machine, &mut fw) {
                 Event::Ask(_) => {
-                    let mut event = machine.answer(Answer::Yes, &mut fw);
+                    let mut event = machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw);
                     if event == Event::Quiet {
                         event = run(&mut machine, &mut fw);
                     }
@@ -288,29 +312,35 @@ fn a_failure_at_any_stage_ends_the_install_and_leaves_no_state_3() {
 fn only_the_plugin_whose_install_waits_may_restart_and_the_host_asks_again() {
     let mut machine = FirmwareInstall::new();
     let mut fw = fake();
-    assert_eq!(machine.request_restart(OWNER).unwrap_err(), ERR_STATE);
+    assert_eq!(machine.request_restart(OWNER, 9).unwrap_err(), ERR_STATE);
     assert_eq!(installed(&mut machine, &mut fw, OWNER).reason, 0);
-    assert_eq!(machine.request_restart(OTHER).unwrap_err(), ERR_DENIED);
-    let ask = machine.request_restart(OWNER).unwrap();
+    assert_eq!(machine.request_restart(OTHER, 9).unwrap_err(), ERR_DENIED);
+    let ask = machine.request_restart(OWNER, 9).unwrap();
     assert!(ask.restart);
     assert_eq!(ask.version.as_str(), "0.6.0");
     assert_eq!(machine.state(), State::WaitingForUser);
     // No: ended with reason 2, the image keeps waiting.
-    let Event::Ended(outcome) = machine.answer(Answer::No, &mut fw) else {
+    let Event::Ended(outcome) = machine.answer(restart_q(OWNER, 9), Answer::No, &mut fw) else {
         panic!("not ended");
     };
-    assert_eq!((outcome.kind, outcome.reason), (KIND_FIRMWARE, 2));
+    assert_eq!(
+        (outcome.kind, outcome.request, outcome.reason),
+        (KIND_FIRMWARE, 9, 2)
+    );
     assert_eq!(machine.state(), State::Installed);
     // Dismissed: reason 3.
-    machine.request_restart(OWNER).unwrap();
+    machine.request_restart(OWNER, 9).unwrap();
     assert!(matches!(
-        machine.answer(Answer::Dismissed, &mut fw),
+        machine.answer(restart_q(OWNER, 9), Answer::Dismissed, &mut fw),
         Event::Ended(o) if o.reason == 3
     ));
     assert!(!fw.log.contains(&Call::Restart));
     // Yes: the caller saves what plugins keep, then restarts.
-    machine.request_restart(OWNER).unwrap();
-    assert_eq!(machine.answer(Answer::Yes, &mut fw), Event::Restart);
+    machine.request_restart(OWNER, 9).unwrap();
+    assert_eq!(
+        machine.answer(restart_q(OWNER, 9), Answer::Yes, &mut fw),
+        Event::Restart
+    );
     assert_eq!(machine.restart(&mut fw), None);
     assert!(fw.log.contains(&Call::Restart));
 }
@@ -321,8 +351,11 @@ fn a_restart_that_cannot_happen_says_why_and_the_image_keeps_waiting() {
     let mut fw = fake();
     installed(&mut machine, &mut fw, OWNER);
     fw.can_restart = false;
-    machine.request_restart(OWNER).unwrap();
-    assert_eq!(machine.answer(Answer::Yes, &mut fw), Event::Restart);
+    machine.request_restart(OWNER, 9).unwrap();
+    assert_eq!(
+        machine.answer(restart_q(OWNER, 9), Answer::Yes, &mut fw),
+        Event::Restart
+    );
     let outcome = machine.restart(&mut fw).unwrap();
     assert_eq!(outcome.reason, 19);
     assert_eq!(machine.state(), State::Installed);
@@ -367,7 +400,7 @@ fn the_host_stopping_a_job_abandons_the_device_and_tells_reason_20() {
     let mut fw = fake();
     machine.start(install(OWNER, 1, 0), &mut fw);
     run(&mut machine, &mut fw);
-    machine.answer(Answer::Yes, &mut fw);
+    machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw);
     machine.step(&mut fw, &NoStorage, &Names, 100);
     let outcome = machine.abort(&mut fw).unwrap();
     assert_eq!(outcome.reason, 20);
@@ -489,5 +522,77 @@ fn a_failed_check_keeps_its_reason_and_a_check_does_not_disturb_a_waiting_image(
     assert_eq!(machine.checked(OTHER).unwrap().reason, 12);
     assert_eq!(machine.state(), State::Installed);
     // The asker can still restart.
-    assert!(machine.request_restart(OWNER).is_ok());
+    assert!(machine.request_restart(OWNER, 9).is_ok());
+}
+
+#[test]
+fn a_late_answer_to_an_aborted_jobs_question_never_starts_the_next_write() {
+    let mut machine = FirmwareInstall::new();
+    let mut fw = fake();
+    machine.start(install(OWNER, 1, 0), &mut fw);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ask(_)));
+    // The host stops the job; the next install of another plugin asks.
+    assert_eq!(machine.abort(&mut fw).unwrap().reason, 20);
+    machine.start(install(OTHER, 2, 0), &mut fw);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ask(_)));
+    // The first dialog's yes (its owner and request) is ignored ...
+    for stale in [
+        install_q(OWNER, 1),
+        install_q(OTHER, 1),
+        install_q(OWNER, 2),
+    ] {
+        assert_eq!(machine.answer(stale, Answer::Yes, &mut fw), Event::Quiet);
+        assert_eq!(machine.state(), State::WaitingForUser, "still asking");
+    }
+    // ... as is an answer of the restart's kind to an install's question.
+    assert_eq!(
+        machine.answer(restart_q(OTHER, 2), Answer::Yes, &mut fw),
+        Event::Quiet
+    );
+    assert!(
+        !fw.log
+            .iter()
+            .any(|call| matches!(call, Call::BeginWrite { .. }))
+    );
+    // Only the open question's own answer is applied.
+    assert_eq!(
+        machine.answer(install_q(OTHER, 2), Answer::Yes, &mut fw),
+        Event::Quiet
+    );
+    assert_eq!(machine.state(), State::Installing);
+    assert!(
+        fw.log
+            .iter()
+            .any(|call| matches!(call, Call::BeginWrite { .. }))
+    );
+}
+
+#[test]
+fn a_late_yes_never_restarts_and_a_refused_check_keeps_no_facts() {
+    let mut machine = FirmwareInstall::new();
+    let mut fw = fake();
+    installed(&mut machine, &mut fw, OWNER);
+    machine.request_restart(OWNER, 9).unwrap();
+    for stale in [
+        restart_q(OWNER, 8),
+        restart_q(OTHER, 9),
+        install_q(OWNER, 9),
+    ] {
+        assert_eq!(machine.answer(stale, Answer::Yes, &mut fw), Event::Quiet);
+    }
+    assert!(!fw.log.contains(&Call::Restart));
+    assert_eq!(
+        machine.answer(restart_q(OWNER, 9), Answer::Yes, &mut fw),
+        Event::Restart
+    );
+    // An unsigned image's check (refused) leaves no facts and no bits.
+    let mut fw = fake();
+    fw.facts.signer = Signer::Unsigned;
+    let mut machine = FirmwareInstall::new();
+    machine.reserve_check(OWNER).unwrap();
+    machine.start(check_job(OWNER, 2), &mut fw);
+    run(&mut machine, &mut fw);
+    let checked = machine.checked(OWNER).unwrap();
+    assert_ne!(checked.reason, 0);
+    assert!(checked.facts.is_none() && !checked.leaves_out_some());
 }

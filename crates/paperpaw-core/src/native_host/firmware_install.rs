@@ -287,8 +287,32 @@ enum Phase {
     Asking(Job, CheckFacts),
     Writing(Job, CheckFacts, Option<u64>),
     Reading(Job, CheckFacts),
-    /// The restart's confirmation of the waiting image shows.
-    RestartAsking,
+    /// The restart's confirmation of the waiting image shows (or, after a
+    /// yes, waits for [`FirmwareInstall::restart`]); the request is the
+    /// restart's own.
+    RestartAsking(u32),
+}
+
+/// What an answer answers: the question as the confirmation was shown. An
+/// answer that names another question (a late yes from the dialog of a job
+/// that was aborted) is ignored, never applied to the job that runs now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Question {
+    pub(crate) owner: u64,
+    pub(crate) request: u32,
+    /// The restart's question, not an install's.
+    pub(crate) restart: bool,
+}
+
+impl Ask {
+    /// The question this confirmation asks.
+    pub(crate) fn question(&self) -> Question {
+        Question {
+            owner: self.owner,
+            request: self.request,
+            restart: self.restart,
+        }
+    }
 }
 
 /// One plugin's last firmware check: `None` while it runs.
@@ -408,7 +432,7 @@ impl FirmwareInstall {
     /// `dev_firmware.state`.
     pub(crate) fn state(&self) -> State {
         match &self.phase {
-            Phase::Asking(..) | Phase::RestartAsking => State::WaitingForUser,
+            Phase::Asking(..) | Phase::RestartAsking(_) => State::WaitingForUser,
             Phase::Checking(job, _) if job.install.is_none() => self.resting(),
             Phase::Checking(..) | Phase::Writing(..) | Phase::Reading(..) => State::Installing,
             Phase::Idle => self.resting(),
@@ -433,7 +457,7 @@ impl FirmwareInstall {
             | Phase::Asking(job, _)
             | Phase::Writing(job, ..)
             | Phase::Reading(job, _) => (job.request, 0),
-            Phase::RestartAsking | Phase::Idle => match (&self.waiting, &self.failed) {
+            Phase::RestartAsking(_) | Phase::Idle => match (&self.waiting, &self.failed) {
                 (Some(waiting), _) => (waiting.request, 0),
                 (None, Some(outcome)) => (outcome.request, outcome.reason),
                 (None, None) => (0, 0),
@@ -677,7 +701,11 @@ impl FirmwareInstall {
         let ended = outcome(&job, reason);
         // A check that failed names no built-ins: its bits were read from an
         // image that is not usable, so op 16 never lists rows from it.
-        let bits = if reason == 0 { bits } else { Bits::NONE };
+        let (facts, bits) = if reason == 0 {
+            (facts, bits)
+        } else {
+            (None, Bits::NONE)
+        };
         if job.install.is_none() {
             self.keep(
                 job.owner,
@@ -695,24 +723,45 @@ impl FirmwareInstall {
         ended
     }
 
-    /// The user answered the install's confirmation. A yes begins pass 2, bound
-    /// to the digest asked about; a no or a dismissal ends the job.
-    pub(crate) fn answer(&mut self, answer: Answer, firmware: &mut dyn FirmwareHost) -> Event {
+    /// The user answered the confirmation of `question`. A yes begins pass 2,
+    /// bound to the digest asked about; a no or a dismissal ends the job. An
+    /// answer to a question that is not the open one changes nothing.
+    pub(crate) fn answer(
+        &mut self,
+        question: Question,
+        answer: Answer,
+        firmware: &mut dyn FirmwareHost,
+    ) -> Event {
         match core::mem::replace(&mut self.phase, Phase::Idle) {
-            Phase::Asking(job, facts) => match answer {
-                Answer::Yes => {
-                    let key = job.install.and_then(|args| args.key);
-                    match firmware.begin_write(&job.path, facts.sha256, key, facts.foreign) {
-                        Ok(()) => {
-                            self.phase = Phase::Writing(job, facts, None);
-                            Event::Quiet
+            Phase::Asking(job, facts)
+                if !question.restart
+                    && (question.owner, question.request) == (job.owner, job.request) =>
+            {
+                match answer {
+                    Answer::Yes => {
+                        let key = job.install.and_then(|args| args.key);
+                        match firmware.begin_write(&job.path, facts.sha256, key, facts.foreign) {
+                            Ok(()) => {
+                                self.phase = Phase::Writing(job, facts, None);
+                                Event::Quiet
+                            }
+                            Err(reason) => {
+                                Event::Ended(self.finish(job, reason.0, None, Bits::NONE))
+                            }
                         }
-                        Err(reason) => Event::Ended(self.finish(job, reason.0, None, Bits::NONE)),
                     }
+                    other => Event::Ended(self.finish(job, declined(other), None, Bits::NONE)),
                 }
-                other => Event::Ended(self.finish(job, declined(other), None, Bits::NONE)),
-            },
-            Phase::RestartAsking => self.answer_restart(answer),
+            }
+            Phase::RestartAsking(request)
+                if question.restart
+                    && question.request == request
+                    && self
+                        .waiting
+                        .is_some_and(|waiting| waiting.owner == question.owner) =>
+            {
+                self.answer_restart(request, answer)
+            }
             other => {
                 self.phase = other;
                 Event::Quiet
@@ -728,7 +777,7 @@ impl FirmwareInstall {
     /// # Errors
     /// `ERR_STATE` with no image waiting, `ERR_DENIED` for another plugin,
     /// `ERR_BUSY` while a job runs (the caller retries after it).
-    pub(crate) fn request_restart(&mut self, owner: u64) -> Result<Ask, i32> {
+    pub(crate) fn request_restart(&mut self, owner: u64, request: u32) -> Result<Ask, i32> {
         let waiting = self.waiting.ok_or(ERR_STATE)?;
         if waiting.owner != owner {
             return Err(ERR_DENIED);
@@ -736,10 +785,10 @@ impl FirmwareInstall {
         if self.busy() {
             return Err(ERR_BUSY);
         }
-        self.phase = Phase::RestartAsking;
+        self.phase = Phase::RestartAsking(request);
         Ok(Ask {
             owner,
-            request: waiting.request,
+            request,
             project: waiting.project,
             version: waiting.version,
             signer: waiting.signer,
@@ -750,19 +799,19 @@ impl FirmwareInstall {
         })
     }
 
-    fn answer_restart(&mut self, answer: Answer) -> Event {
+    fn answer_restart(&mut self, request: u32, answer: Answer) -> Event {
         let Some(waiting) = self.waiting else {
             return Event::Quiet;
         };
         if answer == Answer::Yes {
             // Held in the phase until `restart` runs (what plugins keep is
             // saved first).
-            self.phase = Phase::RestartAsking;
+            self.phase = Phase::RestartAsking(request);
             return Event::Restart;
         }
         Event::Ended(Outcome {
             owner: waiting.owner,
-            request: waiting.request,
+            request,
             kind: KIND_FIRMWARE,
             reason: declined(answer),
         })
@@ -772,11 +821,17 @@ impl FirmwareInstall {
     /// outcome says why, and the image keeps waiting.
     pub(crate) fn restart(&mut self, firmware: &mut dyn FirmwareHost) -> Option<Outcome> {
         let waiting = self.waiting?;
-        self.phase = Phase::Idle;
+        let request = match core::mem::replace(&mut self.phase, Phase::Idle) {
+            Phase::RestartAsking(request) => request,
+            other => {
+                self.phase = other;
+                return None;
+            }
+        };
         let reason = firmware.restart().err()?;
         Some(Outcome {
             owner: waiting.owner,
-            request: waiting.request,
+            request,
             kind: KIND_FIRMWARE,
             reason: reason.0,
         })
@@ -788,7 +843,7 @@ impl FirmwareInstall {
         let job = match core::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Checking(job, _) | Phase::Asking(job, _) => job,
             Phase::Writing(job, ..) | Phase::Reading(job, _) => job,
-            Phase::RestartAsking | Phase::Idle => return None,
+            Phase::RestartAsking(_) | Phase::Idle => return None,
         };
         firmware.abandon();
         Some(self.finish(job, Reason::STOPPED.0, None, Bits::NONE))
