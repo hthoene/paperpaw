@@ -227,7 +227,15 @@ fn import_refuses_what_the_host_would_and_a_refusal_is_the_calls_status() {
         Error::NoSpace
     );
     assert_eq!(state.calls.get(), 0);
-    // Names the card takes pass: COM10 and "console" are not reserved.
+}
+
+#[test]
+fn names_the_card_takes_pass_and_a_refusal_is_the_calls_status() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let (mut input, mut out) = ([0; 2048], [0; 4096]);
+    // COM10 and "console" are not reserved.
     reply(&state, &[row("/Books/COM10.epub", 0, 0)]);
     assert!(
         lib.import(
