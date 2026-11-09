@@ -85,7 +85,13 @@ fn drain(
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
-            Ok(Some(len)) => {
+            // ACTIVATION BLOCKER (#228, Core's work pump, todo 265): the run of
+            // the event is ignored here, so its callback runs outside the run.
+            // Before the services are wired in a shipped shell, `drain` must
+            // enter that run's callback around `service_event` (`work.md` 2.3)
+            // and a test must pin the order: the event in the run, a start
+            // from it in the same run, the run ends after the last callback.
+            Ok(Some((len, _run))) => {
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
                 let _ = lease.service_event(&buffer[..len], env);
@@ -107,6 +113,9 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
+        self.shared
+            .native_instances
+            .retry_run_closes(self.now.millis());
         let env = self.shared.env(self.now);
         let instances = &self.shared.native_instances;
         let more = pump(instances, &instances.event_services(), &env);
@@ -180,4 +189,4 @@ impl crate::Kernel {
 
 #[cfg(test)]
 #[path = "service_pump_tests.rs"]
-mod tests;
+pub(crate) mod tests;

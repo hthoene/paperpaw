@@ -11,7 +11,7 @@
 use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 
 struct Row {
     key: u64,
@@ -33,7 +33,15 @@ pub(crate) struct OwnerDirectory {
     /// withdraw leaves a row for an owner that never comes back (keys never
     /// repeat).
     missed: Cell<u32>,
+    /// Closes of a request or socket of a work run that the scheduler, in
+    /// use at that moment, could not take: asked again at the next pass
+    /// ([`Self::retry_closes`]). Fixed room, so that letting go never
+    /// allocates; a close past it is counted in `missed`.
+    late_closes: Cell<[Option<u32>; LATE_CLOSES]>,
 }
+
+/// How many closes wait for the scheduler at most.
+const LATE_CLOSES: usize = 8;
 
 impl core::fmt::Debug for OwnerDirectory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -48,6 +56,7 @@ impl OwnerDirectory {
             screens: RefCell::new(None),
             sched: RefCell::new(None),
             missed: Cell::new(0),
+            late_closes: Cell::new([None; LATE_CLOSES]),
         }
     }
 
@@ -78,6 +87,61 @@ impl OwnerDirectory {
     /// The work run `owner`'s running callback belongs to.
     pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
         self.sched.try_borrow().ok()?.as_ref()?.current_run(owner)
+    }
+
+    /// A request or socket of work run `run` opened: the run is kept going.
+    /// Without a scheduler attached there are no runs and nothing to keep.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), and the scheduler's own.
+    pub(crate) fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        let sched = self.sched.try_borrow().map_err(|_| ERR_BUSY)?;
+        let Some(sched) = sched.as_ref() else {
+            return Ok(());
+        };
+        sched.resource_opened(u32::try_from(run).map_err(|_| ERR_INVALID)?)
+    }
+
+    /// The request or socket of work run `run` ended; the run may end now.
+    /// Never allocates. When the scheduler is in use the close waits for
+    /// the next pass ([`Self::retry_closes`]).
+    pub(crate) fn resource_closed(&self, run: u64, now_ms: u64) {
+        let Ok(run) = u32::try_from(run) else {
+            return;
+        };
+        let done = match self.sched.try_borrow() {
+            Ok(sched) => sched
+                .as_ref()
+                .is_none_or(|sched| sched.resource_closed(run, now_ms)),
+            Err(_) => false,
+        };
+        if !done {
+            self.defer_close(run);
+        }
+    }
+
+    fn defer_close(&self, run: u32) {
+        let mut waiting = self.late_closes.get();
+        if let Some(room) = waiting.iter_mut().find(|slot| slot.is_none()) {
+            *room = Some(run);
+            self.late_closes.set(waiting);
+        } else {
+            // The run then ends at its longest time (`take_expired`).
+            self.missed.set(self.missed.get().saturating_add(1));
+        }
+    }
+
+    /// Whether a close waits for the scheduler.
+    pub(crate) fn closes_wait(&self) -> bool {
+        self.late_closes.get().iter().any(Option::is_some)
+    }
+
+    /// Asks the scheduler again for the closes it could not take.
+    pub(crate) fn retry_closes(&self, now_ms: u64) {
+        let waiting = self.late_closes.replace([None; LATE_CLOSES]);
+        for run in waiting.into_iter().flatten() {
+            self.resource_closed(u64::from(run), now_ms);
+        }
     }
 
     /// Adds the row of an enabled owner (no subscriptions yet).
@@ -127,7 +191,8 @@ impl OwnerDirectory {
         self.missed.set(self.missed.get().saturating_add(1));
     }
 
-    /// How many updates were skipped since the last call (the table was held).
+    /// How many updates were skipped since the last call (the table was held,
+    /// or the closes of work runs waiting for the scheduler overflowed).
     pub(crate) fn take_missed(&self) -> u32 {
         self.missed.replace(0)
     }

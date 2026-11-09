@@ -55,6 +55,8 @@ struct Req {
     owner: u64,
     token: u32,
     run: Option<u64>,
+    /// `resource_opened` was told for `run` and `resource_closed` is not yet.
+    run_open: bool,
     state: State,
     /// The plugin's own input, parsed again when the request starts.
     batch: Box<[u8]>,
@@ -173,6 +175,17 @@ impl Inner {
         host.table().pool().release(give);
     }
 
+    /// The request is done with: its work run is told, once. A request that
+    /// was told of its end goes at `event_delivered`, one that was never told
+    /// at `owner_stopped`; the run counts it until then.
+    fn close_run(host: &dyn NetHost, r: &mut Req) {
+        if let Some(run) = r.run
+            && core::mem::take(&mut r.run_open)
+        {
+            host.resource_closed(run);
+        }
+    }
+
     fn live(r: &Req) -> bool {
         matches!(r.state, State::Queued | State::Running)
     }
@@ -258,6 +271,7 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
+        // The work run is told when the plugin has been told (`event_delivered`).
         // The session goes back after the transport has let go of it, before
         // the plugin is told: on every way a request ends.
         if r.tls {
@@ -496,8 +510,19 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
     // Everything that can fail comes before the first change: the input's
     // room (counting what the replaced requests give back), then the claim.
     inner.input_fits(host, &replaced, input.len())?;
-    if let Some(file) = &parsed.save {
-        host.claim_save(who.owner, file.root, file.path)?;
+    // The work run (if any) is kept going while the request lives. Opened
+    // last of what can fail but the claim, and given back if that fails.
+    let run = host.current_run(who.owner);
+    if let Some(run) = run {
+        host.resource_opened(run)?;
+    }
+    if let Some(file) = &parsed.save
+        && let Err(error) = host.claim_save(who.owner, file.root, file.path)
+    {
+        if let Some(run) = run {
+            host.resource_closed(run);
+        }
+        return Err(error);
     }
     for old in replaced {
         if let Some(index) = inner.index(old) {
@@ -516,7 +541,8 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         id,
         owner: who.owner,
         token: parsed.head.token,
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Queued,
         batch: batch.into_boxed_slice(),
         saving,
@@ -904,6 +930,18 @@ pub(crate) fn next_event(
     owner: u64,
     out: &mut [u8],
 ) -> Result<Option<usize>, i32> {
+    Ok(next_event_run(host, owner, out)?.map(|(used, _)| used))
+}
+
+/// [`next_event`] with the work run the event belongs to (`None`: no run).
+///
+/// # Errors
+/// As [`next_event`].
+pub(crate) fn next_event_run(
+    host: &dyn NetHost,
+    owner: u64,
+    out: &mut [u8],
+) -> Result<Option<(usize, Option<u64>)>, i32> {
     let mut inner = host_table(host)?;
     let mut best: Option<(u64, Pick)> = None;
     for r in inner.reqs.iter().filter(|r| r.owner == owner) {
@@ -918,12 +956,16 @@ pub(crate) fn next_event(
     let Some((_, pick)) = best else {
         return Ok(None);
     };
+    let run = match pick {
+        Pick::Done(id) | Pick::Progress(id) => inner.index(id).and_then(|i| inner.reqs[i].run),
+        _ => None,
+    };
     let used = match pick {
         Pick::Done(id) => encode_done(&mut inner, id, out)?,
         Pick::Progress(id) => encode_progress(&mut inner, id, out)?,
         other => serving::encode(&mut inner, host.now_ms(), other, out)?,
     };
-    Ok(Some(used))
+    Ok(Some((used, run)))
 }
 
 fn take_min(best: &mut Option<(u64, Pick)>, stamp: u64, pick: Pick) {
@@ -974,10 +1016,12 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
 pub(crate) fn event_delivered(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
     let mut inner = host_table(host)?;
     let mut freed = 0_u32;
-    inner.reqs.retain(|r| {
+    inner.reqs.retain_mut(|r| {
         let held = r.owner == owner && r.state == State::Held;
         if held {
             freed = freed.saturating_add(r.reserved);
+            // The plugin has been told of the end: the run lets go of it.
+            Inner::close_run(host, r);
         }
         !held
     });
@@ -1054,13 +1098,14 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
             index += 1;
             continue;
         }
-        let r = &inner.reqs[index];
+        let r = &mut inner.reqs[index];
         if r.state == State::Running {
             host.transport().abort(r.id);
         }
         if r.tls {
             host.table().pool().tls_drop(TlsHolder::Net(r.id));
         }
+        Inner::close_run(host, r);
         if Inner::live(r)
             && r.saving
             && let Ok(parsed) = args::parse_request(&r.batch)

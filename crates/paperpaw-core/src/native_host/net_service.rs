@@ -227,6 +227,16 @@ pub(crate) trait NetHost {
     fn network_demand(&self, wanted: bool);
     /// The work run the current callback of the plugin belongs to.
     fn current_run(&self, owner: u64) -> Option<u64>;
+    /// A request of work run `run` was stored: the run does not end while it
+    /// lives (`work.md` 2.3). Called after the request was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// request is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The request of work run `run` ended (any way): exactly once for each
+    /// `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// The screen instance whose callback is running if it is showing.
     fn showing_screen(&self, owner: u64) -> Option<u64>;
     /// Whether `extra` more bytes can be written and the storage's free-space
@@ -355,8 +365,8 @@ pub(crate) use serving::{
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use table::{
-    Finished, event_delivered, finished, network_lost, next_deadline, next_event, progress,
-    redirected_to_https, tick, work_ended,
+    Finished, event_delivered, finished, network_lost, next_deadline, next_event, next_event_run,
+    progress, redirected_to_https, tick, work_ended,
 };
 
 /// A request as the dispatcher admits it, for the tests of the shell's wiring.
