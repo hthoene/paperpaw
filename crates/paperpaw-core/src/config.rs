@@ -472,7 +472,10 @@ impl Kernel {
             self.framebuffer
                 .set_mono_coverage(mono_coverage(&self.shared.settings));
         }
-        if *id == core_settings::KEYMAP_PRESET || self.keys.when.iter().any(|(s, _)| s == id) {
+        if *id == core_settings::KEYMAP_PRESET
+            || self.keys.when.iter().any(|(s, _)| s == id)
+            || self.native_key_when(id.as_str())
+        {
             self.rebuild_keymap();
         }
         if *id == core_settings::STATUS_FONT {

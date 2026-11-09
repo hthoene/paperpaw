@@ -69,29 +69,37 @@ pub(crate) fn copy(text: &str, oom: &Cell<bool>) -> String {
     })
 }
 
-/// Streams the XML part `entry` through `handle`.
+/// Streams the XML part `entry` through `handle`, which says whether to go on:
+/// once it does not, the rest of the part is not inflated.
 pub(crate) fn xml_part(
     storage: &dyn Storage,
     archive: &ZipArchive,
     entry: &Entry,
-    handle: &mut dyn FnMut(Token<'_>),
+    handle: &mut dyn FnMut(Token<'_>) -> bool,
 ) -> Result<(), DocumentError> {
     let mut tokenizer = Tokenizer::new();
     let mut failed = None;
+    let mut going = true;
     archive
-        .stream(
-            storage,
-            entry,
-            &mut |chunk| match tokenizer.try_feed(chunk, &mut *handle) {
-                Ok(()) => true,
+        .stream(storage, entry, &mut |chunk| {
+            let fed = tokenizer.try_feed(chunk, &mut |token| {
+                // What follows a stop in this chunk is dropped.
+                going = going && handle(token);
+            });
+            match fed {
+                Ok(()) => going,
                 Err(_) => {
                     failed = Some(DocumentError::OutOfMemory);
                     false
                 }
-            },
-        )
+            }
+        })
         .map_err(error)?;
-    tokenizer.finish(handle);
+    if going {
+        tokenizer.finish(&mut |token| {
+            handle(token);
+        });
+    }
     failed.map_or(Ok(()), Err)
 }
 
@@ -113,7 +121,11 @@ pub(crate) fn small_part(
     if entry.size > MAX_SMALL {
         return Ok(());
     }
-    match xml_part(storage, archive, &entry, handle) {
+    let mut all = |token: Token<'_>| {
+        handle(token);
+        true
+    };
+    match xml_part(storage, archive, &entry, &mut all) {
         Err(error @ (DocumentError::OutOfMemory | DocumentError::Storage(_))) => Err(error),
         _ => Ok(()),
     }
@@ -521,4 +533,68 @@ pub(crate) fn clean_id(name: &str) -> Result<String, Refused> {
         out.push(c);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xml_part;
+    use alloc::vec::Vec;
+    use core::cell::Cell;
+    use paperpaw_sdk::zip::ZipArchive;
+    use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+    use paperpaw_zip::testing::ZipBuilder;
+
+    /// Counts the bytes read from the archive.
+    struct Counted(MemoryStorage, Cell<u64>);
+
+    impl Storage for Counted {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            let n = self.0.read_at(path, at, buf)?;
+            self.1.set(self.1.get() + n as u64);
+            Ok(n)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(&self, dir: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, v)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+    }
+
+    #[test]
+    fn a_part_that_is_stopped_is_not_read_to_its_end() {
+        let xml: Vec<u8> = core::iter::repeat_n(*b"<a/>", 200_000).flatten().collect();
+        let zip = ZipBuilder::new().stored("p.xml", xml.clone()).build();
+        let io = Counted(MemoryStorage::new().with("z", zip), Cell::new(0));
+        let archive = ZipArchive::open(&io, "z").unwrap();
+        let entry = archive.entry(&io, "p.xml").unwrap().unwrap();
+
+        let (mut seen, before) = (0, io.1.get());
+        xml_part(&io, &archive, &entry, &mut |_| {
+            seen += 1;
+            seen < 3
+        })
+        .unwrap();
+        assert_eq!(seen, 3, "what follows the stop is not handed on");
+        assert!(io.1.get() - before < 100_000, "{}", io.1.get() - before);
+
+        // A part that is not stopped is read whole.
+        let (mut all, before) = (0, io.1.get());
+        xml_part(&io, &archive, &entry, &mut |_| {
+            all += 1;
+            true
+        })
+        .unwrap();
+        assert_eq!(all, 200_000);
+        assert!(io.1.get() - before >= xml.len() as u64);
+    }
 }

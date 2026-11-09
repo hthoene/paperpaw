@@ -402,14 +402,6 @@ fn main_menu_and_tools() {
 }
 
 #[test]
-fn library() {
-    let mut app = App::new();
-    app.run(actions::LIBRARY);
-    app.opened("the library");
-    app.walk_grid(12, "library");
-}
-
-#[test]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));

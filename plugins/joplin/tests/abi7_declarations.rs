@@ -62,7 +62,8 @@ fn the_decoded_batches_say_what_interface_6_registered() {
     assert_eq!(native.icons, ["joplin.open|note", "joplin.send|upload"]);
     // Started, the end of a request, the work due and a setting changed.
     assert_eq!(native.events, ["103:5", "32:3", "64:6", "99:4"]);
-    assert!(native.others.is_empty(), "{:?}", native.others);
+    // And the subscription to the reader's export stage (interface 6: an event).
+    assert_eq!(native.others, ["RegistrationStage"]);
 }
 
 /// The set-up opens one at a time: the decoded `screen.spec` flags (bits 6 and

@@ -24,6 +24,11 @@ pub const OPEN_TOKEN: u32 = 4;
 pub const DECKS_TOKEN: u32 = 10;
 pub const REVIEW_TOKEN: u32 = 11;
 pub const WORDS_TOKEN: u32 = 12;
+/// The card files' menu, and the screen that updates from them or saves a deck.
+pub const SD_MENU_TOKEN: u32 = 13;
+pub const SD_CARD_TOKEN: u32 = 14;
+/// The work that does the next step of an update or a save.
+pub const WORK_TOKEN: u32 = 5;
 
 /// The reading settings' group, where the settings are.
 pub const GROUP: &str = "core.group.reading";
@@ -130,6 +135,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::Started, EVENTS_TOKEN)?;
     // A card answered *Again* comes again in the review once its time has come.
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    // The next step of an update from the card, or of a save to it.
+    declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     declarations.submit()
 }
 
@@ -149,6 +156,16 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         REVIEW_TOKEN,
     ))?;
     declarations.screen(ScreenDecl::new("list", "vocabulary.title", WORDS_TOKEN))?;
+    declarations.screen(ScreenDecl::new(
+        "sd-menu",
+        "vocabulary.sd.title",
+        SD_MENU_TOKEN,
+    ))?;
+    declarations.screen(ScreenDecl::new(
+        "sd-card",
+        "vocabulary.sd.title",
+        SD_CARD_TOKEN,
+    ))?;
     declarations.action(ActionDecl::new("open", "vocabulary.title", OPEN_TOKEN))?;
     let mut entry = MenuEntryDecl::new("core.tools", "vocabulary.open");
     entry.order = 36;
