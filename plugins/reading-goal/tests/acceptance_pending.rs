@@ -32,7 +32,7 @@ fn the_widget_is_drawn_and_a_tap_opens_the_goal() {
 }
 
 #[test]
-#[ignore = "blocked on PR #649 (the native sleep) and add_choice: the choice sleep.show = reading-goal.sleep and the sleep screen"]
+#[ignore = "needs a host that composes the slot core.sleep with the native sleep (PR #649) and runs native plugins end to end: choosing sleep.show = reading-goal.sleep opens this screen, the cat is drawn large in the middle"]
 fn the_sleep_screen_shows_the_cat_large_in_the_middle() {
     unreachable!("the cat, the minutes and the goal below it");
 }

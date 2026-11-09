@@ -1,19 +1,16 @@
 # Reading goal on interface 7
 
-Status: **complete, with two named gaps.** The plugin is the native plugin only: the interface-6
+Status: **complete, with one named gap.** The plugin is the native plugin only: the interface-6
 plugin (`lib.rs` registration, `widget.rs`, `sleep.rs`, `pictures.rs`, `mood.rs`), its integration tests
 (`tests/goal.rs`, the parity tests against the interface-6 registration), its registration in
 `paperpaw-app`, its store-file builder (`tools/plugin-files`, `plugins.txt` keeps a comment line) and the
 feature `embedded-pictures` (the app no longer carries the plugin, so the cats are not built in) are gone.
-**Two things of Beta 3 are not there until the host has them** (each is an ignored case, see *Blocked*):
+**One thing of Beta 3 is not there until the host has it** (an ignored case, see *Blocked*):
 
 1. **The cats installed with the plugin** (`pictures/<mood>.png` in the plugin's install folder) need
    `PrepareRoot::Bundle` (`image_prepare` root 2; Services todo 308, Host todo 309). Until it exists the
    cat shows only from one's own folder (`reading-goal.pictures`, any size, `.png`/`.jpg`/`.jpeg`, through
    the library root) and otherwise as the mood in words (what interface 6 did where the file was missing).
-2. **The sleep screen's choice** (`sleep.show = reading-goal.sleep`, *Today's reading cat*): it needs the
-   native `sleep` (PR #649) to take another plugin's mode (`add_choice`, a `setting.choice` declaration)
-   and to run its screen. `declarations::screens` (token 10) keeps the identity.
 
 ## Ported (no host needed): `src/model.rs`
 
@@ -135,10 +132,31 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
   day and the seconds read on it, for nothing or today's day asked; another day is not found. Their own
   stage `stats.read-today` is gone.
 
+## Ported: the sleep screen (`src/native_sleep.rs`, `declarations::{screens, navigation}`)
+
+- *Today's reading cat* is a screen of its own (token 10, one instance), offered to the slot `core.sleep` at
+  priority -1 (below the sleep plugin's own, priority 0; Kernel's ruling) with a `setting.choice`
+  `reading-goal.sleep` on `sleep.show` (title: the same key, "Today's reading cat"). The native `sleep` (PR #649) binds
+  `core.sleep` to this screen when `sleep.show` is `reading-goal.sleep` (at start and when it changes) if it is a
+  current candidate, else it falls back to the cover or the cat. The screen gets no input while asleep and does
+  not close itself: the host replaces it on wake (Kernel's ruling, as Port F put it).
+- It draws (`DrawPurpose::Screen`): paper, the cat as large as the room leaves with its shape kept and centred,
+  the minutes right under it as it is fitted (not under a box), or the mood in words above the minutes where
+  there is no picture (yet). The layout is `native_sleep::layout` (tested without a host).
+- **Asking early:** where `sleep.show` is this screen, the picture is asked for at the start (`event.started`),
+  when a book closes, when the screen opens and at each tick while a widget is there, so the first sleep shows
+  the cat as in Beta 3 once the picture is held. It is held while a widget lives **or** the screen is chosen;
+  the last widget dropping with this screen chosen keeps it. **Limit:** a sleep screen that opens with no
+  picture held yet (a first start straight into sleep) draws the words that time.
+- **Known gap (gray view):** interface 6 drew white paper and black ink and said `grays()` so the panel showed the
+  picture in grays. The native screen uses the theme's paper and ink (`Style`) and gives the host no grays hint,
+  so on a panel with grays the picture may show in black and white only. Left for the host's screen flags to
+  carry (no SDK flag for it yet).
+
 ## Blocked (each is an ignored case in `tests/acceptance_pending.rs` or `src/native_picture/tests.rs`)
 
 - `PrepareRoot::Bundle`, Services todo 308 and Host todo 309: the installed cats.
-- PR #649 (native `sleep`) and `add_choice`: the sleep screen's choice and screen.
+- Hosting of the sleep screen: a host that admits screens, slot offers and foreign choices, with the native `sleep` (PR #649) binding it.
 - A host that composes widgets and runs native plugins end to end: the pixels of the widget, and the tap
   that opens the settings on `stats.goal` (the scripted host stages no screen command).
 

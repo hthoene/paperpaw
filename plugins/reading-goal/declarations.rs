@@ -2,16 +2,22 @@
 //! (which writes them into the plugin image) and the tests.
 //!
 //! The settings sit in the statistics' group (`stats.group`), as on interface 6.
-//! The sleep screen is declared by [`screens`] and not yet part of the image: its
-//! drawing waits for images (draft 22) and the sleep plugin on interface 7.
+//! The sleep screen (*Today's reading cat*) is declared by [`screens`], offered to
+//! the slot `core.sleep` below the sleep plugin's own screen, and added to the
+//! choices of `sleep.show` by [`navigation`].
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind, ScreenDecl,
-    SpecDecl, StageDecl, WidgetDecl,
+    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
+    ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
+
+/// The callback token of the sleep screen.
+pub const SLEEP_TOKEN: u32 = 10;
+/// The sleep screen's full id (and the value of `sleep.show` that chooses it).
+pub const SLEEP_SCREEN: &str = "reading-goal.sleep";
 
 /// The callback token of the minute tick.
 pub const TICK_TOKEN: u32 = 3;
@@ -103,6 +109,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     ] {
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }
+    // The picture of the sleep screen is asked for at the start.
+    declarations.subscribe_event(EventKind::Started, EVENTS_TOKEN)?;
     // A new day makes the cat sad again; the figure is asked for each minute.
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     // The answer to a picture asked for, and a change of the folder of one's own.
@@ -122,11 +130,25 @@ pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// Native screen identity preparation; the screen is not part of the image yet.
+/// The sleep screen: the cat large in the middle, the minutes below it. One
+/// at a time.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("sleep", "reading-goal.sleep", 10))?;
+    d.screen(ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN).instances(Instances::Single))?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The screen offered to the slot `core.sleep` below the sleep plugin's own
+/// (priority 0), and its place among the choices of `sleep.show`.
+pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -1;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
     d.submit()?;
     Ok(())
 }

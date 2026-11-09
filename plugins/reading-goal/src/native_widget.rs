@@ -114,7 +114,7 @@ pub(crate) fn mark(today: &Today) -> u64 {
 }
 
 /// The words for the mood, in place of its picture.
-fn mood_key(mood: Mood) -> &'static str {
+pub(crate) fn mood_key(mood: Mood) -> &'static str {
     match mood {
         Mood::Sad => "reading-goal.mood.sad",
         Mood::Meh => "reading-goal.mood.meh",
