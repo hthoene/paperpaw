@@ -64,7 +64,7 @@ fn update_online() {
 }
 
 #[test]
-#[ignore = "BLOCKED ITEM-STATE/WAITING/DUAL-BOOT-FLAG: the entry's badge waits for CommandSender::set_item_state, an update that waits for plugins is not ported, and the dual-boot flag is missing"]
+#[ignore = "BLOCKED ITEM-STATE/DUAL-BOOT-FLAG: the entry's badge waits for CommandSender::set_item_state, and the dual-boot flag is missing"]
 fn update_page() {
     CASES[2].refuse().unwrap();
 }
