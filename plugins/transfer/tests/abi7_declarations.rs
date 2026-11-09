@@ -3,7 +3,10 @@
 //! slots; and the host's rules accept what they declare.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
-#[allow(dead_code, reason = "tokens the plugin uses later")]
+#[allow(
+    dead_code,
+    reason = "the build script and the plugin use the builders and tokens"
+)]
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
@@ -40,10 +43,16 @@ fn batches(
 fn the_decoded_batches_say_what_the_registration_says() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::screens_later(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::offers(d).unwrap()));
     let native = declared::native("transfer", &all);
     let old = declared::legacy("transfer", "", legacy());
-    assert_eq!(native.screens, old.screens);
+    // The three screens, whichever batch they came in.
+    let (mut screens, mut old_screens) = (native.screens.clone(), old.screens.clone());
+    screens.sort();
+    old_screens.sort();
+    assert_eq!(screens, old_screens);
     assert_eq!(native.screens.len(), 3);
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions, ["open|transfer.title"]);
@@ -90,7 +99,9 @@ fn the_instances_are_those_of_the_registration() {
     }
     old.sort();
     let mut new = Vec::new();
-    for batch in batches(|d| declarations::screens(d).unwrap()) {
+    let mut screens = batches(|d| declarations::screens(d).unwrap());
+    screens.extend(batches(|d| declarations::screens_later(d).unwrap()));
+    for batch in screens {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::ScreenSpec(s) = record {
                 new.push((format!("transfer.{}", s.name), (s.flags >> 6) & 3));
@@ -107,4 +118,31 @@ fn the_instances_are_those_of_the_registration() {
             ("transfer.screen".to_string(), 1),
         ]
     );
+}
+
+/// What `make` submits (the transfer screen, the navigation and the events) holds
+/// no slot offer: the phone's and the cable's screens have no native view yet, and
+/// the host must not open one the plugin cannot show.
+#[test]
+fn what_is_submitted_offers_no_slot_and_hears_the_server_and_its_requests() {
+    let mut all = Vec::new();
+    all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    let native = declared::native("transfer", &all);
+    assert!(native.slots.is_empty(), "{:?}", native.slots);
+    assert_eq!(native.screens.len(), 1);
+    let events = batches(|d| declarations::events(d).unwrap());
+    assert_eq!(events.len(), 1);
+    let native = declared::native("transfer", &events);
+    let mut tokens: Vec<&str> = native
+        .events
+        .iter()
+        .map(|event| event.rsplit(':').next().unwrap())
+        .collect();
+    tokens.sort_unstable();
+    assert_eq!(
+        tokens,
+        [declarations::SERVER_EVENT, declarations::SERVED_REQUEST].map(|t| t.to_string())
+    );
+    assert!(native.others.is_empty(), "{:?}", native.others);
 }

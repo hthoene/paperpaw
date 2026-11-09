@@ -28,6 +28,9 @@ smoltcp = { version = "0.12", default-features = false, features = ["medium-ethe
 # kernel, update files signed and checked, images as espflash makes them.
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-fonts-default.workspace = true
+# English hyphenation on the card at the first start (`tests/update_path.rs`).
+paperpaw-default-packs.workspace = true
+paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 paperpaw-update.workspace = true
 paperpaw-digest.workspace = true
 paperpaw-core.workspace = true

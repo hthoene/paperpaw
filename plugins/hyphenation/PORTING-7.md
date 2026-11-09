@@ -3,7 +3,8 @@
 **Ruling (#228):** the 13 hyphenation plugins (English and 12 store languages) are
 code-free data packs (package format 5: `plugin.ini [hyphenation]` and
 `hyphenation/<lang>.pphp`). No native `.ppn` wrapper. The interface-6 code
-crates are removed only together with the proof below, never before.
+crates are removed (#228): the 13 folders keep `patterns/`, `i18n/`, `how/` (the packer's
+sources) and, for English, this file and the README.
 
 ## Proof required before the removal merges
 
@@ -18,7 +19,30 @@ Status: items 1–3 are claimed here and shown by #580's packer output (all 13 f
 4. **App:** `paperpaw-app` test `no_screen_reads_while_it_draws` passes with the
    crates unlinked (STORE_PLUGINS, offered(..), workspace).
 
-## Order
+## Done
+
+The crates, their `paperpaw-app` wiring (`Hyphenation`, `offer_hyphenation`, the 12 store ids in
+`STORE_PLUGINS`), the `tools/plugin-files` bins and the workspace entries are removed; the word
+tests moved to `tools/hyphenation-packs/src/words_tests.rs` and run on the built tables. Check 4
+(app with the crates unlinked) is `check-local.sh paperpaw-app`.
+
+## Activation blockers (the removal is in, the activation is not)
+
+Hyphenation now comes only from installed data packs. These must hold before this goes into a
+release train, and are not solved by this change:
+
+1. **English on Android, web and desktop:** the English pack is a card file for the X4 boards
+   only (`devices = ["x4", "x4-pro", "x4-classic"]` in `data.toml`: the catalogue knows no other
+   device, `tools/plugin-files/catalogue.py` `DEVICES`). Those shells have no way to install it, so
+   they would not hyphenate English at all. The shells (Firmware) must sink the table themselves
+   or the catalogue must learn their targets.
+2. **The Beta 3 update path:** a device updated without the flasher keeps no English pack, since
+   Beta 3 had English built in. The update must install `hyphenation` (2.0.0), or English stops
+   being hyphenated after the update. Firmware owns this.
+3. **Device checklist:** add "Beta 3 update keeps hyphenation" (update from Beta 3 on a device,
+   open an English book, hyphenation still on) to the release device checklist; not measured.
+
+## Order (as it was)
 
 1. This branch: data packaging (`tools/hyphenation-data.py`, `data.toml`),
    checks 1–3 shown with the packer output.

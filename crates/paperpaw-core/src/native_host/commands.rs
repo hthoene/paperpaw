@@ -114,6 +114,8 @@ pub struct CommandStage<'a> {
     quiet: bool,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
+    /// The checked `command.set_hint` copies, applied after the callback.
+    staged_hints: Vec<super::hint_labels::HintSet>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -149,6 +151,7 @@ impl<'a> CommandStage<'a> {
             quiet: false,
             images_held: 0,
             staged_images: Vec::new(),
+            staged_hints: Vec::new(),
         }
     }
 
@@ -275,17 +278,15 @@ impl<'a> CommandStage<'a> {
             }
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = batch
-            .iter()
-            .filter(|command| {
-                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
-            })
-            .count()
-            - image_commands;
+        let stored = Self::stored_count(batch) - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
         {
             return ERR_NO_MEMORY;
+        }
+        let start_hints = self.staged_hints.len();
+        if let Err(error) = self.reserve_hints(batch) {
+            return error;
         }
         if let Err(error) = self
             .dev_reserve(batch)
@@ -304,6 +305,7 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
+            self.staged_hints.truncate(start_hints);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
@@ -331,6 +333,19 @@ impl<'a> CommandStage<'a> {
         // In a work run's callback only the listed commands are staged (the
         // callback sees the refusal and what it staged before stays valid).
         (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
+    }
+
+    /// How many of `batch` go to the staged `Command`s (before the images).
+    fn stored_count(batch: &CommandBatch<'_>) -> usize {
+        batch
+            .iter()
+            .filter(|command| {
+                !matches!(
+                    command,
+                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                ) && !dev::is_dev(command)
+            })
+            .count()
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
@@ -382,6 +397,10 @@ impl<'a> CommandStage<'a> {
     ) -> Result<(), i32> {
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
+            // Copied and listed ahead (`reserve_hints`).
+            if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
             if dev::is_dev(&command) {
@@ -582,7 +601,9 @@ fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
         .then_some(ERR_DENIED)
 }
 
-/// Whether `command` writes a user grant (`core.grant.*`).
+/// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
+/// a preset by id only and writes nothing here; what a preset sets is checked
+/// where presets resolve (REG), where a grant key must be dropped as well.
 fn touches_grant(command: WireCommand<'_>) -> bool {
     match command {
         WireCommand::SetSetting { key, .. }
@@ -607,6 +628,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_hint_tests.rs"]
+mod hint_tests;
 
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]
