@@ -50,6 +50,7 @@ pub(crate) fn backend(
             kernel = super::kernel_models::KernelHost {
                 inner: &*services.0,
                 env,
+                caller: who.plugin,
             };
             &kernel
         }

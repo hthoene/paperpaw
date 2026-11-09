@@ -16,6 +16,8 @@ use paperpaw_sdk::wifi::WifiState;
 struct KernelView<'a> {
     env: &'a paperpaw_sdk::Env<'a>,
     hosts: HostServices,
+    /// The plugin the service dispatch says called.
+    caller: &'a str,
 }
 
 impl Frame for KernelView<'_> {
@@ -35,7 +37,7 @@ impl KernelView<'_> {
         let op: &ServiceOp = schema_op(id);
         let caller = Caller {
             owner: 5,
-            plugin: "reader",
+            plugin: self.caller,
             features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
             hosts: &self.hosts,
         };
@@ -55,11 +57,28 @@ fn kernel(wifi: bool, bluetooth: u8) -> crate::Kernel {
 
 /// Reads op `id` as plugin `plugin`, the kernel's `Env` built afresh.
 fn read(kernel: &crate::Kernel, host: Fake, plugin: &str, id: u32) -> Result<Vec<u8>, i32> {
-    let _running = kernel.shared.meter.enter(plugin);
+    read_nested(kernel, host, plugin, plugin, id)
+}
+
+/// Reads op `id` as the service caller `caller` while the kernel's tracker names
+/// `running` (a nested call: the tracker is the top-level callback's plugin).
+fn read_nested(
+    kernel: &crate::Kernel,
+    host: Fake,
+    running: &str,
+    caller: &str,
+    id: u32,
+) -> Result<Vec<u8>, i32> {
+    let _running = kernel.shared.meter.enter(running);
     let env = kernel.shared.env(Instant(0));
     let hosts = HostServices::new();
     hosts.wire_device(Rc::new(host)).unwrap();
-    KernelView { env: &env, hosts }.run(id)
+    KernelView {
+        env: &env,
+        hosts,
+        caller,
+    }
+    .run(id)
 }
 
 fn wifi_state(kernel: &crate::Kernel) -> u32 {
@@ -212,4 +231,77 @@ fn power_is_the_kernels_level_and_mode() {
     assert_eq!(level(&kernel), 0);
     kernel.shared.power.level = paperpaw_sdk::power::PowerLevel::Saving;
     assert_eq!(level(&kernel), 1);
+}
+
+/// A plugin called inside the Bluetooth manager's callback (a stage subscriber,
+/// a compose child) is asked as itself: the service's caller, not the kernel's
+/// tracker of the running plugin, decides what it sees.
+#[test]
+fn a_nested_call_sees_only_its_own_devices() {
+    let mut kernel = kernel(true, 4);
+    let mut bluetooth = Bluetooth::new(4);
+    let mut devices = bonded(2, &["reader"]);
+    devices.push(
+        Bonded::new(DeviceId::new(9), "secret-sensor", DeviceKind::Sensor)
+            .given_to(vec![Id::parse("other").unwrap()]),
+    );
+    bluetooth.set_bonded(devices);
+    bluetooth.set_manager(Some(Id::new_static("ble")));
+    kernel.shared.bluetooth = Some(bluetooth);
+    let rows = |reply: Vec<u8>| {
+        records(&reply)
+            .into_iter()
+            .filter_map(|row| match row {
+                Record::ServiceDevBonded(row) => Some((row.device, row.given.to_string())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // The manager's callback is running, `reader` is called inside it.
+    let nested = rows(read_nested(&kernel, Fake::default(), "ble", "reader", 11).unwrap());
+    assert_eq!(nested.iter().map(|row| row.0).collect::<Vec<_>>(), [1, 2]);
+    assert!(nested.iter().all(|(_, given)| given.is_empty()));
+    // And the manager called inside another plugin's callback is still the
+    // manager.
+    let manager = rows(read_nested(&kernel, Fake::default(), "reader", "ble", 11).unwrap());
+    assert_eq!(manager.len(), 3);
+    assert!(manager.iter().any(|(_, given)| given == "reader"));
+}
+
+/// The paging generation is never 0, whatever the shell's is.
+#[test]
+fn the_bonded_generation_is_never_zero() {
+    let mut kernel = kernel(true, 4);
+    let mut bluetooth = Bluetooth::new(4);
+    bluetooth.set_bonded(bonded(2, &["reader"]));
+    kernel.shared.bluetooth = Some(bluetooth);
+    let generation = |host: Fake| {
+        let reply = read(&kernel, host, "reader", 11).unwrap();
+        match records(&reply).last() {
+            Some(Record::ServiceEnd(end)) => end.generation,
+            other => panic!("{other:?}"),
+        }
+    };
+    let hash = generation(Fake::default());
+    // A shell generation that makes the sum wrap to 0.
+    let zero = Fake::default().with_generation(0_u32.wrapping_sub(hash));
+    assert_eq!(generation(zero), 1);
+}
+
+/// A shell that advertises a radio the kernel has no model of is found out by
+/// the check on the combined host, which the shell's own host check cannot do.
+#[test]
+fn the_caps_check_runs_on_the_combined_host() {
+    let host = Fake::full();
+    // Kernel with Wi-Fi and Bluetooth: the full fake agrees with it.
+    let mut both = kernel(true, 4);
+    both.shared.bluetooth = Some(Bluetooth::new(4));
+    assert_eq!(both.check_device_host(&host), Ok(()));
+    // Without Wi-Fi the kernel answers "not found" where the shell's caps say
+    // Wi-Fi.
+    let mut no_wifi = kernel(false, 4);
+    no_wifi.shared.bluetooth = Some(Bluetooth::new(4));
+    assert!(no_wifi.check_device_host(&Fake::full()).is_err());
+    let no_bluetooth = kernel(true, 0);
+    assert!(no_bluetooth.check_device_host(&Fake::full()).is_err());
 }
