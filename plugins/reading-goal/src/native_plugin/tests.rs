@@ -4,7 +4,7 @@ use paperpaw_sdk::native::events::Event;
 
 use paperpaw_sdk::native::Error;
 
-use super::{EVENTS, Edge, answer_of, edge, figure};
+use super::{EVENTS, Edge, answer_of, edge, figure, settle};
 use crate::model::Kept;
 
 fn told(day: i32, seconds: u32) -> [u8; 8] {
@@ -87,4 +87,49 @@ fn only_the_statistics_are_heard() {
     }
     // The statistics failing is no figure.
     assert_eq!(answer_of("stats", Err(Error::NotFound), &[]), None);
+}
+
+#[test]
+fn a_widget_drawn_at_12_minutes_is_told_when_the_first_tick_finds_13() {
+    // The draw notes what it showed; without it the first tick would only
+    // record the new figure and the widget would stay stale.
+    let mut shown = Some(12);
+    let mut told = 0;
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!((told, shown), (1, Some(13)));
+    // The same figure again: nothing to tell.
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!(told, 1);
+}
+
+#[test]
+fn a_refused_notice_is_tried_again_at_the_next_tick() {
+    let mut shown = Some(12);
+    settle(&mut shown, Ok(13), || Err(Error::NoMemory));
+    assert_eq!(shown, Some(12));
+    let mut told = 0;
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!((told, shown), (1, Some(13)));
+}
+
+#[test]
+fn a_widget_never_drawn_records_the_figure_without_telling() {
+    // Nothing was on the screen to be out of date.
+    let mut shown = None;
+    settle(&mut shown, Ok(5), || panic!("nothing to tell"));
+    assert_eq!(shown, Some(5));
+    // A failed reading changes nothing.
+    settle(&mut shown, Err(Error::NoMemory), || {
+        panic!("nothing to tell")
+    });
+    assert_eq!(shown, Some(5));
 }
