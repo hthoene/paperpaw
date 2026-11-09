@@ -6,31 +6,37 @@ extern crate std;
 
 use crate::native_model as native;
 use alloc::{format, string::String, vec::Vec};
-use paperpaw_sdk::MemoryStorage;
 use proptest::prelude::*;
+
+/// Hashes as the interface-6 code took them (a salted SHA-1 taken 2,000 times, then the SHA-1 of the last digest in hex),
+/// made once with an independent implementation (Python's `hashlib`), so a code
+/// kept before the port still opens the lock.
+const GOLDEN: [(&str, &str, &str); 6] = [
+    ("salt", "1234", "2ed87ba1bbb0f9f6bda5f41655454c004f3b057d"),
+    (
+        "v2.0123456789abcdef",
+        "correct horse battery staple",
+        "b39239c23323523e128224b290ea738860c88e6a",
+    ),
+    ("", "", "ad462891d88102e54d7cba5e6a8715a29471323c"),
+    ("s", "pässwörd", "0f718820059f0ef521851f4069614fb9df386874"),
+    (
+        "v2.abcdefghijklmnop",
+        "0124",
+        "81a2e52d8379b2bcdf05d5da4a909cf832c13951",
+    ),
+    ("legacy", "1234", "a7032eaf78baa1df4241bb0cccfb88640faa4b2e"),
+];
 
 #[test]
 fn hashes_are_taken_as_before() {
-    for (salt, code) in [
-        ("salt", "1234"),
-        ("v2.0123456789abcdef", "correct horse battery staple"),
-        ("", ""),
-        ("s", "pässwörd"),
-    ] {
-        assert_eq!(
-            native::hash(salt, code).unwrap(),
-            crate::code::hash(salt, code)
-        );
+    for (salt, code, hash) in GOLDEN {
+        assert_eq!(native::hash(salt, code).unwrap(), hash);
     }
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(40))]
-
-    #[test]
-    fn any_hash_is_taken_as_before(salt in "\\PC{0,20}", code in "\\PC{0,20}") {
-        prop_assert_eq!(native::hash(&salt, &code).unwrap(), crate::code::hash(&salt, &code));
-    }
 
     /// A code kept is opened by itself and by nothing else.
     #[test]
@@ -97,25 +103,15 @@ fn a_salt_is_random_or_of_the_device_never_of_the_code() {
 }
 
 proptest! {
-    /// The tries are read back as before, from any bytes the card holds.
+    /// The tries are read from any bytes the card holds, never more than a
+    /// byte's worth, and what is kept reads back.
     #[test]
-    fn tries_are_read_as_before(bytes in proptest::collection::vec(any::<u8>(), 0..40)) {
-        let storage = MemoryStorage::new();
-        paperpaw_sdk::Storage::write(&storage, &crate::tries_path(), &bytes).unwrap();
-        prop_assert_eq!(native::parse_tries(&bytes), crate::read_tries(&storage));
-    }
-
-    #[test]
-    fn tries_are_kept_as_before(tries in 0u8..=255) {
-        let storage = MemoryStorage::new();
-        crate::keep_tries(&storage, tries);
+    fn tries_are_read_from_any_bytes_and_kept_whole(
+        bytes in proptest::collection::vec(any::<u8>(), 0..40),
+        tries in 0u8..=255,
+    ) {
+        let _ = native::parse_tries(&bytes);
         let text = native::format_tries(tries).unwrap();
-        if tries == 0 {
-            prop_assert!(!paperpaw_sdk::Storage::exists(&storage, &crate::tries_path()));
-        } else {
-            let kept = paperpaw_sdk::read_file(&storage, &crate::tries_path(), 16).unwrap();
-            prop_assert_eq!(text.as_bytes(), kept.as_slice());
-        }
         prop_assert_eq!(native::parse_tries(text.as_bytes()), tries);
     }
 }
@@ -268,18 +264,6 @@ fn the_wait_ends_after_thirty_seconds_and_forgets_the_tries() {
     attempts.failed(50_000);
     assert!(!attempts.expire(500_000));
     assert_eq!(attempts.failures(), 1);
-    // As interface 6 did: the file goes with them.
-    let storage = MemoryStorage::new();
-    crate::keep_tries(&storage, native::TRIES);
-    assert!(paperpaw_sdk::Storage::exists(
-        &storage,
-        &crate::tries_path()
-    ));
-    crate::keep_tries(&storage, 0);
-    assert!(!paperpaw_sdk::Storage::exists(
-        &storage,
-        &crate::tries_path()
-    ));
 }
 
 /// Codes as the interface-6 code stored them (made once with its `code::hash`,

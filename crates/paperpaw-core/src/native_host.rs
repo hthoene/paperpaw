@@ -75,6 +75,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_ops.rs"]
+pub(crate) mod ui_widget_ops;
+
 #[path = "native_host/ui_compose_host.rs"]
 #[allow(
     dead_code,
@@ -90,11 +93,15 @@ pub(crate) mod ui_compose_host;
 pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
-mod shared;
+pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use resources::HostResources;
+
+#[path = "native_host/shell_wiring.rs"]
+pub mod shell_wiring;
+pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
@@ -127,6 +134,17 @@ pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
 pub mod formatting;
 pub(crate) mod host_services;
+#[allow(
+    dead_code,
+    reason = "wired into the shell table; a shell wires its host view"
+)]
+pub(crate) mod hyphen_card;
+pub(crate) mod hyphen_service;
+#[allow(
+    dead_code,
+    reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
+)]
+pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
@@ -1143,3 +1161,7 @@ mod native_ui_cleanup_tests;
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 #[path = "native_host/native_image_declarations_tests.rs"]
 mod native_image_declarations_tests;
+
+#[cfg(test)]
+#[path = "native_host/ui_hooks_tests.rs"]
+mod ui_hooks_tests;

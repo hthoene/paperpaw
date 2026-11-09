@@ -38,6 +38,7 @@ mod obfuscation;
 mod package;
 mod pictures;
 pub mod provider;
+mod providers;
 mod woff;
 
 use alloc::borrow::Cow;
@@ -54,6 +55,7 @@ pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
 pub use native_io::NativeIo;
+pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
@@ -341,7 +343,7 @@ fn read_full(
 /// Whether a file's first bytes are an EPUB's: a ZIP whose first entry
 /// is `mimetype`, stored, saying `application/epub+zip` (as the format
 /// asks), not any ZIP.
-fn is_epub(head: &[u8]) -> bool {
+pub(crate) fn is_epub(head: &[u8]) -> bool {
     const MIME: &[u8] = b"application/epub+zip";
     let field = |at: usize| {
         head.get(at..at + 2)
@@ -355,38 +357,6 @@ fn is_epub(head: &[u8]) -> bool {
         && method == 0
         && head.get(30..30 + name) == Some(&b"mimetype"[..])
         && head.get(data..data + MIME.len()) == Some(MIME)
-}
-
-/// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
-/// `siblings` format, the opened file named by the call's `text`.
-#[must_use]
-pub fn html_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
-    provider::FormatProvider::new(
-        "format-html.html",
-        |storage, name, options| {
-            HtmlDocument::open(storage, name, options.publisher_styles)
-                .map(|d| Box::new(d) as Box<dyn Document>)
-        },
-        dir,
-        |_| false,
-    )
-}
-
-/// The `core.format` provider of Markdown files (`md`, `markdown`): a
-/// `siblings` format, the opened file named by the call's `text`.
-#[must_use]
-pub fn markdown_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
-    provider::FormatProvider::new(
-        "format-markdown.markdown",
-        |storage, name, options| {
-            MarkdownDocument::open(storage, name, options.publisher_styles)
-                .map(|d| Box::new(d) as Box<dyn Document>)
-        },
-        dir,
-        |_| false,
-    )
 }
 
 #[cfg(test)]

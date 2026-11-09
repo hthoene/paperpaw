@@ -174,7 +174,7 @@ pub use formats::{
 pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg(feature = "kernel")]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use hyphenation::CardTable;
+pub use hyphenation::{CardTable, plugin_wins};
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
@@ -241,11 +241,11 @@ pub mod qr {
 /// The format-independent document model (see `paperpaw-document`).
 pub mod document {
     pub use paperpaw_document::{
-        Align, Block, BlockKind, Document, DocumentError, EditError, EmbeddedFont, ImageRef,
-        LETTER_SPACING_STEPS, LineStyle, Link, LinkKind, Locator, MAX_COLUMNS, MAX_FAMILIES,
-        MAX_INLINE_LANGS, MAX_LETTER_SPACING, MIN_LETTER_SPACING, Metadata, OffsetMap,
-        PageProgression, Run, TableCell, TableRow, TextEdit, TextStyle, TocEntry, VerticalAlign,
-        is_external,
+        Align, Annotation, AnnotationKind, Block, BlockKind, Document, DocumentError, EditError,
+        EmbeddedFont, ImageRef, LETTER_SPACING_STEPS, LineStyle, Link, LinkKind, Locator,
+        MAX_COLUMNS, MAX_FAMILIES, MAX_INLINE_LANGS, MAX_LETTER_SPACING, MIN_LETTER_SPACING,
+        Metadata, OffsetMap, PageProgression, Run, TableCell, TableRow, TextEdit, TextStyle,
+        TocEntry, VerticalAlign, is_external,
     };
 }
 

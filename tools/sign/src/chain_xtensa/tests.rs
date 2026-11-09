@@ -436,3 +436,490 @@ fn a_truncated_or_damaged_firmware_is_an_error_not_a_panic() {
     assert!(Elf::parse(&[]).is_err());
     assert!(Elf::parse(b"not an elf file at all, no").is_err());
 }
+
+/// The privileged forms as the S3 toolchain's assembler makes them
+/// (`xtensa-esp32s3-elf-as`, little endian): `(name, bytes, writes a1)`.
+const FORM_WORDS: [(&str, [u8; 3], bool); 9] = [
+    ("rsil", [0x20, 0x63, 0x00], false),   // rsil a2, 3
+    ("waiti", [0x00, 0x70, 0x00], false),  // waiti 0
+    ("wsr.ps", [0x20, 0xe6, 0x13], false), // wsr.ps a2
+    ("xsr.ps", [0x20, 0xe6, 0x61], false), // xsr.ps a2
+    ("xsr.ps", [0x10, 0xe6, 0x61], true),  // xsr.ps a1
+    ("l32e", [0x20, 0xc3, 0x09], false),   // l32e a2, a3, -16
+    ("l32e", [0x10, 0xc3, 0x09], true),    // l32e a1, a3, -16
+    ("s32e", [0x20, 0xc3, 0x49], false),   // s32e a2, a3, -16
+    ("rsil", [0x10, 0x63, 0x00], true),    // rsil a1, 3
+];
+
+#[test]
+fn a_privileged_form_fails_unless_its_function_and_form_are_named() {
+    for (name, word, writes_a1) in FORM_WORDS {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let bare = run(&[("root", root.clone())], &["root"], "");
+        assert_eq!(bare.problems.len(), 1, "{name}: {:?}", bare.problems);
+        if writes_a1 {
+            // A change of the stack pointer, whatever line is there.
+            assert!(
+                bare.problems[0].contains("stack pointer"),
+                "{name}: {:?}",
+                bare.problems
+            );
+            let line = format!("allow form root {name} a1 is written\n");
+            let listed = run(&[("root", root)], &["root"], &line);
+            assert!(
+                listed.problems.iter().any(|p| p.contains("stack pointer")),
+                "{name} a1: {:?}",
+                listed.problems
+            );
+            continue;
+        }
+        assert!(
+            bare.problems[0].contains(&format!("`{name}`"))
+                && bare.problems[0].contains("allow form"),
+            "{name}: {:?}",
+            bare.problems
+        );
+        let line = format!("allow form root {name} leaves a1 alone\n");
+        let listed = run(&[("root", root.clone())], &["root"], &line);
+        assert!(listed.problems.is_empty(), "{name}: {:?}", listed.problems);
+        // The line is for that function: another function's is not enough.
+        let other = format!("allow form elsewhere {name} leaves a1 alone\n");
+        let wrong = run(&[("root", root)], &["root"], &other);
+        assert_eq!(wrong.problems.len(), 2, "{name}: {:?}", wrong.problems);
+    }
+}
+
+#[test]
+fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
+    // wsr/xsr of WINDOWBASE (72) and WINDOWSTART (73): the stack-pointer rule,
+    // whatever `allow form` says; only `allow sp` passes them.
+    for (name, word) in [
+        ("wsr.windowbase", [0x20, 0x48, 0x13]),
+        ("wsr.windowstart", [0x20, 0x49, 0x13]),
+        ("xsr.windowbase", [0x20, 0x48, 0x61]),
+        ("xsr.windowstart", [0x20, 0x49, 0x61]),
+    ] {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let bare = run(&[("root", root.clone())], &["root"], "");
+        assert_eq!(bare.problems.len(), 1, "{name}: {:?}", bare.problems);
+        assert!(bare.problems[0].contains("stack pointer"), "{name}");
+        let kind = &name[..3];
+        let line = format!("allow form root {kind} not enough\n");
+        let listed = run(&[("root", root.clone())], &["root"], &line);
+        assert!(
+            listed.problems.iter().any(|p| p.contains("stack pointer")),
+            "{name}: {:?}",
+            listed.problems
+        );
+        let sp = run(&[("root", root)], &["root"], "allow sp root window moved\n");
+        assert!(sp.problems.is_empty(), "{name}: {:?}", sp.problems);
+    }
+    // PS (230): `wsr.ps` and `xsr.ps` are forms of their own; the generic
+    // `wsr` or `xsr` line does not cover them (and is then unused).
+    for (kind, word) in [("wsr", [0x20, 0xe6, 0x13]), ("xsr", [0x20, 0xe6, 0x61])] {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let generic = run(
+            &[("root", root.clone())],
+            &["root"],
+            &format!("allow form root {kind} wrong register\n"),
+        );
+        assert_eq!(generic.problems.len(), 2, "{kind}: {:?}", generic.problems);
+        let exact = run(
+            &[("root", root)],
+            &["root"],
+            &format!("allow form root {kind}.ps restores the interrupt level\n"),
+        );
+        assert!(exact.problems.is_empty(), "{kind}.ps: {:?}", exact.problems);
+    }
+    // Another special register (VECBASE, 231) is the generic form.
+    let vec = f(&[&entry(32), &[0x30, 0xe7, 0x13], &RETW_N]);
+    let ok = run(&[("root", vec)], &["root"], "allow form root wsr vecbase\n");
+    assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+}
+
+#[test]
+fn an_allow_form_line_that_matches_nothing_or_names_the_wrong_form_fails() {
+    // A function with `rsil` only: a `waiti` line is unused and fails, and the
+    // `rsil` is still unnamed.
+    let root = f(&[&entry(32), &[0x20, 0x63, 0x00], &RETW_N]);
+    let report = run(
+        &[("root", root.clone())],
+        &["root"],
+        "allow form root waiti not here\n",
+    );
+    assert_eq!(report.problems.len(), 2, "{:?}", report.problems);
+    // Both named: passes. One function with two forms needs both lines.
+    let two = f(&[
+        &entry(32),
+        &[0x20, 0x63, 0x00],
+        &[0x00, 0x70, 0x00],
+        &RETW_N,
+    ]);
+    let one = run(
+        &[("root", two.clone())],
+        &["root"],
+        "allow form root rsil ok\n",
+    );
+    assert_eq!(one.problems.len(), 1, "{:?}", one.problems);
+    let both = run(
+        &[("root", two)],
+        &["root"],
+        "allow form root rsil ok\nallow form root waiti ok\n",
+    );
+    assert!(both.problems.is_empty(), "{:?}", both.problems);
+}
+
+#[test]
+fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
+    // `rotw 2`, `rfe`, `rfi 3` and `rfwo` have no line.
+    for word in [
+        [0x20u8, 0x80, 0x40],
+        [0x00, 0x30, 0x00],
+        [0x10, 0x33, 0x00],
+        [0x00, 0x34, 0x00],
+    ] {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let report = run(&[("root", root)], &["root"], "");
+        assert!(
+            report
+                .problems
+                .iter()
+                .any(|p| p.contains("does not classify")),
+            "{word:?}: {:?}",
+            report.problems
+        );
+    }
+    for bad in [
+        "root a\nallow form a rotw no\n",
+        "root a\nallow form a rfe no\n",
+        "root a\nallow form a rsil\n",
+        "root a\nallow form a\n",
+    ] {
+        assert!(Budget::parse(bad).is_err(), "{bad}");
+    }
+    assert!(Budget::parse("root a\nallow form a rsil critical section\n").is_ok());
+}
+
+// ---- calls through a register that an `l32r` literal gives -----------------
+
+/// `l32r a<reg>, <literal>` at `pc`.
+fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
+    let imm = ((i64::from(literal) - i64::from((pc + 3) & !3)) >> 2) as u32 & 0xFFFF;
+    let w = 0x01 | reg << 4 | imm << 8;
+    [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+}
+
+/// `callx<n> a<reg>`.
+fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
+    let w = (0xC + n / 4) << 4 | reg << 8;
+    [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+}
+
+/// `beqz a<reg>, <target>` at `pc`.
+fn beqz(reg: u32, pc: u32, target: u32) -> [u8; 3] {
+    let imm = (i64::from(target) - i64::from(pc) - 4) as u32 & 0xFFF;
+    let w = 0x16 | reg << 8 | imm << 12;
+    [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+}
+
+/// The literal pool at `BASE` (words), the functions from `BASE + 0x40`, and a
+/// data section at `BASE + 0x1_0000` (words).
+fn firmware_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> Vec<u8> {
+    firmware_lit_flags(lits, funcs, data, 0x6)
+}
+
+/// As [`firmware_lit`], with the flags of the text section (0x6: alloc and
+/// exec; 0x7 adds write).
+fn firmware_lit_flags(
+    lits: &[u32],
+    funcs: &[(&str, Vec<u8>)],
+    data: &[u32],
+    text_flags: u32,
+) -> Vec<u8> {
+    let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+    let mut code: Vec<u8> = lits.iter().flat_map(|w| w.to_le_bytes()).collect();
+    code.resize(0x40, 0);
+    let mut layout = Vec::new();
+    for (name, bytes) in funcs {
+        while !code.len().is_multiple_of(16) {
+            code.push(0);
+        }
+        layout.push((*name, code.len() as u32, bytes.len() as u32));
+        code.extend_from_slice(bytes);
+    }
+    let text = b.section(".text", text_flags, BASE, &code, 16);
+    if !data.is_empty() {
+        let bytes: Vec<u8> = data.iter().flat_map(|w| w.to_le_bytes()).collect();
+        b.section(".rodata", 0x2, BASE + 0x1_0000, &bytes, 4);
+    }
+    for (name, at, size) in layout {
+        b.function(name, BASE + at, size, text as u16, false);
+    }
+    b.build()
+}
+
+fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], extra: &str) -> Report {
+    let bytes = firmware_lit(lits, funcs, data);
+    let elf = Elf::parse(&bytes).unwrap();
+    let text = format!("root root\n{extra}");
+    check(&elf, &Budget::parse(&text).unwrap()).unwrap()
+}
+
+/// `root`: `entry`, `l32r a8, lit`, the `middle` bytes, `callx8 a8`, `retw.n`
+/// at `BASE + 0x40`, and a `helper` of frame 64 after it (the literal 0 is the
+/// helper's address).
+fn root_and_helper(middle: &dyn Fn(u32) -> Vec<u8>) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+    let root_at = BASE + 0x40;
+    let mid = middle(root_at + 6);
+    let root = f(&[
+        &entry(32),
+        &l32r(8, root_at + 3, BASE),
+        &mid,
+        &callx_reg(8, 8),
+        &RETW_N,
+    ]);
+    let helper_at = (root_at + root.len() as u32 + 15) & !15;
+    let helper = f(&[&entry(64), &RETW_N]);
+    (vec![helper_at], vec![("root", root), ("helper", helper)])
+}
+
+#[test]
+fn a_callx_through_an_l32r_literal_is_a_direct_call_to_the_literal() {
+    for middle in [vec![], vec![0xad, 0x03] /* mov.n a10, a3 */] {
+        let (lits, funcs) = root_and_helper(&|_| middle.clone());
+        let report = run_lit(&lits, &funcs, &[], "");
+        assert_eq!(report.problems, Vec::<String>::new(), "{middle:?}");
+        assert_eq!((report.indirect, report.resolved), (0, 1));
+        assert_eq!(report.checked, 2);
+        assert_eq!(report.largest, Some((64 + 16, "helper".into())));
+    }
+}
+
+#[test]
+fn a_literal_out_of_the_image_is_a_call_out_of_the_image() {
+    let root_at = BASE + 0x40;
+    let root = f(&[
+        &entry(32),
+        &l32r(8, root_at + 3, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ]);
+    let funcs = [("root", root)];
+    let report = run_lit(&[0x4000_11f4], &funcs, &[], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("0x400011f4") && report.problems[0].contains("allow call"));
+    let named = run_lit(
+        &[0x4000_11f4],
+        &funcs,
+        &[],
+        "allow call root -> 0x400011f4 the ROM's memcpy\n",
+    );
+    assert!(named.problems.is_empty(), "{:?}", named.problems);
+    assert_eq!((named.indirect, named.resolved), (0, 1));
+}
+
+#[test]
+fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
+    // Each is a call through a register the scan must not follow: the budget
+    // lists it (`allow indirect`) or the scan fails.
+    type Middle = Box<dyn Fn(u32) -> Vec<u8>>;
+    let cases: Vec<(&str, Middle)> = vec![
+        // Another path enters at the call: `beqz a3` to the `callx8`.
+        (
+            "a branch target",
+            Box::new(|pc: u32| f(&[&beqz(3, pc, pc + 5), &[0x3d, 0xf0]])),
+        ),
+        // The register is written again.
+        ("a write of the register", Box::new(|_| vec![0x8d, 0x03])),
+        // A call moves the window.
+        (
+            "a call in between",
+            Box::new(|pc: u32| call(8, pc, BASE + 0x40).to_vec()),
+        ),
+        // A `j` before the call: what follows it starts a run of its own.
+        (
+            "after a jump",
+            Box::new(|pc: u32| jump(pc, pc + 3).to_vec()),
+        ),
+    ];
+    for (what, middle) in &cases {
+        let (lits, funcs) = root_and_helper(&**middle);
+        let bare = run_lit(&lits, &funcs, &[], "");
+        assert_eq!(bare.resolved, 0, "{what}");
+        assert_eq!(bare.indirect, 1, "{what}: {:?}", bare.problems);
+        assert!(
+            bare.problems
+                .iter()
+                .any(|p| p.contains("through a register")),
+            "{what}: {:?}",
+            bare.problems
+        );
+    }
+    // The l32r loads another register than the one called.
+    let root_at = BASE + 0x40;
+    let root = f(&[
+        &entry(32),
+        &l32r(9, root_at + 3, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ]);
+    let other = run_lit(&[root_at], &[("root", root)], &[], "");
+    assert_eq!((other.resolved, other.indirect), (0, 1));
+}
+
+#[test]
+fn an_address_a_word_of_the_image_points_at_is_a_place_another_path_enters() {
+    // A word of data holding the address of the `callx8` (a jump table's
+    // entry): the walk does not step back over it.
+    let root_at = BASE + 0x40;
+    let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
+    let callx_at = root_at + 3 + 3 + 2;
+    let report = run_lit(&lits, &funcs, &[callx_at], "");
+    assert_eq!(
+        (report.resolved, report.indirect),
+        (0, 1),
+        "{:?}",
+        report.problems
+    );
+    // An entry at the `l32r` itself is no other path into the walk.
+    let report = run_lit(&lits, &funcs, &[root_at + 3], "");
+    assert_eq!((report.resolved, report.indirect), (1, 0));
+    let report = run_lit(&lits, &funcs, &[0x1234_5678], "");
+    assert_eq!((report.resolved, report.indirect), (1, 0));
+}
+
+#[test]
+fn the_branch_targets_are_read_as_the_assembler_makes_them() {
+    use super::regs::Insn;
+    // `xtensa-esp32s3-elf-as`: each of these at `pc` branches to 0x22.
+    let wide = |pc, word| Insn {
+        pc,
+        word,
+        wide: true,
+    };
+    for (pc, word) in [
+        (0x00, 0x1e1237), // beq a2, a3
+        (0x03, 0x01b216), // beqz a2
+        (0x06, 0x184226), // beqi a2, 4
+        (0x09, 0x1582b6), // bltui a2, 8
+        (0x0c, 0x126237), // bbci a2, 3
+        (0x0f, 0x00f2d6), // bgez a2
+        (0x19, 0x000146), // j
+    ] {
+        assert_eq!(
+            wide(pc, word).targets(),
+            Some([Some(0x22), None]),
+            "{word:#x}"
+        );
+    }
+    for (pc, word) in [(0x12, 0xc28c), (0x14, 0xa3cc)] {
+        // beqz.n, bnez.n
+        let insn = Insn {
+            pc,
+            word,
+            wide: false,
+        };
+        assert_eq!(insn.targets(), Some([Some(0x22), None]), "{word:#x}");
+    }
+    // `loop a2`: the body and the end.
+    assert_eq!(
+        wide(0x16, 0x088276).targets(),
+        Some([Some(0x19), Some(0x22)])
+    );
+    // `ret` and `j` end the flow; `nop` does not.
+    assert!(wide(0x22, 0x000080).ends_flow() && wide(0x19, 0x000146).ends_flow());
+    assert!(!wide(0x1c, 0x0020f0).ends_flow());
+    // `l32r a8, <literal>` of a real image: 0x42239829 reads 0x4221e66c.
+    assert_eq!(wide(0x4223_9829, 0x939081).l32r(), Some((8, 0x4221_e66c)));
+}
+
+/// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
+fn bf_bt(r: u32, pc: u32, target: u32) -> [u8; 3] {
+    let imm = (i64::from(target) - i64::from(pc) - 4) as u32 & 0xFF;
+    let w = 0x76 | r << 12 | imm << 16;
+    [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+}
+
+/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, `retw.n`, then
+/// `tail` (at `BASE + 0x40 + 13`), and the helper the literal gives.
+fn root_with_tail(tail: &dyn Fn(u32) -> Vec<u8>) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+    let root_at = BASE + 0x40;
+    let tail = tail(root_at + 13);
+    let root = f(&[
+        &entry(32),
+        &l32r(8, root_at + 3, BASE),
+        &[0xad, 0x03],
+        &callx_reg(8, 8),
+        &RETW_N,
+        &tail,
+    ]);
+    let helper_at = (root_at + root.len() as u32 + 15) & !15;
+    let helper = f(&[&entry(64), &RETW_N]);
+    (vec![helper_at], vec![("root", root), ("helper", helper)])
+}
+
+#[test]
+fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
+    let root_at = BASE + 0x40;
+    // No branch after the call: resolved.
+    let (lits, funcs) = root_with_tail(&|_| vec![0x3d, 0xf0]);
+    let plain = run_lit(&lits, &funcs, &[], "");
+    assert_eq!(
+        (plain.resolved, plain.indirect),
+        (1, 0),
+        "{:?}",
+        plain.problems
+    );
+    // A `bf`/`bt` after the call back to the `mov.n` between the `l32r` and the
+    // call: another path enters there, the call is not proven.
+    for r in [0, 1] {
+        let (lits, funcs) = root_with_tail(&|pc| bf_bt(r, pc, root_at + 6).to_vec());
+        let report = run_lit(&lits, &funcs, &[], "");
+        assert_eq!((report.resolved, report.indirect), (0, 1), "r = {r}");
+    }
+    // `bt` (r = 1) as the assembler makes it: 0xf61176 at 9 goes to 3.
+    assert_eq!(
+        super::regs::Insn {
+            pc: 9,
+            word: 0xf6_1176,
+            wide: true
+        }
+        .targets(),
+        Some([Some(3), None])
+    );
+    // B1 with an `r` that is no `bf`, `bt` or `loop*`: not modelled, so the
+    // function's calls are not resolved at all, wherever the form is.
+    let (lits, funcs) = root_with_tail(&|_| vec![0x76, 0x30, 0x00]);
+    let report = run_lit(&lits, &funcs, &[], "");
+    assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_branch_into_the_middle_of_an_instruction_leaves_the_functions_calls_unresolved() {
+    let root_at = BASE + 0x40;
+    // `beqz a3` to the second byte of the `retw.n`'s neighbour: not an
+    // instruction start.
+    let (lits, funcs) = root_with_tail(&|pc| beqz(3, pc, root_at + 7).to_vec());
+    let report = run_lit(&lits, &funcs, &[], "");
+    assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_write_of_the_window_registers_between_the_l32r_and_the_call_gives_up() {
+    // wsr.windowbase, xsr.windowstart, wsr.ps: the registers are not the ones
+    // the `l32r` loaded.
+    for word in [[0x20, 0x48, 0x13], [0x20, 0x49, 0x61], [0x20, 0xe6, 0x13]] {
+        let (lits, funcs) = root_and_helper(&|_| word.to_vec());
+        let report = run_lit(&lits, &funcs, &[], "");
+        assert_eq!((report.resolved, report.indirect), (0, 1), "{word:?}");
+    }
+}
+
+#[test]
+fn a_literal_in_a_writable_section_is_not_read() {
+    let (lits, funcs) = root_and_helper(&|_| vec![]);
+    let bytes = firmware_lit_flags(&lits, &funcs, &[], 0x7);
+    let elf = Elf::parse(&bytes).unwrap();
+    let report = check(&elf, &Budget::parse("root root\n").unwrap()).unwrap();
+    assert_eq!((report.resolved, report.indirect), (0, 1));
+}

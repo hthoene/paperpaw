@@ -27,9 +27,6 @@ paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-i18n.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-plugin-files.workspace = true
 
 [lints]
 workspace = true

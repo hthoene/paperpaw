@@ -138,6 +138,14 @@ impl<'a> Query<'a> {
         row.generation = self.cursor.generation;
         row
     }
+    /// The record of op 5: this query's filters and cursor over one facet.
+    pub(super) fn facet_record(self, facet: u32) -> wire::ServiceLibQuery<'a> {
+        let mut row = self.row;
+        row.cursor = self.cursor.offset;
+        row.generation = self.cursor.generation;
+        row.facet = facet;
+        row
+    }
 }
 macro_rules! filter {
     ($name:ident, $cap:ident, $doc:literal) => {

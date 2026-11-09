@@ -157,6 +157,19 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResourceView {
+    /// The `core.ui` service, once a shell wired it.
+    pub(crate) fn ui(&self) -> Option<&super::ui_service::UiServices> {
+        self.table.hosts.ui()
+    }
+
+    /// Another view of the same pool, without allocation.
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        self.table.try_clone().map(|table| Self {
+            table,
+            owner: self.owner,
+        })
+    }
+
     pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
         self.table.hosts.ui().map(|ui| &*ui.store)
     }
@@ -197,6 +210,11 @@ impl OwnerResources {
 
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+
+    /// The device's wired host views (a slot reaches its family here).
+    pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
+        &self.table.hosts
     }
 
     pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {

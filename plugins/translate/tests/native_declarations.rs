@@ -39,16 +39,20 @@ fn legacy() -> Vec<Contribution> {
 
 #[test]
 fn the_decoded_batches_say_what_the_registration_says() {
-    let mut all = batches(|d| declarations::screen(d).unwrap());
+    let mut all = batches(|d| declarations::settings(d).unwrap());
+    all.extend(batches(|d| declarations::screen(d).unwrap()));
     all.extend(batches(|d| declarations::events(d).unwrap()));
     all.extend(batches(|d| declarations::offer(d).unwrap()));
     let native = declared::native("translate", &all);
-    // Without the setting: its choice has 33 values (see below).
-    let without_setting = legacy()
-        .into_iter()
-        .filter(|c| !matches!(c, Contribution::FixedSettings(_)))
-        .collect();
-    let old = declared::legacy("translate", "core.group.reading", without_setting);
+    let everything = legacy();
+    let old = declared::legacy("translate", "core.group.reading", everything);
+    // The language setting: its choices, default, help, `advanced`, and the
+    // extra with the section; the reading group.
+    assert_eq!(native.groups, old.groups);
+    assert_eq!(native.specs, old.specs);
+    assert_eq!(native.specs.len(), 1);
+    assert_eq!(native.extras, old.extras);
+    assert_eq!(native.extras.len(), 1);
     assert_eq!(native.screens, old.screens);
     assert_eq!(native.screens.len(), 1);
     assert_eq!(native.slots, old.slots);
@@ -61,24 +65,15 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
 
-/// The language setting is built but not in the image: its choice has 33
-/// values and a `setting.spec` takes 32. When this fails because draft 29 raised
-/// the limit, emit `SETTINGS` in `build.rs`, submit them in `make`, and compare
-/// the setting with the interface-6 one as `the_decoded_batches...` did (the
-/// spec `to` with its 33 choices, its help, `advanced`, and the extra with the
-/// section `translate.section`).
+/// The language setting is a choice of 33 values, within the 64 a
+/// `setting.spec` takes since draft 29.
 #[test]
-fn the_language_setting_is_refused_until_a_choice_may_have_33_values() {
-    let mut out = Vec::new();
-    let mut d = Declarations::new(|b: &[u8]| -> Result<(), i32> {
-        out.push(b.to_vec());
-        Ok(())
-    });
-    assert_eq!(
-        declarations::settings(&mut d),
-        Err(paperpaw_sdk::native::declare::DeclareError::Choices)
-    );
+fn the_language_setting_has_its_33_values_and_the_host_admits_it() {
     assert_eq!(declarations::TARGETS.len(), 33);
+    for batch in image::SETTINGS {
+        let records = records_decode(batch).unwrap();
+        assert_eq!(validate_batch("translate", &records), Ok(()));
+    }
 }
 
 #[test]
@@ -93,6 +88,10 @@ fn the_languages_are_the_interface_6_languages() {
 #[test]
 fn the_image_is_what_the_builders_make() {
     for (built, image) in [
+        (
+            batches(|d| declarations::settings(d).unwrap()),
+            image::SETTINGS,
+        ),
         (batches(|d| declarations::screen(d).unwrap()), image::SCREEN),
         (batches(|d| declarations::events(d).unwrap()), image::EVENTS),
         (batches(|d| declarations::offer(d).unwrap()), image::OFFER),

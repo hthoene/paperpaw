@@ -160,7 +160,6 @@ dependencies = [
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
- "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-read-later-cloud",
@@ -348,14 +347,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-notes-overview"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-notes-vault"
 version = "1.0.4"
 dependencies = [
@@ -383,6 +374,7 @@ name = "paperpaw-plugin-reading-goal"
 version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -424,6 +416,7 @@ name = "paperpaw-plugin-wallabag"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

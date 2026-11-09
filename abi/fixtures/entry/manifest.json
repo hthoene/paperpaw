@@ -23,6 +23,18 @@
       "hex": "esp32c3-riscv32imc-ilp32-soft-le.hex",
       "input": "esp32c3-riscv32imc-ilp32-soft-le.json",
       "name": "esp32c3-riscv32imc-ilp32-soft-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "esp32s3-xtensa-lx7-ilp32-windowed-le.hex",
+      "input": "esp32s3-xtensa-lx7-ilp32-windowed-le.json",
+      "name": "esp32s3-xtensa-lx7-ilp32-windowed-le"
     }
   ],
   "format": 1,

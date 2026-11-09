@@ -302,7 +302,7 @@ fn a_bad_batch_is_refused_as_a_whole_and_the_store_stays_empty() {
 }
 
 #[test]
-fn setup_steps_stay_refused_until_their_own_arm() {
+fn a_setup_step_is_admitted_with_the_other_declarations_and_found_by_name() {
     let step = Record::SetupStep(SetupStep {
         name: "setup",
         title: "Setup",
@@ -316,13 +316,21 @@ fn setup_steps_stay_refused_until_their_own_arm() {
         capability: 0,
         flags: 1,
     });
-    let source = source(&[rows()[0], step]);
-    let mut store = DeclarationStore::default();
-    assert_eq!(
-        install(&mut store, "fixture", &source, false),
-        Err(ERR_UNSUPPORTED)
-    );
-    assert_eq!(count(&store, Kind::SlotSpec), 0);
+    for owned in [false, true] {
+        let source = source(&[rows()[0], step]);
+        let mut store = DeclarationStore::default();
+        install(&mut store, "fixture", &source, owned).unwrap();
+        assert_eq!(count(&store, Kind::SlotSpec), 1);
+        assert_eq!(count(&store, Kind::SetupStep), 1);
+        assert!(
+            store.find("fixture", Kind::SetupStep, "setup", &mut |record| {
+                assert!(matches!(record, Record::SetupStep(_)));
+            })
+        );
+        assert!(!store.find("fixture", Kind::SetupStep, "slot", &mut |_| {}));
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        assert_eq!(count(&store, Kind::SetupStep), 0);
+    }
 }
 
 #[test]
@@ -410,8 +418,23 @@ fn unloading_drops_the_catalog_rows_with_the_owner() {
 
 #[test]
 fn every_reg_allocation_refusal_leaves_the_store_unpublished() {
+    // The seven rows and a setup step: a full batch of eight.
+    let mut batch = rows().to_vec();
+    batch.push(Record::SetupStep(SetupStep {
+        name: "setup",
+        title: "Setup",
+        help: "",
+        order: 0,
+        page_kind: 0,
+        page: "fixture.page",
+        applies_key: "",
+        applies_value: "",
+        need: 0,
+        capability: 0,
+        flags: 1,
+    }));
     for owned in [false, true] {
-        let source = source(&rows());
+        let source = source(&batch);
         let mut succeeded = false;
         for fail_after in 0..40 {
             let mut store = DeclarationStore::default();
@@ -426,7 +449,7 @@ fn every_reg_allocation_refusal_leaves_the_store_unpublished() {
             });
             match result {
                 Ok(len) => {
-                    assert_eq!(len, 7);
+                    assert_eq!(len, 8);
                     succeeded = true;
                     break;
                 }

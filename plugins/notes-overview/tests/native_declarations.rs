@@ -1,5 +1,5 @@
 //! The screens, the action, the Tools menu entry and the icon declared,
-//! against what the interface-6 plugin registered, field by field; and every
+//! as the interface-6 plugin registered them (pinned here); and every
 //! record valid for the host (the menu entry and the icon wait for its
 //! admission, as for every plugin of this port).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
@@ -9,9 +9,7 @@ mod declarations;
 use paperpaw_core::native_host::declarations::validate_record;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-use paperpaw_plugin_notes_overview::NotesOverview;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Action, Contribution, Id, Plugin, Registrar};
 
 fn batches() -> Vec<Vec<u8>> {
     let mut out = Vec::new();
@@ -26,75 +24,64 @@ fn batches() -> Vec<Vec<u8>> {
 
 #[test]
 fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
-    let mut r = Registrar::new(Id::new_static("notes-overview"));
-    NotesOverview.register(&mut r).unwrap();
     let (mut screens, mut actions, mut menus, mut icons) = (vec![], vec![], vec![], vec![]);
-    for c in r.into_contributions() {
-        match c {
-            Contribution::Screen(s) => {
-                screens.push((
-                    s.id.as_str().to_string(),
-                    s.title.to_string(),
-                    s.instances == paperpaw_sdk::Instances::PER_PARAMS,
-                ));
-            }
-            Contribution::FixedActions(list) => {
-                for a in list {
-                    let a = Action::Fixed(a);
-                    actions.push((a.id().as_str().to_string(), a.title().to_string()));
-                }
-            }
-            Contribution::FixedMenuEntries(list) => {
-                for e in list {
-                    menus.push((
-                        e.menu.as_str().to_string(),
-                        e.item.as_str().to_string(),
-                        i32::from(e.order),
-                    ));
-                }
-            }
-            Contribution::FixedIcons(list) => {
-                for (item, icon) in list {
-                    icons.push((item.as_str().to_string(), (*icon).to_string()));
-                }
-            }
-            _ => {}
-        }
-    }
-    let (mut dscreens, mut dactions, mut dmenus, mut dicons) = (vec![], vec![], vec![], vec![]);
     for batch in batches() {
         for record in records_decode(&batch).unwrap().iter() {
             match record {
                 Record::ScreenSpec(s) => {
                     // One instance for each set of parameters, as before (bits 6-7 of the flags: 0).
-                    dscreens.push((
+                    screens.push((
                         format!("notes-overview.{}", s.name),
                         s.title.to_string(),
                         (s.flags >> 6) & 3 == 0,
                     ));
                 }
                 Record::ActionSpec(a) => {
-                    dactions.push((format!("notes-overview.{}", a.name), a.title.to_string()));
+                    actions.push((format!("notes-overview.{}", a.name), a.title.to_string()));
                 }
                 Record::MenuEntry(e) => {
-                    dmenus.push((e.menu.to_string(), e.item.to_string(), e.order))
+                    menus.push((e.menu.to_string(), e.item.to_string(), e.order))
                 }
-                Record::IconSpec(i) => dicons.push((i.item.to_string(), i.icon.to_string())),
+                Record::IconSpec(i) => icons.push((i.item.to_string(), i.icon.to_string())),
                 other => panic!("{other:?}"),
             }
         }
     }
-    dscreens.sort();
     screens.sort();
-    assert_eq!(dscreens, screens);
-    assert_eq!(dactions, actions);
-    assert_eq!(dmenus, menus);
-    assert_eq!(dicons, icons);
+    // What the interface-6 plugin registered (`lib.rs` before this port left it).
+    let screen = |id: &str| (id.to_string(), "notes-overview.title".to_string(), true);
+    assert_eq!(
+        screens,
+        [
+            screen("notes-overview.book"),
+            screen("notes-overview.screen")
+        ]
+    );
+    assert_eq!(
+        actions,
+        [(
+            "notes-overview.open".to_string(),
+            "notes-overview.title".to_string()
+        )]
+    );
+    assert_eq!(
+        menus,
+        [(
+            "core.tools".to_string(),
+            "notes-overview.open".to_string(),
+            37
+        )]
+    );
+    assert_eq!(
+        icons,
+        [("notes-overview.open".to_string(), "bookmarks".to_string())]
+    );
 }
 
-/// The host admits every one of them now, so none waits.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     let mut waiting = Vec::new();
     for batch in batches() {
         for record in records_decode(&batch).unwrap().iter() {
