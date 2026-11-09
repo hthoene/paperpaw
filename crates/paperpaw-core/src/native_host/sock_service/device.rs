@@ -121,6 +121,15 @@ impl SockHost for SockDevice {
         }
     }
 
+    fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        self.paths.owners().resource_opened(run)
+    }
+    fn resource_closed(&self, run: u64) {
+        self.paths
+            .owners()
+            .resource_closed(run, self.network.now_ms());
+    }
+
     fn network_up(&self) -> bool {
         self.network.network_up()
     }

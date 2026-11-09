@@ -55,6 +55,8 @@ struct Req {
     owner: u64,
     token: u32,
     run: Option<u64>,
+    /// `resource_opened` was told for `run` and `resource_closed` is not yet.
+    run_open: bool,
     state: State,
     /// The plugin's own input, parsed again when the request starts.
     batch: Box<[u8]>,
@@ -173,6 +175,16 @@ impl Inner {
         host.table().pool().release(give);
     }
 
+    /// The request ended: its work run is told, once (every way a request
+    /// ends comes here or to `owner_stopped`).
+    fn close_run(host: &dyn NetHost, r: &mut Req) {
+        if let Some(run) = r.run
+            && core::mem::take(&mut r.run_open)
+        {
+            host.resource_closed(run);
+        }
+    }
+
     fn live(r: &Req) -> bool {
         matches!(r.state, State::Queued | State::Running)
     }
@@ -258,6 +270,7 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
+        Self::close_run(host, r);
         // The session goes back after the transport has let go of it, before
         // the plugin is told: on every way a request ends.
         if r.tls {
@@ -496,8 +509,19 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
     // Everything that can fail comes before the first change: the input's
     // room (counting what the replaced requests give back), then the claim.
     inner.input_fits(host, &replaced, input.len())?;
-    if let Some(file) = &parsed.save {
-        host.claim_save(who.owner, file.root, file.path)?;
+    // The work run (if any) is kept going while the request lives. Opened
+    // last of what can fail but the claim, and given back if that fails.
+    let run = host.current_run(who.owner);
+    if let Some(run) = run {
+        host.resource_opened(run)?;
+    }
+    if let Some(file) = &parsed.save
+        && let Err(error) = host.claim_save(who.owner, file.root, file.path)
+    {
+        if let Some(run) = run {
+            host.resource_closed(run);
+        }
+        return Err(error);
     }
     for old in replaced {
         if let Some(index) = inner.index(old) {
@@ -516,7 +540,8 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         id,
         owner: who.owner,
         token: parsed.head.token,
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Queued,
         batch: batch.into_boxed_slice(),
         saving,
@@ -1054,13 +1079,14 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
             index += 1;
             continue;
         }
-        let r = &inner.reqs[index];
+        let r = &mut inner.reqs[index];
         if r.state == State::Running {
             host.transport().abort(r.id);
         }
         if r.tls {
             host.table().pool().tls_drop(TlsHolder::Net(r.id));
         }
+        Inner::close_run(host, r);
         if Inner::live(r)
             && r.saving
             && let Ok(parsed) = args::parse_request(&r.batch)

@@ -11,7 +11,7 @@
 use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 
 struct Row {
     key: u64,
@@ -78,6 +78,29 @@ impl OwnerDirectory {
     /// The work run `owner`'s running callback belongs to.
     pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
         self.sched.try_borrow().ok()?.as_ref()?.current_run(owner)
+    }
+
+    /// A request or socket of work run `run` opened: the run is kept going.
+    /// Without a scheduler attached there are no runs and nothing to keep.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), and the scheduler's own.
+    pub(crate) fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        let sched = self.sched.try_borrow().map_err(|_| ERR_BUSY)?;
+        let Some(sched) = sched.as_ref() else {
+            return Ok(());
+        };
+        sched.resource_opened(u32::try_from(run).map_err(|_| ERR_INVALID)?)
+    }
+
+    /// The request or socket of work run `run` ended; the run may end now.
+    pub(crate) fn resource_closed(&self, run: u64, now_ms: u64) {
+        if let Ok(sched) = self.sched.try_borrow()
+            && let Some(sched) = sched.as_ref()
+            && let Ok(run) = u32::try_from(run)
+        {
+            sched.resource_closed(run, now_ms);
+        }
     }
 
     /// Adds the row of an enabled owner (no subscriptions yet).

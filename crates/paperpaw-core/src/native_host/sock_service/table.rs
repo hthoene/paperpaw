@@ -67,6 +67,8 @@ struct Sock {
     token: u32,
     screen: Option<u64>,
     run: Option<u64>,
+    /// `resource_opened` was told for `run` and `resource_closed` is not yet.
+    run_open: bool,
     state: State,
     target: String,
     port: u32,
@@ -284,12 +286,23 @@ impl Inner {
         self.release(host, back);
     }
 
+    /// The socket ended: its work run is told, once (every way a socket ends
+    /// comes to `end` or to `owner_stopped`).
+    fn close_run(host: &dyn SockHost, s: &mut Sock) {
+        if let Some(run) = s.run
+            && core::mem::take(&mut s.run_open)
+        {
+            host.resource_closed(run);
+        }
+    }
+
     /// End socket `index` once with `kind` and `reason`; a second call finds
     /// it ended and does nothing. `abort`: the transport still has it.
     fn end(&mut self, host: &dyn SockHost, index: usize, kind: u32, reason: u32, abort: bool) {
         if !self.socks[index].live() {
             return;
         }
+        Self::close_run(host, &mut self.socks[index]);
         // The shell's session, then the lease, then the event.
         self.release_tls(host, index);
         if abort
@@ -584,6 +597,15 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     if !inner.reserve(host, profile.charge()) {
         return Err(ERR_NO_MEMORY);
     }
+    // The work run (if any) is kept going while the socket lives; the charge
+    // goes back when that is refused.
+    let run = host.current_run(who.owner);
+    if let Some(run) = run
+        && let Err(error) = host.resource_opened(run)
+    {
+        inner.release(host, profile.charge());
+        return Err(error);
+    }
     let pooled = host.table().pool.capacity() != 0;
     let now = host.now_ms();
     inner.next_id = id;
@@ -592,7 +614,8 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         owner: who.owner,
         token: c.token,
         screen: host.showing_screen(who.owner),
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Waiting,
         target,
         port: c.port,
@@ -1112,6 +1135,7 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
         }
         inner.drop_file(host, index);
         inner.release_tls(host, index);
+        Inner::close_run(host, &mut inner.socks[index]);
         let s = &inner.socks[index];
         if matches!(s.state, State::Connecting | State::Open | State::Securing) {
             host.transport().close(s.id);

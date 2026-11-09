@@ -54,6 +54,7 @@ pub(super) struct Cast {
     token: u32,
     screen: Option<u64>,
     run: Option<u64>,
+    run_open: bool,
     state: State,
     deadline: u64,
     /// Pool bytes still held.
@@ -145,6 +146,15 @@ pub(in crate::native_host::sock_service) fn broadcast(
     if !inner.reserve(host, CHARGE) {
         return Err(ERR_NO_MEMORY);
     }
+    // The work run (if any) is kept going while the broadcast lives; the
+    // charge goes back when that is refused.
+    let run = host.current_run(who.owner);
+    if let Some(run) = run
+        && let Err(error) = host.resource_opened(run)
+    {
+        inner.release(host, CHARGE);
+        return Err(error);
+    }
     let pooled = host.table().pool.capacity() != 0;
     inner.next_id = id;
     arena.clear();
@@ -153,7 +163,8 @@ pub(in crate::native_host::sock_service) fn broadcast(
         owner: who.owner,
         token: b.token,
         screen: host.showing_screen(who.owner),
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Running,
         deadline: host.now_ms().saturating_add(u64::from(b.wait_ms)),
         charge: if pooled { CHARGE } else { 0 },
@@ -200,6 +211,11 @@ impl Inner {
     ) {
         if !self.casts[index].live() {
             return;
+        }
+        if let Some(run) = self.casts[index].run
+            && core::mem::take(&mut self.casts[index].run_open)
+        {
+            host.resource_closed(run);
         }
         if abort {
             host.transport().close(self.casts[index].id);
@@ -293,7 +309,12 @@ impl Inner {
                 index += 1;
                 continue;
             }
-            let c = &self.casts[index];
+            let c = &mut self.casts[index];
+            if let Some(run) = c.run
+                && core::mem::take(&mut c.run_open)
+            {
+                host.resource_closed(run);
+            }
             if c.live() {
                 host.transport().close(c.id);
             }
