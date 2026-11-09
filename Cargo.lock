@@ -2402,9 +2402,11 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

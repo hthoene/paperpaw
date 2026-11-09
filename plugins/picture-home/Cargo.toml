@@ -10,7 +10,15 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
@@ -19,6 +27,7 @@ paperpaw-sdk.workspace = true
 # leaves a dev-dependency without one out.
 paperpaw-app = { path = "../../crates/paperpaw-app" }
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
