@@ -1,4 +1,4 @@
-# Dictionary on interface 7 (slices 1 and 2, partly ported)
+# Dictionary on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (registration, panel, background indexing, providers
 list) is still in place beside the native one. It is removed in the PR that finishes the port.
@@ -40,6 +40,29 @@ list) is still in place beside the native one. It is removed in the PR that fini
   files kept apart, a broken dictionary left out, an unlistable folder an error).
 - Not done: the folder of caches of removed dictionaries is not cleaned (`forget_others`); host
   acceptance (the lookup broker, the host running `work_due`) stays in `tests/acceptance_pending.rs`.
+
+## Slice 3: the panel (`src/native_panel.rs`, `src/native_popup.rs`)
+
+- The screen `dictionary.popup` (an overlay, token 22) fills the slot `core.lookup`
+  (`slot_offer`); the host admits both (`tests/native_declarations.rs`). It takes `word` and
+  `language` from its hand-over.
+- `native_panel::Panel` (host-free, `native_panel/tests.rs`): the entries as one text, the source's
+  name above each where there are several (drawn faint), wrapped by words into at most 600 lines,
+  a page at a time; buttons scroll (next/previous page, up/down), confirm and back close; touch:
+  the right part scrolls on, the left part goes back (or closes on the first page), outside closes.
+- `native_popup::View`: asks the providers through the `core.lookup` service (one page, so one entry,
+  per provider, up to 16), draws the lower 55 % of the screen (word, page note, lines) through the
+  kit's paint, scrolls with a partial redraw, closes with `close_screen`.
+- Metadata: services `core.lookup`, `core.ui` added.
+- Not ported (each stays an ignored case or a named gap): *Online ›* in the header and entries
+  that open more (*Open Wikipedia ›*): the host answers a provider that must fetch as unsupported
+  today and has no pending-ask flow for plugins that ask (`document.md` 7, todo 98); the line that
+  says the indexes are being prepared (the provider answers once they are ready, the panel shows
+  *No entry* meanwhile); several definitions of one word in one dictionary or of several
+  dictionaries: the service gives one entry per provider page, cut at 2,048 bytes (interface 6
+  showed every definition); the text of the *No dictionaries* message (`dictionary.none`) is not
+  shown (the panel says *No entry*); the hint of the confirm button (*Close*); goldens (the host
+  draws no native screen yet: H1/H3/H4).
 
 ## Notes for the files slice (done in slice 2; kept for the record)
 

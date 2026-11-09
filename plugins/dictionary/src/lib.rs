@@ -39,8 +39,12 @@ mod native_entry;
 pub mod native_folders;
 #[doc(hidden)]
 pub mod native_model;
+#[doc(hidden)]
+pub mod native_panel;
 /// The interface-7 dictionary (slice 1; see `PORTING-7.md`).
 pub mod native_plugin;
+#[doc(hidden)]
+pub mod native_popup;
 #[doc(hidden)]
 pub mod native_source;
 

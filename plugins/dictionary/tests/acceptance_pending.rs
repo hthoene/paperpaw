@@ -16,7 +16,7 @@ const CASES: [Case; 4] = [
     Case {
         name: "the-panel-shows-the-definitions-and-scrolls",
         golden: None,
-        blocked_by: &["slice-2-panel", "H1", "H3", "H4"],
+        blocked_by: &["H1", "H3", "H4"],
     },
     Case {
         name: "first-lookup-prepares-the-indexes-in-the-background",
@@ -44,7 +44,7 @@ fn the_provider_reads_dictionaries() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the panel (slice 2) and H1/H3/H4"]
+#[ignore = "BLOCKED: H1/H3/H4: the host draws no native screen yet (the panel model is tested in native_panel/tests.rs)"]
 fn the_panel() {
     CASES[1].refuse().unwrap();
 }
