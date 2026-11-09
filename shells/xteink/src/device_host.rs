@@ -6,9 +6,7 @@
 //! `paperpaw_x4::device_facts`, tested on a computer; this is the calls.
 
 use alloc::rc::Rc;
-use paperpaw_core::native_host::device_service::{
-    DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts, check_caps_agree,
-};
+use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts};
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_native::metadata::Service;
 use paperpaw_platform::firmware::Running;
@@ -58,9 +56,9 @@ pub fn make(
     let features = Features {
         touch: crate::DEVICE.input.touch,
         button_row: cfg!(any(feature = "x4", feature = "x4-classic", feature = "x3")),
-        // A bit goes with its setter ([`sync`], called as soon as the kernel
-        // exists, and after every step), or ops 8 to 11 answer "not found"
-        // under a caps bit that says they are there.
+        // A bit goes with its part ([`present`], called as soon as the kernel
+        // exists), or ops 8 to 11 answer "not found" under a caps bit that
+        // says they are there.
         wifi: true,
         bluetooth: cfg!(feature = "bluetooth"),
         frontlight: cfg!(feature = "x4-pro"),
@@ -133,27 +131,16 @@ pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
     device.set_native(native_state(&native, TARGET, 0, (0, 0), "code.ppn"));
 }
 
-/// Tells the device what the kernel keeps of Wi-Fi, Bluetooth and the power,
-/// as plugins see it: what the kernel changes, the device follows. Called
-/// where the kernel was just stepped (never on a timer), so a plugin that
-/// hears of a change reads it. Copies and compares small values; allocates
-/// only where a list changed.
+/// Tells the device which radios this kernel has, once at start (its parts
+/// are then there, as its caps say). What the radios do is not kept here: the
+/// kernel answers `core.device` ops 8, 10, 11 and 12 from its own models
+/// (`Env::wifi`, `Env::bluetooth`, `Env::power`), also in the middle of a
+/// delivery pass, so no second copy is kept in step. Op 9 (the networks) is
+/// this shell's: [`sync_networks`].
 #[inline(never)]
-pub fn sync(device: &X4Device, kernel: &paperpaw_core::Kernel) {
-    if let Some(wifi) = kernel.wifi_model() {
-        device.set_wifi(paperpaw_x4::device_facts::wifi_facts(wifi));
-    }
-    #[cfg(feature = "bluetooth")]
-    if let Some(bluetooth) = kernel.bluetooth_model() {
-        device.set_bluetooth(paperpaw_x4::device_facts::bluetooth_facts(bluetooth));
-        device.set_bonded_from(
-            bluetooth
-                .bonded_devices()
-                .iter()
-                .map(paperpaw_x4::device_facts::bonded_row),
-        );
-    }
-    device.sync_power(kernel.power());
+pub fn present(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    let bluetooth = cfg!(feature = "bluetooth") && kernel.bluetooth_model().is_some();
+    device.set_radios(kernel.wifi_model().is_some(), bluetooth);
 }
 
 /// Tells the device the networks the last scan found (the kernel's list: the
@@ -189,10 +176,11 @@ pub fn tell_usb(device: &X4Device, pin_high: Option<bool>, frames: Option<bool>)
     device.set_value("usb-frames", frames.map(i64::from));
 }
 
-/// The caps say what is answered: said in the log where they do not (called
-/// once, after the first [`sync`]).
-pub fn check(device: &X4Device) {
-    if let Err(why) = check_caps_agree(device) {
+/// The caps say what is answered, checked the way `core.device` answers (the
+/// kernel's models over this device): said in the log where they do not
+/// (called once, after [`present`]).
+pub fn check(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    if let Err(why) = kernel.check_device_host(device) {
         log::error!("device: its caps and its parts disagree: {why}");
     }
 }

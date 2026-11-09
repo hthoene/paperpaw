@@ -20,13 +20,14 @@
 //!
 //! This part answers ops 1 (the device), 2 (named values), 3 (the running
 //! firmware), 4 (the plugins built into the image), 5 (what a code plugin must
-//! be built for), 7 (memory), 8 and 9 (the Wi-Fi radio and the networks
-//! found), 10 and 11 (the Bluetooth radio and the bonded devices, in builds
-//! that have one), 12 (the power level and mode), 14 (the plugins a start could not
-//! install) and 15 (the physical keys); every other part is
-//! `ERR_NOT_FOUND` (the default of [`DeviceHost`]) until its slice lands, and
-//! [`Identity::caps`] carries only the bits of the parts that are answered
-//! (`check_caps_agree` is the test of it).
+//! be built for), 7 (memory), 9 (the networks found), 14 (the plugins a start
+//! could not install) and 15 (the physical keys). Ops 8, 10, 11 and 12 (the
+//! radios, the bonded devices, the power level) are the kernel's own models:
+//! this part only says which radios there are ([`X4Device::set_radios`]), and
+//! `Kernel::check_device_host` tests the caps against the kernel's side. Every
+//! other part is `ERR_NOT_FOUND` (the default of [`DeviceHost`]) until its
+//! slice lands, and [`Identity::caps`] carries only the bits of the parts that
+//! are answered (`check_caps_agree` is the test of it).
 
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -34,15 +35,14 @@ use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
 
 use paperpaw_core::native_host::device_service::{
-    BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_BONDED,
-    MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, MemoryFacts, NativeFacts, NetworkRow,
-    NotInstalledRow, ProbeCache, Reading, WifiFacts,
+    BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_NETWORKS,
+    MAX_NOT_INSTALLED, MAX_VALUES, MemoryFacts, NativeFacts, NetworkRow, NotInstalledRow,
+    ProbeCache, Reading, WifiFacts,
 };
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::firmware::{PROJECT_MAX, Running, Text, VERSION_MAX};
 use paperpaw_sdk::firmware::Plugins;
 use paperpaw_sdk::native::{DRAFT, INTERFACE};
-use paperpaw_sdk::power::Power;
 
 /// What the firmware is, from its constants.
 #[derive(Clone, Copy, Debug)]
@@ -108,63 +108,12 @@ pub struct NativeState {
     pub room_largest: u64,
 }
 
-/// The Wi-Fi radio as the firmware last saw it (op 8): 0 off, 1 on, 2
-/// joining, 3 online, 4 hosting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WifiState {
-    pub state: u32,
-    /// The network joined or hosted, empty for none.
-    pub ssid: Text<32>,
-    /// The device's address, empty for none.
-    pub address: Text<45>,
-    /// The host name, empty for none.
-    pub host_name: Text<63>,
-    /// Guests of the hosted network.
-    pub guests: u32,
-    pub scanning: bool,
-    pub wanted: bool,
-    pub busy: bool,
-}
-
 /// One network a scan found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Found {
     ssid: Text<32>,
     signal: i32,
     secured: bool,
-}
-
-/// The Bluetooth radio (op 10): 0 off, 1 on.
-#[derive(Clone, Copy, Debug)]
-pub struct BluetoothState {
-    pub radio: u32,
-    /// The most links kept at once.
-    pub max_links: u32,
-}
-
-/// One bonded device (op 11), as the firmware keeps it.
-#[derive(Clone, Copy, Debug)]
-pub struct Bonded<'a> {
-    /// The device's number.
-    pub device: u32,
-    pub name: &'a str,
-    pub kind: u32,
-    pub connected: bool,
-    /// Its keys go to the key maps.
-    pub remote_keys: bool,
-    /// The plugin a sensor is handed to, empty for none.
-    pub given: &'a str,
-}
-
-/// A bonded device kept in place (names cut at 64 bytes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Kept {
-    device: u32,
-    name: Text<64>,
-    kind: u32,
-    connected: bool,
-    remote_keys: bool,
-    given: Text<64>,
 }
 
 /// The longest plugin id (and what is kept of a longer one).
@@ -191,12 +140,13 @@ pub struct X4Device {
     clock_ms: Cell<Option<fn() -> u64>>,
     memory: ProbeCache<MemoryFacts>,
     not_installed: RefCell<Vec<(Text<ID_MAX>, u32)>>,
-    wifi: Cell<Option<WifiState>>,
+    /// The kernel has a Wi-Fi radio (told once at start; what it does is the
+    /// kernel's, not kept here).
+    wifi: Cell<bool>,
     /// The networks the last scan found, strongest first.
     networks: RefCell<Vec<Found>>,
-    bluetooth: Cell<Option<BluetoothState>>,
-    bonded: RefCell<Vec<Kept>>,
-    power: RefCell<Power>,
+    /// The kernel has a Bluetooth radio (as for `wifi`).
+    bluetooth: Cell<bool>,
     /// Changes when a list changes (never 0).
     generation: Cell<u32>,
 }
@@ -226,11 +176,9 @@ impl X4Device {
             clock_ms: Cell::new(None),
             memory: ProbeCache::new(),
             not_installed: RefCell::new(Vec::new()),
-            wifi: Cell::new(None),
+            wifi: Cell::new(false),
             networks: RefCell::new(Vec::new()),
-            bluetooth: Cell::new(None),
-            bonded: RefCell::new(Vec::new()),
-            power: RefCell::new(Power::default()),
+            bluetooth: Cell::new(false),
             generation: Cell::new(1),
         }
     }
@@ -279,10 +227,15 @@ impl X4Device {
         self.clock_ms.set(Some(clock_ms));
     }
 
-    /// The Wi-Fi radio (ops 8 and 9): `Identity::caps` has the Wi-Fi bit
-    /// exactly where the firmware calls this (its radio is PaperPaw's).
-    pub fn set_wifi(&self, state: WifiState) {
-        self.wifi.set(Some(state));
+    /// Which radios the kernel has (told once at start): `Identity::caps` has
+    /// the Wi-Fi and Bluetooth bits exactly where the firmware says so. What a
+    /// radio is doing, the bonded devices and the power level are not kept
+    /// here: the kernel answers ops 8, 10, 11 and 12 from its own models (a
+    /// copy would only go stale), so this part's own answers for them are the
+    /// idle ones, used by `check_caps_agree` on this host alone.
+    pub fn set_radios(&self, wifi: bool, bluetooth: bool) {
+        self.wifi.set(wifi);
+        self.bluetooth.set(bluetooth);
     }
 
     /// The networks the last scan found as `(ssid, signal in dBm, secured)`:
@@ -336,77 +289,8 @@ impl X4Device {
         true
     }
 
-    /// The Bluetooth radio (ops 10 and 11): `Identity::caps` has the Bluetooth
-    /// bit exactly where the firmware calls this (a build with a radio).
-    pub fn set_bluetooth(&self, state: BluetoothState) {
-        self.bluetooth.set(Some(state));
-    }
-
-    /// The bonded devices in the firmware's order; at most [`MAX_BONDED`] are
-    /// kept. False where they could not be kept (no room, or a visitor is
-    /// reading them): the list is then as it was.
-    pub fn set_bonded(&self, rows: &[Bonded<'_>]) -> bool {
-        self.set_bonded_from(rows.iter().copied())
-    }
-
-    /// [`set_bonded`](Self::set_bonded) for rows made as they are walked
-    /// (nothing is allocated where the list has not changed: the main loop
-    /// calls this after every step of the kernel).
-    pub fn set_bonded_from<'a>(
-        &self,
-        rows: impl ExactSizeIterator<Item = Bonded<'a>> + Clone,
-    ) -> bool {
-        let count = rows.len().min(MAX_BONDED as usize);
-        let as_kept = |row: Bonded<'_>| Kept {
-            device: row.device,
-            name: Text::new(row.name),
-            kind: row.kind,
-            connected: row.connected,
-            remote_keys: row.remote_keys,
-            given: Text::new(row.given),
-        };
-        // A list in use by a visitor is left as it is: never a panic.
-        let Ok(mut list) = self.bonded.try_borrow_mut() else {
-            return false;
-        };
-        if list.len() == count
-            && list
-                .iter()
-                .copied()
-                .eq(rows.clone().take(count).map(as_kept))
-        {
-            return true;
-        }
-        let mut kept = Vec::new();
-        if kept.try_reserve_exact(count).is_err() {
-            return false;
-        }
-        kept.extend(rows.take(count).map(as_kept));
-        *list = kept;
-        self.bump();
-        true
-    }
-
-    /// [`set_power`](Self::set_power), but nothing is copied where the power is
-    /// what is held (the main loop calls this after every step of the kernel).
-    pub fn sync_power(&self, power: &Power) -> bool {
-        let same = self.power.try_borrow().is_ok_and(|held| *held == *power);
-        same || self.set_power(power.clone())
-    }
-
-    /// The power level and mode the kernel reports now (op 12). False where a
-    /// visitor is reading it (it is then as it was): never a panic.
-    pub fn set_power(&self, power: Power) -> bool {
-        let Ok(mut held) = self.power.try_borrow_mut() else {
-            return false;
-        };
-        *held = power;
-        true
-    }
-
-    /// One generation counts for every list (networks, bonded devices, plugins
-    /// not installed, built-in plugins), so a change in one (a remote that
-    /// connects or disconnects) restarts the paging of the others: a reader
+    /// One generation counts for every list (networks, plugins not installed,
+    /// built-in plugins), so a change in one restarts the paging of the others: a reader
     /// that is paging sees `ERR_STATE` once and reads again from the start. A
     /// list that did not change never bumps it.
     fn bump(&self) {
@@ -580,17 +464,20 @@ impl DeviceHost for X4Device {
         Ok(())
     }
 
+    /// Idle facts where the radio is here: the kernel answers op 8.
     fn wifi(&self, visit: &mut dyn FnMut(&WifiFacts<'_>)) -> Result<(), i32> {
-        let radio = self.wifi.get().ok_or(ERR_NOT_FOUND)?;
+        if !self.wifi.get() {
+            return Err(ERR_NOT_FOUND);
+        }
         visit(&WifiFacts {
-            state: radio.state,
-            ssid: radio.ssid.as_str(),
-            address: radio.address.as_str(),
-            host_name: radio.host_name.as_str(),
-            guests: radio.guests,
-            scanning: radio.scanning,
-            wanted: radio.wanted,
-            busy: radio.busy,
+            state: 0,
+            ssid: "",
+            address: "",
+            host_name: "",
+            guests: 0,
+            scanning: false,
+            wanted: false,
+            busy: false,
         });
         Ok(())
     }
@@ -602,7 +489,9 @@ impl DeviceHost for X4Device {
         &self,
         visit: &mut dyn FnMut(&NetworkRow<'_>) -> ControlFlow<()>,
     ) -> Result<(), i32> {
-        self.wifi.get().ok_or(ERR_NOT_FOUND)?;
+        if !self.wifi.get() {
+            return Err(ERR_NOT_FOUND);
+        }
         for found in self.networks.borrow().iter() {
             let row = NetworkRow {
                 ssid: found.ssid.as_str(),
@@ -617,37 +506,23 @@ impl DeviceHost for X4Device {
         Ok(())
     }
 
+    /// Idle facts where the radio is here: the kernel answers op 10.
     fn bluetooth(&self) -> Result<BluetoothFacts, i32> {
-        let radio = self.bluetooth.get().ok_or(ERR_NOT_FOUND)?;
+        if !self.bluetooth.get() {
+            return Err(ERR_NOT_FOUND);
+        }
         Ok(BluetoothFacts {
-            radio: radio.radio,
-            max_links: radio.max_links,
+            radio: 0,
+            max_links: 0,
         })
     }
 
-    /// A radio with nothing bonded is an empty list, not "not here". Who may
-    /// see `given` is the host slot's owner ([`DeviceHost::bluetooth_manager`],
-    /// not answered by this part: nobody).
+    /// No bonded devices where the radio is here: the kernel answers op 11.
     fn bonded(&self, visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>) -> Result<(), i32> {
-        self.bluetooth.get().ok_or(ERR_NOT_FOUND)?;
-        for row in self.bonded.borrow().iter() {
-            let row = BondedRow {
-                device: row.device,
-                name: row.name.as_str(),
-                kind: row.kind,
-                connected: row.connected,
-                remote_keys: row.remote_keys,
-                given: row.given.as_str(),
-            };
-            if visit(&row).is_break() {
-                break;
-            }
+        let _ = visit;
+        if !self.bluetooth.get() {
+            return Err(ERR_NOT_FOUND);
         }
-        Ok(())
-    }
-
-    fn power(&self, visit: &mut dyn FnMut(&Power)) -> Result<(), i32> {
-        visit(&self.power.borrow());
         Ok(())
     }
 
@@ -1064,19 +939,6 @@ mod tests {
         assert_eq!(device.memory(), Err(ERR_NOT_FOUND));
     }
 
-    fn radio() -> WifiState {
-        WifiState {
-            state: 3,
-            ssid: Text::new("home"),
-            address: Text::new("192.168.1.20"),
-            host_name: Text::new("paperpaw"),
-            guests: 0,
-            scanning: true,
-            wanted: true,
-            busy: false,
-        }
-    }
-
     /// Wi-Fi is here exactly where the caps say so: the radio and the
     /// networks answer together.
     #[test]
@@ -1089,30 +951,12 @@ mod tests {
             list(&[]),
         );
         assert!(check_caps_agree(&device).is_err(), "no radio yet");
-        device.set_wifi(radio());
+        device.set_radios(true, false);
         assert_eq!(check_caps_agree(&device), Ok(()));
+        // Idle facts: what a radio does is the kernel's to answer.
         let mut seen = None;
-        device
-            .wifi(&mut |f| {
-                seen = Some((
-                    f.state,
-                    f.ssid.to_string(),
-                    f.address.to_string(),
-                    f.host_name.to_string(),
-                    (f.guests, f.scanning, f.wanted, f.busy),
-                ));
-            })
-            .unwrap();
-        assert_eq!(
-            seen.unwrap(),
-            (
-                3,
-                "home".to_string(),
-                "192.168.1.20".to_string(),
-                "paperpaw".to_string(),
-                (0, true, true, false)
-            )
-        );
+        device.wifi(&mut |f| seen = Some(f.state)).unwrap();
+        assert_eq!(seen, Some(0));
     }
 
     /// Strongest first, at most 32, none known until the secrets are wired.
@@ -1123,7 +967,7 @@ mod tests {
             device.networks(&mut |_| ControlFlow::Break(())),
             Err(ERR_NOT_FOUND)
         );
-        device.set_wifi(radio());
+        device.set_radios(true, false);
         let before = device.generation();
         let found: Vec<(String, i32, bool)> = (0..40)
             .map(|n| (std::format!("net{n}"), -90 + n, n % 2 == 0))
@@ -1143,25 +987,6 @@ mod tests {
         assert_eq!(seen[0], ("net39".to_string(), -51, false, false));
         assert!(seen.windows(2).all(|pair| pair[0].1 >= pair[1].1));
         assert!(seen.iter().all(|row| !row.3));
-    }
-
-    /// Power is the kernel's: normal until it says otherwise.
-    #[test]
-    fn power_follows_what_the_kernel_reports() {
-        use paperpaw_sdk::power::PowerLevel;
-        let device = device(&[]);
-        let mut level = None;
-        device.power(&mut |p| level = Some(p.level)).unwrap();
-        assert_eq!(level, Some(PowerLevel::Normal));
-        let mut saving = Power::default();
-        saving.level = PowerLevel::Saving;
-        saving.stretch = 4;
-        assert!(device.set_power(saving));
-        let mut seen = None;
-        device
-            .power(&mut |p| seen = Some((p.level, p.stretch)))
-            .unwrap();
-        assert_eq!(seen, Some((PowerLevel::Saving, 4)));
     }
 
     /// A setter called from inside a visitor changes nothing and says so; it
@@ -1232,11 +1057,11 @@ mod tests {
         );
     }
 
-    /// The Wi-Fi and power setters are refused, not panicked, inside a visitor.
+    /// The networks setter is refused, not panicked, inside a visitor.
     #[test]
-    fn the_networks_and_power_setters_are_refused_inside_a_visitor() {
+    fn the_networks_setter_is_refused_inside_a_visitor() {
         let device = device(&[]);
-        device.set_wifi(radio());
+        device.set_radios(true, false);
         assert!(device.set_networks(&[("home", -40, true)]));
         let mut inside = None;
         device
@@ -1246,11 +1071,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(inside, Some(false));
-        let mut power_inside = None;
-        device
-            .power(&mut |_| power_inside = Some(device.set_power(Power::default())))
-            .unwrap();
-        assert_eq!(power_inside, Some(false));
     }
 
     /// Bluetooth is here exactly where the caps say so; ops 10 and 11 answer
@@ -1265,56 +1085,11 @@ mod tests {
             list(&[]),
         );
         assert!(check_caps_agree(&device).is_err(), "no radio yet");
-        device.set_bluetooth(BluetoothState {
-            radio: 1,
-            max_links: 2,
-        });
+        device.set_radios(false, true);
         assert_eq!(check_caps_agree(&device), Ok(()));
         let facts = device.bluetooth().unwrap();
-        assert_eq!((facts.radio, facts.max_links), (1, 2));
+        assert_eq!((facts.radio, facts.max_links), (0, 0));
         assert_eq!(device.bonded(&mut |_| ControlFlow::Break(())), Ok(()));
-    }
-
-    #[test]
-    fn the_bonded_devices_are_kept_in_order_and_capped() {
-        let device = device(&[]);
-        device.set_bluetooth(BluetoothState {
-            radio: 0,
-            max_links: 2,
-        });
-        let names: Vec<String> = (0..20).map(|n| std::format!("pad{n}")).collect();
-        let rows: Vec<Bonded<'_>> = names
-            .iter()
-            .enumerate()
-            .map(|(n, name)| Bonded {
-                device: n as u32,
-                name,
-                kind: 1,
-                connected: n == 0,
-                remote_keys: true,
-                given: "",
-            })
-            .collect();
-        assert!(device.set_bonded(&rows));
-        let mut seen = Vec::new();
-        device
-            .bonded(&mut |row| {
-                seen.push((row.device, row.name.to_string(), row.connected));
-                ControlFlow::Continue(())
-            })
-            .unwrap();
-        assert_eq!(seen.len(), MAX_BONDED as usize);
-        assert_eq!(seen[0], (0, "pad0".to_string(), true));
-        assert_eq!(seen[15].1, "pad15");
-        // From inside a visitor: refused, not a panic.
-        let mut inside = None;
-        device
-            .bonded(&mut |_| {
-                inside = Some(device.set_bonded(&[]));
-                ControlFlow::Break(())
-            })
-            .unwrap();
-        assert_eq!(inside, Some(false));
     }
 
     /// Hidden networks are left out; only the strongest 32 are kept, whatever
@@ -1322,7 +1097,7 @@ mod tests {
     #[test]
     fn networks_keep_the_strongest_leave_hidden_ones_out_and_bump_only_on_change() {
         let device = device(&[]);
-        device.set_wifi(radio());
+        device.set_radios(true, false);
         let hidden_and_many: Vec<(String, i32, bool)> = (0..100)
             .map(|n| {
                 let name = if n % 10 == 0 {
@@ -1389,10 +1164,11 @@ mod tests {
             .unwrap();
         assert_eq!(room, Some((300, 200)));
     }
+
     #[test]
     fn a_scan_keeps_each_name_once_at_its_strongest() {
         let device = device(&[]);
-        device.set_wifi(radio());
+        device.set_radios(true, false);
         assert!(device.set_networks(&[
             ("home", -80, true),
             ("cafe", -60, false),
@@ -1406,45 +1182,5 @@ mod tests {
             })
             .unwrap();
         assert_eq!(seen, [("home".to_string(), -50), ("cafe".to_string(), -60)]);
-    }
-
-    #[test]
-    fn the_power_is_copied_only_where_it_changed() {
-        let device = device(&[]);
-        let normal = Power::default();
-        assert!(device.sync_power(&normal));
-        let saving = Power::new(
-            paperpaw_sdk::power::PowerLevel::Saving,
-            paperpaw_sdk::power::NORMAL,
-            true,
-            4,
-        );
-        assert!(device.sync_power(&saving));
-        let mut seen = None;
-        device
-            .power(&mut |power| seen = Some(power.clone()))
-            .unwrap();
-        assert_eq!(seen, Some(saving));
-    }
-
-    #[test]
-    fn a_bonded_list_that_has_not_changed_keeps_its_generation() {
-        let device = device(&[]);
-        let rows = [Bonded {
-            device: 1,
-            name: "Remote",
-            kind: 2,
-            connected: false,
-            remote_keys: true,
-            given: "",
-        }];
-        assert!(device.set_bonded_from(rows.iter().copied()));
-        let before = device.generation.get();
-        assert!(device.set_bonded_from(rows.iter().copied()));
-        assert_eq!(device.generation.get(), before);
-        let mut changed = rows;
-        changed[0].connected = true;
-        assert!(device.set_bonded_from(changed.iter().copied()));
-        assert_ne!(device.generation.get(), before);
     }
 }
