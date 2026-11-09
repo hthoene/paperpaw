@@ -612,10 +612,12 @@ impl NativeUpdate {
             running.state,
             FirmwareState::Waiting | FirmwareState::Installing | FirmwareState::Installed
         );
-        if free && self.job.is_none() && self.scan.is_none() {
-            if let Step::Done(found, offer) = self.begin(host, true)? {
-                self.settle(host, found, offer)?;
-            }
+        if free
+            && self.job.is_none()
+            && self.scan.is_none()
+            && let Step::Done(found, offer) = self.begin(host, true)?
+        {
+            self.settle(host, found, offer)?;
         }
         Ok(())
     }
