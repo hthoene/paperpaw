@@ -105,6 +105,9 @@ fn make_dir_of_a_root_needs_the_card() {
 fn the_hosts_received_folder_is_not_made_in() {
     let (card, host) = fixture();
     assert_eq!(make_dir(&host, 0, ".received"), Err(ERR_DENIED));
+    // As the FAT driver folds it (`ı` is `I`): the same folder.
+    assert_eq!(make_dir(&host, 0, ".receıved"), Err(ERR_DENIED));
+    assert_eq!(make_dir(&host, 0, ".RECEıVED"), Err(ERR_DENIED));
     assert_eq!(make_dir(&host, 0, ".RECEIVED/x"), Err(ERR_DENIED));
     card.file(&std::format!("{DATA}/.received/body"), 3);
     card.file(&std::format!("{DATA}/own.txt"), 3);

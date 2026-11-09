@@ -182,6 +182,37 @@ fn book_fields_badges_and_data_follow_their_flags_and_kinds() {
 }
 
 #[test]
+fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() {
+    let check = |name| book_data_check("notes-vault", &BookDataSpec { name, kind: 0 });
+    let longest = "a".repeat(96);
+    let too_long = "a".repeat(97);
+    for name in ["notes", "a", "0", "notes-2", "-", "--", longest.as_str()] {
+        assert_eq!(check(name), Ok(()), "{name}");
+    }
+    for name in [
+        "",
+        too_long.as_str(),
+        "Notes",
+        "nOtes",
+        "a/b",
+        "/",
+        "a\\b",
+        "..",
+        ".",
+        "a.b",
+        "notes ",
+        "no tes",
+        "n\u{e9}",
+        "a\0",
+    ] {
+        assert_eq!(check(name), Err(ERR_INVALID), "{name:?}");
+    }
+    // The longest name is 96 bytes however many characters it has.
+    let multibyte = "\u{e4}".repeat(48);
+    assert_eq!(check(&multibyte), Err(ERR_INVALID));
+}
+
+#[test]
 fn they_are_checked_and_then_refused_until_the_host_admits_them() {
     use crate::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;

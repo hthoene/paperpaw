@@ -8,8 +8,11 @@
 //!
 //! - the paths are relative to the plugin's data folder (storage root 0,
 //!   `core.files` is not needed for them): `a1/f<name>-<hash>/index.txt`,
-//!   not `.paperpaw/plugins/mail/a1/…` on the card. What an interface-6 Mail
-//!   kept there is not read; it is a cache and comes again;
+//!   not `.paperpaw/plugins/mail/a1/…` on the card. The data folder *is*
+//!   `.paperpaw/plugins/mail/` (`docs/abi/files.md` 1.1), so the files of
+//!   an interface-6 Mail are in place: the cache is read or comes again, and
+//!   the drafts and outboxes (`aN/draft.txt`, `aN/outbox.eml`, the user's own
+//!   writing) are found at the same paths, so nothing is copied or removed;
 //! - a write is [`Storage::write`] of the data folder, which makes the
 //!   parent folders, and is the old file or the new one whole (a write over
 //!   4 KiB is staged beside the file by the storage): there is no `.part`
@@ -730,6 +733,19 @@ pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter
     storage.remove(&scratch).ok();
     storage.remove(raw).ok();
     Ok(letter)
+}
+
+/// The text of a file of at most `cap` bytes (`None` where there is none or it
+/// cannot be read): the draft kept for an account.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn read_kept(storage: &dyn Storage, file: &str, cap: usize) -> Result<Option<String>, Fail> {
+    match read_text(storage, file, cap) {
+        Ok(text) => Ok(Some(text)),
+        Err(Fail::NoMemory) => Err(Fail::NoMemory),
+        Err(_) => Ok(None),
+    }
 }
 
 /// A letter read from its file (`None` where there is none or it cannot be

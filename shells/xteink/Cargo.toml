@@ -130,6 +130,7 @@ paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
 paperpaw-platform = { path = "../../crates/paperpaw-platform" }
 paperpaw-graphics = { path = "../../crates/paperpaw-graphics" }
 paperpaw-x4 = { path = "../../crates/paperpaw-x4" }
+paperpaw-default-packs = { path = "../../crates/paperpaw-default-packs" }
 paperpaw-fat = { path = "../../crates/paperpaw-fat" }
 paperpaw-http = { path = "../../crates/paperpaw-http" }
 # A file's MD5 over USB (`remote`), to check what came; native plugins'

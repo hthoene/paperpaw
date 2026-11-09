@@ -47,10 +47,18 @@ pub(crate) struct HostServices {
     images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
+    /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
+    /// and the kernel's pump drives. One per device.
+    firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// What the host holds in use, for `core.files` to answer busy about.
+    busy: OnceCell<Rc<super::storage_files::BusySources>>,
+    /// The ids of the plugins linked into the firmware (root 2 of the file
+    /// service has no install folder for them).
+    linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
@@ -93,6 +101,7 @@ impl core::fmt::Debug for HostServices {
             .field("hyphen", &self.hyphen.get().is_some())
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
+            .field("firmware", &self.firmware.get().is_some())
             .field("net", &self.net.get().is_some())
             .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
@@ -112,10 +121,13 @@ impl HostServices {
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
+            firmware: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            busy: OnceCell::new(),
+            linked: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
             pool: OnceCell::new(),
@@ -286,6 +298,18 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
+    /// Wire the firmware install machine once.
+    #[allow(
+        dead_code,
+        reason = "the kernel's pump wires it (slice B2); tests do today"
+    )]
+    pub(crate) fn wire_firmware_install(
+        &self,
+        machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
+    ) -> Result<(), i32> {
+        self.firmware.set(machine).map_err(|_| ERR_STATE)
+    }
+
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.net` once.
     pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
@@ -325,6 +349,11 @@ impl HostServices {
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
+    /// The linked plugin ids, made on first use.
+    pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
+        self.linked.get_or_init(Default::default)
+    }
+
     /// The device's network pool, if a service has made it.
     pub(crate) fn pool_made(&self) -> Option<&Rc<super::net_pool::NetPool>> {
         self.pool.get()
@@ -353,6 +382,110 @@ impl HostServices {
     /// The paths in use by host writers (shared with `core.files`' busy check).
     pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
         self.in_use.get_or_init(Default::default)
+    }
+
+    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
+    /// source of the busy answers of `core.files`, once for the device.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::Network) {
+            return Ok(());
+        }
+        sources.register(
+            super::storage_files::BusyKind::Network,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The document service reports the books it has open
+    /// ([`reader_book_opened`](Self::reader_book_opened) and
+    /// [`reader_book_closed`](Self::reader_book_closed)): the in-use table is
+    /// the reader-book source of `core.files`. Called once, by the document
+    /// service's wiring, and only where it makes those calls: without them
+    /// "no book is open" would be a wrong answer, so `core.files` stays
+    /// unwired until this has been called.
+    ///
+    /// # Errors
+    /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
+    /// sources is in use; `ERR_NO_MEMORY`.
+    #[allow(
+        dead_code,
+        reason = "the document service's wiring calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::ReaderBook) {
+            return Err(ERR_STATE);
+        }
+        sources.register(
+            super::storage_files::BusyKind::ReaderBook,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The library's move job is a busy source of `core.files`: called by the
+    /// library host once, with the `Moves` and the `MoveHost` it runs the job
+    /// with.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    #[allow(dead_code, reason = "the library host registers its job (todo)")]
+    pub(crate) fn register_library_moves(
+        &self,
+        moves: Rc<super::lib_service::moves::Moves>,
+        host: Rc<dyn super::lib_service::moves::MoveHost>,
+    ) -> Result<(), i32> {
+        self.busy_sources().register(
+            super::storage_files::BusyKind::LibraryMoves,
+            Rc::new(super::busy_adapters::MovesBusy::new(moves, host)),
+        )
+    }
+
+    /// A document of the book at `path` was opened through the document
+    /// service: plugins' writes, moves and removals of the book (and of a
+    /// folder holding it) answer `ERR_BUSY` until the document ends
+    /// ([`reader_book_closed`](Self::reader_book_closed)); the host's own
+    /// reads of it are not held back. Counted per path: several documents may
+    /// hold one book. The document service calls it once
+    /// when a document opens and refuses the open on an error, so a book is
+    /// never left unguarded.
+    ///
+    /// # Errors
+    /// `ERR_FULL` when the table has no slot for it (the open is refused
+    /// with it); `ERR_BUSY` when the table is borrowed.
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
+        use paperpaw_native::host_glue::{ERR_FULL, ERR_NO_MEMORY};
+        self.in_use()
+            .claim(super::busy_adapters::READER_OWNER, path)
+            .map_err(|status| {
+                if status == ERR_NO_MEMORY {
+                    ERR_FULL
+                } else {
+                    status
+                }
+            })
+    }
+
+    /// A document of the book at `path` ended (an explicit close, its opener
+    /// or format stopping, the card going, the book moved or removed, its
+    /// place lost to another book): one hold on the path is given back. The
+    /// document service calls it once for each document that ended, with the
+    /// exact path it opened with. Whether there was a hold to give back: a
+    /// `false` is an unbalanced close, for the caller to surface (log).
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_closed(&self, path: &str) -> bool {
+        self.in_use()
+            .release(super::busy_adapters::READER_OWNER, path)
     }
 
     /// The owner directory, made on first use.
@@ -434,6 +567,10 @@ impl HostServices {
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
     }
+    /// The sources of paths in use, made on first use.
+    pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
+        self.busy.get_or_init(Default::default)
+    }
     pub(crate) fn files(&self) -> Option<&FilesServices> {
         self.files.get()
     }
@@ -445,6 +582,11 @@ impl HostServices {
     }
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
+    }
+    pub(crate) fn firmware_install(
+        &self,
+    ) -> Option<&Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
+        self.firmware.get()
     }
 
     /// The owner is retired (its callbacks are revoked and its handles

@@ -1,7 +1,9 @@
 //! Acceptance of the interface-7 notes vault, pending on the hosts and the
 //! later slices. The interface-6 tests drive a kernel (`tests/vault.rs`,
 //! `tests/markdown.rs`, `src/*` tests) and stay as the references; none of
-//! these cases passes by itself.
+//! these cases passes by itself. The Markdown provider's own behaviour runs
+//! in `tests/provider.rs`, `tests/markdown_allocation.rs` and
+//! `tests/native_ui_declarations.rs`.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -11,28 +13,22 @@ const CASES: [Case; 6] = [
     Case {
         name: "the-page-indexes-the-vault-in-the-background-and-says-how-many-notes",
         golden: None,
-        blocked_by: &[
-            "H1",
-            "H3",
-            "H4",
-            "core-files-facade-384",
-            "work-service-sdk",
-        ],
+        blocked_by: &["H1", "H4"],
     },
     Case {
         name: "folders-tags-and-search-list-the-notes",
         golden: None,
-        blocked_by: &["H1", "H3", "H4", "core-files-facade-384"],
+        blocked_by: &["H1", "H4"],
     },
     Case {
         name: "a-note-opens-in-the-reader-and-its-links-lead-on-and-back",
         golden: None,
-        blocked_by: &["format-declaration-493", "document-host", "H3", "H4"],
+        blocked_by: &["DOC-format-declaration", "DOC-format-card-path", "H3", "H4"],
     },
     Case {
         name: "markdown-notes-are-a-format-for-md-and-markdown",
         golden: None,
-        blocked_by: &["format-declaration-493", "document-host"],
+        blocked_by: &["DOC-format-declaration", "DOC-format-card-path"],
     },
     Case {
         name: "the-widgets-show-recent-pinned-daily-random-tags-and-search",
@@ -54,14 +50,14 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: H1/H3/H4, the card adapter over core.files and the work service"]
+#[ignore = "BLOCKED: H1/H4: the screens are native (native_home.rs, native_list.rs, native_tags.rs) but nothing is drawn or taken through a host yet; the scripted host has no core.files"]
 fn the_page_and_its_lists() {
     CASES[0].refuse().unwrap();
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: the format declaration (#493) and the document host"]
+#[ignore = "BLOCKED DOC-format-declaration, DOC-format-card-path: the host takes no format.spec yet (it answers ERR_UNSUPPORTED) and puts no card path in fmt.call.text (Kernel todo 336, Host todos 329/109); the provider and its parity with interface 6 run in tests/provider.rs"]
 fn notes_and_the_markdown_format() {
     CASES[2].refuse().unwrap();
     CASES[3].refuse().unwrap();

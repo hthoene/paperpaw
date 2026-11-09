@@ -84,6 +84,10 @@
     },
     {
       "kind": "host",
+      "name": "icon.glyph"
+    },
+    {
+      "kind": "host",
       "name": "canvas.clip"
     },
     {

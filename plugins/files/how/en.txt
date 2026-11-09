@@ -1,5 +1,5 @@
-The library lists the books in your library folder, each with its cover, title, author and how far you have read it. The book you read last stands on top as a card, so going on reading takes one tap, or one press of Select.
+The library lists the books in your library folder, each with its cover, title, author and how far you have read it. The book you read last stands on top as a card, so going on reading takes one tap, or one press of Select. While the library is looking for books, it says how many it has found so far.
 
-Choose what is shown above the books: all of them, those you are reading, unread or finished ones, or the shelves (by author, series, tag, favourites). Tap a book to read it; hold it (with buttons, hold Select) for its information, favourites, moving it to the archive or deleting it.
+Choose what is shown above the books: all of them, those you are reading, unread or finished ones, or the shelves (by author, series, tag, favourites, the next book of each series you have begun). Tap a book to read it; hold it (with buttons, hold Select) to open it, mark it finished or unread, see its information, move it to the archive or delete it. Tap the title for the library menu: how books are sorted and shown, search, the library folder and settings.
 
-The library folder is set in Settings, under Library, as Library folder, and there you can also show books as a grid of covers. For every other file, use Files in the Tools menu.
+The library folder is set in Settings, under Library, as Library folder; there you can also show books as a grid of covers. For every other file, use Files in the Tools menu.
