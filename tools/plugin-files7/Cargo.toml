@@ -149,6 +149,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "wallabag"
+path = "src/bin/wallabag.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "weather"
 path = "src/bin/weather.rs"
 test = false
@@ -256,6 +262,7 @@ paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entr
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-wallabag = { path = "../../plugins/wallabag", features = ["native-entry"] }
 paperpaw-plugin-weather = { path = "../../plugins/weather", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-bluetooth = { path = "../../plugins/bluetooth", features = ["native-entry"] }
