@@ -278,6 +278,9 @@ mod tests {
         fn remove(&self, path: &str) -> Result<(), StorageError> {
             self.0.remove(path)
         }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
         fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
             Some(a.eq_ignore_ascii_case(b))
         }
