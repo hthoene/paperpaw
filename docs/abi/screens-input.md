@@ -120,7 +120,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 38 | `event.screen_shown` | `now_ms: u64`, `screen: str 128` (full id), `width: u32`, `height: u32` |
-| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id) |
+| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` (draft 35) |
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
 | 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
@@ -138,6 +138,12 @@ input(state: pointer, token: u32, input: bytes) -> i32
   `text` carries `"secret": true` (draft 30): it may be a password, so the generated record's
   `Debug` shows neither the text nor its length, and the SDK's `TypedText` shows only its length.
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
+- [D] `event.action_run.flags` bit 0 `background` (draft 35, interface 6 `!Env::reader`): the
+  run is not the reader's own doing but a rule's or another plugin's (`run_action`), so the
+  plugin may defer it (declared work) and says nothing over reading; 0 (also when absent): the
+  reader pressed, chose or mapped it, act at once. Other bits are 0 (decoders refuse them): a
+  bit a later revision defines is set only for a plugin whose declared revision knows it, so an
+  older plugin's decoder never drops the event and the action still runs.
 - [D] `event.screen_shown` (38) and `event.action_run` (39) cannot be registered for with
   `registration.event`: they go to the token of the screen or action declaration they name. A
   registration naming 38 or 39 refuses the batch (`ERR_UNSUPPORTED`, like every event tag the

@@ -4416,6 +4416,7 @@ pub paperpaw_sdk::native::events::BookKind::Opened
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::ActionRun
 pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
+pub paperpaw_sdk::native::events::Event::ActionRun::background: bool
 pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::Answered
 pub paperpaw_sdk::native::events::Event::Answered::answer: paperpaw_sdk::native::events::Answered
