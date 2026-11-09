@@ -188,12 +188,20 @@ impl Say for Speaker<'_, '_> {
     }
 }
 
+/// The books whose covers are asked for.
+pub(super) enum Keys<'a> {
+    /// A window of books: the cover of the book at an index is its own.
+    Books(&'a [BookLine]),
+    /// One book, the one of the information: its catalog key.
+    One(u32),
+}
+
 /// Asks the host for covers while a page is drawn: one buffer pair for the
 /// page, taken when the first cover is asked for.
 pub(super) struct Asker<'a, 'h> {
     host: &'a Host<'h>,
     library: Option<&'a Library>,
-    books: &'a [BookLine],
+    keys: Keys<'a>,
     generation: u32,
     buffers: Option<(Vec<u8>, Vec<u8>)>,
 }
@@ -202,15 +210,22 @@ impl<'a, 'h> Asker<'a, 'h> {
     pub(super) const fn new(
         host: &'a Host<'h>,
         library: Option<&'a Library>,
-        books: &'a [BookLine],
+        keys: Keys<'a>,
         generation: u32,
     ) -> Self {
         Self {
             host,
             library,
-            books,
+            keys,
             generation,
             buffers: None,
+        }
+    }
+
+    fn key(&self, at: usize) -> Option<u32> {
+        match self.keys {
+            Keys::Books(books) => books.get(at).map(|book| book.key),
+            Keys::One(key) => (at == 0).then_some(key),
         }
     }
 }
@@ -221,10 +236,10 @@ const COVER_OUT: usize = 4096;
 
 impl crate::native_draw::Covering for Asker<'_, '_> {
     fn ask(&mut self, at: usize) -> Slot {
-        let (Some(library), Some(book)) = (self.library, self.books.get(at)) else {
+        let (Some(library), Some(key)) = (self.library, self.key(at)) else {
             return Slot::Missing;
         };
-        let Ok(reference) = BookRef::catalog(book.key, self.generation) else {
+        let Ok(reference) = BookRef::catalog(key, self.generation) else {
             return Slot::Missing;
         };
         if self.buffers.is_none() {

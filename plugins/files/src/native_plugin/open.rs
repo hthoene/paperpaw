@@ -131,7 +131,9 @@ impl NativeFiles {
             let library = self.library.as_ref().ok_or(Error::State)?;
             let info = native_info::read(host, library, &path)?;
             View::Info(Info {
-                list: ItemList::new(native_info::items(&info)?),
+                list: BookList::new(native_info::cells(&info)?, false),
+                covers: Covers::new(1, MOST_SMALL)?,
+                cover: info.cover,
             })
         } else {
             let scope = if token == BROWSER_TOKEN {

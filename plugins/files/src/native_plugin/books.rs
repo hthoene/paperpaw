@@ -236,7 +236,7 @@ impl NativeFiles {
             return Ok(());
         };
         match row {
-            ListRow::Note => Ok(()),
+            ListRow::Note | ListRow::Field => Ok(()),
             ListRow::Filter => {
                 let next = view.selection.filter.next();
                 let mut selection = view.selection.clone();

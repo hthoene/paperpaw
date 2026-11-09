@@ -213,7 +213,7 @@ impl NativeFiles {
                         };
                         self.open_shelf(host, &scope)
                     }
-                    Row::Filter | Row::Note => Ok(()),
+                    Row::Filter | Row::Note | Row::Field => Ok(()),
                 }
             }
             Some(View::Books(_)) => self.chosen_book(host, token, index),

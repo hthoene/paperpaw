@@ -26,6 +26,8 @@ pub enum Row {
     Previous,
     /// Reads more books: the window grows, or slides on when it is full.
     More,
+    /// A labelled value of the book information; chosen, it does nothing.
+    Field,
 }
 
 /// One cell of the list.

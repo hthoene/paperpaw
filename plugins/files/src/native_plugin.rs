@@ -137,10 +137,13 @@ struct Names {
     empty: String,
 }
 
-/// Book information: the book's title and author above the rows.
+/// Book information: the book as a card with its cover above the rows.
 #[derive(Debug)]
 struct Info {
-    list: ItemList,
+    list: BookList,
+    covers: Covers,
+    /// The book's catalog key and generation, for its cover.
+    cover: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -243,7 +246,7 @@ impl Plugin for NativeFiles {
                 let mut asker = sources::Asker::new(
                     host,
                     self.library.as_ref(),
-                    &view.window.books,
+                    sources::Keys::Books(&view.window.books),
                     view.window.generation,
                 );
                 view.list.draw(
@@ -273,9 +276,26 @@ impl Plugin for NativeFiles {
                 view.list.draw_with(host, &mut frame, &title, true, footer)
             }
             View::Info(view) => {
-                let title = messages.copy(host, "files.info")?;
-                view.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                let (key, generation) = view.cover.unwrap_or((0, 0));
+                let mut asker = sources::Asker::new(
+                    host,
+                    self.library.as_ref(),
+                    // A book the catalog does not know has no cover to ask for.
+                    if view.cover.is_some() {
+                        sources::Keys::One(key)
+                    } else {
+                        sources::Keys::Books(&[])
+                    },
+                    generation,
+                );
+                view.list.draw(
+                    host,
+                    &mut frame,
+                    "files.info",
+                    &mut view.covers,
+                    &mut asker,
+                    Said::default(),
+                )
             }
         }
     }
@@ -294,9 +314,17 @@ impl Plugin for NativeFiles {
                     Handled::Yes
                 });
             }
+            View::Info(view) => {
+                // A card and rows: the focus moves, nothing is chosen.
+                let step = view.list.input(host, &input)?;
+                return Ok(if step == ListStep::Ignored {
+                    Handled::No
+                } else {
+                    Handled::Yes
+                });
+            }
             View::Shelves(view) => &mut view.list,
             View::Names(view) => &mut view.list,
-            View::Info(view) => &mut view.list,
         };
         let step = list.input(host, &input)?;
         if let ItemStep::Chosen(index) = step {
@@ -387,8 +415,10 @@ impl NativeFiles {
 
     /// A screen left: its covers go back to the host.
     fn close(&mut self, host: &Host<'_>, instance: Instance) {
-        if let Some(View::Books(view)) = self.screens.get(instance) {
-            Self::give_back(host, &mut view.covers, &[]);
+        match self.screens.get(instance) {
+            Some(View::Books(view)) => Self::give_back(host, &mut view.covers, &[]),
+            Some(View::Info(view)) => Self::give_back(host, &mut view.covers, &[]),
+            _ => {}
         }
         self.screens.close(instance);
     }
