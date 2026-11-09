@@ -23,6 +23,50 @@
       "name": "registrations.submit"
     },
     {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -31,6 +75,12 @@
       "name": "dispatch_event"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.secrets",
+    "core.sockets"
+  ],
+  "features": [
+    "uses.network",
+    "uses.storage"
+  ]
 }

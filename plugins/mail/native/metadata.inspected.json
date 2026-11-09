@@ -12,7 +12,18 @@
       "name": "PAPERPAW_ENTRY"
     }
   ],
-  "features": [],
+  "features": [
+    {
+      "key": "uses.network",
+      "required": false,
+      "revision": 1
+    },
+    {
+      "key": "uses.storage",
+      "required": false,
+      "revision": 1
+    }
+  ],
   "flags": 0,
   "layout": 2,
   "needs_minor": 1,
@@ -26,7 +37,20 @@
     "name": "esp32c3-riscv32imc-ilp32-soft-le",
     "pointer_bits": 32
   },
-  "services": [],
+  "services": [
+    {
+      "key": "core.secrets",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.sockets",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    }
+  ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 88
+  "total_bytes": 176
 }

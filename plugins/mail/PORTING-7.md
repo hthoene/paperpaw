@@ -76,8 +76,7 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   refuses each allocation of rendering and of the store in turn on a card double that never allocates;
   hostile bytes are rendered without a panic.
 - Differences from interface 6, on purpose, each tested: `read_index` returns at most 50 rows and `read_folders` at most 64 (what a write keeps; interface 6 read every line of a file under its size cap); the paths are relative to the plugin's data
-  folder (`a1/f<name>-<hash>/index.txt`, not `.paperpaw/plugins/mail/…` on the card; what an
-  interface-6 Mail kept there is not read, see "The interface-6 files on the card" below); no `.part` file of Mail's own (the data
+  folder (`a1/f<name>-<hash>/index.txt`, not `.paperpaw/plugins/mail/…` on the card: the data folder is that folder, see "The interface-6 files on the card" below); no `.part` file of Mail's own (the data
   folder's `write` makes the parent folders and is the old file or the new one whole); the scratch
   file of a letter is `m<uid>.txt.tmp`; the HTML reader of a part is made with
   `HtmlText::with_limit` for the room the text has left, as slice 2 asked; folders are sorted by
@@ -138,35 +137,62 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   the `{n}` literals a body part reads into a file by `FileRead`, and the driver and job
   (`driver.rs`, `job.rs`, still interface 6).
 
+## Ported in slice 6 (the connection and the account)
+
+- `src/native_model/link.rs`: the link between a session and its socket. What a session asks of `Io` becomes calls
+  on a `Net` (the socket; a double in the tests), what the socket tells becomes the session's `Input`: bytes of a
+  `Received` event are read in pieces (`PIECE`, 3,840) and given one at a time, a finished session stops the reading,
+  a `Saved` names the file the read asked for, `Secured` and `Untrusted` carry the peer's hashes. What a session sends
+  is queued in a buffer that wipes itself (a login line passes through it) and handed to the socket piece by piece as
+  its queue has room: a full queue (`Busy`) waits for the next `Sent`, and a send while one waits follows it in order
+  (a secret never grows in place: a new buffer, the old one wiped). `start_tls` passes the socket's `State`
+  refusal (bytes of the plain stream still held) to the session, which ends as unsafe (slice 5). `tests/native_link.rs`.
+- `src/native_model/job.rs`: one connection, as the plugin keeps it between callbacks (`Run`: working, done, failed,
+  untrusted with its hashes and which server); one at a time (`Busy`). A socket silent for too long ends with the
+  host's `idle_ms` (70 s on the connection, 45 s to connect: interface 6's silence of 45 s, and 70 s more while a
+  message streams into a file), which reaches the session as a failed socket: no timer of the job's own.
+  `tests/native_job.rs` runs whole IMAP sessions (TLS from the start and STARTTLS, in pieces of 1 to 100,000 bytes) and
+  SMTP sends on the fake server, a wrong password, an untrusted server, a device with no clock (the password is not
+  sent), a refused recipient, a socket that fails, and a second start while one runs.
+- `src/native_model/account.rs`: an account read from the settings (`mail.N.*`) with the servers, the pins (64 hex
+  digits) and the presets, fallible (an allocation refused is an error, never an account that is not there). **The
+  password is not in the account**: `Account::password` reads it from the secrets for one connection and it is a
+  `Secret` (wiped when dropped, hidden from `Debug`); a device that keeps no secrets gives `Unsupported`. The offer
+  for an untrusted server (`Ask`, `Changed`, `Attack`) is `account::offer`. `tests/native_account.rs`.
+- `src/native_socket.rs` (`HostNet`, the SDK's `Sockets` as a `Net`) and `src/native_values.rs` (`HostValues`: the
+  settings through `settings.read`, the password through `core.secrets`, the reply buffers wiped at once). They are
+  tested only by what they call: the SDK's own tests; no host runs native plugins with sockets yet.
+- `NativeMail` holds the job and the socket, opens `core.sockets` and `core.secrets` when first needed, takes the
+  socket events (`event.socket`, subscribed in `declarations::events`) and has `start_imap` and `start_smtp` for the
+  screens of the next slices. Metadata: services `core.sockets` and `core.secrets`, features `uses.network` and
+  `uses.storage`, the storage and blob calls. Frames: nothing here keeps a buffer on the stack above 320 bytes (the
+  call buffers, 8 KiB, are on the heap and wiped).
+- Differences from interface 6, on purpose: the password is read when a connection is made and not kept in the
+  account; the silence timer is the host's.
+
 ## The interface-6 files on the card
 
-Interface-6 Mail keeps its files on the card under `.paperpaw/plugins/mail/` (`aN/…`). The folders, lists,
-counts and messages in them are a cache that comes again from the server, but **the drafts
-(`aN/draft.txt`) and the outbox (`aN/outbox.eml`) are the user's own writing**, so cleaning the folder
-at the first native start would lose mail not yet sent. Neither a migration nor a clean-up fits this
-slice: it has no start code, and reading the card's files needs `uses.storage` (root 1) in the
-metadata, which only the slice that makes the first start can justify. It is a gap, with an ignored
-case (`the_interface_6_cache_and_drafts_are_migrated_or_cleaned_once` in `tests/acceptance_pending.rs`):
-the slice with the first start must copy the drafts and outboxes into the data folder, then remove the
-old folder (cache and all), once, and say so here. Until then the old files stay on the card.
+Interface-6 Mail keeps its files under `.paperpaw/plugins/mail/` (`aN/…`), and that is the plugin's data
+folder (storage root 0, `docs/abi/files.md` 1.1; `Env::plugin_dir("mail")` in interface 6): the native
+paths (`aN/draft.txt`, `aN/outbox.eml`, `aN/f<name>-<hash>/…`) name the same files. So **nothing is migrated,
+copied or removed**: the drafts and the outbox (the user's own writing) are found where they were, the
+cache is read or comes again from the server, and the plugin needs no `uses.storage`. Deleting the folder at
+the first native start would lose mail not yet sent. A test (`tests/native_render_store.rs`) holds the
+draft and outbox paths equal to interface 6's `store::draft_file` and `store::outbox_file` under that folder.
 
 ## Still interface 6
 
-- `driver.rs`, `job.rs` (the connection and the commands over `native::sockets`; the sessions themselves are native since slice 5) and `session.rs` (the interface-6 one stays until they are replaced), `render.rs` and `store.rs` (the interface-6 ones stay
-  as the old sessions and screens use them; the native ones of slice 4 take their place with the sessions),
-  then the screens. They are the next slices; the pieces above are what they will call.
+- `driver.rs`, `job.rs`, `session.rs`, `account.rs` (the interface-6 ones stay until the screens that use them are replaced; the native ones are slices 4 to 6), `render.rs` and `store.rs` (likewise), then the screens. They are the next slices; the pieces above are what they will call.
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
 | Piece | Waits for |
 | --- | --- |
-| The connection over the socket (IMAP, SMTP, STARTTLS, TLS, pinned keys): `driver.rs`, `job.rs` | the connection slice over `native::sockets` (#587) |
-| The password read, used and wiped | the secrets facade (#367 is open) |
-| The connection of a screen ending with it | the work service (`docs/abi/work.md`) |
+| A connection started by a screen and ending with it | the screens (next slices); the work service (`docs/abi/work.md`) for background fetching |
 | Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
 | Folders, list, reader, compose (`browser.rs`, `reader.rs`, `writer.rs`, `compose.rs`) | `core.ui` compose; the card through `core.files` |
 | The store of what was fetched, called by the sessions (`store.rs`, `render.rs` are native since slice 4) | the sessions and the screens that call them |
 | The five home widgets and their settings | the widget host call (Core todo 76) |
-| The question *Trust this server?* | `Question::choice` and the sockets certificate event |
+| The question *Trust this server?* | `Question::confirm` (labels "Trust" and "Don't trust") and the sockets certificate event |
 
 Every interface-6 module that is not listed above as made fallible stays as it is.
