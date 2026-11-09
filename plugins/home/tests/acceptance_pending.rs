@@ -48,7 +48,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-drawer",
         golden: None,
-        blocked_by: &["HOME-dashboard-slice", "H1", "H4", "517"],
+        blocked_by: &["H1", "H4"],
     },
     // The first-time hints on the dashboard.
     Case {
@@ -147,7 +147,7 @@ fn home_grid_reflow() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-dashboard-slice: the drawer shares the dashboard's tool cells; icons wait for #517"]
+#[ignore = "BLOCKED H1/H4: the drawer is native (native_drawer.rs) but nothing is drawn or taken through a host yet"]
 fn home_drawer() {
     CASES[5].refuse().unwrap();
 }

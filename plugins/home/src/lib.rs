@@ -56,6 +56,7 @@ pub mod native_add_screen;
 pub mod native_arrange;
 pub mod native_dash;
 pub mod native_dashboard;
+pub mod native_drawer;
 pub mod native_focus;
 pub mod native_grid;
 pub mod native_icons;
