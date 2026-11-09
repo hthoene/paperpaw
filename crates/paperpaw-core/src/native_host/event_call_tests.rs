@@ -13,7 +13,7 @@ use crate::native_host::{
     work_service::WorkServices,
 };
 use alloc::rc::Rc;
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, ScreenKey, StackEntry};
@@ -27,6 +27,8 @@ struct Probe {
     command: Rc<Cell<u8>>,
     /// The status of its last `submit`.
     last: Rc<Cell<i32>>,
+    /// Its name and the log of who was called, in order (fairness).
+    order: Option<(char, Rc<RefCell<Vec<char>>>)>,
 }
 
 impl NativeInstance for Probe {
@@ -48,17 +50,21 @@ impl NativeInstance for Probe {
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
+        if let Some((name, log)) = &self.order {
+            log.borrow_mut().push(*name);
+        }
         if self.submits {
             let mut bytes = [0; 64];
-            let command = if self.command.get() == 0 {
-                WireCommand::Redraw { mode: 0 }
-            } else {
-                WireCommand::Open {
+            let command = match self.command.get() {
+                0 => WireCommand::Redraw { mode: 0 },
+                // Not on the list of a run's commands (a preview, say).
+                2 => WireCommand::PreviewEnd { flags: 0 },
+                _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
                     slot: "",
                     handover: 0,
-                }
+                },
             };
             let len = commands_encode(&[command], &mut bytes).unwrap();
             let batch = commands_decode(&bytes[..len]).unwrap();
@@ -98,6 +104,10 @@ struct World {
 }
 
 fn world(submits: bool) -> World {
+    world_with(submits, None)
+}
+
+fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -118,6 +128,7 @@ fn world(submits: bool) -> World {
         submits,
         command: Rc::clone(&command),
         last: Rc::clone(&last),
+        order: order.clone().map(|log| ('a', log)),
     };
     let lease = NativeLease::try_new(probe()).unwrap();
     let owner = kernel
@@ -319,4 +330,173 @@ fn a_runs_callback_may_not_open_a_screen_but_may_redraw() {
     w.command.set(1);
     w.call().unwrap();
     assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_NOT_FOUND);
+}
+
+// ---- the outbox at the start of a pump (no event is lost) ----
+
+#[test]
+fn a_batch_left_waiting_runs_before_a_pump_calls_anything() {
+    let mut w = world(true);
+    // A callback outside the pumps left its batch.
+    assert_eq!(w.call(), Ok(OK));
+    assert!(w.kernel.shared.native_instances.outbox.full());
+    run_work(&mut w);
+    // The work callback was called (its entry was not taken for a refused
+    // call), and the waiting batch ran first.
+    assert_eq!(w.calls.get(), 2);
+    assert!(w.kernel.output.redraw);
+    // The service pump does the same, even with no service wired.
+    let mut w = world(true);
+    assert_eq!(w.call(), Ok(OK));
+    w.kernel.native_service_pump();
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    assert!(w.kernel.output.redraw);
+}
+
+// ---- the service pump through the real wrapper ----
+
+use crate::native_host::service_events::ServiceEvents;
+use crate::native_host::service_pump::pump;
+
+/// Events queued per owner; each is one byte; `run` the work run they belong to.
+#[derive(Default)]
+struct Svc {
+    queue: RefCell<Vec<u64>>,
+    run: Cell<Option<u64>>,
+}
+impl ServiceEvents for Svc {
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        let mut queue = self.queue.borrow_mut();
+        let Some(at) = queue.iter().position(|o| *o == owner) else {
+            return Ok(None);
+        };
+        queue.remove(at);
+        out[0] = 1;
+        Ok(Some((1, self.run.get())))
+    }
+    fn event_delivered(&self, _: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn screen_closed(&self, _: u64, _: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn work_ended(&self, _: u64, _: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn tick(&self) -> Result<(), i32> {
+        Ok(())
+    }
+    fn next_deadline(&self) -> Option<u64> {
+        None
+    }
+}
+
+/// One pass of the real pump with the real wrapper, then the kernel runs the
+/// batch (as `native_service_pump` does).
+fn pass(kernel: &mut crate::Kernel, svc: &Svc) -> bool {
+    let more = {
+        let env = kernel.shared.env(kernel.now);
+        let k = &*kernel;
+        pump(
+            &k.shared.native_instances,
+            &[Some(svc), None],
+            &env,
+            &|owner, lease, bytes| {
+                let _ = k.native_event_call(owner, lease, bytes);
+            },
+        )
+    };
+    kernel.native_outbox_run();
+    more
+}
+
+/// A second plugin `b`, with its own screen on the stack.
+fn add_b(w: &mut World, order: &Rc<RefCell<Vec<char>>>) -> u64 {
+    w.kernel.shared.stack.push(StackEntry::new(
+        Id::new_static("b.screen"),
+        None,
+        false,
+        ScreenKey::new(8),
+    ));
+    let lease = NativeLease::try_new(Probe {
+        answer: Rc::new(Cell::new(Ok(OK))),
+        calls: Rc::new(Cell::new(0)),
+        submits: true,
+        command: Rc::new(Cell::new(0)),
+        last: Rc::new(Cell::new(OK)),
+        order: Some(('b', Rc::clone(order))),
+    })
+    .unwrap();
+    w.kernel
+        .shared
+        .native_instances
+        .test_insert(Id::try_parse("b").unwrap(), Some(lease), true)
+        .unwrap()
+}
+
+#[test]
+fn a_plugin_whose_events_all_stage_does_not_keep_the_others_waiting() {
+    let order = Rc::new(RefCell::new(Vec::new()));
+    let mut w = world_with(true, Some(Rc::clone(&order)));
+    let b = add_b(&mut w, &order);
+    let svc = Svc::default();
+    svc.queue
+        .borrow_mut()
+        .extend([w.owner, w.owner, w.owner, b, b, b]);
+    let mut passes = 0;
+    while !svc.queue.borrow().is_empty() && passes < 12 {
+        pass(&mut w.kernel, &svc);
+        passes += 1;
+    }
+    // Every event was delivered, one a pass (its batch ran before the next
+    // callback), and the pass went on at the next plugin: they alternate.
+    assert!(svc.queue.borrow().is_empty());
+    let log: alloc::string::String = order.borrow().iter().collect();
+    assert_eq!(log, "ababab");
+}
+
+#[test]
+fn a_runs_network_events_are_quiet_too() {
+    use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
+    let mut w = world(true);
+    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    w.kernel
+        .shared
+        .native_instances
+        .test_resources()
+        .unwrap()
+        .hosts()
+        .wire_work(WorkServices {
+            sched: Rc::clone(&sched),
+            env: Rc::new(Env),
+        })
+        .unwrap();
+    w.command.set(1);
+    let svc = Svc::default();
+    // An event of a run's request: the callback is quiet.
+    svc.queue.borrow_mut().push(w.owner);
+    svc.run.set(Some(1));
+    pass(&mut w.kernel, &svc);
+    assert_eq!(w.last.get(), ERR_STATE);
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    // The same event outside a run is judged as any callback's.
+    svc.queue.borrow_mut().push(w.owner);
+    svc.run.set(None);
+    pass(&mut w.kernel, &svc);
+    assert_eq!(w.last.get(), ERR_NOT_FOUND);
+}
+
+#[test]
+fn a_run_may_only_stage_what_is_listed() {
+    use paperpaw_native::host_glue::ERR_STATE;
+    // A command not named for runs (here `preview_end`) is refused there by
+    // default, and staged anywhere else.
+    let mut w = world(true);
+    w.command.set(2);
+    run_work(&mut w);
+    assert_eq!(w.last.get(), ERR_STATE);
+    let w = world(true);
+    w.command.set(2);
+    w.call().unwrap();
+    assert_eq!(w.last.get(), OK);
 }

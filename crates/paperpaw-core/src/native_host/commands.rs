@@ -162,9 +162,8 @@ impl<'a> CommandStage<'a> {
         self
     }
 
-    /// Marks the callback as one of a work run: every command that would
-    /// show the user something they did not ask for is `ERR_STATE` at submit
-    /// ([`shows_the_user_something`]).
+    /// Marks the callback as one of a work run: a command not on the list of
+    /// [`allowed_in_a_run`] is `ERR_STATE` at submit.
     pub(crate) fn set_quiet(&mut self, quiet: bool) {
         self.quiet = quiet;
     }
@@ -314,13 +313,9 @@ impl<'a> CommandStage<'a> {
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
-        // In a work run's callback nothing is shown (the callback sees it and
-        // what it staged before stays valid).
-        if self.quiet
-            && batch
-                .iter()
-                .any(|command| shows_the_user_something(&command))
-        {
+        // In a work run's callback only the listed commands are staged (the
+        // callback sees the refusal and what it staged before stays valid).
+        if self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command)) {
             return Some(ERR_STATE);
         }
         // `answer_plugin` needs the install feature (`uses.install`, DEV,
@@ -447,23 +442,30 @@ impl fmt::Debug for CommandStage<'_> {
     }
 }
 
-/// Whether a command shows, opens, raises or says something to the user. A
-/// callback of a work run may not stage one (`work.md` section 2): it may
-/// redraw its own screens, change settings and data, use the network and its
-/// sockets and declare work.
-fn shows_the_user_something(command: &WireCommand<'_>) -> bool {
+/// Whether a callback of a work run may stage `command` (`work.md` section
+/// 2, "background work is quiet"): a redraw of its own screens, settings,
+/// pictures, widget values and item states, and the network. Everything else
+/// is refused, so a command added later (a notice, a preview, an install or
+/// firmware confirmation, Bluetooth pairing, an `open`) shows nothing in the
+/// background until it is named here.
+fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
     matches!(
         command,
-        WireCommand::OpenScreen { .. }
-            | WireCommand::Open { .. }
-            | WireCommand::RunAction { .. }
-            | WireCommand::CloseScreen
-            | WireCommand::Close { .. }
-            | WireCommand::BackTo { .. }
-            | WireCommand::ShowHints {}
-            | WireCommand::RaiseInput { .. }
-            | WireCommand::Speak { .. }
-            | WireCommand::StopSpeaking {}
+        WireCommand::Redraw { .. }
+            | WireCommand::SetSetting { .. }
+            | WireCommand::ResetSetting { .. }
+            | WireCommand::SetItemState { .. }
+            | WireCommand::WidgetChanged { .. }
+            | WireCommand::ImagePrepare { .. }
+            | WireCommand::ImageRelease { .. }
+            | WireCommand::WifiOn {}
+            | WireCommand::WifiOff {}
+            | WireCommand::WifiScan {}
+            | WireCommand::WifiJoin { .. }
+            | WireCommand::WifiLeave {}
+            | WireCommand::WifiHost { .. }
+            | WireCommand::NetworkNone {}
+            | WireCommand::GoOnline { .. }
     )
 }
 

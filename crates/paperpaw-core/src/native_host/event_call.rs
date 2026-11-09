@@ -39,7 +39,7 @@ impl Outbox {
         self.0.try_borrow().map_or(true, |slot| slot.is_some())
     }
 
-    fn put(&self, staged: Staged) -> Result<(), i32> {
+    pub(crate) fn put(&self, staged: Staged) -> Result<(), i32> {
         let mut slot = self.0.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if slot.is_some() {
             return Err(ERR_BUSY);
@@ -48,7 +48,7 @@ impl Outbox {
         Ok(())
     }
 
-    fn take(&self) -> Option<Staged> {
+    pub(crate) fn take(&self) -> Option<Staged> {
         self.0.try_borrow_mut().ok()?.take()
     }
 }

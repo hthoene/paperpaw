@@ -43,19 +43,44 @@ const SWEEP_PER_PASS: usize = 8;
 /// Answers told in one pass.
 const READY_PER_PASS: usize = 8;
 
+/// The wait before a held-back command is applied again (the pump never asks
+/// for an immediate pass for it: the device may sleep meanwhile).
+const RETRY_MS: u64 = 2_000;
+
+/// Times a held-back command is applied again before the plugin is told it
+/// failed.
+const TRIES_MAX: u8 = 3;
+
+/// Failures waiting to be told to their plugin (a command that could not be
+/// kept, or that ran out of tries): fixed, so telling a failure never needs
+/// the memory that was missing.
+const FAILED_MAX: usize = 8;
+
 /// The room of an `event.image_ready` record (a header and 28 bytes).
 const RECORD_BYTES: usize = 64;
 
 /// What the pump keeps between passes.
 #[derive(Default)]
 pub(crate) struct ImagePump {
-    /// Admitted commands the table could not take yet, oldest first.
-    pending: RefCell<Vec<(u64, ImageCommand)>>,
+    /// Admitted commands the table could not take yet, oldest first, with the
+    /// times each was tried again.
+    pending: RefCell<Vec<(u64, ImageCommand, u8)>>,
+    /// When the held-back commands are tried again.
+    retry_at: Cell<Option<u64>>,
+    /// Requests that failed for want of room or memory: `(owner, cookie)`.
+    failed: [Cell<Option<(u64, u32)>>; FAILED_MAX],
     /// The answer being told, kept where the table is not locked.
     held: RefCell<Option<Ready>>,
     /// The boot sweep of the cache folder is over.
     swept: Cell<bool>,
     cursor: Cell<SweepCursor>,
+}
+
+impl ImagePump {
+    /// When the pump wants to run again for a held-back command.
+    pub(crate) fn retry_at(&self) -> Option<u64> {
+        self.retry_at.get()
+    }
 }
 
 /// Where a plugin's root 0 and root 1 paths are on the card.
@@ -129,7 +154,7 @@ impl crate::Kernel {
             .pending
             .borrow()
             .iter()
-            .any(|(who, _)| *who == owner);
+            .any(|(who, ..)| *who == owner);
         for command in commands {
             if !behind {
                 match self.image_apply_one(owner, &command) {
@@ -155,25 +180,56 @@ impl crate::Kernel {
     }
 
     fn image_keep(&mut self, owner: u64, command: ImageCommand) {
+        let pump = &self.shared.native_instances.image_pump;
         let kept = {
-            let mut pending = self.shared.native_instances.image_pump.pending.borrow_mut();
+            let mut pending = pump.pending.borrow_mut();
             if pending.len() < PENDING_MAX && pending.try_reserve(1).is_ok() {
-                pending.push((owner, command));
+                pending.push((owner, command, 0));
                 true
             } else {
+                drop(pending);
+                // Not kept: its plugin is told it failed, in the room the
+                // failures have of their own.
+                self.image_fail(owner, &command);
                 false
             }
         };
-        if !kept {
-            self.warn_runtime(
-                "a plugin's picture command could not be kept for later; it is dropped",
-            );
+        if kept {
+            // Tried again later, not at once.
+            let pump = &self.shared.native_instances.image_pump;
+            if pump.retry_at.get().is_none() {
+                pump.retry_at.set(Some(self.now.millis() + RETRY_MS));
+            }
+        } else {
+            self.warn_runtime("a plugin's picture command could not be kept for later; it failed");
         }
+    }
+
+    /// A request that failed is told to its plugin as `event.image_ready` with
+    /// status 5 (not enough memory now). A release has nothing to tell.
+    /// `false` when there is no room even for that.
+    fn image_fail(&self, owner: u64, command: &ImageCommand) -> bool {
+        let ImageCommand::Prepare { cookie, .. } = command else {
+            return true;
+        };
+        self.shared
+            .native_instances
+            .image_pump
+            .failed
+            .iter()
+            .find(|slot| slot.get().is_none())
+            .is_some_and(|slot| {
+                slot.set(Some((owner, *cookie)));
+                true
+            })
     }
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
     pub(crate) fn native_image_pump(&mut self) -> bool {
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         let instances = &self.shared.native_instances;
         // Never inside a callback: what is asked during one comes after.
         if instances.depth() > 0 {
@@ -206,29 +262,50 @@ impl crate::Kernel {
         });
         more |= self.image_tell_ready();
         let instances = &self.shared.native_instances;
+        // A held-back command waits for its own time (`retry_at`), it does not
+        // ask for another pass.
         more || instances
             .hosts()
             .is_some_and(|hosts| hosts.images().prepare_pending())
-            || !instances.image_pump.pending.borrow().is_empty()
+            || instances
+                .image_pump
+                .failed
+                .iter()
+                .any(|slot| slot.get().is_some())
     }
 
-    /// Kept commands, oldest first, once more.
-    fn image_retry(&self) {
-        let instances = &self.shared.native_instances;
-        let pending = &instances.image_pump.pending;
-        let mut at = 0;
+    /// Kept commands, oldest first, once more, when their time came. One that
+    /// still finds no room after [`TRIES_MAX`] tries fails.
+    fn image_retry(&mut self) {
+        let now = self.now.millis();
+        let pump = &self.shared.native_instances.image_pump;
+        if pump.retry_at.get().is_none_or(|at| now < at) {
+            return;
+        }
+        pump.retry_at.set(None);
+        let (mut at, mut lost) = (0, false);
         // No borrow is held across the call.
-        while let Some((owner, command)) = {
-            let mut list = pending.borrow_mut();
+        while let Some((owner, command, tries)) = {
+            let mut list = pump.pending.borrow_mut();
             (at < list.len()).then(|| list.remove(at))
         } {
-            if let Some(status) = self.image_apply_one(owner, &command)
-                && for_now(status)
-            {
-                // Its place was just left: no allocation.
-                pending.borrow_mut().insert(at, (owner, command));
-                at += 1;
+            match self.image_apply_one(owner, &command) {
+                Some(status) if for_now(status) && tries + 1 < TRIES_MAX => {
+                    // Its place was just left: no allocation.
+                    pump.pending
+                        .borrow_mut()
+                        .insert(at, (owner, command, tries + 1));
+                    at += 1;
+                }
+                Some(status) if for_now(status) => lost |= !self.image_fail(owner, &command),
+                _ => {}
             }
+        }
+        if !pump.pending.borrow().is_empty() {
+            pump.retry_at.set(Some(now + RETRY_MS));
+        }
+        if lost {
+            self.warn_runtime("a plugin's picture request failed and could not be told");
         }
     }
 
@@ -240,6 +317,19 @@ impl crate::Kernel {
                 return false;
             };
             let pump = &instances.image_pump;
+            if pump.held.borrow().is_none()
+                && let Some(slot) = pump.failed.iter().find(|slot| slot.get().is_some())
+                && let Some((owner, cookie)) = slot.take()
+            {
+                *pump.held.borrow_mut() = Some(Ready {
+                    owner,
+                    cookie,
+                    status: super::image_service::prepare::NO_MEMORY,
+                    image: 0,
+                    width: 0,
+                    height: 0,
+                });
+            }
             if pump.held.borrow().is_none() {
                 // Copied out and left at once: the plugin runs with the table
                 // free.

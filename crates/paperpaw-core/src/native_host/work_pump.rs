@@ -52,6 +52,11 @@ impl crate::Kernel {
     /// One pass of the work scheduler (see the module). `true` when plugin
     /// calls remain for another pass.
     pub(crate) fn native_work_pump(&mut self) -> bool {
+        // A batch left waiting runs first, so no entry is taken for a callback
+        // that is then refused.
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         let instances = &self.shared.native_instances;
         // The scheduler and its view of the device are held here, so that a
         // callback's commands can run (`&mut self`) between two calls.

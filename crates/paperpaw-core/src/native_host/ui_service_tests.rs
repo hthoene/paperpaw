@@ -596,3 +596,61 @@ fn a_guard_denies_the_nested_question_and_the_answer_goes_to_the_asker() {
         assert_eq!(v.store.request_count(), 1);
     });
 }
+
+/// A scheduler view of a device that is up and awake.
+struct WorkDevice;
+impl crate::native_host::work_sched::WorkEnv for WorkDevice {
+    fn now_ms(&self) -> u64 {
+        1_000
+    }
+    fn power(&self) -> crate::native_host::work_sched::Power {
+        crate::native_host::work_sched::Power {
+            level: 0,
+            stretch: 1,
+            radio_on: true,
+        }
+    }
+    fn screen_hold(&self) -> bool {
+        false
+    }
+    fn network_up(&self) -> bool {
+        true
+    }
+    fn network_allowed(&self, _: u64) -> bool {
+        true
+    }
+    fn saving_manual(&self, _: u64) -> bool {
+        false
+    }
+}
+
+#[test]
+fn ask_is_refused_in_a_work_runs_callback() {
+    use crate::native_host::{
+        work_sched::{Limits as WorkLimits, WorkSched},
+        work_service::WorkServices,
+    };
+    view(|v| {
+        v.stack.instance.set(Some(30));
+        let sched = Rc::new(WorkSched::new(WorkLimits::OTHER));
+        v.hosts
+            .wire_work(WorkServices {
+                sched: Rc::clone(&sched),
+                env: Rc::new(WorkDevice),
+            })
+            .unwrap();
+        // In a run's callback (quiet) no dialog is asked for.
+        {
+            let _run = sched.enter_run_callback(1, 7);
+            assert_eq!(
+                ask_id(v, 1, ask_record(0, 0b10, "", "")).err(),
+                Some(ERR_STATE)
+            );
+        }
+        // Another plugin, or the same one outside a run, may ask.
+        {
+            let _run = sched.enter_run_callback(2, 7);
+            assert!(ask_id(v, 1, ask_record(0, 0b10, "", "")).is_ok());
+        }
+    });
+}

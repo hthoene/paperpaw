@@ -10,6 +10,7 @@ use crate::native_host::{
 };
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
+use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, MemoryStorage, image::PngWriter};
 
 /// What a plugin was told: `(cookie, status, width, height)`.
@@ -183,28 +184,59 @@ fn root_one_never_reaches_the_plugins_folder_or_the_hosts() {
 }
 
 #[test]
-fn a_full_table_keeps_the_command_and_applies_it_at_a_later_pass() {
+fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     let mut w = world(true);
+    w.kernel.now = Instant(1_000);
     // Four wait at most; the fifth is kept, in order.
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     assert_eq!(w.pending(), 1);
     let mut cookies = Vec::new();
-    let mut passes = 0;
-    while w.kernel.native_image_pump() && passes < 20 {
+    // The four decode, a turn each. The held command does not ask for another
+    // pass: when the decoding is over the pump is quiet, and its time is the
+    // 2 s back-off.
+    while w.kernel.native_image_pump() {
         cookies.extend(w.told().iter().map(|t| t.0));
-        passes += 1;
     }
     cookies.extend(w.told().iter().map(|t| t.0));
-    assert_eq!(cookies, [1, 2, 3, 4, 5]);
+    assert_eq!(cookies, [1, 2, 3, 4]);
+    assert_eq!(w.pending(), 1, "not applied before its time");
+    assert_eq!(w.kernel.service_due(), Some(Instant(3_000)));
+    w.kernel.now = Instant(3_000);
+    while w.kernel.native_image_pump() {}
     assert_eq!(w.pending(), 0);
+    assert_eq!(w.told().iter().map(|t| t.0).collect::<Vec<_>>(), [5]);
+    assert_eq!(w.kernel.service_due(), None);
 }
 
 #[test]
-fn what_cannot_be_kept_is_dropped_not_grown() {
+fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
+    let mut w = world(true);
+    w.kernel.now = Instant(1_000);
+    w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
+    // Nothing decodes meanwhile, so the table stays full: three tries, 2 s
+    // apart, then the plugin is told (status 5, no memory now).
+    for at in [3_000, 5_000, 7_000] {
+        assert_eq!(w.pending(), 1);
+        w.kernel.now = Instant(at);
+        w.kernel.image_retry();
+    }
+    assert_eq!(w.pending(), 0);
+    while w.kernel.native_image_pump() {}
+    let told = w.told();
+    assert!(told.iter().any(|t| (t.0, t.1) == (5, 5)), "{told:?}");
+}
+
+#[test]
+fn what_cannot_be_kept_fails_to_its_plugin_and_nothing_grows() {
     let mut w = world(true);
     w.apply((0..40).map(|cookie| prepare(0, "p.png", cookie)).collect());
-    // 4 queued, then the rest kept up to the bound, the remainder dropped.
+    // 4 queued, 16 kept (the bound); of the other 20 the first eight are told
+    // they failed, in the room the failures have of their own.
     assert_eq!(w.pending(), PENDING_MAX);
+    w.kernel.native_image_pump();
+    let told = w.told();
+    let failed: Vec<_> = told.iter().filter(|t| t.1 == 5).map(|t| t.0).collect();
+    assert_eq!(failed, (20..28).collect::<Vec<_>>());
 }
 
 #[test]

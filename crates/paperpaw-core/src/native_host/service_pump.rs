@@ -28,7 +28,7 @@ const PER_OWNER: usize = 4;
 
 /// One pass: the services' clocks, then the events of every running plugin.
 /// `true` when events remain for another pass.
-fn pump(
+pub(super) fn pump(
     instances: &NativeInstances,
     services: &[Option<&dyn ServiceEvents>; 2],
     env: &Env<'_>,
@@ -143,6 +143,9 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
+        // A batch left waiting (a callback outside the pumps staged it) runs
+        // first: no event is called while one waits, and none is lost for it.
+        self.native_outbox_run();
         let more = {
             let env = self.shared.env(self.now);
             let instances = &self.shared.native_instances;
@@ -152,7 +155,11 @@ impl crate::Kernel {
                 &env,
                 // The callback gets its command stage; its batch is run below.
                 &|owner, lease, bytes| {
-                    let _ = self.native_event_call(owner, lease, bytes);
+                    let called = self.native_event_call(owner, lease, bytes);
+                    debug_assert!(
+                        called != Err(ERR_BUSY),
+                        "the outbox is empty before each event is called"
+                    );
                 },
             )
         };
@@ -182,6 +189,7 @@ impl crate::Kernel {
             .flatten()
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
+            .chain(instances.image_pump.retry_at())
             .min()
             .map(Instant)
     }
