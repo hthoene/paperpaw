@@ -220,6 +220,23 @@ pub trait Storage {
         None
     }
 
+    /// The storage's own identity of the entry `path` names: a number that
+    /// stays the same when the entry is renamed or moved within the storage
+    /// and differs for another entry (FAT: its first cluster; a folder on a
+    /// computer: its file id, no link followed), so a move cut off by a
+    /// power loss can be told done or not done by the entry, never by its
+    /// names. `Ok(None)` where the entry has none that is stable (an empty
+    /// file on FAT holds no cluster) or the storage cannot tell (the
+    /// default); `Err(NotFound)` where `path` names nothing; another error
+    /// where it could not be read. Storages that wrap another say what it
+    /// says.
+    ///
+    /// # Errors
+    /// `NotFound` where `path` names nothing, else the storage's error.
+    fn entry_identity(&self, _path: &str) -> Result<Option<u64>, StorageError> {
+        Ok(None)
+    }
+
     /// Bytes free for new files, where the storage can tell without
     /// reading much at once; `None` where it cannot (yet). Never more than
     /// is free: a count that may be out of date (a memory card's own, after
@@ -598,6 +615,14 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
             (None, None) => self.base.same_entry(a, b),
             _ => Some(false),
         }
+    }
+
+    /// The identity in the storage the path is in. Two storages may answer
+    /// the same number for different entries, but no move crosses the
+    /// mount (`rename` refuses it), so a move compares within one.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let (storage, path) = self.route(path);
+        storage.entry_identity(path)
     }
 
     /// The base's, where data and plugins are.

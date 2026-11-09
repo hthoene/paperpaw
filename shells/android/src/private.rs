@@ -202,6 +202,22 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         self.base.ignores_case()
     }
 
+    /// Each in the storage its path is in; a path in one and a path in the
+    /// other are never the same entry.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        let ((x, a), (y, b)) = (self.route(a), self.route(b));
+        if core::ptr::addr_eq(x, y) {
+            x.same_entry(a, b)
+        } else {
+            Some(false)
+        }
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let (storage, path) = self.route(path);
+        storage.entry_identity(path)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.base.free_space()
     }
