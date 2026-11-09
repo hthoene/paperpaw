@@ -285,6 +285,8 @@ pub(crate) mod native_status;
 pub(crate) mod native_menus;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
+#[path = "native_host/widget_drops.rs"]
+mod widget_drops;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
@@ -1165,3 +1167,7 @@ mod native_image_declarations_tests;
 #[cfg(test)]
 #[path = "native_host/ui_hooks_tests.rs"]
 mod ui_hooks_tests;
+
+#[cfg(test)]
+#[path = "native_host/widget_drops_tests.rs"]
+mod widget_drops_tests;
