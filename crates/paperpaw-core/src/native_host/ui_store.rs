@@ -38,9 +38,10 @@ const KEY_MAX: usize = 32;
 /// store's limits (`HostWiring::ui`), for the admission rules
 /// (`Frame::ui_x4`) and for op 14 (`native_status`). It follows the declared
 /// class, not an id, so a device that declares `Large` (the X4 Pro until its
-/// memory is measured) keeps the large limits.
+/// memory is measured) keeps the large limits. A class added later gets the
+/// small limits until someone decides otherwise (fail closed).
 pub(crate) fn is_x4(memory: MemoryClass) -> bool {
-    matches!(memory, MemoryClass::Small)
+    !matches!(memory, MemoryClass::Large)
 }
 
 /// Largest text of a hand-over or a request.

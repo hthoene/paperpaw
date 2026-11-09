@@ -6,7 +6,7 @@ use crate::{
     native_host::commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage},
 };
 use core::pin::Pin;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, IdError, ScreenKey};
 
@@ -88,9 +88,12 @@ impl Kernel {
         };
         self.drain_native_ui(&owner, commands, redraw);
         // The labels the callback set; room was taken when they were checked.
-        if !hints.is_empty()
-            && let Ok(mut labels) = self.shared.stack_rows.labels().try_borrow_mut()
-        {
+        // Nothing holds the table across a callback, so a failed borrow is a
+        // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
+        if !hints.is_empty() {
+            let Ok(mut labels) = self.shared.stack_rows.labels().try_borrow_mut() else {
+                return Err(Error::Status(ERR_BUSY));
+            };
             labels.apply(hints);
         }
         Ok(status)

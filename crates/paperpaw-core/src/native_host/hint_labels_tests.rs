@@ -127,6 +127,21 @@ fn a_ninth_action_is_refused_and_a_replacement_or_removal_is_not() {
 }
 
 #[test]
+fn room_is_taken_for_every_new_action_of_one_instance() {
+    let sets: Vec<HintSet> = (0..3)
+        .map(|n| set(&alloc::format!("probe.a{n}"), 1, "x"))
+        .collect();
+    let mut labels = HintLabels::default();
+    labels.reserve(&sets).unwrap();
+    // Up to the cap, so applying three new actions cannot allocate.
+    assert!(labels.room(SCREEN) >= MAX_ACTIONS);
+    let room = labels.room(SCREEN);
+    labels.apply(sets);
+    assert_eq!(labels.count(SCREEN), 3);
+    assert_eq!(labels.room(SCREEN), room);
+}
+
+#[test]
 fn labels_go_with_their_instance() {
     let mut labels = applied(alloc::vec![
         set("probe.go", 1, "Go"),

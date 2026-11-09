@@ -128,6 +128,15 @@ pub(crate) struct HintLabels {
 }
 
 impl HintLabels {
+    /// How many labels `instance` has room for without allocating.
+    #[cfg(test)]
+    fn room(&self, instance: u32) -> usize {
+        self.by_instance
+            .iter()
+            .find(|(open, _)| *open == instance)
+            .map_or(0, |(_, labels)| labels.capacity())
+    }
+
     /// How many actions `instance` relabels now.
     #[cfg(test)]
     fn count(&self, instance: u32) -> usize {
@@ -198,9 +207,10 @@ impl HintLabels {
                     self.by_instance.len() - 1
                 }
             };
-            self.by_instance[at]
-                .1
-                .try_reserve(1)
+            // Up to the cap: a batch may add several actions for one instance.
+            let labels = &mut self.by_instance[at].1;
+            labels
+                .try_reserve_exact(MAX_ACTIONS.saturating_sub(labels.len()))
                 .map_err(|_| ERR_NO_MEMORY)?;
         }
         Ok(())
