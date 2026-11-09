@@ -1,8 +1,12 @@
-# Interface-7 port (slice 3: downloads)
+# Interface-7 port (native only; the blocked cases wait for host pieces)
 
-Version 1.0.8. Everything the browser does is native; what is left is host pieces (the blocked cases
-below). The interface-6 `Browser` and everything of it stays until
-the host activates native plugins (then it goes together, no shim: todo 90).
+Version 1.0.8 (Beta 3: 1.0.6, so no further bump). Status: complete in code. Native only: the interface-6
+`Browser`, its `store.rs` and `web.rs` and `tests/browsing.rs` are gone (no shim, todo 90); the checks
+that compared the native rules with them are pinned values taken from that code before it went
+(`src/native_tests.rs`, `src/native_format_tests.rs`, `tests/abi7_declarations.rs`). `HOW` and `CATALOGS`
+(en/de) are the statics the host publishes at admission. Not linked into the app (it is no longer in
+`paperpaw_app::STORE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`; what the host must still
+give is the list of blocked cases at the end.
 
 ## Slice 3: downloads (`src/native_save.rs`)
 
@@ -43,8 +47,8 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   - The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
 - Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
   2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
-- `tests/hosted_construction.rs`: construction in the host's registered scope, `make` runs to its end; the host's commit is refused
-  (`DeclarationViewsUnavailable`) until it wires the registry views (`BLOCKED #944`).
+- `tests/hosted_construction.rs`: construction in the host's registered scope: `make` runs to its end and the host admits
+  all its declarations (the registry views are wired on integration).
 
 ## Ported
 
@@ -61,7 +65,7 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   `pages/<hash>.html`, `download.tmp`.
 - `declarations.rs`: the screen, the `core.browser` offer, the action *browser.open* with its place in
   the tools menu (order 43) and its icon, and the `http_done` event. `tests/abi7_declarations.rs`
-  compares each field with the interface-6 registration.
+  pins each field to what the interface-6 registration said.
 
 ## Differences from interface 6 (deliberate, bounds in code)
 

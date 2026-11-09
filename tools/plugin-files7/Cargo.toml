@@ -23,6 +23,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "browser"
+path = "src/bin/browser.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "calibre"
 path = "src/bin/calibre.rs"
 test = false
@@ -271,6 +277,7 @@ bench = false
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
+paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-entry"] }
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }

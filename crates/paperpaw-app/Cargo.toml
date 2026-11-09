@@ -33,7 +33,6 @@ store-plugins = [
     "dep:paperpaw-plugin-format-mobi",
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
-    "dep:paperpaw-plugin-browser",
     "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-mail",
 ]
@@ -101,7 +100,6 @@ paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
 paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
-paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
 paperpaw-plugin-lock = { workspace = true, optional = true }
 paperpaw-plugin-aids = { workspace = true, optional = true }

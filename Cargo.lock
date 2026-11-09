@@ -1538,7 +1538,6 @@ dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",

@@ -16,3 +16,4 @@ notes-overview
 readwise
 rules
 weather
+browser

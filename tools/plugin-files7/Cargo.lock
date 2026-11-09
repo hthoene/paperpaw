@@ -133,6 +133,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-browser"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-calibre"
 version = "1.0.11"
 dependencies = [
@@ -188,6 +196,7 @@ dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
+ "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
