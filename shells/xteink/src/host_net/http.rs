@@ -27,7 +27,7 @@ use paperpaw_core::native_host::shell_wiring::{
 use paperpaw_core::sdk::HttpError;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
-use super::{Bridge, Inner, Out, own};
+use super::{Bridge, Inner, Out, own, push_out};
 use crate::net::Net;
 
 /// What a request's body may take when it saves to a file: the error's body
@@ -47,6 +47,16 @@ pub(super) enum NetOut {
 }
 
 impl Inner {
+    /// Request `id` is dropped at the next step. No room to say so ends every
+    /// request at the next step (the network is told lost), never a crash.
+    pub(super) fn abort_later(&mut self, id: u32) {
+        if self.aborts.try_reserve(1).is_ok() {
+            self.aborts.push(id);
+        } else {
+            self.oom = true;
+        }
+    }
+
     /// Runs the requests a step on `net`; their outcomes into `out`.
     pub(super) fn http_online(
         &mut self,
@@ -63,14 +73,17 @@ impl Inner {
         };
         let answers = self.http.poll(Some(net), storage.as_ref(), clock_ready);
         for answer in answers {
-            out.push(Out::Net(NetOut::Finished(answer.id, answer)));
+            let item = Out::Net(NetOut::Finished(answer.id, answer));
+            push_out(out, item, &mut self.oom);
         }
         for (id, received, total) in self.http.progress() {
-            out.push(Out::Net(NetOut::Progress(id, received, total)));
+            let item = Out::Net(NetOut::Progress(id, received, total));
+            push_out(out, item, &mut self.oom);
         }
         for id in self.http.take_parked() {
-            out.push(Out::Net(NetOut::Parked(id)));
+            push_out(out, Out::Net(NetOut::Parked(id)), &mut self.oom);
         }
+        self.http_was = self.http.busy();
         self.http.take_restart()
     }
 
@@ -83,7 +96,7 @@ impl Inner {
         self.caps.clear();
         self.http_was = false;
         if had {
-            out.push(Out::Net(NetOut::Lost));
+            push_out(out, Out::Net(NetOut::Lost), &mut self.oom);
         }
     }
 }
@@ -126,7 +139,7 @@ impl Bridge {
     /// Drops what is kept of request `id` (core has none of it).
     fn forget_request(&self, id: u32) {
         if let Ok(mut inner) = self.inner.try_borrow_mut() {
-            inner.aborts.push(id);
+            inner.abort_later(id);
         }
     }
 
@@ -260,7 +273,7 @@ impl ShellHttp for Bridge {
 
     fn abort(&self, id: u32) {
         if let Ok(mut inner) = self.inner.try_borrow_mut() {
-            inner.aborts.push(id);
+            inner.abort_later(id);
         }
     }
 

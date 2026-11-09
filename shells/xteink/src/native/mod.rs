@@ -519,8 +519,10 @@ impl CodeLoader for Loader {
                 return None;
             }
         };
-        // `core.net` and `core.sockets` need the card too (files read to and
-        // sent, the staged files).
+        // This hook runs at the end of the kernel's build, before `Kernel::start`:
+        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
+        // filled (a later wiring would show plugins a false `network_off`).
+        // It needs the card too (files read to, the staged file).
         self.wire_network(storage);
         wired.hyphen().cloned()
     }

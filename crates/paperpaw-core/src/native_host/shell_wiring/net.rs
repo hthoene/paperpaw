@@ -14,6 +14,7 @@ use super::*;
 use crate::{
     native_host::registrations::ServiceNetHeader,
     native_host::{
+        net_policy::NetPolicy,
         net_pool::NetPool,
         net_service::{self, NetDevice, NetProfile},
         owner_directory::OwnerDirectory,
@@ -168,34 +169,6 @@ impl<'a> ServedReply<'a> {
     }
 }
 
-/// Why a plugin's network use ends before a byte goes out (`network.md` 3.2).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum NetEnd {
-    /// The device is offline by the user's choice.
-    Offline,
-    /// Power saving holds the radio off.
-    Saving,
-    /// The user turned this plugin's network off.
-    NetworkOff,
-}
-
-/// A power end of a plugin's request or server.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct NetPowerEnd {
-    pub end: NetEnd,
-    /// Tell the plugin to try again once online.
-    pub later: bool,
-}
-
-impl NetPowerEnd {
-    #[must_use]
-    pub fn new(end: NetEnd, later: bool) -> Self {
-        Self { end, later }
-    }
-}
-
 /// Why a server could not start (`event.server.reason`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -319,7 +292,8 @@ pub trait ShellHttp {
     fn close_served(&self, request: u32, status: u32);
 }
 
-/// The state of the device's network, clock and power.
+/// The state of the device's network and clock. Core decides what the user's
+/// power and network settings allow (`net_policy`); the shell is not asked.
 pub trait ShellNetwork {
     /// The monotonic clock, in milliseconds.
     fn now_ms(&self) -> u64;
@@ -327,8 +301,6 @@ pub trait ShellNetwork {
     fn network_up(&self) -> bool;
     /// `true`: a network is wanted; `false`: the last request and server ended.
     fn network_demand(&self, wanted: bool);
-    /// Whether `plugin`'s network use ends now; `background` for a work run.
-    fn power_end(&self, plugin: &str, background: bool) -> Option<NetPowerEnd>;
 }
 
 /// What `core.net` is wired with: the card's storage and the shell's network.
@@ -375,6 +347,7 @@ impl NetInputs {
         pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
         owners: Shared<OwnerDirectory>,
+        policy: Rc<NetPolicy>,
     ) -> NetDevice {
         let profile = NetProfile {
             pool: self.limits.pool_bytes,
@@ -391,6 +364,7 @@ impl NetInputs {
             pool,
             in_use,
             owners,
+            policy,
         )
     }
 }

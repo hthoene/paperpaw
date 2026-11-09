@@ -30,8 +30,8 @@ use core::cell::{Cell, RefCell};
 
 use log::{info, warn};
 use paperpaw_core::native_host::shell_wiring::{
-    Connect, NetPowerEnd, NetReports, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls,
-    SockTransport, TlsFailure, TlsOpen, UntrustedWhy,
+    Connect, NetReports, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls, SockTransport,
+    TlsFailure, TlsOpen, UntrustedWhy,
 };
 use paperpaw_core::sdk::{CertificateHash, Distrust, KeyHash, SocketError, Trust};
 use paperpaw_core::{Effects, Kernel, SocketCall, SocketEvent, TlsSetup};
@@ -55,6 +55,7 @@ const HANDSHAKE_MS: u32 = 30_000;
 const BROADCAST_MS: u32 = 11_000;
 
 /// What one step of the sockets came to, before it is reported.
+#[derive(Debug)]
 enum Out {
     /// A socket's event.
     Socket(SocketEvent),
@@ -89,6 +90,16 @@ struct Inner {
     reports: Option<Wired>,
     /// A network was up at the last step.
     was_up: bool,
+    /// Sockets core closed (or ended the TLS of): room for one each is kept
+    /// from `connect` on, so that a close is never dropped for want of
+    /// memory and a connection never keeps the device's one TLS session.
+    closes: Vec<u32>,
+    /// Sockets a read or close could not be queued for: they end `failed`
+    /// `no_memory` at the next step (room kept from `connect` on).
+    broken: Vec<u32>,
+    /// Something could not be remembered for want of memory: every socket
+    /// ends at the next step (the network is told lost), nothing crashes.
+    oom: bool,
     /// The HTTP requests of core (`core.net`).
     http: Calls,
     /// The card, for the answers written to a staged file.
@@ -109,8 +120,6 @@ pub struct Bridge {
     inner: RefCell<Inner>,
     /// A network is up (set by every step).
     up: Cell<bool>,
-    /// The power level lets the network be used (set by every step).
-    online: Cell<bool>,
 }
 
 impl Bridge {
@@ -130,6 +139,9 @@ impl Bridge {
                 retry: Vec::new(),
                 reports: None,
                 was_up: false,
+                closes: Vec::new(),
+                broken: Vec::new(),
+                oom: false,
                 http: Calls::default(),
                 storage: None,
                 aborts: Vec::new(),
@@ -138,7 +150,6 @@ impl Bridge {
                 restart: false,
             }),
             up: Cell::new(false),
-            online: Cell::new(true),
         })
     }
 
@@ -185,35 +196,67 @@ impl Bridge {
         };
         let inner = &mut *inner;
         inner.was_up = true;
-        out.append(&mut inner.retry);
+        for item in core::mem::take(&mut inner.retry) {
+            push_out(&mut out, item, &mut inner.oom);
+        }
         // Another network than the sockets were opened on: they are lost.
         if inner.sockets.stale(net) {
             drop(inner.sockets.lost_events(None));
             inner.forget_all();
-            out.push(Out::NetworkLost);
+            push_out(&mut out, Out::NetworkLost, &mut inner.oom);
         }
-        let calls = core::mem::take(&mut inner.calls);
-        for call in calls {
+        // In the order core asked; the queue keeps its room.
+        while !inner.calls.is_empty() {
+            let call = inner.calls.remove(0);
             let timed = match &call {
                 SocketCall::Connect { socket, .. } => Some(*socket),
                 _ => None,
             };
             if let Some(event) = inner.sockets.apply(call, net, now) {
-                out.push(Out::Socket(event));
+                push_out(&mut out, Out::Socket(event), &mut inner.oom);
             } else if let Some(socket) = timed
                 && let Some(at) = inner.connects.iter().position(|(id, _)| *id == socket)
             {
-                let (_, ms) = inner.connects.remove(at);
+                let (_, ms) = inner.connects.swap_remove(at);
                 inner.sockets.connect_until(socket, now.0 + u64::from(ms));
             }
         }
         inner.connects.clear();
+        // The closes core asked, after the rest: nothing it asked is undone
+        // by an earlier close.
+        while let Some(socket) = inner.closes.pop() {
+            let _ = inner.sockets.apply(SocketCall::Close { socket }, net, now);
+        }
+        // Sockets a read or close could not be queued for end here.
+        while let Some(socket) = inner.broken.pop() {
+            let _ = inner.sockets.apply(SocketCall::Close { socket }, net, now);
+            inner.room.retain(|(id, _)| *id != socket);
+            inner.blocked.retain(|id| *id != socket);
+            let event = SocketEvent::Failed {
+                socket,
+                error: SocketError::NoMemory,
+                reason: String::new(),
+            };
+            push_out(&mut out, Out::Socket(event), &mut inner.oom);
+        }
         for event in inner.sockets.poll_events(net, now, clock_ready) {
-            out.push(Out::Socket(event));
+            push_out(&mut out, Out::Socket(event), &mut inner.oom);
         }
         inner.settle(&mut out);
         if inner.http_online(net, clock_ready, &mut out) {
             inner.restart = true;
+        }
+        if inner.oom {
+            // Nothing could be remembered: the sockets end (core is told
+            // the network is lost, which needs no memory to say).
+            inner.oom = false;
+            drop(inner.sockets.lost_events(Some(net)));
+            inner.forget_all();
+            inner.http.clear(Some(net));
+            out.clear();
+            out.shrink_to_fit();
+            let _ = out.try_reserve(1);
+            out.push(Out::NetworkLost);
         }
         out
     }
@@ -236,38 +279,43 @@ impl Bridge {
         inner.connects.clear();
         inner.was_up = false;
         if had {
-            out.push(Out::NetworkLost);
+            push_out(&mut out, Out::NetworkLost, &mut inner.oom);
         }
         inner.http_offline(net, &mut out);
-        out.append(&mut inner.retry);
+        inner.oom = false;
         out
     }
 
-    /// Reports what the step came to, the kernel ticking after each report
-    /// that core took; the kernel's effects for the main loop to apply.
-    fn report(&self, out: Vec<Out>, kernel: &mut Kernel, now: Instant) -> Vec<Effects> {
-        let mut effects = Vec::new();
-        let Some((net, sockets)) = self.inner.try_borrow().ok().and_then(|inner| {
+    /// Reports what the step came to, then the kernel ticks once: the pump
+    /// of the services' events runs at the end of that call. The kernel's
+    /// effects, for the main loop to apply; `None` when nothing was taken.
+    fn report(&self, out: Vec<Out>, kernel: &mut Kernel) -> Option<Effects> {
+        let (net, sockets) = self.inner.try_borrow().ok().and_then(|inner| {
             inner
                 .reports
                 .as_ref()
                 .map(|wired| (wired.net.clone(), wired.sockets.clone()))
-        }) else {
-            return effects;
-        };
-        let mut later = Vec::new();
+        })?;
+        // One report at a time: what core refuses `ERR_BUSY` is kept for the
+        // next step, if there is room to keep it (else the sockets end).
+        let mut told = false;
         for item in out {
             match self.report_one(net.as_ref(), sockets.as_ref(), item) {
-                Ok(()) => effects.push(kernel.tick(now)),
-                Err(item) => later.push(item),
+                Ok(()) => told = true,
+                Err(item) => self.keep_for_later(item),
             }
         }
-        if !later.is_empty()
-            && let Ok(mut inner) = self.inner.try_borrow_mut()
-        {
-            inner.retry.append(&mut later);
+        // The time as it is at the end of the step: deadlines are not judged
+        // early (the clock is the one the services' deadlines are in).
+        told.then(|| kernel.tick(crate::now()))
+    }
+
+    /// Keeps a report core refused for the next step.
+    fn keep_for_later(&self, item: Out) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            let inner = &mut *inner;
+            push_out(&mut inner.retry, item, &mut inner.oom);
         }
-        effects
     }
 
     /// One report; the item again where core had the table borrowed. A
@@ -396,6 +444,8 @@ impl Bridge {
 impl Inner {
     /// Forgets what was kept for sockets that are gone.
     fn forget_all(&mut self) {
+        self.closes.clear();
+        self.broken.clear();
         self.blocked.clear();
         self.handshaking.clear();
         self.room.clear();
@@ -426,11 +476,39 @@ impl Inner {
                 .is_some_and(|(_, room)| *room > 0);
             if has {
                 self.blocked.remove(at);
-                out.push(Out::Writable(socket));
+                push_out(out, Out::Writable(socket), &mut self.oom);
             } else {
                 at += 1;
             }
         }
+    }
+
+    /// Makes room for the next socket's close and failure: one entry each
+    /// for every socket core holds, one more than now.
+    fn keep_room_for_close(&mut self) -> Result<(), i32> {
+        let want = self.room.len() + self.closes.len() + 1;
+        let more = want.saturating_sub(self.closes.len());
+        self.closes.try_reserve(more).map_err(|_| ERR_NO_MEMORY)?;
+        let more = want.saturating_sub(self.broken.len());
+        self.broken.try_reserve(more).map_err(|_| ERR_NO_MEMORY)?;
+        // The queue keeps room for the three calls a socket usually has.
+        self.calls.try_reserve(4).map_err(|_| ERR_NO_MEMORY)?;
+        Ok(())
+    }
+
+    /// Queues a close of `id`, which needs no memory (it was kept at
+    /// `connect`).
+    fn queue_close(&mut self, id: u32) {
+        if self.closes.contains(&id) {
+            return;
+        }
+        if self.closes.len() == self.closes.capacity() && self.closes.try_reserve(1).is_err() {
+            // Not meant to happen: the room was kept. Everything ends at the
+            // next step rather than a connection staying open.
+            self.oom = true;
+            return;
+        }
+        self.closes.push(id);
     }
 
     /// Queues `call`; `ERR_NO_MEMORY` when there is no room for it.
@@ -438,6 +516,15 @@ impl Inner {
         self.calls.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         self.calls.push(call);
         Ok(())
+    }
+}
+
+/// `item` into `out`, or `oom` set where there is no room for it.
+fn push_out(out: &mut Vec<Out>, item: Out, oom: &mut bool) {
+    if out.try_reserve(1).is_ok() {
+        out.push(item);
+    } else {
+        *oom = true;
     }
 }
 
@@ -488,6 +575,8 @@ impl SockTransport for Bridge {
         let port = u16::try_from(to.port).map_err(|_| ERR_INVALID)?;
         let host = own(to.host)?;
         let mut inner = self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        // First the room for the close and the failure of this socket.
+        inner.keep_room_for_close()?;
         inner.connects.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         inner.room.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         inner.ask(SocketCall::Connect {
@@ -530,8 +619,17 @@ impl SockTransport for Bridge {
     }
 
     fn read(&self, id: u32, max: u32) {
-        if let Ok(mut inner) = self.inner.try_borrow_mut() {
-            let _ = inner.ask(SocketCall::Read { socket: id, max });
+        let Ok(mut inner) = self.inner.try_borrow_mut() else {
+            return;
+        };
+        if inner.ask(SocketCall::Read { socket: id, max }).is_ok() {
+            return;
+        }
+        // Not dropped: the socket ends `no_memory` at the next step.
+        if inner.broken.len() < inner.broken.capacity() {
+            inner.broken.push(id);
+        } else {
+            inner.oom = true;
         }
     }
 
@@ -540,10 +638,7 @@ impl SockTransport for Bridge {
             inner.blocked.retain(|socket| *socket != id);
             inner.handshaking.retain(|socket| *socket != id);
             inner.room.retain(|(socket, _)| *socket != id);
-            // A close is never dropped for want of room: the queue grows
-            // by one, or the connection stays open until the network goes
-            // (the sockets table is core's, and core has ended it).
-            let _ = inner.ask(SocketCall::Close { socket: id });
+            inner.queue_close(id);
         }
     }
 
@@ -596,7 +691,7 @@ impl SockTls for Bridge {
             // The connection of a session that ends is closed (what was
             // secure is never left plain); a close of a socket that is gone
             // changes nothing.
-            let _ = inner.ask(SocketCall::Close { socket: id });
+            inner.queue_close(id);
         }
     }
 }
@@ -639,27 +734,18 @@ impl ShellNetwork for Bridge {
         // (`network.md` 3.2), so the demand is told to the log only.
         log::debug!("sockets: network wanted {wanted}");
     }
-
-    /// The device's power level: offline ends a plugin's network use before a
-    /// byte goes out. What a plugin's own settings add (network held or off for
-    /// it) is the kernel's, and not reached from here yet.
-    fn power_end(&self, _plugin: &str, _background: bool) -> Option<NetPowerEnd> {
-        use paperpaw_core::native_host::shell_wiring::NetEnd;
-        (!self.online.get()).then(|| NetPowerEnd::new(NetEnd::Offline, true))
-    }
 }
 
 impl Bridge {
     /// One step of the interface-7 sockets over `radio`: what core asked, what
-    /// the connections did, the reports, and the kernel's tick after each.
+    /// the connections did, the reports, and the kernel's tick after them.
     pub fn run(
         &self,
         radio: &mut crate::wifi::Radio,
         kernel: &mut Kernel,
         now: Instant,
         clock_ready: bool,
-    ) -> Vec<Effects> {
-        self.online.set(kernel.power().online());
+    ) -> Option<Effects> {
         let out = match radio.online() {
             Some(net) => self.step_online(net, now, clock_ready),
             None => self.step_offline(radio.net()),
@@ -672,7 +758,7 @@ impl Bridge {
             // A request stalled without any answer: the radio starts anew.
             radio.restart();
         }
-        let effects = self.report(out, kernel, now);
+        let effects = self.report(out, kernel);
         self.log_counts();
         effects
     }

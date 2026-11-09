@@ -53,9 +53,6 @@ impl ShellNetwork for Shell {
         true
     }
     fn network_demand(&self, _: bool) {}
-    fn power_end(&self, _: &str, _: bool) -> Option<NetPowerEnd> {
-        None
-    }
 }
 
 fn inputs(limits: SockLimits, tls: bool) -> (SockInputs, Rc<Shell>) {
@@ -203,6 +200,10 @@ fn net_and_sockets_naming_two_pools_are_refused_and_nothing_is_wired() {
 /// A connected, open socket of plugin 7 `mail`.
 fn open(resources: &HostResources, reports: &SockReports, tls: bool) -> u32 {
     let hosts = resources.hosts();
+    // The kernel has filled the policy: nothing is off.
+    hosts
+        .policy()
+        .update(0, false, false, [].into_iter(), [].into_iter());
     let owners = hosts.owners().unwrap();
     owners.admit(7, "mail").unwrap();
     owners.subscribe(7, EventTags::collect(|_| true));

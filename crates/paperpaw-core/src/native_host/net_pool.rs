@@ -73,6 +73,7 @@ pub(crate) const DEMAND_SOCK: u8 = 2;
 
 impl NetPool {
     /// A pool of `capacity` bytes (0: the device has none).
+    #[cfg(test)]
     pub(crate) const fn new(capacity: u32) -> Self {
         Self::with_tls_sessions(capacity, 1)
     }
@@ -207,6 +208,7 @@ impl NetPool {
     }
 
     /// Bytes held now (always 0 without a pool).
+    #[cfg(test)]
     pub(crate) fn used(&self) -> u32 {
         self.used.get()
     }

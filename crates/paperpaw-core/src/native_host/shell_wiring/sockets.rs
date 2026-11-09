@@ -18,6 +18,7 @@
 //! in the clear for a plugin that asked for TLS).
 use super::*;
 use crate::native_host::{
+    net_policy::NetPolicy,
     net_pool::NetPool,
     owner_directory::OwnerDirectory,
     paths_in_use::PathsInUse,
@@ -126,6 +127,7 @@ impl SockInputs {
         pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
         owners: Shared<OwnerDirectory>,
+        policy: Rc<NetPolicy>,
     ) -> SockDevice {
         let profile = SockProfile::new(self.limits.sockets, self.limits.queue, self.limits.read);
         SockDevice::new(
@@ -137,6 +139,7 @@ impl SockInputs {
             pool,
             in_use,
             owners,
+            policy,
         )
     }
 }

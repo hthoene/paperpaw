@@ -561,6 +561,12 @@ impl NativeInstances {
         )
     }
 
+    /// The host resources `test_insert` made, to wire services into.
+    #[cfg(test)]
+    pub(crate) fn test_resources(&self) -> Option<&super::HostResources> {
+        self.fixture_pool.as_ref()
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_rows(&self) -> (usize, usize) {
         (self.entries.len(), self.entries.capacity())
@@ -597,6 +603,12 @@ impl NativeInstances {
         self.pool
             .as_ref()
             .map_or([None, None], |pool| pool.hosts().event_services())
+    }
+
+    /// The device's network policy, once `core.net` or `core.sockets` is wired.
+    pub(crate) fn net_policy(&self) -> Option<alloc::rc::Rc<super::net_policy::NetPolicy>> {
+        let hosts = self.pool.as_ref()?.hosts();
+        (hosts.net().is_some() || hosts.sockets().is_some()).then(|| hosts.policy().clone())
     }
 
     /// A callback is on the stack, for the tests of what runs only between

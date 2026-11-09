@@ -396,6 +396,19 @@ pub(super) fn network_lost(inner: &mut Inner, host: &dyn NetHost) {
 
 /// A request the plugin did not answer in 120 s is answered 503 by the host.
 pub(super) fn expire(inner: &mut Inner, host: &dyn NetHost) {
+    // A server of a plugin whose network the user turned off stops.
+    let mut at = 0;
+    while at < inner.serving.servers.len() {
+        let owner = inner.serving.servers[at].owner;
+        let off = host
+            .power_end(owner, false)
+            .is_some_and(|end| end.reason == reason::NETWORK_OFF);
+        if off {
+            stop(inner, host, at, reason::NETWORK_OFF, true);
+        } else {
+            at += 1;
+        }
+    }
     let now = host.now_ms();
     let mut freed = 0_u32;
     let mut at = 0;

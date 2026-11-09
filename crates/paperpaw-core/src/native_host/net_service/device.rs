@@ -26,6 +26,7 @@ use super::{
 };
 use crate::native_host::{
     host_services::Caller,
+    net_policy::NetPolicy,
     net_pool::NetPool,
     owner_directory::OwnerDirectory,
     owner_paths::{self, OwnerPaths, RECEIVED, owned},
@@ -33,8 +34,8 @@ use crate::native_host::{
     save_files::SaveFiles,
     shared::Shared,
     shell_wiring::{
-        HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, ServedDecision, ServedReply,
-        ServerReason, ShellHttp, ShellNetwork,
+        HttpDone, HttpHeaders, HttpJob, HttpReason, ServedDecision, ServedReply, ServerReason,
+        ShellHttp, ShellNetwork,
     },
     storage::{self, has_room},
 };
@@ -69,6 +70,8 @@ pub(crate) struct NetDevice {
     /// The owners: the plugin ids kept for their cleanup, and the kernel's
     /// view of them (subscriptions, the screen that shows, the work run).
     paths: OwnerPaths,
+    /// What the user allows (`net_policy`).
+    policy: Rc<NetPolicy>,
 }
 
 /// The staged name of a saved answer's target (`.pp-staged`, core's one name).
@@ -79,6 +82,7 @@ fn staged_name(target: &str) -> Result<String, i32> {
 impl NetDevice {
     /// The host over `storage`, `http` and `network`, charging `pool` and
     /// holding its saves in `in_use`.
+    #[allow(clippy::too_many_arguments, reason = "one device, built in one place")]
     pub(crate) fn new(
         storage: Rc<dyn Storage>,
         http: Rc<dyn ShellHttp>,
@@ -87,8 +91,10 @@ impl NetDevice {
         pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
         owners: Shared<OwnerDirectory>,
+        policy: Rc<NetPolicy>,
     ) -> Self {
         Self {
+            policy,
             table: NetTable::new(pool),
             saves: SaveFiles::new(storage.clone(), in_use),
             storage,
@@ -270,19 +276,18 @@ impl NetHost for NetDevice {
 
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd> {
         let mut end = None;
-        self.paths
-            .plugin_of(owner, &mut |id| {
-                end = self.network.power_end(id, background);
-            })
-            .ok()?;
-        end.map(|e| PowerEnd {
-            reason: match e.end {
-                NetEnd::Offline => reason::OFFLINE,
-                NetEnd::Saving => reason::SAVING,
-                _ => reason::NETWORK_OFF,
-            },
-            later: e.later,
-        })
+        match self
+            .paths
+            .plugin_of(owner, &mut |id| end = self.policy.end_for(id, background))
+        {
+            Ok(()) => end,
+            // A plugin whose id cannot be had (not known, or the table in use)
+            // is not let out: the answer is the safe one.
+            Err(_) => Some(PowerEnd {
+                reason: reason::NETWORK_OFF,
+                later: false,
+            }),
+        }
     }
 
     fn network_up(&self) -> bool {

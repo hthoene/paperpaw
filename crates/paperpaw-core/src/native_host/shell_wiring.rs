@@ -27,8 +27,8 @@ mod sockets;
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
-    HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
-    NetReports, ServedDecision, ServedReply, ServerReason, ShellHttp, ShellNetwork,
+    HttpDone, HttpHeaders, HttpJob, HttpReason, NetInputs, NetLimits, NetReports, ServedDecision,
+    ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
@@ -85,6 +85,13 @@ impl HostWiring {
     /// `core.net`: HTTP requests and serving, over the card and the shell's
     /// network ([`NetInputs`]). The transport's reports come back through
     /// [`WiredHosts::net`].
+    ///
+    /// Wire before `Kernel::start`. The kernel fills the user's network policy
+    /// (the power mode and each plugin's network setting) at its first pass and
+    /// at every change after; until then the policy is closed, and a plugin that
+    /// asks first is answered `network_off`. Wired after the kernel has started,
+    /// the services answer `network_off` to a plugin's first requests until the
+    /// kernel's next event or call end.
     #[must_use]
     pub fn net(mut self, inputs: NetInputs) -> Self {
         self.net = Some(inputs);
@@ -95,6 +102,13 @@ impl HostWiring {
     /// broadcast, over the card and the shell's network ([`SockInputs`]). The
     /// transport's reports come back through [`WiredHosts::sockets`]. The
     /// network pool is the one `core.net` uses: name the same size in both.
+    ///
+    /// Wire before `Kernel::start`. The kernel fills the user's network policy
+    /// (the power mode and each plugin's network setting) at its first pass and
+    /// at every change after; until then the policy is closed, and a plugin that
+    /// asks first is answered `network_off`. Wired after the kernel has started,
+    /// the services answer `network_off` to a plugin's first requests until the
+    /// kernel's next event or call end.
     #[must_use]
     pub fn sockets(mut self, inputs: SockInputs) -> Self {
         self.sockets = Some(inputs);
@@ -273,7 +287,12 @@ impl HostResources {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
             let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
             hosts.wire_net(device.clone())?;
             wired.net = Some(NetReports(device));
         }
@@ -281,7 +300,12 @@ impl HostResources {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
             let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
             hosts.wire_sockets(device.clone())?;
             wired.sockets = Some(SockReports(device));
         }

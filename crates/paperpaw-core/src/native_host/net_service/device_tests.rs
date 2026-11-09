@@ -15,7 +15,7 @@ use crate::native_host::{
     },
     owner_directory::OwnerDirectory,
     shared::Shared,
-    shell_wiring::{NetInputs, NetLimits, NetPowerEnd, ShellHttp, ShellNetwork},
+    shell_wiring::{NetInputs, NetLimits, ShellHttp, ShellNetwork},
 };
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED};
@@ -84,9 +84,6 @@ impl ShellNetwork for Shell {
     fn network_demand(&self, wanted: bool) {
         self.demand.borrow_mut().push(wanted);
     }
-    fn power_end(&self, _: &str, _: bool) -> Option<NetPowerEnd> {
-        None
-    }
 }
 
 struct Fixture {
@@ -103,6 +100,10 @@ fn fixture(limits: NetLimits) -> Fixture {
     shell.up.set(true);
     let hosts = HostServices::new();
     let owners = hosts.owners().unwrap().try_clone().unwrap();
+    // The kernel has filled the policy: nothing is off.
+    hosts
+        .policy()
+        .update(0, false, false, [].into_iter(), [].into_iter());
     let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits).device(
         hosts
             .net_pool(limits.pool_bytes, limits.tls_sessions)
@@ -110,6 +111,7 @@ fn fixture(limits: NetLimits) -> Fixture {
             .clone(),
         hosts.in_use().clone(),
         owners.try_clone().unwrap(),
+        hosts.policy().clone(),
     );
     // The plugin `mail` runs and subscribed to every event.
     owners.admit(OWNER, "mail").unwrap();
@@ -364,7 +366,11 @@ fn an_owner_the_kernel_does_not_know_is_refused_safely() {
     assert!(!d.subscribed(OWNER, 99));
     assert_eq!(d.current_run(OWNER), None);
     assert_eq!(d.showing_screen(OWNER), None);
-    assert_eq!(d.power_end(OWNER, false), None);
+    assert_eq!(
+        d.power_end(OWNER, false).map(|e| e.reason),
+        Some(net_service::reason::NETWORK_OFF),
+        "a plugin the kernel does not know is not let out"
+    );
     d.clear_received(OWNER, None);
     d.clear_received(OWNER, Some(3));
     d.remove_received(OWNER, 3, 4);
@@ -603,4 +609,55 @@ fn a_save_claim_ends_with_the_plugin_even_when_its_id_was_never_kept() {
             "failure {nth}"
         );
     }
+}
+
+/// The user's decisions as the kernel hands them to the policy.
+fn decide(f: &Fixture, version: u32, offline: bool, off: &[&str]) {
+    f.hosts.policy().update(
+        version,
+        offline,
+        offline,
+        off.iter().copied(),
+        [].into_iter(),
+    );
+}
+
+#[test]
+fn a_plugin_whose_network_is_off_gets_network_off_and_the_shell_hears_nothing() {
+    let f = fixture(x4());
+    decide(&f, 1, false, &["mail"]);
+    request(&f, &fixtures::get(1)).unwrap();
+    assert!(f.shell.started.borrow().is_empty(), "nothing was started");
+    assert!(matches!(
+        events(&f)[0],
+        Event::Done { reason, flags: 0, .. } if reason == net_service::reason::NETWORK_OFF
+    ));
+}
+
+#[test]
+fn the_offline_mode_ends_a_request_with_a_retry_and_the_shell_hears_nothing() {
+    let f = fixture(x4());
+    decide(&f, 1, true, &[]);
+    request(&f, &fixtures::get(1)).unwrap();
+    assert!(f.shell.started.borrow().is_empty());
+    assert!(matches!(
+        events(&f)[0],
+        Event::Done { reason, flags, .. }
+            if reason == net_service::reason::OFFLINE && flags & net_service::DONE_LATER != 0
+    ));
+}
+
+#[test]
+fn turning_the_network_off_mid_request_aborts_it_at_the_next_tick() {
+    let f = fixture(x4());
+    let id = request(&f, &fixtures::get(1)).unwrap();
+    assert_eq!(f.shell.started.borrow().len(), 1);
+    decide(&f, 1, false, &["mail"]);
+    net_service::tick(&f.device).unwrap();
+    assert_eq!(*f.shell.aborted.borrow(), [id]);
+    assert!(matches!(
+        events(&f)[0],
+        Event::Done { reason, .. } if reason == net_service::reason::NETWORK_OFF
+    ));
+    assert_eq!(f.device.table().pool().used(), 0);
 }
