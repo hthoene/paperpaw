@@ -96,4 +96,8 @@ relative to the data folder).
   plugin id and version.
 - Done here: the schema, the generated codec, the declaration and the test that holds the declared bounds to
   the codec. **Not done:** asking the subscribers and applying the rules (the native reader screens).
+- Limits that meet: 32 pairs of 96 + 96 bytes (and the flag) are about 6.4 KiB, more than the 3,840-byte
+  reply, so a setting at its maximum cannot be answered whole. The reply is refused by the encoder, and
+  the subscriber (aids) must validate its setting against the reply size (named there as a settings
+  validation); the reader drops a reply that is invalid whole.
 
