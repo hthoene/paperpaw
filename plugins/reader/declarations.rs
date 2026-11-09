@@ -340,6 +340,12 @@ pub const NOTES_MAX_INPUT: u32 = 800;
 pub const NOTES_MAX_REPLY: u32 = 16;
 pub const NOTES_MAX_RECORDS: u32 = 8;
 
+/// The bounds of `reader.word-looked-up`, as `stages/reader.word-looked-up@1.def` says.
+pub const WORDS_SCHEMA: u32 = 1;
+pub const WORDS_MAX_INPUT: u32 = 2560;
+pub const WORDS_MAX_REPLY: u32 = 16;
+pub const WORDS_MAX_RECORDS: u32 = 8;
+
 /// The stage the reader runs after it wrote a book's notes as Markdown
 /// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
 /// (`registration.stage`) and answers each run with one `notes.done` record
@@ -353,6 +359,15 @@ pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
         NOTES_MAX_INPUT,
         NOTES_MAX_REPLY,
         NOTES_MAX_RECORDS,
+    ))?;
+    // A word looked up (`core.word-looked-up` of interface 6): a vocabulary
+    // list subscribes and keeps it with its place in the book.
+    d.stage(StageDecl::new(
+        "word-looked-up",
+        WORDS_SCHEMA,
+        WORDS_MAX_INPUT,
+        WORDS_MAX_REPLY,
+        WORDS_MAX_RECORDS,
     ))?;
     d.submit()
 }

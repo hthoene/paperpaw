@@ -69,3 +69,17 @@ relative to the data folder).
   native annotations screen calls `native_notes::run(host, ROOT_FILES, path, title)` after its
   write, and the event goes with the interface-6 code at activation. readwise and joplin (Port E)
   subscribe to the stage. The metadata of the reader is unchanged.
+
+## The stage `reader.word-looked-up@1`
+
+- Replaces the event `core.word-looked-up` (`core-events.md` 5; asked for by the vocabulary port):
+  schema `stages/reader.word-looked-up@1.def`, input `word.looked`: `word` str 1,024, `sentence` str 512,
+  `path` str 512 (the book's file; never cut, a longer path is refused with `NoSpace`, the stage is not
+  run), `section` u32, `offset` u32, then optional `language` str 35 (dropped when longer) and `title`
+  str 256; reply `word.done` with an optional `status` the reader ignores; at most 8 subscribers.
+- `native_words::run` asks every subscriber once and reads nothing of what they answer or fail with;
+  the lookup is the user's. Declared in `declarations::stages` (host admission and the codec's bounds
+  are tested).
+- Not wired yet: the interface-6 reader still emits `core.word-looked-up`; the native selection flow
+  calls `native_words::run` when it exists (with the annotations screen's `native_notes::run`).
+
