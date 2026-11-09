@@ -6,10 +6,7 @@
 //! it holds checked: every file whole, once, under one spelling, the journal
 //! cleared, the catalog carried exactly when the rename took effect.
 //!
-//! The identity here is what an entry holds (names below it and bytes, as in
-//! the fake card of the tests above) until `paperpaw-fat` has its own
-//! `entry_identity`; it is stable across a rename, which is all the machine
-//! asks.
+//! The identity is FAT's own (`Storage::entry_identity`: the first cluster).
 use super::*;
 use crate::native_host::lib_moves_journal::JOURNAL;
 use core::cell::RefCell;
@@ -86,26 +83,6 @@ impl Blocks for Ram {
 
 type Fat = FatStorage<SharedDisk<Ram>>;
 
-/// What the entry at `path` holds, as a number (see the module doc).
-struct Content(Rc<Fat>);
-
-fn files_below(s: &Fat, path: &str, out: &mut Vec<String>) {
-    let mut names = Vec::new();
-    if s.list(path, &mut |e| names.push((String::from(e.name), e.is_dir)))
-        .is_err()
-    {
-        return;
-    }
-    for (name, is_dir) in names {
-        let full = std::format!("{path}/{name}");
-        if is_dir {
-            files_below(s, &full, out);
-        } else {
-            out.push(full);
-        }
-    }
-}
-
 fn whole(s: &Fat, path: &str) -> Vec<u8> {
     let mut bytes = vec![0u8; s.size(path).unwrap() as usize];
     let mut at = 0;
@@ -117,29 +94,6 @@ fn whole(s: &Fat, path: &str) -> Vec<u8> {
     bytes
 }
 
-impl EntryIdentity for Content {
-    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
-        let mut files = Vec::new();
-        match self.0.size(path) {
-            Ok(_) => files.push(String::from(path)),
-            Err(StorageError::InvalidPath) => files_below(&self.0, path, &mut files),
-            Err(StorageError::NotFound) => return Ok(None),
-            Err(error) => return Err(error),
-        }
-        if files.is_empty() {
-            return Ok(None);
-        }
-        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-        for file in &files {
-            let rest = file.strip_prefix(path).unwrap_or("");
-            for b in rest.bytes().chain(whole(&self.0, file)) {
-                hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
-            }
-        }
-        Ok(Some(hash))
-    }
-}
-
 /// A book of several clusters (2 KB each on this card), distinct per `seed`.
 fn book(seed: u8) -> Vec<u8> {
     (0..5000u32)
@@ -149,7 +103,7 @@ fn book(seed: u8) -> Vec<u8> {
 
 fn card_host(ram: &Ram) -> (CardMoves, Rc<Fat>) {
     let storage = ram.storage();
-    let host = CardMoves::new(storage.clone(), Some(Rc::new(Content(storage.clone()))));
+    let host = CardMoves::new(storage.clone());
     (host, storage)
 }
 
@@ -327,4 +281,37 @@ fn a_replacing_move_is_old_or_new_and_discards_at_most_once_after_any_cut() {
         }
     }
     assert!(renamed > 0 && kept > 0);
+}
+
+#[test]
+fn an_empty_file_has_no_identity_so_a_move_of_or_onto_it_is_refused_unchanged() {
+    let files = [
+        ("Books/empty.epub", Vec::new()),
+        ("Books/b.epub", book(6)),
+        ("Books/e2.epub", Vec::new()),
+    ];
+    let ram = Ram::formatted();
+    {
+        let s = ram.storage();
+        for (path, data) in &files {
+            s.write(path, data).unwrap();
+        }
+        s.sync().unwrap();
+    }
+    let (host, s) = card_host(&ram);
+    let moves = Moves::default();
+    // Of it: nothing to decide a cut by.
+    assert_eq!(
+        moves.begin(&host, "Books/empty.epub", "Books/new.epub", false),
+        Err(ERR_UNSUPPORTED)
+    );
+    // Onto it: never taken for "nothing there".
+    assert_eq!(
+        moves.begin(&host, "Books/b.epub", "Books/e2.epub", true),
+        Err(ERR_UNSUPPORTED)
+    );
+    assert!(!s.exists(JOURNAL));
+    assert!(holds(&s, "Books/b.epub", &book(6)));
+    assert!(s.exists("Books/empty.epub") && s.exists("Books/e2.epub"));
+    assert!(!moves.active());
 }

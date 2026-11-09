@@ -17,6 +17,8 @@ struct Card {
     inner: MemoryStorage,
     folds: bool,
     tells: bool,
+    /// Whether it has an identity of entries (`entry_identity`).
+    identifies: bool,
 }
 
 impl Card {
@@ -25,6 +27,7 @@ impl Card {
             inner: MemoryStorage::new(),
             folds: true,
             tells: true,
+            identifies: true,
         })
     }
 
@@ -83,10 +86,10 @@ impl Storage for Card {
     fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
         self.tells.then(|| a.eq_ignore_ascii_case(b))
     }
-}
-
-impl EntryIdentity for Card {
     fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        if !self.identifies {
+            return Ok(None);
+        }
         let mut files = Vec::new();
         if self.inner.exists(path) {
             files.push(String::from(path));
@@ -94,7 +97,7 @@ impl EntryIdentity for Card {
             self.files_below(path, &mut files);
         }
         if files.is_empty() {
-            return Ok(None);
+            return Err(StorageError::NotFound);
         }
         let mut hash = 0xcbf2_9ce4_8422_2325_u64;
         for file in &files {
@@ -149,7 +152,7 @@ impl MoveCarry for Carry {
 }
 
 fn host(card: &Rc<Card>) -> CardMoves {
-    CardMoves::new(card.clone(), Some(card.clone()))
+    CardMoves::new(card.clone())
 }
 
 fn library() -> Rc<Card> {
@@ -284,9 +287,15 @@ fn the_plain_card_host_has_no_catalog_and_says_not_now() {
 }
 
 #[test]
-fn without_an_identity_from_the_shell_every_move_is_refused_before_anything_changes() {
-    let card = library();
-    let host = CardMoves::new(card.clone(), None);
+fn without_an_identity_from_the_storage_every_move_is_refused_before_anything_changes() {
+    let card = Rc::new(Card {
+        inner: MemoryStorage::new(),
+        folds: true,
+        tells: true,
+        identifies: false,
+    });
+    card.put("Books/old/a.epub", b"AAA");
+    let host = CardMoves::new(card.clone());
     let moves = Moves::default();
     assert_eq!(
         moves.begin(&host, "Books/old", "Books/new", false),
@@ -301,15 +310,16 @@ fn a_storage_that_cannot_tell_same_entry_refuses_and_one_that_can_does_not() {
         inner: MemoryStorage::new(),
         folds: true,
         tells: false,
+        identifies: true,
     });
     card.put("Books/a.epub", b"A");
-    let host = CardMoves::new(card.clone(), Some(card.clone()));
+    let host = CardMoves::new(card.clone());
     assert_eq!(
         host.same_entry("Books/a.epub", "books/A.EPUB"),
         Err(ERR_UNSUPPORTED)
     );
     let told = library();
-    let host = CardMoves::new(told.clone(), Some(told.clone()));
+    let host = CardMoves::new(told.clone());
     assert_eq!(host.same_entry("Books/old", "books/OLD"), Ok(true));
     assert_eq!(host.same_entry("Books/old", "Books/other.epub"), Ok(false));
 }
@@ -357,8 +367,9 @@ fn folders_spelling_and_within_follow_the_storage() {
         inner: MemoryStorage::new(),
         folds: false,
         tells: true,
+        identifies: true,
     });
-    let host = CardMoves::new(exact, None);
+    let host = CardMoves::new(exact);
     assert!(!host.within("books/old", "Books"));
     assert!(host.within("Books/old", "Books"));
 }

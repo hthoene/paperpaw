@@ -1,13 +1,13 @@
 //! The card's side of the library's moves: [`MoveHost`] over the shell's
-//! storage, the journal ([`Journal`]) and the shell's identity of entries
-//! ([`EntryIdentity`]). What follows a move in the catalog (books' data,
-//! reader assignments, folder settings, the book-moved events) is the
+//! storage and the journal ([`Journal`]). What follows a move in the catalog
+//! (books' data, reader assignments, folder settings, the book-moved events) is the
 //! [`MoveCarry`] the host composes; this file does not know the catalog.
 //!
 //! - **Identity.** The state machine decides a half-done job by the storage's
-//!   identity of the moved entry, never by names. The shell hands over an
-//!   [`EntryIdentity`] (FAT: the first cluster; a folder storage: the file
-//!   id, no link followed). Where it gives none, every move is refused
+//!   identity of the moved entry, never by names: `Storage::entry_identity`
+//!   (FAT: the first cluster; a folder storage: the file id, no link
+//!   followed), `None` for a path that names nothing. A storage or entry that
+//!   has none (the trait default, an empty FAT file) makes the move refuse
 //!   (`ERR_UNSUPPORTED`): there is nothing to decide a cut by.
 //! - **Same entry.** `Storage::same_entry`; a storage that cannot tell
 //!   (`None`) makes the move refuse, since a case-only rename and a move
@@ -26,20 +26,6 @@ use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::{Storage, StorageError};
-
-/// The storage's identity of an entry, handed over by the shell (a host-only
-/// seam: the shared `Storage` trait does not carry it).
-pub(crate) trait EntryIdentity {
-    /// A number that is the same for an entry before and after a rename, and
-    /// different for another entry (FAT: the first cluster; for an empty file
-    /// the position of its directory entry, if the rename keeps it). `None`
-    /// where the path names nothing or the storage has no stable identity
-    /// for it.
-    ///
-    /// # Errors
-    /// The storage's error where it could not be read.
-    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError>;
-}
 
 /// What follows a move in the catalog: needs the kernel's view of the
 /// catalog (the `Env`), so it is bound to one step of the main loop, never
@@ -65,16 +51,14 @@ pub(crate) trait MoveCarry {
 /// until the step has carried it.
 pub(crate) struct CardMoves {
     storage: Rc<dyn Storage>,
-    identity: Option<Rc<dyn EntryIdentity>>,
     /// Journals set aside as unreadable since the kernel last asked.
     set_aside: Cell<u32>,
 }
 
 impl CardMoves {
-    pub(crate) fn new(storage: Rc<dyn Storage>, identity: Option<Rc<dyn EntryIdentity>>) -> Self {
+    pub(crate) fn new(storage: Rc<dyn Storage>) -> Self {
         Self {
             storage,
-            identity,
             set_aside: Cell::new(0),
         }
     }
@@ -117,11 +101,12 @@ impl MoveHost for CardMoves {
     }
 
     fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
-        let Some(identity) = &self.identity else {
-            return Err(ERR_UNSUPPORTED);
-        };
-        match identity.entry_identity(path) {
-            Ok(found) => Ok(found),
+        match self.storage.entry_identity(path) {
+            Ok(Some(identity)) => Ok(Some(identity)),
+            // The entry is there but has none to decide a cut by (an empty
+            // FAT file, a storage that cannot tell): refused, before
+            // anything is written, never taken for "nothing there".
+            Ok(None) => Err(ERR_UNSUPPORTED),
             Err(StorageError::NotFound) => Ok(None),
             Err(error) => Err(status(error)),
         }
