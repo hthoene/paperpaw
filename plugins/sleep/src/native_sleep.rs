@@ -47,6 +47,53 @@ pub fn binding<'a, S: AsRef<str>>(value: &str, candidates: &'a [S]) -> Option<&'
         .find(|screen| *screen == value)
 }
 
+/// What to do with the slot [`SLOT`] after the reader changed `sleep.show` to
+/// `value`. Asked only for such a change, never at start: the slot's binding
+/// is the reader's, and a start leaves it alone (`reg_slot.flags` bit 0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Bind<'a> {
+    /// Bind the slot to this screen (another plugin's mode).
+    Screen(&'a str),
+    /// Bind the slot back to its default, the plugin's own screen.
+    Default,
+    /// Touch nothing.
+    Leave,
+}
+
+/// What to do for the new `value` of `sleep.show` (Kernel's ruling):
+/// - another plugin's mode that is one of the screens now offered for the
+///   slot (`offered`): bind it;
+/// - one of the plugin's own modes, or empty: bind back to the default, but
+///   only if the slot is bound now (`current`) to a screen that is one of
+///   `sleep.show`'s foreign choices (`choices`), a sleep mode; a screen the
+///   reader bound by hand for another purpose is left alone;
+/// - a value no plugin offers, or the plugin's own screen's id: leave it.
+#[must_use]
+pub fn plan<'a, S: AsRef<str>, C: AsRef<str>>(
+    value: &str,
+    offered: &'a [S],
+    current: Option<&str>,
+    choices: &[C],
+) -> Bind<'a> {
+    if let Some(screen) = binding(value, offered) {
+        return Bind::Screen(screen);
+    }
+    if is_foreign(value) {
+        return Bind::Leave;
+    }
+    match current {
+        Some(now)
+            if is_foreign(now)
+                && now != OWN_SCREEN
+                && choices.iter().any(|choice| choice.as_ref() == now) =>
+        {
+            Bind::Default
+        }
+        _ => Bind::Leave,
+    }
+}
+
 /// What is at hand when the screen opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools, reason = "one fact each")]

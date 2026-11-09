@@ -372,3 +372,62 @@ fn odd_and_long_values_bind_nothing_and_do_not_panic() {
     assert!(!is_foreign(""));
     assert!(!is_foreign(CAT));
 }
+
+/// The slot as the host keeps it: what `plan` says is applied to it.
+fn apply(slot: &mut Option<String>, plan: Bind<'_>) {
+    match plan {
+        Bind::Screen(screen) => *slot = Some(screen.to_string()),
+        Bind::Default => *slot = None,
+        _ => {}
+    }
+}
+
+const BUILT: [&str; 8] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE, ""];
+
+/// A reader bound `core.sleep` by hand in the plugin manager, to a screen that
+/// is not one of `sleep.show`'s foreign choices: changing `sleep.show` to an
+/// own mode leaves that binding alone. (A start asks nothing at all: the plugin
+/// does not subscribe to it, so a binding survives a restart.)
+#[test]
+fn a_binding_the_reader_made_survives() {
+    let by_hand = Some("other.tool-screen".to_string());
+    for value in BUILT {
+        let mut slot = by_hand.clone();
+        apply(
+            &mut slot,
+            plan(value, &[] as &[&str], by_hand.as_deref(), &[GOAL]),
+        );
+        assert_eq!(slot, by_hand, "{value:?}");
+    }
+    // Nothing known of the slot: nothing to unbind.
+    assert_eq!(plan(CAT, &[] as &[&str], None, &[GOAL]), Bind::Leave);
+    // Stale values and the plugin's own screen's id leave the slot alone.
+    for value in ["gone.mode", OWN_SCREEN] {
+        assert_eq!(
+            plan(value, &["x"], Some(GOAL), &[GOAL]),
+            Bind::Leave,
+            "{value}"
+        );
+    }
+}
+
+/// Changing to an own mode puts the slot back to its default only where it is
+/// bound to a sleep mode (one of `sleep.show`'s foreign choices); an offered
+/// foreign mode binds.
+#[test]
+fn a_change_unbinds_only_a_sleep_mode_and_binds_an_offered_one() {
+    for value in BUILT {
+        let mut slot = Some(GOAL.to_string());
+        let decided = plan(value, &[GOAL], Some(GOAL), &[GOAL]);
+        apply(&mut slot, decided);
+        assert_eq!(slot, None, "{value:?}");
+    }
+    // The plugin's own screen's id is no sleep mode to unbind.
+    assert_eq!(
+        plan(CAT, &[] as &[&str], Some(OWN_SCREEN), &[OWN_SCREEN]),
+        Bind::Leave
+    );
+    let mut slot = None;
+    apply(&mut slot, plan(GOAL, &[GOAL], None, &[GOAL]));
+    assert_eq!(slot.as_deref(), Some(GOAL));
+}
