@@ -46,6 +46,7 @@ impl EventBudget {
             edges: Vec::new(),
             order: [0; ORDER],
             len: 0,
+            drop_logged: false,
         })
     }
     #[cfg(test)]
@@ -61,6 +62,8 @@ pub(crate) struct Pending {
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
+    /// A dropped event was logged since the queue was last empty.
+    drop_logged: bool,
 }
 
 struct PluginBudget {
@@ -207,6 +210,12 @@ impl Pending {
         Ok(())
     }
 
+    /// Notes that an event was dropped; `true` for the first since the queue
+    /// was last empty (a full store logs once, not on every event).
+    pub(crate) fn note_drop(&mut self) -> bool {
+        !core::mem::replace(&mut self.drop_logged, true)
+    }
+
     /// Whether a held edge waits: a later edge goes behind it.
     pub(crate) fn has_edges(&self) -> bool {
         !self.edges.is_empty()
@@ -256,6 +265,9 @@ impl Pending {
         let id = self.order[0];
         self.order.copy_within(1..usize::from(self.len), 0);
         self.len -= 1;
+        if self.len == 0 {
+            self.drop_logged = false;
+        }
         if id == REREAD {
             return Some(Ready::Reread);
         }
@@ -278,6 +290,7 @@ impl Pending {
     pub(crate) fn clear(&mut self) {
         self.edges.clear();
         self.len = 0;
+        self.drop_logged = false;
     }
 }
 impl Drop for Pending {
