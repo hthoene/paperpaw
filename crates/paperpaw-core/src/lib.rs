@@ -60,6 +60,7 @@ mod hyphen_feed;
 mod input;
 mod input_filters;
 mod io;
+mod key_guard;
 mod keymap;
 mod meter;
 pub mod native_host;
@@ -109,7 +110,7 @@ use paperpaw_sdk::{
 
 pub use crate::builder::KernelBuilder;
 pub use crate::card::CardTrouble;
-pub use crate::code_plugin::{CodeFile, CodeLoader, code_to_load};
+pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::{CORE, CorePlugin};
 pub use crate::effects::{Effect, Effects};
@@ -659,7 +660,7 @@ impl Kernel {
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {
-        self.guard().is_some() || self.stack.iter().any(|s| s.screen.secret())
+        self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
 
     /// The plugin of the screen that guards the device, else of the one a
@@ -667,7 +668,7 @@ impl Kernel {
     fn secret_owner(&self) -> Option<alloc::string::String> {
         let guard = self.guard().map(|at| &self.stack[at]);
         guard
-            .or_else(|| self.stack.iter().rev().find(|s| s.screen.secret()))
+            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
             .map(|s| alloc::string::String::from(s.id.namespace()))
     }
 
@@ -1277,6 +1278,8 @@ struct Shared {
     translator: Translator,
     fonts: Fonts,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
+    /// The refused bindings told of while a screen guarded ([`key_guard`]).
+    key_guard_warned: key_guard::Warned,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     /// The generation of `core.registry`, bumped when a list it reads changes.
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,

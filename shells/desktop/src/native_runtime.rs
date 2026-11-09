@@ -331,6 +331,7 @@ unsafe fn checked_library(
     })
 }
 
+mod admit;
 mod plugin_output;
 
 // Separate from both CodeLoader and the process-owned inactive load path.
@@ -340,7 +341,7 @@ mod plugin_output;
 )]
 mod owned;
 
-pub(crate) use owned::dev::load_flat_with_resources;
+pub(crate) use owned::dev::admission;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};
