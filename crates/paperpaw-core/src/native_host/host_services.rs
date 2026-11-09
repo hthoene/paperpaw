@@ -343,7 +343,10 @@ impl HostServices {
         if sources.has(super::storage_files::BusyKind::Network) {
             return Ok(());
         }
-        sources.register(super::storage_files::BusyKind::Network, self.in_use().clone())
+        sources.register(
+            super::storage_files::BusyKind::Network,
+            self.in_use().clone(),
+        )
     }
 
     /// The owner directory, made on first use.
