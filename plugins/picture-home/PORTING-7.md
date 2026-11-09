@@ -55,6 +55,13 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
 - `H1/H4`: the chooser and the editor through the production loader (`picture-home-pick`,
   `picture-home-bar-items-editor`), and `KIT-grip-drag` for the grip's finger drag.
 
+### Gate: not in `NATIVE_PLUGINS` or `complete.txt` before the dashboard
+
+`make` submits the `core.home` offer at the priority of a replacing plugin, but `dashboard` and `add` answer
+`Unsupported` until the dashboard slice. Listing the plugin before then would replace the home screen with one that
+cannot open. So `NativePictureHome` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only with
+the dashboard slice (together with the removal step below).
+
 ### Removal step (one later sweep)
 
 When the host activates native plugins, delete together: `PictureHome` (`lib.rs`), `add.rs`,
