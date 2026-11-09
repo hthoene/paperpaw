@@ -1,9 +1,10 @@
-# Interface-7 port (slices 1 to 3b: the pages' model, the declarations, the native entry, the dashboard)
+# Interface-7 port (slices 1 to 3f: the pages' model, the declarations, the native entry, the dashboard, *Add*, arranging, icons, the tools drawer)
 
-Version 1.0.6. Partial: the host-free model of the home screen's pages, its declarations, and (slice
-3a) the native entry with the footer items' editor. The dashboard, *Add* and the drawer are still
-to come; the interface-6 `Home` and everything of it stays until the host activates native plugins
-(then it goes together, no shim).
+Version 1.0.6. Partial: the host-free model of the pages, the declarations, the native entry, the
+dashboard (viewing, editing, *Add*, arranging), the icons and the tools drawer are native; the
+built-in widgets, the status line, the fitting to a new grid and what needs the host are not (see
+*Not ported yet* and *Blockers*). The interface-6 `Home` and everything of it stays until the host
+activates native plugins (then it goes together, no shim).
 
 ## Ported
 
@@ -31,11 +32,16 @@ interface-6 suites in `tests/` still pin the behaviour end to end.
 
 ## Not ported yet (explicit)
 
-Everything that draws or takes input, in later slices: the dashboard (`Dashboard`, targets, the
-status line, page dots, the pencil), the built-in widgets (`blocks`: status, date, continue,
-recent), *Add* (`add`), the tools drawer (`drawer`), editing by dragging (needs the H4 pointer
-forwarding and H3 composition of widgets), covers and the recent books (LIB service), the
-settings and the menu entries. Each will be an ignored acceptance case naming what it waits for.
+Each is an ignored case in `tests/acceptance_pending.rs`; the section *Blockers* below says for
+each what it waits for.
+
+- The built-in widgets (`blocks.rs`: status line, date, clock, continue reading, recently read) with
+  their settings and groups, and the covers and the recent books they show.
+- The status line above the grid (composed through slot 35).
+- The fitting of the pages to a new grid (`native_pages::reflow` is ready).
+- *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
+  the finger's drag of an item, its corner and the footer items' grips.
+- The help hints (`help.hint` declarations).
 
 ## Activation items (todo 90)
 
@@ -95,13 +101,16 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
 
 ### Gaps (each an ignored acceptance case in `tests/acceptance_pending.rs`)
 
-- *The grid's columns or rows changed* (the subscription to setting changes is declared and ignored):
-  the pages are fitted to the new grid by the dashboard's slice. A widget's size in cells comes from
-  `widget_measure` of an instance, which only a screen showing it makes (docs/abi/ui.md 5.2); the
-  registry's widget rows carry no size. `native_pages::reflow` is ready for it.
+- *The grid's columns or rows changed* (the subscription to setting changes is declared; the
+  handler is not written): the pages are to be fitted to the new grid. A widget that declares its
+  cells has its size from the registry row (cell hints, draft 29); any other is measured with
+  `widget_measure` of an instance made for it (docs/abi/ui.md 5.2). `native_pages::reflow` is ready;
+  what is missing is the handler (a callback that has the screen's size: at the dashboard's show),
+  which writes with `set_setting` as *Add* does.
 - The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
   a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
-- `make` is refused by the host today as `Unsupported` (#944, `tests/hosted_construction.rs`).
+- The host admits every declaration home makes and refuses `make` at the commit
+  (`Lifecycle(DeclarationViewsUnavailable)`, #944, `tests/hosted_construction.rs`).
 
 ### What legacy removal deletes
 
@@ -229,3 +238,25 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
 Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and tools of a few
 dozen bytes) and one page of cells with their names; one dashboard open at a time. Not measured on
 the device.
+
+## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
+
+Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the missing piece.
+
+| Case | Blocker | State |
+| --- | --- | --- |
+| all cases | H1 native screens and commands | (b) navigation commands on the real stack #820 and `screen_policy` #829 (approved, train 7). (c) code activation (todo 90, `shell_commands` wiring) has no PR |
+| dashboard, drawer, editors | H4 input | (b) key layer #805, escape #815, `help.hint`/`input.spec` admission #818. (c) gestures and pointer input to native screens (H4a) has no PR |
+| edit | H2 dialogs, hand-over store | (c) H2a (the stack opens the request's dialog instance) has no PR |
+| widgets in the screen, status line, reflow, gallery | H3 composition (slot 35) | (b) #827 (draft, needs Senior; the X4 refuses until its stack gate, ui.md 8.2) |
+| dashboard slice (`HOME-dashboard-slice`) | the dashboard measures widgets | (a) done in slices 3b–3d; the stale blocker is gone |
+| cell hints (`KERNEL-cell-hints`) | a widget's declared cells | (a) done (#824) |
+| subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (c) the host does not deliver `event.widget_changed` (86) yet (core has only its codec; `command.widget_changed` is unsupported too) |
+| built-in widgets (`WIDGETS-declarations`) | the five widgets are still `blocks.rs` | (c) plugin work: port them like the widgets plugin's (composition #827 is wired by H3a); the covers and books need library calls and the image slots (SDK facade #692) |
+| status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
+| reflow (`HOME-reflow-slice`, was in `HOME-dashboard-slice`) | the setting-change handler | (c) plugin work, host ready: event 64 admitted (#763) |
+| help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
+| gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
+| options' *Settings* (`HOME-item-settings`) | | (c) plugin work |
+| grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
+| hosted construction | #944 | host admits all declarations; refuses at the commit until the registry views are wired (`DeclarationViewsUnavailable`); hosted harness #788 (train 6) |
