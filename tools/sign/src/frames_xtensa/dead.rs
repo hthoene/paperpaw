@@ -19,6 +19,38 @@
 //!    refused as before (a tripwire, not a budget).
 //!
 //! The word is never scanned as code (not a frame, an entry or a start).
+//!
+//! The limits of this rule. It guards against what a compiler and linker make,
+//! not against a hand-made file (the scan as a whole is no sandbox): a file
+//! made to hide code can hide it in a literal an `l32r` reads, too. The cap of
+//! [`MAX_BYTES`] is a tripwire, not a budget (the real plugins have two or
+//! three dead words). "Loaded" means a section with the `SHF_ALLOC` flag: the
+//! relocations and words of the other sections (debug information) are not
+//! references. A relocation section that names no section it relocates is
+//! counted (fails closed). A word that decodes as `entry`, a return, `jx` or
+//! `callx` is refused whatever else is true ([`looks_like_control`]).
+//!
+//! What this does not see: an address built at run time (`l32r` and `addi`
+//! into `.text`) and a PC-relative jump table. A compiler sends those into
+//! function bodies, not into a literal pool, and the S3 has neither `LITBASE`
+//! nor FLIX; a relocation (`--emit-relocs`) names every static reference
+//! anyway. A word that starts a gap is let through only after a function that
+//! ends in a return, a jump or `ill` (the function does not run on into it).
+
+/// Whether the code before `end` ends where control does not go on: `ret`,
+/// `retw`, `ret.n`, `retw.n`, `ill` or `j`.
+pub(crate) fn ends_control(code: &[u8], end: usize) -> bool {
+    let tail = &code[..end.min(code.len())];
+    tail.ends_with(&[0x1d, 0xf0])
+        || tail.ends_with(&[0x0d, 0xf0])
+        || tail.ends_with(&[0x80, 0x00, 0x00])
+        || tail.ends_with(&[0x90, 0x00, 0x00])
+        || tail.ends_with(&[0x00, 0x00, 0x00])
+        || tail
+            .len()
+            .checked_sub(3)
+            .is_some_and(|n| tail[n] & 0x3F == 0x06)
+}
 
 /// The most bytes of dead words one image may have.
 pub const MAX_BYTES: usize = 64;
@@ -49,12 +81,14 @@ pub(crate) fn wide_target(at: usize, w: u32) -> Option<i64> {
         // CALLN: the word the call lands on.
         5 => Some((at & !3) + 4 + (sign(w >> 6, 18) << 2)),
         6 => {
-            let (n, m) = ((w >> 4) & 3, (w >> 6) & 3);
+            let (n, m, r) = ((w >> 4) & 3, (w >> 6) & 3, (w >> 12) & 0xF);
             match n {
                 0 => Some(at + 4 + sign(w >> 6, 18)),
                 1 => Some(at + 4 + sign(w >> 12, 12)),
                 // `entry` has no target.
                 3 if m == 0 => None,
+                // `loop`, `loopnez`, `loopgtz`: the offset is unsigned.
+                3 if m == 1 && (8..=10).contains(&r) => Some(at + 4 + i64::from(w >> 16)),
                 _ => Some(at + 4 + sign(w >> 16, 8)),
             }
         }
@@ -67,4 +101,18 @@ pub(crate) fn wide_target(at: usize, w: u32) -> Option<i64> {
 pub(crate) fn narrow_target(at: usize, w: u32) -> Option<i64> {
     let (t, r) = ((w >> 4) & 0xF, (w >> 12) & 0xF);
     (w & 0xF == 0xC && t & 8 != 0).then(|| at as i64 + 4 + i64::from(((t & 3) << 4) | r))
+}
+
+/// Whether any 3-byte window of `word` decodes as `entry` (op0 6, n 3, m 0), as
+/// `ret`, `retw`, `jx` or `callx*` (RST0 `st0` with `r` 0), or any 2-byte one
+/// as `ret.n` or `retw.n`: a word that reads as control flow is never let
+/// through as a constant (cheap, and it costs nothing for a real constant).
+pub(crate) fn looks_like_control(word: [u8; 4]) -> bool {
+    let wide = (0..=1).any(|n| {
+        let w = u32::from(word[n]) | u32::from(word[n + 1]) << 8 | u32::from(word[n + 2]) << 16;
+        let (op0, t, r) = (w & 0xF, (w >> 4) & 0xF, (w >> 12) & 0xF);
+        let rst0 = op0 == 0 && (w >> 16) == 0 && r == 0;
+        (w & 0xFF == 0x36) || (rst0 && (t == 0 || t >> 2 >= 2))
+    });
+    wide || (0..=2).any(|n| matches!(word[n..n + 2], [0x0d | 0x1d, 0xf0]))
 }

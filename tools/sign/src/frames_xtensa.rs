@@ -381,10 +381,19 @@ fn uncovered(
                 let word = at & !3;
                 let fits = before_function
                     && word >= lower
+                    && (word > lower || n == 0 || dead::ends_control(code, lower))
                     && word + 4 <= start.min(code.len())
                     && (dead.len() + 1) * 4 <= dead::MAX_BYTES;
-                let unreached = reach
-                    .is_some_and(|r| !dead::hits(&r.pointed, word) && !dead::hits(targets, word));
+                let unreached = reach.is_some_and(|r| {
+                    !dead::hits(&r.pointed, word)
+                        && !dead::hits(targets, word)
+                        && !dead::looks_like_control([
+                            code[word],
+                            code[word + 1],
+                            code[word + 2],
+                            code[word + 3],
+                        ])
+                });
                 if !(fits && unreached) {
                     return Some(at);
                 }
@@ -461,10 +470,11 @@ fn reach(
         if section.kind == SHT_RELA {
             // Only the relocations of loaded sections: the debug sections'
             // addresses (`.text + n`: a line or a range) are not references.
-            if !elf
+            // One that names no section counts (fails closed).
+            if elf
                 .sections
                 .get(section.info as usize)
-                .is_some_and(Section::is_alloc)
+                .is_some_and(|s| !s.is_alloc())
             {
                 continue;
             }

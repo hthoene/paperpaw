@@ -380,6 +380,68 @@ fn a_dead_word_that_a_call_a_jump_or_a_branch_goes_to_is_refused() {
 }
 
 #[test]
+fn a_hardware_loops_end_is_unsigned_and_a_word_after_a_running_on_function_is_refused() {
+    // f1: entry, `loop a2, +imm8`, 98 `nop.n`, `retw.n` (204 bytes), the dead
+    // word at 204, f2 at 208. A loop's end is at + 4 + imm8, imm8 unsigned.
+    let f1 = |imm8: u32, last: &[u8]| {
+        let mut code = ENTRY_32.to_vec();
+        let w = 0x06 | 7 << 4 | 2 << 8 | 8 << 12 | imm8 << 16;
+        code.extend_from_slice(&[w as u8, (w >> 8) as u8, (w >> 16) as u8]);
+        for _ in 0..98 {
+            code.extend_from_slice(&[0x3d, 0xf0]);
+        }
+        code.extend_from_slice(last);
+        assert_eq!(code.len(), 204);
+        code.extend_from_slice(&DEAD);
+        code.extend_from_slice(&ENTRY_32);
+        code.extend_from_slice(&RETW_N);
+        let ranges = vec![(0, 204), (208, code.len())];
+        (code, ranges)
+    };
+    // 200 (a signed read makes it -56): 3 + 4 + 200 = 207, in the word.
+    let (code, ranges) = f1(200, &RETW_N);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 205 }), vec![])
+    );
+    // 190: the end is at 197, inside the function.
+    let (code, ranges) = f1(190, &RETW_N);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (None, vec![204])
+    );
+    // The same, but the function runs on into the word (it ends in a `nop.n`).
+    let (code, ranges) = f1(190, &[0x3d, 0xf0]);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 205 }), vec![])
+    );
+}
+
+#[test]
+fn a_dead_word_that_reads_as_control_flow_is_refused() {
+    for word in [
+        [0x36, 0x41, 0x00, 0x00], // entry a1, 32
+        [0x00, 0x36, 0x41, 0x00], // the same, one byte on
+        [0x80, 0x00, 0x00, 0x00], // ret
+        [0x90, 0x00, 0x00, 0x00], // retw
+        [0xa0, 0x00, 0x00, 0x00], // jx a0
+        [0xc0, 0x00, 0x00, 0x00], // callx8 a0
+        [0x1d, 0xf0, 0x00, 0x00], // retw.n
+        [0x00, 0x00, 0x0d, 0xf0], // ret.n
+    ] {
+        let (code, ranges) = pool(&[0, 0, 0, word[0], word[1], word[2], word[3]], &[]);
+        assert_eq!(code[8..12], word);
+        assert_eq!(
+            scan_ranges_in(&code, &ranges, Some(&nothing())).1,
+            Vec::<usize>::new(),
+            "{word:02x?}"
+        );
+    }
+    assert!(!dead::looks_like_control(DEAD));
+}
+
+#[test]
 fn a_gap_that_is_partial_unaligned_or_after_the_last_function_is_refused() {
     // The gap is 5..8: the word at 4 is not wholly in it.
     let (code, ranges) = pool(&[0x00, 0xff, 0x00], &[]);
