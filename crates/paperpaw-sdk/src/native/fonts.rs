@@ -10,6 +10,8 @@ pub(super) const TEXT_MEASURE_MAX_BYTES: usize = 4096;
 pub(super) const TEXT_DRAW_MAX_BYTES: usize = 4096;
 /// Maximum UTF-8 text size accepted by the text.ink slot.
 pub(super) const TEXT_INK_MAX_BYTES: usize = 4096;
+/// The longest text `Font::covers` asks about (`text.covers`).
+pub(super) const TEXT_COVERS_MAX_BYTES: usize = 1024;
 
 /// Horizontal text position and baseline in screen pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -222,3 +224,7 @@ mod drawing_tests;
 #[path = "fonts_metrics.rs"]
 mod metrics;
 pub use metrics::InkBounds;
+
+#[path = "fonts_icons.rs"]
+mod icons;
+pub use icons::IconGlyph;
