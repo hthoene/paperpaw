@@ -71,6 +71,12 @@ impl Dev {
 const ALL: u64 = caps::WIFI | caps::BLUETOOTH | caps::FIRMWARE | caps::NETWORK;
 
 impl Fake {
+    /// The generation the shell's lists have.
+    pub(super) fn with_generation(mut self, generation: u32) -> Self {
+        self.generation = generation;
+        self
+    }
+
     /// A device with every part.
     pub(super) fn full() -> Self {
         Self {

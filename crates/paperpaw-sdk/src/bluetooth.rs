@@ -1428,6 +1428,19 @@ impl core::fmt::Debug for BluetoothView<'_> {
 }
 
 impl<'a> BluetoothView<'a> {
+    /// As `running` sees it: the plugin that called a host service.
+    #[cfg(any(feature = "kernel", test))]
+    #[must_use]
+    pub fn seen_by<'b>(&self, running: &'b dyn crate::secrets::Running) -> BluetoothView<'b>
+    where
+        'a: 'b,
+    {
+        BluetoothView {
+            all: self.all,
+            running,
+        }
+    }
+
     pub(crate) fn new(all: &'a Bluetooth, running: &'a dyn crate::secrets::Running) -> Self {
         Self { all, running }
     }
