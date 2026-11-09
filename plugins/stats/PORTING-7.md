@@ -422,4 +422,12 @@ that sends and reads it is in place.
 ## Not tested here (each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The pixels of every widget (a kernel-backed harness), and the end-to-end answer of the status stage.
-- The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.
+- The fixture `stats.flow` of the interface-6 tests is gone (the app no longer hosts the plugin; `settings.flow` took its place in the flows test).
+
+## The stage of Reading goal
+
+- Reading goal owns the stage `reading-goal.read-today` (Kernel's ruling) and the statistics subscribe to it
+  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Asked with nothing or today's day they
+  answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
+  another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
+  slices is gone (nothing asked it).

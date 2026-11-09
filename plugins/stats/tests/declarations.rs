@@ -97,14 +97,14 @@ fn the_events_are_the_ones_reading_is_recorded_from() {
 }
 
 #[test]
-fn the_stage_tells_today_with_a_day_and_the_seconds() {
+fn the_statistics_answer_the_stage_of_reading_goal() {
     let mut all = String::new();
     for batch in batches(|sink| declarations::stages(sink)) {
         for record in records_decode(&batch).unwrap().iter() {
             all.push_str(&format!("{record:?}\n"));
         }
     }
-    assert!(all.contains("read-today"), "{all}");
+    assert!(all.contains("reading-goal.read-today"), "{all}");
 }
 
 /// Every record is well formed for the host, and the host admits every one of

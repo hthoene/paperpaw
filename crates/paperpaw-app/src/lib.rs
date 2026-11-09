@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 35] = [
+pub const STORE_PLUGINS: [&str; 33] = [
     "aids",
     "browser",
     "calibre",
@@ -106,7 +106,6 @@ pub const STORE_PLUGINS: [&str; 35] = [
     "notes-vault",
     "picture-home",
     "read-later-cloud",
-    "reading-goal",
     "readwise",
     "translate",
     "vocabulary",
@@ -252,7 +251,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
-        b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);

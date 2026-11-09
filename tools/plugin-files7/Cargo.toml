@@ -213,7 +213,7 @@ paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
-paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
 paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }

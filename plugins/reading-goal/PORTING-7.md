@@ -1,8 +1,19 @@
-# Reading goal on interface 7 (partly ported)
+# Reading goal on interface 7
 
-Status: **not complete.** The interface-6 plugin (`lib.rs` registration, `widget.rs`,
-`sleep.rs`, `pictures.rs`) is still in place, because the host services it needs
-are not there. It is removed in the PR that finishes the port.
+Status: **complete, with two named gaps.** The plugin is the native plugin only: the interface-6
+plugin (`lib.rs` registration, `widget.rs`, `sleep.rs`, `pictures.rs`, `mood.rs`), its integration tests
+(`tests/goal.rs`, the parity tests against the interface-6 registration), its registration in
+`paperpaw-app`, its store-file builder (`tools/plugin-files`, `plugins.txt` keeps a comment line) and the
+feature `embedded-pictures` (the app no longer carries the plugin, so the cats are not built in) are gone.
+**Two things of Beta 3 are not there until the host has them** (each is an ignored case, see *Blocked*):
+
+1. **The cats installed with the plugin** (`pictures/<mood>.png` in the plugin's install folder) need
+   `PrepareRoot::Bundle` (`image_prepare` root 2; Services todo 308, Host todo 309). Until it exists the
+   cat shows only from one's own folder (`reading-goal.pictures`, any size, `.png`/`.jpg`/`.jpeg`, through
+   the library root) and otherwise as the mood in words (what interface 6 did where the file was missing).
+2. **The sleep screen's choice** (`sleep.show = reading-goal.sleep`, *Today's reading cat*): it needs the
+   native `sleep` (PR #649) to take another plugin's mode (`add_choice`, a `setting.choice` declaration)
+   and to run its screen. `declarations::screens` (token 10) keeps the identity.
 
 ## Ported (no host needed): `src/model.rs`
 
@@ -47,7 +58,7 @@ are not there. It is removed in the PR that finishes the port.
   started yet, `ERR_NOT_FOUND`, busy, no stage, a malformed reply) leaves what was kept: `figure()`
   is tested for each. Not pushed by the statistics on every page turn (X4 stack and time). A host that
   does not admit stages yet leaves the stage out; `make` tolerates exactly that refusal
-  (`ERR_UNSUPPORTED`). The statistics' side (the subscription and `stats.goal`) is a follow-up PR.
+  (`ERR_UNSUPPORTED`). The statistics' side is in `plugins/stats` (see *Ported: the statistics' side*).
 - The write is best effort like interface 6's (`.ok()`): a failed write is not told; the figure is
   kept and written at the next edge.
 
@@ -72,10 +83,10 @@ are not there. It is removed in the PR that finishes the port.
 - The host asks the height (the frame, half the width for the picture, the line of minutes), where it
   sits and its one target (the whole widget) through `core.widget`; it draws (`DrawPurpose::Widget`)
   and sends the tap to the same token.
-- It shows what interface 6 showed except the picture: the **mood in words in the picture's place**
+- It shows the picture (below), or where there is none the **mood in words in the picture's place**
   (what interface 6 did where the file was missing) and below it `12 / 20 min`, `12 min` without a
   goal, or *Statistics off* where they do not count (the part *minutes* switches the line off).
-  The cat's pictures need images (draft 22); the ignored case
+  The pixels need a host that composes widgets: the ignored case
   `the_widget_shows_the_cat_of_todays_mood_and_the_minutes` names that.
 - The figure the widget shows is the one kept (what the statistics told, else `today.txt`) with
   today by the local time; the plugin asks the statistics' stage each minute (the tick, only while a
@@ -97,29 +108,36 @@ are not there. It is removed in the PR that finishes the port.
 - The interface-6 `widget.rs`, `sleep.rs`, `pictures.rs` and the registration in `lib.rs` stay with
   the sleep screen's port; they go in the PR that finishes it (no shim).
 
-## Dependencies before the interface-6 code can go (no regression allowed: Beta 3's cat picture and sleep-screen mode stay)
+## Ported: the cat's picture (`src/native_picture.rs`)
 
-The interface-6 `widget.rs`, `sleep.rs`, `pictures.rs` and the registration in `lib.rs` are removed in the PR that
-can replace all of what they do. Three things must land first:
+- Which file to ask the host for, and what its answer leads to, is decided without a host (`Pictures`,
+  `candidate`, `steps`, `Next`; tests in `src/native_picture/tests.rs`). The order is interface 6's: one's own
+  folder (`reading-goal.pictures`, `<mood>.png`, `.jpg`, `.jpeg` in either case, through
+  `PrepareRoot::Library`, which needs `uses.storage`: declared), then the cats of the plugin's install
+  folder (`Source::Bundle`, left out until `PrepareRoot::Bundle` exists: `root_of` in `native_plugin.rs`).
+  Pictures are decoded to at most 800 pixels a side.
+- One request is open at a time and one picture is held: the one of the mood the widget shows. The cookie is
+  the mood and the step, so an answer to anything else is ignored. A refusal for memory or the card is asked
+  again at the next minute; all files tried leaves the mood in words and is not asked again until the folder
+  setting changes (`event.setting_changed` for `reading-goal.pictures`; the held picture is released then).
+- Asked when a widget is made and at each minute tick (never in a draw callback). When the picture is ready
+  the plugin releases the one it held and tells every widget's maker (`widget_changed`).
+- The widget leaves the room above the minutes free and draws the picture over it with `canvas.draw_image`
+  (`ImageStyle::new()`: scaled to fit, centred); a host that refuses it leaves the frame and the minutes.
+  Metadata lists `canvas.draw_image`.
 
-1. **The SDK image facade** (Services todo 75: slots 36/37 `image.info` and `canvas.draw_image`,
-   `command.image_prepare`, `event.image_ready`; `docs/abi/document.md` section 5). Without it the cat's picture
-   (own folder, else the four embedded cats) cannot be drawn in the widget or on the sleep screen. Then the
-   widget draws the picture instead of the mood in words and `pictures.rs` goes.
-2. **Port F's native `sleep`**: the sleep screen's choice `sleep.show = reading-goal.sleep` is added at run time
-   by interface-6 code; the native offer (`declarations::screens`, token 10) joins once the native `sleep`
-   plugin takes a mode of another plugin. Then `sleep.rs` goes.
-3. **H1** (a host that composes screens and takes screen commands): the widget's tap opening the settings on
-   `stats.goal` (`the_widget_is_drawn_and_a_tap_opens_the_goal`).
+## Ported: the statistics' side
 
-## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
+- The statistics (`plugins/stats`) subscribe to `reading-goal.read-today` (token 5) and answer it with the
+  day and the seconds read on it, for nothing or today's day asked; another day is not found. Their own
+  stage `stats.read-today` is gone.
 
-- The statistics subscribing to `reading-goal.read-today` and answering (stats side, see above).
-- Images (draft 22) for the cat's picture in the widget and the sleep screen; the sleep plugin on
-  interface 7 (its choice `sleep.show = reading-goal.sleep` is added at run time on interface 6).
-- The widget composed and drawn by the host (H1, H3) and the tap's screen command.
-- The sleep screen's declaration (`declarations::screens`, token 10; `tests/abi7_declarations.rs`
-  keeps its identity parity) joins the image when it can draw.
+## Blocked (each is an ignored case in `tests/acceptance_pending.rs` or `src/native_picture/tests.rs`)
+
+- `PrepareRoot::Bundle`, Services todo 308 and Host todo 309: the installed cats.
+- PR #649 (native `sleep`) and `add_choice`: the sleep screen's choice and screen.
+- A host that composes widgets and runs native plugins end to end: the pixels of the widget, and the tap
+  that opens the settings on `stats.goal` (the scripted host stages no screen command).
 
 ## Heap gate and the first tick
 

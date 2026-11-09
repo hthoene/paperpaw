@@ -32,7 +32,6 @@ store-plugins = [
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-translate",
-    "dep:paperpaw-plugin-reading-goal",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
@@ -123,7 +122,6 @@ paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
 paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
-paperpaw-plugin-reading-goal = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }

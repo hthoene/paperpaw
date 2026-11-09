@@ -1580,7 +1580,6 @@ dependencies = [
  "paperpaw-plugin-power",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reader",
- "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",

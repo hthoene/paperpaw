@@ -2,7 +2,7 @@
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl, StageDecl, StatusItemDecl, SubscribeDecl, WidgetDecl,
+    MenuEntryDecl, ScreenDecl, SpecDecl, StatusItemDecl, SubscribeDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -28,6 +28,9 @@ pub const RING_TOKEN: u32 = 42;
 pub const STREAK_TOKEN: u32 = 43;
 pub const CALENDAR_WIDGET_TOKEN: u32 = 44;
 pub const YEAR_TOKEN: u32 = 45;
+/// The stage of Reading goal the statistics answer, and its token.
+pub const READ_TODAY: &str = "reading-goal.read-today";
+pub const READ_TODAY_TOKEN: u32 = 5;
 /// The status items "Time left in chapter" and "Time left in book".
 pub const STATUS_TOKEN: u32 = 3;
 
@@ -157,13 +160,14 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// The stage `stats.read-today` (schema 1): asked with nothing, it answers the
-/// day (days since 1970, local) as an `i32` and the seconds read on it as a
-/// `u32`, both little-endian, for those who show the reading goal. It answers
-/// nothing where the device does not know the date yet.
+/// The stage `reading-goal.read-today` (schema 1, owned by Reading goal): the
+/// statistics answer it. Asked with nothing, or with today's day (an `i32`,
+/// local days since 1970), it answers the day and the seconds read on it as an
+/// `i32` and a `u32`, little-endian; for another day it answers not found. It
+/// answers nothing where the device does not know the date yet.
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
-    declarations.stage(StageDecl::new("read-today", 1, 1, 8, 1))?;
+    declarations.subscribe(SubscribeDecl::new(READ_TODAY, READ_TODAY_TOKEN))?;
     declarations.submit()
 }
 

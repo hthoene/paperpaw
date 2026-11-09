@@ -1,9 +1,9 @@
 //! *Reading cat* (`reading-goal.widget`) on interface 7: how high it is, what
 //! it draws, what it shows (a number that changes with it, for the minute
-//! tick) and what a tap does. The cat's picture needs images (draft 22) and
-//! is not drawn yet: its mood is put in words in the picture's place, as
-//! interface 6 did where the file was missing; the minutes and the goal show
-//! below it as before.
+//! tick) and what a tap does. The cat's picture is drawn by the plugin over
+//! the room this leaves; where there is none its mood is put in words in the
+//! picture's place, as interface 6 did where the file was missing; the
+//! minutes and the goal show below it as before.
 //!
 //! Nothing is kept between callbacks here: the figure is the plugin's
 //! ([`crate::model::Kept`]), the goal and the thresholds are settings, and the
@@ -174,11 +174,18 @@ pub fn height(cx: &mut Cx<'_>, width: u16) -> Result<u16, Error> {
 }
 
 /// Lays the widget out in `area`: the frame, the mood in words in the
-/// picture's place, the minutes below.
+/// picture's place (unless `picture`: it is left free for the picture, whose
+/// place is returned), the minutes below.
 ///
 /// # Errors
 /// Font, settings, catalog and drawing refusals; [`Error::NoMemory`].
-pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect, today: &Today) -> Result<(), Error> {
+pub fn draw(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    today: &Today,
+    picture: bool,
+) -> Result<Option<Rect>, Error> {
     // The snapshot does not tell the gray levels: a card is taken to be drawn
     // on a panel with grays.
     let look = cx.shape.paint(out, area, 256)?;
@@ -191,17 +198,20 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect, today: &Today) ->
         inner.width,
         inner.height.saturating_sub(line),
     );
-    let words = cx.tr(mood_key(today.mood))?;
-    label(
-        out,
-        &cx.font,
-        (small, Align::Center),
-        room,
-        &words,
-        look.ink,
-    )?;
+    if !picture {
+        let words = cx.tr(mood_key(today.mood))?;
+        label(
+            out,
+            &cx.font,
+            (small, Align::Center),
+            room,
+            &words,
+            look.ink,
+        )?;
+    }
+    let free = picture.then_some(room);
     if line == 0 {
-        return Ok(());
+        return Ok(free);
     }
     let text = progress(cx, today)?;
     let row = Rect::new(
@@ -210,7 +220,8 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect, today: &Today) ->
         inner.width,
         line,
     );
-    label(out, &cx.font, (small, Align::Center), row, &text, look.ink)
+    label(out, &cx.font, (small, Align::Center), row, &text, look.ink)?;
+    Ok(free)
 }
 
 /// What the offer of the statistics says, by their state: the labels' keys of

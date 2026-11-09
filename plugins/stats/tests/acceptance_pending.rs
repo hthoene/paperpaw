@@ -11,7 +11,7 @@ fn pages_read_are_recorded_and_the_days_summed() {
 }
 
 #[test]
-#[ignore = "needs core.ui screens on interface 7 (overview, calendar, books, book) and the stats.flow fixture of #321"]
+#[ignore = "needs core.ui screens on interface 7 (overview, calendar, books, book)"]
 fn the_screens_show_time_streaks_calendar_and_books() {
     unreachable!("overview 'Today', calendar months, book list, one book's pages read");
 }
@@ -25,7 +25,7 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
 }
 
 #[test]
-#[ignore = "needs a host that admits stage declarations, and a native reading-goal that asks stats.read-today"]
+#[ignore = "needs a host that runs native plugins end to end: reading-goal runs reading-goal.read-today and the statistics answer it (the answer is src/native_plugin.rs tell_today)"]
 fn reading_goal_is_told_todays_seconds() {
     unreachable!("the stage answers day and seconds as the stay is recorded");
 }
