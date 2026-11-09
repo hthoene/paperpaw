@@ -17,7 +17,7 @@
 use super::registrations::{self as wire};
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
-    Command, Id, Params,
+    Command, Id,
     builtin::slots::{CHOICE, CHOOSE_FOLDER, CONFIRM, KEYBOARD, REMOTE_KEYBOARD},
 };
 
@@ -150,10 +150,11 @@ impl crate::Kernel {
             let _ = store.dialog_failed(start.request);
             return;
         };
-        // The host's own choice and confirm answer through a wrapper
-        // (`host_dialog`): the slot resolves to their screen, and the question
-        // is handed to it as the params it knows. Any other screen reads the
-        // question from the store with op 2.
+        // The host's own choice and confirm dialogs answer the store directly
+        // (`dialogs`): the slot resolves to their screen, and the question is
+        // handed to it as the params it reads. Any other screen reads the
+        // question from the store with op 2. Kinds 0 and 3 have no host
+        // dialog: with no dialog plugin they end as cancelled.
         let host = matches!(start.kind, 1 | 2)
             && self
                 .shared
@@ -163,24 +164,27 @@ impl crate::Kernel {
                     *id == paperpaw_sdk::builtin::screens::CHOICE
                         || *id == paperpaw_sdk::builtin::screens::CONFIRM
                 });
-        let mut options = alloc::vec::Vec::new();
-        let params = if host
-            && let Ok(Some((inner, listed))) = store.starting_question(start.request, |shown| {
-                super::host_dialog::inner_params(
-                    shown.kind,
-                    shown.flags,
-                    shown.title,
-                    shown.text,
-                    shown.choices,
-                )
-            }) {
-            options = listed;
-            inner
+        let question = if host {
+            store
+                .starting_question(start.request, |shown| {
+                    super::dialogs::params_of(
+                        shown.kind,
+                        shown.flags,
+                        shown.title,
+                        shown.text,
+                        shown.choices,
+                    )
+                })
+                .ok()
+                .flatten()
         } else {
-            Params::new()
-        }
-        .with("core.request", request)
-        .with("core.kind", kind);
+            None
+        };
+        let params = question
+            .clone()
+            .unwrap_or_default()
+            .with("core.request", request)
+            .with("core.kind", kind);
         let own = self.guard().is_some_and(|guard| {
             self.shared
                 .native_instances
@@ -202,22 +206,26 @@ impl crate::Kernel {
         match opened {
             Some(dialog) => {
                 dialog.guard_dialog = own;
-                if host && let Some(ui) = self.shared.native_instances.ui_services() {
-                    if let Some(shared) = ui.store.try_clone() {
-                        let inner = core::mem::replace(
-                            &mut dialog.screen,
-                            alloc::boxed::Box::new(crate::screens::Gone),
-                        );
-                        dialog.screen =
-                            alloc::boxed::Box::new(super::host_dialog::HostDialog::new(
-                                inner,
-                                shared,
-                                dialog.serial,
-                                start.request,
-                                start.kind,
-                                options,
-                            ));
-                    }
+                if let Some(params) = &question
+                    && let Some(ui) = self.shared.native_instances.ui_services()
+                    && let Some(shared) = ui.store.try_clone()
+                {
+                    let answer =
+                        super::dialogs::Answerer::new(shared, dialog.serial, start.request);
+                    let env = self.shared.env(self.now);
+                    dialog.screen = if start.kind == 1 {
+                        alloc::boxed::Box::new(super::dialogs::Choice::new(
+                            &env,
+                            params,
+                            Some(answer),
+                        ))
+                    } else {
+                        alloc::boxed::Box::new(super::dialogs::Confirm::new(
+                            &env,
+                            params,
+                            Some(answer),
+                        ))
+                    };
                 }
                 let _ = store.dialog_opened(start.request, dialog.serial);
             }

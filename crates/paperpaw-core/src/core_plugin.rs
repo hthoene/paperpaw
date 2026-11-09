@@ -834,10 +834,10 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
             |env, params| Box::new(paperpaw_sdk::ui::widget_list::AddScreen::open(env, params)),
         ),
         FixedScreen::new(screens::CHOICE, "core.choice", |env, params| {
-            Box::new(paperpaw_sdk::ui::choice::Choice::new(env, params))
+            Box::new(crate::native_host::dialogs::Choice::new(env, params, None))
         }),
         FixedScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
-            Box::new(paperpaw_sdk::ui::confirm::Confirm::new(env, params))
+            Box::new(crate::native_host::dialogs::Confirm::new(env, params, None))
         }),
         FixedScreen::new(screens::PLACEHOLDER, "core.screen.placeholder", |_, _| {
             Box::new(PlaceholderScreen)

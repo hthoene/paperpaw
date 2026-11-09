@@ -120,6 +120,8 @@ mod data_services;
 mod declared_services;
 pub mod device_service;
 pub(crate) mod dialog_pump;
+#[path = "native_host/dialogs.rs"]
+pub(crate) mod dialogs;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -139,7 +141,6 @@ pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
 pub mod formatting;
 pub(crate) mod hint_labels;
-pub(crate) mod host_dialog;
 pub(crate) mod host_services;
 #[allow(
     dead_code,
