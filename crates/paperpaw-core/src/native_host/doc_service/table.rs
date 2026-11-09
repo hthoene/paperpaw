@@ -8,14 +8,21 @@
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
-    ERR_STATE,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE,
 };
 
 /// `doc_state.state`.
 pub(crate) const READY: u32 = 0;
 pub(crate) const PREPARING: u32 = 1;
 pub(crate) const FAILED: u32 = 2;
+
+/// How many taken documents are remembered as `ERR_CANCELLED` (48 bytes).
+const EVICTED: usize = 4;
+/// `doc_open.flags` bit 2: an open for an index build, never for a book to show.
+pub(crate) const BACKGROUND: u32 = 1 << 2;
+/// `event.document_closed.reason` 4 `needed`: its place went to a book to show.
+pub(crate) const NEEDED: u32 = 4;
 
 /// Three malformed answers in a row close the document (`document.md` 3).
 const STRIKES_TO_CLOSE: u8 = 3;
@@ -73,6 +80,9 @@ pub(crate) struct Document {
     /// 0 while open for use, else `event.document_closed.reason`: the host
     /// closed it and every call but `close` is `ERR_CANCELLED`.
     pub(crate) closed_by_host: u32,
+    /// Opened with `BACKGROUND` (an index build): its place may be taken for
+    /// a book to show. `flags` is the format's state, so this is kept apart.
+    pub(crate) background: bool,
     /// The format plugin is gone (it stopped): it is never called for this
     /// document again, not even by its opener's `close`.
     pub(crate) format_gone: bool,
@@ -107,6 +117,11 @@ pub(crate) struct DocumentTable {
     limits: Limits,
     next_id: Cell<u32>,
     documents: RefCell<Vec<Document>>,
+    /// The last documents taken for a book to show, as (id, owner): later
+    /// calls on such an id are `ERR_CANCELLED`, not `ERR_NOT_FOUND`
+    /// (`document.md` 2.1). Fixed size, oldest forgotten first, never grows.
+    evicted: Cell<[(u32, u64); EVICTED]>,
+    evicted_next: Cell<usize>,
 }
 
 impl DocumentTable {
@@ -121,6 +136,8 @@ impl DocumentTable {
             limits,
             next_id: Cell::new(1),
             documents: RefCell::new(documents),
+            evicted: Cell::new([(0, 0); EVICTED]),
+            evicted_next: Cell::new(0),
         })
     }
 
@@ -134,33 +151,48 @@ impl DocumentTable {
         self.documents.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
 
-    /// Give `owner` a new document in `state`. Never allocates.
+    /// Give `owner` a new document in `state`. Never allocates. Where the
+    /// device-wide places are full and the open is not `BACKGROUND`, it takes
+    /// the place of another opener's document (`document.md` 2.1): the first
+    /// one opened with `BACKGROUND`, else the first whose opener `shows` no
+    /// screen, oldest first. That document is returned, already out of the
+    /// table (later calls on its id are `ERR_CANCELLED`), for the caller to
+    /// end with the table released.
     ///
     /// # Errors
-    /// `ERR_FULL` over a limit, `ERR_NO_SPACE` when ids are exhausted.
+    /// `ERR_FULL` over the opener's own cap, or full with no document to
+    /// take; `ERR_NO_SPACE` when ids are exhausted (nothing is taken then).
     pub(crate) fn open(
         &self,
         owner: u64,
         format: FormatRef,
         state: u32,
         flags: u32,
-    ) -> Result<u32, i32> {
+        shows: &dyn Fn(u64) -> bool,
+    ) -> Result<(u32, Option<Document>), i32> {
         let mut rows = self.rows()?;
-        // TODO(#228, Senior #1110): on the X4 the reading plugin's `open` must
-        // evict a background opener's document instead of refusing with
-        // `ERR_FULL`; that document is closed with reason 4 `needed` (each
-        // opener hears `event.document_closed`, the format is told to close).
-        // Waits for Kernel's draft-20 contract and records (reason 4); the
-        // ignored test `x4_reading_open_evicts_a_background_document_with_reason_needed`
-        // in `tests.rs` marks the expected behaviour.
-        if rows.len() >= self.limits.device
-            || rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner()
-        {
+        if rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner() {
             return Err(ERR_FULL);
         }
         let id = self.next_id.get();
         // Never 0 and never reused: when the counter is spent, no more opens.
         let next = id.checked_add(1).ok_or(ERR_NO_SPACE)?;
+        let mut taken = None;
+        if rows.len() >= self.limits.device {
+            if flags & BACKGROUND != 0 {
+                return Err(ERR_FULL);
+            }
+            let live = |d: &&Document| d.owner != owner && d.closed_by_host == 0;
+            let at = rows
+                .iter()
+                .position(|d| live(&d) && d.background)
+                .or_else(|| rows.iter().position(|d| live(&d) && !shows(d.owner)))
+                .ok_or(ERR_FULL)?;
+            let mut victim = rows.remove(at);
+            victim.closed_by_host = NEEDED;
+            self.remember(&victim);
+            taken = Some(victim);
+        }
         rows.push(Document {
             id,
             owner,
@@ -173,12 +205,26 @@ impl DocumentTable {
             image_side: 0,
             cover_side: 0,
             closed_by_host: 0,
+            background: flags & BACKGROUND != 0,
             format_gone: false,
             block: None,
             strikes: 0,
         });
         self.next_id.set(next);
-        Ok(id)
+        Ok((id, taken))
+    }
+
+    fn remember(&self, document: &Document) {
+        let mut ring = self.evicted.get();
+        let at = self.evicted_next.get() % EVICTED;
+        ring[at] = (document.id, document.owner);
+        self.evicted.set(ring);
+        self.evicted_next.set((at + 1) % EVICTED);
+    }
+
+    /// Whether `id` is a document of `owner` taken for a book to show.
+    fn was_taken(&self, owner: u64, id: u32) -> bool {
+        self.evicted.get().contains(&(id, owner))
     }
 
     /// The document `id` as `owner` may use it.
@@ -188,11 +234,13 @@ impl DocumentTable {
     /// for another opener's, `ERR_CANCELLED` once the host closed it.
     pub(crate) fn lease(&self, owner: u64, id: u32) -> Result<Document, i32> {
         let rows = self.rows()?;
-        let document = rows
-            .iter()
-            .find(|d| d.id == id)
-            .copied()
-            .ok_or(ERR_NOT_FOUND)?;
+        let Some(document) = rows.iter().find(|d| d.id == id).copied() else {
+            return Err(if self.was_taken(owner, id) {
+                ERR_CANCELLED
+            } else {
+                ERR_NOT_FOUND
+            });
+        };
         if document.owner != owner {
             return Err(ERR_DENIED);
         }
@@ -246,10 +294,18 @@ impl DocumentTable {
     /// `close`: free the id. A host-closed document may be closed too.
     ///
     /// # Errors
-    /// `ERR_NOT_FOUND`, `ERR_DENIED`.
+    /// `ERR_NOT_FOUND`, `ERR_DENIED`; `ERR_CANCELLED` for a document taken for a
+    /// book to show: it is already ended and the `close` succeeds with nothing
+    /// more to do.
     pub(crate) fn close(&self, owner: u64, id: u32) -> Result<Document, i32> {
         let mut rows = self.rows()?;
-        let at = rows.iter().position(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        let Some(at) = rows.iter().position(|d| d.id == id) else {
+            return Err(if self.was_taken(owner, id) {
+                ERR_CANCELLED
+            } else {
+                ERR_NOT_FOUND
+            });
+        };
         if rows[at].owner != owner {
             return Err(ERR_DENIED);
         }
@@ -348,6 +404,25 @@ impl DocumentTable {
         Ok(*document)
     }
 
+    /// The host ends one document on its own with `reason` (1, 2 or 3): as
+    /// [`Self::cancel`], but `None` for one that is already ended, so no end
+    /// path runs twice.
+    ///
+    /// # Errors
+    /// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY`.
+    pub(crate) fn end_by_host(&self, id: u32, reason: u32) -> Result<Option<Document>, i32> {
+        if !(1..=3).contains(&reason) {
+            return Err(ERR_INVALID);
+        }
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        if document.closed_by_host != 0 {
+            return Ok(None);
+        }
+        document.closed_by_host = reason;
+        Ok(Some(*document))
+    }
+
     /// A format answered with a malformed or foreign row. Returns true when
     /// this was the third in a row and the document is now closed (reason 1).
     pub(crate) fn strike(&self, id: u32) -> bool {
@@ -407,7 +482,7 @@ mod tests {
     fn a_borrowed_table_is_reported_not_skipped() {
         let table = DocumentTable::try_new(Limits::LARGE).unwrap();
         let format = FormatRef(1);
-        let id = table.open(7, format, 0, 0).unwrap();
+        let id = table.open(7, format, 0, 0, &|_| false).unwrap().0;
         let held = table.documents.borrow();
         assert_eq!(table.close_owner(7, |_| ()), Err(ERR_BUSY));
         assert_eq!(table.cancel_format(format, 1, None, |_| ()), Err(ERR_BUSY));
