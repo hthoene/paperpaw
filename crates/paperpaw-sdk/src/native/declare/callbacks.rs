@@ -76,6 +76,10 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
+    /// A server of this plugin started, failed or stopped (`core.net`).
+    Server,
+    /// A server of this plugin got a request.
+    ServedRequest,
     /// Something happened to a socket of this plugin (`core.sockets`). Needed
     /// before the first `connect`.
     Socket,
@@ -135,6 +139,8 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::Server => records_wire::EVENT_SERVER_TAG,
+            Self::ServedRequest => records_wire::EVENT_SERVED_REQUEST_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
             Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,

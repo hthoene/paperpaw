@@ -6,7 +6,7 @@ use super::{
 use crate::{
     native::{
         declare::settings_value as settings,
-        net::{HttpDone, HttpProgress},
+        net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
         settings::SettingValue,
         sockets::{BroadcastEvent, SocketEvent},
         work::{WorkDue, WorkRefused},
@@ -177,6 +177,14 @@ event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
 
 event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
+});
+
+event_fn!(server, wire::EventServer<'_>, |r| Event::Server(
+    ServerEvent::decode(r)?
+));
+
+event_fn!(served_request, wire::EventServedRequest<'_>, |r| {
+    Event::ServedRequest(ServedRequest::decode(r)?)
 });
 
 event_fn!(socket, wire::EventSocket, |r| Event::Socket(
