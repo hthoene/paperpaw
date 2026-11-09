@@ -534,8 +534,8 @@ fn redraw(host: &Host<'_>) -> Result<(), Error> {
 fn on_top(host: &Host<'_>, ui: &Ui, instance: Instance) -> Result<bool, Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
-    for row in page {
-        return Ok(row?.instance() == instance);
+    match page.into_iter().next() {
+        Some(row) => Ok(row?.instance() == instance),
+        None => Ok(false),
     }
-    Ok(false)
 }

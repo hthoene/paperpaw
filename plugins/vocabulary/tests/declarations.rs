@@ -78,13 +78,17 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
         "vocabulary.cards.title",
         "vocabulary.review.title",
         "\"flash-cards\"",
+        "\"list\"",
+        "\"open\"",
+        "vocabulary.open",
+        "vocabulary.title",
         "core.tools",
         "vocabulary.flash-cards",
         "stack-2",
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
-    // Nothing is offered that ends in a refusal: the words' screen, the phone,
+    // Nothing is offered that ends in a refusal: the phone,
     // the SD card, the sleep card and the widget are declared with their ports.
     for absent in [
         "vocabulary.open",

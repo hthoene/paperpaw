@@ -8,21 +8,30 @@ use alloc::string::String;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     callbacks::{DrawFrame, Input},
-    commands::CommandSender,
-    events::{Event, Incoming, kinds},
+    commands::{CommandSender, RedrawMode},
+    events::{AnswerOutcome, Answered, Event, Incoming, kinds},
     registrations,
     reply::Reply,
     storage::DataStorage,
-    ui::{HandoverId, Instance, Ui},
+    ui::{HandoverId, Instance, Notify, RequestId, Ui},
 };
 use paperpaw_sdk::{Handled, Storage};
-use paperpaw_ui_kit::{Screens, mem::buffer, read_event};
+use paperpaw_ui_kit::{
+    Screens,
+    mem::{SERVICE_BUFFER, buffer},
+    read_event,
+};
 
-use crate::declarations::{CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, REVIEW_TOKEN, TICK_TOKEN};
+use crate::declarations::{
+    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, REVIEW_TOKEN, TICK_TOKEN, WORDS_TOKEN,
+};
 use crate::files::DataFolder;
 use crate::native_decks::{DecksView, Numbers};
+use crate::native_list::{self, WordRows, WordsView};
 use crate::native_review::{self, due_now};
 use crate::native_review_screen::{HostTime, ReviewScreen, settings};
+use crate::native_words::{HostWords, Words};
+use crate::store::Word;
 use crate::{cards, store};
 
 mod image {
@@ -39,6 +48,9 @@ pub struct NativeVocabulary {
     ui: Option<Ui>,
     decks: Screens<DecksView>,
     reviews: Screens<ReviewScreen>,
+    words: Screens<WordsView>,
+    /// The word a question about deleting is asked of, and the question.
+    asked: Option<(RequestId, Word)>,
 }
 
 impl Plugin for NativeVocabulary {
@@ -57,7 +69,7 @@ impl Plugin for NativeVocabulary {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
         else {
             return Ok(());
         };
@@ -73,6 +85,16 @@ impl Plugin for NativeVocabulary {
             } if token == CARDS_TOKEN => {
                 CommandSender::new(host, &mut [0; 128]).open_screen(native_decks_screen())
             }
+            Event::ActionRun {
+                action: "vocabulary.open",
+                ..
+            } if token == OPEN_TOKEN => {
+                CommandSender::new(host, &mut [0; 128]).open_screen(native_list::SCREEN)
+            }
+            Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::ScreenOpened { instance, .. } if token == WORDS_TOKEN => {
+                self.opened_words(host, instance)
+            }
             Event::ScreenOpened { instance, .. } if token == DECKS_TOKEN => {
                 self.opened_decks(host, instance)
             }
@@ -82,7 +104,9 @@ impl Plugin for NativeVocabulary {
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } if token == DECKS_TOKEN || token == REVIEW_TOKEN => self.shown(host, token, instance),
+            } if token == DECKS_TOKEN || token == REVIEW_TOKEN || token == WORDS_TOKEN => {
+                self.shown(host, token, instance)
+            }
             Event::ScreenClosed { instance, .. } => {
                 if let Some(review) = self.reviews.get(instance) {
                     let data = DataStorage::new(host);
@@ -90,6 +114,7 @@ impl Plugin for NativeVocabulary {
                 }
                 self.decks.close(instance);
                 self.reviews.close(instance);
+                self.words.close(instance);
                 Ok(())
             }
             _ => Ok(()),
@@ -108,6 +133,16 @@ impl Plugin for NativeVocabulary {
                 .top(token)
                 .ok_or(Error::State)?
                 .draw(host, &mut frame),
+            WORDS_TOKEN => {
+                let view = self.words.top(token).ok_or(Error::State)?;
+                let data = DataStorage::new(host);
+                view.draw(
+                    host,
+                    &mut frame,
+                    &DataFolder(&data),
+                    &mut HostWords::new(host)?,
+                )
+            }
             _ => Err(Error::State),
         }
     }
@@ -128,6 +163,17 @@ impl Plugin for NativeVocabulary {
                 let data = DataStorage::new(host);
                 screen.input(host, &DataFolder(&data), &input)
             }
+            WORDS_TOKEN => {
+                let Some(view) = self.words.top(token) else {
+                    return Ok(Handled::No);
+                };
+                let step = view.input(host, &input)?;
+                if let native_list::Step::Held(row) = step {
+                    self.held(host, row)?;
+                    return Ok(Handled::Yes);
+                }
+                Ok(native_list::handled(&step))
+            }
             _ => Ok(Handled::No),
         }
     }
@@ -142,6 +188,76 @@ impl NativeVocabulary {
     fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
+    fn opened_words(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let data = DataStorage::new(host);
+        let count = store::count(&DataFolder(&data)).map_err(native_review::storage_error)?;
+        self.words.open(instance, WordsView::new(count))
+    }
+
+    /// A word held: asks whether to delete it (a word deleted cannot be had
+    /// back). One question at a time: the first is still open and its answer is
+    /// the one that counts.
+    fn held(&mut self, host: &Host<'_>, row: usize) -> Result<(), Error> {
+        if self.asked.is_some() {
+            return Ok(());
+        }
+        self.ensure(host)?;
+        let count = self.words.top(WORDS_TOKEN).ok_or(Error::State)?.count();
+        let data = DataStorage::new(host);
+        let folder = DataFolder(&data);
+        // Rows are numbered from the newest: a list that changed since the
+        // screen counted it would name another word. Counted again instead.
+        if store::count(&folder).map_err(native_review::storage_error)? != count {
+            return self.recount(host);
+        }
+        let word = match WordRows::new(&folder, count).word(row) {
+            Ok(word) => word,
+            // The list changed under the screen: counted again.
+            Err(Error::NotFound) => return self.recount(host),
+            Err(error) => return Err(error),
+        };
+        let texts = native_list::delete_texts(&mut HostWords::new(host)?, &word.word)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let request = ui.ask(host, texts.question()?, &mut input, &mut out)?;
+        self.asked = Some((request, word));
+        Ok(())
+    }
+
+    /// The answer to the question about deleting: the word goes where it is
+    /// yes, and the list is counted again.
+    fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        let Some((request, _)) = &self.asked else {
+            return Ok(());
+        };
+        if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
+            return Ok(());
+        }
+        let Some((_, word)) = self.asked.take() else {
+            return Ok(());
+        };
+        if answer.outcome() != AnswerOutcome::Answered || answer.choice() != 1 {
+            return Ok(());
+        }
+        let data = DataStorage::new(host);
+        if store::remove(&DataFolder(&data), &word).is_err() {
+            let said = HostWords::new(host)?.copy("vocabulary.delete-failed")?;
+            CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
+        }
+        self.recount(host)
+    }
+
+    /// The words are counted again and the list drawn again.
+    fn recount(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let data = DataStorage::new(host);
+        let count = store::count(&DataFolder(&data)).map_err(native_review::storage_error)?;
+        if let Some(view) = self.words.top(WORDS_TOKEN) {
+            view.recount(count);
+            CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
         }
         Ok(())
     }
@@ -190,6 +306,11 @@ impl NativeVocabulary {
     /// A screen came on top: the decks are counted again (a review changed
     /// what is due).
     fn shown(&mut self, host: &Host<'_>, token: u32, instance: Instance) -> Result<(), Error> {
+        if token == WORDS_TOKEN {
+            // Back from a dialog: with the words looked up meanwhile.
+            self.words.shown(token, instance)?;
+            return self.recount(host);
+        }
         self.decks_or_reviews(token, instance)?;
         if token == DECKS_TOKEN {
             let numbers = Self::numbers(host)?;
@@ -231,7 +352,6 @@ impl NativeVocabulary {
 
 /// The name of the deck the words looked up go into.
 fn lookup_deck(host: &Host<'_>) -> Result<String, Error> {
-    use crate::native_words::{HostWords, Words};
     HostWords::new(host)?.copy("vocabulary.cards.looked-up")
 }
 

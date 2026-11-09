@@ -131,7 +131,7 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page), the word list's entry and screen, the sleep
+- Not declared yet: `uses.network` (the phone page), the sleep
   choice, the help hints, the widget and the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
@@ -140,8 +140,8 @@ native screens replace these callers.
 
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The rest of the native shell: the word list's action, entry and screen, the scan action, events and help.
-- Screens (word list, card files, sleep card) on `core.ui`.
+- The rest of the native shell: the scan action, events and help.
+- Screens (card files, sleep card) on `core.ui`.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
@@ -212,7 +212,28 @@ native screens replace these callers.
   none: the last time known stands, as in `cards::now_of`).
 - Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
   card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
-  (`vocabulary.open`; needs the kit's `WindowList`, todo 267), the sleep card and review on waking (sleep and
+  (done: next section), the sleep card and review on waking (sleep and
   wake stages), the widget, marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
+
+## Ported: the list of words (`native_list.rs`)
+
+- Declared: the action `vocabulary.open` (the id interface 6 used), Tools menu order 36, icon `vocabulary`,
+  the screen `vocabulary.list` (the interface-6 id).
+- Newest first, each row the word with the sentence it was found in as its note (else the book's title).
+  Up to 2,000 words, so only the rows of the page shown are made: `WordRows` is the kit's `RowSource` over
+  `store::range` (`WindowList`, #663), the page count follows from the word count and the fixed row height.
+  Counted when the screen opens and when it is shown again (words looked up meanwhile; a dialog closed).
+  No word: the empty state (*No words yet*) as interface 6.
+- Holding a word (or *Menu*) asks whether to delete it (a yes-or-no with *Delete* / *Keep*, the texts of
+  interface 6), one question at a time; yes removes it (`store::remove`, "could not be deleted" told on a
+  failure), then the list is counted again. Interface 6 first offered a choice (look up / go to / delete);
+  only delete can work now, so it is asked directly.
+- Not offered, each an ignored case: tapping a word to look it up again (the dictionary's panel on
+  `core.lookup`, #352/dictionary port), *Go to* in its book (the reader's open-at, #224), *Export*
+  (`core.files` adapter, #339/#384; `store::export` is ported and tested). A tap on a word takes the input and does
+  nothing. No row ends in a refusal.
+- Differences: the words looked up while the list is open show when it is shown again, not at once (no
+  word-looked-up event yet). Rows are numbered from the newest, so a hold first counts the words again: a list
+  that changed since it was counted is counted again and drawn anew, never deleting another word.
