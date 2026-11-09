@@ -148,13 +148,47 @@ fn an_answer_over_the_bound_is_refused() {
     );
 }
 
+/// The 32 languages DeepL translates into, once, as literals (the setting's
+/// choices are these after the reader's own language).
 #[test]
 fn the_languages_are_the_32_of_deepl_in_order() {
-    assert_eq!(LANGUAGES.len(), 32);
-    assert_eq!(LANGUAGES[0], "translate.to.ar");
-    assert_eq!(LANGUAGES[31], "translate.to.zh-hans");
-    assert!(LANGUAGES.windows(2).all(|pair| pair[0] < pair[1]));
-    assert!(LANGUAGES.iter().all(|l| l.starts_with("translate.to.")));
+    assert_eq!(
+        LANGUAGES,
+        [
+            "translate.to.ar",
+            "translate.to.bg",
+            "translate.to.cs",
+            "translate.to.da",
+            "translate.to.de",
+            "translate.to.el",
+            "translate.to.en-gb",
+            "translate.to.en-us",
+            "translate.to.es",
+            "translate.to.et",
+            "translate.to.fi",
+            "translate.to.fr",
+            "translate.to.hu",
+            "translate.to.id",
+            "translate.to.it",
+            "translate.to.ja",
+            "translate.to.ko",
+            "translate.to.lt",
+            "translate.to.lv",
+            "translate.to.nb",
+            "translate.to.nl",
+            "translate.to.pl",
+            "translate.to.pt-br",
+            "translate.to.pt-pt",
+            "translate.to.ro",
+            "translate.to.ru",
+            "translate.to.sk",
+            "translate.to.sl",
+            "translate.to.sv",
+            "translate.to.tr",
+            "translate.to.uk",
+            "translate.to.zh-hans",
+        ]
+    );
     assert_eq!(AUTO, "translate.to.auto");
 }
 
