@@ -47,12 +47,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "readwise"
-path = "src/bin/readwise.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "read-later-cloud"
 path = "src/bin/read-later-cloud.rs"
 test = false
@@ -95,12 +89,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "wallabag"
-path = "src/bin/wallabag.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "widgets"
 path = "src/bin/widgets.rs"
 test = false
@@ -119,10 +107,8 @@ paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
-paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
-paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
 
 # As the firmware is built: small code, one unit, no unwinding.

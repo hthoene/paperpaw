@@ -207,7 +207,7 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
         }
     }
     // The device's five, as before, then the radio's four: scanned 92, done 93,
-    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's.
+    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's and the served page's (server, request).
     let tokens: Vec<u32> = found.iter().map(|(_, token)| *token).collect();
     assert_eq!(
         tokens,
@@ -222,6 +222,8 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
             declarations::NETWORK_WANTED,
             declarations::NETWORK_IDLE,
             declarations::WORK,
+            declarations::SERVER_EVENT,
+            declarations::SERVED_REQUEST,
         ]
     );
     let radio: Vec<u32> = found[5..9].iter().map(|(tag, _)| *tag).collect();

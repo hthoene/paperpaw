@@ -1,0 +1,41 @@
+== 0 title "Alice's Adventures" author "Lewis Carroll" highlights 2
+12 <171 bytes 8b39d5e1317383a9>
+40 <198 bytes 8df288dc651d5a80>
+== 1 title "Alice's Adventures" author "Lewis Carroll" highlights 2
+12 <171 bytes 8b39d5e1317383a9>
+40 <198 bytes 8df288dc651d5a80>
+== 2 title "Title" author "" highlights 0
+== 3 title "" author "" highlights 0
+== 4 title "Only a title" author "" highlights 0
+== 5 title "Title" author "Author" highlights 1
+1 <127 bytes af0abef8f15d83f9>
+== 6 title "T2" author "A" highlights 2
+3 <147 bytes dc169a785279303a>
+4 "{\"text\":\"c\",\"title\":\"T2\",\"source_type\":\"paperpaw\",\"category\":\"books\",\"location\":4,\"location_type\":\"order\",\"author\":\"A\"}"
+== 7 title "T" author "" highlights 1
+5 "{\"text\":\"x\",\"title\":\"T\",\"source_type\":\"paperpaw\",\"category\":\"books\",\"location\":5,\"location_type\":\"order\"}"
+== 8 title "T" author "" highlights 2
+0 <124 bytes 4cd19da89de9e3ec>
+0 "{\"text\":\"b\",\"title\":\"T\",\"source_type\":\"paperpaw\",\"category\":\"books\",\"location\":0,\"location_type\":\"order\"}"
+== 9 title "T" author "" highlights 1
+9 "{\"text\":\"a\",\"title\":\"T\",\"source_type\":\"paperpaw\",\"category\":\"books\",\"location\":9,\"location_type\":\"order\"}"
+== 10 title "ü" author "Ä" highlights 1
+7 <136 bytes 1edfd3d70737b32e>
+== 11 title "T" author "" highlights 1
+4 <126 bytes 9ea7abae0d975458>
+== 12 title "T" author "A" highlights 1
+1 "{\"text\":\"a\",\"title\":\"T\",\"source_type\":\"paperpaw\",\"category\":\"books\",\"location\":1,\"location_type\":\"order\",\"author\":\"A\"}"
+== 13 title "T" author "" highlights 1
+5 <16494 bytes 601835b3b3b2ad3c>
+== 14 title <511 bytes 7a01909e0eb17bb3> author <1024 bytes ff4925a7cfa0f725> highlights 0
+== 15 title <510 bytes b195a9923e588f52> author <1024 bytes 427e7aa8d9dc5325> highlights 0
+== 16 title "T" author "" highlights 1
+1 <16498 bytes a823fd2b0b4ad667>
+== 17 title "T" author "" highlights 1
+1 <8296 bytes b19f42b4723b5ef0>
+escape <179 bytes 74a6ea6bb6cbb1f1>
+escape <187 bytes a1d383fc3e60e451>
+escape <205 bytes 9ba01a9392b7890b>
+escape <207 bytes 5eff0892de98ad61>
+escape <159 bytes 7d236f8d9d462675>
+empty <150 bytes a93928d5f4a7f5d0>

@@ -1,6 +1,7 @@
 //! The plugin's native declarations are what the image holds, the host admits
 //! them, and they say what interface 6 registered.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+#![allow(dead_code, reason = "the declaration test uses part of the builders")]
 use paperpaw_core::native_host::{
     declarations::validate_batch,
     registrations::{Record, records_decode},

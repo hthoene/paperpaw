@@ -38,7 +38,8 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop), item_states, presets, hints) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop), item_states, presets, hints) =
+            {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -73,6 +74,14 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
+                .with_images({
+                    // Requests held outside the table count against the room.
+                    let mut admit = context.image_admit();
+                    admit.room = admit
+                        .room
+                        .saturating_sub(self.image_held(context.owner_key()));
+                    admit
+                })
                 .with_hint_labels(
                     self.shared.stack_rows.labels(),
                     !self.hint.buttons.is_empty(),
@@ -93,12 +102,24 @@ impl Kernel {
                 }
                 let item_states = stage.take_item_states();
                 let presets = stage.take_presets();
+                let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output, item_states, presets, hints))
+                Ok::<_, Error>((
+                    status,
+                    owner,
+                    context.owner_key(),
+                    images,
+                    output,
+                    item_states,
+                    presets,
+                    hints,
+                ))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
+        // The picture requests it admitted, after the callback.
+        self.native_images_apply(owner_key, images);
         self.apply_item_states(&owner, item_states);
         let authority = self.command_settings_authority(&owner);
         self.apply_native_presets(&owner, authority, presets);

@@ -301,6 +301,79 @@ fn shared_callback_stamp_constructor_refuses_epoch_zero() {
     );
 }
 
+/// The production `CoreFrame` is what `core.ui` ops read the stack through
+/// (todo 116): a stale callback stamp or a stale stack generation is
+/// `ERR_STATE`, the stack view is the snapshot, and the dialog close queue
+/// holds one slot per live instance.
+#[test]
+fn core_ui_reads_the_stack_through_a_live_frame_only() {
+    use crate::native_host::stack_rows::StackRow;
+    use paperpaw_native::host_glue::ERR_STATE;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let rows = |instances: &[u32]| {
+        kernel
+            .shared
+            .stack_rows
+            .update(instances.iter().map(|&instance| StackRow {
+                instance,
+                owner: 5,
+                flags: 0,
+            }));
+    };
+    rows(&[7, 8]);
+    let env = kernel.shared.env(Instant(0));
+    let mut frame = frame(&kernel, &env);
+    let view = |frame: &CoreFrame<'_>| {
+        let mut seen = alloc::vec::Vec::new();
+        frame
+            .with_stack(&mut |stack| {
+                seen.extend(
+                    (0..stack.len())
+                        .filter_map(|at| stack.row(at))
+                        .map(|row| row.instance),
+                );
+            })
+            .map(|()| seen)
+    };
+    // No callback (or a zero epoch): nothing is readable or queued.
+    assert_eq!(view(&frame), Err(ERR_STATE));
+    assert_eq!(frame.close_dialog(7), Err(ERR_STATE));
+    frame.callback = Some(CallbackStamp { owner: 5, epoch: 0 });
+    assert_eq!(view(&frame), Err(ERR_STATE));
+    // A live callback sees the stack, bottom to top.
+    frame.callback = Some(CallbackStamp { owner: 5, epoch: 1 });
+    assert_eq!(view(&frame), Ok(alloc::vec![7, 8]));
+    // One slot per live instance: a repeat is the same slot; an instance
+    // that is not on the stack is `ERR_STATE`.
+    assert_eq!(frame.close_dialog(8), Ok(()));
+    assert_eq!(frame.close_dialog(8), Ok(()));
+    assert_eq!(frame.close_dialog(99), Err(ERR_STATE));
+    assert_eq!(frame.close_dialog(0), Err(ERR_STATE));
+    let queued = kernel
+        .shared
+        .stack_rows
+        .take_pending()
+        .iter()
+        .filter(|pending| pending.instance != 0)
+        .count();
+    assert_eq!(queued, 1);
+    // The stack changed since this frame was made: its generation is stale.
+    rows(&[7]);
+    assert_eq!(view(&frame), Err(ERR_STATE));
+    assert_eq!(frame.close_dialog(7), Err(ERR_STATE));
+    // A frame of the new generation works again; one queue slot is left for
+    // every live instance of a full stack and no more.
+    let full: alloc::vec::Vec<u32> = (1..=16).collect();
+    rows(&full);
+    frame.stack_generation = kernel.shared.stack_rows.generation();
+    for instance in 1..=16 {
+        assert_eq!(frame.close_dialog(instance), Ok(()));
+    }
+    assert_eq!(frame.close_dialog(17), Err(ERR_STATE));
+}
+
 /// The S3 frame scan's budgets (`shells/xteink/frame-budget-s3*.txt`) name the
 /// `Frame` trait by its path in an `absent trait` line (todo 252): the day the
 /// trait is renamed or moved, this fails, so the line cannot keep passing by

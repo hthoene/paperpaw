@@ -4017,7 +4017,29 @@ pub fn paperpaw_sdk::native::document::Documents::release(self, &paperpaw_sdk::n
 pub fn paperpaw_sdk::native::document::Documents::state<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocState<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::xpointer<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocPosition, &mut [u8], &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::format_for<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::Root, &str, bool, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::Format<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::formats<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::FormatCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::FormatPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::readers<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::document::ReaderCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::ReaderPage<'a>, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::document::Format<'a>(_)
+impl<'a> paperpaw_sdk::native::document::Format<'a>
+pub fn paperpaw_sdk::native::document::Format<'a>::extensions(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str> + use<'a>
+pub const fn paperpaw_sdk::native::document::Format<'a>::id(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::Format<'a>::priority(&self) -> i32
+pub const fn paperpaw_sdk::native::document::Format<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::document::FormatCursor
+impl paperpaw_sdk::native::document::FormatCursor
+pub const fn paperpaw_sdk::native::document::FormatCursor::start() -> Self
+pub struct paperpaw_sdk::native::document::FormatPage<'a>
+impl<'a> paperpaw_sdk::native::document::FormatPage<'a>
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::end(&self) -> paperpaw_sdk::native::document::FormatPageEnd
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::len(&self) -> usize
+pub fn paperpaw_sdk::native::document::FormatPage<'a>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::document::Format<'a>> + use<'a>
+pub struct paperpaw_sdk::native::document::FormatPageEnd
+impl paperpaw_sdk::native::document::FormatPageEnd
+pub const fn paperpaw_sdk::native::document::FormatPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::FormatCursor>
+pub const fn paperpaw_sdk::native::document::FormatPageEnd::total(self) -> u32
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::OpenBook<'a>
 impl<'a> paperpaw_sdk::native::document::OpenBook<'a>
 pub const fn paperpaw_sdk::native::document::OpenBook<'a>::background(self) -> Self
@@ -4847,10 +4869,12 @@ pub mod paperpaw_sdk::native::image
 pub paperpaw_sdk::native::image::ImageStatus::CardFailure
 pub paperpaw_sdk::native::image::ImageStatus::Damaged
 pub paperpaw_sdk::native::image::ImageStatus::NoMemory
+pub paperpaw_sdk::native::image::ImageStatus::NotFound
 pub paperpaw_sdk::native::image::ImageStatus::Ready
 pub paperpaw_sdk::native::image::ImageStatus::TooLarge
 pub paperpaw_sdk::native::image::ImageStatus::Unsupported
 #[non_exhaustive] pub enum paperpaw_sdk::native::image::PrepareRoot
+pub paperpaw_sdk::native::image::PrepareRoot::Bundle
 pub paperpaw_sdk::native::image::PrepareRoot::Data
 pub paperpaw_sdk::native::image::PrepareRoot::Library
 pub struct paperpaw_sdk::native::image::ImageId(_)
@@ -5195,6 +5219,8 @@ impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::facets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, paperpaw_sdk::native::library::Facet, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FacetPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::fields<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::FieldCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FieldPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::provide(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &paperpaw_sdk::native::library::Provided<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::library::LibraryPage<'a, T>
 impl<'a, T: 'a> paperpaw_sdk::native::library::LibraryPage<'a, T>
 pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::end(&self) -> paperpaw_sdk::native::library::LibraryPageEnd
@@ -5227,6 +5253,15 @@ pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::progress_ppm(self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::sync(self) -> Self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::updated(self, u64) -> Self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::xpointer(self, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::Provided<'a>
+impl<'a> paperpaw_sdk::native::library::Provided<'a>
+pub fn paperpaw_sdk::native::library::Provided<'a>::author(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::Provided<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::Provided<'a>::new() -> Self
+pub fn paperpaw_sdk::native::library::Provided<'a>::number(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Provided<'a>::series(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Provided<'a>::tags(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Provided<'a>::title(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::library::Query<'a>
 impl<'a> paperpaw_sdk::native::library::Query<'a>
 pub const fn paperpaw_sdk::native::library::Query<'a>::added_since(self, u32) -> Self
@@ -5694,6 +5729,7 @@ pub fn paperpaw_sdk::native::reply::Reply<'cb>::is_empty(&self) -> bool
 pub fn paperpaw_sdk::native::reply::Reply<'cb>::len(&self) -> usize
 pub fn paperpaw_sdk::native::reply::Reply<'cb>::remaining(&self) -> usize
 pub fn paperpaw_sdk::native::reply::Reply<'cb>::write(&mut self, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::reply::Reply<'cb>::write_with(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::secrets
 pub struct paperpaw_sdk::native::secrets::RandomBytes<'a>(_)
 impl<'a> paperpaw_sdk::native::secrets::RandomBytes<'a>
