@@ -140,7 +140,9 @@
     }
   ],
   "services": [
-    "core.ui"
+    "core.files",
+    "core.ui",
+    "core.work"
   ],
   "features": [
     "uses.storage"

@@ -3,7 +3,7 @@
 //! the keys, and answers through `core.ui`), and the screen that chooses the
 //! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
-use crate::layouts::{AUTO, Added, LAYOUTS, chosen_with};
+use crate::layouts::{AUTO, Added, LAYOUTS, all_drawn, chosen_drawn};
 use crate::native_layouts;
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
@@ -141,7 +141,7 @@ impl Plugin for NativeKeyboard {
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::Answered, kinds::TextTyped)
         else {
             return Ok(());
         };
@@ -165,6 +165,7 @@ impl Plugin for NativeKeyboard {
             }
             Event::ActionRun { .. } if token == DONE => self.finish_top(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::TextTyped { text, done, .. } => self.text_typed(host, text.as_str(), done),
             _ => Ok(()),
         }
     }
@@ -328,12 +329,13 @@ impl NativeKeyboard {
         };
         let language = setting_text(host, LANGUAGE_KEY)?;
         let rows = messages.copy(host, "keyboard.letters")?;
-        let layouts = chosen_with(
+        let layouts = chosen_drawn(
             &language,
             &rows,
             &setting_text(host, LAYOUTS_KEY)?,
             read_bool(host, UMLAUT_KEY)?,
             &added_layouts(host, &language)?,
+            &|text| covered(Some(&font), text),
         )?;
         // *Phone* where there is a network and a screen to type on another
         // device, *Paste* when the clipboard has text.
@@ -673,6 +675,22 @@ impl NativeKeyboard {
         self.typed(host, pressed)
     }
 
+    /// Text typed from outside (a hardware keyboard, a remote control): added
+    /// as if typed on the keys, without what is no text; `done` confirms the
+    /// dialog. Sent only while a text question is on top; another screen
+    /// takes none.
+    fn text_typed(&mut self, host: &Host<'_>, text: &str, done: bool) -> Result<(), Error> {
+        let Some(d) = self.dialog_mut() else {
+            return Ok(());
+        };
+        let pressed = d.board.typed(text)?;
+        self.typed(host, pressed)?;
+        if done {
+            return self.finish_top(host);
+        }
+        Ok(())
+    }
+
     /// The text or the keys changed: shows it, and tells the asker where
     /// it listens.
     fn typed(&mut self, host: &Host<'_>, pressed: Pressed) -> Result<(), Error> {
@@ -855,16 +873,31 @@ fn added_layouts(host: &Host<'_>, language: &str) -> Result<Vec<Added>, Error> {
     }
 }
 
+/// Whether the font draws all of `text` (`text.covers`). Where the host cannot
+/// say (a host without the slot, no font), it is taken as drawn: every layout
+/// stays offered, as before the query existed.
+fn covered(font: Option<&Font<'_>>, text: &str) -> bool {
+    match font.map(|font| font.covers(text)) {
+        Some(Ok(length)) => length == text.len(),
+        _ => true,
+    }
+}
+
 /// The rows of the layout chooser and its items, from the setting.
 fn build_choose(host: &Host<'_>) -> Result<ChooseView, Error> {
+    let font = Font::acquire_role(host, FontRole::Ui).ok();
+    let drawn = |text: &str| covered(font.as_ref(), text);
     let mut rows: Vec<String> = Vec::new();
     push(&mut rows, copy(AUTO)?)?;
-    for layout in &LAYOUTS {
+    // Only layouts the fonts can draw are offered.
+    for layout in LAYOUTS.iter().filter(|l| all_drawn(&drawn, l.letters)) {
         push(&mut rows, copy(layout.id)?)?;
     }
     let language = setting_text(host, LANGUAGE_KEY)?;
     for layout in added_layouts(host, &language)? {
-        push(&mut rows, layout.id)?;
+        if all_drawn(&drawn, &layout.letters) {
+            push(&mut rows, layout.id)?;
+        }
     }
     let mut chosen: Vec<String> = Vec::new();
     for id in setting_text(host, LAYOUTS_KEY)?

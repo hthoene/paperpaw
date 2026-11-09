@@ -90,19 +90,21 @@ fn the_events_are_the_ones_reading_is_recorded_from() {
     }
     // Started, resume, suspend, stopping, page turned, book opened, closed,
     // finished and moved, the status (the clock becoming known) and the
-    // minute tick (the widgets' new day), and a changed setting (the goal).
-    assert_eq!(count, 12);
+    // minute tick (the widgets' new day), a changed setting (the goal), the
+    // end of a request (the sync with the WebDAV folder) and the status stage
+    // (the time left).
+    assert_eq!(count, 14);
 }
 
 #[test]
-fn the_stage_tells_today_with_a_day_and_the_seconds() {
+fn the_statistics_answer_the_stage_of_reading_goal() {
     let mut all = String::new();
     for batch in batches(|sink| declarations::stages(sink)) {
         for record in records_decode(&batch).unwrap().iter() {
             all.push_str(&format!("{record:?}\n"));
         }
     }
-    assert!(all.contains("read-today"), "{all}");
+    assert!(all.contains("reading-goal.read-today"), "{all}");
 }
 
 /// Every record is well formed for the host, and the host admits every one of

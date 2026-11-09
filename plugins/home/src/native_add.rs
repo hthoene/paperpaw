@@ -10,7 +10,7 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     native::Error,
-    widgets::{categories, grid::Geometry},
+    widgets::{CellSpan, categories, grid::Geometry},
 };
 use paperpaw_ui_kit::{mem::push, text::copy};
 
@@ -31,6 +31,9 @@ pub struct WidgetRow {
     pub title: String,
     /// Its kind (category).
     pub kind: String,
+    /// The cells it declared (`widget.spec.cells`, with its least size and
+    /// whether it stays square); `None` where the place decides.
+    pub span: Option<CellSpan>,
 }
 
 /// One thing that can be added.

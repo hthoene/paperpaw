@@ -415,6 +415,12 @@ fn start_kernel(
             return None;
         }
     };
+    // English hyphenation is a data plugin: this app has no flasher, so put it
+    // there once (`paperpaw-default-packs`).
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        log::info!("English hyphenation: {seeded:?}");
+    }
     // The passwords where only PaperPaw reads them (see `private`).
     let storage = Volumes(
         match internal
@@ -871,6 +877,14 @@ impl Storage for Volumes {
 
     fn ignores_case(&self) -> bool {
         self.0.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {

@@ -8,14 +8,17 @@ mod pending;
 use pending::Case;
 
 const CASES: [Case; 7] = [
-    // The dashboard: the picture behind the plates, the pages of widgets and
-    // tools, the bars, the press that shows a hidden bar and does nothing else.
+    // The dashboard through the production loader: the pages of widgets and
+    // tools on their plates (the model and the screen are ported and tested
+    // without the host), the picture behind them (`picture-home-picture`), the
+    // bars and the press that shows a hidden bar (`picture-home-bars`).
     Case {
         name: "picture-home-dashboard",
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
-    // Editing: dragging, sizing, adding, the tools drawer.
+    // Editing: the finger's drag of an item or its corner, and *Add* (the
+    // buttons' moving, sizing and removing are ported).
     Case {
         name: "picture-home-edit",
         golden: None,

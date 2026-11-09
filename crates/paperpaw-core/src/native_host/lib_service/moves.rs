@@ -42,7 +42,9 @@
 //! bounded.
 use alloc::string::String;
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
 
 /// What an operation does to a path, for [`Moves::busy`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +86,9 @@ pub(crate) struct Entry<'a> {
     pub(crate) replace: bool,
     /// The storage's identity of the moved entry, taken before the rename.
     pub(crate) identity: u64,
+    /// The rename has succeeded (recorded by [`MoveHost::record_renamed`]):
+    /// a restart needs no identity to know it.
+    pub(crate) renamed: bool,
 }
 
 /// What the host backs: the journal, the card and the catalog side.
@@ -100,6 +105,13 @@ pub(crate) trait MoveHost {
     /// same before and after a rename and different for another entry;
     /// `None` when there is none.
     fn identity(&self, path: &str) -> Result<Option<u64>, i32>;
+    /// Whether anything is at `path` (a file or a folder). Not the same as
+    /// [`Self::identity`] being `Some`: an entry may have no identity (an
+    /// empty FAT file) and still be there. The default is for a host whose
+    /// entries all have one.
+    fn exists(&self, path: &str) -> Result<bool, i32> {
+        Ok(self.identity(path)?.is_some())
+    }
     /// Whether `path` names a folder.
     fn is_folder(&self, path: &str) -> Result<bool, i32>;
     /// Whether both paths name the same directory entry by the storage's own
@@ -114,6 +126,13 @@ pub(crate) trait MoveHost {
     /// The FAT repair (`settle_moves`) of a rename a power cut left with both
     /// names.
     fn settle(&self) -> Result<(), i32>;
+    /// The rename has succeeded: record it in the entry (written whole
+    /// again). Best effort: a restart that does not find the record decides
+    /// by the storage's identity, as before; so a failure is not an error
+    /// for the move, and a host with no way to record may leave this as is.
+    fn record_renamed(&self) -> Result<(), i32> {
+        Ok(())
+    }
     /// Whether `path` is `folder` or below it, as the storage names entries
     /// (case beyond ASCII, 8.3 aliases). Required: a host that forgets it
     /// would let an alias past the busy rule.
@@ -141,6 +160,8 @@ struct Job {
     /// `None`: the entry is open but the state of the card is not decided yet.
     phase: Cell<Option<Phase>>,
     replace: bool,
+    /// The entry said the rename had succeeded.
+    renamed: bool,
 }
 
 /// The one move in progress, if any. The journal holds one entry, so the next
@@ -152,7 +173,7 @@ pub(crate) struct Moves {
     read: Cell<bool>,
 }
 
-fn own(text: &str) -> Result<String, i32> {
+pub(crate) fn own(text: &str) -> Result<String, i32> {
     let mut owned = String::new();
     owned
         .try_reserve_exact(text.len())
@@ -196,16 +217,23 @@ impl Moves {
         if slot.is_some() {
             return Err(ERR_BUSY);
         }
-        let identity = host.identity(from)?.ok_or(ERR_NOT_FOUND)?;
-        // A case-only rename is the one entry under another spelling.
-        let same = host.same_entry(from, to)?;
+        // An entry that is there without an identity cannot be told from
+        // another after a cut: refused, nothing written.
+        let Some(identity) = host.identity(from)? else {
+            return Err(if host.exists(from)? {
+                ERR_UNSUPPORTED
+            } else {
+                ERR_NOT_FOUND
+            });
+        };
+        // A case-only rename is the one entry under another spelling; the
+        // storage is asked only then (same name to the card).
+        let same = host.within(from, to) && host.within(to, from) && host.same_entry(from, to)?;
         if !same {
             if host.within(to, from) {
                 return Err(ERR_INVALID);
             }
-            if host.identity(to)?.is_some()
-                && (!replace || host.is_folder(to)? || host.is_folder(from)?)
-            {
+            if host.exists(to)? && (!replace || host.is_folder(to)? || host.is_folder(from)?) {
                 return Err(ERR_STATE);
             }
         }
@@ -215,12 +243,14 @@ impl Moves {
             identity,
             phase: Cell::new(Some(Phase::Books(0))),
             replace,
+            renamed: false,
         };
         host.write_entry(&Entry {
             from,
             to,
             replace,
             identity,
+            renamed: false,
         })?;
         // A replacing move drops the replaced file's data before the rename,
         // so the moved book never inherits it (a cut between the two leaves
@@ -234,6 +264,9 @@ impl Moves {
         match renamed {
             Ok(()) => {
                 *slot = Some(job);
+                // Best effort: a restart without the record decides by
+                // identity (a cut between the rename and this write).
+                let _ = host.record_renamed();
                 Ok(())
             }
             Err(error) => {
@@ -273,6 +306,7 @@ impl Moves {
                     identity: entry.identity,
                     phase: Cell::new(None),
                     replace: entry.replace,
+                    renamed: entry.renamed,
                 }))
             });
         })?;
@@ -288,9 +322,18 @@ impl Moves {
 
     /// By the storage's identity of the moved entry, never by names.
     fn decide(host: &dyn MoveHost, job: &Job) -> Result<Verdict, i32> {
-        if host.same_entry(&job.from, &job.to)? {
-            // A case-only rename: one entry; the stored spelling says whether
-            // the rename ran. A cut may have left both spellings; settle.
+        if job.renamed {
+            // The rename succeeded and was recorded: no identity is asked
+            // (two names of one file, a twin at `to`, would mislead it).
+            host.settle()?;
+            return Ok(Verdict::Finish);
+        }
+        // A case-only rename (the names are one name to the card): one entry;
+        // the stored spelling says whether the rename ran. A cut may have
+        // left both spellings; settle. The storage is not asked whether two
+        // entries are one: names tell here, and an entry without an
+        // identity (an empty file replaced) must never make the decision fail.
+        if host.within(&job.from, &job.to) && host.within(&job.to, &job.from) {
             return if host.spelled_as(&job.to)? {
                 host.settle()?;
                 Ok(Verdict::Finish)
@@ -384,9 +427,12 @@ impl Moves {
     pub(crate) fn open_book(&self, host: &dyn MoveHost, book: &str) -> Result<(), i32> {
         let slot = self.job.try_borrow().map_err(|_| ERR_BUSY)?;
         match slot.as_ref() {
-            Some(job) if job.phase.get().is_some() && host.within(book, &job.to) => {
-                host.carry_book(&job.from, &job.to, book)
-            }
+            // Only while the books are carried: once past that phase every
+            // book is, and a reader is not held up for the rest of the job.
+            Some(job) if host.within(book, &job.to) => match job.phase.get() {
+                Some(Phase::Books(_)) => host.carry_book(&job.from, &job.to, book),
+                _ => Ok(()),
+            },
             _ => Ok(()),
         }
     }

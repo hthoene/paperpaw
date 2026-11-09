@@ -42,6 +42,18 @@ pub const PLUGIN: Id = Id::new_static("format-xtc");
 pub const FORMAT: Id = Id::new_static("format-xtc.xtc");
 pub mod provider;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
 const XTC: &[u8; 4] = b"XTC\0";
 const XTCH: &[u8; 4] = b"XTCH";
 const XTG: &[u8; 4] = b"XTG\0";

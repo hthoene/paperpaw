@@ -204,6 +204,8 @@ impl DocxDocument {
         let mut writer = Writer::new(storage, dir, &parts);
         xml_part(storage, &archive, &document, &mut |token| {
             writer.token(token);
+            // A stopped writer drops what follows: the rest is not inflated.
+            !writer.stopped()
         })?;
         writer.finish();
         if let Some(e) = writer.error() {

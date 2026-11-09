@@ -100,3 +100,43 @@ result is wanted:
   `integration`, not on pull requests.
 - CodeQL scans a pull request only when it changes `.github/`, JavaScript or
   TypeScript; it scans `main` on every push and every Monday.
+
+## Shorter runs, and the cache quota
+
+- **"Format, lint, test"** is the required check and is an aggregate job
+  (`check` in `ci.yml`): it runs after the two parts `lint` (fmt, clippy,
+  docs, the Bluetooth host tests) and `test` (the workspace tests, the
+  line-break conformance test, the no-default-features tests) and passes only
+  when both of them succeeded. A failed, skipped or cancelled part fails it.
+  The parts run side by side and share the one rust-cache entry
+  (`shared-key: check`, saved by the test job alone), so the lint (about 4
+  minutes) is off the path of the tests (about 16).
+- **The repository's caches are 10 GB.** When they are full GitHub evicts the
+  least recently used entry, and with the 1 GB firmware entries that included
+  the ones that save the most: without the espup toolchain every S3 job spends
+  5.5 minutes installing it, and the `.deb` cache saves the apt step. After a
+  push, `prune-caches` (`tools/ci/prune_caches.py`) deletes all but the newest
+  `v0-rust-*` entry of each prefix and branch; other caches are never touched.
+  A failing prune job changes nothing and is no required check. Try it with
+  `python3 -I tools/ci/prune_caches.py <owner/repo> --dry-run`.
+- **`tools/train-smoke.sh`** runs the checks a merge train went red on
+  (clippy of the workspace, rustdoc with `-D warnings`, the wasm lint, `cargo
+  deny`, the tag test, the stage codec, the workspace tests, and the S3
+  frame-budget scan where `tools/check-s3-budget.sh` exists) before its pull
+  request is opened.
+
+## Fewer workflow runs
+
+- **Billing:** `paperpaw` is public, so its standard hosted runners (every
+  `runs-on` here is `ubuntu-latest`, `windows-latest` or `macos-*`, no larger
+  runner, no self-hosted one) use no included minutes; the private repositories
+  (`paperpaw.org`: one scheduled workflow plus a few pull request runs a month,
+  `paperpaw-notes`: none) use almost none.
+- **Drafts:** the `Changelog` workflow skips its job for a draft pull request
+  (it runs on `ready_for_review` and on every push after that); the `CI`
+  jobs already skip drafts. A skipped run still appears in the list, it costs
+  no minutes.
+- **Already so:** a push to a pull request cancels the run before it (`CI`,
+  `Changelog`, `CodeQL`); `push` triggers only on `main`, `integration` and
+  `abi7/integration` (a merge train is one push); CodeQL and the reproducible
+  build run on `main`, tags and weekly only.

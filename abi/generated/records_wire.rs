@@ -6401,6 +6401,8 @@ pub const SERVICE_REG_WIDGET_KIND_MAX_BYTES: usize = 128;
 pub const SERVICE_REG_WIDGET_ICON_MAX_BYTES: usize = 64;
 /// Maximum bytes of `service.reg_widget.title`.
 pub const SERVICE_REG_WIDGET_TITLE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_widget.previews`.
+pub const SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES: usize = 128;
 
 /// The `service.reg_widget` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -6419,6 +6421,8 @@ pub struct ServiceRegWidget<'a> {
     pub title: &'a str,
     /// Little-endian u32. Appended and optional; 0 when absent.
     pub cells: u32,
+    /// UTF-8 text of at most 128 bytes. Appended and optional; empty when absent.
+    pub previews: &'a str,
 }
 
 impl<'a> ServiceRegWidget<'a> {
@@ -6436,6 +6440,7 @@ impl<'a> ServiceRegWidget<'a> {
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?,
             cells: body.opt_u32(bits, 0x01, 0)?,
+            previews: body.opt_string(bits, 0x02, SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES)?,
         })
     }
 
@@ -6443,6 +6448,9 @@ impl<'a> ServiceRegWidget<'a> {
         let mut bits = 0;
         if self.cells != 0 {
             bits |= 0x01;
+        }
+        if !self.previews.is_empty() {
+            bits |= 0x02;
         }
         bits
     }
@@ -6460,6 +6468,9 @@ impl<'a> ServiceRegWidget<'a> {
         if bits & 0x01 != 0 {
             len += 4;
         }
+        if bits & 0x02 != 0 {
+            len += blob_len(self.previews.len(), SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES)?;
+        }
         Ok(len)
     }
 
@@ -6473,6 +6484,9 @@ impl<'a> ServiceRegWidget<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         if bits & 0x01 != 0 {
             write_bytes(&self.cells.to_le_bytes(), out, offset);
+        }
+        if bits & 0x02 != 0 {
+            write_blob(self.previews.as_bytes(), out, offset);
         }
     }
 }
@@ -20925,6 +20939,10 @@ impl<'a> Reader<'a> {
             return Ok(&[]);
         }
         self.blob(cap)
+    }
+
+    fn opt_string(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a str, i32> {
+        core::str::from_utf8(self.opt_blob(bits, mask, cap)?).map_err(|_| -5)
     }
 }
 

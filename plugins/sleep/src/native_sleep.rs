@@ -18,6 +18,99 @@ pub const WIDGETS: &str = "sleep.show.widgets";
 pub const OVERLAY: &str = "sleep.show.overlay";
 const BUILT_IN: [&str; 7] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE];
 
+/// The slot the sleep screen is shown in, and the plugin's own screen for it.
+pub const SLOT: &str = "core.sleep";
+pub const OWN_SCREEN: &str = "sleep.screen";
+
+/// Whether `value` of `sleep.show` is another plugin's mode: not one of the
+/// seven of the plugin's own and not empty.
+#[must_use]
+pub fn is_foreign(value: &str) -> bool {
+    !value.is_empty() && !BUILT_IN.contains(&value)
+}
+
+/// The screen the slot [`SLOT`] is bound to for the stored `value` of
+/// `sleep.show`, given the screens now offered for the slot (`candidates`):
+/// `Some(screen)` for another plugin's mode that is one of them, `None` (the
+/// slot's default, the plugin's own screen) for a mode of the plugin's own, an
+/// empty value, the plugin's own screen's id, or a value no plugin offers (a
+/// plugin that is gone, a word from a newer version: the host would refuse it,
+/// and the screen falls back in [`decide`]).
+#[must_use]
+pub fn binding<'a, S: AsRef<str>>(value: &str, candidates: &'a [S]) -> Option<&'a str> {
+    if !is_foreign(value) || value == OWN_SCREEN {
+        return None;
+    }
+    candidates
+        .iter()
+        .map(AsRef::as_ref)
+        .find(|screen| *screen == value)
+}
+
+/// What to do with the slot [`SLOT`] after the reader changed `sleep.show` to
+/// `value`. Asked only for such a change, never at start: the slot's binding
+/// is the reader's, and a start leaves it alone (`reg_slot.flags` bit 0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Bind<'a> {
+    /// Bind the slot to this screen (another plugin's mode).
+    Screen(&'a str),
+    /// Bind the slot back to its default, the plugin's own screen.
+    Default,
+    /// Touch nothing.
+    Leave,
+}
+
+/// What to do for the new `value` of `sleep.show` (Kernel's ruling):
+/// - another plugin's mode that is one of the screens now offered for the
+///   slot (`offered`): bind it;
+/// - one of the plugin's own modes, or empty: bind back to the default, but
+///   only if the slot is bound now (`current`) to a screen that is one of
+///   `sleep.show`'s foreign choices (`choices`), a sleep mode; a screen the
+///   reader bound by hand for another purpose is left alone;
+/// - a value no plugin offers, or the plugin's own screen's id: leave it.
+#[must_use]
+pub fn plan<'a, S: AsRef<str>, C: AsRef<str>>(
+    value: &str,
+    offered: &'a [S],
+    current: Option<&str>,
+    choices: &[C],
+) -> Bind<'a> {
+    if let Some(screen) = binding(value, offered) {
+        return Bind::Screen(screen);
+    }
+    if is_foreign(value) {
+        return Bind::Leave;
+    }
+    match current {
+        Some(now)
+            if is_foreign(now)
+                && now != OWN_SCREEN
+                && choices.iter().any(|choice| choice.as_ref() == now) =>
+        {
+            Bind::Default
+        }
+        _ => Bind::Leave,
+    }
+}
+
+/// What to do at start and on `plugins-changed` (event 70) for the stored
+/// `value`: bind another plugin's mode that is offered now, but only while the
+/// slot's binding is not the reader's (`reg_slot.flags` bit 0 clear:
+/// `user_bound` false). Never unbinds, and binds nothing for a mode of the
+/// plugin's own, an empty value or one nobody offers. The host does not resolve
+/// slots from `sleep.show`; this is the plugin's job.
+#[must_use]
+pub fn plan_stored<'a, S: AsRef<str>>(value: &str, offered: &'a [S], user_bound: bool) -> Bind<'a> {
+    if user_bound {
+        return Bind::Leave;
+    }
+    match binding(value, offered) {
+        Some(screen) => Bind::Screen(screen),
+        None => Bind::Leave,
+    }
+}
+
 /// What is at hand when the screen opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools, reason = "one fact each")]

@@ -364,6 +364,11 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    let device_table = match &ready.code {
+        CodePlugins::Load(loader) => Some(loader.device_table()),
+        _ => None,
+    };
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -377,6 +382,8 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+        device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
@@ -600,6 +607,11 @@ fn prepare() -> Ready {
         &staged.not_installed,
         started(),
     );
+    // English hyphenation is a data plugin on the card: the flasher puts it
+    // there, but an update of a firmware that had English built in (Beta 3)
+    // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
+    // after the flasher's bundle, so that its own copy is found, not doubled.
+    native::seed::hyphenation(storage.as_ref());
     let code = code_plugins(
         ota.as_ref(),
         &flash,

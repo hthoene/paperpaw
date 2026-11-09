@@ -721,7 +721,7 @@ fn details_are_written_as_key_by_key() {
     for book in [Book::default(), full] {
         for before in befores {
             assert_eq!(
-                details_text(&book, before),
+                details::try_details_text(&book, before).unwrap(),
                 key_by_key(&book, before),
                 "{before}"
             );
