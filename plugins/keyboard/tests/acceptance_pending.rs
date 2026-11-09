@@ -35,13 +35,15 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["H4"],
     },
-    // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema
-    // and codec still to write), and hiding layouts the fonts cannot draw needs
-    // the glyph query (Kernel draft 22).
+    // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema,
+    // codec and the reading in `native_layouts`, compared with interface 6's
+    // rules); the host does not run stages yet (slot 32), so a subscriber's
+    // layout cannot be shown on the keyboard, and hiding layouts and variants
+    // the fonts cannot draw needs the glyph query (`text.covers`, slot 39).
     Case {
         name: "keyboard-added-layouts",
         golden: None,
-        blocked_by: &["STAGE", "H1"],
+        blocked_by: &["stage-host-wiring", "text.covers"],
     },
 ];
 
@@ -80,7 +82,7 @@ fn keyboard_type_text() {
 }
 
 #[test]
-#[ignore = "BLOCKED STAGE: no keyboard.layouts@1 stage or glyph query yet"]
+#[ignore = "BLOCKED stage-host-wiring, text.covers: the host does not run stages yet and has no glyph query facade"]
 fn keyboard_added_layouts() {
     CASES[4].refuse().unwrap();
 }
