@@ -35,6 +35,22 @@ impl Secret {
         copy(text).map(Self)
     }
 
+    /// The value of an `Authorization` header that carries `token`:
+    /// `Bearer <token>`, built in one reservation so that no copy is left
+    /// behind unzeroed.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn bearer(token: &Secret) -> Result<Self, Error> {
+        const SCHEME: &str = "Bearer ";
+        let mut out = String::new();
+        out.try_reserve_exact(SCHEME.len() + token.0.len())
+            .map_err(|_| Error::NoMemory)?;
+        out.push_str(SCHEME);
+        out.push_str(&token.0);
+        Ok(Self(out))
+    }
+
     /// The text.
     #[must_use]
     pub fn as_str(&self) -> &str {

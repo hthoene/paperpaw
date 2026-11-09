@@ -929,6 +929,17 @@ fn library(case: &Case) -> PathBuf {
         .unwrap();
         fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
     }
+    // Hyphenation is data: the German names of the drawer break only where
+    // the German pack is installed (built from the sources, as shipped).
+    if case.name == "x4-drawer-de" {
+        let german = paperpaw_hyphenation_packs::PACKAGES
+            .iter()
+            .find(|package| package.id == "hyphenation-de")
+            .unwrap();
+        let plugins = dir.join("plugins");
+        fs::create_dir_all(&plugins).unwrap();
+        paperpaw_hyphenation_packs::build(&root(), &plugins, german).unwrap();
+    }
     // The first-run setup is done (it is not what any case shows).
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();

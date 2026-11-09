@@ -154,9 +154,13 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   it translates into PaperPaw's language.
 - **The slot offer** for `core.translate` is in the image and **submitted** in `make`, after the screen it
   names (the host admits slot offers since #522; `tests/native_declarations.rs` validates it,
-  `tests/native_asking.rs` pins the order). What is still open is the reader's side: its *Translate*
-  finds the native panel only when the reader's slot host reads native offers (an ignored case in
-  `tests/acceptance_pending.rs`); the interface-6 plugin that bound the slot is gone.
+  `tests/native_asking.rs` pins the order). The host side is done: Core #595 binds a native offer, so
+  `Env::has_slot("core.translate")` is true and `slot_screen` names the panel (Core's
+  `native_slot_offers_tests`), and #598 carries a hand-over into a native screen. What is still open is
+  the end-to-end case (an ignored case in `tests/acceptance_pending.rs`): the reader selects text,
+  its *Translate* opens the panel with it. That needs a kernel test that loads this native plugin
+  next to the interface-6 reader and drives a selection (the hosted construction of #944); the
+  interface-6 plugin that bound the slot is gone.
 - **Not run against the real hosts:** the panel's drawing (it needs the font and the style: a
   pixel harness backed by the kernel, as Battery's), the staging of a form over 2,048 bytes (the
   scripted host has no storage), allocation refusal inside the linked plugin (it allocates from the
