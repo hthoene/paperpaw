@@ -91,6 +91,49 @@ fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<String, Error> {
     key
 }
 
+/// A progress as text, as `{progress}` writes it, for the key of a position
+/// offered or dismissed. A value whose plain text would be longer than 40 bytes
+/// (tiny numbers) is written in scientific form, which is short.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn progress_text(progress: f64) -> Result<String, Error> {
+    use core::fmt::Write;
+    struct Bounded {
+        bytes: [u8; 40],
+        len: usize,
+    }
+    impl Write for Bounded {
+        fn write_str(&mut self, text: &str) -> core::fmt::Result {
+            let end = self.len + text.len();
+            self.bytes
+                .get_mut(self.len..end)
+                .ok_or(core::fmt::Error)?
+                .copy_from_slice(text.as_bytes());
+            self.len = end;
+            Ok(())
+        }
+    }
+    let mut out = Bounded {
+        bytes: [0; 40],
+        len: 0,
+    };
+    if write!(out, "{progress}").is_err() {
+        out = Bounded {
+            bytes: [0; 40],
+            len: 0,
+        };
+        // Cannot fail: the scientific form of an `f64` is at most 24 bytes.
+        let _ = write!(out, "{progress:e}");
+    }
+    let text = out
+        .bytes
+        .get(..out.len)
+        .and_then(|b| core::str::from_utf8(b).ok())
+        .unwrap_or("0");
+    copy(text)
+}
+
 /// `text` as a JSON string literal.
 ///
 /// # Errors
