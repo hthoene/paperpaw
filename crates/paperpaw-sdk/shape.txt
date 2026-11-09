@@ -1546,6 +1546,8 @@ const paperpaw_sdk::native::formatting::MAX_DIGIT_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::formatting::MAX_KEY_BYTES: usize = 128usize
 const paperpaw_sdk::native::formatting::MAX_MESSAGE_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
+const paperpaw_sdk::native::library::edits::MAX_EDITS_PER_CALL: usize = 3usize
+const paperpaw_sdk::native::library::edits::NOTE_MAX_BYTES: usize = 3_072usize
 const paperpaw_sdk::native::lookup::BUFFER: usize = 4_096usize
 const paperpaw_sdk::native::lookup::MAX_CONTEXT: usize = 1_024usize
 const paperpaw_sdk::native::lookup::MAX_ENTRY: usize = 2_048usize
@@ -2394,6 +2396,8 @@ enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }
 enum paperpaw_sdk::native::library::annotations::AnnotationKind { Bookmark, Highlight, Other(0: u32) }
+enum paperpaw_sdk::native::library::edits::Action { Add, Replace(0: u32), Remove(0: u32), Upsert }
+enum paperpaw_sdk::native::library::edits::ReceiptAction { Added, Replaced, Removed, Updated, Other(0: u32) }
 enum paperpaw_sdk::native::library::facets::Facet { Authors, Series, Tags, Letters, Folders }
 enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
 enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
@@ -3138,6 +3142,12 @@ struct paperpaw_sdk::native::library::annotations::Annotation<'a>(0: paperpaw_sd
 struct paperpaw_sdk::native::library::annotations::AnnotationCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::annotations::AnnotationPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::annotations::AnnotationPageEnd }
 struct paperpaw_sdk::native::library::annotations::AnnotationPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::annotations::AnnotationCursor> }
+struct paperpaw_sdk::native::library::edits::AnnotationEdit<'a> { action: paperpaw_sdk::native::library::edits::Action, kind: paperpaw_sdk::native::library::annotations::AnnotationKind, start: (u32, u32), end: (u32, u32), percent: u32, conversion: core::option::Option<u64>, created: u64, updated: u64, client_key: &'a str, text: &'a str, note: &'a str, xpointers: core::option::Option<(&'a str, &'a str)> }
+struct paperpaw_sdk::native::library::edits::Committed { transaction: u32, generation: u32, edits: u32, added: u32 }
+struct paperpaw_sdk::native::library::edits::Receipt(0: paperpaw_sdk::native::declare::records_wire::ServiceLibReceipt)
+struct paperpaw_sdk::native::library::edits::ReceiptCursor(0: u32)
+struct paperpaw_sdk::native::library::edits::ReceiptPage<'a> { bytes: &'a [u8], count: usize, total: u32, next: core::option::Option<paperpaw_sdk::native::library::edits::ReceiptCursor> }
+struct paperpaw_sdk::native::library::edits::Transaction { id: u32, edits: u32, broken: bool, finished: bool }
 struct paperpaw_sdk::native::library::facets::FacetPage<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::facets::FacetRow<'a>>)
 struct paperpaw_sdk::native::library::facets::FacetRow<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibFacet<'a>)
 struct paperpaw_sdk::native::library::fields::Field<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibField<'a>)

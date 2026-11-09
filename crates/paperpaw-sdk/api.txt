@@ -4671,6 +4671,12 @@ pub paperpaw_sdk::native::library::Facet::Folders
 pub paperpaw_sdk::native::library::Facet::Letters
 pub paperpaw_sdk::native::library::Facet::Series
 pub paperpaw_sdk::native::library::Facet::Tags
+#[non_exhaustive] pub enum paperpaw_sdk::native::library::ReceiptAction
+pub paperpaw_sdk::native::library::ReceiptAction::Added
+pub paperpaw_sdk::native::library::ReceiptAction::Other(u32)
+pub paperpaw_sdk::native::library::ReceiptAction::Removed
+pub paperpaw_sdk::native::library::ReceiptAction::Replaced
+pub paperpaw_sdk::native::library::ReceiptAction::Updated
 #[non_exhaustive] pub enum paperpaw_sdk::native::library::Show
 pub paperpaw_sdk::native::library::Show::All
 pub paperpaw_sdk::native::library::Show::Favourites
@@ -4728,6 +4734,19 @@ pub const fn paperpaw_sdk::native::library::Annotation<'a>::updated(self) -> u64
 pub struct paperpaw_sdk::native::library::AnnotationCursor
 impl paperpaw_sdk::native::library::AnnotationCursor
 pub const fn paperpaw_sdk::native::library::AnnotationCursor::start() -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::AnnotationEdit<'a>
+impl<'a> paperpaw_sdk::native::library::AnnotationEdit<'a>
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::add(paperpaw_sdk::native::library::AnnotationKind, (u32, u32), (u32, u32)) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::client_key(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::conversion(self, u64) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::note(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::percent(self, u32) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::remove(u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::replace(u32, paperpaw_sdk::native::library::AnnotationKind, (u32, u32), (u32, u32)) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::text(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::times(self, u64, u64) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::upsert(&'a str, paperpaw_sdk::native::library::AnnotationKind, (u32, u32), (u32, u32)) -> Self
+pub const fn paperpaw_sdk::native::library::AnnotationEdit<'a>::xpointers(self, &'a str, &'a str) -> Self
 pub struct paperpaw_sdk::native::library::AnnotationPage<'a>
 impl<'a> paperpaw_sdk::native::library::AnnotationPage<'a>
 pub const fn paperpaw_sdk::native::library::AnnotationPage<'a>::end(&self) -> paperpaw_sdk::native::library::AnnotationPageEnd
@@ -4799,6 +4818,12 @@ pub const fn paperpaw_sdk::native::library::CatalogState::books(self) -> u32
 pub const fn paperpaw_sdk::native::library::CatalogState::generation(self) -> u32
 pub const fn paperpaw_sdk::native::library::CatalogState::phase(self) -> paperpaw_sdk::native::library::CatalogPhase
 pub const fn paperpaw_sdk::native::library::CatalogState::walk_ppm(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::Committed
+impl paperpaw_sdk::native::library::Committed
+pub const fn paperpaw_sdk::native::library::Committed::added(&self) -> u32
+pub const fn paperpaw_sdk::native::library::Committed::annotation_generation(&self) -> u32
+pub const fn paperpaw_sdk::native::library::Committed::edits(&self) -> u32
+pub const fn paperpaw_sdk::native::library::Committed::transaction(&self) -> u32
 pub struct paperpaw_sdk::native::library::Entry<'a>(_)
 impl paperpaw_sdk::native::library::Entry<'_>
 pub const fn paperpaw_sdk::native::library::Entry<'_>::favourite(self) -> bool
@@ -4871,6 +4896,12 @@ pub fn paperpaw_sdk::native::library::Library::book_key<'a>(&self, &paperpaw_sdk
 pub fn paperpaw_sdk::native::library::Library::position<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Position<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::set_position(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &paperpaw_sdk::native::library::PositionWrite<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::edit_abort(&self, &paperpaw_sdk::native::Host<'_>, &mut paperpaw_sdk::native::library::Transaction, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::edit_add(&self, &paperpaw_sdk::native::Host<'_>, &mut paperpaw_sdk::native::library::Transaction, &[paperpaw_sdk::native::library::AnnotationEdit<'_>], &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::edit_begin(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Transaction, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::edit_commit(&self, &paperpaw_sdk::native::Host<'_>, &mut paperpaw_sdk::native::library::Transaction, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Committed, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::edit_receipt<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Committed, paperpaw_sdk::native::library::ReceiptCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::ReceiptPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::facets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, paperpaw_sdk::native::library::Facet, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FacetPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::fields<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::FieldCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FieldPage<'a>, paperpaw_sdk::native::Error>
@@ -4927,6 +4958,26 @@ impl<'a> paperpaw_sdk::native::library::Query<'a>
 pub fn paperpaw_sdk::native::library::Query<'a>::words(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 impl core::default::Default for paperpaw_sdk::native::library::Query<'_>
 pub fn paperpaw_sdk::native::library::Query<'_>::default() -> Self
+pub struct paperpaw_sdk::native::library::Receipt(_)
+impl paperpaw_sdk::native::library::Receipt
+pub const fn paperpaw_sdk::native::library::Receipt::action(&self) -> paperpaw_sdk::native::library::ReceiptAction
+pub const fn paperpaw_sdk::native::library::Receipt::edit(&self) -> u32
+pub const fn paperpaw_sdk::native::library::Receipt::id(&self) -> u32
+pub struct paperpaw_sdk::native::library::ReceiptCursor(_)
+impl paperpaw_sdk::native::library::ReceiptCursor
+pub const fn paperpaw_sdk::native::library::ReceiptCursor::start() -> Self
+pub struct paperpaw_sdk::native::library::ReceiptPage<'a>
+impl<'a> paperpaw_sdk::native::library::ReceiptPage<'a>
+pub const fn paperpaw_sdk::native::library::ReceiptPage<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::ReceiptPage<'a>::len(&self) -> usize
+pub const fn paperpaw_sdk::native::library::ReceiptPage<'a>::next(&self) -> core::option::Option<paperpaw_sdk::native::library::ReceiptCursor>
+pub fn paperpaw_sdk::native::library::ReceiptPage<'a>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::library::Receipt> + use<'a>
+pub const fn paperpaw_sdk::native::library::ReceiptPage<'a>::total(&self) -> u32
+pub struct paperpaw_sdk::native::library::Transaction
+impl paperpaw_sdk::native::library::Transaction
+pub const fn paperpaw_sdk::native::library::Transaction::edits(&self) -> u32
+pub const paperpaw_sdk::native::library::MAX_EDITS_PER_CALL: usize
+pub const paperpaw_sdk::native::library::NOTE_MAX_BYTES: usize
 pub mod paperpaw_sdk::native::lookup
 pub struct paperpaw_sdk::native::lookup::Ask<'a>(_)
 impl<'a> paperpaw_sdk::native::lookup::Ask<'a>
