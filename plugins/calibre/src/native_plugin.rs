@@ -72,6 +72,7 @@ macro_rules! store {
             secrets: $plugin.secrets.as_ref(),
             extensions: &$plugin.extensions,
             folder: &$plugin.folder,
+            small: $plugin.small,
             name: &$plugin.name,
             version: &$plugin.version,
         }
@@ -175,8 +176,14 @@ impl Plugin for NativeCalibre {
                 self.screens.close(instance);
                 Ok(())
             }
-            Event::Socket(event) if token == SOCKET_TOKEN => self.on_socket(host, &event),
-            Event::Broadcast(event) if token == BROADCAST_TOKEN => self.on_broadcast(host, &event),
+            Event::Socket(event) if token == SOCKET_TOKEN => {
+                let done = self.on_socket(host, &event);
+                self.survive_no_memory(host, done)
+            }
+            Event::Broadcast(event) if token == BROADCAST_TOKEN => {
+                let done = self.on_broadcast(host, &event);
+                self.survive_no_memory(host, done)
+            }
             Event::Answered { answer, .. } => self.answered(host, answer),
             _ => Ok(()),
         }
@@ -353,6 +360,9 @@ impl NativeCalibre {
         let mut scratch = [0; 280];
         match settings::read_setting(host, ADDRESS, &mut scratch) {
             Ok(SettingValue::Text(text)) => copy(text),
+            // An address that does not fit is an error, never "none set".
+            Err(Error::NoSpace) => Err(Error::NoSpace),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
             _ => Ok(String::new()),
         }
     }
@@ -399,6 +409,27 @@ impl NativeCalibre {
         // What was received half-way is not kept.
         storage::remove(host, Root::Data, INCOMING).ok();
         storage::remove(host, Root::Data, DROPPED).ok();
+    }
+
+    /// A refused allocation in a socket or broadcast callback ends the
+    /// session with the line "no memory" (the connection is closed, what was
+    /// half received is dropped) instead of leaving the screen waiting for a
+    /// message that will never be read. Other errors go on as they were.
+    fn survive_no_memory(&mut self, host: &Host<'_>, done: Result<(), Error>) -> Result<(), Error> {
+        if !matches!(done, Err(Error::NoMemory)) {
+            return done;
+        }
+        self.reset_wire(host);
+        let steps = match &mut self.session {
+            Some(session) => session.closed(Some(reason_words(Reason::NoMemory))),
+            None => return Ok(()),
+        };
+        match steps {
+            Ok(steps) if self.run(host, steps).is_ok() => {}
+            // Not even the line fits: the session is dropped, the wire is closed.
+            _ => self.end(host),
+        }
+        Ok(())
     }
 
     /// The screen closed: the connection ends with it.
@@ -795,14 +826,11 @@ impl NativeCalibre {
             return Ok(Vec::new());
         };
         let wanted = usize::try_from(len).map_err(|_| Error::NoSpace)?;
-        let mut bytes: Vec<u8> = Vec::new();
-        bytes
-            .try_reserve(self.carry.len().saturating_add(wanted))
-            .map_err(|_| Error::NoMemory)?;
-        bytes.extend_from_slice(&self.carry);
-        self.carry.clear();
         let (mut input, mut out) = (buffer(256)?, buffer(PIECE + 256)?);
+        let mut steps: Vec<Step> = Vec::new();
         let mut offset = 0usize;
+        // Each piece is given to the session as it is read: nothing holds the
+        // whole received run (the bytes of a cut character wait in `carry`).
         while offset < wanted {
             let at = u32::try_from(offset).map_err(|_| Error::NoSpace)?;
             let part = match sockets.data(host, id, at, &mut input, &mut out) {
@@ -810,41 +838,60 @@ impl NativeCalibre {
                 Ok(_) => return Err(Error::Invalid),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 // The socket is going: its `closed` says why.
-                Err(_) => return Ok(Vec::new()),
+                Err(_) => return Ok(steps),
             };
             let take = part.len().min(wanted - offset);
-            bytes.extend_from_slice(part.get(..take).unwrap_or(&[]));
             offset += take;
-        }
-        // The valid text, and the start of a character that the read cut.
-        let (text_len, cut) = match core::str::from_utf8(&bytes) {
-            Ok(_) => (bytes.len(), None),
-            Err(error) if error.error_len().is_none() => (error.valid_up_to(), Some(())),
-            Err(_) => {
-                return match &mut self.session {
-                    Some(session) => session.not_text(),
-                    None => Ok(Vec::new()),
-                };
+            let part = part.get(..take).unwrap_or(&[]);
+            // The cut character's start and the piece in one run (a few bytes
+            // longer than the piece), else the piece itself.
+            let mut joined: Vec<u8> = Vec::new();
+            let bytes: &[u8] = if self.carry.is_empty() {
+                part
+            } else {
+                joined
+                    .try_reserve(self.carry.len().saturating_add(part.len()))
+                    .map_err(|_| Error::NoMemory)?;
+                joined.extend_from_slice(&self.carry);
+                joined.extend_from_slice(part);
+                self.carry.clear();
+                &joined
+            };
+            // The valid text, and the start of a character that the read cut.
+            let text_len = match core::str::from_utf8(bytes) {
+                Ok(_) => bytes.len(),
+                Err(error) if error.error_len().is_none() => {
+                    let valid = error.valid_up_to();
+                    let rest = bytes.get(valid..).unwrap_or(&[]);
+                    self.carry
+                        .try_reserve(rest.len())
+                        .map_err(|_| Error::NoMemory)?;
+                    self.carry.extend_from_slice(rest);
+                    valid
+                }
+                Err(_) => {
+                    return match &mut self.session {
+                        Some(session) => session.not_text(),
+                        None => Ok(Vec::new()),
+                    };
+                }
+            };
+            let text = bytes
+                .get(..text_len)
+                .and_then(|valid| core::str::from_utf8(valid).ok())
+                .unwrap_or_default();
+            if text.is_empty() {
+                continue;
             }
-        };
-        if cut.is_some() {
-            self.carry
-                .try_reserve(bytes.len() - text_len)
-                .map_err(|_| Error::NoMemory)?;
-            self.carry
-                .extend_from_slice(bytes.get(text_len..).unwrap_or(&[]));
-        }
-        let text = bytes
-            .get(..text_len)
-            .and_then(|valid| core::str::from_utf8(valid).ok())
-            .unwrap_or_default();
-        let steps = {
             let mut store = store!(self, host);
-            match &mut self.session {
+            let more = match &mut self.session {
                 Some(session) => session.received(&mut store, text)?,
                 None => Vec::new(),
+            };
+            for step in more {
+                push(&mut steps, step)?;
             }
-        };
+        }
         Ok(steps)
     }
 

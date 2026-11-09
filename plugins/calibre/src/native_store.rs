@@ -33,8 +33,11 @@ const TRUSTED: &str = "host.txt";
 /// fits in a message on the smallest devices.
 pub const MAX_METADATA: usize = 64 * 1024;
 /// Records listed at most (a library of tens of thousands is not sent to
-/// Calibre).
-const MOST_BOOKS: usize = 20_000;
+/// Calibre): 2,000 on a device of the small class (an X4: 32 KiB of ids on a
+/// 256 KiB heap), 20,000 on any other.
+const fn most_books(small: bool) -> usize {
+    if small { 2_000 } else { 20_000 }
+}
 
 /// `path` below the library folder `folder` as a path on the card.
 ///
@@ -75,6 +78,8 @@ pub struct Store<'a, 'h> {
     pub extensions: &'a [String],
     /// The library folder below the card's top, without slashes around it.
     pub folder: &'a str,
+    /// The device is of the small class (an X4).
+    pub small: bool,
     pub name: &'a str,
     pub version: &'a str,
 }
@@ -161,7 +166,7 @@ impl Backing for Store<'_, '_> {
                     .filter(|hex| hex.len() == 32)
                     .and_then(|hex| u128::from_str_radix(hex, 16).ok());
                 if let (false, Some(id)) = (entry.is_folder(), id)
-                    && ids.len() < MOST_BOOKS
+                    && ids.len() < most_books(self.small)
                 {
                     push(&mut ids, id)?;
                 }

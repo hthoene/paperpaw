@@ -54,13 +54,23 @@ the activation of native plugins and the host's sockets and library (`tests/acce
 ## Not ported / not accepted yet
 
 - **What the library learns from Calibre's metadata** (title, author, series, number, tags: interface 6
-  `library::provide`) is not set: there is no `Library::provide` (LIB op 24) in the SDK facade yet (asked
-  of Services). A received book shows what its file says until it exists.
+  `library::provide`) is not set: `Library::provide` (LIB op 24) is in Services' draft PR #747. Hand-over
+  for that slice: the metadata Calibre sent is kept per book in `books/*.json` (up to 64 KiB each); once
+  `provide` exists, **replay `books/*.json` once at the next connection** (a field that is empty or blank
+  is not set: Kernel's ruling is that empty never clears; `tags` replace this provider's whole list, at
+  most 32), then new books are provided as they arrive. A received book shows what its file says until
+  then.
 - No scripted-host test drives `native_plugin.rs` (the steps, the pump of frames, the reads, the import);
   the session and the model are tested without a host (including a refusal sweep of every allocation of
   the session). Host acceptance (a real Calibre, a real book) waits for the activation of native plugins
   (Core #944, Host #417), the sockets wiring in the shells and the host's library import.
-- X4 file size and peak memory (the 64 KiB message bound, the 4 KiB queues) are not measured.
+- X4 file size and peak memory are not measured: **on the X4 heap checklist** are the 64 KiB message
+  bound (the session holds one whole message, and its parsed copy, at a time; a received run is given
+  to the framing piece by piece, never held whole), the 4 KiB queues and the list of book ids (at most
+  2,000 on the small class, 20,000 on others).
+- A refused allocation in a socket or broadcast callback ends the session with the line "no memory"
+  (the connection is closed, what was half received is dropped); an address setting over 280 bytes is an
+  error (`NoSpace`), not "no address".
 - The frame of a hash answer is built by `native_model::frame` from copies that are not wiped (the
   digest's state and the hash text are; the frame itself is wiped once queued); the hash is bound to
   Calibre's challenge.
