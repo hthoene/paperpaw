@@ -353,6 +353,55 @@ fn an_answer_that_finds_the_machine_borrowed_is_counted() {
 }
 
 #[test]
+fn cancelling_one_check_keeps_the_result_place_of_the_others() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(1, 2, "b.ppu").unwrap();
+    d.cancel(1, 2);
+    d.abort_all();
+    // The first check still has its place: it left a result, not `NOT_FOUND`.
+    let machine = d.machine();
+    let checked = machine.borrow().checked(1).unwrap();
+    assert_eq!((checked.request, checked.reason), (1, 20));
+}
+
+#[test]
+fn a_restart_asked_inside_its_install_done_keeps_its_own_slot() {
+    let mut d = driver();
+    d.submit_install(1, 5, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    d.answer(ask.question(), Answer::Yes);
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == 0));
+    let outcome = d.take_ready().unwrap();
+    // The plugin asks for the restart (same number) from the callback that
+    // was told, before the host calls `delivered`.
+    d.request_restart(1).unwrap();
+    d.delivered(outcome);
+    assert_eq!(d.kept(1, KIND_FIRMWARE), None);
+}
+
+#[test]
+fn a_stop_with_the_machine_borrowed_tells_nobody_twice() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    assert_eq!(d.pump(&NoStorage, &Names, 100), Event::Quiet);
+    let machine = d.machine();
+    let held = machine.borrow_mut();
+    d.abort_all();
+    drop(held);
+    // The queued check ended; the running install did not: it ends once, when
+    // its job does, not now.
+    let told: Vec<_> = core::iter::from_fn(|| d.take_ready())
+        .map(|o| (o.owner, o.reason))
+        .collect();
+    assert_eq!(told, [(2, 20)]);
+    assert!(d.holds(1, 1));
+}
+
+#[test]
 fn many_steps_between_two_looks_leave_one_changed_mark() {
     let mut d = driver();
     d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
