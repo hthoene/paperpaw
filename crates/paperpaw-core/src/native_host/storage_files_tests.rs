@@ -194,3 +194,15 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
     hosts.in_use().release(7, "Books/a.epub");
     assert!(!files.busy("Books/a.epub", Access::Write));
 }
+
+#[test]
+fn a_linked_plugin_is_built_in_and_a_loaded_one_is_not() {
+    let linked = Rc::new(crate::native_host::linked_plugins::LinkedPlugins::default());
+    let files = StorageFiles::new(card(), Rc::default(), linked.clone());
+    assert!(!files.is_linked("home"));
+    linked.add("home").unwrap();
+    assert!(files.is_linked("home"));
+    assert!(!files.is_linked("other") && !files.is_linked("hom"));
+    linked.remove("home");
+    assert!(!files.is_linked("home"));
+}
