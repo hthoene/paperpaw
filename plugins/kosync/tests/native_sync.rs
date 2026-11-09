@@ -5,8 +5,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_plugin_kosync::native_model::Remote;
 use paperpaw_plugin_kosync::native_sync::{
-    Action, Answer, Answered, Ctx, Engine, MOST_DISMISSED, MOST_LEFT, MOST_UNSENT, Notice, PULL_EVERY_MS, PUSH_EVERY_MS,
-    Position,
+    Action, Answer, Answered, Ctx, Engine, MOST_DISMISSED, MOST_LEFT, MOST_UNSENT, Notice,
+    PULL_EVERY_MS, PUSH_EVERY_MS, Position,
 };
 
 const ME: &str = "me";
@@ -477,7 +477,8 @@ fn at_most_four_books_switched_from_offline_are_kept() {
     let mut out = Vec::new();
     for i in 0..(MOST_UNSENT + 2) {
         let path = format!("{i}.epub");
-        e.book_opened(offline(i as u64), at(&path, 0.1), &mut out).unwrap();
+        e.book_opened(offline(i as u64), at(&path, 0.1), &mut out)
+            .unwrap();
     }
     assert!(out.is_empty());
     e.allowed(ctx(1_000), &mut out).unwrap();
@@ -494,20 +495,27 @@ fn the_books_left_are_not_dropped_before_the_cap() {
     let mut out = Vec::new();
     for i in 0..(MOST_UNSENT + 1) {
         let path = format!("{i}.epub");
-        e.book_opened(offline(i as u64), at(&path, 0.2), &mut out).unwrap();
+        e.book_opened(offline(i as u64), at(&path, 0.2), &mut out)
+            .unwrap();
     }
     e.allowed(ctx(1_000), &mut out).unwrap();
     // The open book's position waits for its fetch; another book is opened.
     out.clear();
     let last = format!("{MOST_UNSENT}.epub");
     e.page_turned(ctx(1_100), at(&last, 0.3), &mut out).unwrap();
-    e.book_opened(ctx(1_200), at("next.epub", 0.0), &mut out).unwrap();
+    e.book_opened(ctx(1_200), at("next.epub", 0.0), &mut out)
+        .unwrap();
     out.clear();
     // Every book left, MOST_LEFT of them, still sends its position.
     let same = remote(0.1, "other");
     for i in 0..=MOST_UNSENT {
         let path = format!("{i}.epub");
-        e.pulled(ctx(2_000), &answer(&path, 0.2, false, Some(&same)), &mut out).unwrap();
+        e.pulled(
+            ctx(2_000),
+            &answer(&path, 0.2, false, Some(&same)),
+            &mut out,
+        )
+        .unwrap();
     }
     assert_eq!(sends(&out).len(), MOST_LEFT);
 }
