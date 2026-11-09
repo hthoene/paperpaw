@@ -25,6 +25,8 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn finish(&mut self) -> Effects {
+        // The events of the host services, between callbacks.
+        self.native_service_pump();
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -44,6 +46,8 @@ impl Kernel {
         }
         self.check_network();
         self.run_commands();
+        // Whatever this call decided is what the next callback goes by.
+        self.sync_net_policy();
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
@@ -243,6 +247,8 @@ impl Kernel {
             self.bluetooth_deadline(),
             self.escape_due(),
             self.native_unload_due(),
+            self.service_due(),
+            self.work_pump_due(),
         ]
         .into_iter()
         .flatten()
@@ -559,6 +565,7 @@ impl Kernel {
             Some(screen) => self.shared.registry.bind_user(slot.clone(), screen.clone()),
             None => self.shared.registry.unbind_user(&slot),
         }
+        self.shared.registry_generation.bump();
         self.update_config(&format_args!("slot `{slot}`"), |source| match &screen {
             Some(screen) => paperpaw_config::set(source, "slots", slot.as_str(), screen.as_str()),
             None => paperpaw_config::remove(source, "slots", slot.as_str()),
@@ -597,6 +604,9 @@ impl Kernel {
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
+        // A setting of a plugin's network changed: the plugins that hear it
+        // next are already answered by the new one.
+        self.sync_net_policy();
         let env = self.shared.env(self.now);
         // A password typed (an answer to a question asked as one) reaches
         // the plugin that asked alone, the one its reply event is named
@@ -1154,6 +1164,15 @@ pub(crate) fn vet_reserved(
         !refused
     });
     out.len() != before
+}
+
+/// `text` cut to what the clipboard holds, at a character boundary.
+pub(crate) fn clipped(text: &str) -> String {
+    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    String::from(&text[..end])
 }
 
 #[cfg(test)]

@@ -429,6 +429,73 @@ fn a_plugin_whose_network_is_off_gets_none() {
     assert_eq!(log.borrow()[1], "wk.closed -", "it is answered at once");
 }
 
+/// What the native network services are told about plugin `wk`.
+fn policy_of(
+    kernel: &mut Kernel,
+    policy: &crate::native_host::net_policy::NetPolicy,
+    background: bool,
+) -> Option<(u32, bool)> {
+    kernel.refresh_net_policy(policy);
+    policy
+        .end_for("wk", background)
+        .map(|e| (e.reason, e.later))
+}
+
+#[test]
+fn the_native_network_policy_follows_the_mode_and_the_plugins_own_setting() {
+    use crate::native_host::net_service::reason;
+    let log = log();
+    let mut kernel = kernel(&log, true);
+    let policy = crate::native_host::net_policy::NetPolicy::new();
+    assert_eq!(policy_of(&mut kernel, &policy, true), None, "as it starts");
+    // Held to manual: refused for its background use, not for the reader's.
+    kernel
+        .set_setting(Instant(1), "core.saving.wk", "core.saving.manual")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, true),
+        Some((reason::SAVING, true))
+    );
+    assert_eq!(policy_of(&mut kernel, &policy, false), None);
+    // Off wins over everything, with no retry.
+    kernel
+        .set_setting(Instant(2), "core.network.wk", "off")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, false),
+        Some((reason::NETWORK_OFF, false))
+    );
+    kernel
+        .set_setting(Instant(3), "core.network.wk", "on")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, true),
+        Some((reason::SAVING, true))
+    );
+    // The offline mode ends everyone's, with a retry.
+    kernel.shared.power = paperpaw_sdk::power::Power::new(
+        paperpaw_sdk::power::PowerLevel::Offline,
+        paperpaw_sdk::power::OFFLINE,
+        false,
+        4,
+    );
+    assert_eq!(
+        policy_of(&mut kernel, &policy, false),
+        Some((reason::OFFLINE, true))
+    );
+    // Back to normal, and the setting back to follow the mode.
+    kernel.shared.power = paperpaw_sdk::power::Power::new(
+        paperpaw_sdk::power::PowerLevel::Normal,
+        paperpaw_sdk::power::NORMAL,
+        false,
+        1,
+    );
+    kernel
+        .set_setting(Instant(4), "core.saving.wk", "core.saving.follow")
+        .unwrap();
+    assert_eq!(policy_of(&mut kernel, &policy, true), None);
+}
+
 #[test]
 fn an_exempt_plugin_keeps_normal_limits_in_saving() {
     let log = log();

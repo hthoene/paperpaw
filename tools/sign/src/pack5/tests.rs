@@ -193,6 +193,29 @@ fn an_exported_symbol_besides_the_two_is_refused() {
 }
 
 #[test]
+fn a_hidden_global_is_no_export_and_a_default_one_still_is() {
+    // The Xtensa linker leaves `compiler_builtins`'s functions global but
+    // hidden: nothing can bind to them, so they are no export.
+    for machine in [EM_XTENSA, EM_RISCV] {
+        let mut p = plugin(machine);
+        p.b.symbol("memcpy", TEXT + 4, 4, p.text as u16, false);
+        p.b.hide_last_symbol();
+        p.b.symbol("make_it", TEXT + 8, 4, p.text as u16, false);
+        let error = refused(&p);
+        assert!(error.contains("`make_it`"), "{error}");
+        assert!(!error.contains("memcpy"), "{error}");
+        let mut p = plugin(machine);
+        p.b.symbol("memcpy", TEXT + 4, 4, p.text as u16, false);
+        p.b.hide_last_symbol();
+        match pack5(&p.b.build()) {
+            Ok(_) => {}
+            // This sample is no valid Xtensa code: whatever else it fails, not on exports.
+            Err(error) => assert!(!error.contains("exports"), "{machine}: {error}"),
+        }
+    }
+}
+
+#[test]
 fn writable_data_other_sections_and_undefined_symbols_are_refused() {
     let mut p = plugin(EM_RISCV);
     let bss = p.b.nobits(".bss", SHF_ALLOC | SHF_WRITE, 0x3FC8_0000, 24);

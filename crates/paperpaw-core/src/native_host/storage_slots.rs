@@ -4,6 +4,7 @@
 
 use super::{
     environment::EnvironmentScope,
+    paths_in_use::PathsInUse,
     storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
 };
 use alloc::{alloc::alloc_zeroed, boxed::Box};
@@ -16,6 +17,7 @@ use paperpaw_native::host_glue::{
 fn with_adapter<R>(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: Option<&PathsInUse>,
     call: impl FnOnce(&StorageAdapter<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
     let length = PREFIX
@@ -31,7 +33,8 @@ fn with_adapter<R>(
     let folder = core::str::from_utf8(folder).map_err(|_| ERR_INVALID)?;
     scope.with_frame(|frame| {
         let storage = frame.storage().ok_or(ERR_STATE)?;
-        let adapter = StorageAdapter::borrowed_folder(storage, folder).ok_or(ERR_INVALID)?;
+        let adapter =
+            StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
         call(&adapter)
     })?
 }
@@ -94,7 +97,7 @@ pub(crate) unsafe fn size(
         }
         // SAFETY: the caller guarantees live input storage.
         let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, |adapter| adapter.size(root, path))
+        with_adapter(scope, owner, None, |adapter| adapter.size(root, path))
     })();
     match result {
         Ok(value) => {
@@ -128,7 +131,7 @@ pub(crate) unsafe fn read_at(
         pair(out.ptr, out.cap, MAX_DATA)?;
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
-        with_adapter(scope, owner, |adapter| {
+        with_adapter(scope, owner, None, |adapter| {
             let mut scratch = read_scratch(out.len())?;
             let count = adapter.read_at(root, path, offset, &mut scratch)?;
             let bytes = scratch
@@ -185,12 +188,13 @@ mod scratch_fault {
 pub(crate) unsafe fn write(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, root, bytes, data, false) }
+    unsafe { put(scope, owner, in_use, root, bytes, data, false) }
 }
 
 /// Slot 23: append a chunk, preserving the reserve and path rules.
@@ -201,17 +205,19 @@ pub(crate) unsafe fn write(
 pub(crate) unsafe fn append(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, root, bytes, data, true) }
+    unsafe { put(scope, owner, in_use, root, bytes, data, true) }
 }
 
 unsafe fn put(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
@@ -222,7 +228,7 @@ unsafe fn put(
         let path = unsafe { path(root, bytes) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let data = unsafe { input(data, MAX_DATA) }?;
-        with_adapter(scope, owner, |adapter| {
+        with_adapter(scope, owner, Some(in_use), |adapter| {
             if append {
                 adapter.append(root, path, data)
             } else {
@@ -240,6 +246,7 @@ unsafe fn put(
 pub(crate) unsafe fn rename(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: &PathsInUse,
     root: u32,
     from: PpBytes,
     to: PpBytes,
@@ -249,7 +256,9 @@ pub(crate) unsafe fn rename(
         let from = unsafe { path(root, from) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let to = unsafe { path(root, to) }?;
-        with_adapter(scope, owner, |adapter| adapter.rename(root, from, to))
+        with_adapter(scope, owner, Some(in_use), |adapter| {
+            adapter.rename(root, from, to)
+        })
     })())
 }
 
@@ -261,19 +270,22 @@ pub(crate) unsafe fn rename(
 pub(crate) unsafe fn remove(
     scope: &EnvironmentScope,
     owner: &str,
+    in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable input.
         let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, |adapter| adapter.remove(root, path))
+        with_adapter(scope, owner, Some(in_use), |adapter| {
+            adapter.remove(root, path)
+        })
     })())
 }
 
 /// Slot 26: flush the current callback's storage view.
 pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
-    status(with_adapter(scope, owner, |adapter| adapter.sync()))
+    status(with_adapter(scope, owner, None, |adapter| adapter.sync()))
 }
 
 #[cfg(test)]
