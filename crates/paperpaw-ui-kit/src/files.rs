@@ -107,7 +107,15 @@ fn read_head_on(v: &impl Volume, name: &str, n: usize) -> Result<Option<Vec<u8>>
     Ok(Some(bytes))
 }
 
-fn read_all_on(v: &impl Volume, name: &str, max: usize) -> Result<Option<Vec<u8>>, Error> {
+/// [`read_all`] on any [`Volume`].
+///
+/// # Errors
+/// As [`read_all`].
+pub fn read_all_on(
+    v: &(impl Volume + ?Sized),
+    name: &str,
+    max: usize,
+) -> Result<Option<Vec<u8>>, Error> {
     let size = match v.size(name) {
         Ok(size) => usize::try_from(size).map_err(|_| Error::NoSpace)?,
         Err(Error::NotFound) => return Ok(None),
@@ -141,7 +149,11 @@ fn temp_name(name: &str) -> Result<String, Error> {
     Ok(temp)
 }
 
-fn replace_on(v: &impl Volume, name: &str, bytes: &[u8]) -> Result<(), Error> {
+/// [`replace`] on any [`Volume`].
+///
+/// # Errors
+/// As [`replace`].
+pub fn replace_on(v: &(impl Volume + ?Sized), name: &str, bytes: &[u8]) -> Result<(), Error> {
     if bytes.len() <= MAX_DATA {
         v.write(name, bytes)?;
         // A temp file a cut or a refusal left behind earlier is of no use now.
@@ -164,6 +176,88 @@ fn replace_on(v: &impl Volume, name: &str, bytes: &[u8]) -> Result<(), Error> {
         let _ = v.remove(&temp);
     }
     done
+}
+
+/// A line is cut here by [`for_each_line_on`].
+pub const MAX_LINE: usize = 4096;
+/// How much of a file [`for_each_line_on`] reads at a time.
+const LINE_PIECE: usize = 512;
+
+/// A line's bytes as text, an invalid sequence replaced by U+FFFD as
+/// `String::from_utf8_lossy` does, in memory that may be refused.
+fn lossy_line(bytes: &[u8]) -> Result<alloc::borrow::Cow<'_, str>, Error> {
+    if let Ok(text) = core::str::from_utf8(bytes) {
+        return Ok(alloc::borrow::Cow::Borrowed(text));
+    }
+    let mut out = String::new();
+    out.try_reserve(bytes.len().saturating_add(3))
+        .map_err(|_| Error::NoMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        out.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            out.try_reserve(3).map_err(|_| Error::NoMemory)?;
+            out.push('\u{fffd}');
+        }
+    }
+    Ok(alloc::borrow::Cow::Owned(out))
+}
+
+/// Reads the text file `name` a line at a time as it streams from the card, so
+/// a file of any length is read in little memory: `visit` gets each line
+/// without its line break (`\n` or `\r\n`, invalid UTF-8 replaced, a byte
+/// order mark at the start left out) and says whether to go on. A line is cut
+/// at [`MAX_LINE`] bytes.
+///
+/// # Errors
+/// [`Error::NoMemory`], what the card says, or what `visit` says.
+pub fn for_each_line_on(
+    v: &(impl Volume + ?Sized),
+    name: &str,
+    visit: &mut dyn FnMut(&str) -> Result<core::ops::ControlFlow<()>, Error>,
+) -> Result<(), Error> {
+    let mut chunk = [0u8; LINE_PIECE];
+    let mut line: Vec<u8> = Vec::new();
+    let (mut at, mut first) = (0u64, true);
+    let mut emit = |line: &mut Vec<u8>| -> Result<core::ops::ControlFlow<()>, Error> {
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        let mut bytes = line.as_slice();
+        if first {
+            bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+        }
+        first = false;
+        let flow = visit(&lossy_line(bytes)?);
+        line.clear();
+        flow
+    };
+    loop {
+        let n = v.read_at(name, at, &mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        at += n as u64;
+        for piece in chunk
+            .get(..n)
+            .unwrap_or(&[])
+            .split_inclusive(|b| *b == b'\n')
+        {
+            let (body, ends) = match piece.split_last() {
+                Some((b'\n', body)) => (body, true),
+                _ => (piece, false),
+            };
+            let take = body.len().min(MAX_LINE.saturating_sub(line.len()));
+            line.try_reserve(take).map_err(|_| Error::NoMemory)?;
+            line.extend_from_slice(body.get(..take).unwrap_or(&[]));
+            if ends && emit(&mut line)?.is_break() {
+                return Ok(());
+            }
+        }
+    }
+    if !line.is_empty() {
+        let _ = emit(&mut line)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -496,5 +590,32 @@ mod tests {
         let big = [1u8; MAX_DATA + 1];
         crate::fail_alloc::sweep(|| replace_on(&Zeros, "f", &big));
         crate::fail_alloc::sweep(|| replace_on(&Zeros, "f", b"small"));
+    }
+
+    #[test]
+    fn lines_are_read_in_pieces_without_their_breaks() {
+        let fake = Fake::with("l", b"\xef\xbb\xbfone\r\ntwo\n\nbad\xffbyte\nlast");
+        let mut got = Vec::new();
+        for_each_line_on(&fake, "l", &mut |line| {
+            got.push(String::from(line));
+            Ok(core::ops::ControlFlow::Continue(()))
+        })
+        .unwrap();
+        assert_eq!(got, ["one", "two", "", "bad\u{fffd}byte", "last"]);
+        // A long line is cut, and the reading can be stopped.
+        let fake = Fake::with("l", &vec![b'a'; 10_000]);
+        let mut lens = Vec::new();
+        for_each_line_on(&fake, "l", &mut |line| {
+            lens.push(line.len());
+            Ok(core::ops::ControlFlow::Break(()))
+        })
+        .unwrap();
+        assert_eq!(lens, [MAX_LINE]);
+        assert_eq!(
+            for_each_line_on(&fake, "none", &mut |_| Ok(
+                core::ops::ControlFlow::Continue(())
+            )),
+            Err(Error::NotFound)
+        );
     }
 }

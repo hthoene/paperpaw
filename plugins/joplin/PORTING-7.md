@@ -1,39 +1,71 @@
-# Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
+# Interface-7 port
 
-Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
-set-up screen and no `NATIVE_ENTRY` yet; the interface-6 `Joplin` and everything of it stays until the
-host activates native plugins (then it goes together, no shim).
+Version 1.0.7 (above Beta 3's 1.0.5, so no bump). Status: **complete except one subscription**: native
+only, no interface-6 code left. The plugin does not yet hear the reader's export (`reader.notes-exported@1`,
+#723 is not merged): `NativeJoplin::exported` is the entry the export stage calls, and until the stage
+is subscribed the notes that wait go with *Send to Joplin* (the action, a rule, the set-up's *Send*) and the retry.
 
-## Ported
+## What it is
 
-- `src/native_joplin.rs`: the kinds of sync target (`Service`: setting values, the one after, whether
-  it has an address or signs in, the addresses of a file and of the locks), Joplin's ids (`new_id`
-  from an MD5 of the seed, `is_id`, `file_name`), the properties at the end of an item (`parse_props`),
-  the text of a notebook (`notebook`) and of a note's properties (`Note::props`, with the escapes of
-  line breaks) and the title and author at the start of the notes a reader exports (`parse_head`).
-  Allocation is fallible and swept. `src/native_parity_tests.rs` compares each with the interface-6
-  code (`escape`, `one_line` and `Note::props` became `pub(crate)` for it, nothing else changed).
-- Reads of files (slice 2), with the caps of interface 6 enforced in code: `item_props(size, tail)` reads
-  an item's properties and where its text ends from the end of its file, **at most `TAIL` = 2,048
-  bytes** (a longer `tail` is cut from the front; properties further up are not seen; a shorter one
-  is the file's end as far as it goes, and `text_end` counts from `size` less its length), and
-  `head_of(start)` reads a notes file's title and author from **at most `HEAD` = 1,024 bytes** of its
-  start. Both decode invalid UTF-8 as `String::from_utf8_lossy` does, in fallible memory.
-  `Props::text_end` is new (as `read_props`'s). `src/native_read_tests.rs` compares them with
-  `item::read_props` and `markdown::head` on the same files and sweeps every allocation. The caller
-  reads the bytes (files) and gives them.
-- `declarations.rs`: the four settings (the service as a choice, the address, user name and notebook
-  as advanced texts; all kept on reset, in the library group, edited on the set-up screen), the
-  screen (one at a time), the actions `open` and `send`, the place in the tools (order 49) and the
-  icons. `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each with
-  the interface-6 registration, including the screen's instance policy from the decoded flags.
+- `src/native_joplin.rs`, `native_kept.rs`, `native_note.rs`, `native_locks.rs`: the decisions, the files
+  and the reads (slices 1 to 3, see the golden tests below).
+- `src/native_send.rs`: the sending, a request at a time over a `Wire` (the data folder, the card, the
+  account, the password, the clock, the network) so it is tested without a host: sign-in (Joplin Cloud
+  and Server), `info.json` (a format version of 3, no end-to-end encryption), the locks (nothing is written
+  while a client upgrades the target), the notebook, then each book's note, fetched to a file and only its
+  end read (written over if its text was not edited, a new note beside it if it was), written to a file and
+  sent from there, kept in `sending.txt` before it goes. Every request has a step number as its token;
+  an answer for another request or after the end changes nothing. A refused allocation ends the sending
+  with *not enough memory* and the notes keep waiting.
+- `src/native_plugin.rs`, `native_setup.rs`, `native_keep.rs`, `native_entry.rs`: the host's side. The
+  set-up screen is rows on `core.ui` (service, address, e-mail or user name, password, notebook, *Send*): a
+  text question for each (the address as an address, the password masked, the others filled with the
+  setting); the service row goes on to the next service; the next row is focused after an answer. The
+  last row says how the last sending went, or how many books wait. The password is the plugin's secret
+  `password` (label `joplin.secret`), kept with `core.secrets`; Beta 3 kept it as `joplin.password`, which
+  the secret store moves to the plugin's own name (`secrets.md` 7), so it is read again, not asked again
+  (untested on a device). Every buffer that held it is wiped. The retry is declared work
+  (`joplin.retry`, network, at the moment the network is there, within 30 minutes) while notes wait; the
+  action *Send to Joplin* declares `joplin.send`, due at once.
 
-## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
+## Decisions
 
-- Writing a note (`Note::write`: the title, the body copied from the notes file in pieces, the
-  properties, the MD5 of the text) and the reading of the files themselves (`text_hash`): files.
-- The sending itself: sign-in, the locks (`locks.rs`, WebDAV and server, read with the XML reader),
-  the notebook and note lookups, the waiting and sent lists (`kept.rs`), the retries (network, files,
-  declared work).
-- The set-up screen (H1, H2), the password (secrets, #367), the keyboard slot.
-- The events it hears: `core.notes-exported`, `setting.changed`, `started` and its own answers.
+- The sign-in's answer holds the session id (a credential): it is read from the request's memory body
+  (`max_body` 1,024, `Net::body` while its end event is handled) into a self-wiping `Secret` and never
+  written to a file, as in Beta 3. The password's header and the sign-in's body are wiped after the request.
+- An address the network service refuses (over 1,024 bytes, not an address) says so (`joplin.bad-address`) and
+  stops the automatic tries until the address changes; the retry work is not declared while a wrong
+  password or address blocks sending, and is declared again when the account changes.
+
+- The clock is the snapshot's (seconds); times written to Joplin are to the second (`.000`).
+- A rule's *Send to Joplin* now runs at once as declared work (interface 6 deferred it for one hour when no
+  reader was there).
+- Reasons a request ended without an answer (no network, DNS, TLS, timeout, offline mode, saving mode) are
+  all *Joplin cannot be reached* (interface 6's status 0); the notes wait. The set-up's offer to go
+  online in offline mode is not ported (the network service refuses and the notes wait).
+- A wrong password or address stops the automatic tries until the account changes (a setting changed, or a
+  new password typed), as in interface 6.
+- `write_note` writes straight to the file: a power cut leaves a partial file that the next sending writes
+  anew, and the hash is kept in `sending.txt` before the note goes, so a partial file is never taken for a
+  sent note. The line breaks held back at the end of a piece are at most 4,096 in a row (interface 6
+  held them all).
+- `waiting()` holds at most 32 paths (the rest stay in the file and come with the next sending); a
+  title, location or author is cut at 256 bytes.
+
+## Tests
+
+- `src/native_golden_tests.rs` against `testdata/golden_*.v1`: transcripts generated from the interface-6
+  modules (commit 57ff02a17) before they were deleted: services, ids, items, notes written, notes read,
+  the kept files, the locks.
+- `src/native_send_tests.rs`: the cases of interface 6's kernel tests (a note sent then updated, a note
+  edited in Joplin, a lost answer, Joplin Cloud's session, no network, a wrong password, encrypted and
+  other-format targets, the locks, a note that fails while the others go, no account, an answer twice), and
+  a sweep that refuses every allocation of a whole sending.
+- `tests/abi7_declarations.rs` (the declarations decoded by the host's rules), `tests/native_flow.rs` (the
+  real plugin on the scripted host), `tests/native_linked_entry.rs`, `tests/native_translations.rs`.
+
+## Not measured / gaps
+
+- No device test: the heap peak while sending, the `.ppn` size against Beta 3, the set-up on a real X4.
+- No scripted-host test of the set-up screen yet (answers, secrets, drawing).
+- The export event (above).

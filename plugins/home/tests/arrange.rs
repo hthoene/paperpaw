@@ -19,7 +19,7 @@ const EDIT: Id = Id::new_static("home.edit-pages");
 /// A page with two tools in the first row, one in the second and the
 /// book being read below.
 const PAGE: &str = "[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, \
-                    tool:file-manager.open 0/1 1x1, home.continue 0/3 4x2\n";
+                    tool:store.open 0/1 1x1, home.continue 0/3 4x2\n";
 
 fn page(app: &App, n: usize) -> String {
     app.kernel
@@ -48,7 +48,7 @@ fn on(app: &mut App, label: &str) -> Point {
 fn cell(app: &mut App) -> (i32, i32) {
     let library = on(app, "Library");
     let settings = on(app, "Settings");
-    let files = on(app, "Files");
+    let files = on(app, "Plugin store");
     (settings.x - library.x, files.y - library.y)
 }
 
@@ -188,7 +188,7 @@ fn an_item_moves_by_buttons_and_is_kept() {
     let mut app = App::new(X4, Shared::memory(PAGE, &[]));
     edit(&mut app);
     // The tool in the second row: the third target.
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Move");
     assert_eq!(app.screen(), HOME);
     app.run(actions::RIGHT);
@@ -197,26 +197,26 @@ fn an_item_moves_by_buttons_and_is_kept() {
     // Into the way of nothing: kept where it is now.
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 2/2 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 2/2 1x1")
     );
     // Off the grid: it stays at its edge.
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Move");
     app.repeat(actions::RIGHT, 5);
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 3/2 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 3/2 1x1")
     );
     // Onto another item: refused, said so.
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Move");
     app.run(actions::NEXT_PAGE);
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 3/2 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 3/2 1x1")
     );
 }
 
@@ -231,22 +231,22 @@ fn widgets_of_plugins_not_loaded_stay_when_the_page_is_edited() {
     );
     let mut app = App::new(X4, Shared::memory(&config, &[]));
     edit(&mut app);
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Move");
     app.run(actions::RIGHT);
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 1/1 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 1/1 1x1")
     );
     assert_eq!(
         item(&app, "x.unknown").as_deref(),
         Some("x.unknown 3/3 1x1")
     );
     // Removed from the page: the hidden widget stays too.
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Remove");
-    assert_eq!(item(&app, "tool:file-manager.open"), None);
+    assert_eq!(item(&app, "tool:store.open"), None);
     assert_eq!(
         item(&app, "x.unknown").as_deref(),
         Some("x.unknown 3/3 1x1")
@@ -257,25 +257,25 @@ fn widgets_of_plugins_not_loaded_stay_when_the_page_is_edited() {
 fn an_item_is_sized_by_buttons_and_is_kept() {
     let mut app = App::new(X4, Shared::memory(PAGE, &[]));
     edit(&mut app);
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Change the size");
     app.run(actions::RIGHT);
     app.run(actions::RIGHT);
     app.run(actions::NEXT_PAGE);
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 0/1 3x2")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 0/1 3x2")
     );
     // Smaller than a cell: never.
-    options_of(&mut app, "Files");
+    options_of(&mut app, "Plugin store");
     choose(&mut app, "Change the size");
     app.repeat(actions::LEFT, 5);
     app.repeat(actions::PREV_PAGE, 5);
     app.run(actions::CONFIRM);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 0/1 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 0/1 1x1")
     );
 }
 
@@ -284,19 +284,19 @@ fn an_item_is_dragged_to_another_place_by_touch() {
     let mut app = App::new(TOUCH, Shared::memory(PAGE, &[]));
     let (w, h) = cell(&mut app);
     edit(&mut app);
-    let from = on(&mut app, "Files");
+    let from = on(&mut app, "Plugin store");
     app.drag(from, Point::new(from.x + 3 * w, from.y + h));
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 3/2 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 3/2 1x1")
     );
     // Dropped onto another item: it goes back where it was.
-    let from = on(&mut app, "Files");
+    let from = on(&mut app, "Plugin store");
     let library = on(&mut app, "Library");
     app.drag(from, library);
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 3/2 1x1")
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 3/2 1x1")
     );
     assert_eq!(
         item(&app, "tool:core.library").as_deref(),
@@ -344,11 +344,11 @@ fn an_item_is_sized_by_its_corner_by_touch() {
     let mut app = App::new(TOUCH, Shared::memory(PAGE, &[]));
     let (w, h) = cell(&mut app);
     edit(&mut app);
-    let corner = corner_of(&mut app, "Files", (w, h));
+    let corner = corner_of(&mut app, "Plugin store", (w, h));
     app.drag(corner, Point::new(corner.x + w, corner.y + h));
     assert_eq!(
-        item(&app, "tool:file-manager.open").as_deref(),
-        Some("tool:file-manager.open 0/1 2x2"),
+        item(&app, "tool:store.open").as_deref(),
+        Some("tool:store.open 0/1 2x2"),
         "{}",
         page(&app, 1)
     );
