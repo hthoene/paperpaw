@@ -79,10 +79,7 @@ pub struct Style {
 impl Style {
     pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
         let dpi = u32::from(display.display_dpi());
-        let tenth = |value: u32| {
-            let pixels = (value * dpi + 127) / 254;
-            if pixels == 0 && value > 0 { 1 } else { pixels }
-        };
+        let tenth = |value: u32| tenth_mm(dpi, value);
         let pt = |points: f32| points * dpi as f32 / 72.0;
         let base = integer(host, UI_SIZE)?.clamp(6, 40) as f32;
         let text = pt(base);
@@ -100,7 +97,7 @@ impl Style {
         } else {
             control_row
         };
-        let finger = if display.has_touch() { tenth(70) } else { 0 };
+        let finger = finger_px(display);
         let lift = finger.saturating_sub(row as u32);
         let header = setting_text(host, UI_HEADER)?;
         let palette = setting_text(host, UI_PALETTE)?;
@@ -161,6 +158,24 @@ impl Style {
             on_dark_muted: color("on-dark-muted", Color::gray(200)),
             strong,
         })
+    }
+}
+
+/// `value` tenths of a millimetre in pixels at `dpi`, at least one pixel for
+/// any length.
+fn tenth_mm(dpi: u32, value: u32) -> u32 {
+    let pixels = (value * dpi + 127) / 254;
+    if pixels == 0 && value > 0 { 1 } else { pixels }
+}
+
+/// How many pixels high a fingertip is: 7 mm on a touch screen, `0` on one
+/// that is not. The least a row or a chip on a touch screen is high.
+#[must_use]
+pub fn finger_px(display: &Snapshot) -> u32 {
+    if display.has_touch() {
+        tenth_mm(u32::from(display.display_dpi()), 70)
+    } else {
+        0
     }
 }
 
