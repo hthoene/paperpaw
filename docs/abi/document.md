@@ -1,6 +1,6 @@
-# Interface 7 family DOC: formats, documents, images, lookup (draft)
+# Interface 7 family DOC: formats, documents, images, lookup
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, DOC section and coverage ledger), the C-family proposals
 (#890, `c-families-228.md` 2.6 DOC and the IMG wave), the reader extensibility notes (#241, N2,
@@ -8,8 +8,7 @@ N4-N7),
 `stages-services.md` (stages, services, depth), `ui.md` (host texts, depth and stack rules, the X4
 nested-callback gate), `screens-input.md` (N5 pages and progress, tag blocks), `core-events.md`
 (book events 65-69) and the storage contract (`proposals/interface-7-events-storage-services.md` D2,
-owner decision 125). Doc-only: records, schemas and generator follow once this is approved, as for
-EVT, REG and UIX. Tags below are proposed; the records step numbers them without gaps after UIX.
+owner decision 125). Records: `abi/services/core.document@1.def`.
 
 ## 0. Scope and principles
 

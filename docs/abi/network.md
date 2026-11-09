@@ -1,6 +1,6 @@
-# Interface 7 family NET: HTTP requests and serving HTTP (draft)
+# Interface 7 family NET: HTTP requests and serving HTTP
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: an audit of interface 6's HTTP client and
 server (`crates/paperpaw-core/src/io/http.rs`, `io/servers.rs`, `network.rs`, `work.rs`, the X4
 shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpaw-serve`, the SDK's
@@ -9,8 +9,8 @@ shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpa
 `device.md` (Wi-Fi, network demand, `uses.wifi`), `files.md` (roots, `uses.storage`),
 `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies) and
 `core-events.md` 3.3 (event admission and the held-event store). Its companion `secrets.md`
-(SEC) is reviewed with it. Doc-only; records follow once approved. Tags are proposed and numbered
-without gaps at the records step.
+(SEC) is reviewed with it.
+Records: `abi/services/core.net@1.def`.
 
 ## 0. Scope and principles
 

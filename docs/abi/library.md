@@ -1,13 +1,13 @@
-# Interface 7 family LIB: the library, reading state and book data (draft)
+# Interface 7 family LIB: the library, reading state and book data
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, LIB section and coverage ledger), the C-family proposals
 (#890 2.7 LIB, Senior's N9: shared reading data as services, not files), the interface-6 library
 (`paperpaw-sdk` `library`, `positions`, `annotations`), `document.md` (image ids, book key,
 document cache), `ui.md` (host texts for long values), `core-events.md` (book events 65-69) and the
-storage contract (D2, owner decisions 124 and 125). Doc-only; records follow once approved. Tags are
-proposed and numbered without gaps at the records step.
+storage contract (D2, owner decisions 124 and 125).
+Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
 
 ## 0. Scope and principles
 

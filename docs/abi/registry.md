@@ -239,7 +239,7 @@ key and text bytes within the stage budget.
 
 - [D] **Grants are out of reach.** No REG write touches a `core.grant.*` setting: `reset_setting`
   (every flag), `apply_preset` and `preview_setting` skip them in group, plugin and all resets and
-  refuse a single grant key with `ERR_INVALID`; declarations 25 and 28 naming one are dropped at
+  refuse a single grant key with `ERR_DENIED`; declarations 25 and 28 naming one are dropped at
   admission. Grants change only through the host's own settings screen (decisions 126, 131).
 - [D] **Checked again when applied.** Between submit and apply, an item, screen, slot or setting a
   staged REG command names can go (a plugin stopped). The host checks every REG command of a batch

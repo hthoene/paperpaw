@@ -1,13 +1,13 @@
-# Interface 7 family UIX: screens, dialogs, input, composition (draft)
+# Interface 7 family UIX: screens, dialogs, input, composition
 
-Contract draft for #228 (assignment #1002). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1002). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, UIX section), Plugin's per-plugin call sites (#1003,
 `plugin-uix-calls-1003.md`), `screens-input.md` (screens, actions, input, draw, commands 56-60),
 `stages-services.md` (stages, services), `registry.md` (REG; plugin inputs listed by op 14, the
-hold-Power escape) and `core-events.md`. Doc-only: records, schema and generator follow once this
-is approved, as for EVT and REG. Tags below are proposed; the records step numbers them without
-gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after the review rounds).
+hold-Power escape) and `core-events.md`.
+Records: `abi/services/core.ui@1.def` and `abi/abi.def` (commands 1553-1555, 1559 and 1560 and
+events 83, 88 and 90 are free).
 
 ## 0. Scope and principles
 

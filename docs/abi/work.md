@@ -1,6 +1,6 @@
-# Interface 7 family ASY: deferred and background work (draft)
+# Interface 7 family ASY: deferred and background work
 
-Contract draft for #228 (assignment #1088), reviewed with `sockets.md` (SOCK). Items marked [D] are
+Contract for #228 (assignment #1088), reviewed with `sockets.md` (SOCK). Items marked [D] are
 proposed decisions, [Q] open questions for Plugin, Firmware and Senior. Inputs: an audit of
 interface 6's work queue (the SDK's `work.rs`, `builtin/events.rs`; the kernel's `work.rs`,
 `work/runs.rs`, `network.rs`, `commands.rs`; the X4 shell's `firmware.rs`, `power.rs` and
@@ -8,8 +8,8 @@ interface 6's work queue (the SDK's `work.rs`, `builtin/events.rs`; the kernel's
 0025 (power saving), ADR 0030 (real-time screens), `device.md` (power levels, `dev_power`,
 `go_online`, the network manager), `network.md` (the `later` flag, power ends), `core-events.md`
 (the three work events named for ASY, the held-event store, lazy start), the usage-clock proposal
-(the monotonic clock), and `stages-services.md` (D4). Doc-only; records follow once approved. Tags
-are proposed and numbered without gaps at the records step.
+(the monotonic clock), and `stages-services.md` (D4).
+Records: `abi/services/core.work@1.def`.
 
 ## 0. Scope and principles
 
