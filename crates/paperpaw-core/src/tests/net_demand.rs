@@ -7,7 +7,6 @@ use super::net_policy_wiring::booting_with;
 use super::*;
 use crate::native_host::net_pool::{DEMAND_NET, DEMAND_SOCK, WORK_WISH_MS};
 use crate::{WifiEvent, WifiState};
-use paperpaw_platform::Storage as _;
 use paperpaw_sdk::MemoryStorage;
 
 fn count(log: &Log, what: &str) -> usize {
