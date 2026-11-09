@@ -291,12 +291,12 @@ fn callx_t(w: u32) -> Option<u32> {
 /// whether it changes the register window (a `wsr` or `xsr` of `WINDOWBASE` or
 /// `WINDOWSTART`, which is a change of what `a1` names). `op0` is 0 (QRST) in
 /// all of them. Encodings as the S3 toolchain's assembler makes them
-/// (`tests.rs`); the special register is `s << 4 | r`.
+/// (`tests.rs`); the special register is `r << 4 | s`.
 fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
     let t = (w >> 4) & 0xF;
     let r = (w >> 12) & 0xF;
     let s = (w >> 8) & 0xF;
-    let sr = s << 4 | r;
+    let sr = r << 4 | s;
     let window = sr == SR_WINDOWBASE || sr == SR_WINDOWSTART;
     let (op1, op2) = ((w >> 16) & 0xF, (w >> 20) & 0xF);
     if w & 0xF != 0 {
