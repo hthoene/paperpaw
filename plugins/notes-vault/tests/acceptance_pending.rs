@@ -1,7 +1,9 @@
 //! Acceptance of the interface-7 notes vault, pending on the hosts and the
 //! later slices. The interface-6 tests drive a kernel (`tests/vault.rs`,
 //! `tests/markdown.rs`, `src/*` tests) and stay as the references; none of
-//! these cases passes by itself.
+//! these cases passes by itself. The Markdown provider's own behaviour runs
+//! in `tests/provider.rs`, `tests/markdown_allocation.rs` and
+//! `tests/native_ui_declarations.rs`.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -21,12 +23,12 @@ const CASES: [Case; 6] = [
     Case {
         name: "a-note-opens-in-the-reader-and-its-links-lead-on-and-back",
         golden: None,
-        blocked_by: &["format-declaration-493", "document-host", "H3", "H4"],
+        blocked_by: &["DOC-format-declaration", "DOC-format-card-path", "H3", "H4"],
     },
     Case {
         name: "markdown-notes-are-a-format-for-md-and-markdown",
         golden: None,
-        blocked_by: &["format-declaration-493", "document-host"],
+        blocked_by: &["DOC-format-declaration", "DOC-format-card-path"],
     },
     Case {
         name: "the-widgets-show-recent-pinned-daily-random-tags-and-search",
@@ -55,7 +57,7 @@ fn the_page_and_its_lists() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the format declaration (#493) and the document host"]
+#[ignore = "BLOCKED DOC-format-declaration, DOC-format-card-path: the host takes no format.spec yet (it answers ERR_UNSUPPORTED) and puts no card path in fmt.call.text (Kernel todo 336, Host todos 329/109); the provider and its parity with interface 6 run in tests/provider.rs"]
 fn notes_and_the_markdown_format() {
     CASES[2].refuse().unwrap();
     CASES[3].refuse().unwrap();

@@ -314,6 +314,7 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::new(B, &'static str, M) -> Sel
 impl<B: paperpaw_platform::storage::Storage, M: paperpaw_platform::storage::Storage> paperpaw_platform::storage::Storage for paperpaw_platform::storage::Mounted<B, M>
 pub fn paperpaw_platform::storage::Mounted<B, M>::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
@@ -339,6 +340,7 @@ pub struct paperpaw_platform::storage::NoStorage
 impl paperpaw_platform::storage::Storage for paperpaw_platform::storage::NoStorage
 pub fn paperpaw_platform::storage::NoStorage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
@@ -363,6 +365,7 @@ pub fn paperpaw_platform::storage::NoStorage::write_at(&self, &str, u64, &[u8]) 
 pub trait paperpaw_platform::storage::Storage
 pub fn paperpaw_platform::storage::Storage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Storage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Storage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Storage::ignores_case(&self) -> bool
@@ -387,6 +390,7 @@ pub fn paperpaw_platform::storage::Storage::write_at(&self, &str, u64, &[u8]) ->
 impl paperpaw_platform::storage::Storage for paperpaw_platform::storage::NoStorage
 pub fn paperpaw_platform::storage::NoStorage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
@@ -411,6 +415,7 @@ pub fn paperpaw_platform::storage::NoStorage::write_at(&self, &str, u64, &[u8]) 
 impl<B: paperpaw_platform::storage::Storage, M: paperpaw_platform::storage::Storage> paperpaw_platform::storage::Storage for paperpaw_platform::storage::Mounted<B, M>
 pub fn paperpaw_platform::storage::Mounted<B, M>::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
@@ -653,6 +658,7 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::new(B, &'static str, M) -> Sel
 impl<B: paperpaw_platform::storage::Storage, M: paperpaw_platform::storage::Storage> paperpaw_platform::storage::Storage for paperpaw_platform::storage::Mounted<B, M>
 pub fn paperpaw_platform::storage::Mounted<B, M>::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool
@@ -678,6 +684,7 @@ pub struct paperpaw_platform::NoStorage
 impl paperpaw_platform::storage::Storage for paperpaw_platform::storage::NoStorage
 pub fn paperpaw_platform::storage::NoStorage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
@@ -799,6 +806,7 @@ pub fn paperpaw_platform::FirmwareHost::write_step(&mut self, &dyn paperpaw_plat
 pub trait paperpaw_platform::Storage
 pub fn paperpaw_platform::Storage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::Storage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::Storage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::Storage::ignores_case(&self) -> bool
@@ -823,6 +831,7 @@ pub fn paperpaw_platform::Storage::write_at(&self, &str, u64, &[u8]) -> core::re
 impl paperpaw_platform::storage::Storage for paperpaw_platform::storage::NoStorage
 pub fn paperpaw_platform::storage::NoStorage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::NoStorage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::NoStorage::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::NoStorage::ignores_case(&self) -> bool
@@ -847,6 +856,7 @@ pub fn paperpaw_platform::storage::NoStorage::write_at(&self, &str, u64, &[u8]) 
 impl<B: paperpaw_platform::storage::Storage, M: paperpaw_platform::storage::Storage> paperpaw_platform::storage::Storage for paperpaw_platform::storage::Mounted<B, M>
 pub fn paperpaw_platform::storage::Mounted<B, M>::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_platform::storage::Mounted<B, M>::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::exists(&self, &str) -> bool
 pub fn paperpaw_platform::storage::Mounted<B, M>::free_space(&self) -> core::option::Option<u64>
 pub fn paperpaw_platform::storage::Mounted<B, M>::ignores_case(&self) -> bool

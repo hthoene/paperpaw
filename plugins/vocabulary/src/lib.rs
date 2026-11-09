@@ -55,6 +55,11 @@ mod lines;
 mod marks;
 #[allow(
     dead_code,
+    reason = "the card adapter is wired by the shell in this slice; its tests use what the shell does not"
+)]
+mod native_card;
+#[allow(
+    dead_code,
     reason = "the view waits for its registration and the screens it opens (PORTING-7.md); the tests use it"
 )]
 mod native_decks;
@@ -66,6 +71,12 @@ mod native_list;
 )]
 mod native_review;
 mod native_review_screen;
+#[allow(
+    dead_code,
+    reason = "the card files' screens wait for their registration in the shell (this slice wires them)"
+)]
+mod native_sd;
+mod native_sd_shell;
 #[allow(
     dead_code,
     reason = "used by the native screens, which wait (PORTING-7.md)"

@@ -279,6 +279,7 @@ impl crate::Kernel {
             &self.shared.registry_generation,
         );
         self.warn_directory_missed();
+        let mut forgot_states = false;
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -287,6 +288,16 @@ impl crate::Kernel {
             if declarations.catalog.prune(&store).is_err() {
                 return None;
             }
+            // Its pushed item states go with it (`keep` waits for the kept
+            // file). The table is only borrowed here, never across a call.
+            let Ok(mut states) = declarations.items.try_borrow_mut() else {
+                return None;
+            };
+            forgot_states = states.forget(owner.as_str());
+        }
+        if forgot_states {
+            // The menus lose the states the plugin pushed (bit 0).
+            self.native_registry_changed(1);
         }
         if self.native_key_count() != keys_before {
             // Its bindings leave the key map with it.

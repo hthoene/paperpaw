@@ -181,8 +181,9 @@ fn folder() -> Roots {
     ])
 }
 
-/// The pictures here are no pictures (decoding one reaches `paperpaw-image`'s
-/// writers, whose header allocation is not fallible yet: Kernel).
+/// The pictures here are no pictures: names, listing and the named page are
+/// swept with them; real ones are swept by
+/// `decoding_a_picture_may_be_refused_at_every_allocation`.
 fn folder_of_names() -> Roots {
     Roots::new(&[
         ("a.png", b"not a picture at all"),
@@ -265,4 +266,51 @@ fn a_long_folder_may_be_refused_at_every_allocation_too() {
         }
     }
     assert!(refused > 5, "{refused} refusals reached");
+}
+
+/// Decoding real pictures (a page's block, the cover, a page's picture) reaches
+/// the decoders and the cache writers: a refusal anywhere is `NoMemory` (the
+/// host tries again), never a panic, never a named-but-fine page, and the same
+/// provider decodes the picture afterwards from the same (possibly half-made)
+/// cache.
+fn decode(io: &Roots, p: &mut ImagesProvider, n: usize) -> Result<(), Error> {
+    let mut out = vec![0u8; 3840];
+    for input in [
+        call(2, 1, |c| c.text = "1.png"),
+        call(8, 1, |c| c.section = 0),
+        call(8, 1, |c| c.section = 1),
+        call(8, 1, |c| c.section = 2),
+        call(17, 1, |c| c.cover_side = 120),
+        call(18, 1, |c| {
+            c.index = 1;
+            c.image_side = 200;
+        }),
+    ] {
+        FAIL_AT.set(n);
+        let result = p.call(io, &input, &mut out);
+        FAIL_AT.set(usize::MAX);
+        result?;
+    }
+    Ok(())
+}
+
+#[test]
+fn decoding_a_picture_may_be_refused_at_every_allocation() {
+    decode(&folder(), &mut ImagesProvider::new(), usize::MAX).unwrap();
+    let mut refused = 0;
+    for n in 0..3000 {
+        let io = folder();
+        let mut p = ImagesProvider::new();
+        match decode(&io, &mut p, n) {
+            Ok(()) => {}
+            Err(Error::NoMemory) => {
+                refused += 1;
+                let _ = p.call(&io, &call(4, 1, |_| {}), &mut [0u8; 64]);
+                decode(&io, &mut p, usize::MAX)
+                    .unwrap_or_else(|e| panic!("refusal {n}: then {e:?}"));
+            }
+            Err(other) => panic!("allocation {n} refused: {other:?}"),
+        }
+    }
+    assert!(refused > 20, "{refused} refusals reached");
 }
