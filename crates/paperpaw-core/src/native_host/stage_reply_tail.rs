@@ -88,8 +88,9 @@ pub(crate) fn reply_room(subscriber: &str, cap: usize) -> Result<usize, i32> {
 /// `out[room..]` ([`reply_room`] for at most `cap` bytes): the header goes
 /// to the front and the payload follows it. Returns the record's length.
 ///
-/// A negative `status` is framed with an empty payload, and the lent region
-/// is zeroed, so nothing the subscriber wrote stays behind it. Every check
+/// A negative `status` is framed with an empty payload. Every byte from the
+/// record's end to the lent region's end is zeroed, so nothing the
+/// subscriber wrote stays past the record. Every check
 /// comes before any write: on `ERR_NO_SPACE` (`room` not this reply's,
 /// `payload` over `cap`, `out` too small, a cap over the record's) `out` is
 /// unchanged.
@@ -107,12 +108,7 @@ pub(crate) fn record_encode_tail(
     if out.len() < lent_end {
         return Err(ERR_NO_SPACE);
     }
-    let payload = if head.status < 0 {
-        out[room..lent_end].fill(0);
-        0
-    } else {
-        payload
-    };
+    let payload = if head.status < 0 { 0 } else { payload };
     let id = head.subscriber.as_bytes();
     let mut at = 0;
     write_varint(STAGE_REPLY_TAG as usize, out, &mut at);
@@ -128,7 +124,11 @@ pub(crate) fn record_encode_tail(
     // The header is never longer than the room left for it.
     debug_assert!(at <= room);
     out.copy_within(room..room + payload, at);
-    Ok(at + payload)
+    let end = at + payload;
+    // Nothing the subscriber wrote stays past the record: neither what it
+    // wrote beyond its count nor the payload's old place.
+    out[end..lent_end].fill(0);
+    Ok(end)
 }
 
 #[cfg(test)]
