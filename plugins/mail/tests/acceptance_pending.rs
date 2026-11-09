@@ -42,3 +42,11 @@ fn the_home_widgets_show_the_mail_checked_last() {
 fn an_unknown_servers_key_is_offered_once_and_a_changed_one_never() {
     unreachable!("account::offer: Ask, Changed, Attack");
 }
+
+#[test]
+#[ignore = "needs the native first start (screens, plugin) and `uses.storage` for the card's files: the interface-6 cache and drafts under .paperpaw/plugins/mail/ are migrated or cleaned once"]
+fn the_interface_6_cache_and_drafts_are_migrated_or_cleaned_once() {
+    unreachable!(
+        "drafts and outboxes (aN/draft.txt, aN/outbox.eml) are copied into the data folder, then the old folder is removed"
+    );
+}
