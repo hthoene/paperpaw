@@ -188,6 +188,11 @@ impl Fixture {
             guard: crate::abi7::calls::Instance::new(),
         })
         .unwrap();
+        self.install_lease(lease, id, owner, rows);
+    }
+
+    /// `id` declared as `owner` with `rows`, its callbacks reached by `lease`.
+    fn install_lease(&self, lease: NativeLease, id: &'static str, owner: u64, rows: &[Record<'_>]) {
         let mut bytes = [0; 512];
         let length = wire::records_encode(rows, &mut bytes).unwrap();
         let bytes = &bytes[..length];
@@ -252,6 +257,17 @@ fn with_frame_at<R>(
             .set(key, paperpaw_sdk::SettingValue::Bool(true))
             .unwrap();
     }
+    with_kernel_frame(&kernel, fixture, caller, (levels, epoch), body)
+}
+
+/// [`with_frame_at`] on a kernel of the caller's.
+fn with_kernel_frame<R>(
+    kernel: &crate::Kernel,
+    fixture: &Fixture,
+    caller: Option<u64>,
+    (levels, epoch): (usize, u64),
+    body: impl FnOnce(&CoreFrame<'_>) -> R,
+) -> R {
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     let frame = CoreFrame {
         callback: caller.map(|owner| CallbackStamp::new(owner, epoch).unwrap()),
@@ -587,4 +603,151 @@ fn the_frozen_lists_are_freed_when_the_callback_ends() {
             assert_eq!(reply(&out, count).subscriber, "first");
         },
     );
+}
+
+/// A real linked plugin as the subscriber: what its callback sees is its own.
+mod native {
+    extern crate std;
+    use super::super::{Heap, NORMAL, reset};
+    use super::*;
+    use crate::native_host::{
+        self, FlatHost, native_dispatch::NativeDispatch, retained::Retained, shell,
+    };
+    use core::{ffi::c_void, ptr};
+    use paperpaw_native::host_glue::{self as abi, PpBuffer, PpBytes, PpHost, PpPlugin};
+    use paperpaw_sdk::secrets::Running;
+
+    std::thread_local! {
+        static METER: RefCell<Option<Rc<crate::meter::Meter>>> = const { RefCell::new(None) };
+        /// The caller the plugin's callback saw, and whether the meter named
+        /// the plugin (`probe`) and the stage's owner (`reader`) as running.
+        static SEEN: Cell<Option<(u64, bool, bool)>> = const { Cell::new(None) };
+    }
+
+    struct State {
+        table: PpPlugin,
+        context: *mut c_void,
+    }
+
+    unsafe extern "C" fn make(
+        _: *const PpHost,
+        context: *mut c_void,
+        out: *mut *const PpPlugin,
+    ) -> i32 {
+        let state = alloc::boxed::Box::into_raw(alloc::boxed::Box::new(State {
+            table: PpPlugin {
+                size: u32::try_from(size_of::<PpPlugin>()).unwrap(),
+                state: ptr::null_mut(),
+                drop: Some(destroy),
+                dispatch_event: Some(event),
+                draw: None,
+                input: None,
+            },
+            context,
+        }));
+        // SAFETY: the host supplies exclusive output; this allocation lives
+        // until `destroy`.
+        unsafe {
+            (*state).table.state = state.cast();
+            out.write(&raw const (*state).table);
+        }
+        abi::OK
+    }
+
+    unsafe extern "C" fn destroy(state: *mut c_void) {
+        // SAFETY: the owner destroys this allocation of `make` exactly once.
+        unsafe { drop(alloc::boxed::Box::from_raw(state.cast::<State>())) };
+    }
+
+    unsafe extern "C" fn event(state: *mut c_void, _: u32, _: PpBytes, out: PpBuffer) -> i32 {
+        // SAFETY: retained admission keeps the state and pinned host context
+        // alive.
+        let context = unsafe {
+            &*(*state.cast::<State>())
+                .context
+                .cast::<shell::Context<Heap>>()
+        };
+        let caller = context.environment.with_frame(|frame| frame.caller());
+        METER.with(|meter| {
+            if let (Some(meter), Ok(Ok(caller))) = (&*meter.borrow(), caller) {
+                SEEN.with(|seen| {
+                    seen.set(Some((caller, meter.runs("probe"), meter.runs("reader"))));
+                });
+            }
+        });
+        // SAFETY: the callback receives exclusive, bounded output.
+        let output = unsafe { core::slice::from_raw_parts_mut(out.ptr, out.cap) };
+        // An empty record batch.
+        output[0] = 0;
+        1
+    }
+
+    fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
+        // SAFETY: the fixture's linked entry and code live throughout the test.
+        let host = unsafe {
+            shell::Hosted::new(
+                Heap,
+                (),
+                make,
+                "probe",
+                (ptr::null(), 0),
+                |_, _, _, _| {},
+                native_host::HostResources::try_new().unwrap(),
+                shell::DeclaredServices::none(),
+            )
+        }
+        .unwrap();
+        NativeLease::try_new(NativeDispatch::new(
+            Retained::make(host).unwrap(),
+            depth.try_clone().unwrap(),
+            FlatHost {
+                meter: Rc::clone(&kernel.shared.meter),
+                directory: None,
+                stack_rows: Rc::clone(&kernel.shared.stack_rows),
+                font_removals: Rc::clone(&kernel.shared.font_removals),
+                registry_generation: Rc::clone(&kernel.shared.registry_generation),
+            },
+            |_, _, _| {},
+            native_host::native_instances::test_identity("probe"),
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_subscriber_sees_itself_not_the_stages_owner_and_the_owner_runs_again_after() {
+        reset(NORMAL);
+        let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let fixture = Fixture::new();
+        // First in the stage's order.
+        fixture.install_lease(
+            instance(&kernel, &fixture.depth),
+            "probe",
+            50,
+            &[Record::RegistrationStage(wire::RegistrationStage {
+                stage: STAGE,
+                token: 9,
+                order: -5,
+                signature: 0,
+            })],
+        );
+        METER.with(|meter| *meter.borrow_mut() = Some(Rc::clone(&kernel.shared.meter)));
+        SEEN.with(|seen| seen.set(None));
+        // The stage's owner is the running plugin when it asks.
+        let owner_running = kernel.shared.meter.enter("reader");
+        with_kernel_frame(&kernel, &fixture, Some(READER), (1, 2), |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 0, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "probe");
+        });
+        let (caller, probe_runs, reader_runs) = SEEN.with(Cell::get).expect("the plugin ran");
+        let own = native_host::native_instances::test_identity("probe").owner();
+        assert_eq!(caller, own, "its own identity");
+        assert_ne!(caller, READER, "not the stage owner's");
+        assert!(probe_runs && !reader_runs, "the meter names the callee");
+        assert!(kernel.shared.meter.runs("reader"), "the owner runs again");
+        drop(owner_running);
+        METER.with(|meter| *meter.borrow_mut() = None);
+    }
 }

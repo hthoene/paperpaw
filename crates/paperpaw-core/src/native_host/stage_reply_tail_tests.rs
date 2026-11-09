@@ -59,6 +59,10 @@ fn the_tail_encoding_is_record_encode_one_for_every_prefix_width() {
                 let bytes = payload(len);
                 out[room..room + len].copy_from_slice(&bytes);
                 let n = record_encode_tail(&head, room, cap, len, &mut out).unwrap();
+                assert!(
+                    out[n..].iter().all(|&b| b == 0),
+                    "id {id:?} cap {cap} len {len}"
+                );
                 assert_eq!(
                     out[..n],
                     expected(&head, &bytes)[..],
@@ -79,7 +83,7 @@ fn a_refusal_has_an_empty_payload_and_leaves_nothing_of_the_subscriber() {
         out[room..].fill(0x55);
         let n = record_encode_tail(&head, room, cap, 200, &mut out).unwrap();
         assert_eq!(out[..n], expected(&head, &[])[..]);
-        assert!(out[n.max(room)..].iter().all(|&b| b == 0));
+        assert!(out[n..].iter().all(|&b| b == 0));
     }
 }
 

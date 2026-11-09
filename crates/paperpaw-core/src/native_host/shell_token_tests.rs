@@ -19,6 +19,9 @@ std::thread_local! {
     static PROBE: core::cell::RefCell<Option<(alloc::rc::Rc<crate::native_host::stack_rows::StackRows>, u64)>> =
         const { core::cell::RefCell::new(None) };
     static SEEN: Cell<Option<u64>> = const { Cell::new(None) };
+    static METER: core::cell::RefCell<Option<alloc::rc::Rc<crate::meter::Meter>>> =
+        const { core::cell::RefCell::new(None) };
+    static RUNNING: Cell<Option<bool>> = const { Cell::new(None) };
     static SUBSCRIBE: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -140,6 +143,12 @@ fn invoked(state: *mut c_void, token: u32) -> bool {
         return false;
     }
     CALLS.with(|count| count.set(count.get() + 1));
+    METER.with(|meter| {
+        if let Some(meter) = &*meter.borrow() {
+            use paperpaw_sdk::secrets::Running;
+            RUNNING.with(|seen| seen.set(Some(meter.runs("tokens"))));
+        }
+    });
     PROBE.with(|probe| {
         if let Some((rows, owner)) = &*probe.borrow() {
             SEEN.with(|seen| seen.set(rows.showing_screen(*owner)));
@@ -747,4 +756,42 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
     assert!(!started.subscribed(registrations::EVENT_PAGE_TURNED_TAG));
     assert!(!started.subscribed(registrations::EVENT_HTTP_DONE_TAG));
     assert!(!make(0).subscribed(registrations::EVENT_STARTED_TAG));
+}
+
+/// A stage call reached from inside another plugin's callback runs the plugin
+/// called on the usage meter, and gives the tracker back after: the secrets and
+/// Bluetooth views and the meter's charges name the plugin that runs.
+#[test]
+fn a_nested_stage_call_is_charged_to_the_plugin_called() {
+    use paperpaw_sdk::secrets::Running;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    let depth = DispatchDepth::new();
+    REPLY.with(|value| value.set(true));
+    RESULT.with(|value| value.set(0));
+    METER.with(|meter| *meter.borrow_mut() = Some(kernel.shared.meter.clone()));
+    RUNNING.with(|seen| seen.set(None));
+    // The Bluetooth manager's callback is the running one.
+    let outer = kernel.shared.meter.enter("ble");
+    assert!(kernel.shared.meter.runs("ble"));
+    scoped(&kernel, |frame| {
+        let mut output = [0; 8];
+        assert_eq!(
+            super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output),
+            Ok(0)
+        );
+    });
+    assert_eq!(
+        RUNNING.with(Cell::get),
+        Some(true),
+        "the callee ran as itself"
+    );
+    assert!(kernel.shared.meter.runs("ble"), "and the caller runs again");
+    drop(outer);
+    METER.with(|meter| *meter.borrow_mut() = None);
 }
