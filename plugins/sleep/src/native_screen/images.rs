@@ -531,3 +531,48 @@ fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Pictures,
     }
     Ok(kept)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "fixture failures fail the test")]
+mod tests {
+    use super::*;
+
+    fn held(width: u32, height: u32) -> Held {
+        Held {
+            id: ImageId::new(1).unwrap(),
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn the_count_is_written_in_decimal() {
+        assert_eq!(decimal(0, &mut [0; 20]), "0");
+        assert_eq!(decimal(7, &mut [0; 20]), "7");
+        assert_eq!(decimal(1_203, &mut [0; 20]), "1203");
+        assert_eq!(decimal(usize::MAX, &mut [0; 20]), "18446744073709551615");
+    }
+
+    #[test]
+    fn a_picture_is_fitted_in_the_middle_of_its_room() {
+        let screen = Rect::new(0, 0, 480, 800);
+        // The cat (760 x 501) as wide as the room inside the margins leaves.
+        let cat = centred(held(760, 501), room(Content::Cat, screen, 20));
+        assert_eq!(cat, Rect::new(20, 20 + (760 - 290) / 2, 440, 290));
+        // A cover is as wide as the screen unless it is taller (then as high).
+        assert_eq!(centred(held(600, 800), screen), Rect::new(0, 80, 480, 640));
+        assert_eq!(centred(held(600, 800), room(Content::Cover, screen, 20)).x, 0);
+        assert_eq!(centred(held(800, 400), screen), Rect::new(0, 280, 480, 240));
+        // A picture of no size is nowhere.
+        assert_eq!(centred(held(0, 0), screen).width, 0);
+    }
+
+    #[test]
+    fn the_embedded_files_are_png_the_host_decodes() {
+        for png in [crate::cat::PICTURE, LOGO] {
+            assert_eq!(png.get(..8), Some(&b"\x89PNG\r\n\x1a\n"[..]));
+            // Not interlaced (byte 12 of the header chunk's body).
+            assert_eq!(png.get(28), Some(&0));
+        }
+    }
+}
