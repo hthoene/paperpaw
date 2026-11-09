@@ -23,7 +23,6 @@ panes = ["paperpaw-core/panes"]
 # and the X4 Pro's firmware (see `StorePlugins`).
 store-plugins = [
     "dep:paperpaw-plugin-widgets",
-    "dep:paperpaw-plugin-calibre",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
@@ -90,7 +89,6 @@ paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
 paperpaw-plugin-reading-goal = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
