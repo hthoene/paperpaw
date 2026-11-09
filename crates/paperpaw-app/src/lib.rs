@@ -78,10 +78,9 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 35] = [
+pub const STORE_PLUGINS: [&str; 34] = [
     "aids",
     "browser",
-    "calibre",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -175,7 +174,6 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 12] = [
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "browser",
-    "calibre",
     "fonts-browser",
     "joplin",
     "kosync",
@@ -253,7 +251,6 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
-        b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);

@@ -23,12 +23,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "calibre"
-path = "src/bin/calibre.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "fonts-browser"
 path = "src/bin/fonts-browser.rs"
 test = false
@@ -230,7 +224,6 @@ paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
 paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
-paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
 paperpaw-plugin-koreader = { path = "../../plugins/koreader" }
