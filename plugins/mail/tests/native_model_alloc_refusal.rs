@@ -6,7 +6,7 @@
 mod fail_alloc;
 use paperpaw_plugin_mail::native_model::fail::Fail;
 use paperpaw_plugin_mail::native_model::imap::{self, Fault};
-use paperpaw_plugin_mail::native_model::{codec, header, html, mem, render, smtp, store};
+use paperpaw_plugin_mail::native_model::{codec, header, html, mem, render, session, smtp, store};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 use std::cell::{Cell, RefCell};
@@ -374,4 +374,231 @@ fn rendering_and_the_store_survive_refused_allocations() {
         0,
         "the letter took the raw message away"
     );
+}
+
+// ---- the sessions ----
+
+/// A server double that never allocates: its replies are fixed, the n-th
+/// released by the n-th thing the client sends.
+struct Scripted {
+    script: &'static [&'static [u8]],
+    index: usize,
+    due: usize,
+    current: &'static [u8],
+    wants: bool,
+    secured: bool,
+    closed: bool,
+}
+
+impl Scripted {
+    fn new(script: &'static [&'static [u8]]) -> Self {
+        Self {
+            script,
+            index: 0,
+            due: 1,
+            current: &[],
+            wants: false,
+            secured: false,
+            closed: false,
+        }
+    }
+
+    fn next(&mut self) -> Option<session::Input<'static>> {
+        if self.secured {
+            self.secured = false;
+            return Some(session::Input::Secured {
+                certificate: [7; 32],
+                key: [9; 32],
+                time_checked: true,
+            });
+        }
+        if !self.wants {
+            return None;
+        }
+        if self.current.is_empty() && self.index < self.due.min(self.script.len()) {
+            self.current = self.script[self.index];
+            self.index += 1;
+        }
+        if self.current.is_empty() {
+            return None;
+        }
+        let (head, rest) = self.current.split_at(self.current.len().min(512));
+        self.current = rest;
+        self.wants = false;
+        Some(session::Input::Bytes(head))
+    }
+}
+
+impl session::Io for Scripted {
+    fn connect_tls(&mut self, _: &str, _: u16, _: Option<[u8; 32]>) -> Result<(), Error> {
+        self.secured = true;
+        Ok(())
+    }
+    fn connect_plain(&mut self, _: &str, _: u16) -> Result<(), Error> {
+        Ok(())
+    }
+    fn start_tls(&mut self, _: Option<[u8; 32]>) -> Result<(), Error> {
+        self.secured = true;
+        Ok(())
+    }
+    fn send(&mut self, _: &[u8]) -> Result<(), Error> {
+        self.due += 1;
+        Ok(())
+    }
+    fn send_message(&mut self, _: Vec<u8>) -> Result<(), Error> {
+        self.due += 1;
+        Ok(())
+    }
+    fn read_bytes(&mut self, _: u32) -> Result<(), Error> {
+        self.wants = true;
+        Ok(())
+    }
+    fn read_file(&mut self, _: &str, _: u64) -> Result<(), Error> {
+        Err(Error::Unsupported)
+    }
+    fn close(&mut self) {
+        self.closed = true;
+    }
+}
+
+/// Plays `events` to the end: `Ok(())` for a session that is done, the
+/// refusal for one that says it had no memory.
+fn ended(events: &[session::Event]) -> Option<Result<(), Error>> {
+    for event in events {
+        match event {
+            session::Event::Done => return Some(Ok(())),
+            session::Event::Failed(session::Failure::NoMemory) => {
+                return Some(Err(Error::NoMemory));
+            }
+            session::Event::Failed(other) => panic!("the session failed: {other:?}"),
+            _ => {}
+        }
+    }
+    None
+}
+
+static IMAP: &[&[u8]] = &[
+    b"* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\r\n",
+    b"* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\nm1 OK done\r\n",
+    b"+ \r\n",
+    b"m2 OK authenticated\r\n",
+    b"* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n* LIST (\\Sent) \"/\" \"Sent\"\r\nm3 OK done\r\n",
+    b"* 1 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\nm4 OK done\r\n",
+    b"* STATUS \"INBOX\" (MESSAGES 1 UNSEEN 1)\r\nm5 OK done\r\n",
+    b"* 1 FETCH (UID 5 FLAGS () INTERNALDATE \"03-Nov-2026 09:15:00 +0100\" RFC822.SIZE 20 BODY[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID)] {31}\r\nFrom: a@b.c\r\nSubject: hello\r\n\r\n)\r\nm6 OK done\r\n",
+    b"* 1 EXISTS\r\nm7 OK done\r\n",
+    b"* 1 FETCH (UID 5 BODY[] {12}\r\nhello world\n)\r\nm8 OK done\r\n",
+    b"* 1 EXISTS\r\nm9 OK done\r\n",
+    b"m10 OK done\r\n",
+    b"* BYE bye\r\nm11 OK done\r\n",
+];
+
+fn leaked(text: String) -> &'static str {
+    Box::leak(text.into_boxed_str())
+}
+
+#[test]
+fn an_imap_session_survives_refused_allocations() {
+    let (folders, index, status, raw) = (
+        leaked(store::folders_file(1).unwrap()),
+        leaked(store::index_file(1, "INBOX").unwrap()),
+        leaked(store::status_file(1, "INBOX").unwrap()),
+        leaked(store::raw_file(1, "INBOX", 5).unwrap()),
+    );
+    let card = Slots::new(&[folders, index, status, raw]);
+    swept("imap session", || {
+        let (mut session, mut io) = fail_alloc::exempt(|| {
+            let mut password = mem::Secret::with_capacity(6).unwrap();
+            password.push_str("secret").unwrap();
+            let endpoint = session::Endpoint::new(
+                "mail.example.org".to_string(),
+                993,
+                session::Security::Implicit,
+                "ada".to_string(),
+                password,
+            );
+            let tasks = vec![
+                session::Task::Folders {
+                    out: folders.to_string(),
+                },
+                session::Task::Sync {
+                    folder: "INBOX".to_string(),
+                    count: 50,
+                    index: index.to_string(),
+                    status: status.to_string(),
+                    now: 1_793_693_700,
+                },
+                session::Task::Body {
+                    folder: "INBOX".to_string(),
+                    uid: 5,
+                    out: raw.to_string(),
+                },
+                session::Task::Flag {
+                    folder: "INBOX".to_string(),
+                    uid: 5,
+                    flag: "\\Seen",
+                    on: true,
+                },
+            ];
+            (session::Imap::new(endpoint, tasks), Scripted::new(IMAP))
+        });
+        let mut events = session.start(&mut io).map_err(refused)?;
+        for _ in 0..1_000 {
+            if let Some(end) = ended(&events) {
+                assert!(io.closed);
+                return end;
+            }
+            let input = io.next().expect("the server has something to say");
+            events = session.step(input, &mut io, &card).map_err(refused)?;
+        }
+        panic!("the session did not end");
+    });
+}
+
+static SMTP: &[&[u8]] = &[
+    b"220 mail.example.org ESMTP\r\n",
+    b"250-mail.example.org\r\n250-AUTH PLAIN\r\n250 SIZE 100000\r\n",
+    b"235 ok\r\n",
+    b"250 ok\r\n",
+    b"250 ok\r\n",
+    b"250 ok\r\n",
+    b"354 go\r\n",
+    b"250 queued\r\n",
+    b"221 bye\r\n",
+];
+
+#[test]
+fn an_smtp_session_survives_refused_allocations() {
+    swept("smtp session", || {
+        let (mut session, mut io) = fail_alloc::exempt(|| {
+            let mut password = mem::Secret::with_capacity(6).unwrap();
+            password.push_str("secret").unwrap();
+            let endpoint = session::Endpoint::new(
+                "mail.example.org".to_string(),
+                465,
+                session::Security::Implicit,
+                "ada".to_string(),
+                password,
+            );
+            let message = session::Outgoing::new(
+                "ada@example.org".to_string(),
+                vec![
+                    "bob@example.org".to_string(),
+                    "carol@example.org".to_string(),
+                ],
+                b"Subject: hi\r\n\r\nHello\r\n.\r\n".to_vec(),
+            );
+            (session::Smtp::new(endpoint, message), Scripted::new(SMTP))
+        });
+        let mut events = session.start(&mut io).map_err(refused)?;
+        for _ in 0..1_000 {
+            if let Some(end) = ended(&events) {
+                assert!(io.closed);
+                return end;
+            }
+            let input = io.next().expect("the server has something to say");
+            events = session.step(input, &mut io).map_err(refused)?;
+        }
+        panic!("the session did not end");
+    });
 }

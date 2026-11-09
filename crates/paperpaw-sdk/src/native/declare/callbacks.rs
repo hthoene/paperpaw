@@ -76,17 +76,27 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
+    /// A server of this plugin started, failed or stopped (`core.net`).
+    Server,
+    /// A server of this plugin got a request.
+    ServedRequest,
+    /// A picture the plugin asked the host to prepare is ready or failed.
+    ImageReady,
     /// Something happened to a socket of this plugin (`core.sockets`). Needed
     /// before the first `connect`.
     Socket,
     /// Something happened to a broadcast of this plugin. Needed before the
     /// first `broadcast`.
     Broadcast,
-    /// Work of this plugin came due (`core.work`).
+    /// Work of this plugin came due (`core.work`). Needed before `Work::declare`
+    /// (without it the call answers `State`); the event goes only to the plugin
+    /// that declared the work.
     WorkDue,
-    /// Work of this plugin was taken out for good.
+    /// Work of this plugin was taken out for good. Optional: without it a refused
+    /// work just vanishes from the work list.
     WorkRefused,
-    /// What held work back no longer does (a hint, coalesced).
+    /// What held work back no longer does (a hint, coalesced). Optional: without
+    /// it the plugin tries again at its next work or event.
     WorkAllowed,
     /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
     /// for the host to remember an ask that comes back `pending`.
@@ -131,6 +141,9 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::Server => records_wire::EVENT_SERVER_TAG,
+            Self::ServedRequest => records_wire::EVENT_SERVED_REQUEST_TAG,
+            Self::ImageReady => records_wire::EVENT_IMAGE_READY_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
             Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,

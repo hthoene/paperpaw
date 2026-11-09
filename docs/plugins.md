@@ -2699,6 +2699,14 @@ to finish preparation. `reply_state` keeps the call's document and conversion
 identity. Scalar reply helpers validate the request operation before encoding
 into caller-owned output. Pass the returned bytes through `native::reply::Reply`.
 
+Blocks (op 8) are written with `FormatCall::reply_block(&BlockReply::new(&block)
+.next(offset), out)`, adding `.image_index(n)` for a picture block and `.last_in_section()`
+for the section's last block. The reply is one fragment of the block's record list,
+from the record the call's `cursor` names; when the block does not fit, the fragment
+ends with `more`, the next record index and the block's generation, and the host asks
+again with them (a changed block is answered `State`). `out` of 3,840 bytes always
+holds a fragment.
+
 Lists (sections, table of contents, links, fonts) are written with
 `FormatCall::rows(out)` and its typed row methods. A row that does not fit is
 `NoSpace`: end the page with `PageEnd::more(total, next, generation)`; the host asks
@@ -2768,6 +2776,33 @@ the user and write again with `.confirmed()`. `.confirmed()` without `.sync()` i
 refused as `Invalid` and stores nothing. `out` of 4,096 bytes always suffices. The input
 buffer is 1,024 bytes for `book_key` and `position` and 2,048 bytes for `set_position`.
 
+### Pictures
+
+The host decodes and draws pictures; a plugin never holds one in memory.
+`CommandSender::image_prepare(&PrepareImage)` asks for a JPEG, PNG (not interlaced) or GIF
+of the plugin's data folder or, with `uses.storage`, the library
+(`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)` for the longest side, 0
+being the screen's and a side above 1,600 being clamped, `.colour()`). Subscribe to
+`EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the cookie, an
+`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`;
+an unknown value reads as `Damaged`), and for `Ready` the `ImageId` and the size made. At
+most 4 requests wait and 8 pictures are kept per plugin; give each back with
+`image_release(id)`. `ImageInfo::read(host, id)` gives the size and whether it is colour
+(`image.info`; `not_decoded()` says the format has not decoded it yet), and
+`Canvas::draw_image(id, rect, ImageStyle)` draws it scaled into the rectangle, centred,
+clipped by the canvas, only inside a draw callback (`State` elsewhere).
+`ImageStyle::new().fill()` crops to fill, `.small()` keeps a small picture out of the
+ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound` is an
+ended id: prepare it again. The host reads the file in bands, so a card failure can leave
+the bands drawn so far.
+
+`Library::cover(host, book, side, input, out)` gives a book's cover as an `ImageId` with its
+size (`Cover::image()`, `Cover::info()`), made by the book's format on first use and kept in the
+host's cover cache. `side` 0 is the list's size. `NotFound` means the book has no cover (show
+text); `Busy` means it is being made, so ask again when `library_changed` bit 6 says it is
+ready. Draw it with `Canvas::draw_image` and release it with `image_release` when it scrolls out
+of the list. `input` is 1,024 bytes and `out` 4,096.
+
 ### Opening a book as a client
 
 `native::document::Documents::open(host)` opens `core.document`. `open_book(host, &OpenBook, input, out)`
@@ -2799,6 +2834,70 @@ manager offers Open only where there is one, and `Documents::readers(host, forma
 the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
 pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
 `formats`; `out` 4,096 for both.
+
+### Annotation anchors and per-book folders
+
+`Library::anchors(host, book, cursor, input, out)` pages through the anchors of a book's
+annotations: for each annotation that has them, `Anchor::id()` (the annotation's id),
+`conversion()` (the conversion its offsets belong to, `Some(0)` differing from `None`) and
+`xpointers()` (the start and end KOReader XPointers, at most 1,024 bytes each; one that is
+longer reads as absent). The page's end carries the book's annotation generation like
+`Library::annotations`; continue with its cursor and start again after `State`. A reader whose
+conversion differs relocates an annotation through its XPointers (`Documents::xpointer` and
+`locate`) and writes it back. `input` is 1,024 bytes and `out` 4,096.
+
+`Declarations::book_data(name, BookDataKind::UserData | Cache)` declares a folder the plugin
+keeps per book at `books/<name>/<book key>/` in its data (the key from `Library::book_key`): user
+data moves and goes with the book, a cache is made again from the book and also goes when the
+book is no longer found. The host moves and removes the folders; the plugin only writes inside
+them. The name is one folder name (lowercase letters, digits and `-`, at most 96 bytes; no dot, no
+separator), and the host allows at most 4 per plugin.
+
+### Staging annotation edits
+
+A plugin that saves a whole merged set of annotations (KOReader) stages them in a transaction:
+read the book's annotations and keep the annotation generation of the last page, then
+`Library::edit_begin(host, book, generation, input, out)` gives a `Transaction`. Stage edits with
+`edit_add(host, &mut tx, &[AnnotationEdit], input 4,096, out)`, at most 3 per call (more is
+`NoSpace`): `AnnotationEdit::add`, `upsert` (by `client_key`, so a repeated import adds nothing
+twice), `replace(id, ..)` and `remove(id)`, with `.percent()`, `.conversion()`, `.times()`,
+`.client_key()`, `.text()`, `.note()` (at most 3 KiB) and `.xpointers(start, end)` (1 to 1,024
+bytes each). The SDK sends a text or note over 512 bytes and every XPointer in parts, cut on
+character boundaries; limits are checked before anything is sent. `edit_commit` applies all edits
+or none: `State` means the book's annotations changed since `edit_begin` (read again, merge, begin
+again). A plugin advances its own sync state only after a commit answered `Ok`. After an error from
+the host while staging, call `edit_abort`: the transaction refuses further staging and commit
+(`State`). One transaction is open per plugin and two on the device (`Full`); it ends on commit,
+abort, ten idle minutes or when the plugin stops. `edit_receipt(host, &committed, cursor, input,
+out)` then pages the annotation ids the edits made, `Receipt::{edit, id, action}`, until the
+plugin's next `edit_begin`. Every receipt page carries the annotation generation the commit
+answered; a page of another generation is `Invalid`.
+
+### Deleting and importing books
+
+`Library::can_delete(host, paths, input, out)` asks, for 1 to 7 card paths, which books
+can go and what would go with them: each `DeleteRow` has `status()` (`Ok`, `Invalid` for
+not a book, `NotFound` for gone already, `Io`) and `has_annotations()`,
+`has_position()` and `has_book_data()`, so a view can ask the user first.
+`Library::delete(host, paths, with_notes, input, out)` removes the books and everything
+kept for them; a book with annotations answers `State` in its row unless `with_notes`,
+which a plugin passes only for books it downloaded itself or after asking. All three need `uses.library`; `delete`
+also needs `uses.storage`, `import` does not. The host refuses
+paths whose first segment is `plugins` or `.paperpaw`. Both answer one row per path, with
+that path, in the order asked; a reply that does not is `Invalid`. `input` is
+4,096 bytes; `out` is 4,096 bytes and also holds the joined paths until the call.
+
+`Library::import(host, &Import, input, out)` puts a downloaded file from the plugin's
+root 0 into the library and returns the book's library path, borrowed from `out`.
+`Import::new(from, name)` names the source and the file name; `.folder("a/b")` puts it
+below the library folder; `.existing(Existing::Replace)` replaces a book this plugin
+imported earlier (it keeps its position and annotations), `Existing::FreeName` takes
+`name (2).ext`, and the default `Refuse` answers `State`. Names are checked before the
+host is called: no empty, `.` or `..` segment, no path separator in the name, no control
+character or any of `"*:<>?|`, no trailing dot or space, no reserved device name
+(`CON`, `NUL`, `COM1`…), at most 255 UTF-16 units per segment, no name starting with `.`
+or `~`; all are `Invalid`. `input` is 2,048 bytes and `out` 4,096. Downloaders need no
+storage permission for it.
 
 ### Book fields and badges
 

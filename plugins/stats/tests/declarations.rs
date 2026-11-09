@@ -89,8 +89,9 @@ fn the_events_are_the_ones_reading_is_recorded_from() {
         count += records_decode(&batch).unwrap().len();
     }
     // Started, resume, suspend, stopping, page turned, book opened, closed,
-    // finished and moved, and the status (the clock becoming known).
-    assert_eq!(count, 10);
+    // finished and moved, the status (the clock becoming known) and the
+    // minute tick (the widgets' new day), and a changed setting (the goal).
+    assert_eq!(count, 12);
 }
 
 #[test]
@@ -110,8 +111,9 @@ fn the_stage_tells_today_with_a_day_and_the_seconds() {
 fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 4] = [
+    let builders: [(&str, Build); 5] = [
         ("settings", |sink| declarations::settings(sink)),
+        ("widgets", |sink| declarations::widgets(sink)),
         ("ui", |sink| declarations::ui(sink)),
         ("events", |sink| declarations::events(sink)),
         ("stages", |sink| declarations::stages(sink)),

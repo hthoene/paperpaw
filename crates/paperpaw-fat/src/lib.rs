@@ -1228,6 +1228,42 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         true
     }
 
+    /// By the entries' first clusters, each path looked up as every other
+    /// call looks it up (a short alias of an entry with a long name names
+    /// nothing here). An entry's clusters are its own, so two that hold the
+    /// same are one (or the two places of a move cut off between, which a
+    /// check may take for one). A file that holds none (empty) cannot be
+    /// told from another empty one: `None` then, unless spelt alike.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        let entry = |path: &str| -> Option<Option<FatEntry<IO>>> {
+            let path = path.trim_matches('/');
+            check(path).ok()?;
+            let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+            match self.dir(dir) {
+                Ok(dir) => Some(lookup(&dir, name, false).ok()?.entry),
+                Err(StorageError::NotFound) => Some(None),
+                Err(_) => None,
+            }
+        };
+        let (Some(x), Some(y)) = (entry(a)?, entry(b)?) else {
+            return Some(false);
+        };
+        if x.is_dir() != y.is_dir() {
+            return Some(false);
+        }
+        match (x.first_cluster(), y.first_cluster()) {
+            (Some(x), Some(y)) => Some(x == y),
+            (None, None)
+                if a.trim_matches('/')
+                    .eq_ignore_ascii_case(b.trim_matches('/')) =>
+            {
+                Some(true)
+            }
+            (None, None) => None,
+            _ => Some(false),
+        }
+    }
+
     /// With the disk shared ([`FatStorage::with_disk`], as on the
     /// devices): unknown until the FAT is counted, a part of it at each
     /// ask, then followed by the clusters the file system marks taken and

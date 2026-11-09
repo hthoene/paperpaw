@@ -84,6 +84,10 @@ pub struct Network {
     calls: Calls,
     servers: Servers,
     sockets: Sockets,
+    /// The sockets of interface 7 (`core.sockets`), shared with the loader
+    /// that wires core with them.
+    #[cfg(feature = "ppn5")]
+    host: Option<alloc::rc::Rc<crate::host_net::Bridge>>,
     /// What the kernel asked for plugins' servers and sockets, for the
     /// next step.
     server_calls: Vec<ServerCall>,
@@ -107,6 +111,8 @@ impl Network {
             calls: Calls::default(),
             servers: Servers::default(),
             sockets: Sockets::default(),
+            #[cfg(feature = "ppn5")]
+            host: None,
             server_calls: Vec::new(),
             socket_calls: Vec::new(),
             #[cfg(feature = "remote")]
@@ -117,6 +123,12 @@ impl Network {
             #[cfg(feature = "bluetooth")]
             bluetooth: crate::bluetooth::Bluetooth::new(),
         }
+    }
+
+    /// Runs the interface-7 sockets of `host` from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach(&mut self, host: alloc::rc::Rc<crate::host_net::Bridge>) {
+        self.host = Some(host);
     }
 
     /// A radio is on: its tasks need the processor (no light sleep).
@@ -163,7 +175,7 @@ impl Network {
         // served (the transfer, the setup with a phone) or a connection
         // is open (Calibre): asleep, it missed parts of what came in a
         // burst, and the connection stalled until the other side gave up.
-        let busy = self.moving() || kernel.serving() || kernel.sockets_open();
+        let busy = self.moving() || kernel.serving() || kernel.sockets_open() || self.host_open();
         // Beside Bluetooth the radio is shared: Wi-Fi never keeps it to
         // itself (its modem sleeps between beacons, Bluetooth's links run
         // meanwhile).
@@ -187,6 +199,10 @@ impl Network {
         // had.
         let clock_ready = clock::unix_ms(now).is_some() || self.sync_failed;
         self.serve(kernel, now, clock_ready, &mut effects);
+        #[cfg(feature = "ppn5")]
+        if let Some(host) = &self.host {
+            effects.extend(host.run(&mut self.radio, kernel, now, clock_ready));
+        }
         self.sync_clock(now);
         if self.calls.busy() {
             for answer in self
@@ -248,7 +264,23 @@ impl Network {
     /// Whether data is moving for plugins' requests, servers or sockets:
     /// the main loop comes by again at once.
     pub fn moving(&self) -> bool {
-        self.calls.busy() || self.servers.moving() || self.sockets.moving()
+        self.calls.busy() || self.servers.moving() || self.sockets.moving() || self.host_moving()
+    }
+
+    /// Whether the interface-7 sockets have something to do now.
+    fn host_moving(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.moving());
+        #[cfg(not(feature = "ppn5"))]
+        false
+    }
+
+    /// Whether an interface-7 socket is open (the radio does not doze).
+    fn host_open(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.open());
+        #[cfg(not(feature = "ppn5"))]
+        false
     }
 
     /// Plugins' servers and sockets: what the kernel asked, then a step

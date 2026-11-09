@@ -50,7 +50,11 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 3] = [
+    let emits: [(&str, Emit); 4] = [
+        ("WIDGETS", |sink| {
+            declarations::widgets(sink)
+                .map_err(|e| format!("invalid Stats widget declarations: {e:?}"))
+        }),
         ("UI", |sink| {
             declarations::ui(sink).map_err(|e| format!("invalid Stats UI declarations: {e:?}"))
         }),

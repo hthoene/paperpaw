@@ -144,6 +144,7 @@
     }
   ],
   "services": [
+    "core.registry",
     "core.ui"
   ],
   "features": [

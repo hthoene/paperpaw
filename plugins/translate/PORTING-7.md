@@ -1,10 +1,10 @@
 # Translation on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`Translate`, the panel, the request and the
-answer in `lib.rs`) is still in place beside the native one: it is what registers the language
-setting and the slot `core.translate` until the native plugin can (draft 29 and #522, see "What is
-still missing"). Everything else of the plugin is ported; the interface-6 code goes in the PR that
-registers those two, and `PORTING-7.md` then says *complete*.
+answer in `lib.rs`) is still in place beside the native one, as the reference of the differential
+tests (`src/native_parity_tests.rs`, `src/answer_tests.rs`, `tests/panel.rs`). The native plugin now
+registers the language setting and the slot offer itself; the interface-6 code goes in the next PR
+(the differential tests become pinned ones), and `PORTING-7.md` then says *complete*.
 
 Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
 `declarations.rs` built into the image by `build.rs`, the host-free parts in
@@ -140,14 +140,14 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 
 ## What is still missing (each returns with its host piece)
 
-- **The language setting `translate.to`** is built (`declarations::settings`: a choice of the reader's
-  own language and the 32 DeepL ones, default PaperPaw's, advanced, in the reading group, under
-  the section `translate.section`) but **not in the image**: a `setting.spec` takes at most 32 choice
-  values and this one has 33. Draft 29 (Kernel, to be blessed 2026-11-09, not on integration
-  yet) raises the limit to 64; a follow-up emits it, submits it and compares it with the
-  interface-6 setting. Until then the plugin reads `translate.to` if some plugin has registered it
-  (interface 6 does, while it stays) and translates into PaperPaw's language otherwise.
-  `tests/native_declarations.rs` pins the refusal and fails when the limit is raised.
+- **The language setting `translate.to`** is in the image and **submitted** in `make` (the first
+  batch, before the screen): a choice of the reader's own language and the 32 DeepL ones (33
+  values, within the 64 a `setting.spec` takes since draft 29), default PaperPaw's, advanced, in
+  the reading group, under the section `translate.section`. `tests/native_declarations.rs` compares
+  it with what the interface-6 plugin registers (the spec with its choices, help and `advanced`,
+  the extra with the section, the group), pins the image to the builders, and checks that the host
+  admits it. The plugin reads the setting as before (`translate.to`); where it is not registered
+  it translates into PaperPaw's language.
 - **The slot offer** for `core.translate` is in the image and **submitted** in `make`, after the screen it
   names (the host admits slot offers since #522; `tests/native_declarations.rs` validates it,
   `tests/native_asking.rs` pins the order). What is still open is the reader's side: its *Translate*
