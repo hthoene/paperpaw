@@ -33,7 +33,8 @@ const CASES: [Case; 5] = [
     // asks for is `native_known`; the screens read the names kept (run in
     // `tests/scripted_networks.rs`); the `wifi.ini` is read at a start and its
     // networks kept (`native_ini`, compared with the old reading); keeping a
-    // password once the device is in the network is run with the radio's events.
+    // password once the device is in the network is wired (`native_plugin::events`); its typed-password
+    // path is not run over the scripted dialogs yet.
     Case {
         name: "wifi-passwords",
         golden: None,
