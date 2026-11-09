@@ -581,6 +581,11 @@ fn prepare() -> Ready {
         startup.starting_if_needed();
         staged
     };
+    // English hyphenation is a data plugin on the card: the flasher puts it
+    // there, but an update of a firmware that had English built in (Beta 3)
+    // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
+    // after the flasher's bundle, so that its own copy is found, not doubled.
+    native::seed::hyphenation(storage.as_ref());
     let code = code_plugins(ota.as_ref(), &flash);
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
