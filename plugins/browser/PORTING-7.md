@@ -19,8 +19,8 @@ the host activates native plugins (then it goes together, no shim: todo 90).
 - The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
 - Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
   2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
-- `tests/hosted_construction.rs`: construction in the host's registered scope, refused as
-  `Unsupported` until the host admits the navigation and event families (`BLOCKED #944`).
+- `tests/hosted_construction.rs`: construction in the host's registered scope, `make` runs to its end; the host's commit is refused
+  (`DeclarationViewsUnavailable`) until it wires the registry views (`BLOCKED #944`).
 
 ## Ported
 
