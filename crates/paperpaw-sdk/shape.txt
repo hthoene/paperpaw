@@ -1548,6 +1548,7 @@ const paperpaw_sdk::native::formatting::MAX_DIGIT_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::formatting::MAX_KEY_BYTES: usize = 128usize
 const paperpaw_sdk::native::formatting::MAX_MESSAGE_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
+const paperpaw_sdk::native::library::files::MAX_DELETE_PATHS: usize = 7usize
 const paperpaw_sdk::native::lookup::BUFFER: usize = 4_096usize
 const paperpaw_sdk::native::lookup::MAX_CONTEXT: usize = 1_024usize
 const paperpaw_sdk::native::lookup::MAX_ENTRY: usize = 2_048usize
@@ -2396,6 +2397,7 @@ enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSig
 enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }
 enum paperpaw_sdk::native::library::annotations::AnnotationKind { Bookmark, Highlight, Other(0: u32) }
 enum paperpaw_sdk::native::library::facets::Facet { Authors, Series, Tags, Letters, Folders }
+enum paperpaw_sdk::native::library::files::Existing { Refuse, Replace, FreeName }
 enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
 enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
 enum paperpaw_sdk::native::library::rows::CatalogPhase { Empty, Walking, Ready, Unknown(0: u32) }
@@ -3149,6 +3151,9 @@ struct paperpaw_sdk::native::library::fields::Field<'a>(0: paperpaw_sdk::native:
 struct paperpaw_sdk::native::library::fields::FieldCursor(0: paperpaw_sdk::native::library::query::CatalogCursor)
 struct paperpaw_sdk::native::library::fields::FieldPage<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::fields::Field<'a>>)
 struct paperpaw_sdk::native::library::fields::FieldPageEnd(0: paperpaw_sdk::native::library::rows::LibraryPageEnd)
+struct paperpaw_sdk::native::library::files::DeleteReport<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::files::DeleteRow<'a>>)
+struct paperpaw_sdk::native::library::files::DeleteRow<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibResult<'a>)
+struct paperpaw_sdk::native::library::files::Import<'a> { from: &'a str, folder: &'a str, name: &'a str, existing: paperpaw_sdk::native::library::files::Existing }
 struct paperpaw_sdk::native::library::position::BookKey<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibKey<'a>)
 struct paperpaw_sdk::native::library::position::Position<'a> { section: u32, offset: u32, insert: u32, progress_ppm: u32, conversion: core::option::Option<u64>, updated: u64, xpointer: core::option::Option<&'a str>, from_sync: bool }
 struct paperpaw_sdk::native::library::position::PositionWrite<'a> { position: paperpaw_sdk::native::library::position::Position<'a>, sync: bool, confirmed: bool }

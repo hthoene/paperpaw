@@ -25,6 +25,8 @@ mod annotation_text;
 pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
+mod files;
+pub use files::{DeleteReport, DeleteRow, Existing, Import, MAX_DELETE_PATHS};
 mod position;
 pub use position::{BookKey, Position, PositionWrite};
 mod query;
