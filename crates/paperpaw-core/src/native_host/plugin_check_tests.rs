@@ -649,6 +649,91 @@ fn the_room_for_code_is_checked_in_place_of_the_plugins_own_version() {
 }
 
 #[test]
+fn an_update_is_signed_over_its_own_header_not_the_installed_ones() {
+    let card = MemoryStorage::new();
+    signed_folder(&card, SOURCE);
+    let room = paperpaw_sdk::native::CodeRoom::new(1 << 20, 8192, 4096).with_plugins(1, Some(4));
+    assert!(paperpaw_sdk::native::keep_code_room(&card, Some(&room)));
+    // The installed version is a bigger image: its header is another one.
+    let installed = code_file(&good_record(), Some(&AUTHOR_SEED), 8192);
+    card.write("plugins/dials/code.ppn", &installed).unwrap();
+    assert_eq!(reason_of(&card, SOURCE), reason::OK);
+}
+
+#[test]
+fn a_code_file_in_other_case_is_code_not_a_data_plugin() {
+    // A FAT lists the case a file was stored in and finds it in any.
+    let card = MemoryStorage::new();
+    card.write(&format!("{SOURCE}/plugin.ini"), INI.as_bytes())
+        .unwrap();
+    let unsigned = code_file(&good_record(), None, 4096);
+    card.write(&format!("{SOURCE}/CODE.PPN"), &unsigned)
+        .unwrap();
+    assert_eq!(reason_of(&card, SOURCE), reason::UNSIGNED);
+    let signed = code_file(&good_record(), Some(&AUTHOR_SEED), 4096);
+    card.write(&format!("{SOURCE}/CODE.PPN"), &signed).unwrap();
+    let done = run(&card, SOURCE).0;
+    assert_eq!(done.reason, reason::OK);
+    let facts = done.facts.unwrap();
+    assert_eq!(facts.key, Some(author()));
+    assert_eq!(facts.flags & FLAG_DATA_PLUGIN, 0);
+    // Other chips' names too.
+    let card = MemoryStorage::new();
+    card.write(&format!("{SOURCE}/plugin.ini"), INI.as_bytes())
+        .unwrap();
+    card.write(&format!("{SOURCE}/Code.So"), b"x").unwrap();
+    assert_eq!(reason_of(&card, SOURCE), reason::NOT_HERE);
+}
+
+#[test]
+fn the_revocations_are_read_a_line_with_a_signature_at_a_time() {
+    let card = MemoryStorage::new();
+    signed_folder(&card, SOURCE);
+    assert!(keys::remember_first_install(
+        &card,
+        "dials",
+        &author(),
+        &public_key(&RECOVERY_SEED)
+    ));
+    let sign_by =
+        |seed: &[u8; 32]| sign_message(revocation_message("dials", &author()).as_bytes(), seed);
+    let hex = paperpaw_sdk::digest::hex::encode;
+    let forged = format!("dials {} {}\n", hex(&author()), hex(&sign_by(&OTHER_SEED)));
+    // 300 lines that name the key and do not hold, then one that does.
+    let mut file = forged.repeat(300);
+    file.push_str(&format!(
+        "dials {} {}\n",
+        hex(&author()),
+        hex(&sign_by(&RECOVERY_SEED))
+    ));
+    card.write(".paperpaw/revoked-keys.txt", file.as_bytes())
+        .unwrap();
+    let (done, steps) = run(&card, SOURCE);
+    assert_eq!(done.reason, reason::REVOKED);
+    // One line a step: the trust phase took as many steps as lines.
+    assert!(steps >= 300, "{steps} steps");
+    // Lines of no key at all do not cost a step each.
+    let mut quiet = String::from("other 00 00\n").repeat(2000);
+    quiet.push_str(&forged);
+    card.write(".paperpaw/revoked-keys.txt", quiet.as_bytes())
+        .unwrap();
+    let (done, steps) = run(&card, SOURCE);
+    assert_eq!(done.reason, reason::OK);
+    assert!(steps < 100, "{steps} steps");
+    // A long line is skipped whole and the next one still read.
+    let mut long = "x".repeat(10_000);
+    long.push('\n');
+    long.push_str(&format!(
+        "dials {} {}",
+        hex(&author()),
+        hex(&sign_by(&AUTHOR_SEED))
+    ));
+    card.write(".paperpaw/revoked-keys.txt", long.as_bytes())
+        .unwrap();
+    assert_eq!(reason_of(&card, SOURCE), reason::REVOKED);
+}
+
+#[test]
 fn a_check_changes_nothing_on_the_card() {
     let card = MemoryStorage::new();
     signed_folder(&card, SOURCE);

@@ -123,67 +123,170 @@ fn pin(
     }
 }
 
-/// Whether a revocation of `key`, the key pinned for `plugin`, holds: its
-/// signature is the key's own or the recovery key's over the statement.
-fn revoked(
-    storage: &dyn Storage,
+/// How far the scan of the revocation file has come.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scanned {
+    More,
+    Holds,
+    Clear,
+}
+
+/// Whether the revocation `signature` of `key` for `plugin` holds: the key's
+/// own or the recovery key's over the statement. The signature checks are
+/// the expensive part of a step and have a frame of their own.
+#[inline(never)]
+fn revocation_holds(
     plugin: &str,
     key: &[u8; 32],
     recovery: Option<&[u8; 32]>,
-    buf: &mut [u8],
-) -> Result<bool, Unreadable> {
-    let mut holds = false;
-    each_line(storage, REVOKED, buf, &mut |line| {
-        let mut parts = line.split_whitespace();
-        let (Some(name), Some(named), Some(signature)) = (parts.next(), parts.next(), parts.next())
-        else {
-            return false;
-        };
-        if name != plugin {
-            return false;
-        }
-        let (Some(named), Some(signature)) = (
-            paperpaw_sdk::digest::hex::decode_array::<32>(named),
-            paperpaw_sdk::digest::hex::decode_array::<64>(signature),
-        ) else {
-            return false;
-        };
-        if named != *key {
-            return false;
-        }
-        let message = revocation_message(plugin, key);
-        let by = |signer: &[u8; 32]| verify_message(signer, message.as_bytes(), &signature);
-        holds = by(key) || recovery.is_some_and(by);
-        holds
-    })?;
-    Ok(holds)
+    signature: &[u8; 64],
+) -> bool {
+    let message = revocation_message(plugin, key);
+    let by = |signer: &[u8; 32]| verify_message(signer, message.as_bytes(), signature);
+    by(key) || recovery.is_some_and(by)
 }
 
-/// What the device knows of `plugin`'s author: the key pinned for it, its
-/// recovery key and whether the pinned key is revoked.
-///
-/// # Errors
-/// [`Unreadable`] where a file cannot be read.
-pub(crate) fn standing(
-    storage: &dyn Storage,
+/// Whether `line` revokes `key`, the key pinned for `plugin`: `None` when it
+/// is none of this key's lines (no signature checked).
+fn line_revokes(
+    line: &str,
     plugin: &str,
-    buf: &mut [u8],
-) -> Result<Standing, Unreadable> {
-    let pinned = pin(storage, AUTHORS, plugin, buf)?;
-    let Some(key) = pinned else {
-        return Ok(Standing {
-            pinned: None,
-            recovery: None,
-            revoked: false,
-        });
-    };
-    let recovery = pin(storage, RECOVERY, plugin, buf)?;
-    let revoked = revoked(storage, plugin, &key, recovery.as_ref(), buf)?;
-    Ok(Standing {
-        pinned,
-        recovery,
-        revoked,
-    })
+    key: &[u8; 32],
+    recovery: Option<&[u8; 32]>,
+) -> Option<bool> {
+    let mut parts = line.trim_end_matches('\r').split_whitespace();
+    let (name, named, signature) = (parts.next()?, parts.next()?, parts.next()?);
+    if name != plugin {
+        return None;
+    }
+    let named = paperpaw_sdk::digest::hex::decode_array::<32>(named)?;
+    let signature = paperpaw_sdk::digest::hex::decode_array::<64>(signature)?;
+    if named != *key {
+        return None;
+    }
+    Some(revocation_holds(plugin, key, recovery, &signature))
+}
+
+/// A look at the standing of one plugin, in steps: the pins first, then the
+/// revocation file one buffer at a time, at most one line with a signature
+/// check per step (two checks: the key's own and the recovery key's).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Inquiry {
+    standing: Option<Standing>,
+    at: u64,
+    skipping: bool,
+}
+
+impl Inquiry {
+    pub(crate) const fn new() -> Self {
+        Self {
+            standing: None,
+            at: 0,
+            skipping: false,
+        }
+    }
+
+    /// One step: `Some` once the standing is known.
+    ///
+    /// # Errors
+    /// [`Unreadable`] where a file cannot be read.
+    pub(crate) fn step(
+        &mut self,
+        storage: &dyn Storage,
+        plugin: &str,
+        buf: &mut [u8],
+    ) -> Result<Option<Standing>, Unreadable> {
+        let Some(mut standing) = self.standing else {
+            let pinned = pin(storage, AUTHORS, plugin, buf)?;
+            let recovery = match pinned {
+                Some(_) => pin(storage, RECOVERY, plugin, buf)?,
+                None => None,
+            };
+            let standing = Standing {
+                pinned,
+                recovery,
+                revoked: false,
+            };
+            if pinned.is_none() {
+                return Ok(Some(standing));
+            }
+            self.standing = Some(standing);
+            return Ok(None);
+        };
+        let Some(key) = standing.pinned else {
+            return Ok(Some(standing));
+        };
+        match self.scan(storage, plugin, &key, standing.recovery.as_ref(), buf)? {
+            Scanned::More => Ok(None),
+            Scanned::Holds => {
+                standing.revoked = true;
+                Ok(Some(standing))
+            }
+            Scanned::Clear => Ok(Some(standing)),
+        }
+    }
+
+    /// The next buffer of the revocation file, up to the first line that
+    /// needs a signature check.
+    fn scan(
+        &mut self,
+        storage: &dyn Storage,
+        plugin: &str,
+        key: &[u8; 32],
+        recovery: Option<&[u8; 32]>,
+        buf: &mut [u8],
+    ) -> Result<Scanned, Unreadable> {
+        let size = match storage.size(REVOKED) {
+            Ok(size) => size,
+            Err(StorageError::NotFound) => return Ok(Scanned::Clear),
+            Err(_) => return Err(Unreadable),
+        };
+        if size > FILE_MAX {
+            return Err(Unreadable);
+        }
+        let read = storage
+            .read_at(REVOKED, self.at, buf)
+            .map_err(|_| Unreadable)?;
+        let mut start = 0;
+        while let Some(end) = buf[start..read].iter().position(|byte| *byte == b'\n') {
+            let line = &buf[start..start + end];
+            start += end + 1;
+            if self.skipping {
+                self.skipping = false;
+                continue;
+            }
+            let Ok(text) = core::str::from_utf8(line) else {
+                continue;
+            };
+            match line_revokes(text, plugin, key, recovery) {
+                Some(true) => return Ok(Scanned::Holds),
+                Some(false) => {
+                    // The next step goes on after this line.
+                    self.at += start as u64;
+                    return Ok(Scanned::More);
+                }
+                None => {}
+            }
+        }
+        if read < buf.len() {
+            // The end of the file; its last line may have no line end.
+            if !self.skipping
+                && let Ok(text) = core::str::from_utf8(&buf[start..read])
+                && line_revokes(text, plugin, key, recovery) == Some(true)
+            {
+                return Ok(Scanned::Holds);
+            }
+            return Ok(Scanned::Clear);
+        }
+        if start == 0 {
+            // A line longer than the buffer is skipped whole.
+            self.skipping = true;
+            self.at += read as u64;
+        } else {
+            self.at += start as u64;
+        }
+        Ok(Scanned::More)
+    }
 }
 
 /// The name of `key` among the keys the firmware knows by name, empty for

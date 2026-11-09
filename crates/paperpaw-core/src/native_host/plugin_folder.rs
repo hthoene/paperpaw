@@ -20,6 +20,8 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{Version, install, native::CODE_FILES};
 
+use super::files_service::same_fold;
+
 use super::plugin_job::{ID_MAX, NAME_MAX, VERSION_MAX, reason};
 
 /// Entries read from one folder in one step.
@@ -53,6 +55,9 @@ pub(crate) enum Walked {
     Refused(u8),
 }
 
+/// The longest name of [`CODE_FILES`] (15 bytes) with room to spare.
+const CODE_NAME_MAX: usize = 16;
+
 /// The walk over one source folder.
 pub(crate) struct Walk {
     root: String,
@@ -61,6 +66,9 @@ pub(crate) struct Walk {
     at: usize,
     place: u64,
     found: Found,
+    /// The name the top-level code file has on the card (a FAT lists the
+    /// case it was stored in, which may not be the one of [`CODE_FILES`]).
+    code_name: Text<CODE_NAME_MAX>,
 }
 
 impl Walk {
@@ -81,6 +89,7 @@ impl Walk {
             dirs,
             at: 0,
             place: 0,
+            code_name: Text::new(""),
             found: Found {
                 files: 0,
                 bytes: 0,
@@ -97,6 +106,38 @@ impl Walk {
 
     pub(crate) fn root(&self) -> &str {
         &self.root
+    }
+
+    /// The code file's name as the card lists it.
+    pub(crate) fn code_name(&self) -> &str {
+        self.code_name.as_str()
+    }
+
+    /// Takes over what one listed piece found and moves on.
+    fn settle(
+        &mut self,
+        next: Option<u64>,
+        found: Found,
+        code_name: Option<Text<CODE_NAME_MAX>>,
+        subdirs: Vec<String>,
+    ) -> Walked {
+        self.found = found;
+        if let Some(name) = code_name {
+            self.code_name = name;
+        }
+        self.dirs.extend(subdirs);
+        match next {
+            Some(place) => self.place = place,
+            None => {
+                self.at += 1;
+                self.place = 0;
+            }
+        }
+        if self.at >= self.dirs.len() {
+            Walked::Done(self.found)
+        } else {
+            Walked::More
+        }
     }
 
     /// One piece of the folder being listed.
@@ -119,6 +160,7 @@ impl Walk {
         let mut failed: Option<u8> = None;
         let mut subdirs: Vec<String> = Vec::new();
         let mut found = self.found;
+        let mut code_name = None;
         let top = rel.is_empty();
         let known = self.dirs.len();
         let listed = storage.list_from(&path, self.place, &mut |entry| {
@@ -155,15 +197,20 @@ impl Walk {
                 failed = Some(reason::DAMAGED);
                 return false;
             }
-            if top && entry.name == "plugin.ini" {
+            // FAT finds a name whatever its case, so does this.
+            if top && same_fold(entry.name, "plugin.ini") {
                 found.manifest = true;
             }
-            if top && let Some(index) = CODE_FILES.iter().position(|code| *code == entry.name) {
+            if top
+                && let Some(index) = CODE_FILES
+                    .iter()
+                    .position(|code| same_fold(code, entry.name))
+            {
                 // `code.ppn` is the one this device reads; it wins.
-                found.code = match found.code {
-                    Some(0) => Some(0),
-                    _ => Some(index),
-                };
+                if found.code != Some(0) {
+                    found.code = Some(index);
+                    code_name = Some(Text::new(entry.name));
+                }
             }
             true
         });
@@ -171,22 +218,7 @@ impl Walk {
             return Walked::Refused(reason);
         }
         match listed {
-            Ok(next) => {
-                self.found = found;
-                self.dirs.extend(subdirs);
-                match next {
-                    Some(place) => self.place = place,
-                    None => {
-                        self.at += 1;
-                        self.place = 0;
-                    }
-                }
-                if self.at >= self.dirs.len() {
-                    Walked::Done(self.found)
-                } else {
-                    Walked::More
-                }
-            }
+            Ok(next) => self.settle(next, found, code_name, subdirs),
             // A path that names nothing, or a file: not a plugin folder.
             Err(StorageError::NotFound | StorageError::InvalidPath) => {
                 Walked::Refused(reason::DAMAGED)
