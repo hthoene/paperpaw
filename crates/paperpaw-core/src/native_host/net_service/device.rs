@@ -312,6 +312,9 @@ impl NetHost for NetDevice {
     fn showing_screen(&self, owner: u64) -> Option<u64> {
         self.paths.owners().showing_screen(owner)
     }
+    fn topmost_screen(&self, owner: u64) -> Option<u64> {
+        self.paths.owners().topmost_screen(owner)
+    }
 
     fn room_for(&self, extra: u64) -> bool {
         has_room(&*self.storage, extra)

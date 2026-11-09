@@ -84,6 +84,16 @@ impl OwnerDirectory {
             .showing_screen(owner)
     }
 
+    /// The topmost screen instance of `owner` when it is showing (`None` when
+    /// unknown, covered, or no stack is attached).
+    pub(crate) fn topmost_screen(&self, owner: u64) -> Option<u64> {
+        self.screens
+            .try_borrow()
+            .ok()?
+            .as_ref()?
+            .topmost_screen(owner)
+    }
+
     /// The work run `owner`'s running callback belongs to.
     pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
         self.sched.try_borrow().ok()?.as_ref()?.current_run(owner)

@@ -261,7 +261,16 @@ pub(super) fn serve(
         wanted if wanted <= args::SERVE_BODY_MAX => wanted,
         _ => return Err(ERR_NO_SPACE),
     };
-    let screen = host.showing_screen(who.owner).ok_or(ERR_STATE)?;
+    // From a showing screen's callback, that screen; from any other callback
+    // but a work run's, the plugin's topmost own screen if it is showing
+    // (`network.md` 5.1); else `ERR_STATE`.
+    let screen = match host.showing_screen(who.owner) {
+        Some(screen) => screen,
+        None if host.current_run(who.owner).is_none() => {
+            host.topmost_screen(who.owner).ok_or(ERR_STATE)?
+        }
+        None => return Err(ERR_STATE),
+    };
     if !host.subscribed(who.owner, wire::EVENT_SERVER_TAG) {
         return Err(ERR_STATE);
     }
