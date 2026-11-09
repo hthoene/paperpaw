@@ -80,6 +80,7 @@ pub(crate) fn backend(
 ) -> Result<usize, i32> {
     let ui = who.hosts.ui().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
+        1 => super::ui_stack_op::stack(frame, who, input, out),
         8 => ask(frame, ui, who, input, out),
         2 => question(frame, ui, input, out),
         11 => answer(frame, ui, input).map(|()| 0),
