@@ -325,9 +325,9 @@ pub fn prune(vault: &dyn Vault, catalogs: &[Catalog]) -> Result<(), Error> {
         Err(_) => return Ok(()),
     };
     for name in others {
-        match vault.remove(&name) {
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Ok(()) | Err(_) => {}
+        // A secret that cannot be taken away now goes with the next save.
+        if let Err(Error::NoMemory) = vault.remove(&name) {
+            return Err(Error::NoMemory);
         }
     }
     Ok(())

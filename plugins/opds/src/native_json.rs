@@ -212,12 +212,10 @@ impl Builder {
             match *kind {
                 Kind::Navigation => match parts.as_slice() {
                     ["title"] => entry.title = clean(value)?,
-                    ["href"] => {
-                        if value.len() <= MAX_URL {
-                            let url = join_url(&self.base, value)?;
-                            if url.len() <= MAX_URL {
-                                entry.feed = Some(url);
-                            }
+                    ["href"] if value.len() <= MAX_URL => {
+                        let url = join_url(&self.base, value)?;
+                        if url.len() <= MAX_URL {
+                            entry.feed = Some(url);
                         }
                     }
                     _ => {}
@@ -235,12 +233,12 @@ impl Builder {
                         let author = clean(value)?;
                         push(&mut self.authors, author)?;
                     }
-                    ["images", "[]", "href"] if entry.thumbnail.is_none() => {
-                        if value.len() <= MAX_URL {
-                            let url = join_url(&self.base, value)?;
-                            if url.len() <= MAX_URL {
-                                entry.thumbnail = Some(url);
-                            }
+                    ["images", "[]", "href"]
+                        if entry.thumbnail.is_none() && value.len() <= MAX_URL =>
+                    {
+                        let url = join_url(&self.base, value)?;
+                        if url.len() <= MAX_URL {
+                            entry.thumbnail = Some(url);
                         }
                     }
                     _ => {}

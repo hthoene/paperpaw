@@ -8,5 +8,6 @@ battery status=complete   # no PORTING-7.md (its notes are plugins/battery/PORTI
 end-of-book
 keys
 menu-editor
+opds
 profiles
 rules

@@ -239,6 +239,16 @@ pub fn recorded(files: &dyn Files, path: &str, lines: &[&str]) -> Result<Vec<boo
     }
 }
 
+/// Appends `line` to the record. A write that fails is let go of (the book
+/// is then fetched, refused by name, and noted again at the next sync);
+/// memory is not.
+fn remember(files: &dyn Files, path: &str, line: &str) -> Result<(), Error> {
+    match files.append(path, line.as_bytes()) {
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Ok(()) | Err(_) => Ok(()),
+    }
+}
+
 impl Sync {
     /// A sync that is not running.
     #[must_use]
@@ -690,17 +700,11 @@ impl Sync {
             Some(Ok(_)) => {
                 run.count += 1;
                 loaded = true;
-                match files.append(&path, line.as_bytes()) {
-                    Err(Error::NoMemory) => return Err(Error::NoMemory),
-                    Ok(()) | Err(_) => {}
-                }
+                remember(files, &path, &line)?;
             }
             // A book of that name is in the folder already: remembered, not
             // fetched again.
-            Some(Err(Error::State)) => match files.append(&path, line.as_bytes()) {
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Ok(()) | Err(_) => {}
-            },
+            Some(Err(Error::State)) => remember(files, &path, &line)?,
             Some(Err(Error::NoMemory)) => return Err(Error::NoMemory),
             Some(Err(_)) | None => failed = true,
         }

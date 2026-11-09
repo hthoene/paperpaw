@@ -82,6 +82,10 @@ enum Ask {
 
 /// The state of one open screen.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "a view is made fallibly and kept in place; boxing would take an infallible allocation"
+)]
 enum View {
     List(list::ListView),
     Edit(edit::EditView),
@@ -262,6 +266,11 @@ impl NativeOpds {
             return Ok(());
         }
         self.opened = true;
+        // What a run cut short left (a power cut): the answers' files go.
+        let files = DataFiles::new(host);
+        for name in crate::native_web::FILES {
+            crate::native_files::remove(&files, name);
+        }
         self.secrets = Self::service(Secrets::open(host))?;
         self.library = Self::service(Library::open(host))?;
         self.work = Self::service(Work::open(host))?;

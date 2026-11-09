@@ -264,10 +264,6 @@ pub fn install_with(
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_file_manager::FileManager)
         .plugin(paperpaw_plugin_transfer::Transfer);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_opds::Opds);
-    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
