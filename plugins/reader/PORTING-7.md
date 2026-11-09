@@ -83,3 +83,17 @@ relative to the data folder).
 - Not wired yet: the interface-6 reader still emits `core.word-looked-up`; the native selection flow
   calls `native_words::run` when it exists (with the annotations screen's `native_notes::run`).
 
+## The stage `reader.filter@1`
+
+- Replaces the interface-6 text filters (`add_text_filter`): schema `stages/reader.filter@1.def` (Kernel
+  approved; input `filter.ask`: language str 16, format str 32, `image_only` 0/1; reply `filter.rules`
+  (signature u64, bold 0/1, pictures 0..2, caption word str 96) then at most 32 `filter.pair`; at most
+  4 subscribers, 3,840 bytes).
+- Kernel's design: no host hook. The reader asks each subscriber once per book open, setting change or
+  subscriber change; a reply that is invalid is dropped whole; the rules are applied to a whole block with
+  `Block::try_transform` after the `core.document` block and before layout, subscribers in order (a dropped
+  picture is not seen by later ones); the layout cache key folds in each subscriber's signature (in order),
+  plugin id and version.
+- Done here: the schema, the generated codec, the declaration and the test that holds the declared bounds to
+  the codec. **Not done:** asking the subscribers and applying the rules (the native reader screens).
+
