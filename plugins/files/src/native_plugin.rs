@@ -405,7 +405,7 @@ impl NativeFiles {
             };
             let selection = Selection {
                 order: Self::order(host)?,
-                ..old.selection.clone()
+                ..old.selection.try_clone()?
             };
             let (held, focus) = (old.window.books.len(), old.list.focus());
             let reading = Reading::from(old.window.start, cursors(&old.starts)?);

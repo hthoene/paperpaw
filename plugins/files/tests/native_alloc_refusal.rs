@@ -184,7 +184,10 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
                 &selection,
                 &window,
                 &later[..],
-                Condition::Scanning { books: 9 },
+                Condition::Scanning {
+                    books: 9,
+                    ppm: 300_000,
+                },
             ),
             (&selection, &empty, &[][..], Condition::Preparing),
             (&selection, &empty, &[][..], Condition::CardGone),
@@ -219,7 +222,7 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
         )?;
         native_list::Cell::plain(Row::Note, "a", "b")?;
         native_info::cells(&info)?;
-        Condition::of(Ok((CatalogPhase::Walking, 3)), true)?;
+        Condition::of(Ok((CatalogPhase::Walking, 3, 100_000)), true)?;
         Condition::of(Err(Error::Io), false)?;
         let mut covers = native_covers::Covers::new(8, 3)?;
         covers.set(1, native_covers::Slot::Ready(kept[0]));

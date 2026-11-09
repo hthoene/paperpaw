@@ -21,6 +21,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Messages, Page, Paint, Style, header,
     list::{backdrop, columns, ink},
+    mem::collect,
     paint::{self, frame_rect},
     text,
 };
@@ -529,10 +530,7 @@ impl BookList {
         self.draw_covers(frame, &thumbs, covers, covering)?;
         head.paint = Vec::new();
         self.header = head;
-        self.starts = laid
-            .iter()
-            .filter_map(|p| p.first().map(|f| f.cell))
-            .collect();
+        self.starts = collect(laid.iter().filter_map(|p| p.first().map(|f| Ok(f.cell))))?;
         self.hits = hits;
         self.band = Some(Rect::new(0, 0, width, style.header));
         self.metrics = Some(metrics);

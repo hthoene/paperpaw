@@ -118,7 +118,7 @@ impl Order {
 }
 
 /// Which books a list holds.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum Scope {
     /// Every book of the library.
     #[default]
@@ -148,6 +148,23 @@ const KINDS: [(&str, u8); 7] = [
 ];
 
 impl Scope {
+    /// A second copy of the scope.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(match self {
+            Self::Library => Self::Library,
+            Self::Favourites => Self::Favourites,
+            Self::Author(name) => Self::Author(copy(name)?),
+            Self::Series(name) => Self::Series(copy(name)?),
+            Self::Tag(name) => Self::Tag(copy(name)?),
+            Self::Folder(path) => Self::Folder(copy(path)?),
+            Self::Search(words) => Self::Search(copy(words)?),
+            Self::Next => Self::Next,
+        })
+    }
+
     /// The parameters (`kind`, `value`) that open a list of this scope.
     #[must_use]
     pub fn params(&self) -> (&'static str, &str) {
@@ -186,7 +203,7 @@ impl Scope {
 }
 
 /// What a list holds and in which order: the library's filter or a scope.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct Selection {
     pub filter: Filter,
     pub order: Order,
@@ -194,6 +211,18 @@ pub struct Selection {
 }
 
 impl Selection {
+    /// A second copy of the selection.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            filter: self.filter,
+            order: self.order,
+            scope: self.scope.try_clone()?,
+        })
+    }
+
     /// The host's query for this selection, continuing from `cursor`. The
     /// archive folder is left out of the library's own lists, not of a
     /// folder's or a search's.

@@ -71,7 +71,7 @@ impl NativeFiles {
         }
         let state = library
             .state(host, &mut input, &mut out)
-            .map(|state| (state.phase(), state.books()));
+            .map(|state| (state.phase(), state.books(), state.walk_ppm()));
         let card = if unreadable || state.as_ref().is_err_and(|error| *error != Error::Busy) {
             Self::card_present(host)?
         } else {
@@ -210,7 +210,7 @@ impl NativeFiles {
     pub(super) fn slide_on(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
         self.replace_books(host, token, |view| {
             let step = step_on(&view.window, &view.starts, view.list.focus())?;
-            Ok(Some(Plan::of(view.selection.clone(), step)))
+            Ok(Some(Plan::of(view.selection.try_clone()?, step)))
         })
     }
 
@@ -218,7 +218,10 @@ impl NativeFiles {
     /// goes on again.
     pub(super) fn slide_back(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
         self.replace_books(host, token, |view| {
-            Ok(step_back(&view.starts)?.map(|step| Plan::of(view.selection.clone(), step)))
+            match step_back(&view.starts)? {
+                Some(step) => Ok(Some(Plan::of(view.selection.try_clone()?, step))),
+                None => Ok(None),
+            }
         })
     }
 
@@ -239,7 +242,7 @@ impl NativeFiles {
             ListRow::Note | ListRow::Field => Ok(()),
             ListRow::Filter => {
                 let next = view.selection.filter.next();
-                let mut selection = view.selection.clone();
+                let mut selection = view.selection.try_clone()?;
                 selection.filter = if next == Filter::Shelves {
                     Filter::All
                 } else {

@@ -54,6 +54,21 @@ pub fn card_first(
         && first.is_some_and(|book| !book.finished && book.progress.is_some_and(|p| p > 0))
 }
 
+/// The rough bar of a walk: its share in per cent, from 1 to 99 (a walk
+/// that has no total reads near the end from its first steps, so it never
+/// shows full and says nothing under 1 per cent).
+#[must_use]
+pub const fn rough_walk(ppm: u32) -> Option<u8> {
+    let percent = ppm / 10_000;
+    if percent == 0 {
+        None
+    } else if percent > 99 {
+        Some(99)
+    } else {
+        Some(percent as u8)
+    }
+}
+
 /// The bar under a book: how far it is read, shown from 1 to 99 per cent.
 #[must_use]
 pub const fn bar(book: &BookLine) -> Option<u8> {
@@ -92,10 +107,13 @@ pub fn build(say: &mut impl Say, facts: &Facts<'_>) -> Result<Built, Error> {
         };
         push(&mut cells, Cell::plain(Row::Filter, &show, &value)?)?;
     }
-    if let (Condition::Scanning { books }, true) = (condition, library) {
-        // The count leads: the books found so far.
+    if let (Condition::Scanning { books, ppm }, true) = (condition, library) {
+        // The count leads: the books found so far. The walk's share is only a
+        // rough bar under it (a first walk has no total to measure by).
         let note = say.count("files.list.so-far", i64::from(books))?;
-        push(&mut cells, Cell::plain(Row::Note, &note, "")?)?;
+        let mut cell = Cell::plain(Row::Note, &note, "")?;
+        cell.progress = rough_walk(ppm);
+        push(&mut cells, cell)?;
     }
     if !starts.is_empty() {
         let previous = say.say("files.list.previous")?;
@@ -292,12 +310,20 @@ mod tests {
             &selection,
             &w,
             &[],
-            Condition::Scanning { books: 123 },
+            Condition::Scanning {
+                books: 123,
+                ppm: 420_000,
+            },
             false,
         );
         let note = &built.cells[1];
         assert_eq!(note.row, Row::Note);
         assert_eq!(note.title, "files.list.so-far:123");
+        // The walk's share is a rough bar under the count, never full.
+        assert_eq!(note.progress, Some(42));
+        assert_eq!(rough_walk(0), None);
+        assert_eq!(rough_walk(9_999), None);
+        assert_eq!(rough_walk(1_000_000), Some(99));
         // The filter row does not count books that are still being found.
         assert_eq!(built.cells[0].value, "files.list.show.all");
         // A scan with nothing found yet says nothing else.
@@ -306,7 +332,7 @@ mod tests {
             &selection,
             &empty,
             &[],
-            Condition::Scanning { books: 0 },
+            Condition::Scanning { books: 0, ppm: 0 },
             false,
         );
         assert!(built.empty.is_empty());
