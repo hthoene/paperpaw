@@ -207,6 +207,10 @@ pub struct NetLimits {
     pub max_body: u32,
     /// Whether the cable server (`serve` port 0) exists.
     pub cable: bool,
+    /// Servers open at once over all plugins (`SERVERS`, `network.md` 5.1):
+    /// 1 on the X4, 2 on the X4 Pro and Classic, 8 elsewhere. `serve` past it
+    /// is `ERR_BUSY`. A plugin has at most 2 in any case.
+    pub servers: u32,
     /// The TLS sessions the device has at once, shared with `core.sockets`
     /// (the X4: 1; at most 4). https requests and secure sockets take them
     /// in the order they ask.
@@ -231,8 +235,16 @@ impl NetLimits {
                 1_048_576
             },
             cable: false,
+            servers: if pooled { 1 } else { 8 },
             tls_sessions: 1,
         }
+    }
+
+    /// Servers open at once over all plugins (`SERVERS`).
+    #[must_use]
+    pub fn servers(mut self, servers: u32) -> Self {
+        self.servers = servers;
+        self
     }
 
     /// The TLS sessions the device has at once (1 to 4).
@@ -366,6 +378,7 @@ impl NetInputs {
             connections: self.limits.connections,
             max_body: self.limits.max_body,
             cable: self.limits.cable,
+            servers: self.limits.servers,
         };
         NetDevice::new(
             self.storage,

@@ -73,7 +73,7 @@ fn answer(request: u32, status: u32) -> Record<'static> {
 
 #[test]
 fn serve_is_checked_and_tells_its_outcome_as_an_event() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     assert_eq!(
         drain(&fake, OWNER),
@@ -94,7 +94,7 @@ fn serve_is_checked_and_tells_its_outcome_as_an_event() {
 
 #[test]
 fn serve_refuses_what_the_contract_refuses() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     let mut s = serve_rec(1, 8080);
     s.flags = 1;
     assert_eq!(serve(&fake, OWNER, &s), Err(ERR_UNSUPPORTED));
@@ -109,7 +109,11 @@ fn serve_refuses_what_the_contract_refuses() {
     for (max, ok) in [(0, true), (64 << 20, true), ((64 << 20) + 1, false)] {
         let mut s = serve_rec(7, 8080);
         s.max_body = max;
-        assert_eq!(serve(&Fake::x4(), OWNER, &s).is_ok(), ok, "max_body {max}");
+        assert_eq!(
+            serve(&Fake::servers(8), OWNER, &s).is_ok(),
+            ok,
+            "max_body {max}"
+        );
     }
     // Only from a callback of a showing screen of the plugin.
     fake.screen.set(None);
@@ -123,7 +127,7 @@ fn serve_refuses_what_the_contract_refuses() {
 
 #[test]
 fn two_servers_per_plugin_and_serving_a_token_again_stops_the_old_one() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     serve(&fake, OWNER, &serve_rec(2, 8081)).unwrap();
     assert_eq!(serve(&fake, OWNER, &serve_rec(3, 8082)), Err(ERR_BUSY));
@@ -146,7 +150,7 @@ fn two_servers_per_plugin_and_serving_a_token_again_stops_the_old_one() {
 
 #[test]
 fn a_server_that_cannot_start_fails_with_a_reason() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     *fake.listen_result.borrow_mut() = Some(Err(reason::REFUSED));
     serve(&fake, OWNER, &serve_rec(1, 80)).unwrap();
     fake.network.set(false);
@@ -180,7 +184,7 @@ fn a_server_that_cannot_start_fails_with_a_reason() {
 
 #[test]
 fn a_server_lives_on_its_screen_and_stops_when_it_closes() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     fake.screen.set(Some(6));
     serve(&fake, OWNER, &serve_rec(2, 8081)).unwrap();
@@ -201,7 +205,7 @@ fn stop_serving_as(fake: &Fake, owner: u64, token: u32) {
 
 #[test]
 fn a_network_that_goes_away_stops_servers_on_it_but_not_the_cable() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     *fake.listen_result.borrow_mut() = Some(Ok(""));
     serve(&fake, OWNER, &serve_rec(1, 0)).unwrap();
     *fake.listen_result.borrow_mut() = None;
@@ -216,7 +220,7 @@ fn a_network_that_goes_away_stops_servers_on_it_but_not_the_cable() {
 
 #[test]
 fn a_serve_empties_only_its_own_received_folder_and_a_start_empties_all() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     serve(&fake, OWNER, &serve_rec(2, 8081)).unwrap();
     assert_eq!(
@@ -236,7 +240,7 @@ fn a_serve_empties_only_its_own_received_folder_and_a_start_empties_all() {
 
 #[test]
 fn request_heads_are_judged_at_their_limits() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     let head = |target: &str, len: Option<u64>, chunked: bool, head_len: u32| {
@@ -288,7 +292,7 @@ fn request_heads_are_judged_at_their_limits() {
 
 #[test]
 fn at_most_two_requests_per_server_are_open_the_rest_wait() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     let a = served_head(&fake, k, "GET", "/a", None, false, 10).unwrap();
@@ -310,7 +314,7 @@ fn at_most_two_requests_per_server_are_open_the_rest_wait() {
 
 #[test]
 fn an_upload_is_stopped_at_the_servers_cap_and_at_the_free_space_reserve() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     let mut s = serve_rec(1, 8080);
     s.max_body = 1_000;
     serve(&fake, OWNER, &s).unwrap();
@@ -369,7 +373,7 @@ fn an_upload_is_stopped_at_the_servers_cap_and_at_the_free_space_reserve() {
 
 #[test]
 fn an_upload_buffer_that_does_not_fit_the_pool_is_answered_503() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     // A request holding the whole pool.
@@ -388,7 +392,7 @@ fn an_upload_buffer_that_does_not_fit_the_pool_is_answered_503() {
 
 #[test]
 fn a_served_request_is_told_once_and_answered_once() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     drain(&fake, OWNER);
     let k = key_of(&fake);
@@ -442,7 +446,7 @@ fn a_served_request_is_told_once_and_answered_once() {
 
 #[test]
 fn a_request_the_plugin_leaves_unanswered_gets_503_after_120_seconds() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let r = arrive(&fake, key_of(&fake), "/slow", 0);
     drain(&fake, OWNER);
@@ -457,7 +461,7 @@ fn a_request_the_plugin_leaves_unanswered_gets_503_after_120_seconds() {
 
 #[test]
 fn respond_checks_its_status_headers_and_what_it_sends() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     let r = arrive(&fake, k, "/", 0);
@@ -513,7 +517,7 @@ fn respond_checks_its_status_headers_and_what_it_sends() {
 
 #[test]
 fn a_held_answer_body_comes_from_the_pool_or_the_call_fails_and_holds_nothing() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     let (r1, r2) = (arrive(&fake, k, "/1", 0), arrive(&fake, k, "/2", 0));
@@ -541,7 +545,7 @@ fn a_held_answer_body_comes_from_the_pool_or_the_call_fails_and_holds_nothing() 
 
 #[test]
 fn a_transport_that_cannot_answer_ends_the_request_with_its_error() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let r = arrive(&fake, key_of(&fake), "/", 0);
     drain(&fake, OWNER);
@@ -556,7 +560,7 @@ fn a_transport_that_cannot_answer_ends_the_request_with_its_error() {
 
 #[test]
 fn stopping_a_server_ends_its_requests_and_removes_their_bodies_nothing_stays() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     serve(&fake, OWNER, &serve_rec(2, 8081)).unwrap();
     let (k1, k2) = (fake.listens.borrow()[0].0, fake.listens.borrow()[1].0);
@@ -581,7 +585,7 @@ fn stopping_a_server_ends_its_requests_and_removes_their_bodies_nothing_stays() 
 #[test]
 fn a_failed_allocation_in_serve_leaves_no_server_behind() {
     for nth in 1..=8 {
-        let fake = Fake::x4();
+        let fake = Fake::servers(8);
         FAIL_NTH.with(|n| n.set(nth));
         // `serve`, then the shell's report that the listener opened.
         let result = serve_call(&fake, OWNER, &serve_rec(1, 8080)).and_then(|()| {
@@ -624,7 +628,7 @@ fn a_failed_allocation_in_serve_leaves_no_server_behind() {
 
 #[test]
 fn an_upload_that_moves_no_byte_for_30_seconds_is_dropped_with_408() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     let Decision::Accept { request, .. } =
@@ -650,7 +654,7 @@ fn an_upload_that_moves_no_byte_for_30_seconds_is_dropped_with_408() {
 
 #[test]
 fn a_plugin_cannot_pile_up_server_events_by_looping() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     let mut accepted = 0;
     for port in 8000..8100 {
         match serve(&fake, OWNER, &serve_rec(1, port)) {
@@ -669,7 +673,7 @@ fn a_plugin_cannot_pile_up_server_events_by_looping() {
 
 #[test]
 fn the_stopped_event_of_a_server_is_never_lost_to_an_allocation_failure() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(64);
     // Many plugins, each with a server, started and told.
     for owner in 100..140 {
         serve(&fake, owner, &serve_rec(1, 8080)).unwrap();
@@ -696,7 +700,7 @@ fn the_stopped_event_of_a_server_is_never_lost_to_an_allocation_failure() {
 
 #[test]
 fn turning_a_plugins_network_off_stops_its_server_at_the_next_pass() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     *fake.listen_result.borrow_mut() = Some(Ok("192.168.1.2:80"));
     serve(&fake, OWNER, &serve_rec(1, 80)).unwrap();
     drain(&fake, OWNER);
@@ -723,7 +727,7 @@ fn turning_a_plugins_network_off_stops_its_server_at_the_next_pass() {
 
 #[test]
 fn the_largest_served_request_event_fits_the_pump_buffer_as_a_batch() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     // A 1,024-byte target and the longest method (16 bytes).
@@ -749,7 +753,7 @@ fn the_largest_served_request_event_fits_the_pump_buffer_as_a_batch() {
 
 #[test]
 fn the_plugin_is_told_started_when_the_shell_reports_the_listener_not_when_listen_returns() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let key = key_of(&fake);
     assert_eq!(drain(&fake, OWNER), [], "listen returned: nothing told yet");
@@ -767,7 +771,7 @@ fn the_plugin_is_told_started_when_the_shell_reports_the_listener_not_when_liste
 
 #[test]
 fn a_listener_that_cannot_open_is_told_failed_refused_and_frees_the_slot() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     // The plugin's servers are full (`PLUGIN_SERVERS`).
     for token in 1..=2 {
         serve_call(&fake, OWNER, &serve_rec(token, 8080)).unwrap();
@@ -805,7 +809,7 @@ fn a_listener_that_cannot_open_is_told_failed_refused_and_frees_the_slot() {
 
 #[test]
 fn a_server_stopped_before_its_listener_opened_is_told_stopped_and_the_late_report_is_ignored() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let key = key_of(&fake);
     stop_serving_as(&fake, OWNER, 1);
@@ -817,7 +821,7 @@ fn a_server_stopped_before_its_listener_opened_is_told_stopped_and_the_late_repo
 
 #[test]
 fn an_address_that_does_not_fit_fails_the_server_and_the_shell_stops_listening() {
-    let fake = Fake::x4();
+    let fake = Fake::servers(8);
     serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let key = key_of(&fake);
     serving::server_started(&fake, key, &"a".repeat(65)).unwrap();
@@ -826,4 +830,49 @@ fn an_address_that_does_not_fit_fails_the_server_and_the_shell_stops_listening()
         [server_event(1, 1, reason::REFUSED, "")]
     );
     assert_eq!(*fake.unlistened.borrow(), [key]);
+}
+
+#[test]
+fn the_device_has_a_cap_of_servers_over_all_plugins_and_a_serve_past_it_is_busy_at_once() {
+    // The X4: one server at once, whichever plugin.
+    let fake = Fake::x4();
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    assert_eq!(drain(&fake, OWNER).len(), 1);
+    assert_eq!(
+        serve(&fake, OWNER + 1, &serve_rec(1, 8081)),
+        Err(ERR_BUSY),
+        "a second plugin's serve"
+    );
+    assert_eq!(
+        serve(&fake, OWNER, &serve_rec(2, 8082)),
+        Err(ERR_BUSY),
+        "the same plugin's second server"
+    );
+    assert_eq!(fake.listens.borrow().len(), 1, "nothing was opened");
+    assert_eq!(drain(&fake, OWNER + 1), [], "a status, not an event");
+    // The same token again replaces the server and keeps its place.
+    serve(&fake, OWNER, &serve_rec(1, 8083)).unwrap();
+    // The slot frees after a stop ...
+    stop_serving_as(&fake, OWNER, 1);
+    serve(&fake, OWNER + 1, &serve_rec(1, 8081)).unwrap();
+    // ... and after the shell reported the listener failed.
+    let key = key_of(&fake);
+    assert_eq!(serve_call(&fake, OWNER, &serve_rec(1, 8084)), Err(ERR_BUSY));
+    serving::server_failed(&fake, key).unwrap();
+    serve(&fake, OWNER, &serve_rec(1, 8084)).unwrap();
+    // The X4 Pro and Classic have two; other devices eight.
+    let fake = Fake::servers(2);
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    serve(&fake, OWNER + 1, &serve_rec(1, 8081)).unwrap();
+    assert_eq!(serve(&fake, OWNER + 2, &serve_rec(1, 8082)), Err(ERR_BUSY));
+    let fake = Fake::new(NetProfile::OTHER);
+    for owner in 0..4 {
+        serve(&fake, owner, &serve_rec(1, 8080)).unwrap();
+        serve(&fake, owner, &serve_rec(2, 8081)).unwrap();
+    }
+    assert_eq!(
+        serve(&fake, 9, &serve_rec(1, 8082)),
+        Err(ERR_BUSY),
+        "8 in all"
+    );
 }

@@ -190,7 +190,12 @@ fn tell_stopped(inner: &mut Inner, host: &dyn NetHost, owner: u64, token: u32, w
 /// Everything `serve` needs before the old server of the token is touched:
 /// the limits, then room for the server, this call's event and the terminal
 /// event of every server alive. Returns the old server's index.
-fn make_room(inner: &mut Inner, owner: u64, token: u32) -> Result<Option<usize>, i32> {
+fn make_room(
+    inner: &mut Inner,
+    owner: u64,
+    token: u32,
+    device_servers: u32,
+) -> Result<Option<usize>, i32> {
     let old = inner
         .serving
         .servers
@@ -210,7 +215,10 @@ fn make_room(inner: &mut Inner, owner: u64, token: u32) -> Result<Option<usize>,
         .iter()
         .filter(|e| e.owner == owner)
         .count();
-    if (old.is_none() && others >= PLUGIN_SERVERS) || waiting >= EVENTS_WAITING {
+    // A server of the same token is replaced and keeps its place; a new one
+    // needs a place in the plugin's two and in the device's `SERVERS`.
+    let device_full = inner.serving.servers.len() >= device_servers as usize;
+    if (old.is_none() && (others >= PLUGIN_SERVERS || device_full)) || waiting >= EVENTS_WAITING {
         return Err(ERR_BUSY);
     }
     // Room for everything before the old server is touched: the server, this
@@ -258,7 +266,7 @@ pub(super) fn serve(
         return Err(ERR_STATE);
     }
     let mut inner = host.table().lock()?;
-    let old = make_room(&mut inner, who.owner, serve.token)?;
+    let old = make_room(&mut inner, who.owner, serve.token, profile.servers)?;
     let key = inner.serving.next_server.checked_add(1).ok_or(ERR_FULL)?;
     if let Some(index) = old {
         stop(&mut inner, host, index, reason::OK, true);

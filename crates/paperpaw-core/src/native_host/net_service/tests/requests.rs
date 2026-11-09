@@ -110,6 +110,7 @@ fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
         memory_bodies: 8,
         connections: 8,
         cable: false,
+        servers: 8,
     };
     let fake = Fake::new(profile);
     let long_len = long.len() as u32;

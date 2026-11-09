@@ -104,6 +104,14 @@ impl Fake {
     pub(crate) fn x4() -> Self {
         Self::new(NetProfile::X4)
     }
+    /// The X4's profile with the servers of the X4 Pro (two at once), for the
+    /// tests that run several.
+    pub(crate) fn servers(count: u32) -> Self {
+        Self::new(NetProfile {
+            servers: count,
+            ..NetProfile::X4
+        })
+    }
     pub(crate) fn advance(&self, ms: u64) {
         self.clock.set(self.clock.get() + ms);
     }
