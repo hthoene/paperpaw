@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 8] = [
     // The dashboard through the production loader: the pages of widgets and
     // tools on their plates (the model and the screen are ported and tested
     // without the host), the picture behind them (`picture-home-picture`), the
@@ -17,8 +17,8 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
-    // Editing: the finger's drag of an item or its corner, and *Add* (the
-    // buttons' moving, sizing and removing are ported).
+    // Editing: the finger's drag of an item or its corner (the buttons' moving,
+    // sizing and removing are ported).
     Case {
         name: "picture-home-edit",
         golden: None,
@@ -50,6 +50,15 @@ const CASES: [Case; 7] = [
         name: "picture-home-bars",
         golden: None,
         blocked_by: &["H1"],
+    },
+    // The screen `add` through the production loader: the tools and widgets to
+    // put on a page, *Add a page*, *Remove this page*, and the *Add* button of
+    // the editing footer. The rows, the choices' writes and the screen are
+    // ported (unit-tested without the host); the rows have no icons yet (#517).
+    Case {
+        name: "picture-home-add",
+        golden: None,
+        blocked_by: &["H1", "H4", "517"],
     },
     // The grip of a shown item dragged with a finger (down, move, up), as on
     // interface 6: the kit's view takes a hold and a tap instead.
@@ -109,5 +118,11 @@ fn picture_home_bars() {
 #[test]
 #[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
 fn picture_home_bar_items_editor_grip_drag() {
+    CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified; the rows' icons (#517) are not ported"]
+fn picture_home_add() {
     CASES[6].refuse().unwrap();
 }
