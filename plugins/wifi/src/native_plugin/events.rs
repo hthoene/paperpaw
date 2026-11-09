@@ -146,7 +146,7 @@ impl NativeWifi {
             at_rest: self.at_rest(host)?,
             on_demand: Self::flag(host, ON_DEMAND)?,
             idle_ms: idle_ms(&Self::idle(host)?),
-            join_first: if strongest { None } else { Self::picked(host) },
+            join_first: if strongest { None } else { Self::picked(host)? },
         })
     }
 
@@ -209,13 +209,21 @@ impl NativeWifi {
         }
     }
 
-    /// The network the user picked last on the page, if one was.
-    fn picked(host: &Host<'_>) -> Option<String> {
+    /// The network the user picked last on the page, if one was. A missing or
+    /// unreadable file is no pick; a refused allocation is `NoMemory`.
+    fn picked(host: &Host<'_>) -> Result<Option<String>, Error> {
         let storage = DataStorage::new(host);
-        let bytes = paperpaw_sdk::read_file(&storage, PICKED, 256).ok()?;
-        let name = String::from_utf8(bytes).ok()?;
+        let Ok(bytes) = paperpaw_sdk::read_file(&storage, PICKED, 256) else {
+            return Ok(None);
+        };
+        let Ok(name) = core::str::from_utf8(&bytes) else {
+            return Ok(None);
+        };
         let name = name.trim_end_matches(['\r', '\n']);
-        (!name.is_empty()).then(|| String::from(name))
+        if name.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(copy(name)?))
     }
 
     /// Does what the decision says.
@@ -228,7 +236,9 @@ impl NativeWifi {
                     self.run(host, one)?;
                 }
                 Action::Off => CommandSender::new(host, &mut [0; 64]).wifi_off()?,
-                Action::Timer(timer) => self.set_timer(host, timer)?,
+                // Best effort, as the other keeps: a timer that cannot be set
+                // must not drop what else the event stages.
+                Action::Timer(timer) => native_model::best_effort(self.set_timer(host, timer)),
                 Action::Notify(notice) => native_model::best_effort(Self::say(host, &notice)),
                 // No network is coming for what waits: it ends now, not after
                 // the host's 30 s.
