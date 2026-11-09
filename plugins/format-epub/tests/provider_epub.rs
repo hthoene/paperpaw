@@ -372,3 +372,131 @@ fn every_allocation_of_a_read_may_be_refused() {
         "acceptance case: refuse each allocation of open, meta, sections and block; NoMemory, never a panic"
     );
 }
+
+const TTF: &[u8] = include_bytes!("data/atkinson-subset.ttf");
+
+/// A book with one embedded font and a chapter with a language of its own.
+fn font_book() -> Vec<u8> {
+    let package = common::opf(
+        "<dc:identifier id=\"uid\">urn:test</dc:identifier><dc:language>de</dc:language>",
+        &[
+            ("c", "c.xhtml", "application/xhtml+xml", ""),
+            ("css", "style.css", "text/css", ""),
+        ],
+        &["c"],
+    );
+    let css = "@font-face { font-family: F0; src: url(fonts/a.ttf) } .f0 { font-family: F0 }";
+    let body = "<p class=\"f0\">Font text, <span lang=\"fr\">bonjour</span> again</p>";
+    common::zip(
+        &[
+            (
+                "META-INF/container.xml",
+                common::container("OEBPS/content.opf").into_bytes(),
+            ),
+            ("OEBPS/content.opf", package.into_bytes()),
+            ("OEBPS/c.xhtml", common::xhtml(body).into_bytes()),
+            ("OEBPS/style.css", css.as_bytes().to_vec()),
+            ("OEBPS/fonts/a.ttf", TTF.to_vec()),
+        ],
+        false,
+    )
+}
+
+#[test]
+fn an_embedded_font_is_written_to_the_cache_and_listed() {
+    let io = Roots::new("f.epub", &font_book());
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    let reply = run(&mut p, &io, &call(16, |_| {})).unwrap();
+    let faces: Vec<_> = rows(&reply)
+        .into_iter()
+        .filter_map(|r| match r {
+            stage::Record::FmtFont(f) => Some((f.index, f.family, f.flags, f.bytes)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(faces.len(), 1, "{faces:?}");
+    assert_eq!((faces[0].0, faces[0].2), (0, 0));
+    assert!(faces[0].1 >= 1, "a family");
+    assert_eq!(faces[0].3 as usize, TTF.len());
+    // The file the host reads: `fonts/0` of the document cache (root 6).
+    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    assert_eq!(io.size(&path).unwrap(), TTF.len() as u64);
+    // Asked again, it is found there whole and listed the same.
+    let again = run(&mut p, &io, &call(16, |_| {})).unwrap();
+    assert_eq!(rows(&again).len(), rows(&reply).len());
+    // No half-written file stays beside it.
+    assert!(!io.exists(&format!("{path}.tmp")));
+}
+
+#[test]
+fn a_run_in_another_language_names_it_by_its_index() {
+    let io = Roots::new("f.epub", &font_book());
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    let reply = run(&mut p, &io, &call(8, |_| {})).unwrap();
+    let mut block_lang = String::new();
+    let mut langs = Vec::new();
+    let mut indexes = Vec::new();
+    for row in rows(&reply) {
+        match row {
+            stage::Record::FmtBlock(b) => block_lang = b.lang.to_string(),
+            stage::Record::FmtInlineLang(l) => langs.push(l.lang.to_string()),
+            stage::Record::FmtRun(r) => {
+                indexes.push(paperpaw_sdk::document::TextStyle::from_bits(r.style).lang_index())
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(block_lang, "de", "the book's language");
+    assert_eq!(langs, ["fr"]);
+    assert!(indexes.contains(&1u8), "a run names the first: {indexes:?}");
+}
+
+/// Whether the provider's sniff (op 1) takes `head` for an EPUB.
+fn sniffs(head: &[u8]) -> bool {
+    let io = Roots::new("n.epub", &book_bytes());
+    let mut p = epub_provider();
+    let head: &'static [u8] = Box::leak(head.to_vec().into_boxed_slice());
+    let reply = run(&mut p, &io, &call(1, |c| c.arg = head)).unwrap();
+    !rows(&reply).is_empty()
+}
+
+#[test]
+fn a_zip_that_is_not_quite_an_epub_is_not_sniffed() {
+    use paperpaw_zip::testing::ZipBuilder;
+    let epub = |name: &str, mime: &str| {
+        ZipBuilder::new()
+            .stored(name, mime.as_bytes().to_vec())
+            .deflated("META-INF/container.xml", b"<container/>".to_vec())
+            .build()
+    };
+    assert!(sniffs(&epub("mimetype", "application/epub+zip")));
+    // The wrong case, in the entry's name or in what it says.
+    assert!(!sniffs(&epub("MIMETYPE", "application/epub+zip")));
+    assert!(!sniffs(&epub("Mimetype", "application/epub+zip")));
+    assert!(!sniffs(&epub("mimetype", "Application/EPUB+zip")));
+    // The mimetype deflated (the format asks for it stored).
+    let packed = ZipBuilder::new()
+        .deflated("mimetype", b"application/epub+zip".to_vec())
+        .build();
+    assert!(!sniffs(&packed));
+    // The mimetype not the first entry.
+    let later = ZipBuilder::new()
+        .stored("a.txt", b"a".to_vec())
+        .stored("mimetype", b"application/epub+zip".to_vec())
+        .build();
+    assert!(!sniffs(&later));
+    // A head too short for the name and the extra field its header counts,
+    // or for the text after them: never a read past it.
+    let whole = epub("mimetype", "application/epub+zip");
+    for cut in [0, 3, 8, 29, 30, 34, 37, 38, 45, 57] {
+        assert!(!sniffs(&whole[..cut.min(whole.len())]), "cut at {cut}");
+    }
+    let mut padded = whole.clone();
+    padded[28..30].copy_from_slice(&u16::MAX.to_le_bytes());
+    assert!(!sniffs(&padded), "an extra field longer than the head");
+    let mut named = whole;
+    named[26..28].copy_from_slice(&u16::MAX.to_le_bytes());
+    assert!(!sniffs(&named), "a name longer than the head");
+}
