@@ -4017,7 +4017,29 @@ pub fn paperpaw_sdk::native::document::Documents::release(self, &paperpaw_sdk::n
 pub fn paperpaw_sdk::native::document::Documents::state<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocState<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::xpointer<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocPosition, &mut [u8], &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::format_for<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::Root, &str, bool, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::Format<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::formats<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::FormatCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::FormatPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::readers<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::document::ReaderCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::ReaderPage<'a>, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::document::Format<'a>(_)
+impl<'a> paperpaw_sdk::native::document::Format<'a>
+pub fn paperpaw_sdk::native::document::Format<'a>::extensions(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str> + use<'a>
+pub const fn paperpaw_sdk::native::document::Format<'a>::id(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::Format<'a>::priority(&self) -> i32
+pub const fn paperpaw_sdk::native::document::Format<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::document::FormatCursor
+impl paperpaw_sdk::native::document::FormatCursor
+pub const fn paperpaw_sdk::native::document::FormatCursor::start() -> Self
+pub struct paperpaw_sdk::native::document::FormatPage<'a>
+impl<'a> paperpaw_sdk::native::document::FormatPage<'a>
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::end(&self) -> paperpaw_sdk::native::document::FormatPageEnd
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::document::FormatPage<'a>::len(&self) -> usize
+pub fn paperpaw_sdk::native::document::FormatPage<'a>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::document::Format<'a>> + use<'a>
+pub struct paperpaw_sdk::native::document::FormatPageEnd
+impl paperpaw_sdk::native::document::FormatPageEnd
+pub const fn paperpaw_sdk::native::document::FormatPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::FormatCursor>
+pub const fn paperpaw_sdk::native::document::FormatPageEnd::total(self) -> u32
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::OpenBook<'a>
 impl<'a> paperpaw_sdk::native::document::OpenBook<'a>
 pub const fn paperpaw_sdk::native::document::OpenBook<'a>::background(self) -> Self
