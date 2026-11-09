@@ -1,10 +1,9 @@
-# File manager on interface 7 (partly ported)
+# File manager on interface 7
 
-Status: **not complete.** The native shell is in (below); the interface-6 plugin (`lib.rs`:
-`Plugin`, `Browser` screen, `folder.rs`) is still in place, because the library bookkeeping
-(books opened, books told of a move) and the host admission of menu entries and icons are not
-there. It is removed in the PR that finishes the port; `folder.rs` and the SDK `files`
-helpers it uses are then dead.
+Status: **native only.** The interface-6 plugin (`Plugin`, `Browser` screen, `folder.rs`) and its
+kernel tests are removed; the native plugin is linked (`NATIVE_PLUGINS`) and listed in
+`tools/plugin-files7/complete.txt`. Host acceptance waits for the activation of native plugins
+(`tests/acceptance_pending.rs`).
 
 ## Ported: the native shell (browse, rename, move, copy, delete, new folder)
 
@@ -37,29 +36,38 @@ helpers it uses are then dead.
   never moved, renamed or deleted, names that FAT or Windows would not take are refused, Back goes
   up a folder before it leaves.
 
-### Gap: the library is not told (on purpose, and nothing is lost)
+### Books: open, open with, delete (through the library)
 
-Interface 6 told the library of every book moved, renamed or deleted (`library::tell_moved`,
-`books_in`, `BOOK_REMOVED`), so that the reading place, bookmarks, notes and statistics kept by a
-book's path went along. The services for that (`core.library` op 15 and ops 19 to 21, Services/
-Host work) are not there. Meanwhile:
-
-- A move, a rename and a copy only touch the files of the user: a copy is whole or not there
-  (`.part` beside it, put in place whole), a move is a rename or a copy then a delete, never a
-  delete first; a folder is never moved into itself; nothing is replaced (a taken name gets a
-  free one). What the plugins keep by a book's path is **not** deleted or changed: it stays where
-  it is, under the old name, and is found again when the book is moved back.
-- After a move or a rename the line above the bar says so (`file-manager.not-told`: the book's
-  place and notes stay under its old name for now). Deleting does not remove the data kept for a
-  book either (it stays, unused, until the storage is cleaned up), and the question says only
-  what is deleted.
-- Not in this slice: *Open*, *Open with*, *Reading app* in the options (the readers service and
-  `core.format`, `tests/acceptance_pending.rs`), the refusal of a folder with more than 2,000 books
-  (it was a limit of telling) and `moved-many`/`too-many-books` texts (kept in the catalogue for
-  the interface-6 plugin, which stays).
+- A file the library takes for a book (the delete preflight `Library::can_delete` answers `OK`; any
+  other answer, or no library service, makes it a plain file) offers **Open**: `command.open` into the
+  slot `core.reader` with the hand-over `path` (the reading app the user chose), and, where more than
+  one reading app reads its format (`Documents::readers`, scope the book's `Library::book` format, all
+  readers where the library does not know the book yet; at most 12), **Open with**: a choice of the
+  apps by their titles, opened with `Open::in_slot(screen, "core.reader")` (this time only).
+- **Deleting a book** asks (`file-manager.delete-book-question`) and then `Library::delete` with notes:
+  the book and everything kept for it (position, annotations, fields, plugins' book data, caches,
+  cover). A refusal (`Busy`, `State`, card) is the line above the bar; `Invalid` (not a book after all)
+  goes to the card as a file. A folder is deleted with `core.files` `remove_tree`; the books in it are
+  forgotten by the host's next walk, with what is kept for them.
+- **Moves and renames:** the host follows `core.files` moves itself (`files.md` 2.6), so the library is
+  not told from here and the line "the library was not told" is gone (with its texts
+  `file-manager.not-told`, `moved-many`, `too-many-books`). The 2,000-book limit of a folder is gone.
+- **Dropped on purpose: "Reading app" for a folder** (the per-folder choice of interface 6, kept in
+  the files plugin's data): `document.md` section 1 does not carry the interface-6 resolver (a reader
+  per book, folder or format); the user's reader is the one bound to `core.reader`.
+- A file the library cannot judge (no `core.library`) is offered no *Open* here; the open screens of
+  the reading apps are reached from the library and the home screen.
 
 ### Other differences and open points
 
+- Removed with interface 6, to come back with the host's activation: the snapshot cases
+  `boox-file-manager` and `x4-file-manager` (`shells/desktop/tests/snapshots.rs`), the
+  `file-manager.browser` screen in `tools/dev/tests/visual.rs`
+  (`buttons_keep_their_room_on_touch_screens`) and the `files` picture in `tools/screens.py`: the
+  native screen is not registered in the emulator yet.
+- "Is a book" is the library's preflight (`core.library`); Beta 3 asked `formats.supports_file`, so
+  an uncatalogued book gets no *Open* until the host's walk has seen it.
+- No line is shown when `open_book` or the hand-over fails (the screen stays as it was).
 - Deleting a folder removes it with `core.files` `remove_tree` in a loop, not cancellable and
   without progress (Kernel's ruling for `remove_tree`); a very large tree blocks the callback.
   `remove_step` across ticks would give progress and cancel: the work service is not used yet.
@@ -108,36 +116,20 @@ still not an error (the storage's rule).
   a copy of a big folder costs one pass per 8 entries. Raise the page (a few more names on the
   heap) if the measurement asks for it.
 
-## Not ported yet
+## Open points
 
-- The `Plugin`/`Browser` screens on `core.ui` compose (Input H3), the choice overlay, the
-  keyboard and confirmation replies (`Question::choice`/`Ui::ask`), the registration (action,
-  Tools menu entry order 45, icon `folder`, the `file-manager.hidden` setting) as in
-  `plugins/power/PORTING-7.md`.
-- Out of memory: a host out-of-memory in a card call (`card::Watch` notes it) reaches the
-  reader as "not enough memory" (`Browser::lacked_memory`), though `StorageError` has no word
-  for it. Sweeps (every allocation refused in turn, files intact) run at model, card and
-  browser level over the memory storage and the fake card. Not covered: the allocations of
-  `HostCard::open` and the `core.ui` glue (they need a host); `take_buffers` (a nested call is
-  `Busy`) is tested on its own.
-- The reading-app bookkeeping (`library::books_in`, `formats().supports_file`, own data
-  folders): `core.library` (op 15 / Services) and `core.format`.
-- Reading `size` for the row text (`ops::shown_size`, from the SDK) and the page-turn
-  state of the screen.
+- Out of memory: a host out-of-memory in a card call (`card::Watch` notes it) reaches the reader as
+  "not enough memory" (`Browser::lacked_memory`). Sweeps (every allocation refused in turn, files
+  intact) run at model, card and browser level over the memory storage and the fake card. Not covered:
+  the allocations of `HostCard::open` and the `core.ui`/`core.library`/`core.document` glue
+  (`native_plugin.rs`: offer, open, delete, readers), which need a host: no scripted-host test drives
+  them yet.
+- Host acceptance (the screen on the real kernel, opening a book, deleting one with what is kept for
+  it) is pending activation (Core #944, Host #417) and the host's library and document services; the
+  cases are ignored in `tests/acceptance_pending.rs`.
+- The interface-6 kernel tests (`tests/manage.rs`, `manager.rs`, `names.rs`, `parity.rs`, the lib
+  tests) are gone with the code; the model, card and browser tests carry the behaviour, and
+  `tests/declarations.rs` pins what the plugin declares.
+- X4 `.ppn` size and peak memory are not measured.
 
-## What blocks removing interface 6 (checked 2026-11-09, base `abi7/integration`)
-
-The interface-6 `impl Plugin` stays until these exist; each is asked of Services (the manager
-queued them):
-
-- **`Documents::readers`** (DOC op 21, `document.md`) in `native::document`: *Open with* and
-  *Reading app* list the plugins that can read a file; the native plugin has no way to ask.
-- **`Library::delete`** (LIB op 10, #668, only on the draft-30 base): deleting a book also removes
-  the data kept for it, as Beta 3 does (today the native plugin leaves it, see the gap above).
-  `Library::can_delete` (op 9) is the preflight.
-- **Not blocking:** moves. The host follows `core.files` moves itself (journal and job in
-  `files_service` and `lib_service/moves.rs`, `files.md` 2.6), so the library is told by the host
-  and the `not-told` line can go once host acceptance is possible. `Library::move` and the
-  2,000-book limit are not needed.
-
-Version: 1.0.4 is above Beta 3 (1.0.3): no bump when the port finishes.
+Version: 1.0.4 is above Beta 3 (1.0.3): no bump.

@@ -235,6 +235,77 @@ pub fn visible(groups: &[Group], cx: Context, setting: &Setting, options: Option
             || group_is(groups, setting, DEVELOPER_GROUP))
 }
 
+/// The ends of the settings of a widget that a widget look covers
+/// (`<widget>.frame` …).
+const LOOK_PARTS: [&str; 9] = [
+    ".frame",
+    ".padding",
+    ".size",
+    ".align",
+    ".paper",
+    ".ink",
+    ".corners",
+    ".frame-line",
+    ".drop-shadow",
+];
+
+/// The settings of all widgets a widget look covers, and the gap between them.
+const LOOK_ALL: [&str; 8] = [
+    "core.widgets.frame",
+    "core.widgets.paper",
+    "core.widgets.ink",
+    "core.widgets.corners",
+    "core.widgets.frame-line",
+    "core.widgets.shadow",
+    "core.widgets.padding",
+    "core.widgets.gap",
+];
+
+/// Whether a widget look covers setting `key`: each registered widget's frame,
+/// padding, size, alignment, colours and shape, and those of all widgets and
+/// their gap; not the settings of other things that end so (the status
+/// lines' size).
+#[must_use]
+pub fn widget_look_covers(key: &str, widgets: &[String]) -> bool {
+    LOOK_ALL.contains(&key)
+        || LOOK_PARTS.iter().any(|part| {
+            key.strip_suffix(part)
+                .is_some_and(|widget| widgets.iter().any(|w| w == widget))
+        })
+}
+
+/// The widget a placement id names: `widgets.clock` for `widgets.clock@2`;
+/// `None` for an id that is no placement.
+#[must_use]
+pub fn unplaced(id: &str) -> Option<&str> {
+    let (base, number) = id.rsplit_once('@')?;
+    (!base.is_empty()
+        && !base.contains('@')
+        && !number.is_empty()
+        && number.bytes().all(|b| b.is_ascii_digit()))
+    .then_some(base)
+}
+
+/// The setting a placement's setting stands for: `widgets.clock.face` for
+/// `widgets.clock@2.face`; `Ok(None)` for a key that is not a placement's.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the id cannot be built.
+pub fn unplaced_key(key: &str) -> Result<Option<String>, Error> {
+    let Some(at) = key.find('@') else {
+        return Ok(None);
+    };
+    let tail = &key[at + 1..];
+    let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = &tail[digits..];
+    // The number ends the placement: a dot (or nothing) follows, no second one.
+    let ended = rest.is_empty() || rest.starts_with('.');
+    if at == 0 || digits == 0 || !ended || key[..at].contains('@') || rest.contains('@') {
+        return Ok(None);
+    }
+    concat(&[&key[..at], rest]).map(Some)
+}
+
 /// The id of setting `id` of group `of` for its placement `placement`.
 ///
 /// # Errors

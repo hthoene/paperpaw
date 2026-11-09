@@ -47,6 +47,45 @@ fn another_plugins_screen_takes_the_place_of_a_mode() {
     assert_eq!(decide(CAT, with(|f| f.other_screen = true)), Content::Cat);
 }
 
+/// A stored `sleep.show` that no plugin offers (another plugin's mode after it
+/// was removed, a word from a newer version, an empty or a very long text) falls
+/// back as interface 6 did: the cover where there is one, else the cat. Never
+/// another plugin's screen (there is none), the overlay, a blank page or a
+/// panic, whatever the other facts say.
+#[test]
+fn a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat() {
+    let long = "x".repeat(300);
+    let modes = [
+        "reading-goal.sleep",
+        "gone.mode",
+        "",
+        " ",
+        "Cat",
+        "ünï.cödé",
+        long.as_str(),
+    ];
+    for mode in modes {
+        for bits in 0..64u32 {
+            let facts = Facts {
+                off: bits & 1 != 0,
+                over_page: bits & 2 != 0,
+                other_screen: false,
+                picture: bits & 8 != 0,
+                cover: bits & 16 != 0,
+                widgets_empty: bits & 32 != 0,
+            };
+            let want = if facts.cover {
+                Content::Cover
+            } else {
+                Content::Cat
+            };
+            assert_eq!(decide(mode, facts), want, "{mode:?} {facts:?}");
+            // The mode is kept as it is: the stored word is not rewritten.
+            assert_eq!(effective(mode, facts), mode);
+        }
+    }
+}
+
 #[test]
 fn widgets_message_and_page() {
     assert_eq!(decide(WIDGETS, NONE), Content::Widgets);
@@ -261,4 +300,164 @@ fn a_folder_of_thousands_keeps_the_first_by_name() {
         .take(&format!("{}.png", "x".repeat(MAX_NAME_BYTES)), false)
         .unwrap();
     assert_eq!(pictures.names.len(), kept);
+}
+
+const GOAL: &str = "reading-goal.sleep";
+
+#[test]
+fn the_slot_is_bound_to_a_foreign_mode_that_is_a_candidate() {
+    let offered = [OWN_SCREEN, GOAL, "other.sleep"];
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding("other.sleep", &offered), Some("other.sleep"));
+    // Also from owned strings, and with the candidate alone.
+    let owned = [GOAL.to_string()];
+    assert_eq!(binding(GOAL, &owned), Some(GOAL));
+}
+
+#[test]
+fn the_slot_returns_to_the_default_for_the_plugins_own_modes_and_an_empty_value() {
+    let offered = [OWN_SCREEN, GOAL];
+    for mode in BUILT_IN {
+        assert_eq!(binding(mode, &offered), None, "{mode}");
+        // Even if a plugin offered a screen of that very name.
+        assert_eq!(binding(mode, &[mode]), None, "{mode}");
+    }
+    assert_eq!(binding("", &offered), None);
+    assert_eq!(binding("", &[""]), None);
+}
+
+#[test]
+fn a_stale_foreign_value_binds_nothing() {
+    // The plugin that offered the mode is gone, or never was.
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+    assert_eq!(binding(GOAL, &["other.sleep"]), None);
+    assert_eq!(binding(GOAL, &[] as &[&str]), None);
+    // A prefix or a longer word of a candidate is not the candidate.
+    assert_eq!(binding("reading-goal", &[GOAL]), None);
+    assert_eq!(binding("reading-goal.sleep2", &[GOAL]), None);
+    assert_eq!(binding("Reading-Goal.Sleep", &[GOAL]), None);
+}
+
+#[test]
+fn the_plugins_own_screen_among_the_candidates_is_never_a_foreign_mode() {
+    let offered = [OWN_SCREEN, GOAL];
+    // Its id as the stored value is the default, not a pinned binding.
+    assert_eq!(binding(OWN_SCREEN, &offered), None);
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+}
+
+#[test]
+fn odd_and_long_values_bind_nothing_and_do_not_panic() {
+    let long = "x".repeat(4096);
+    let offered = [OWN_SCREEN, GOAL];
+    for value in [
+        " ",
+        " reading-goal.sleep",
+        "reading-goal.sleep ",
+        "reading-goal.sleep\n",
+        "\0",
+        "é.sleep",
+        "😀",
+        long.as_str(),
+    ] {
+        assert_eq!(binding(value, &offered), None, "{value:?}");
+    }
+    // A long candidate matches itself only; the caller's refusal of a screen
+    // id too long for the command is a refusal like any other.
+    let list = [long.clone()];
+    assert_eq!(binding(&long, &list), Some(long.as_str()));
+    assert_eq!(binding(&long[1..], &list), None);
+    assert!(is_foreign(&long));
+    assert!(!is_foreign(""));
+    assert!(!is_foreign(CAT));
+}
+
+/// The slot as the host keeps it: what `plan` says is applied to it.
+fn apply(slot: &mut Option<String>, plan: Bind<'_>) {
+    match plan {
+        Bind::Screen(screen) => *slot = Some(screen.to_string()),
+        Bind::Default => *slot = None,
+        _ => {}
+    }
+}
+
+const BUILT: [&str; 8] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE, ""];
+
+/// A reader bound `core.sleep` by hand in the plugin manager, to a screen that
+/// is not one of `sleep.show`'s foreign choices: changing `sleep.show` to an
+/// own mode leaves that binding alone. (A start asks nothing at all: the plugin
+/// does not subscribe to it, so a binding survives a restart.)
+#[test]
+fn a_binding_the_reader_made_survives() {
+    let by_hand = Some("other.tool-screen".to_string());
+    for value in BUILT {
+        let mut slot = by_hand.clone();
+        apply(
+            &mut slot,
+            plan(value, &[] as &[&str], by_hand.as_deref(), &[GOAL]),
+        );
+        assert_eq!(slot, by_hand, "{value:?}");
+    }
+    // Nothing known of the slot: nothing to unbind.
+    assert_eq!(plan(CAT, &[] as &[&str], None, &[GOAL]), Bind::Leave);
+    // Stale values and the plugin's own screen's id leave the slot alone.
+    for value in ["gone.mode", OWN_SCREEN] {
+        assert_eq!(
+            plan(value, &["x"], Some(GOAL), &[GOAL]),
+            Bind::Leave,
+            "{value}"
+        );
+    }
+}
+
+/// Changing to an own mode puts the slot back to its default only where it is
+/// bound to a sleep mode (one of `sleep.show`'s foreign choices); an offered
+/// foreign mode binds.
+#[test]
+fn a_change_unbinds_only_a_sleep_mode_and_binds_an_offered_one() {
+    for value in BUILT {
+        let mut slot = Some(GOAL.to_string());
+        let decided = plan(value, &[GOAL], Some(GOAL), &[GOAL]);
+        apply(&mut slot, decided);
+        assert_eq!(slot, None, "{value:?}");
+    }
+    // The plugin's own screen's id is no sleep mode to unbind.
+    assert_eq!(
+        plan(CAT, &[] as &[&str], Some(OWN_SCREEN), &[OWN_SCREEN]),
+        Bind::Leave
+    );
+    let mut slot = None;
+    apply(&mut slot, plan(GOAL, &[GOAL], None, &[GOAL]));
+    assert_eq!(slot.as_deref(), Some(GOAL));
+}
+
+/// A stored value of Beta 3 (`reading-goal.sleep`) binds the slot at the first
+/// start and when the plugins change, where the reader has not bound it.
+#[test]
+fn a_beta_3_stored_value_binds_at_first_start() {
+    assert_eq!(plan_stored(GOAL, &[GOAL], false), Bind::Screen(GOAL));
+    // Its plugin is gone, or it is not offered for the slot: nothing to bind.
+    assert_eq!(plan_stored(GOAL, &["other.sleep"], false), Bind::Leave);
+    assert_eq!(plan_stored(GOAL, &[] as &[&str], false), Bind::Leave);
+    assert_eq!(plan_stored(OWN_SCREEN, &[OWN_SCREEN], false), Bind::Leave);
+    // Never an unbinding, whatever is stored.
+    for value in BUILT {
+        assert_eq!(plan_stored(value, &[GOAL], false), Bind::Leave, "{value:?}");
+    }
+}
+
+/// The reader's binding (bit 0) survives the start, event 70 (the same call)
+/// and a reset (the empty key runs the change's reconcile: a binding that is
+/// not a sleep mode stays, whatever `sleep.show` holds).
+#[test]
+fn a_binding_of_a_non_sleep_screen_survives_start_event_70_and_a_reset() {
+    for value in [GOAL, CAT, "gone.mode", ""] {
+        // Start and event 70: the reader's binding is never touched.
+        assert_eq!(plan_stored(value, &[GOAL], true), Bind::Leave, "{value:?}");
+        // A reset: the slot is bound to a screen no choice of `sleep.show`
+        // names, so a foreign value binds only if offered, and nothing unbinds.
+        let after = plan(value, &[] as &[&str], Some("other.tool-screen"), &[GOAL]);
+        assert_eq!(after, Bind::Leave, "{value:?}");
+    }
 }

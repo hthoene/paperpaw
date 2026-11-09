@@ -49,7 +49,7 @@ fn a_plugin_s_gallery_is_written_and_linked() {
     let out = std::env::temp_dir().join(format!("paperpaw-dev-gallery-{}", std::process::id()));
     let mut context = Context::new(
         Target {
-            plugins: vec!["weather".into()],
+            plugins: vec!["widgets".into()],
             ..Target::default()
         },
         out.clone(),
@@ -69,14 +69,14 @@ fn a_plugin_s_gallery_is_written_and_linked() {
     let index = std::fs::read_to_string(dir.join("index.html")).unwrap();
     let index_links = links(&index);
     assert!(
-        index_links.contains(&"weather/xteink-x4.png".to_string()),
+        index_links.contains(&"widgets/xteink-x4.png".to_string()),
         "{index_links:?}"
     );
-    assert!(dir.join("weather/xteink-x4.png").is_file());
+    assert!(dir.join("widgets/xteink-x4.png").is_file());
     // A page per widget, with its sizes' pictures.
     let widget_page = index_links
         .iter()
-        .find(|l| l.starts_with("weather/widgets/") && l.ends_with(".html"))
+        .find(|l| l.starts_with("widgets/widgets/") && l.ends_with(".html"))
         .expect("a widget page");
     let widget = std::fs::read_to_string(dir.join(widget_page)).unwrap();
     assert!(widget.contains("1x1.png"), "{widget}");

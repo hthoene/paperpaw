@@ -1,7 +1,12 @@
 # Stats on interface 7 (partly ported)
 
-Status: **not complete.** The interface-6 plugin (registration, screens, widgets, sync,
-events) is still in place. It is removed in the PR that finishes the port.
+Status: **complete.** The plugin is the native plugin only: the interface-6 plugin (the `Stats` plugin in
+`lib.rs` and its registration, screens, widgets, sync, `book.rs`, `books.rs`, `calendar.rs`, `chart.rs`,
+`left.rs`, `overview.rs`, `sync.rs`, `widget*`, `fmt.rs`), its integration tests (`tests/recording.rs`,
+`recording_kernel.rs`, `screens.rs`, `widgets.rs`, `widgets_parity.rs`, `sync.rs`, `webdav_sync.rs`, `books.rs`,
+`common/`), its registration in `paperpaw-app` and its store-file builder (`tools/plugin-files`; `plugins.txt`
+keeps a comment line) are gone. What waits for hosts is listed under *Not tested here* at the end; the code
+that sends and reads it is in place.
 
 ## Ported: the data layer's files (`src/store.rs`, `src/files.rs`)
 
@@ -226,7 +231,7 @@ events) is still in place. It is removed in the PR that finishes the port.
   the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
   slice 2); days are UTC days until draft 25.
 
-## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal)
+## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal) and the ring
 
 - `src/native_widgets.rs`: the widgets on the `core.widget` stage and the draw callback, as the widget
   pack does it (`plugins/widgets`): the host makes an instance (`event.widget_made`) for a screen,
@@ -262,11 +267,167 @@ events) is still in place. It is removed in the PR that finishes the port.
   is not the plugin's is left alone, that a goal with no home screen to offer on does nothing, the
   shades and the dashed line, the goal's minutes.
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+- **The minute tick is allowed (Kernel's ruling, todo 255).** The plugin subscribes to `Tick` and `SettingChanged` for
+  good (interface 7 has no unsubscribe). The host does not filter ticks by live widgets: at most one a minute, only
+  while awake, riding the wake the shell already makes, never an extra wake. The idle tick must stay cheap: it reads
+  the stamp (the day and the sizes of two files), writes nothing to storage and sends `command.widget_changed` only
+  for an instance whose stamp changed.
+- **`offer_today`** keeps `goal-widget-offered` only after the change of the page is staged, so a refused change is
+  offered again at the next change of the goal; a marker that cannot be written costs at most a second offer, and none
+  while the widget is on the page.
 
-- The widgets *Daily goal* (ring), *Reading streak*, *Reading calendar* and *Books this year*, and the
-  status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
-- Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
-  (Services todo 79).
-- Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
-- The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.
+## Ported: *Daily goal* (the ring)
+
+- `src/native_widget_ring.rs`, token 42 (`stats.widget.goal`), declared with `Opt::PartHelp` (new in the kit: a
+  switch with a help text of its own, for "streak or time left"). Same layout rules as interface 6: the ring beside
+  its time and note where the place is much wider than high, else the ring above the note, else the time as text; the
+  minutes inside, the unit below them, round ends on the share, a gauge (270 degrees open at the bottom) or a whole
+  ring, three thicknesses. Without a goal the ring is empty, the note asks for one and a tap opens
+  `core.settings` on `stats.group` (a hand-over `id`), not the statistics.
+- **Difference from interface 6, on purpose:** the canvas has no arc. A ring is made of short thick segments along the
+  circle (at most 120 a arc, each about half a line's thickness long) with a disc at each end of the share; the sine
+  is an integer approximation (within 0.003). The track is a solid gray (`shade`), as for the other widgets.
+- Tested: settings parity with the interface-6 registration (`widgets_parity.rs`, now three widgets), host admission,
+  the sine, the clockwise degrees, and the arc's segment count. Not pixel-tested (see above).
+
+## Ported: *Reading streak*
+
+- `src/native_widget_streak.rs`, token 43 (`stats.widget.streak`): the days in a row (any reading, or the daily
+  goal reached by the choice `counts`), the longest streak or how to begin one, and the last 7 or 14 days as
+  marks (filled, with a check if chosen; an outline for the others, today's darker; the weekdays below where their
+  letters fit). Same layout rules as interface 6: marks beside the text where the place is wide and low, else
+  below it, the weekdays and then the caption left out before the marks. Settings in declaration order with
+  `Opt::PartHelp` for the marks' help; `widgets_parity.rs` compares all four widgets with interface 6.
+- The streak and the marks are cached per widget instance (`Slot.streak`, as interface 6 kept its figures per
+  widget): the day log (up to 4,096 days, 48 KiB) is read again only when the stamp (the day and the sizes of the
+  log and the books), the least seconds that count or the number of days shown changed, not at each draw. The cache
+  itself is a streak and at most 14 marks. The cache is not unit-tested (it needs the host's `Cx`).
+- Difference on purpose: the marks are the kit's rounded rectangles (a disc is a rectangle with half its side
+  as radius; an outline is a stroked one), the check two segments in the paper's colour. Not pixel-tested.
+- `paperpaw_ui_kit::widget::Opt` is `#[non_exhaustive]` now (a new kind of setting is no break for outside
+  matchers).
+
+## Ported: *Reading calendar* (the widget)
+
+- `src/native_widget_calendar.rs`, token 44 (`stats.widget.calendar`; the screen `stats.calendar` keeps its token 23):
+  this month as a calendar (weekday names, the days shaded by `level`, today ringed, the numbers where they fit,
+  "October 2026" or the month alone as caption) or the last 8 to 26 weeks as a heat map (a column a week, a row a
+  weekday), and below a footer with the streak and the time read in the days shown ("5 days in a row · 6 h 20 min in
+  October"), the whole footer, else the total, else the streak. Same layout rules as interface 6 (footer goes first,
+  then the weekdays, where the days would be small). Settings parity with interface 6 in `widgets_parity.rs`.
+- The figures (the shades, the total, the streak) are cached per widget instance like the streak's (`Slot.calendar`;
+  key: the stamp, the goal, the style, the weeks and the first day of the week), the day log is not read at each draw.
+- `draw_day`, `draw_month` and `draw_weeks` are `#[inline(never)]` so that no frame holds a whole view. Stack
+  frames on the X4 are not measured (no build of the plugin files here).
+- Difference on purpose: days are rounded rectangles (the kit's `Paint::Focus`; the "round" cell is a rectangle with
+  half its side as radius), shades are solid grays (as in the other widgets; the "bar instead of a dark shade"
+  rule for panels with up to 4 grays is kept), the dots of empty days are small discs the same way.
+- No float `clamp` in the new code (`.min().max()`), as Firmware asked (it drags in panic formatting on the X4).
+
+## Ported: the sync with KOReader's WebDAV folder, the screen and the import
+
+- `src/native_webdav.rs` is the interface-6 `Sync` as a host-free state machine over a `Storage` (the data folder
+  as the data layer names it): `start`, `downloaded`, `uploaded`, `decide` each say the next `Step` (download, upload
+  on a condition, a message, ask the user), every allocation fallible. Same rules as interface 6: a download into
+  `incoming.sqlite3`, the merge (`merge::merge_as`), the upload from `statistics.sqlite3` only if nobody changed the
+  file (`If-Match` with the ETag, weak mark left off, or `If-None-Match: *`; again from the download on a 412, at most
+  three times), what was uploaded kept per folder and user (`statistics.sqlite3.<hash>.sync`, the others forgotten),
+  a file gone from a folder uploaded to is not replaced at once, a file lacking much asks (*Remove* / *Keep*) and the
+  sync starts again with the answer. The messages are `Say`, made into the catalog's words in both languages
+  (`tests/` in `native_webdav_tests.rs` check each key and fill-in). `Both` routes the data folder's paths and the
+  card's (root 1, read only) for the import of KOReader's statistics.
+- `src/native_webdav_net.rs` makes the calls: the requests of `core.net` (a download saved to a file and an upload sent
+  from one, so the statistics' file is never in memory; headers `Authorization`, `User-Agent`, the conditions,
+  `Content-Type`) and the password as the plugin's own secret `webdav` (labelled `stats.secret`; the secret store
+  moves interface 6's `stats.webdav` to it). The password, its buffers and the `Authorization` value are wiped. The
+  request ends with one `http_done` (token 3); the ETag is read with `answer` while it is delivered. A request that
+  cannot be made ends the sync as an unreachable server does (status 0). A password in `webdav.ini` of earlier
+  versions moves into the secrets at the start (best effort).
+- `src/native_sync_screen.rs` and `src/native_sync_shell.rs`: the screen `stats.sync` (token 24) with the rows *Folder*,
+  *User name*, *Password* (dots where one is kept), *Sync now* and *Take over from KOReader* (where its file is on the
+  card), the message below as the list's note; the host's keyboard for the three values (the folder in URL mode, the
+  password masked), the questions *Remove*/*Keep* and, in offline mode, *Go online*/*Not now* once per sync. The
+  overview shows its sync row again. The settings `stats.webdav-url` and `stats.webdav-user` (user advanced, both kept
+  on reset, edited on the sync page) are declared and compared with interface 6 (`tests/widgets_parity.rs`).
+  Metadata names `core.net`, `core.secrets` and `uses.network`.
+- Differences from interface 6, on purpose: the message below the rows is the list's note (as high as its words need),
+  so the row *More about this* (a dialog for a message too long for the room) is gone; offline mode is found by the
+  request ending with reason `offline`, not before it (the offer comes then, once per sync); a request that fails
+  because the heap refuses ends the sync with the event's error and leaves the files as they were.
+- **Fixed on the way:** `NativeStats::event` did not decode the events of screens, actions, requests and answers
+  (`ScreenOpened`, `ScreenShown`, `ScreenClosed`, `ActionRun`, `HttpDone`, `Answered` were not in its `read_event!`
+  list), so a real host's screen events would have been ignored; they are decoded now.
+- Not tested end to end: a sync against a server (the host runs no native plugin with `core.net` here); the engine and
+  the shell's pieces are tested without one, with the refusal of every allocation of the start and the authorization.
+
+## Ported: *Books this year* (the widget)
+
+- `src/native_widget_year.rs`, token 45 (`stats.widget.year`): the books read to the end this year towards a yearly goal
+  (off, 6, 12, 24, 36 or 52) as a bar, a ring (the count inside, "of 12" below it) or a dot a book (60 at most, in as few
+  rows as let them be large), the headline ("3 of 12 books", "3 / 12" or the number alone where it is too wide), how the
+  year goes ("2 ahead of plan", behind, on plan, reached) and the title of the book finished last. Same layout rules as
+  interface 6 (the caption goes before a note, the notes that fit as many as there is room for, the plan first, the
+  ring beside its notes where the place is much wider than high). Settings in declaration order (`Opt::PartHelp` for the
+  plan's help); `widgets_parity.rs` compares all five widgets with interface 6. A tap opens the books (`stats.books`;
+  `Tap::Books`), not the overview.
+- **`books.ini` is streamed** (`store::each_book`): `Tally` holds the count, the title of the book finished last (cut to
+  80 bytes with `…`, `book_list::cut`) and, of the books without a finishing date that were opened this year, the
+  `LIBRARY_LOOKUPS` (24) opened last (id, last open, path, title cut): the memory does not grow with the library (tested
+  for 300 and 3,000 books). A file that cannot be read whole counts as no books, as in interface 6 (a refused allocation
+  is an error).
+- **The library lookup** (books without a date count in the year they were last opened if the library has them read to the end):
+  through the SDK's `native::library::Library::book` (`core.library` op 3; progress 100), opened once for the
+  at most 24 lookups of a refresh and released in the same callback. The metadata of both targets name the service
+  `core.library` and the feature `uses.library` as *optional* (`"required": false`, so that a host without the library
+  still loads the plugin): where it cannot be opened, or a book is unknown to it, that book is not counted (only the dated
+  ones are). A refused allocation is the callback's error. Two 4 KiB buffers live while the lookups run.
+- The figures (the year, the count, the last title, the day of the year) are cached per widget instance (`Slot.year`; key:
+  the stamp of the day and the sizes of the log and of `books.ini`): `books.ini` and the library are read again only when
+  that changed, not at each draw. The cache is not unit-tested (it needs the host's `Cx`). A book marked read in the
+  library, with no reading recorded, changes neither file: it counts when the day or a file changes (interface 6 had the
+  same stamp).
+- **Differences from interface 6, on purpose:** the year and the day of the year are UTC (as everywhere in this port until
+  draft 25); the height reserves the line of the last book where its part is shown, even in a year with no book finished
+  (the height cannot wait for the books: it is asked without the cache; interface 6 had no such line then); ring and bar are
+  the kit's rounded rectangles and the ring a run of short segments (as for *Daily goal*, which supplies `arc`, `disc` and
+  `point_at`); two books finished at the same moment: the smaller id is the last (interface 6: the first of the id-sorted
+  list, the same), an undated one never replaces a dated one at a tie; the list is in file order, not id order, but nothing
+  depends on it.
+- Tested here: the day of the year (leap years), the plan, the year of a moment (clamped), counting by year with and without
+  the library's answer, the tie rules, the 24 most recently opened being asked (newest first), the title's cut, a refused
+  allocation, the dots' rows, the streamed file (peak memory for 300 and 3,000 books), a file that cannot be read, that
+  instances of the widget come and go with the scripted host. **Not tested:** the drawing and the height (`Cx` needs the
+  host's fonts; the scripted host has none) and the lookup against a real `core.library` (no scripted library service
+  answers `book` here).
+
+## Ported: the status items "Time left in chapter" and "Time left in book"
+
+- `src/native_left.rs`: the items `stats.status.left-chapter` and `stats.status.left-book` (declared in `ui()` as
+  `StatusItemDecl`s, priority 128 as interface 6's default, token 3) and the plugin's subscription to the stage `core.status`
+  (`events()`, same token). The stage answers one text per item asked for ("Chapter: 12 min", "Book: 3 h 05 min", same
+  catalog keys, `stats.left.chapter`/`stats.left.book`, and the same duration text); an item that has nothing to say
+  (too little read for a speed, the reader has not counted the pages) is answered with an empty text, which the reader
+  hides (interface 6 left the item without a value: the same to the reader), and is then cached by the reader.
+- The speed (seconds a page over the last 30 days, 10 pages at least) is worked out where interface 6 did: when a book
+  is opened (not again for the same book while there is a speed) and then every 50 pages turned, every 10 while there is
+  none, ahead of the recording of the same event, and kept in `NativeStats.left`; the stage only does the sum
+  from the context (`pages`, `progress`, `chapters`), never reads the log.
+- Differences: a context parameter that cannot be read is skipped (interface 6 had no such case); the first of a key that
+  comes twice is read. `store::days` (up to 48 KiB, as the widgets read it) is read at each recount.
+- Tested here: the sum of pages left to the next chapter or the end (all shapes of the context), the recount rules and the
+  wrap of the page counter. **Not tested end to end:** the stage's reply (the scripted host lends an event no reply buffer,
+  so a status call cannot be answered there: the same is open for Power and Bluetooth), and the host calling the stage for
+  plugin items (Core todo 76).
+
+## Not tested here (each is an ignored case in `tests/acceptance_pending.rs`)
+
+- The pixels of every widget (a kernel-backed harness), and the end-to-end answer of the status stage.
+- The fixture `stats.flow` of the interface-6 tests is gone (the app no longer hosts the plugin; `settings.flow` took its place in the flows test).
+
+## The stage of Reading goal
+
+- Reading goal owns the stage `reading-goal.read-today` (Kernel's ruling) and the statistics subscribe to it
+  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Asked with nothing or today's day they
+  answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
+  another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
+  slices is gone (nothing asked it).

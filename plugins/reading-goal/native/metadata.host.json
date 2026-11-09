@@ -120,6 +120,10 @@
     },
     {
       "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
+      "kind": "host",
       "name": "services.query"
     },
     {
