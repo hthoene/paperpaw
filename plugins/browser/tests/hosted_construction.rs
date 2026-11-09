@@ -23,7 +23,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_browser::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "browser",
-        &["core.net", "core.ui"],
+        &["core.files", "core.library", "core.net", "core.ui"],
     )
 }
 

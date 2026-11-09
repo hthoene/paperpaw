@@ -132,12 +132,22 @@
     }
   ],
   "services": [
+    "core.files",
+    "core.library",
     "core.net",
     "core.ui"
   ],
   "features": [
     {
+      "key": "uses.library",
+      "required": false
+    },
+    {
       "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
       "required": false
     }
   ]
