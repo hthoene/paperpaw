@@ -302,6 +302,7 @@ fn event_id(tag: u32) -> Option<Id> {
         EVENT_STOPPING_TAG => builtin::STOPPING.id().clone(),
         EVENT_BATTERY_MEASURED_TAG => builtin::BATTERY_MEASURED.id().clone(),
         EVENT_PAGE_TURNED_TAG => builtin::PAGE_TURNED.id().clone(),
+        EVENT_TICK_TAG => super::native_tick::TICK.id().clone(),
         _ => return None,
     })
 }
@@ -338,6 +339,7 @@ fn encode_scalar(tag: u32, now: u64, bytes: &mut [u8]) -> Result<usize, i32> {
         EVENT_SUSPEND_TAG => events::encode_suspend(now, bytes),
         EVENT_STOPPING_TAG => events::encode_stopping(now, bytes),
         EVENT_BATTERY_MEASURED_TAG => events::encode_battery_measured(now, bytes),
+        EVENT_TICK_TAG => tick_encode(now, bytes),
         _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
     }
 }
