@@ -377,6 +377,12 @@ const TTF: &[u8] = include_bytes!("data/atkinson-subset.ttf");
 
 /// A book with one embedded font and a chapter with a language of its own.
 fn font_book() -> Vec<u8> {
+    font_book_with("a.ttf", TTF.to_vec(), "")
+}
+
+/// As [`font_book`], the font file `name` holding `data`, `encryption` the
+/// content of `META-INF/encryption.xml` (empty: none).
+fn font_book_with(name: &str, data: Vec<u8>, encryption: &str) -> Vec<u8> {
     let package = common::opf(
         "<dc:identifier id=\"uid\">urn:test</dc:identifier><dc:language>de</dc:language>",
         &[
@@ -385,21 +391,25 @@ fn font_book() -> Vec<u8> {
         ],
         &["c"],
     );
-    let css = "@font-face { font-family: F0; src: url(fonts/a.ttf) } .f0 { font-family: F0 }";
+    let css = format!(
+        "@font-face {{ font-family: F0; src: url(fonts/{name}) }} .f0 {{ font-family: F0 }}"
+    );
     let body = "<p class=\"f0\">Font text, <span lang=\"fr\">bonjour</span> again</p>";
-    common::zip(
-        &[
-            (
-                "META-INF/container.xml",
-                common::container("OEBPS/content.opf").into_bytes(),
-            ),
-            ("OEBPS/content.opf", package.into_bytes()),
-            ("OEBPS/c.xhtml", common::xhtml(body).into_bytes()),
-            ("OEBPS/style.css", css.as_bytes().to_vec()),
-            ("OEBPS/fonts/a.ttf", TTF.to_vec()),
-        ],
-        false,
-    )
+    let font_path = format!("OEBPS/fonts/{name}");
+    let mut files: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "META-INF/container.xml",
+            common::container("OEBPS/content.opf").into_bytes(),
+        ),
+        ("OEBPS/content.opf", package.into_bytes()),
+        ("OEBPS/c.xhtml", common::xhtml(body).into_bytes()),
+        ("OEBPS/style.css", css.into_bytes()),
+        (font_path.as_str(), data),
+    ];
+    if !encryption.is_empty() {
+        files.push(("META-INF/encryption.xml", encryption.as_bytes().to_vec()));
+    }
+    common::zip(&files, false)
 }
 
 #[test]
@@ -499,4 +509,92 @@ fn a_zip_that_is_not_quite_an_epub_is_not_sniffed() {
     let mut named = whole;
     named[26..28].copy_from_slice(&u16::MAX.to_le_bytes());
     assert!(!sniffs(&named), "a name longer than the head");
+}
+
+/// The root-6 file of face 0 after the faces were asked for.
+fn face_file(book: Vec<u8>) -> (Vec<u8>, u32) {
+    let io = Roots::new("f.epub", &book);
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    let reply = run(&mut p, &io, &call(16, |_| {})).unwrap();
+    let bytes = rows(&reply)
+        .into_iter()
+        .find_map(|r| match r {
+            stage::Record::FmtFont(f) => Some(f.bytes),
+            _ => None,
+        })
+        .expect("a face");
+    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    assert!(
+        !io.exists(&format!("{path}.tmp")),
+        "no temporary file stays"
+    );
+    let mut data = vec![0u8; bytes as usize];
+    if bytes > 0 {
+        assert_eq!(io.read_at(&path, 0, &mut data).unwrap(), data.len());
+    }
+    (data, bytes)
+}
+
+#[test]
+fn an_obfuscated_font_is_revealed_as_it_is_copied() {
+    // IDPF obfuscation: the first 1,040 bytes XORed with the SHA-1 of the
+    // book's identifier (here `urn:test`).
+    let mut sha = paperpaw_sdk::digest::sha1::Sha1::new();
+    sha.update(b"urn:test");
+    let key = sha.finish();
+    let mut hidden = TTF.to_vec();
+    for (i, byte) in hidden.iter_mut().take(1040).enumerate() {
+        *byte ^= key[i % key.len()];
+    }
+    let encryption = "<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><EncryptedData xmlns=\"http://www.w3.org/2001/04/xmlenc#\"><EncryptionMethod Algorithm=\"http://www.idpf.org/2008/embedding\"/><CipherData><CipherReference URI=\"OEBPS/fonts/a.ttf\"/></CipherData></EncryptedData></encryption>";
+    let (data, bytes) = face_file(font_book_with("a.ttf", hidden, encryption));
+    assert_eq!(bytes as usize, TTF.len());
+    assert_eq!(data, TTF, "the font as the book's maker made it");
+}
+
+#[test]
+fn a_woff_font_is_converted_whole_and_still_listed() {
+    let woff = include_bytes!("data/atkinson-subset.woff").to_vec();
+    let (data, bytes) = face_file(font_book_with("a.woff", woff, ""));
+    assert!(bytes > 0, "the converted font is listed");
+    assert_eq!(&data[..4], &[0, 1, 0, 0], "a TrueType file");
+}
+
+#[test]
+fn a_font_that_is_not_in_the_book_is_listed_with_no_bytes() {
+    let book = font_book_with("a.ttf", Vec::new(), "");
+    let (_, bytes) = face_file(book);
+    assert_eq!(bytes, 0);
+}
+
+#[test]
+fn a_plain_font_is_copied_in_chunks_and_a_woff_is_left_to_the_whole_path() {
+    let copy = |name: &str, data: Vec<u8>| {
+        let storage = MemoryStorage::new().with("f.epub", font_book_with(name, data, ""));
+        let doc = EpubDocument::open(&storage, "f.epub").unwrap();
+        let mut params = 0u32.to_le_bytes().to_vec();
+        params.extend_from_slice(b"copy/0");
+        let answer = doc
+            .extended(&storage, "format-epub.font-copy", &params)
+            .unwrap();
+        (answer, storage)
+    };
+    let (answer, storage) = copy("a.ttf", TTF.to_vec());
+    assert_eq!(answer[0], 0, "written");
+    assert_eq!(
+        u32::from_le_bytes(answer[1..5].try_into().unwrap()) as usize,
+        TTF.len()
+    );
+    assert_eq!(storage.size("copy/0").unwrap() as usize, TTF.len());
+    let (answer, storage) = copy(
+        "a.woff",
+        include_bytes!("data/atkinson-subset.woff").to_vec(),
+    );
+    assert_eq!(answer[0], 1, "not streamed");
+    assert!(!storage.exists("copy/0") && !storage.exists("copy/0.tmp"));
+    // A key the document does not know is not answered.
+    let storage = MemoryStorage::new().with("f.epub", font_book());
+    let doc = EpubDocument::open(&storage, "f.epub").unwrap();
+    assert!(doc.extended(&storage, "other", &[]).is_none());
 }

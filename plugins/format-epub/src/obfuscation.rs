@@ -47,6 +47,15 @@ impl Method {
 
 /// Undoes `method` on font `data`, with the book's unique `identifier`.
 pub(crate) fn reveal(data: &mut [u8], method: Method, identifier: &str) {
+    reveal_at(data, 0, method, identifier);
+}
+
+/// As [`reveal`], for `data` that is the bytes of the font from `offset` on
+/// (a font read in chunks).
+pub(crate) fn reveal_at(data: &mut [u8], offset: usize, method: Method, identifier: &str) {
+    if matches!(method, Method::None) || offset >= 1040 {
+        return;
+    }
     let (key, length): (Vec<u8>, usize) = match method {
         Method::None => return,
         Method::Idpf => {
@@ -60,8 +69,12 @@ pub(crate) fn reveal(data: &mut [u8], method: Method, identifier: &str) {
             None => return,
         },
     };
-    for (i, byte) in data.iter_mut().take(length).enumerate() {
-        *byte ^= key[i % key.len()];
+    for (i, byte) in data.iter_mut().enumerate() {
+        let at = offset + i;
+        if at >= length {
+            break;
+        }
+        *byte ^= key[at % key.len()];
     }
 }
 

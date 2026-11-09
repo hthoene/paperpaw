@@ -488,6 +488,26 @@ impl FormatProvider {
         {
             return Ok(u32::try_from(size).unwrap_or(0));
         }
+        let dir = crate::fallible::try_format!("{cache}/fonts").map_err(|_| Error::NoMemory)?;
+        let _ = io.create_dir(&dir);
+        // A document that copies its faces in chunks does (no more than a
+        // chunk of the font is held); the others hand the face over whole.
+        let mut params = Vec::new();
+        params
+            .try_reserve_exact(4 + path.len())
+            .map_err(|_| Error::NoMemory)?;
+        params.extend_from_slice(&index.to_le_bytes());
+        params.extend_from_slice(path.as_bytes());
+        match document
+            .extended(io, crate::document::FONT_COPY, &params)
+            .as_deref()
+        {
+            Some([0, a, b, c, d]) => return Ok(u32::from_le_bytes([*a, *b, *c, *d])),
+            Some([2, ..]) => return Err(Error::NoMemory),
+            Some([3, ..]) => return Ok(0),
+            // Not a plain file (a WOFF), or no such copy: whole, below.
+            _ => {}
+        }
         let data = match document.font_data(io, index as usize) {
             Ok(data) => data,
             Err(DocumentError::OutOfMemory) => return Err(Error::NoMemory),
@@ -500,9 +520,6 @@ impl FormatProvider {
             return Ok(0);
         }
         let temp = crate::fallible::try_format!("{path}.tmp").map_err(|_| Error::NoMemory)?;
-        let _ = io.create_dir(
-            &crate::fallible::try_format!("{cache}/fonts").map_err(|_| Error::NoMemory)?,
-        );
         if io.write(&temp, &data).is_err() || io.rename(&temp, &path).is_err() {
             let _ = io.remove(&temp);
             return Err(Error::Io);
