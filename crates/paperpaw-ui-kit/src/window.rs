@@ -43,9 +43,42 @@ pub trait RowSource {
     ) -> Result<(), Error>;
 }
 
+/// Which rows a page shows: the arithmetic of a draw, apart from drawing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Window {
+    /// The focus, taken into range.
+    focus: usize,
+    /// The page shown.
+    page: usize,
+    /// Pages in all, at least 1.
+    pages: usize,
+    /// The first row of the page.
+    first: usize,
+}
+
+impl Window {
+    fn of(focus: usize, len: usize, per_page: usize) -> Self {
+        let per_page = per_page.max(1);
+        let pages = len.div_ceil(per_page).max(1);
+        let focus = focus.min(len.saturating_sub(1));
+        let page = (focus / per_page).min(pages - 1);
+        Self {
+            focus,
+            page,
+            pages,
+            first: page * per_page,
+        }
+    }
+}
+
 /// A paged list of rows read from a [`RowSource`] page by page. Every row
 /// can be chosen; a row's `zone`, `stepper` and `disabled` are not used.
 /// Only scalar geometry survives a draw.
+///
+/// A chosen row is an index counted when the input was decided: the caller
+/// must check it against a fresh [`RowSource::len`] before acting on it, for
+/// the source may have shrunk since the frame. The drawing has no snapshot
+/// test until the host exists; the arithmetic and the input are tested.
 #[derive(Debug, Default)]
 pub struct WindowList {
     focus: usize,
@@ -194,9 +227,12 @@ impl WindowList {
         let high = self.row_height(&font, &style)?;
         let per_page = (usize::from(area.height) / usize::from(high.max(1))).max(1);
         let len = source.len();
-        let pages = len.div_ceil(per_page).max(1);
-        let focus = self.focus.min(len.saturating_sub(1));
-        let page = (focus / per_page).min(pages - 1);
+        let Window {
+            focus,
+            page,
+            pages,
+            first,
+        } = Window::of(self.focus, len, per_page);
         let mut header = Page::default();
         let mut messages = Messages::new()?;
         let title = match messages.copy(host, title) {
@@ -215,7 +251,6 @@ impl WindowList {
             page,
             pages,
         )?;
-        let first = page * per_page;
         let mut rows = Vec::new();
         rows.try_reserve_exact(per_page.min(len - first.min(len)))
             .map_err(|_| Error::NoMemory)?;
@@ -304,6 +339,25 @@ mod tests {
             per_page,
             ..WindowList::default()
         }
+    }
+
+    #[test]
+    fn a_window_follows_the_focus_and_stays_in_range() {
+        let w = Window::of(7, 2000, 6);
+        assert_eq!((w.focus, w.page, w.pages, w.first), (7, 1, 334, 6));
+        // The last page holds the rest.
+        let w = Window::of(1999, 2000, 6);
+        assert_eq!((w.page, w.first), (333, 1998));
+        // A source that shrank: the focus comes back to its last row.
+        let w = Window::of(1999, 10, 6);
+        assert_eq!((w.focus, w.page, w.pages, w.first), (9, 1, 2, 6));
+        // Nothing to show is one empty page.
+        let w = Window::of(5, 0, 6);
+        assert_eq!((w.focus, w.page, w.pages, w.first), (0, 0, 1, 0));
+        // A page of zero rows is taken as one.
+        assert_eq!(Window::of(3, 5, 0).page, 3);
+        // An exact multiple has no empty page after it.
+        assert_eq!(Window::of(11, 12, 6).pages, 2);
     }
 
     #[test]

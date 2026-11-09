@@ -331,14 +331,11 @@ impl Source for FileSource<'_> {
     }
 }
 
-/// `status` for a decoder's refusal.
-///
-/// TEMPORARY: the decoders say "too large" in the text of `Unsupported`;
-/// draft 25 gives them `ImageError::TooLarge`, which replaces the text match
-/// before native activation.
+/// `status` for a decoder's refusal: too large for good (3) is not the same
+/// as not enough memory now (5, try again later).
 fn status_of(error: &ImageError) -> u32 {
     match error {
-        ImageError::Unsupported(what) if what.contains("large") => TOO_LARGE,
+        ImageError::TooLarge => TOO_LARGE,
         ImageError::Unsupported(_) => UNSUPPORTED,
         ImageError::Invalid(_) => DAMAGED,
         ImageError::OutOfMemory => NO_MEMORY,

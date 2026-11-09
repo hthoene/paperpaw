@@ -1,13 +1,13 @@
-# Interface 7 family LIB: the library, reading state and book data (draft)
+# Interface 7 family LIB: the library, reading state and book data
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, LIB section and coverage ledger), the C-family proposals
 (#890 2.7 LIB, Senior's N9: shared reading data as services, not files), the interface-6 library
 (`paperpaw-sdk` `library`, `positions`, `annotations`), `document.md` (image ids, book key,
 document cache), `ui.md` (host texts for long values), `core-events.md` (book events 65-69) and the
-storage contract (D2, owner decisions 124 and 125). Doc-only; records follow once approved. Tags are
-proposed and numbered without gaps at the records step.
+storage contract (D2, owner decisions 124 and 125).
+Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
 
 ## 0. Scope and principles
 
@@ -60,7 +60,9 @@ proposed and numbered without gaps at the records step.
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also
   removed when the book is no longer found, at the walk's clean-up). The host moves and removes
-  these folders; the plugin only writes inside them. At most 4 per plugin.
+  these folders; the plugin only writes inside them. At most 4 per plugin. `name` is one folder
+  name: 1-96 bytes of lowercase ASCII letters, digits and `-` (no `.`, no `/`), unique within the
+  plugin; anything else is refused at admission (`ERR_INVALID`, the declaration dropped).
 
 ## 2. The service `core.library` (major 1)
 
@@ -214,7 +216,17 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   index and every text whole by offsets.
 - [D] `facets` (`lib_query.facet`: 0 authors, 1 series, 2 tags, 3 first letters, 4 folders; the
   other query fields filter): rows `lib_facet` (`text: str 256`, `count`, `first`: the index of its
-  first book in the same query sorted by that facet, for jumping).
+  first book in the same query sorted by that facet, for jumping). **Folders** (interface 6
+  `shelves::folder_in`) are one level: each folder right inside the query's `folder` (the books'
+  root when empty) that holds a matching book at any depth, `text` its whole path and `count` the
+  books in it and below; a book right in the query's folder adds no row. Neither only leaf folders
+  nor every ancestor.
+- [D] `next_in_series` (interface 6 `Index::next_in_series`, Port Reviewer on #696): the series'
+  **lowest unread book**, not the book after the given one: of the books in the given book's series
+  never opened (`progress` 255), the one with the lowest series number, ties by catalog key; the
+  given book itself when it is that one. `ERR_NOT_FOUND` when the book has no series or every book
+  of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
+  asks op 6 with a book of each series it shows.
 - [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`):
   `cursor` is the index in the result of the page's first row (0 for the first page). Under one
   catalog generation the result's order is fixed, so every page is reachable from the cursor alone:
@@ -237,8 +249,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   hash differs, never made) is walked from the start: slower, the same rows, never an error. A
   stopped plugin's entries are cleared.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
-  the screen's long side; the default is interface 6 `cover_fit`, the larger of 300 and 3/8 of the
-  screen's long side): the catalog's cover as an image id of the caller, made from the book's format
+  the screen's long side, larger is `ERR_INVALID`, never clamped; the default is interface 6
+  `cover_fit`, the larger of 300 and 3/8 of the screen's long side): the catalog's cover as an
+  image id of the caller, made from the book's format
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).
@@ -261,7 +274,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
     never overwrites a local position silently: then it answers `ERR_STATE` (observable, the
     plugin may ask the user) and stores nothing; an equal `updated` keeps the stored one;
   - a sync write with `confirmed` (the user chose "go to the other device's place",
-    `kosync/confirm.rs`) counts as local.
+    `kosync/confirm.rs`) counts as local;
+  - `confirmed` without `sync`, or any other `flags` bit, is `ERR_INVALID` and stores nothing (the
+    SDK's `PositionWrite` cannot build it).
 - [D] **Stored form of a position** (the book's `[position]` section, as interface 6): `insert =
   N` is kept only when N is not 0; `sync = 1` marks a position written with `sync` and without
   `confirmed`, and any other write removes it, so `from_sync` (bit 2) reads what the last write
@@ -314,7 +329,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   op 26 `edit_receipt` (`lib_receipt_ask`: `transaction`, `cursor`), paged rows `lib_receipt`
   (`edit` the edit's index in the transaction, `id` the annotation's id, `action` what was done: 0
   added, 1 replaced, 2 removed, 3 updated by `client_key`) then `end`, 32 rows a page (the schema's
-  `page_rows`); the receipt is kept on the card until the plugin's next `edit_begin`, 10 minutes, or
+  `page_rows`; `end.generation` on every page is the book's `annotation_generation` that commit
+  answered, never 0, so the pages of one receipt carry the same value); the receipt is kept on the
+  card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most

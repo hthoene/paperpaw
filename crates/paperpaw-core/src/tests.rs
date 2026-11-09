@@ -1832,7 +1832,10 @@ fn copied_text_reaches_plugins_and_the_shell() {
     assert!(log.borrow().contains(&String::from("event ov.reply a")));
     // Long text is cut at a character boundary.
     let long = "ä".repeat(paperpaw_sdk::MAX_CLIPBOARD);
-    assert_eq!(crate::clipped(&long).len(), paperpaw_sdk::MAX_CLIPBOARD);
+    assert_eq!(
+        crate::commands::clipped(&long).len(),
+        paperpaw_sdk::MAX_CLIPBOARD
+    );
 
     // With it: the shell reads it when asked.
     let log = self::log();
