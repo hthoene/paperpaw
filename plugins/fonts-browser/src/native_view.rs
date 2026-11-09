@@ -61,6 +61,13 @@ pub fn rows(font: &Font, installed: Option<Version>, downloading: bool) -> Resul
     Ok(rows)
 }
 
+/// Whether the list asks for the catalog now: once each time it is opened, and
+/// one request at a time (two would share `catalog.json.part`).
+#[must_use]
+pub const fn should_fetch(asked: bool, in_flight: bool) -> bool {
+    !asked && !in_flight
+}
+
 /// The fonts that are installed: their plugins' ids and versions.
 #[derive(Debug, Default)]
 pub struct Installed {
@@ -125,6 +132,14 @@ mod tests {
             rows(&font("1.1.0"), here, false).unwrap(),
             [Row::Read, Row::Status, Row::Update, Row::Remove]
         );
+    }
+
+    #[test]
+    fn the_catalog_is_asked_for_once_and_never_twice_at_a_time() {
+        assert!(should_fetch(false, false));
+        assert!(!should_fetch(true, false));
+        assert!(!should_fetch(false, true));
+        assert!(!should_fetch(true, true));
     }
 
     #[test]

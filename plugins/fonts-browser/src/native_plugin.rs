@@ -9,7 +9,7 @@
 use crate::{
     declarations::{DOWNLOADED, FONT, LIST, OPEN, OWN},
     native_catalog::{Catalog, Font},
-    native_view::{Installed, Row, Trouble, rows},
+    native_view::{Installed, Row, Trouble, rows, should_fetch},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -405,8 +405,7 @@ impl NativeFontsBrowser {
         let Some(View::List(view)) = self.screens.top(LIST) else {
             return Ok(());
         };
-        // One request at a time: two would share `catalog.json.part`.
-        if view.asked || self.fetching.is_some() {
+        if !should_fetch(view.asked, self.fetching.is_some()) {
             return Ok(());
         }
         view.asked = true;
@@ -593,13 +592,13 @@ impl NativeFontsBrowser {
         push(&mut items, Item::heading(&licence)?)?;
         push(&mut kinds, None)?;
         let here = font.plugin().ok().and_then(|id| installed.version(&id));
-        for row in rows(&font, here, false)? {
+        // Download, update and remove are not native yet (`choose_row`): not shown.
+        for row in rows(&font, here, false)?
+            .into_iter()
+            .filter(|row| matches!(row, Row::Read | Row::Status))
+        {
             let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
-            let mut item = Item::row(&title, &value)?;
-            // Not native yet (`choose_row`): shown faint, not chosen.
-            if let Item::Row(shown) = &mut item {
-                shown.disabled = !matches!(row, Row::Read | Row::Status);
-            }
+            let item = Item::row(&title, &value)?;
             push(&mut items, item)?;
             push(&mut kinds, Some(row))?;
         }

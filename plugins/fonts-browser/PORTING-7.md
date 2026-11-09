@@ -49,7 +49,8 @@ activates native plugins (then it goes together, no shim; see the removal step).
   `Unsupported`/`Denied` as an answer. The job state (which file is next) is kept in the data folder.
 - **The restart's cancel:** interface 6 subscribed `started` to cancel a download cut off by a restart; the native
   entry has no download yet, so it does not subscribe: it comes back with the download.
-- The *Download*/*Update*/*Stop*/*Remove* rows are shown faint (disabled) until then.
+- The *Download*/*Update*/*Stop*/*Remove* rows are not shown until then (no dead buttons); `native_view::rows` still
+  says which rows a page will have.
 - **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
   "handed"; as About's licences): `Unsupported` until that merges.
 - **The font's own face** in the list and on the page: needs a font loaded at run time (`FONT-runtime`).
