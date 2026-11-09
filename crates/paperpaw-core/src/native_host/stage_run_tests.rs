@@ -599,3 +599,65 @@ fn a_subscriber_the_user_turned_off_is_inert_and_does_not_count() {
         },
     );
 }
+
+#[test]
+fn subscribers_turned_off_do_not_count_toward_the_thirty_two() {
+    let fixture = Fixture::new();
+    // 33 more subscribers at order 0, ahead of `alpha` and `zeta` (5) and
+    // behind `first` (-1): 36 in all.
+    let mut names = Vec::new();
+    for number in 0..33_u32 {
+        let id: &'static str =
+            alloc::boxed::Box::leak(alloc::format!("p{number:02}").into_boxed_str());
+        fixture.install(
+            id,
+            1000 + u64::from(number),
+            &[Record::RegistrationStage(wire::RegistrationStage {
+                stage: STAGE,
+                token: 100 + number,
+                order: 0,
+                signature: 0,
+            })],
+        );
+        names.push(id);
+    }
+    let run = |epoch: u64, off: &[(&str, bool)]| {
+        let mut seen = Vec::new();
+        with_frame_at(
+            &fixture,
+            Some(READER),
+            1,
+            (epoch, off, MemoryClass::Large),
+            |frame| {
+                let mut out = buffer();
+                for cursor in 0..40 {
+                    match ask(frame, STAGE, cursor, b"", &mut out) {
+                        Ok(count) => {
+                            seen.push(alloc::string::String::from(reply(&out, count).subscriber))
+                        }
+                        Err(status) => {
+                            assert_eq!(status, ERR_NOT_FOUND);
+                            break;
+                        }
+                    }
+                }
+            },
+        );
+        seen
+    };
+    // All on: only the first 32 are active (`first`, then p00 to p30).
+    let all_on = run(2, &[]);
+    assert_eq!(all_on.len(), 32);
+    assert_eq!((all_on[0].as_str(), all_on[31].as_str()), ("first", "p30"));
+    // `first`, `alpha`, `zeta` and p32 off: 32 are left, p00 to p31, and
+    // none of the switched-off ones took a place.
+    let off = [
+        ("core.stage.reader.filter.first", false),
+        ("core.stage.reader.filter.alpha", false),
+        ("core.stage.reader.filter.zeta", false),
+        ("core.stage.reader.filter.p32", false),
+    ];
+    let seen = run(3, &off);
+    assert_eq!(seen.len(), 32);
+    assert!(seen.iter().zip(&names).all(|(seen, name)| seen == name));
+}
