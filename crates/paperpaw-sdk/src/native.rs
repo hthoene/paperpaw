@@ -333,6 +333,7 @@ pub mod clock;
 pub mod commands;
 pub mod declare;
 pub mod device;
+pub mod document;
 pub mod events;
 pub mod files;
 pub mod fonts;
