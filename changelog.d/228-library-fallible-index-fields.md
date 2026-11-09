@@ -1,0 +1,3 @@
+### Fixed
+
+- **Indexing a book and setting a book's field no longer allocate infallibly** (#228). The metadata the indexer reads from a book is copied with `try_reserve` before anything is changed, the marker text of its details is built without `format!`, and `paperpaw_sdk::library::set_field` copies its id and value fallibly and writes through the same fallible details writer as `save`. With no memory a book is not written down (it is read again at the next walk) and a field is as it was, instead of the device stopping.
