@@ -44,10 +44,16 @@ fn allocations<T>(operation: impl FnOnce() -> T) -> (T, usize) {
 }
 
 fn refused<T>(operation: impl FnOnce() -> T) -> T {
+    /// Puts the heap back even if `operation` panics.
+    struct Back;
+    impl Drop for Back {
+        fn drop(&mut self) {
+            REFUSE.with(|refuse| refuse.set(false));
+        }
+    }
     REFUSE.with(|refuse| refuse.set(true));
-    let value = operation();
-    REFUSE.with(|refuse| refuse.set(false));
-    value
+    let _back = Back;
+    operation()
 }
 
 #[test]

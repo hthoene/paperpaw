@@ -78,7 +78,8 @@ impl Params {
 
     /// [`Self::set`] that reports a memory shortage instead of aborting: the value is copied
     /// from `value` with the allocation checked. The key is as the caller made it (a
-    /// `&'static str` allocates nothing). On `Err` the parameters are as they were, a
+    /// `&'static str` allocates nothing; an owned key was copied before the call, with the abort a
+    /// failed copy has). On `Err` the parameters are as they were, a
     /// replaced value included.
     pub fn try_set(
         &mut self,
@@ -90,7 +91,7 @@ impl Params {
         match self.values.iter_mut().find(|(k, _)| *k == key) {
             Some(entry) => entry.1 = copy,
             None => {
-                self.values.try_reserve(1)?;
+                self.values.try_reserve_exact(1)?;
                 self.values.push((key, copy));
             }
         }
