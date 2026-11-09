@@ -70,15 +70,9 @@ fn metadata_text_pages_preserve_whole_values_and_refuse_bad_offsets() {
 }
 #[test]
 fn metadata_caps_modes_and_output_fail_before_writing() {
-    let metadata = Metadata::default().language("x".repeat(36));
     let mut input = [0; 1024];
     let mut out = [0xa5; 2048];
     let c = call(5, 0, 0, 0, &mut input);
-    assert!(matches!(
-        c.reply_metadata(&metadata, 1, &mut out),
-        Err(Error::NoSpace)
-    ));
-    assert_eq!(out, [0xa5; 2048]);
     let metadata = Metadata::default().writing_mode(paperpaw_lang::WritingMode::SidewaysRl);
     assert!(matches!(
         c.reply_metadata(&metadata, 1, &mut out),
@@ -96,4 +90,24 @@ fn metadata_caps_modes_and_output_fail_before_writing() {
         .unwrap();
     let row = schema::FmtText::decode(&out[..n]).unwrap();
     assert_eq!((row.total, row.text), (0, ""));
+}
+
+#[test]
+fn an_odd_language_or_series_index_is_left_out_so_the_book_still_opens() {
+    let mut input = [0; 1024];
+    let mut out = [0; 2048];
+    let c = call(5, 0, 0, 0, &mut input);
+    let metadata = Metadata::default()
+        .language("x".repeat(36))
+        .series_index("1".repeat(33));
+    let n = c.reply_metadata(&metadata, 1, &mut out).unwrap();
+    let row = schema::FmtMeta::decode(&out[..n]).unwrap();
+    assert_eq!((row.language, row.series_index), ("", ""));
+    // At the caps they are kept.
+    let metadata = Metadata::default()
+        .language("x".repeat(35))
+        .series_index("1".repeat(32));
+    let n = c.reply_metadata(&metadata, 1, &mut out).unwrap();
+    let row = schema::FmtMeta::decode(&out[..n]).unwrap();
+    assert_eq!((row.language.len(), row.series_index.len()), (35, 32));
 }

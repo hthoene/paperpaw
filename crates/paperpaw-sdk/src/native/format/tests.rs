@@ -236,3 +236,28 @@ fn detail_replies_are_operation_specific_and_atomic() {
     ));
     assert_eq!(out, [0xa5; 1024]);
 }
+#[test]
+fn debug_shows_lengths_never_the_sniffed_bytes_or_option_values() {
+    let mut input = [0; 1024];
+    let call = decode(request(1), &mut input);
+    let shown = alloc::format!("{call:?}");
+    assert!(shown.contains("sniff_len: 4"), "{shown}");
+    assert!(
+        !shown.contains("book") && !shown.contains("chapter"),
+        "{shown}"
+    );
+}
+#[test]
+fn rows_after_a_non_open_request_are_invalid_however_many() {
+    let mut input = [0; 2048];
+    let mut n = request(5).encode(&mut input).unwrap();
+    for _ in 0..13 {
+        n += schema::FmtOption::new("format-txt.encoding", "utf-16")
+            .encode(&mut input[n..])
+            .unwrap();
+    }
+    assert!(matches!(
+        FormatCall::decode(&input[..n]),
+        Err(Error::Invalid)
+    ));
+}

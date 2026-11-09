@@ -4365,6 +4365,8 @@ pub const fn paperpaw_sdk::native::format::FormatCall<'a>::publisher_styles(&sel
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::section(&self) -> u32
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::sniff_bytes(&self) -> &'a [u8]
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::text(&self) -> &'a str
+impl core::fmt::Debug for paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_sdk::native::format::FormatFeatures(_)
 impl paperpaw_sdk::native::format::FormatFeatures
 pub const fn paperpaw_sdk::native::format::FormatFeatures::cache_made(self) -> Self

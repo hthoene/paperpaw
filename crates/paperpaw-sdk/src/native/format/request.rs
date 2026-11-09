@@ -70,12 +70,25 @@ impl FormatOp {
     }
 }
 
-/// A validated request borrowing the host's stage payload.
-#[derive(Clone, Debug)]
+/// A validated request borrowing the host's stage payload. `Debug` shows lengths
+/// and counts, never the sniffed file bytes, the text or the option values.
+#[derive(Clone)]
 pub struct FormatCall<'a> {
     pub(super) row: schema::FmtCall<'a>,
     op: FormatOp,
     options: schema::RecordStream<'a>,
+}
+impl core::fmt::Debug for FormatCall<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FormatCall")
+            .field("op", &self.op)
+            .field("document", &self.row.document)
+            .field("conversion", &self.row.conversion)
+            .field("text_len", &self.row.text.len())
+            .field("sniff_len", &self.row.arg.len())
+            .field("options", &self.options.len())
+            .finish_non_exhaustive()
+    }
 }
 impl<'a> FormatCall<'a> {
     /// Validate framing and the operation before exposing any request fields.
@@ -99,11 +112,11 @@ impl<'a> FormatCall<'a> {
         {
             return Err(Error::Invalid);
         }
-        if rows.len() > 12 {
-            return Err(Error::NoSpace);
-        }
         if op != FormatOp::Open && !rows.is_empty() {
             return Err(Error::Invalid);
+        }
+        if rows.len() > 12 {
+            return Err(Error::NoSpace);
         }
         for option in rows.clone() {
             let schema::Record::FmtOption(option) = option.map_err(Error::from_status)? else {
@@ -162,12 +175,16 @@ impl<'a> FormatCall<'a> {
     pub const fn flags(&self) -> u32 {
         self.row.flags
     }
-    /// Maximum image side in pixels; zero selects the default.
+    /// Maximum image side in pixels, 1 to 1,600 on open and image: the host turns a
+    /// requested 0 into its default before it calls (`document.md` 3), so a format
+    /// never sees 0 there. It is 0 on the other operations.
     #[must_use]
     pub const fn image_side(&self) -> u32 {
         self.row.image_side
     }
-    /// Maximum cover side in pixels; zero selects the default.
+    /// Maximum cover side in pixels. The host has already replaced a requested 0
+    /// with its default and keeps it within the screen's long side (`document.md`
+    /// 3); a format does not bound it again. It is 0 on the other operations.
     #[must_use]
     pub const fn cover_side(&self) -> u32 {
         self.row.cover_side

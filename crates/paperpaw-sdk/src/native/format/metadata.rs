@@ -5,12 +5,14 @@ use paperpaw_lang::WritingMode;
 impl FormatCall<'_> {
     /// Encode metadata by borrowing the format's document model.
     /// Title and series previews use UTF-8 boundaries and advertise any cut;
-    /// `reply_metadata_text` can return their full contents in parts.
+    /// `reply_metadata_text` can return their full contents in parts. A language
+    /// over 35 bytes or a series index over 32 bytes is left out (sent empty), not
+    /// cut and not a refusal.
     ///
     /// # Errors
     /// State outside meta; Unsupported for a writing mode not carried on the wire;
-    /// NoSpace for counts/fields above their wire caps
-    /// or output too short for the complete reply.
+    /// NoSpace for a count above its wire cap or output too short for the complete
+    /// reply.
     pub fn reply_metadata(
         &self,
         metadata: &Metadata,
@@ -22,11 +24,19 @@ impl FormatCall<'_> {
         let series = metadata.series.as_deref().unwrap_or("");
         let language = metadata.language.as_deref().unwrap_or("");
         let series_index = metadata.series_index.as_deref().unwrap_or("");
-        if language.len() > schema::FMT_META_LANGUAGE_MAX_BYTES
-            || series_index.len() > schema::FMT_META_SERIES_INDEX_MAX_BYTES
-        {
-            return Err(Error::NoSpace);
-        }
+        // A language tag or series index over its wire cap comes from the book, and a
+        // cut tag or number would be wrong, so it is left out: a book with an odd tag
+        // still opens.
+        let language = if language.len() > schema::FMT_META_LANGUAGE_MAX_BYTES {
+            ""
+        } else {
+            language
+        };
+        let series_index = if series_index.len() > schema::FMT_META_SERIES_INDEX_MAX_BYTES {
+            ""
+        } else {
+            series_index
+        };
         let short_title = prefix(title, schema::FMT_META_TITLE_MAX_BYTES);
         let short_series = prefix(series, schema::FMT_META_SERIES_MAX_BYTES);
         let flags = u32::from(short_title.len() < title.len())
