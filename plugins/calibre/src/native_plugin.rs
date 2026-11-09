@@ -424,10 +424,9 @@ impl NativeCalibre {
             Some(session) => session.closed(Some(reason_words(Reason::NoMemory))),
             None => return Ok(()),
         };
-        match steps {
-            Ok(steps) if self.run(host, steps).is_ok() => {}
-            // Not even the line fits: the session is dropped, the wire is closed.
-            _ => self.end(host),
+        // Not even the line fits: the session is dropped, the wire is closed.
+        if steps.and_then(|steps| self.run(host, steps)).is_err() {
+            self.end(host);
         }
         Ok(())
     }
