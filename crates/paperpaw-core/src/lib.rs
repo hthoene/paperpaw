@@ -498,15 +498,12 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // The native `core.input-filter` chain comes first (Power is never
-        // filtered), then the interface-6 filters on what it left.
+        // The native input filters first, then the interface-6 ones (while a
+        // screen guards the device or a secret is typed, only its plugin's).
         let event = match self.native_filtered(now, event) {
             Ok(event) => event,
             Err(effects) => return effects,
         };
-        // Plugins' input filters come next; while a screen guards the
-        // device, or a PIN or a password is entered, only those of its
-        // plugin.
         let (verdict, delivered) = {
             let asking = self.secret_owner();
             let env = self.shared.env(now);
