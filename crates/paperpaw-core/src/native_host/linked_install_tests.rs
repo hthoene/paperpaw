@@ -177,6 +177,26 @@ fn install_with(
     id: &str,
     resources: HostResources,
 ) -> Result<(), shell::Error> {
+    install_depth(
+        kernel,
+        entry,
+        metadata,
+        host,
+        id,
+        resources,
+        &FlatDepth::try_new().unwrap(),
+    )
+}
+
+fn install_depth(
+    kernel: &mut crate::Kernel,
+    entry: &'static PpEntry,
+    metadata: &'static [u8],
+    host: &Host<'static>,
+    id: &str,
+    resources: HostResources,
+    depth: &FlatDepth,
+) -> Result<(), shell::Error> {
     // SAFETY: the test factory obeys the contract and its code is static.
     unsafe {
         kernel.register_linked(
@@ -186,7 +206,7 @@ fn install_with(
             id,
             Heap,
             resources,
-            &FlatDepth::try_new().unwrap(),
+            depth,
             |_, _, _, _| {},
             |_, _, _| {},
         )
@@ -415,4 +435,41 @@ fn a_required_feature_the_shell_host_has_admits_the_plugin() {
     install_on(&mut kernel, with_view, bytes, &shell_host(WIRED), "linked").unwrap();
     assert_eq!(MAKES.with(Cell::get), 1);
     assert!(kernel.shared.native_instances.find("linked").is_some());
+}
+
+/// One counter for the device (#846 R2, todo 369): the card's loader and the
+/// firmware's linked probe both bring shares of it, and every plugin is
+/// admitted; a plugin that brings another counter is refused before `make`.
+#[test]
+fn plugins_sharing_the_devices_depth_counter_are_all_admitted_and_another_is_refused() {
+    let mut kernel = kernel();
+    let depth = FlatDepth::try_new().unwrap();
+    let host = shell_host(&[]);
+    // One table of handles too, as the shell's one device has.
+    let table = HostResources::try_new().unwrap();
+    for id in ["first", "second"] {
+        install_depth(
+            &mut kernel,
+            entry(|_| {}),
+            METADATA,
+            &host,
+            id,
+            table.try_clone().unwrap(),
+            &depth.try_clone().unwrap(),
+        )
+        .unwrap();
+    }
+    assert_eq!(MAKES.with(Cell::get), 2);
+    let other = install_depth(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &host,
+        "third",
+        table.try_clone().unwrap(),
+        &FlatDepth::try_new().unwrap(),
+    );
+    assert_eq!(status(other), paperpaw_native::host_glue::ERR_STATE);
+    assert_eq!(MAKES.with(Cell::get), 2);
+    assert!(kernel.shared.native_instances.find("third").is_none());
 }

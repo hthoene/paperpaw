@@ -227,8 +227,9 @@ pub type Placed5 = flash::Placed5;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
-    /// The nesting budget every interface-7 plugin of this device shares,
-    /// made with the first one (a fallible allocation: `NoRoom`).
+    /// The nesting budget every interface-7 plugin of this device shares: the
+    /// device's one counter (`DeviceTable::depth`, the linked probe takes the
+    /// same), taken with the first plugin (a fallible allocation: `NoRoom`).
     #[cfg(feature = "ppn5")]
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     /// The device-wide table of handles the plugins' owners share (made with
@@ -256,13 +257,21 @@ pub struct Loader {
 pub struct DeviceTable(
     alloc::rc::Rc<RefCell<Option<paperpaw_core::native_host::HostResources>>>,
     alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    alloc::rc::Rc<paperpaw_x4::device_depth::DeviceDepth>,
 );
 
 #[cfg(feature = "ppn5")]
 impl DeviceTable {
     /// An empty table that wires `device` into `core.device` when it is made.
     fn new(device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>) -> Self {
-        Self(alloc::rc::Rc::default(), device)
+        Self(alloc::rc::Rc::default(), device, alloc::rc::Rc::default())
+    }
+
+    /// A counted share of the device's one callback-depth counter, for the
+    /// loader and the linked-plugin probe alike: the kernel refuses a plugin
+    /// that brings another (`paperpaw_x4::device_depth`).
+    pub(crate) fn depth(&self) -> Option<paperpaw_core::native_host::flat::FlatDepth> {
+        self.2.share()
     }
 
     /// The device as the host services take it.
@@ -330,6 +339,13 @@ impl Loader {
             if !crate::stack::band_armed() {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
+            }
+            // The depth is the device's one, shared with the linked probe.
+            if self.depth.is_none() {
+                self.depth = self.resources.depth();
+                if self.depth.is_none() {
+                    return Err(PluginProblem::NoRoom);
+                }
             }
             let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
                 return Err(PluginProblem::NoRoom);

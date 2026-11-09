@@ -455,8 +455,10 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        // The loader's own table of handles (one for the device), not a second.
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), table.share()) else {
+        // The loader's own table of handles and callback-depth counter (one of
+        // each for the device), not a second: the kernel refuses a plugin that
+        // brings another counter.
+        let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
