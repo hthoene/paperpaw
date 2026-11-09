@@ -162,3 +162,14 @@ fn the_cookie_tells_mood_and_step_apart() {
 fn the_installed_cats_are_prepared_from_the_install_folder() {
     unreachable!("a mood without a picture of one's own asks root 2 for pictures/<mood>.png");
 }
+
+#[test]
+fn a_changed_folder_drops_the_request_open_and_its_answer_is_ignored() {
+    let mut pictures = Pictures::default();
+    pictures.asked(Mood::Sad, 1);
+    assert_eq!(pictures.forget(), None);
+    assert!(pictures.wants(Mood::Sad), "asked anew");
+    let late = (cookie(Mood::Sad, 1), ImageStatus::Ready, Some(id(3)));
+    assert_eq!(pictures.ready(late, true), Next::Ignore);
+    assert_eq!(pictures.of(Mood::Sad), None);
+}

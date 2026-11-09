@@ -451,7 +451,7 @@ impl Kernel {
             return;
         }
         self.save_config("plugins", id.as_str(), if enabled { "on" } else { "off" });
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+        if let Some(info) = self.shared.plugin_mut(id.as_str()) {
             info.enabled = enabled;
         }
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
@@ -564,6 +564,7 @@ impl Kernel {
                         .filter(|a| !a.is_empty())
                         .map(Id::parse)
                         .collect();
+                    self.shared.registry_generation.bump();
                     let known = entry.section == crate::plugins::KNOWN;
                     match (Id::parse(entry.key), actions) {
                         (Ok(menu), Ok(actions)) if known => {
@@ -574,7 +575,10 @@ impl Kernel {
                     }
                 }
                 "slots" => match (Id::parse(entry.key), Id::parse(&value)) {
-                    (Ok(slot), Ok(screen)) => self.shared.registry.bind_user(slot, screen),
+                    (Ok(slot), Ok(screen)) => {
+                        self.shared.registry_generation.bump();
+                        self.shared.registry.bind_user(slot, screen);
+                    }
                     _ => self.warn(
                         WarningSource::UserConfig,
                         line,

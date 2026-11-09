@@ -17,8 +17,6 @@ use crate::model::Mood;
 
 /// The file extensions of one's own pictures, in the order they are tried.
 const EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"];
-/// The longest side a picture is decoded to: as large as it is drawn.
-pub(crate) const SIDE: u32 = 800;
 /// The longest path of a request (`command.image_prepare`).
 pub(crate) const PATH_MAX: usize = 512;
 /// Where the cats are in the plugin's install folder.
@@ -139,6 +137,8 @@ impl Pictures {
     /// The picture held, if any, is to be released by the caller.
     pub(crate) fn forget(&mut self) -> Option<ImageId> {
         self.none = None;
+        // An answer to a request made before is no longer the one waited for.
+        self.open = None;
         self.held.take().map(|(_, image)| image)
     }
 

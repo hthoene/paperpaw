@@ -1,0 +1,153 @@
+//! Op 19 `widgets` (`registry.md` 2.2 and 3): the widgets the `core.widget`
+//! stage can make, those code plugins added (`Widgets`) and those native
+//! plugins declared (`widget.spec`), with the kind's icon, the cells as
+//! declared and, in `flags` bit 0, whether some place that shows now lists
+//! them (`Widgets::shown`: a `widget.place` whose `shown_if` holds names the
+//! widget, or a placement of it, in one of its `list_keys`).
+use super::{
+    Row,
+    fixed::{Fixed, caps, translated},
+    ordered, rules,
+    sources::Sources,
+};
+use crate::native_host::{
+    declaration_store::{DeclKey, DeclarationStore, Kind},
+    registrations::{self as wire, Record},
+};
+use core::ops::ControlFlow;
+use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_sdk::{Env, widgets::base};
+
+/// `reg_widget.flags`.
+const SHOWN: u32 = 1;
+const PRIVATE: u32 = 1 << 1;
+const SQUARE: u32 = 1 << 2;
+
+/// The cells of a code plugin's widget as `widget.spec.cells` has them: columns
+/// in bits 0-7, rows 8-15, the least columns 16-23 and the least rows 24-31.
+fn cells(span: paperpaw_sdk::widgets::CellSpan) -> u32 {
+    u32::from_le_bytes([span.w, span.h, span.min_w, span.min_h])
+}
+
+pub(super) fn rows(
+    sources: &Sources<'_>,
+    scope: &str,
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> Result<(), i32> {
+    let env = sources.env;
+    let widgets = env.widgets();
+    for (id, title) in widgets.iter() {
+        let kind = widgets.category(id.as_str()).unwrap_or("");
+        if !scope.is_empty() && kind != scope {
+            continue;
+        }
+        let span = widgets.cells(id.as_str());
+        let flags = if widgets.shown(env, id.as_str()) {
+            SHOWN
+        } else {
+            0
+        } | if span.is_some_and(|span| span.square) {
+            SQUARE
+        } else {
+            0
+        };
+        let row = Record::ServiceRegWidget(wire::ServiceRegWidget {
+            id: id.as_str(),
+            plugin: id.namespace(),
+            kind,
+            icon: widgets.category_icon(kind),
+            flags,
+            title: translated(env.i18n(), title, caps::TITLE),
+            cells: span.map_or(0, cells),
+        });
+        if visit(&row).is_break() {
+            return Ok(());
+        }
+    }
+    let Some(directory) = sources.directory else {
+        return Ok(());
+    };
+    let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
+    let mut stopped = false;
+    store.keys(Kind::Widget, &mut |key| {
+        if !stopped {
+            stopped = declared(env, &store, key, scope, visit).is_break();
+        }
+    });
+    Ok(())
+}
+
+/// The row of the declared widget `key`.
+fn declared(
+    env: &Env<'_>,
+    store: &DeclarationStore,
+    key: DeclKey,
+    scope: &str,
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    // The id first: whether a place lists it scans the store again, which no
+    // record visitor may do.
+    let mut id = None;
+    let _read = ordered::with_plugin(store, key, &mut |record, plugin| {
+        if let Record::WidgetSpec(spec) = record {
+            id = Fixed::<{ caps::ID }>::of(&[plugin, ".", spec.name]);
+        }
+        ControlFlow::Continue(())
+    });
+    let Some(id) = id else {
+        return ControlFlow::Continue(());
+    };
+    let shown = listed(env, store, id.as_str());
+    ordered::with_plugin(store, key, &mut |record, plugin| {
+        let Record::WidgetSpec(spec) = record else {
+            return ControlFlow::Continue(());
+        };
+        // A widget that previews a group of settings is no widget to add.
+        if !spec.previews.is_empty() || !scope.is_empty() && spec.category != scope {
+            return ControlFlow::Continue(());
+        }
+        let flags = if shown { SHOWN } else { 0 } | spec.flags & PRIVATE | spec.flags & SQUARE;
+        visit(&Record::ServiceRegWidget(wire::ServiceRegWidget {
+            id: id.as_str(),
+            plugin,
+            kind: spec.category,
+            icon: env.widgets().category_icon(spec.category),
+            flags,
+            title: translated(env.i18n(), spec.title, caps::TITLE),
+            cells: spec.cells,
+        }))
+    })
+}
+
+/// Whether a place that shows now lists widget `id`: one of the environment's
+/// places (`Widgets::shown`) or a native `widget.place`.
+fn listed(env: &Env<'_>, store: &DeclarationStore, id: &str) -> bool {
+    if env.widgets().shown(env, id) {
+        return true;
+    }
+    let mut found = false;
+    store.keys(Kind::WidgetPlace, &mut |key| {
+        let _read = ordered::with_plugin(store, key, &mut |record, _| {
+            if let Record::WidgetPlace(place) = record {
+                found |= place_lists(env, &place, id);
+            }
+            ControlFlow::Continue(())
+        });
+    });
+    found
+}
+
+fn place_lists(env: &Env<'_>, place: &wire::WidgetPlace<'_>, id: &str) -> bool {
+    rules::value_holds(env.settings(), place.shown_if_key, place.shown_if_value)
+        && place
+            .list_keys
+            .split('\n')
+            .filter(|key| !key.is_empty())
+            .any(|key| {
+                env.settings()
+                    .text(key)
+                    .split(',')
+                    .filter_map(|item| item.split_whitespace().next())
+                    .any(|item| base(item) == id)
+            })
+}

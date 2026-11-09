@@ -35,7 +35,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::model::{Kept, Mood, Statistics, parse_stage};
-use crate::native_picture::{self, Next, Pictures, SIDE, Source};
+use crate::native_picture::{self, Next, Pictures, Source};
 use crate::native_widget::{self, TARGET};
 use crate::store;
 
@@ -73,6 +73,9 @@ struct Item {
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
+    /// Its width as the host last measured it (0 before): the picture is
+    /// asked for as large as the widest is drawn.
+    width: u16,
 }
 
 /// Reading goal's interface-7 state.
@@ -139,6 +142,12 @@ impl Plugin for NativeReadingGoal {
             } => self.made(host, widget, instance),
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
+                // The last widget gone: the picture is given back.
+                if self.items.is_empty()
+                    && let Some(old) = self.pictures.forget()
+                {
+                    release_image(host, old);
+                }
                 Ok(())
             }
             Event::StageCall {
@@ -348,13 +357,21 @@ impl NativeReadingGoal {
         let mut bytes = [0u8; 256];
         let folder = picture_folder(host, &mut bytes);
         let own = !folder.is_empty();
+        // As large as the widest widget is drawn (0: the screen's, before any
+        // is measured).
+        let side = self
+            .items
+            .iter()
+            .map(|item| u32::from(item.width))
+            .max()
+            .unwrap_or(0);
         let mut step = from;
         while step < native_picture::steps(own) {
             if let Some(candidate) = native_picture::candidate(folder, mood, step)
                 && let Some(root) = root_of(candidate.source)
             {
                 let cookie = native_picture::cookie(mood, step);
-                let request = PrepareImage::new(root, &candidate.path, cookie).side(SIDE);
+                let request = PrepareImage::new(root, &candidate.path, cookie).side(side);
                 let mut scratch = [0u8; 640];
                 CommandSender::new(host, &mut scratch).image_prepare(&request)?;
                 self.pictures.asked(mood, step);
@@ -372,7 +389,15 @@ impl NativeReadingGoal {
         let own = !picture_folder(host, &mut bytes).is_empty();
         let answer = (ready.cookie(), ready.status(), ready.image());
         match self.pictures.ready(answer, own) {
-            Next::Ignore | Next::Words | Next::Retry => Ok(()),
+            // An answer nobody waits for (the folder changed meanwhile) still
+            // holds a picture: given back.
+            Next::Ignore => {
+                if let Some(image) = ready.image() {
+                    release_image(host, image);
+                }
+                Ok(())
+            }
+            Next::Words | Next::Retry => Ok(()),
             Next::Again { mood, step } => self.ask_picture(host, mood, step),
             Next::Ready { release, .. } => {
                 if let Some(old) = release {
@@ -458,15 +483,20 @@ impl NativeReadingGoal {
             instance,
             widget: copy(widget)?,
             shown: None,
+            width: 0,
         });
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
-        self.want_picture(host);
         Ok(())
     }
 
     /// The host asks for the widget's height, where it sits and what a tap
     /// meets.
-    fn stage(&self, host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+    fn stage(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
         let call = WidgetCall::decode(payload)?;
         let mut out = buffer(WIDGET_REPLY)?;
         let written = match call {
@@ -475,7 +505,13 @@ impl NativeReadingGoal {
                 let mut cx = Cx::open(host, &item.widget)?;
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let height = native_widget::height(&mut cx, width)?;
-                call.reply_size(u32::from(height), u32::from(height), &mut out)?
+                let written = call.reply_size(u32::from(height), u32::from(height), &mut out)?;
+                drop(cx);
+                if let Some(item) = self.items.iter_mut().find(|item| item.instance == instance) {
+                    item.width = width;
+                }
+                self.want_picture(host);
+                written
             }
             WidgetCall::Place { instance, .. } => {
                 self.find(instance.get()).ok_or(Error::NotFound)?;

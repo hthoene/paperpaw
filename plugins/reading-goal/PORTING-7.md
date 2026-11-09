@@ -115,13 +115,16 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
   folder (`reading-goal.pictures`, `<mood>.png`, `.jpg`, `.jpeg` in either case, through
   `PrepareRoot::Library`, which needs `uses.storage`: declared), then the cats of the plugin's install
   folder (`Source::Bundle`, left out until `PrepareRoot::Bundle` exists: `root_of` in `native_plugin.rs`).
-  Pictures are decoded to at most 800 pixels a side.
+  The picture is asked for as large as the widest widget is drawn (its measured width; the screen's size
+  before any is measured).
 - One request is open at a time and one picture is held: the one of the mood the widget shows. The cookie is
   the mood and the step, so an answer to anything else is ignored. A refusal for memory or the card is asked
   again at the next minute; all files tried leaves the mood in words and is not asked again until the folder
   setting changes (`event.setting_changed` for `reading-goal.pictures`; the held picture is released then).
-- Asked when a widget is made and at each minute tick (never in a draw callback). When the picture is ready
-  the plugin releases the one it held and tells every widget's maker (`widget_changed`).
+- Asked at the first measure of a widget and at each minute tick (never in a draw callback). When the picture
+  is ready the plugin releases the one it held and tells every widget's maker (`widget_changed`). The held
+  picture is also released when the last widget is dropped and when the folder setting changes (which also
+  forgets the request open: its late answer is given back at once).
 - The widget leaves the room above the minutes free and draws the picture over it with `canvas.draw_image`
   (`ImageStyle::new()`: scaled to fit, centred); a host that refuses it leaves the frame and the minutes.
   Metadata lists `canvas.draw_image`.
