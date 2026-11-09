@@ -201,13 +201,13 @@ fn a_search_without_hits_says_so_and_an_empty_one_opens_nothing() {
 fn advanced_settings_are_found_only_once_shown() {
     for device in DEVICES {
         let mut app = settings(device, "");
-        // The address of Calibre (or of Joplin) is an advanced setting.
-        search(&mut app, "address");
+        // The developer options are an advanced setting.
+        search(&mut app, "developer");
         let before = titles(&mut app);
         app.run(actions::BACK);
         choose(&mut app, "Advanced settings");
         assert!(app.kernel.settings().bool("settings.advanced"));
-        search(&mut app, "address");
+        search(&mut app, "developer");
         let after = titles(&mut app);
         assert!(after.len() > before.len(), "{before:?} {after:?}");
     }
@@ -301,25 +301,24 @@ fn a_choice_opened_for_no_setting_shows_nothing_to_choose() {
 }
 
 /// Typed on the keyboard the settings page opens for a text setting
-/// (Calibre's address: the progress sync's server, checked here before, is
-/// set on its account screen now, as another server signs out).
+/// (the test account's server).
 #[test]
 fn text_typed_for_a_setting_is_kept_trimmed() {
     for device in DEVICES {
         let storage = Shared::memory(
             "[settings]
 advanced = on
-[calibre]
-address = 192.168.1.5
+[acct]
+server = 192.168.1.5
 ",
             &[],
         );
-        let mut app = App::new(device, storage.clone());
+        let mut app = App::with_plugin(device, storage.clone(), Account);
         app.run(actions::SETTINGS);
-        search(&mut app, "calibre address");
+        search(&mut app, "server");
         let hit = rows(&mut app)
             .into_iter()
-            .find(|r| r.starts_with("Address"))
+            .find(|r| r.starts_with("Server"))
             .unwrap_or_else(|| panic!("{}", app.described()));
         let hit = hit.split(", ").next().unwrap().to_string();
         choose(&mut app, &hit);
@@ -339,10 +338,10 @@ address = 192.168.1.5
                 .is_some_and(|t| t == "192.168.1.5")
         );
         assert_eq!(
-            app.kernel.settings().text("calibre.address"),
+            app.kernel.settings().text("acct.server"),
             "192.168.1.20:9090"
         );
-        assert!(storage.config().contains("address = 192.168.1.20:9090"));
+        assert!(storage.config().contains("server = 192.168.1.20:9090"));
     }
 }
 

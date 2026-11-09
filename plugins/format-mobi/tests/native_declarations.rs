@@ -1,0 +1,73 @@
+//! The plugin's native declaration is what the image holds, and says what the
+//! provider does (`docs/abi/document.md` section 1).
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+use paperpaw_core::native_host::{
+    declarations::validate_record,
+    registrations::{Record, records_decode},
+};
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+
+#[path = "../declarations.rs"]
+mod declarations;
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/format_mobi_declarations.rs"));
+}
+
+fn batches() -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    {
+        let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+            out.push(batch.to_vec());
+            Ok(())
+        });
+        declarations::formats(&mut d).unwrap();
+    }
+    out
+}
+
+#[test]
+fn the_image_is_what_the_builder_makes() {
+    let built = batches();
+    assert_eq!(built.len(), image::FORMATS.len());
+    for (built, image) in built.iter().zip(image::FORMATS) {
+        assert_eq!(built.as_slice(), *image);
+    }
+}
+
+#[test]
+fn one_prepared_sniffing_format_claims_mobi_azw_and_azw3() {
+    let built = batches();
+    let [batch] = built.as_slice() else {
+        panic!("one batch");
+    };
+    let records = records_decode(batch).unwrap();
+    let rows: Vec<_> = records.iter().collect();
+    let [Record::FormatSpec(spec)] = rows.as_slice() else {
+        panic!("one format: {rows:?}");
+    };
+    assert_eq!(
+        (spec.name, spec.title, spec.extensions),
+        ("mobi", "format-mobi.title", "mobi\nazw\nazw3")
+    );
+    // `prepared` (bit 0) and `sniffs` (bit 1); its book is a file, not whole pages.
+    assert_eq!(spec.flags, 0b11);
+    assert_eq!(spec.token, declarations::FORMAT_TOKEN);
+}
+
+/// The host refuses a format as unsupported until its format broker admits
+/// them (Core #944, `document.md` section 1), after checking it: `make` is
+/// refused the same way until then, as for the other ports. A format the
+/// host would not accept is not unsupported but invalid.
+#[test]
+fn the_host_checks_the_format_and_names_what_it_refuses() {
+    for batch in batches() {
+        for record in records_decode(&batch).unwrap().iter() {
+            assert_eq!(
+                validate_record("format-mobi", &record),
+                Err(ERR_UNSUPPORTED),
+                "{record:?}"
+            );
+        }
+    }
+}

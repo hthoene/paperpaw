@@ -42,8 +42,9 @@ nesting. It never reads the payloads.
   - At most 32 active subscribers per stage, counted host-wide. Over 32, only the extra
     registrations are refused, never the plugin's batch: the first 32 in stage order (section 1.2)
     are active, the rest stay inert with a log line naming the stage and the plugin. Load order
-    never decides. The user can turn a subscriber off per stage (a host setting, decision 131,
-    #241); a subscriber turned off is inert and does not count.
+    never decides. The user can turn a subscriber off per stage (decision 131, #241): the host
+    setting `core.stage.<stage id>.<plugin id>`, a Boolean, on by default and REG-visible; a
+    subscriber turned off is inert and does not count, from the next outermost callback.
   - The same stage and token twice in a plugin's batch is `ERR_INVALID`.
   - At most 8 stage registrations per plugin; a 9th is refused with `ERR_FULL` for the whole batch
     (the plugin's own declarations, so the plugin can fix it).
@@ -78,15 +79,20 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
   bytes (`ERR_NO_SPACE`).
 - [D] **Output publication.** The slot refuses overlapping `stage`, `input` and `out` ranges
   before creating slices. Empty ranges never overlap. The internal broker receives uninitialized
-  output storage directly, without a second reply buffer. It finishes admission, subscriber calls
-  and reply-framing checks before writing the reply. An error leaves `out` untouched; success
-  initializes exactly the returned prefix, with the returned count at most `out` capacity.
+  output storage directly, without a second reply buffer: the subscriber writes its payload into
+  `out` behind room for the longest header, and the host then writes the header and moves the
+  payload to meet it (#835). An error before the subscriber runs leaves `out` untouched; on
+  success the caller reads only the returned prefix (count at most `out` capacity), and the host
+  zeroes what follows it up to the end of the lent part.
 - [D] **Membership is frozen for the whole outermost callback** in which the owner runs the stage:
-  plugins started, stopped, installed or turned off during it change the subscriber list only after
-  that callback returns, so a cursor loop sees one list.
-- [D] **A subscriber that is not running (lazy start, `screens-input.md` section 7)** is never
-  started inside `stage.run`: its reply has status `ERR_CANCELLED` and an empty payload, and the host
-  starts the plugin after the outermost callback returns, so it can answer the next run.
+  the list is taken at its first `stage.run`, from the subscribers whose plugins have live
+  declarations then (#828). Plugins started, stopped, installed or turned off during it change the
+  subscriber list only after that callback returns, so a cursor loop sees one list. A plugin that
+  was not running before the callback (stopped, or never started) is not in it.
+- [D] **A member that stops during the callback** (stopping, trapped) is never skipped and never
+  started again inside `stage.run`: its reply has status `ERR_CANCELLED` and an empty payload.
+  Making plugins that were never started members (their declarations read before a first start)
+  belongs to lazy start (`screens-input.md` section 7), not to this draft.
 - [D] **What the subscriber gets.** It is called through `dispatch_event` with its token:
   - `input` is one `stage.call { stage, schema, payload = the caller's input }`;
   - the lent `out` has `cap = max_reply` (section 6 of `screens-input.md`);
@@ -118,6 +124,11 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
   start.
 - [D] **Nesting (N8).** `stage.run` runs at depth 1 only; a subscriber (depth 2) that calls
   `stage.run` gets `ERR_STATE`. `service.call` is allowed at depth 2.
+- [D] **Who calls, at any depth** (Senior on #833): every service and slot decides whose data,
+  grant, root, secret or device list a call gets by the caller the host resolved (the slot's
+  context, the service's caller), never by "the plugin that runs now". A nested call (a subscriber,
+  a composed child) is still entered as its own plugin for the usage meter, so its time and
+  storage count to it, not to the plugin that called it.
 - [D] **Lifetime.** `stage.run` is synchronous; nothing about a call outlives it. A subscriber keeps
   no borrow of `stage.call` (section 7).
 - [O] **Asynchronous replies** (lookup providers that fetch from the network) are a later additive

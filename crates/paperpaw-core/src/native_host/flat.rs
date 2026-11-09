@@ -11,7 +11,7 @@ use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
 
 #[path = "flat/page.rs"]
-mod page;
+pub(super) mod page;
 
 /// Why one registered event could not be delivered. The shell logs the failure.
 #[non_exhaustive]
@@ -114,6 +114,12 @@ impl FlatDepth {
     #[must_use]
     pub fn as_depth(&self) -> &DispatchDepth {
         &self.0
+    }
+
+    /// Whether `other` is this very counter (one device has one).
+    #[must_use]
+    pub(crate) fn is_same_counter(&self, other: &Self) -> bool {
+        core::ptr::eq(self.as_depth(), other.as_depth())
     }
 
     /// Retain the budget without allocating; None means count overflow.
@@ -374,6 +380,7 @@ fn invoke(
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),
+        ui: None,
     };
     let status = instance
         .environment()

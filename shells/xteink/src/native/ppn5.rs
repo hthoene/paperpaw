@@ -100,6 +100,7 @@ pub fn load(
     place: &mut super::Place,
     depth: &mut Option<FlatDepth>,
     resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -125,7 +126,7 @@ pub fn load(
     }
     let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
     x4::run(
-        place, code, &header, &placed, make, depth, resources, declared, started,
+        place, code, &header, &placed, make, depth, resources, device, declared, started,
     )
 }
 
@@ -259,7 +260,7 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: shell::DATA_SERVICES,
+            services: &crate::device_host::OFFERED,
             // Nothing is advertised until a family is wired here and its
             // commands check `features().feature(key)`: a plugin that needs a
             // feature is refused, and one that merely asks for it keeps no bit.
@@ -448,6 +449,9 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
+            // The table the probe shares has `core.device` wired, but the probe
+            // offers the data services alone: a linked plugin is not given the
+            // device service.
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
@@ -511,6 +515,7 @@ mod x4 {
         placed: &'a crate::native::Placed5,
         place: &'a mut crate::native::Place,
         resources: &'a mut Option<HostResources>,
+        device: &'a alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         name: Option<alloc::string::String>,
         share: Option<HostResources>,
     }
@@ -525,8 +530,11 @@ mod x4 {
 
         fn table(&mut self) -> Result<(), PluginProblem> {
             if self.resources.is_none() {
+                let device: alloc::rc::Rc<
+                    dyn paperpaw_core::native_host::device_service::DeviceHost,
+                > = self.device.clone();
                 *self.resources =
-                    Some(crate::native::new_resources().ok_or(PluginProblem::NoRoom)?);
+                    Some(crate::native::new_resources(Some(device)).ok_or(PluginProblem::NoRoom)?);
             }
             Ok(())
         }
@@ -592,6 +600,7 @@ mod x4 {
         make: u32,
         depth: &mut Option<FlatDepth>,
         resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         declared_services: shell::DeclaredServices,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -615,6 +624,7 @@ mod x4 {
             placed,
             place,
             resources,
+            device,
             name: None,
             share: None,
         };
