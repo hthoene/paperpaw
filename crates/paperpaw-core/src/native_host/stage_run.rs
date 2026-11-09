@@ -13,10 +13,12 @@ use super::{
     codec,
     declaration_store::DeclarationStore,
     native_declarations::NativeDeclarations,
+    native_instances::NativeLease,
     native_screen::Dispatch,
     registrations as wire,
     registrations::Record,
     stage_members::{self, Member},
+    stage_reply_tail::{ReplyHead, record_encode_tail, reply_room},
     stage_wire,
 };
 use crate::abi7::{context::Frame, core_frame::CoreFrame};
@@ -200,9 +202,11 @@ fn freeze(store: &DeclarationStore, settings: &Settings, stage: &str) -> Result<
     Ok(members)
 }
 
-/// Calls the chosen subscriber and frames its reply as one `stage.reply`
-/// straight into `out`, once nothing can refuse any more (the reply buffer
-/// lent to the subscriber is the only other one).
+/// Calls the chosen subscriber and frames its reply as one `stage.reply` in
+/// `out`: the subscriber writes its payload in the room `out` keeps behind
+/// the longest header, and the header is written in front of it afterwards
+/// (`stage_reply_tail`), so the only other buffer is the `stage.call`. All
+/// that can refuse comes before the first write to `out`.
 fn ask(
     frame: &CoreFrame<'_>,
     directory: &NativeDeclarations,
@@ -213,54 +217,57 @@ fn ask(
     out: &mut [MaybeUninit<u8>],
 ) -> Result<usize, i32> {
     let max_reply = usize::try_from(limits.max_reply).map_err(|_| ERR_INVALID)?;
-    let max_records = limits.max_records;
-    let (status, flags, payload) = call(
-        frame,
-        directory,
-        stage,
-        limits.schema,
-        subscriber,
-        input,
-        (max_reply, max_records),
-    )?;
+    let room = reply_room(subscriber.id(), max_reply)?;
+    let lent_end = room.checked_add(max_reply).ok_or(ERR_NO_SPACE)?;
+    if out.len() < lent_end {
+        return Err(ERR_NO_SPACE);
+    }
+    let call = frame_call(stage, limits.schema, input)?;
+    // A subscriber that is not running (or no longer known) answers
+    // `ERR_CANCELLED`: it is never started inside a stage run. The store's
+    // borrow ends before foreign code runs.
+    let lease = directory
+        .store
+        .try_borrow()
+        .map_err(|_| ERR_BUSY)?
+        .native_lease(subscriber.owner);
     let granted = style_granted(frame, subscriber.id());
-    let record = Record::StageReply(wire::StageReply {
-        subscriber: subscriber.id(),
-        index: cursor,
-        status,
-        flags: flags | if granted { STYLE_GRANTED } else { 0 },
-        signature: subscriber.signature,
-        payload: &payload,
-    });
-    let length = codec::framed_len(&record)?;
-    let space = out.get_mut(..length).ok_or(ERR_NO_SPACE)?;
+    // Nothing refuses from here on: `out` is written, zeros first, so that
+    // the subscriber is lent initialized bytes and sees nothing of the caller.
+    let space = out.get_mut(..lent_end).ok_or(ERR_NO_SPACE)?;
     for slot in space.iter_mut() {
         slot.write(0);
     }
     // SAFETY: every byte of `space` was written just above, and `u8` and
     // `MaybeUninit<u8>` have the same layout.
     let bytes = unsafe { &mut *(core::ptr::from_mut(space) as *mut [u8]) };
-    if codec::encode_one(&record, bytes)? != length {
-        return Err(ERR_INVALID);
-    }
-    Ok(length)
+    let (status, written) = match lease {
+        Ok(lease) => run_subscriber(
+            frame,
+            &lease,
+            subscriber.token,
+            &call,
+            &mut bytes[room..],
+            limits.max_records,
+        ),
+        Err(_) => (ERR_CANCELLED, 0),
+    };
+    let head = ReplyHead {
+        subscriber: subscriber.id(),
+        index: cursor,
+        status,
+        flags: if granted { STYLE_GRANTED } else { 0 },
+        signature: subscriber.signature,
+    };
+    record_encode_tail(&head, room, max_reply, written, bytes)
 }
 
-/// The subscriber's call: its status and payload, a refusal or a reply that
-/// is no record batch costing only that status.
-fn call(
-    frame: &CoreFrame<'_>,
-    directory: &NativeDeclarations,
-    stage: &str,
-    schema: u32,
-    subscriber: &Chosen,
-    input: &[u8],
-    (max_reply, max_records): (usize, u32),
-) -> Result<(i32, u32, Vec<u8>), i32> {
+/// The `stage.call` batch of one call: a count and one record.
+fn frame_call(stage: &str, schema: u32, payload: &[u8]) -> Result<Vec<u8>, i32> {
     let record = Record::StageCall(wire::StageCall {
         stage,
         schema,
-        payload: input,
+        payload,
     });
     let capacity = codec::framed_len(&record)?
         .checked_add(1)
@@ -270,21 +277,23 @@ fn call(
     if codec::encode_batch(&[record], &mut call)? != capacity {
         return Err(ERR_INVALID);
     }
-    let mut reply = scratch(max_reply)?;
-    // A subscriber that is not running (or no longer known) answers
-    // `ERR_CANCELLED`: it is never started inside a stage run. The store's
-    // borrow ends before foreign code runs.
-    let lease = match directory
-        .store
-        .try_borrow()
-        .map_err(|_| ERR_BUSY)?
-        .native_lease(subscriber.owner)
-    {
-        Ok(lease) => lease,
-        Err(_) => return Ok((ERR_CANCELLED, 0, Vec::new())),
-    };
+    Ok(call)
+}
+
+/// The subscriber's call into its lent `reply`: its status and the payload
+/// bytes it wrote there. A refusal, or a reply that is no record batch, costs
+/// only that status.
+fn run_subscriber(
+    frame: &CoreFrame<'_>,
+    lease: &NativeLease,
+    token: u32,
+    call: &[u8],
+    reply: &mut [u8],
+    max_records: u32,
+) -> (i32, usize) {
+    let max_reply = reply.len();
     let result = lease
-        .stage(subscriber.token, &call, &mut reply, frame.env)
+        .stage(token, call, reply, frame.env)
         .and_then(|length| {
             let length = usize::try_from(length).map_err(|_| length)?;
             let bytes = reply.get(..length).ok_or(ERR_INVALID)?;
@@ -292,17 +301,14 @@ fn call(
             Ok(length)
         });
     match result {
-        Ok(length) => {
-            reply.truncate(length);
-            Ok((0, 0, reply))
-        }
+        Ok(length) => (0, length),
         // The subscriber's own refusal passes through; what the host cannot
         // take it is told with `dropped`.
         Err(status) => {
             if status == ERR_INVALID {
-                lease.dropped(subscriber.token, status);
+                lease.dropped(token, status);
             }
-            Ok((status, 0, Vec::new()))
+            (status, 0)
         }
     }
 }
