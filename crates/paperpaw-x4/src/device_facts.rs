@@ -9,11 +9,13 @@ use alloc::string::String;
 use paperpaw_core::native_host::device_service::{MemoryFacts, caps};
 use paperpaw_platform::MemoryClass;
 use paperpaw_platform::firmware::Text;
+use paperpaw_sdk::bluetooth::{Bluetooth, DeviceKind, RadioState};
 use paperpaw_sdk::memory::MemoryUse;
 use paperpaw_sdk::native::{CodeRoom, Native, NotInstalledReason, SafeModeReason};
 use paperpaw_sdk::power::{PowerControls, Start};
+use paperpaw_sdk::wifi::{Wifi, WifiState as Radio};
 
-use crate::device_host::NativeState;
+use crate::device_host::{BluetoothState, Bonded, NativeState, WifiState};
 
 /// What differs between X4 builds, for `dev_device.caps`.
 #[derive(Clone, Copy, Debug, Default)]
@@ -159,6 +161,80 @@ pub fn not_installed_reason(reason: NotInstalledReason) -> u32 {
     match reason {
         NotInstalledReason::OtherAuthor => 1,
         _ => 2,
+    }
+}
+
+/// Op 8 from Wi-Fi as the kernel keeps it (what plugins see too): the state
+/// codes of `device.md` (0 off, 1 on, 2 joining, 3 online, 4 hosting), the
+/// network and address where there is one, and the three flags.
+#[must_use]
+pub fn wifi_facts(wifi: &Wifi) -> WifiState {
+    let (state, ssid, address, host_name, guests) = match &wifi.state {
+        Radio::On => (1, "", "", "", 0),
+        Radio::Joining { ssid } => (2, ssid.as_str(), "", "", 0),
+        Radio::Online {
+            ssid,
+            address,
+            name,
+        } => (
+            3,
+            ssid.as_str(),
+            address.as_str(),
+            name.as_deref().unwrap_or(""),
+            0,
+        ),
+        Radio::Hosting {
+            ssid,
+            address,
+            guests,
+        } => (4, ssid.as_str(), address.as_str(), "", u32::from(*guests)),
+        // Off, and any state a later interface adds: not on.
+        _ => (0, "", "", "", 0),
+    };
+    WifiState {
+        state,
+        ssid: Text::new(ssid),
+        address: Text::new(address),
+        host_name: Text::new(host_name),
+        guests,
+        scanning: wifi.scanning,
+        wanted: wifi.wanted,
+        busy: wifi.busy,
+    }
+}
+
+/// Op 10 from Bluetooth as the kernel keeps it.
+#[must_use]
+pub fn bluetooth_facts(bluetooth: &Bluetooth) -> BluetoothState {
+    BluetoothState {
+        radio: u32::from(bluetooth.state == RadioState::On),
+        max_links: u32::from(bluetooth.max_links),
+    }
+}
+
+/// `dev_bonded.kind`: 0 other, 1 keyboard, 2 remote, 3 sensor, 4 phone.
+#[must_use]
+pub fn device_kind_code(kind: DeviceKind) -> u32 {
+    match kind {
+        DeviceKind::Keyboard => 1,
+        DeviceKind::Remote => 2,
+        DeviceKind::Sensor => 3,
+        DeviceKind::Phone => 4,
+        _ => 0,
+    }
+}
+
+/// One row of op 11 from a device the kernel keeps bonded. `given` is the
+/// first plugin it is given to (op 11 has room for one).
+#[must_use]
+pub fn bonded_row(bonded: &paperpaw_sdk::bluetooth::Bonded) -> Bonded<'_> {
+    Bonded {
+        device: bonded.id.number(),
+        name: &bonded.name,
+        kind: device_kind_code(bonded.kind),
+        connected: bonded.connected,
+        remote_keys: bonded.keys,
+        given: bonded.given_plugins().first().map_or("", |id| id.as_str()),
     }
 }
 
@@ -350,9 +426,77 @@ mod tests {
             .unwrap();
         assert_eq!(seen, Some((0, 0b0100)));
     }
-    /// A device made the way the shell makes it today (no Wi-Fi or Bluetooth
-    /// part told to it yet) says so in its caps, on every X4 build; a bit
-    /// without its part is what the check catches.
+
+    #[test]
+    fn wifi_states_have_the_codes_of_device_md() {
+        let mut wifi = Wifi::default();
+        assert_eq!(wifi_facts(&wifi).state, 0);
+        wifi.state = Radio::On;
+        wifi.scanning = true;
+        wifi.busy = true;
+        let facts = wifi_facts(&wifi);
+        assert_eq!(
+            (facts.state, facts.scanning, facts.wanted, facts.busy),
+            (1, true, false, true)
+        );
+        wifi.state = Radio::Joining {
+            ssid: "home".into(),
+        };
+        assert_eq!(wifi_facts(&wifi).state, 2);
+        wifi.state = Radio::Online {
+            ssid: "home".into(),
+            address: "192.168.1.20".into(),
+            name: Some("paperpaw.local".into()),
+        };
+        let facts = wifi_facts(&wifi);
+        assert_eq!(facts.state, 3);
+        assert_eq!(facts.ssid.as_str(), "home");
+        assert_eq!(facts.address.as_str(), "192.168.1.20");
+        assert_eq!(facts.host_name.as_str(), "paperpaw.local");
+        wifi.state = Radio::Hosting {
+            ssid: "paperpaw".into(),
+            address: "192.168.4.1".into(),
+            guests: 2,
+        };
+        let facts = wifi_facts(&wifi);
+        assert_eq!(
+            (facts.state, facts.guests, facts.host_name.as_str()),
+            (4, 2, "")
+        );
+    }
+
+    #[test]
+    fn bluetooth_facts_follow_the_radio_and_bonds_keep_their_flags() {
+        use paperpaw_sdk::bluetooth::{Bonded as Sdk, DeviceId};
+        let mut bluetooth = Bluetooth::new(2);
+        assert_eq!(bluetooth_facts(&bluetooth).radio, 0);
+        assert_eq!(bluetooth_facts(&bluetooth).max_links, 2);
+        bluetooth.state = RadioState::On;
+        assert_eq!(bluetooth_facts(&bluetooth).radio, 1);
+        let mut remote = Sdk::new(DeviceId::new(7), "Page turner", DeviceKind::Remote);
+        remote.connected = true;
+        remote.keys = true;
+        let row = bonded_row(&remote);
+        assert_eq!(
+            (
+                row.device,
+                row.name,
+                row.kind,
+                row.connected,
+                row.remote_keys,
+                row.given
+            ),
+            (7, "Page turner", 2, true, true, "")
+        );
+        assert_eq!(device_kind_code(DeviceKind::Keyboard), 1);
+        assert_eq!(device_kind_code(DeviceKind::Sensor), 3);
+        assert_eq!(device_kind_code(DeviceKind::Phone), 4);
+        assert_eq!(device_kind_code(DeviceKind::Other), 0);
+    }
+
+    /// A device whose Wi-Fi and Bluetooth parts are not told to it yet says so
+    /// in its caps, on every X4 build; a bit without its part is what the
+    /// check catches.
     #[test]
     fn the_caps_of_the_shells_devices_agree_with_what_it_tells_them() {
         use paperpaw_platform::firmware::Running;

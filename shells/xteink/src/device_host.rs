@@ -58,11 +58,11 @@ pub fn make(
     let features = Features {
         touch: crate::DEVICE.input.touch,
         button_row: cfg!(any(feature = "x4", feature = "x4-classic", feature = "x3")),
-        // Told to the device where the main loop starts to (the next slice):
-        // a bit goes with its setter, or ops 8 to 11 answer "not found"
+        // A bit goes with its setter ([`sync`], called as soon as the kernel
+        // exists, and after every step), or ops 8 to 11 answer "not found"
         // under a caps bit that says they are there.
-        wifi: false,
-        bluetooth: false,
+        wifi: true,
+        bluetooth: cfg!(feature = "bluetooth"),
         frontlight: cfg!(feature = "x4-pro"),
         firmware: running.is_some(),
     };
@@ -103,10 +103,6 @@ pub fn make(
     } else {
         log::warn!("device: no room for the list of plugins not installed");
     }
-    // The caps say what is answered: said in the log where they do not.
-    if let Err(why) = check_caps_agree(device.as_ref()) {
-        log::error!("device: its caps and its parts disagree: {why}");
-    }
     device.set_memory_probe(memory_probe, clock_ms);
     device
 }
@@ -135,4 +131,68 @@ pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
     let mut native = crate::native::this_firmware();
     native.safe_mode = safe_mode.cloned();
     device.set_native(native_state(&native, TARGET, 0, (0, 0), "code.ppn"));
+}
+
+/// Tells the device what the kernel keeps of Wi-Fi, Bluetooth and the power,
+/// as plugins see it: what the kernel changes, the device follows. Called
+/// where the kernel was just stepped (never on a timer), so a plugin that
+/// hears of a change reads it. Copies and compares small values; allocates
+/// only where a list changed.
+#[inline(never)]
+pub fn sync(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    if let Some(wifi) = kernel.wifi_model() {
+        device.set_wifi(paperpaw_x4::device_facts::wifi_facts(wifi));
+    }
+    #[cfg(feature = "bluetooth")]
+    if let Some(bluetooth) = kernel.bluetooth_model() {
+        device.set_bluetooth(paperpaw_x4::device_facts::bluetooth_facts(bluetooth));
+        device.set_bonded_from(
+            bluetooth
+                .bonded_devices()
+                .iter()
+                .map(paperpaw_x4::device_facts::bonded_row),
+        );
+    }
+    device.sync_power(kernel.power());
+}
+
+/// Tells the device the networks the last scan found (the kernel's list: the
+/// strongest first, each name once). The rows are borrowed from the kernel;
+/// the list that is made for them is small and fallible.
+#[inline(never)]
+pub fn sync_networks(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    let Some(wifi) = kernel.wifi_model() else {
+        return;
+    };
+    let mut rows: alloc::vec::Vec<(&str, i32, bool)> = alloc::vec::Vec::new();
+    if rows.try_reserve_exact(wifi.networks.len()).is_err() {
+        log::warn!("device: the networks found could not be kept");
+        return;
+    }
+    rows.extend(wifi.networks.iter().map(|network| {
+        (
+            network.ssid.as_str(),
+            i32::from(network.signal),
+            network.secured,
+        )
+    }));
+    if !device.set_networks(&rows) {
+        // No room, or a plugin is reading the list: op 9 keeps the old one
+        // until the next scan.
+        log::warn!("device: the networks a scan found could not be kept");
+    }
+}
+
+/// The USB lines' readings, as they go to the kernel's status.
+pub fn tell_usb(device: &X4Device, pin_high: Option<bool>, frames: Option<bool>) {
+    device.set_value("usb-pin-high", pin_high.map(i64::from));
+    device.set_value("usb-frames", frames.map(i64::from));
+}
+
+/// The caps say what is answered: said in the log where they do not (called
+/// once, after the first [`sync`]).
+pub fn check(device: &X4Device) {
+    if let Err(why) = check_caps_agree(device) {
+        log::error!("device: its caps and its parts disagree: {why}");
+    }
 }

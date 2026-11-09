@@ -382,6 +382,8 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(feature = "ppn5")]
+        device: ready.device,
         #[cfg(all(feature = "static-native", feature = "esp32c3"))]
         device_table,
         state: State::default(),
@@ -398,6 +400,13 @@ fn start() -> Firmware {
     // `native::bundle`).
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
+    }
+    // The device follows what the kernel keeps from the start: Wi-Fi, power
+    // (and Bluetooth), which only exist now.
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::sync(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device);
     }
     power::mark(power::at::START_KERNEL);
     info!(
@@ -425,6 +434,9 @@ struct Ready {
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
     code: CodePlugins,
+    /// The device behind `core.device`.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     staged: native::bundle::Staged,
     /// The flash, to let the web flasher's bundle go once installed.
     flash: ota::Flash,
@@ -620,6 +632,8 @@ fn prepare() -> Ready {
         #[cfg(feature = "ppn5")]
         device.clone(),
     );
+    #[cfg(feature = "ppn5")]
+    network.attach_device(device.clone());
     // Safe mode is known only now: no loader is made then, so the device is told.
     #[cfg(feature = "ppn5")]
     if let CodePlugins::SafeMode(mode) = &code {
@@ -649,6 +663,8 @@ fn prepare() -> Ready {
         card_swap,
         card_trouble,
         code,
+        #[cfg(feature = "ppn5")]
+        device,
         staged,
         flash,
     }
