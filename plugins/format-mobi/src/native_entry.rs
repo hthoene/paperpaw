@@ -19,7 +19,7 @@ const MOBI_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.bin");
         all(target_arch = "riscv32", target_os = "none")
     ))
 ))]
-compile_error!("Plain text needs a generated ABI metadata profile for this target");
+compile_error!("MOBI needs a generated ABI metadata profile for this target");
 
 #[cfg(feature = "linked")]
 paperpaw_sdk::native_plugin!(
