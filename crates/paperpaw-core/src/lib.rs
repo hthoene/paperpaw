@@ -1415,7 +1415,7 @@ struct Shared {
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
-    clipboard: String,
+    clipboard: alloc::rc::Rc<native_host::ui_clipboard::ClipboardCell>,
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,

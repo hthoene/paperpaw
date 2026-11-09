@@ -56,6 +56,9 @@ pub mod host_slot;
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
 
+#[path = "native_host/ui_clipboard.rs"]
+pub(crate) mod ui_clipboard;
+
 #[path = "native_host/ui_stack_op.rs"]
 pub(crate) mod ui_stack_op;
 

@@ -663,7 +663,7 @@ impl BuilderParts {
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
-                clipboard: String::new(),
+                clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
                 inputs: Vec::new(),
