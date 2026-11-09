@@ -139,6 +139,7 @@ impl StorageFiles {
 
     /// Whether `plugin` is linked into the firmware (the answer of
     /// `FilesHost::built_in`): a loaded plugin never is.
+    #[allow(dead_code, reason = "FilesHost::built_in (#757) asks it")]
     pub(crate) fn is_linked(&self, plugin: &str) -> bool {
         self.linked.contains(plugin)
     }
